@@ -76,7 +76,9 @@ function menuItemsOf(surface: HTMLElement): HTMLElement[] {
   ).filter((el) => el.closest('[role="menu"]') === surface)
 }
 
-function roveMenuFocus(event: React.KeyboardEvent, surface: HTMLElement | null): void {
+// Exported so a menu hosted in a Popover (SplitButton) reuses this nav rather
+// than growing a second copy. `surface` is the element carrying role="menu".
+export function roveMenuFocus(event: React.KeyboardEvent, surface: HTMLElement | null): void {
   if (!surface) return
   if (
     event.key !== 'ArrowDown' &&
@@ -183,8 +185,19 @@ type MenuItemProps = {
   shortcut?: string
   variant?: 'danger'
   disabled?: boolean
-  /** When set, the item is a menuitemcheckbox and exposes this checked state. */
+  /** When set, the item is a menuitemcheckbox and exposes this checked state.
+   *  The VISIBLE marker stays with the caller — pass it as `icon` (leading) or
+   *  `trailing`, so a row whose leading slot already carries a target glyph can
+   *  still show its check. */
   checked?: boolean
+  /** Trailing node, after the shortcut. For a check mark on a row whose leading
+   *  slot is taken. */
+  trailing?: React.ReactNode
+  /** Attached to the button, so a host menu with its own roving-focus nav (e.g.
+   *  SplitButton) can drive arrow keys through the items. ContextMenu omits it
+   *  and keeps its own surface-level handling — same contract as
+   *  MenuSwatchRow's `onItemKeyDown`. */
+  onKeyDown?: (event: React.KeyboardEvent<HTMLButtonElement>) => void
 }
 
 export function MenuItem({
@@ -196,6 +209,8 @@ export function MenuItem({
   variant,
   disabled,
   checked,
+  trailing,
+  onKeyDown,
 }: MenuItemProps) {
   return (
     <button
@@ -207,6 +222,7 @@ export function MenuItem({
       disabled={disabled}
       onClick={onClick}
       onContextMenu={onContextMenu}
+      onKeyDown={onKeyDown}
       className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
         variant === 'danger'
           ? 'text-[color:var(--tone-error)] hover:bg-[rgba(255,120,124,0.08)]'
@@ -218,6 +234,7 @@ export function MenuItem({
       {shortcut ? (
         <span className="text-[11px] text-[color:var(--text-disabled)] font-mono">{shortcut}</span>
       ) : null}
+      {trailing}
     </button>
   )
 }

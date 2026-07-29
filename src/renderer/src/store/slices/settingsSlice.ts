@@ -3,6 +3,8 @@ import {
   NO_ROLES_ROSTER_ID,
   isNoRolesRosterRef,
 } from '../../../../shared/sprintengine/run-types'
+import { isFolderOpenTargetId } from '../../../../shared/folder-open-targets'
+import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
 import { isConnectorsFoldedSettingsTab, SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
 import { dispatchExtensionsSurfaceTarget } from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
@@ -958,6 +960,9 @@ export const defaultAppSettings = (): AppSettings => ({
   lastSelectedSpecialist: 'architect',
   lastSpawnWasGeneral: false,
   lastNewChatAgent: { kind: 'general' },
+  // No default editor: the control resolves the first target the machine
+  // actually has. Naming one here would claim an install we have not probed.
+  lastFolderOpenTarget: null,
   lastAgentSpawnPermissionPreset: DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
   specialistCliDefaults: {},
   specialistModelDefaults: {},
@@ -1025,6 +1030,9 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
     lastSpawnWasGeneral: settings?.lastSpawnWasGeneral ?? defaults.lastSpawnWasGeneral,
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
+    lastFolderOpenTarget: isFolderOpenTargetId(settings?.lastFolderOpenTarget)
+      ? settings.lastFolderOpenTarget
+      : null,
     lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     specialistCliDefaults: normalizeCliDefaults(settings?.specialistCliDefaults),
     specialistModelDefaults: normalizeCliModelSelections(settings?.specialistModelDefaults),
@@ -1181,6 +1189,8 @@ export interface SettingsSliceActions {
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSpawnWasGeneral: (value: boolean) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
+  /** Remember the open-in-editor target the user just used (app-wide). */
+  setLastFolderOpenTarget: (target: FolderOpenTargetId) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   /**
@@ -1499,6 +1509,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setLastNewChatAgent: (choice) =>
       set((state) => {
         state.appSettings.lastNewChatAgent = normalizeNewChatAgentChoice(choice)
+      }),
+
+    setLastFolderOpenTarget: (target) =>
+      set((state) => {
+        state.appSettings.lastFolderOpenTarget = isFolderOpenTargetId(target) ? target : null
       }),
 
     setLastAgentSpawnPermissionPreset: (preset) =>

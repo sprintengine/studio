@@ -1,0 +1,451 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+import { JSDOM } from 'jsdom'
+
+// ProviderRow (item 1994) is an anatomy contract, so this suite drives the real
+// component in a real DOM: the two axes staying independent, the disclosure
+// keeping its position, and the state never resting on colour are all behaviour
+// a markup snapshot cannot check. The source-contract assertions at the end
+// cover the two host wirings a single mounted row cannot observe.
+
+const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+  url: 'http://localhost',
+  pretendToBeVisual: true,
+})
+
+const anyGlobal = globalThis as unknown as Record<string, unknown>
+anyGlobal.window = dom.window
+anyGlobal.document = dom.window.document
+anyGlobal.navigator = dom.window.navigator
+anyGlobal.HTMLElement = dom.window.HTMLElement
+anyGlobal.HTMLButtonElement = dom.window.HTMLButtonElement
+anyGlobal.Node = dom.window.Node
+anyGlobal.MouseEvent = dom.window.MouseEvent
+anyGlobal.KeyboardEvent = dom.window.KeyboardEvent
+anyGlobal.getComputedStyle = dom.window.getComputedStyle
+anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
+
+// `await import` inside main(), and a CJS bundle: assigning globalThis.navigator
+// above only works in sloppy mode, and ESM is always strict.
+async function main(): Promise<void> {
+const React = await import('react')
+const { act } = React
+const { createRoot } = await import('react-dom/client')
+const { ProviderRow } = await import('./ProviderRow')
+const { resolveCliProviderState, cliProviderStateWords } = await import('./cliProviderState')
+const { CliProviderStateLine } = await import('./CliProviderStateLine')
+
+type Root = ReturnType<typeof createRoot>
+
+function mount(node: React.ReactNode): { host: HTMLElement; root: Root; render: (next: React.ReactNode) => void } {
+  const host = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(host)
+  const root = createRoot(host)
+  act(() => root.render(node))
+  return {
+    host,
+    root,
+    render: (next) => act(() => root.render(next)),
+  }
+}
+
+function unmount(root: Root, host: HTMLElement): void {
+  act(() => root.unmount())
+  host.remove()
+}
+
+const BASE = {
+  icon: <span data-testid="mark">CL</span>,
+  name: 'Claude',
+  stateLine: 'Ready',
+} as const
+
+// ---------------------------------------------------------------------------
+// Two lines, a dot, and a version that is present or absent — never a placeholder
+// ---------------------------------------------------------------------------
+{
+  const { host, root } = mount(
+    <ProviderRow {...BASE} health="good" version="2.1.220" stateLine="Authenticated as acme" />,
+  )
+  const text = host.textContent ?? ''
+  assert.match(text, /Claude/, 'the name renders')
+  assert.match(text, /2\.1\.220/, 'a known version renders')
+  assert.match(text, /Authenticated as acme/, 'the state line renders')
+
+  const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]')
+  assert.ok(dot, 'the health dot renders')
+  assert.equal(
+    dot?.getAttribute('aria-hidden'),
+    'true',
+    'the dot is decorative — the state line, not the colour, carries the state',
+  )
+  const dotStyle = (dot as HTMLElement).getAttribute('style') ?? ''
+  assert.match(dotStyle, /var\(--tone-good\)/, 'the dot reads its colour from the tone token')
+
+  // The 2px keyline is what keeps the dot legible against the mark it sits on.
+  assert.match(dot?.className ?? '', /shadow-\[0_0_0_2px_var\(--bg-surface\)\]/)
+  assert.match(dot?.className ?? '', /group-hover:shadow-\[0_0_0_2px_var\(--bg-hover\)\]/)
+
+  // No box per row: rows separate by hover fill and spacing.
+  const rowBox = host.firstElementChild?.firstElementChild as HTMLElement
+  assert.doesNotMatch(rowBox.className, /\bborder\b/, 'the row draws no border box')
+  assert.match(rowBox.className, /py-3/, '12px vertical padding')
+  assert.match(rowBox.className, /hover:bg-\[color:var\(--bg-hover\)\]/, 'hover fill separates rows')
+
+  // One status idiom: the dot. No tinted pill anywhere on the row.
+  assert.doesNotMatch(host.innerHTML, /rounded-full bg-\[color:var\(--tone/, 'no tinted status pill')
+  assert.doesNotMatch(host.innerHTML, /--tone-good-soft|--tone-warn-soft|--tone-error-soft/)
+  unmount(root, host)
+}
+
+{
+  const { host, root } = mount(<ProviderRow {...BASE} health="warn" stateLine="Not installed" />)
+  assert.match(host.textContent ?? '', /Not installed/)
+  assert.doesNotMatch(
+    host.textContent ?? '',
+    /unknown version|—\s*$|n\/a/i,
+    'an absent version renders nothing at all, not a placeholder',
+  )
+  assert.equal(
+    host.querySelectorAll('.font-mono').length,
+    0,
+    'the mono version slot is not rendered when there is no version',
+  )
+  unmount(root, host)
+}
+
+// ---------------------------------------------------------------------------
+// Disclosure: expands in place, flips the chevron, collapse restores
+// ---------------------------------------------------------------------------
+{
+  let expanded = false
+  const render = (next: boolean): React.ReactElement => (
+    <ProviderRow
+      {...BASE}
+      health="good"
+      expanded={next}
+      onExpandedChange={(value) => {
+        expanded = value
+      }}
+    >
+      <p data-testid="detail">Binary path</p>
+    </ProviderRow>
+  )
+  const { host, root, render: rerender } = mount(render(false))
+
+  const chevron = host.querySelector('button[aria-expanded]') as HTMLButtonElement
+  assert.ok(chevron, 'a disclosable row renders a chevron button')
+  assert.equal(chevron.getAttribute('aria-expanded'), 'false')
+  assert.equal(chevron.getAttribute('aria-label'), 'Claude details')
+  assert.equal(host.querySelector('[data-testid="detail"]'), null, 'the detail is closed')
+  assert.doesNotMatch(
+    chevron.querySelector('svg')?.getAttribute('class') ?? '',
+    /rotate-180/,
+    'the chevron rests unrotated',
+  )
+
+  act(() => {
+    chevron.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  assert.equal(expanded, true, 'the chevron opens the row')
+  rerender(render(true))
+
+  const open = host.querySelector('button[aria-expanded]') as HTMLButtonElement
+  assert.equal(open.getAttribute('aria-expanded'), 'true')
+  assert.match(
+    open.querySelector('svg')?.getAttribute('class') ?? '',
+    /rotate-180/,
+    'the chevron flips when open',
+  )
+  const detail = host.querySelector('[data-testid="detail"]')
+  assert.ok(detail, 'the detail opens in place')
+  assert.equal(
+    open.getAttribute('aria-controls'),
+    detail?.parentElement?.getAttribute('id'),
+    'aria-controls points at the panel the chevron opened',
+  )
+  // In place, not navigation: the row itself is still rendered above the detail.
+  assert.match(host.textContent ?? '', /Claude/)
+  assert.ok(
+    host.firstElementChild?.firstElementChild?.contains(open),
+    'the row keeps its position above the expansion',
+  )
+
+  act(() => {
+    open.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  assert.equal(expanded, false, 'clicking again collapses')
+  rerender(render(false))
+  assert.equal(host.querySelector('[data-testid="detail"]'), null, 'collapse restores the prior state')
+  unmount(root, host)
+}
+
+// A row with no disclosure handler renders no chevron and no dead panel.
+{
+  const { host, root } = mount(<ProviderRow {...BASE} health="neutral" />)
+  assert.equal(host.querySelector('button[aria-expanded]'), null)
+  unmount(root, host)
+}
+
+// ---------------------------------------------------------------------------
+// Health and enablement are independent axes
+// ---------------------------------------------------------------------------
+{
+  let enabled = true
+  const { host, root } = mount(
+    <ProviderRow
+      {...BASE}
+      health="error"
+      stateLine="Unavailable — startup timed out after 15s"
+      enabled={enabled}
+      onEnabledChange={(next) => {
+        enabled = next
+      }}
+    />,
+  )
+  const control = host.querySelector('button[role="switch"]') as HTMLButtonElement
+  assert.ok(control, 'the switch renders when both enablement props are supplied')
+  assert.equal(control.getAttribute('aria-checked'), 'true', 'enabled and unhealthy render together')
+  assert.equal(control.getAttribute('aria-label'), 'Claude enabled')
+
+  const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]') as HTMLElement
+  assert.match(
+    dot.getAttribute('style') ?? '',
+    /var\(--tone-error\)/,
+    'the dot still reports the health tone while the switch reports on',
+  )
+
+  act(() => {
+    control.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  assert.equal(enabled, false, 'the switch writes enablement')
+  unmount(root, host)
+}
+
+// A host with no real enablement state renders no switch — never a dead one.
+{
+  const { host, root } = mount(<ProviderRow {...BASE} health="good" />)
+  assert.equal(host.querySelector('button[role="switch"]'), null)
+  unmount(root, host)
+}
+
+// A switch flip must not also toggle the row's disclosure.
+{
+  let expanded = false
+  let enabled = false
+  const { host, root } = mount(
+    <ProviderRow
+      {...BASE}
+      health="good"
+      enabled={enabled}
+      onEnabledChange={(next) => {
+        enabled = next
+      }}
+      expanded={false}
+      onExpandedChange={(next) => {
+        expanded = next
+      }}
+    >
+      <p>Detail</p>
+    </ProviderRow>,
+  )
+  const control = host.querySelector('button[role="switch"]') as HTMLButtonElement
+  act(() => {
+    control.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  assert.equal(enabled, true)
+  assert.equal(expanded, false, 'the trailing cluster stops propagation to the row')
+  unmount(root, host)
+}
+
+// Clicking the row body is a second mouse affordance for the same disclosure.
+{
+  let expanded = false
+  const { host, root } = mount(
+    <ProviderRow
+      {...BASE}
+      health="good"
+      expanded={false}
+      onExpandedChange={(next) => {
+        expanded = next
+      }}
+    >
+      <p>Detail</p>
+    </ProviderRow>,
+  )
+  const rowBox = host.firstElementChild?.firstElementChild as HTMLElement
+  act(() => {
+    rowBox.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  assert.equal(expanded, true, 'the row body toggles the disclosure')
+  // Exactly one focusable control for the disclosure, so there is one tab stop.
+  assert.equal(host.querySelectorAll('button[aria-expanded]').length, 1)
+  unmount(root, host)
+}
+
+// ---------------------------------------------------------------------------
+// Selection is a neutral fill, per the selection tiers
+// ---------------------------------------------------------------------------
+{
+  const { host, root } = mount(<ProviderRow {...BASE} health="neutral" selected />)
+  const rowBox = host.firstElementChild?.firstElementChild as HTMLElement
+  assert.match(rowBox.className, /bg-\[color:var\(--bg-selected\)\]/)
+  assert.doesNotMatch(rowBox.className, /accent/, 'selection never spends the accent')
+  assert.doesNotMatch(rowBox.className, /border-l|border-\[color/, 'selection carries no left bar or box')
+  unmount(root, host)
+}
+
+// ---------------------------------------------------------------------------
+// The CLI probe → state mapping. A missing map entry is UNKNOWN, not missing.
+// ---------------------------------------------------------------------------
+{
+  const installed = resolveCliProviderState(
+    { cli: 'claude-code', installed: true, resolvedPath: '/usr/local/bin/claude', version: '2.1.220' },
+    'ready',
+  )
+  assert.equal(installed.health, 'ready')
+  assert.equal(installed.tone, 'good')
+  assert.equal(installed.version, '2.1.220')
+  assert.equal(installed.installed, true)
+
+  const absent = resolveCliProviderState(
+    { cli: 'grok', installed: false, resolvedPath: null, version: null },
+    'ready',
+  )
+  assert.equal(absent.health, 'missing')
+  assert.equal(absent.tone, 'warn')
+  assert.equal(absent.version, null, 'no version is invented for an absent binary')
+
+  // The main-process probe OMITS a CLI whose probe errored, precisely so this
+  // cannot be read as "not installed" (src/main/cli-availability.ts).
+  const unknown = resolveCliProviderState(undefined, 'ready')
+  assert.equal(unknown.health, 'unknown')
+  assert.notEqual(unknown.health, 'missing', 'a failed probe is never reported as an absent binary')
+  assert.equal(unknown.installed, false)
+
+  assert.equal(resolveCliProviderState(undefined, 'loading').health, 'checking')
+  assert.equal(resolveCliProviderState(undefined, 'loading').tone, 'neutral')
+  assert.equal(resolveCliProviderState(undefined, 'error').health, 'probe-failed')
+  assert.equal(resolveCliProviderState(undefined, 'error').tone, 'error')
+
+  // A decided row stays decided while a background re-probe runs.
+  const decidedDuringRefresh = resolveCliProviderState(
+    { cli: 'codex', installed: true, resolvedPath: '/opt/codex', version: '0.146.0' },
+    'loading',
+  )
+  assert.equal(decidedDuringRefresh.health, 'ready')
+
+  // Every state has words. The dot is aria-hidden, so this text IS the state.
+  for (const state of [
+    installed,
+    absent,
+    unknown,
+    resolveCliProviderState(undefined, 'loading'),
+    resolveCliProviderState(undefined, 'error'),
+  ]) {
+    const words = cliProviderStateWords(state, { binary: 'claude', probeError: null })
+    assert.ok(words && words.trim().length > 0, `state ${state.health} has words`)
+  }
+  assert.match(cliProviderStateWords(absent, { binary: 'grok' }), /grok/, 'the missing binary is named')
+  assert.match(
+    cliProviderStateWords(resolveCliProviderState(undefined, 'error'), {
+      binary: 'claude',
+      probeError: 'spawn ENOENT',
+    }),
+    /spawn ENOENT/,
+    'a probe failure surfaces its reason rather than a generic line',
+  )
+}
+
+// The rendered state line puts the resolved path in mono and names a WSL launch.
+{
+  const state = resolveCliProviderState(
+    { cli: 'claude-code', installed: true, resolvedPath: '/usr/local/bin/claude', version: '2.1.220' },
+    'ready',
+  )
+  const { host, root } = mount(
+    <ProviderRow
+      icon={<span />}
+      health={state.tone}
+      name="Claude"
+      version={state.version}
+      stateLine={<CliProviderStateLine state={state} binary="claude" useWsl />}
+    />,
+  )
+  assert.match(host.textContent ?? '', /Ready — \/usr\/local\/bin\/claude · through WSL/)
+  const monos = [...host.querySelectorAll('.font-mono')].map((node) => node.textContent)
+  assert.ok(
+    monos.includes('/usr/local/bin/claude'),
+    'the path renders mono — identifiers are mono, prose is not',
+  )
+  unmount(root, host)
+}
+
+// ---------------------------------------------------------------------------
+// Host wiring a mounted row cannot observe
+// ---------------------------------------------------------------------------
+const repoRoot = process.cwd()
+const settings = readFileSync(
+  join(repoRoot, 'src/renderer/src/components/settings/SettingsPanel.tsx'),
+  'utf8',
+)
+const onboarding = readFileSync(
+  join(repoRoot, 'src/renderer/src/components/onboarding/OnboardingFlow.tsx'),
+  'utf8',
+)
+const canvas = readFileSync(
+  join(repoRoot, 'src/renderer/src/components/panels/ConnectorsPanel/ExtensionKindCanvas.tsx'),
+  'utf8',
+)
+
+for (const [label, source] of [
+  ['Settings → Agents', settings],
+  ['onboarding essentials', onboarding],
+  ['Agent CLIs canvas', canvas],
+] as const) {
+  assert.match(source, /<ProviderRow/, `${label} renders the shared row`)
+}
+
+// The two CLI hosts read one mapping, so a CLI cannot read "Ready" on one
+// surface and "Not installed" on the other.
+for (const [label, source] of [
+  ['Settings → Agents', settings],
+  ['onboarding essentials', onboarding],
+] as const) {
+  assert.match(source, /resolveCliProviderState\(/, `${label} derives state from the shared mapping`)
+  assert.match(source, /<CliProviderStateLine/, `${label} renders the shared state line`)
+  assert.match(
+    source,
+    /state\.health === 'missing' \? \(/,
+    `${label} offers Install only on a definitive negative probe`,
+  )
+  assert.match(source, /showStatus=\{false\}/, `${label} does not repeat the row's state inside it`)
+}
+
+// The old boxed card grid is gone from the settings list.
+assert.doesNotMatch(settings, /function CliCard\(/, 'the boxed CLI card is retired')
+assert.doesNotMatch(
+  settings,
+  /The agent CLIs that can be launched\./,
+  'the explanatory lede is gone — the list explains itself',
+)
+assert.match(settings, /Agent CLIs/, 'the section band is titled Agent CLIs')
+assert.match(settings, /Checked \$\{freshness\}/, 'the band carries the freshness meta')
+assert.match(settings, /refreshCliAvailability\(\{ force: true, cliRuntimes \}\)/, 'the band re-checks for real')
+
+// The registry canvas states registry availability, not a local health probe.
+assert.match(canvas, /pluginTrust/, 'the canvas row reads the registry signing tier')
+assert.doesNotMatch(canvas, /resolveCliProviderState/, 'the canvas runs no local install probe')
+// Capability modules keep their existing row until their own item converts them.
+assert.match(canvas, /kind === 'cli' \?/, 'only the Agent CLIs list adopted the anatomy')
+assert.match(canvas, /<ConnectorEntryRow/, 'the modules canvas is untouched')
+
+process.stdout.write('ProviderRow tests passed\n')
+}
+
+void main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})

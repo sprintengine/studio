@@ -28,6 +28,7 @@
       "tooltip"
     ],
     "patterns": [
+      "patterns/context-rail.html",
       "patterns/list-surface.html",
       "patterns/selection.html"
     ],

@@ -32,8 +32,16 @@ export {
   MenuFlyoutItem,
   MenuItem,
   MenuSwatchRow,
+  roveMenuFocus,
   useClampedMenuPosition,
 } from './ContextMenu'
+export { ProviderRow, ProviderStateId } from './ProviderRow'
+export type { ProviderRowProps } from './ProviderRow'
+export { CliProviderStateLine } from './CliProviderStateLine'
+export { resolveCliProviderState, cliProviderStateWords } from './cliProviderState'
+export type { CliProbeStatus, CliProviderHealth, CliProviderState } from './cliProviderState'
+export { SplitButton } from './SplitButton'
+export type { SplitButtonItem, SplitButtonProps } from './SplitButton'
 export { PointerPopover } from './PointerPopover'
 export { Tabs, TabPanel } from './Tabs'
 export type { TabItem } from './Tabs'

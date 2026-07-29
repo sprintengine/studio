@@ -1,0 +1,85 @@
+# Split button
+
+One control with a default action and a menu of alternatives, for a repeated
+action whose target changes rarely: the primary half runs the last-used target,
+the menu half lists the others and re-points the primary. Extracted from the
+source product's open-in-editor control on the workspace bar.
+
+Use it only when the alternatives are genuinely the *same action against a
+different target*. Two unrelated actions welded together are two buttons.
+
+## Anatomy
+
+- `ds-split-button` — the group. It owns the border, the radius, the height,
+  and the overflow clip; the halves own nothing structural. One object, not two
+  buttons that touch.
+- `ds-split-button__primary` — the default-action half: optional target glyph,
+  then the verb. Padding `sem.space.md`, label in `font.size.meta` at
+  `font.weight.medium`.
+- `ds-split-button__chevron` — the menu half, carrying the single internal
+  hairline (`color.border.subtle`) on its left edge and a chevron at
+  `icon.size.xs`. Narrower than the label half (`sem.space.2xs`).
+- `ds-split-button__glyph` — the target mark leading the label: a two-letter
+  mono mark or a small glyph, boxed at `icon.size.sm` on `color.bg.active` so
+  every target reads at one weight whichever form it takes.
+- The menu itself is a standard popover surface, **not** part of this
+  component. It carries one checkable row per target, the current default
+  checked, and any keyboard hint right-aligned.
+
+## Variants
+
+- Default (no modifier) — the neutral outlined group at
+  `size.control.sm`. This is the only tone the system offers.
+- `ds-split-button--md` — the `size.control.md` step, with the label on
+  `font.size.body`. For overlay footers and forms, where the surrounding
+  controls sit on that row.
+- **No accent-filled variant, deliberately.** A view gets one primary button
+  (see `foundations/principles.md`); a control whose whole point is that its
+  action is ambiguous until you read its glyph is not it.
+
+## States
+
+- Hover: the hovered half alone takes `bg.hover` and lifts to `text.primary`.
+  The other half does not move — the halves are separately clickable and must
+  say so.
+- Open: while the menu is on screen the chevron half stays at `bg.hover` via
+  `[aria-expanded="true"]`, tying the surface to the half that opened it.
+- Focus-visible: a 2px `border.focus` ring, drawn **inset** (`inset
+  var(--sem-focus-ring)`) because the group clips its overflow — an outer ring
+  would be cut off. Each half rings independently.
+- Disabled: 45% opacity and `not-allowed` on both halves. Disable the whole
+  group or neither: a live primary beside a dead menu reads as a bug.
+- No press-scale. The group would scale as one object while only one half was
+  pressed.
+
+## Usage
+
+- The primary half must announce what it will do without a caption — that is
+  the glyph's job. If the target cannot be shown in the resting state, this is
+  the wrong control.
+- Choosing from the menu runs that target immediately **and** becomes the new
+  primary. A menu that only re-points the primary makes every switch two
+  clicks.
+- Offer only targets that resolve. A row for something that is not installed is
+  a fake affordance — omit it, never disable it.
+- Keep the menu at two or more rows. One alternative is a plain button.
+- Persist the primary where the choice belongs (per app, per project) and fall
+  back to the first available target when the remembered one is gone.
+
+## Accessibility
+
+- Two real `<button>`s, so both halves are in the tab order and operable with
+  Enter and Space. Never collapse them into one element with a click-position
+  test.
+- The primary half carries an `aria-label` naming its resolved target ("Open in
+  VS Code") when the visible label is only the verb.
+- The menu half carries `aria-haspopup="menu"` and a live `aria-expanded`, and
+  it owns the popover's `aria-controls`.
+- The surface is `role="menu"`; each row is `role="menuitemcheckbox"` with
+  `aria-checked` on the current default — the check is state, not decoration,
+  so it must not be conveyed by the glyph alone.
+- Arrow keys rove within the open menu, Escape closes it and returns focus to
+  the chevron half.
+- Contrast: label and glyph clear AA in both modes; the internal hairline is
+  decorative and is never the only thing separating the halves — hover and
+  focus both resolve which half is live.

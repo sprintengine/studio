@@ -1,0 +1,120 @@
+/* Split button — one bordered group carrying two targets: a default action and
+ * a menu that lists the alternatives. Extracted from the source product's
+ * open-in-editor control (src/renderer/src/components/ui/SplitButton.tsx).
+ *
+ * The group owns the border, the radius, and the height; the halves are
+ * borderless and separated by one internal hairline. That is what keeps it a
+ * single object rather than two buttons that happen to touch. */
+
+.ds-split-button {
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--sem-size-control-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  /* Clips each half's hover fill to the group's rounded corners. The focus ring
+   * is drawn inset for the same reason — an outer ring would be clipped here. */
+  overflow: hidden;
+}
+
+.ds-split-button__primary,
+.ds-split-button__chevron {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  border: none;
+  background: transparent;
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-font-line-tight);
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-split-button__primary {
+  padding: 0 var(--sem-space-md);
+}
+
+/* The menu half: narrower than the label half, and the only place the internal
+ * hairline lives. */
+.ds-split-button__chevron {
+  padding: 0 var(--sem-space-2xs);
+  border-left: 1px solid var(--sem-color-border-subtle);
+  color: var(--sem-color-text-muted);
+}
+
+.ds-split-button__chevron svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+.ds-split-button__primary:hover:not(:disabled),
+.ds-split-button__chevron:hover:not(:disabled) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+/* Held open: the menu half stays lit while its popover is on screen, so the
+ * open surface is visibly tied to the half that opened it. */
+.ds-split-button__chevron[aria-expanded='true'] {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-split-button__primary:focus-visible,
+.ds-split-button__chevron:focus-visible {
+  outline: none;
+  /* Inset, not the shared --sem-focus-ring: the group clips overflow. */
+  box-shadow: inset var(--sem-focus-ring);
+}
+
+.ds-split-button__primary:disabled,
+.ds-split-button__chevron:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* The target mark leading the label — a two-letter mono mark or a small glyph,
+ * boxed so every target reads at the same weight whichever form it takes. */
+.ds-split-button__glyph {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-active);
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-tight);
+  line-height: 1;
+}
+
+.ds-split-button__glyph svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* Size step for surfaces on the md control row (overlay footers, forms). */
+.ds-split-button--md {
+  height: var(--sem-size-control-md);
+}
+
+.ds-split-button--md .ds-split-button__primary,
+.ds-split-button--md .ds-split-button__chevron {
+  font-size: var(--sem-font-size-body);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-split-button__primary,
+  .ds-split-button__chevron {
+    transition: none;
+  }
+}

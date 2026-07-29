@@ -14,6 +14,13 @@ export interface CliAvailabilitySliceState {
   cliAvailability: AgentCliAvailabilityMap
   cliAvailabilityStatus: CliAvailabilityStatus
   cliAvailabilityError: string | null
+  // When this map was last accepted, as epoch ms — the freshness the Agent CLIs
+  // section band reports ("Checked 2m ago"). It is when the RESULT landed here,
+  // and the main-process probe serves from a 60s cache unless forced, so the
+  // underlying detection can be up to that much older; the band's re-check
+  // button forces a real probe. Null until a probe has ever succeeded, so the
+  // band shows nothing rather than implying a check that never happened.
+  cliAvailabilityCheckedAt: number | null
 }
 
 export interface RefreshCliAvailabilityOptions {
@@ -97,6 +104,7 @@ export function createCliAvailabilitySlice(
           state.cliAvailability = result.availability
           state.cliAvailabilityStatus = 'ready'
           state.cliAvailabilityError = null
+          state.cliAvailabilityCheckedAt = Date.now()
         } else if (!background) {
           state.cliAvailability = {}
           state.cliAvailabilityStatus = 'error'
@@ -118,6 +126,7 @@ export function createCliAvailabilitySlice(
     cliAvailability: {},
     cliAvailabilityStatus: 'loading',
     cliAvailabilityError: null,
+    cliAvailabilityCheckedAt: null,
 
     refreshCliAvailability: (options) => {
       const opts = options ?? {}

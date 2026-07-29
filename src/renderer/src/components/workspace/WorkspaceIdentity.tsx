@@ -10,7 +10,9 @@
 // draggable span) to preserve the window grab area.
 
 import React from 'react'
-import { FOCUS_RING_CLASS, StarGlyph, Tooltip } from '../ui'
+import { FOCUS_RING_CLASS, SplitButton, StarGlyph, Tooltip, type SplitButtonItem } from '../ui'
+import { CursorErrorPopover, type CursorAnchor } from '../ui/CursorErrorPopover'
+import { publishDiagnostic } from '../../utils/diagnostics'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitBranch } from '../../hooks/useGitBranch'
 import { useGitStatus } from '../../hooks/useGitStatus'
@@ -18,6 +20,15 @@ import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { selectModuleEnabled } from '../../modules'
 import { getHighlightSwatch, isStarred } from '../../utils/highlight'
 import { toggleNavRailComponent } from '../../utils/modelRegistry'
+import type {
+  FolderOpenTargetAvailability,
+  FolderOpenTargetId,
+} from '../../../../shared/folder-open-targets'
+import {
+  availableFolderOpenTargets,
+  folderOpenTargetLabel,
+  resolveFolderOpenPrimary,
+} from './openInEditorTargets'
 import type { Workspace } from '../../types/workspace'
 
 // Branch-fork glyph for the header identity cluster. Stroke idiom matches the
@@ -53,6 +64,168 @@ function FolderGlyph({ className }: { className?: string }) {
         strokeLinejoin="round"
       />
     </svg>
+  )
+}
+
+// The target mark: a two-letter mono mark for the editors, the folder glyph for
+// the OS file manager. Boxed at one size so the three read at the same weight
+// whichever form they take, and so the primary half says which tool it will
+// open without a caption.
+function TargetGlyph({ target }: { target: FolderOpenTargetId }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="grid size-icon-sm shrink-0 place-items-center rounded-[3px] bg-[color:var(--bg-active)] font-mono text-[11px] font-medium leading-none tracking-tight text-[color:var(--text-muted)]"
+    >
+      {target === 'finder' ? <FolderGlyph className="size-icon-xs" /> : target === 'vscode' ? 'VS' : 'IJ'}
+    </span>
+  )
+}
+
+/**
+ * Open the workspace's active checkout in an external tool. Primary half runs
+ * the last-used target; the chevron half lists every target that actually
+ * resolves and re-points the primary (item 1990).
+ *
+ * Three rules the surface depends on:
+ * - **Probe-hide, not probe-disable.** An editor that is not installed is
+ *   absent from the menu, the same rule the agent pickers follow for
+ *   uninstalled CLIs. A disabled row for a missing editor is a fake affordance.
+ * - **The active checkout, not the project root.** A worktree-backed workspace
+ *   opens its worktree, resolved through `resolveWorkspaceWorktree` exactly as
+ *   the Git view and the branch chip above do — opening the parent checkout
+ *   would show the operator a different branch than the one their agents run on.
+ * - **A failed launch is visible and stops there.** The typed failure from the
+ *   IPC is surfaced on the control; nothing silently retries in another editor.
+ */
+function OpenWorkspaceFolderButton({
+  workspaceId,
+  openPath,
+}: {
+  workspaceId: string | null
+  /** The checkout to open — already worktree-resolved by the caller. */
+  openPath: string
+}) {
+  const isMac = window.api.platform === 'darwin'
+  const lastTarget = useWorkspaceStore((state) => state.appSettings.lastFolderOpenTarget)
+  const setLastTarget = useWorkspaceStore((state) => state.setLastFolderOpenTarget)
+  // null until the first probe answers: the control does not render before it
+  // knows which targets exist, rather than guessing a primary and correcting it.
+  const [availability, setAvailability] = React.useState<FolderOpenTargetAvailability[] | null>(null)
+  const [failure, setFailure] = React.useState<{ message: string; anchor: CursorAnchor } | null>(null)
+  const primaryRef = React.useRef<HTMLButtonElement | null>(null)
+
+  const probe = React.useCallback(async () => {
+    try {
+      return await window.api.listFolderOpenTargets()
+    } catch (error) {
+      // The probe is the whole basis for what this control offers, so a failed
+      // one leaves it unrendered rather than showing a menu we cannot stand
+      // behind. Reported through the diagnostics channel, not in the operator's
+      // face on a boot they did not ask anything of.
+      void publishDiagnostic({
+        level: 'error',
+        source: 'filesystem',
+        title: 'Could not list open-in-editor targets',
+        message: 'The workspace bar cannot offer an external editor until the check succeeds.',
+        details: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    }
+  }, [])
+
+  React.useEffect(() => {
+    let cancelled = false
+    void probe().then((result) => {
+      if (!cancelled && result) setAvailability(result)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [probe])
+
+  const available = React.useMemo(() => availableFolderOpenTargets(availability), [availability])
+  const primaryTarget = resolveFolderOpenPrimary(available, lastTarget)
+
+  const openTarget = React.useCallback(
+    async (target: FolderOpenTargetId, remember: boolean) => {
+      const result = await window.api.openFolderInTarget({ target, path: openPath })
+      if (result.ok) {
+        // Remembered only on a launch that happened: repointing the primary at
+        // an editor that just failed would repeat the failure on the next click.
+        if (remember) setLastTarget(target)
+        return
+      }
+      const rect = primaryRef.current?.getBoundingClientRect()
+      setFailure({
+        message: `Could not open ${folderOpenTargetLabel(target, isMac)}: ${result.message}`,
+        anchor: rect
+          ? { x: rect.left + rect.width / 2, y: rect.bottom }
+          : { x: window.innerWidth / 2, y: 0 },
+      })
+    },
+    [isMac, openPath, setLastTarget],
+  )
+
+  // `Primary+O` (workspace.folder.reveal) reveals the same checkout in the file
+  // manager. It routes here rather than calling the IPC itself so the shortcut
+  // and the control cannot disagree about which folder the workspace is on. It
+  // deliberately does NOT re-point the primary half: a shortcut for one target
+  // is not a choice of default.
+  React.useEffect(() => {
+    if (!workspaceId) return
+    const onPanelCommand = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string; workspaceId?: string }>).detail
+      if (detail?.id !== 'workspace.folder.reveal') return
+      if (detail.workspaceId && detail.workspaceId !== workspaceId) return
+      void openTarget('finder', false)
+    }
+    window.addEventListener('multicode:panel-command', onPanelCommand)
+    return () => window.removeEventListener('multicode:panel-command', onPanelCommand)
+  }, [openTarget, workspaceId])
+
+  const items = React.useMemo<SplitButtonItem[]>(
+    () =>
+      available.map((target) => ({
+        id: target,
+        label: folderOpenTargetLabel(target, isMac),
+        icon: <TargetGlyph target={target} />,
+        shortcut: target === 'finder' ? (isMac ? '⌘O' : 'Ctrl+O') : undefined,
+        checked: target === primaryTarget,
+        onSelect: () => void openTarget(target, true),
+      })),
+    [available, isMac, openTarget, primaryTarget],
+  )
+
+  if (!primaryTarget) return null
+
+  return (
+    <>
+      <SplitButton
+        className="app-no-drag shrink-0"
+        label="Open"
+        glyph={<TargetGlyph target={primaryTarget} />}
+        primaryAriaLabel={`Open workspace folder in ${folderOpenTargetLabel(primaryTarget, isMac)}`}
+        menuAriaLabel="Open workspace folder in…"
+        items={items}
+        onPrimary={() => void openTarget(primaryTarget, false)}
+        onMenuOpenChange={(open) => {
+          // Re-probed on every open: an editor installed while the app was
+          // running should appear without a restart, and one uninstalled since
+          // boot should stop being offered.
+          if (open) void probe().then((result) => result && setAvailability(result))
+        }}
+        primaryRef={primaryRef}
+      />
+      {failure ? (
+        <CursorErrorPopover
+          key={`${failure.anchor.x},${failure.anchor.y},${failure.message}`}
+          message={failure.message}
+          anchor={failure.anchor}
+          onDismiss={() => setFailure(null)}
+        />
+      ) : null}
+    </>
   )
 }
 
@@ -128,6 +301,13 @@ export function WorkspaceIdentity({
   // basename. The full path still rides the chip's tooltip, and the reveal-Files
   // affordance is preserved. Handles POSIX and Windows separators and trailing
   // slashes; falls back to the whole string if there is no separator.
+  // The checkout an external editor should open: the mounted worktree when the
+  // workspace has one, else the project root — the same resolution the branch
+  // chip above and the Git view use, so all three name one tree. Distinct from
+  // `folderPath` below, which stays the project root because the Files panel is
+  // rooted there.
+  const openPath = gitProbePath
+
   const folderPath = activeWorkspace.folderPath
   const projectName = folderPath
     ? (() => {
@@ -289,6 +469,16 @@ export function WorkspaceIdentity({
             ) : null}
           </span>
         )
+      ) : null}
+      {/*
+       * The one action in this cluster, and the only bordered control in it: the
+       * chips above are display segments that happen to toggle a panel, so the
+       * border is what separates "opens something outside the app" from them.
+       * It sits last, next to the branch it will open — the checkout is what the
+       * project and branch segments were describing.
+       */}
+      {openPath ? (
+        <OpenWorkspaceFolderButton workspaceId={activeWorkspaceId} openPath={openPath} />
       ) : null}
     </div>
   )
