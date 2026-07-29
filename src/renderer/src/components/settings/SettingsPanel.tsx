@@ -1967,6 +1967,12 @@ export default function SettingsPanel({
           {cliInstallMessage ? (
             <MessageBlock tone={cliInstallMessage.tone}>{cliInstallMessage.text}</MessageBlock>
           ) : null}
+          {/* The batch availability probe failing is a different fact from a
+              plugin registry failure, and until now it was surfaced nowhere at
+              all: every row simply read "Not found". */}
+          {cliAvailabilityStatus === 'error' && cliAvailabilityError ? (
+            <MessageBlock tone="warn">{`Agent CLIs could not be checked: ${cliAvailabilityError}`}</MessageBlock>
+          ) : null}
 
           {pluginCatalogStatus === 'loading' && installedPluginRows.length === 0 ? (
             <MessageBlock tone="neutral">Loading installed agent plugins…</MessageBlock>
@@ -2018,7 +2024,11 @@ export default function SettingsPanel({
                           state={state}
                           binary={plugin.binary}
                           useWsl={override.useWsl}
-                          probeError={cliAvailabilityError}
+                          // Deliberately not the reason: a failed batch probe
+                          // wipes every entry, so the reason is one fact for the
+                          // whole list and the section states it once below the
+                          // band rather than nine times down the rows.
+                          probeError={null}
                         />
                         {/* Provenance, only where it distinguishes: the retired
                             card stamped "Built-in" on all nine bundled rows,

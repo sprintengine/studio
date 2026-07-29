@@ -63,7 +63,11 @@ function AgentCliRegistryRow({
       }
       health={trust?.tone ?? 'neutral'}
       name={entry.name}
-      version={plugin ? `Version ${plugin.latest}` : null}
+      // No version on a marketplace row. `plugin.latest` is the registry's
+      // bundle revision, not the CLI's own version: rendering it in the mono
+      // version slot would claim "Cursor 4" about a product on 2026.07.17, and
+      // the detail panel this row opens already states it as "Version 4".
+      version={null}
       stateLine={
         trust && plugin
           ? `${trust.label} — published by ${plugin.publisher.name}`
