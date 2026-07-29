@@ -415,6 +415,7 @@ import type { AppearanceSettings } from './appTheme'
 import type { ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
 import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
+import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
 
 export type PluginCatalogStatus = 'loading' | 'ready' | 'error'
 
@@ -505,6 +506,15 @@ export type AppSettings = {
    * next plain click repeats that choice and the menu can show what will spawn.
    */
   lastNewChatAgent: NewChatAgentChoice
+  /**
+   * Target the workspace bar's open-in-editor split button last used, so its
+   * primary half repeats that choice. Per APP, not per workspace: which editor
+   * you use is a property of the machine you are sitting at, not of the project
+   * (item 1990). `null` until the user picks one, which resolves to the first
+   * available target at render time; a remembered target that no longer probes
+   * as installed falls back the same way rather than offering a dead editor.
+   */
+  lastFolderOpenTarget: FolderOpenTargetId | null
   lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
   /**

@@ -143,6 +143,20 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'closeActiveLayoutTab(windowActiveWorkspaceId, terminalSessions)' },
   }),
+  // Reveal-in-file-manager for the active checkout, and the keyboard half of
+  // the workspace bar's open-in-editor split button (item 1990). The reveal
+  // target is the workspace's mounted worktree when it has one, so this and the
+  // control resolve the same folder; the control owns that resolution and this
+  // command routes to it as a panel event.
+  command({
+    id: 'workspace.folder.reveal',
+    title: 'Reveal Workspace Folder',
+    category: 'workspace',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+O'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'panel-event', eventId: 'workspace.folder.reveal' },
+  }),
   command({
     id: 'panel.files.toggle',
     title: 'Toggle File Explorer',

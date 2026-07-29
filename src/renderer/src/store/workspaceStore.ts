@@ -51,6 +51,7 @@ import type {
 } from '../types/workspace'
 import type { AppTheme, WindowMaterial } from '../types/appTheme'
 import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
+import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
 import type { CommandId } from '../commands/commandRegistry'
 import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
 import { createAuthSlice } from './slices/authSlice'
@@ -230,6 +231,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSpawnWasGeneral: (value: boolean) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
+  setLastFolderOpenTarget: (target: FolderOpenTargetId) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void

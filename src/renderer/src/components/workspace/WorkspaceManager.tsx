@@ -93,6 +93,12 @@ import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/GlobalSurfaceShell'
 import { GlobalSurfaceErrorBoundary } from './globalSurface/surfaceSubstrate'
 import {
+  ContextRailColumn,
+  ContextRailSlotContext,
+  escapeLeavesSurface,
+  useSurfaceTriggerFocus,
+} from './globalSurface/contextRail'
+import {
   setExtensionsSurfaceHost,
   type ExtensionsSurfaceHostPorts,
 } from './globalSurface/extensions/extensionsSurfaceHost'
@@ -748,6 +754,12 @@ export default function WorkspaceManager() {
     return entry
   }, [activeGlobalSurface, moduleEnablement])
 
+  // The open door's human name, for the rail's accessible name and the error
+  // boundary's title. Derived once so the two can never disagree.
+  const surfaceLabel = activeGlobalSurfaceEntry
+    ? activeGlobalSurfaceEntry.id.charAt(0).toUpperCase() + activeGlobalSurfaceEntry.id.slice(1)
+    : ''
+
   // Destination element for the active door surface's lifted bar. The surface
   // portals its bar (title · status · context · actions) into the WorkspaceHeader
   // strip via GlobalSurfaceBarSlotContext, collapsing the door's own bar row into
@@ -755,6 +767,42 @@ export default function WorkspaceManager() {
   // context stable across unrelated re-renders.
   const [surfaceBarEl, setSurfaceBarEl] = useState<HTMLDivElement | null>(null)
   const surfaceBarSlot = useMemo(() => ({ el: surfaceBarEl }), [surfaceBarEl])
+
+  // Destination for the active surface's lifted RAIL (item 1993): the scrollport
+  // inside the context-rail column, which renders in the app sidebar's own
+  // column while a door is open. Same contract as the bar slot above — a fresh
+  // object identity only on element change.
+  const [surfaceRailEl, setSurfaceRailEl] = useState<HTMLDivElement | null>(null)
+  const surfaceRailSlot = useMemo(() => ({ el: surfaceRailEl }), [surfaceRailEl])
+  // The door's canvas region, for deciding whether an Escape belongs to the door.
+  const [surfaceRegionEl, setSurfaceRegionEl] = useState<HTMLDivElement | null>(null)
+  const surfaceTrigger = useSurfaceTriggerFocus(activeGlobalSurfaceEntry ? activeGlobalSurface : null)
+
+  // Leaving a door: restore the rail it replaced and hand the keyboard back to
+  // the row that opened it. `closeGlobalSurface` is the whole of "back" for a
+  // door (globalSurface/surfaceBackNav.ts) — never NavHistory, which would walk
+  // to wherever the operator happened to be before instead of out of the door.
+  const leaveGlobalSurface = useCallback(() => {
+    surfaceTrigger.leave(closeGlobalSurface)
+  }, [surfaceTrigger, closeGlobalSurface])
+
+  // Escape leaves the door, now that back is a rail row rather than a bar
+  // chevron: the two affordances have to agree, and a full-page surface with no
+  // keyboard exit is the one thing worse than a bar chevron. Deliberately NOT a
+  // dialog dismissal — nothing here traps focus, and a keystroke aimed at an
+  // overlay ON the door (a context menu, a confirm, a listbox) stays that
+  // overlay's, which is what `escapeLeavesSurface` decides.
+  useEffect(() => {
+    if (!activeGlobalSurfaceEntry) return undefined
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      if (!escapeLeavesSurface(document.activeElement, surfaceRegionEl)) return
+      event.preventDefault()
+      leaveGlobalSurface()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [activeGlobalSurfaceEntry, surfaceRegionEl, leaveGlobalSurface])
 
   // The one way the creation hub opens, on whatever the caller preselected.
   //
@@ -2475,6 +2523,15 @@ export default function WorkspaceManager() {
     if (commandId === 'terminal.stop' && windowActiveWorkspaceId) {
       return stopActiveTerminal(windowActiveWorkspaceId, terminalSessions)
     }
+    if (commandId === 'workspace.folder.reveal') {
+      if (!windowActiveWorkspaceId) return false
+      // Routed to the identity cluster's open-in-editor control, which owns the
+      // worktree resolution and the failure surface. Handling it here instead
+      // would be a second path to the same IPC with its own idea of which
+      // folder the workspace is checked out in.
+      dispatchPanelCommand(commandId, windowActiveWorkspaceId)
+      return true
+    }
     if (commandId === 'git.refresh' || commandId === 'git.fetch' || commandId === 'git.commit') {
       if (!windowActiveWorkspaceId) return false
       // Routed to the active workspace's mounted Git panel; availability
@@ -2964,6 +3021,21 @@ export default function WorkspaceManager() {
             onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
           />
         }
+        contextRail={
+          // Drill-in replaces the rail (item 1993): while a door is open its rail
+          // renders in this column and the workspaces rail steps aside. The
+          // column is the HOST's, not the surface's, so `Back` exists even for a
+          // door that portals no rail into it — a door is never a room with no
+          // door out.
+          activeGlobalSurfaceEntry ? (
+            <ContextRailColumn
+              surfaceKey={activeGlobalSurfaceEntry.id}
+              ariaLabel={`${surfaceLabel} rail`}
+              railRef={setSurfaceRailEl}
+              onBack={leaveGlobalSurface}
+            />
+          ) : undefined
+        }
         activityByWorkspaceId={activityByWorkspaceId}
         residentWorkspaceIds={residentWorkspaceIds}
         terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
@@ -3202,33 +3274,36 @@ export default function WorkspaceManager() {
         {/* Fourth mount kind (global-surfaces epic 1704): a door-routed full-page
             surface pre-empts the workspace card region. It paints OVER the retained
             workspace layers (they stay mounted and inert above, so terminals/tabs
-            are intact on return) with an opaque canvas — no scrim, and Escape does
-            NOT dismiss it: this is a page, not a dialog. You leave by opening
-            another door or selecting a project, both of which clear
-            activeGlobalSurface. Gated on the surface's owning module: a stale flag
-            after a module toggle resolves to null and the workspace shows through.
-            Connectors/Settings deliberately keep their overlay pattern below. */}
+            are intact on return) with an opaque canvas — no scrim and no focus
+            trap: this is a page, not a dialog. You leave by the rail's pinned Back
+            row, by Escape (item 1993 — the two affordances agree, and neither is
+            a dialog dismissal), by opening another door, or by selecting a
+            project; all of them clear activeGlobalSurface. Gated on the surface's
+            owning module: a stale flag after a module toggle resolves to null and
+            the workspace shows through. Settings deliberately keeps its centered
+            overlay pattern below. */}
         {/* Surface, not canvas (MC-1844): a door is a working page, so it paints
             the neutral surface ground — the themed canvas (sage in the green
             themes) stays the sidebar/chrome's identity only. */}
         {activeGlobalSurfaceEntry ? (
-          <div className="absolute inset-0 z-20 bg-[color:var(--bg-surface)]">
+          <div ref={setSurfaceRegionEl} className="absolute inset-0 z-20 bg-[color:var(--bg-surface)]">
             <GlobalSurfaceBarSlotContext.Provider value={surfaceBarSlot}>
+              {/* The rail lifts into the app sidebar's column; the surface just
+                  declares a rail and does not know which column it landed in. */}
+              <ContextRailSlotContext.Provider value={surfaceRailSlot}>
               {/* A door failure stays a door failure (MC-1835): render/import
                   throws land in this boundary's contained fallback instead of
                   white-screening the renderer. */}
               <GlobalSurfaceErrorBoundary
                 surfaceId={activeGlobalSurfaceEntry.id}
-                surfaceLabel={
-                  activeGlobalSurfaceEntry.id.charAt(0).toUpperCase()
-                  + activeGlobalSurfaceEntry.id.slice(1)
-                }
+                surfaceLabel={surfaceLabel}
                 onClose={closeGlobalSurface}
               >
                 <React.Suspense fallback={<SuspenseFallback label="Loading surface" />}>
                   <activeGlobalSurfaceEntry.Component />
                 </React.Suspense>
               </GlobalSurfaceErrorBoundary>
+              </ContextRailSlotContext.Provider>
             </GlobalSurfaceBarSlotContext.Provider>
           </div>
         ) : null}
