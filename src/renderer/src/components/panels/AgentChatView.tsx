@@ -4096,7 +4096,7 @@ function EmptyChatState({
           >
             {suggestion.glyph}
             <span className="min-w-0 flex-1">{suggestion.text}</span>
-            <span aria-hidden="true" className="text-[11px] text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100">
+            <span aria-hidden="true" className="text-[11px] text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
               ⏎
             </span>
           </button>

@@ -185,8 +185,6 @@ type RowAccent = {
   bg: string
   text: string
   shadow: string
-  collapsedShadow: string
-  chip: string
   glyph: string
 }
 
@@ -207,24 +205,18 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
     shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
-    collapsedShadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
-    chip: 'bg-[color:var(--bg-hover)]',
     glyph: 'text-[color:var(--tool-sprintengine)]',
   },
   switchboard: {
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
     shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
-    collapsedShadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
-    chip: 'bg-[color:var(--bg-hover)]',
     glyph: 'text-[color:var(--tool-switchboard)]',
   },
   'guided-brief': {
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
     shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
-    collapsedShadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
-    chip: 'bg-[color:var(--bg-hover)]',
     glyph: 'text-[color:var(--accent-primary)]',
   },
   // Automations host carries the same primary-accent identity as its registered
@@ -234,16 +226,12 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
     shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
-    collapsedShadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
-    chip: 'bg-[color:var(--bg-hover)]',
     glyph: 'text-[color:var(--accent-primary)]',
   },
   standard: {
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
     shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
-    collapsedShadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
-    chip: 'bg-[color:var(--bg-hover)]',
     glyph: 'text-[color:var(--text-muted)]',
   },
 }
@@ -262,8 +250,6 @@ export function rowAccent(workspace: Workspace, moduleOverrides: ModuleEnablemen
       bg: swatch.bg,
       text: swatch.text,
       shadow: swatch.shadow,
-      collapsedShadow: swatch.collapsedShadow,
-      chip: swatch.chip,
       glyph: `text-[${swatch.hex}]`,
     }
   }

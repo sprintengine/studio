@@ -164,7 +164,7 @@ export function SprintEngineRosterTable({
               {!isAdded ? (
                 <span
                   aria-hidden="true"
-                  className="shrink-0 pr-1 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100"
+                  className="shrink-0 pr-1 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
                 >
                   + Add
                 </span>
