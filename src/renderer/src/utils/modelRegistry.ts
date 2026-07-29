@@ -949,6 +949,11 @@ type JsonLayoutNode = {
   type?: string
   component?: string
   children?: JsonLayoutNode[]
+  // Tabset-only: `selected` is the index of the visible tab, `active` marks the
+  // one tabset the user is driving (flexlayout allows exactly one).
+  selected?: number
+  active?: boolean
+  config?: { agentId?: string; sessionId?: string }
 }
 
 // Walks a serialized IJsonModel and reports whether a tab with `component` is
@@ -968,6 +973,59 @@ export function jsonModelHasComponent(model: IJsonModel | undefined | null, comp
   }
   const layout = (model as unknown as { layout?: JsonLayoutNode }).layout
   return visit(layout)
+}
+
+/** The agent whose terminal is on screen, and the live session behind it. */
+export type FocusedAgentTab = {
+  agentId: string
+  /** The tab's own session id; null when the agent has not launched one yet. */
+  sessionId: string | null
+}
+
+/**
+ * Which agent a workspace-scoped surface is talking about.
+ *
+ * Derived from the persisted `workspace.layoutModel` rather than the live Model
+ * so it is reactive: `onModelChange` writes the JSON on every layout mutation,
+ * selecting a tab included, and the live Model exposes no listener API. A pane
+ * that read the Model directly would answer once and then go stale the moment
+ * the user switched tabs.
+ *
+ * The active tabset wins, because that is the one the user is driving. With no
+ * tabset marked active — a freshly restored layout, before any click — the
+ * first agent tab in document order stands in, which is the tab the user is
+ * looking at in the common single-tabset case.
+ */
+export function focusedAgentTabInLayout(model: IJsonModel | undefined | null): FocusedAgentTab | null {
+  if (!model) return null
+
+  const selectedAgentOf = (tabset: JsonLayoutNode): FocusedAgentTab | null => {
+    const children = tabset.children ?? []
+    const tab = children[tabset.selected ?? 0]
+    if (!tab || tab.type !== 'tab' || tab.component !== 'agent') return null
+    const agentId = tab.config?.agentId
+    if (!agentId) return null
+    return { agentId, sessionId: tab.config?.sessionId ?? null }
+  }
+
+  let fallback: FocusedAgentTab | null = null
+  let active: FocusedAgentTab | null = null
+
+  const visit = (node: JsonLayoutNode | undefined): void => {
+    if (!node || active) return
+    if (node.type === 'tabset') {
+      const focused = selectedAgentOf(node)
+      if (focused) {
+        if (node.active) active = focused
+        else if (!fallback) fallback = focused
+      }
+      return
+    }
+    for (const child of node.children ?? []) visit(child)
+  }
+
+  visit((model as unknown as { layout?: JsonLayoutNode }).layout)
+  return active ?? fallback
 }
 
 export function removeComponentTab(workspaceId: string, component: string): boolean {

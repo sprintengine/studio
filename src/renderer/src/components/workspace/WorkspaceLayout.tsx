@@ -98,6 +98,11 @@ const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBo
 const SprintEngineRunSummaryPanel = React.lazy(() => import('../panels/SprintEngineRunSummaryPanel'))
 const SprintEnginePlanReaderPanel = React.lazy(() => import('../panels/SprintEnginePlanReaderPanel'))
 const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
+// The right-docked Skills pane. Local rather than host-registered because it
+// belongs to no capability module — every workspace with an agent tab can ask
+// what that agent reaches — and because a module gate here would hide the pane
+// its own header switch just opened.
+const SkillsPanel = React.lazy(() => import('./skills/SkillsPanel'))
 // Shown when a host panel can't render because its owning module is disabled or
 // the layout tab is stale/unknown. An explicit, labeled unavailable state —
 // never a silently blank surface — applied to every gated/stale arm below.
@@ -544,6 +549,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
             : DISABLED_SURFACE
+        case 'skills':
+          return timedPanel('SkillsPanel', <SkillsPanel workspaceId={workspaceId} />)
         case 'guided-brief':
           // Guided Brief hands its build off to a Sprint Engine run, so it
           // follows sprint-engine enablement: a stale guided-brief workspace

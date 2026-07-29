@@ -8,6 +8,7 @@ import {
   captureRailWidthFractions,
   consumePendingAgentFlash,
   flashAgentTab,
+  focusedAgentTabInLayout,
   focusOrAddFileTab,
   registerModel,
   restoreRailWidthFraction,
@@ -799,6 +800,85 @@ function bothRailsModel(): Model {
     'latch is drained after first consume',
   )
   unregisterModel(WS)
+}
+
+// --- focusedAgentTabInLayout ------------------------------------------------
+// The Skills pane asks "which agent am I describing?" of the persisted layout,
+// because that JSON is rewritten on every layout mutation and the live Model has
+// no listener API.
+{
+  const tab = (agentId: string, sessionId?: string) => ({
+    type: 'tab',
+    component: 'agent',
+    name: agentId,
+    config: sessionId ? { agentId, sessionId } : { agentId },
+  })
+
+  const twoTabsets: IJsonModel = {
+    global: {},
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        { type: 'tabset', selected: 0, children: [tab('a-left')] },
+        { type: 'tabset', active: true, selected: 1, children: [tab('a-1'), tab('a-2', 's-2')] },
+      ],
+    },
+  }
+  assert.deepEqual(
+    focusedAgentTabInLayout(twoTabsets),
+    { agentId: 'a-2', sessionId: 's-2' },
+    'the active tabset’s selected tab wins',
+  )
+
+  const noActive: IJsonModel = {
+    global: {},
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [{ type: 'tabset', selected: 0, children: [tab('a-only')] }],
+    },
+  }
+  assert.deepEqual(
+    focusedAgentTabInLayout(noActive),
+    { agentId: 'a-only', sessionId: null },
+    'with no active tabset the first agent tab stands in; an unlaunched agent has no session',
+  )
+
+  const paneOnly: IJsonModel = {
+    global: {},
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        { type: 'tabset', selected: 0, children: [{ type: 'tab', component: 'skills', name: 'Skills and MCPs' }] },
+      ],
+    },
+  }
+  assert.equal(focusedAgentTabInLayout(paneOnly), null, 'a pane-only workspace focuses no agent')
+
+  const selectedIsNotAnAgent: IJsonModel = {
+    global: {},
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          active: true,
+          selected: 1,
+          children: [tab('a-1'), { type: 'tab', component: 'file-editor', name: 'index.ts' }],
+        },
+      ],
+    },
+  }
+  assert.equal(
+    focusedAgentTabInLayout(selectedIsNotAnAgent),
+    null,
+    'an editor on top of an agent tab means no agent is on screen',
+  )
+
+  assert.equal(focusedAgentTabInLayout(undefined), null)
 }
 
 console.log('modelRegistry.test.ts: ok')
