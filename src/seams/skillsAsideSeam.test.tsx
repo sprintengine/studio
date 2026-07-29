@@ -190,7 +190,11 @@ async function main(): Promise<void> {
   // list at all, and that difference is one of the twelve answers this suite has
   // to prove is truthful rather than accidental.
   const BUNDLED_ROOT = join(process.cwd(), 'resources', 'plugins')
-  const BUNDLED_IDS = readdirSync(BUNDLED_ROOT).sort()
+  // Entries carrying a manifest, not every directory entry: a `.DS_Store` that
+  // Finder drops in here must not turn this suite red.
+  const BUNDLED_IDS = readdirSync(BUNDLED_ROOT)
+    .filter((entry) => existsSync(join(BUNDLED_ROOT, entry, 'plugin.json')))
+    .sort()
 
   /**
    * What each manifest declares, read once. Every expectation below is derived
