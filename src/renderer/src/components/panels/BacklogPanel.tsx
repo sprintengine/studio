@@ -69,6 +69,7 @@ import { BacklogTrackerPicker } from '../backlog/BacklogTrackerPicker'
 import { useBacklogTrackerSeeding } from '../backlog/useBacklogTrackerSeeding'
 import { isRoadmapContent } from '../../../../shared/backlog/roadmap'
 import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
+import { backlogRowPaintClass } from '../backlog/backlogRowPaint'
 import {
   compareBacklogItems,
   matchesBacklogView,
@@ -2029,9 +2030,9 @@ function BacklogOptionRow({
 }): JSX.Element {
   const archived = item.status === 'archived'
   // Option C: the epic identity colour fills the whole member row (below a
-  // hand-set highlight, above the ambient risk heat — see resolveBacklogRowColor).
+  // hand-set highlight, above the ambient risk heat — see resolveBacklogRowColor)
+  // on every row the user has not picked. Selection outranks it — backlogRowPaint.
   const { color: stripeColor, litFill } = resolveBacklogRowColor(item, epicMeta?.color ?? null)
-  const swatch = stripeColor ? getHighlightSwatch(stripeColor) : null
   return (
     <li
       id={`backlog-opt-${optionIndex}`}
@@ -2042,9 +2043,7 @@ function BacklogOptionRow({
       onContextMenu={onItemContextMenu ? (event) => onItemContextMenu(event, item) : undefined}
       onClick={() => onSelect(item.id)}
       className={`cursor-pointer border-l-[3px] ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
-        selected
-          ? `${swatch ? swatch.border : 'border-l-transparent'} ${litFill && swatch ? swatch.bg : 'bg-[color:var(--bg-selected)]'}`
-          : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
+        backlogRowPaintClass({ color: stripeColor, litFill, selected })
       } ${archived ? 'opacity-70' : ''}`}
     >
       {/* The whole row carries one styled hover card (full title, status, id,
