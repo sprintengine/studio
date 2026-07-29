@@ -70,9 +70,9 @@ icons. With it the space is held at rest, so revealing never reflows.
 Do not put anything interactive in `.ds-list-row-trailing`. It is for a count,
 a timestamp, or a status word.
 
-Titles truncate to one line. If the full value matters, attach a tooltip that
-appears only when the text actually overflows — never a native `title`
-attribute on a control.
+Titles truncate to one line. If the full value matters, attach the system's
+`tooltip` component, and only when the text actually overflows — never a native
+`title` attribute on a control.
 
 ## Accessibility
 

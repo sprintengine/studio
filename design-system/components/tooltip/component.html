@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tooltip</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-readout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sem-space-md);
+    margin: 0;
+    padding: var(--sem-space-sm) var(--sem-space-3xl);
+    border-bottom: 1px solid var(--sem-color-border-default);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-muted);
+    font-size: var(--sem-font-size-meta);
+  }
+  .demo-readout b {
+    color: var(--sem-color-text-primary);
+    font-weight: var(--sem-font-weight-medium);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-columns {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--sem-space-lg);
+  }
+  .demo-pane {
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  /* Deliberately narrow: the width at which a title actually truncates, which
+     is the condition that earns a tooltip in the first place. */
+  .demo-pane--list {
+    flex: 0 0 200px;
+    max-width: 200px;
+  }
+  /* Two rows short of the content, so the list scrolls — scrolling dismisses,
+     and a demo that cannot scroll cannot show it. */
+  .demo-scroll {
+    max-height: 112px;
+    overflow-y: auto;
+  }
+  .demo-row {
+    display: block;
+    width: 100%;
+    padding: var(--sem-space-2xs) var(--sem-space-sm);
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  .demo-row:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-default);
+  }
+  .demo-row:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+  .demo-controls {
+    display: flex;
+    gap: var(--sem-space-2xs);
+    padding: var(--sem-space-2xs);
+  }
+  .demo-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    padding: 0;
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
+  }
+  .demo-icon:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-default);
+  }
+  .demo-icon:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+  .demo-icon svg {
+    width: var(--sem-icon-size-sm);
+    height: var(--sem-icon-size-sm);
+  }
+  /* Full-bleed: cancels the stage padding so each trigger sits against the
+     viewport edge, where the preferred side has no room and the surface has to
+     flip. A trigger in the middle of the page never exercises this. */
+  .demo-edges {
+    display: flex;
+    justify-content: space-between;
+    margin: var(--sem-space-lg) calc(-1 * var(--sem-space-3xl)) 0;
+  }
+  .demo-dock {
+    padding: var(--sem-space-2xs) var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    cursor: pointer;
+  }
+  .demo-dock:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+  .demo-specimen {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sem-space-md);
+    margin-bottom: var(--sem-space-lg);
+  }
+  /* The surface is authored here so it is visible at rest — the catalog embeds
+     this demo with scripts off, and a surface that only exists once JavaScript
+     has run would show as an empty stage. The script lifts this exact node to
+     the document body on load; it is never cloned, so the document still holds
+     one tooltip no matter how many triggers there are. */
+  .ds-tooltip.demo-parked {
+    position: static;
+  }
+</style>
+</head>
+<body>
+<p class="demo-readout">
+  <span>Tooltip surfaces in this document: <b id="demo-surfaces">1</b></span>
+  <span>Triggers: <b id="demo-triggers">—</b></span>
+  <span>Last shown: <b id="demo-last">—</b></span>
+</p>
+
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — hover a row and it waits; Tab into the list and it shows at once. Escape or scroll dismisses.</p>
+
+  <div class="demo-specimen">
+    <div class="ds-tooltip demo-parked" id="ds-tooltip-demo" role="tooltip">
+      <span class="ds-tooltip-title">production-reality-gate</span>
+      Refuses sample data, stubbed transports, and disconnected UI state as completion evidence.
+    </div>
+  </div>
+
+  <div class="demo-columns">
+    <div class="demo-pane demo-pane--list">
+      <div class="demo-scroll">
+        <button type="button" class="demo-row" data-tip-title="workspace-knowledge" data-tip="Read and update the repo-local knowledge graph in the same handoff as the code change.">workspace-knowledge</button>
+        <button type="button" class="demo-row" data-tip-title="design-system-conformance" data-tip="Check a surface against the tokens and components it claims to use.">design-system-conformance</button>
+        <button type="button" class="demo-row" data-tip-title="terminal-first-review-guide" data-tip="Walk a reviewer through a change from the terminal, before they open the diff.">terminal-first-review-guide</button>
+        <button type="button" class="demo-row" data-tip-title="production-reality-gate" data-tip="Refuses sample data, stubbed transports, and disconnected UI state as completion evidence.">production-reality-gate</button>
+        <button type="button" class="demo-row" data-tip-title="backlog" data-tip="Work, create, or triage backlog items and epics.">backlog</button>
+      </div>
+    </div>
+
+    <div class="demo-pane">
+      <div class="demo-controls">
+        <button type="button" class="demo-icon" aria-label="Reveal in folder" data-tip="Opens the skill's folder in Finder.">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="demo-icon" aria-label="Sync source" data-tip="Refetches the source and reindexes every skill it publishes.">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M11.5 6a4.5 4.5 0 10-.9 3.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M11.9 2.6v3.1H8.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="demo-icon" aria-label="Remove source" data-tip="Detaches the source. Skills already attached to a workspace stay attached.">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-edges">
+    <button type="button" class="demo-dock" data-tip-title="Left edge" data-tip="No room on the preferred side, so the surface flips to the other one.">Docked left</button>
+    <button type="button" class="demo-dock" data-tip-title="Right edge" data-tip="The preferred side, and the reason it is the preferred one: a right-docked pane has room only on its left.">Docked right</button>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same triggers, the same one surface. It mirrors the mode of the container it is describing.</p>
+
+  <div class="demo-columns">
+    <div class="demo-pane demo-pane--list">
+      <div class="demo-scroll">
+        <button type="button" class="demo-row" data-tip-title="workspace-knowledge" data-tip="Read and update the repo-local knowledge graph in the same handoff as the code change.">workspace-knowledge</button>
+        <button type="button" class="demo-row" data-tip-title="design-system-conformance" data-tip="Check a surface against the tokens and components it claims to use.">design-system-conformance</button>
+        <button type="button" class="demo-row" data-tip-title="terminal-first-review-guide" data-tip="Walk a reviewer through a change from the terminal, before they open the diff.">terminal-first-review-guide</button>
+        <button type="button" class="demo-row" data-tip-title="production-reality-gate" data-tip="Refuses sample data, stubbed transports, and disconnected UI state as completion evidence.">production-reality-gate</button>
+        <button type="button" class="demo-row" data-tip-title="backlog" data-tip="Work, create, or triage backlog items and epics.">backlog</button>
+      </div>
+    </div>
+
+    <div class="demo-pane">
+      <div class="demo-controls">
+        <button type="button" class="demo-icon" aria-label="Reveal in folder" data-tip="Opens the skill's folder in Finder.">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="demo-icon" aria-label="Sync source" data-tip="Refetches the source and reindexes every skill it publishes.">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M11.5 6a4.5 4.5 0 10-.9 3.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M11.9 2.6v3.1H8.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="demo-icon" aria-label="Remove source" data-tip="Detaches the source. Skills already attached to a workspace stay attached.">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-edges">
+    <button type="button" class="demo-dock" data-tip-title="Left edge" data-tip="No room on the preferred side, so the surface flips to the other one.">Docked left</button>
+    <button type="button" class="demo-dock" data-tip-title="Right edge" data-tip="The preferred side, and the reason it is the preferred one: a right-docked pane has room only on its left.">Docked right</button>
+  </div>
+</div>
+
+<script>
+/* Reference behaviour for the component contract in component.md. Rebuild it
+   idiomatically in your framework — what must survive the rewrite is the one
+   shared surface, the two show paths with their different delays, the four
+   dismissals, and aria-describedby living only while the surface is shown. */
+
+const POINTER_DELAY_MS = 350
+const VIEWPORT_GAP_PX = 8
+
+/* One surface, authored in the markup so it is visible with scripts off, then
+   lifted to the body so it escapes every scroll container and stacking
+   context on the page. Moved, never cloned. */
+const tip = document.getElementById('ds-tooltip-demo')
+tip.classList.remove('demo-parked')
+tip.hidden = true
+document.body.appendChild(tip)
+document.querySelector('.demo-specimen').remove()
+
+const surfacesOut = document.getElementById('demo-surfaces')
+const triggersOut = document.getElementById('demo-triggers')
+const lastOut = document.getElementById('demo-last')
+
+let timer = null
+let owner = null
+
+function esc(text) {
+  return text.replace(/[&<>]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[char])
+}
+
+/* Preferred side first — inline-start, so a right-docked pane's tooltip lands
+   over the page and not off it. Flip only when that side has no room, then
+   clamp vertically so a trigger near an edge cannot push the surface out. */
+function place(trigger) {
+  const anchor = trigger.getBoundingClientRect()
+  const surface = tip.getBoundingClientRect()
+  let left = anchor.left - surface.width - VIEWPORT_GAP_PX
+  if (left < VIEWPORT_GAP_PX) {
+    left = Math.min(anchor.right + VIEWPORT_GAP_PX, window.innerWidth - surface.width - VIEWPORT_GAP_PX)
+  }
+  const centred = anchor.top + anchor.height / 2 - surface.height / 2
+  const top = Math.max(
+    VIEWPORT_GAP_PX,
+    Math.min(centred, window.innerHeight - surface.height - VIEWPORT_GAP_PX),
+  )
+  tip.style.setProperty('--ds-tooltip-left', Math.round(left) + 'px')
+  tip.style.setProperty('--ds-tooltip-top', Math.round(top) + 'px')
+}
+
+function show(trigger, source) {
+  const title = trigger.dataset.tipTitle
+  tip.innerHTML =
+    (title ? '<span class="ds-tooltip-title">' + esc(title) + '</span>' : '') + esc(trigger.dataset.tip)
+  /* The surface sits on the body, outside the container it describes. Mirror
+     that container's forced mode so it is not lit by the page's mode instead. */
+  const scope = trigger.closest('[data-mode]')
+  if (scope) tip.setAttribute('data-mode', scope.dataset.mode)
+  else tip.removeAttribute('data-mode')
+  tip.hidden = false
+  place(trigger)
+  trigger.setAttribute('aria-describedby', tip.id)
+  owner = trigger
+  lastOut.textContent = source
+}
+
+function hide() {
+  window.clearTimeout(timer)
+  timer = null
+  if (owner) {
+    owner.removeAttribute('aria-describedby')
+    owner = null
+  }
+  tip.hidden = true
+}
+
+document.addEventListener('pointerover', (event) => {
+  const trigger = event.target.closest('[data-tip]')
+  if (!trigger) {
+    if (owner || timer) hide()
+    return
+  }
+  if (trigger === owner) return
+  hide()
+  timer = window.setTimeout(() => show(trigger, 'pointer, after ' + POINTER_DELAY_MS + ' ms'), POINTER_DELAY_MS)
+})
+
+/* Keyboard focus shows at once: the delay exists to keep a pointer crossing
+   the list from firing every row, and a keyboard has no such crossing.
+   :focus-visible, not :focus — clicking a control must not draw a tooltip on
+   top of the thing that was just clicked. */
+document.addEventListener('focusin', (event) => {
+  const trigger = event.target.closest('[data-tip]')
+  if (trigger && trigger.matches(':focus-visible')) show(trigger, 'keyboard, immediately')
+  else hide()
+})
+
+document.addEventListener('focusout', hide)
+document.addEventListener('pointerdown', hide)
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') hide()
+})
+/* Capture, so a scroll inside any nested container dismisses too — otherwise
+   the surface stays put while the row it describes slides away. */
+window.addEventListener('scroll', hide, true)
+window.addEventListener('resize', hide)
+
+surfacesOut.textContent = String(document.querySelectorAll('.ds-tooltip').length)
+triggersOut.textContent = String(document.querySelectorAll('[data-tip]').length)
+</script>
+</body>
+</html>

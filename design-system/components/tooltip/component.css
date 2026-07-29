@@ -1,0 +1,50 @@
+/* Tooltip — the trigger-anchored description for a value the surface itself
+ * cannot show: a title truncated to one line, an icon-only control's name, a
+ * path abbreviated to its tail.
+ *
+ * Family contract: one surface per document, repositioned per trigger, so a
+ * list of 200 rows mounts one node and not 200. The consumer's script writes
+ * `--ds-tooltip-top` and `--ds-tooltip-left` (viewport coordinates) and toggles
+ * `hidden`; nothing else about the surface changes between triggers.
+ *
+ * Never interactive. `pointer-events: none` is load-bearing, not defensive: a
+ * surface that can swallow a click is a popover, and the two are different
+ * components with different keyboard contracts. */
+
+.ds-tooltip {
+  position: fixed;
+  top: var(--ds-tooltip-top, 0);
+  left: var(--ds-tooltip-left, 0);
+  z-index: var(--sem-z-popover);
+  /* A measure cap, not a spacing step: past ~50 characters a tooltip is an
+   * article and the value belongs in the detail pane. Declared border-box so
+   * the cap is the surface, whether or not the host page ships a reset. */
+  box-sizing: border-box;
+  max-width: 280px;
+  padding: var(--sem-space-xs) var(--sem-space-md);
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-overlay);
+  background: var(--sem-color-bg-surface-raised);
+  box-shadow: var(--sem-shadow-popover);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-relaxed);
+  pointer-events: none;
+}
+
+/* The resting state is `hidden` — an attribute, so the surface is out of the
+ * accessibility tree as well as out of view. It carries no entrance animation:
+ * a tooltip is neither alive-right-now nor just-changed, and the pointer delay
+ * already does the pacing a fade would be reaching for. */
+.ds-tooltip[hidden] {
+  display: none;
+}
+
+/* The identifier the tooltip elaborates — the truncated title, restated in
+ * full above the description that explains it. */
+.ds-tooltip-title {
+  display: block;
+  color: var(--sem-color-text-primary);
+  font-weight: var(--sem-font-weight-medium);
+}
