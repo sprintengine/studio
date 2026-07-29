@@ -886,6 +886,16 @@ function BacklogDoorList({
     <ul
       role="listbox"
       aria-label="Backlog items across projects"
+      // This door's leading list, so it opts into the selection tier the same
+      // way every other door rail does (surfaceSubstrate's SurfaceRail; the
+      // "Selection tiers" block in assets/index.css). `primary` rather than
+      // `auto` because the tier answers "which list is my keyboard driving?",
+      // not "is anything focused": the row keeps its full-strength selection
+      // while focus sits in the toolbar or the detail pane, and drops to
+      // --bg-selected-resting only once another pane takes focus. The attribute
+      // belongs here, on the element that contains the `li` carrying
+      // aria-selected — the CSS rebinds the two tokens on that row.
+      data-selection-pane="primary"
       tabIndex={0}
       onKeyDown={onKeyDown}
       aria-activedescendant={activeIndex >= 0 ? `backlog-door-opt-${activeIndex}` : undefined}
@@ -929,6 +939,7 @@ function BacklogDoorList({
               <BacklogEpicHeaderContent
                 group={row.group}
                 collapsed={row.collapsed}
+                selected={row.key === selectedKey}
                 onToggleCollapse={() => onToggleGroup(row.feed.rootKey, row.group)}
                 progress={row.group.slug ? row.feed.derived.epicProgressBySlug.get(row.group.slug) : undefined}
                 dependencyState={
@@ -988,6 +999,7 @@ function BacklogDoorList({
                     epicMeta={indented ? undefined : epicMeta}
                     epicProgress={epicProgress}
                     plainTitle
+                    selected={selected}
                   />
                 </div>
                 {/* The project tag: which backlog this row actually lives in.

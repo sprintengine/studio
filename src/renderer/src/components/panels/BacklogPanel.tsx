@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
+  FOCUS_RING_CLASS,
   GhostButton,
   IconButton,
   InboxSearchInput,
@@ -2075,6 +2076,7 @@ function BacklogOptionRow({
             epicMeta={indented ? undefined : epicMeta}
             epicProgress={epicProgress}
             plainTitle
+            selected={selected}
           />
         </div>
       </Tooltip>
@@ -2138,6 +2140,7 @@ function BacklogGroupHeaderRow({
       <BacklogEpicHeaderContent
         group={group}
         collapsed={row.collapsed}
+        selected={selected}
         onToggleCollapse={() => onToggleCollapse(group)}
         progress={progress}
         dependencyState={dependencyState}
@@ -2451,7 +2454,7 @@ export function BacklogDetail({
             type="button"
             onClick={() => onNavigate(parentEpic.id)}
             aria-label={`Open epic ${parentEpic.title}`}
-            className="interactive mt-1.5 -ml-1.5 flex min-h-6 max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className={`interactive mt-1.5 -ml-1.5 flex min-h-6 max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           >
             <EpicColorDot color={parentEpicColor} size={7} />
             <TruncatedText as="span" text={parentEpic.title} className="min-w-0" />
@@ -2864,7 +2867,7 @@ function BacklogEpicChildren({
                   type="button"
                   onClick={() => onNavigate(child.id)}
                   title={child.relativePath}
-                  className="interactive flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)]"
+                  className={`interactive flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
                 >
                   <Tooltip
                     content={
