@@ -4,8 +4,6 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { ModuleSettingsSectionHost } from './ModuleSettingsSection'
 import type {
-  CliAvailability,
-  PluginCatalogEntry,
   SprintEngineRoleRegistry,
   SprintEngineRoleRegistryMetadata,
   SprintEngineRoleRegistryWarning,
@@ -14,6 +12,7 @@ import type {
 import AppThemePicker from './AppThemePicker'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { basename } from '../../utils/paths'
+import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import {
   buildSprintEngineRoleRegistry,
   getSprintEngineRoleLabel,
@@ -21,18 +20,23 @@ import {
 } from '../../utils/sprintengine'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
 import {
+  CliProviderStateLine,
   CloseIconButton,
   Field,
   FOCUS_RING_CLASS,
   GhostButton,
-  LifecycleGlyph,
+  IconButton,
   PrimaryButton,
+  ProviderRow,
+  RefreshIcon,
+  resolveCliProviderState,
   Select,
   type SelectItem,
   Spinner,
   StatusDot,
   Switch,
   type Tone,
+  Tooltip,
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import LearnCenter from '../learn/LearnCenter'
@@ -61,6 +65,7 @@ import {
   MobileSettingsIcon,
   VoiceDictationSettingsIcon,
   LearnSettingsIcon,
+  PlusIcon,
 } from '../AppIcons'
 import { hasActiveProPlan } from '../workspace/workspaceManagerHelpers'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
@@ -677,92 +682,55 @@ function KeepRecentAliveField({ descriptor }: { descriptor: SettingDescriptor })
   return <CommittedNumberField descriptor={descriptor} value={count} onCommit={setCount} />
 }
 
-// Compact, glanceable CLI tile: icon + name + source, then a one-line detection
-// status (a Spinner while probing, else a shape-coded LifecycleGlyph + terse
-// text). A missing CLI surfaces an inline Install button; everything else
-// (command override, models, custom ids) lives in the detail the card opens. The
-// card is a disclosure button that reveals that detail below the grid; the
-// nested Install button stops propagation so it acts without toggling the card.
-function CliCard({
-  plugin,
-  availability,
-  detecting,
-  selected,
-  detailId,
-  onToggle,
-  onInstall,
+// The Agent CLIs section band: title on the left, freshness meta and the two
+// section controls on the right. The one chrome row for this list — the
+// freshness fact and the control that refreshes it share a band rather than
+// stacking a toolbar on a status line.
+function AgentCliBand({
+  count,
+  checkedAt,
+  now,
+  addPending,
+  onAdd,
+  onRecheck,
 }: {
-  plugin: PluginCatalogEntry
-  availability: CliAvailability | undefined
-  detecting: boolean
-  selected: boolean
-  detailId: string
-  onToggle: () => void
-  onInstall: () => void
+  count?: number
+  checkedAt: number | null
+  now: number
+  addPending: boolean
+  onAdd: () => void
+  onRecheck: () => void
 }) {
-  const installed = availability?.installed === true
-  const version = availability?.version ?? null
-  const statusText = detecting ? 'Checking…' : installed ? `Detected${version ? ` · ${version}` : ''}` : 'Not found'
+  const freshness = formatRelativeMsAgo(checkedAt, now)
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-expanded={selected}
-      aria-controls={detailId}
-      onClick={onToggle}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onToggle()
-        }
-      }}
-      className={`group relative cursor-pointer rounded-[var(--radius-md)] border p-3 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
-        selected
-          ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-surface-raised)]'
-          : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)]'
-      }`}
+    <SettingsSectionTitle
+      count={count}
+      action={
+        <div className="flex items-center gap-1.5">
+          {freshness ? (
+            <span className="text-micro text-[color:var(--text-subtle)]">{`Checked ${freshness}`}</span>
+          ) : null}
+          <Tooltip content={addPending ? 'Installing a CLI from a folder' : 'Install a CLI from a folder'}>
+            <IconButton
+              aria-label={addPending ? 'Installing a CLI from a folder' : 'Install a CLI from a folder'}
+              disabled={addPending}
+              onClick={onAdd}
+            >
+              {/* The glyph reports the install, so a dimmed plus is never the
+                  only sign that something is happening. */}
+              {addPending ? <Spinner className="icon-sm" /> : <PlusIcon className="icon-sm" />}
+            </IconButton>
+          </Tooltip>
+          <Tooltip content="Re-check every CLI now">
+            <IconButton aria-label="Re-check every CLI now" onClick={onRecheck}>
+              <RefreshIcon />
+            </IconButton>
+          </Tooltip>
+        </div>
+      }
     >
-      {selected ? (
-        <span
-          aria-hidden="true"
-          className="absolute inset-x-0 top-0 h-[3px] rounded-t-[var(--radius-md)] bg-[color:var(--accent-primary)]"
-        />
-      ) : null}
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-2 text-body font-semibold text-[color:var(--text-strong)]">
-          <CliIcon cli={plugin.id} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
-          <span className="truncate">{plugin.displayName}</span>
-        </span>
-        <span className="shrink-0 text-meta text-[color:var(--text-muted)]">
-          {plugin.source === 'bundled' ? 'Built-in' : 'User'}
-        </span>
-      </div>
-      <div className="mt-2.5 flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1.5 text-body text-[color:var(--text-muted)]">
-          {detecting ? (
-            <Spinner className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
-          ) : (
-            <LifecycleGlyph
-              state={installed ? 'done' : 'needs_input'}
-              label={installed ? `${plugin.displayName} detected` : `${plugin.displayName} not installed`}
-            />
-          )}
-          <span className="truncate">{statusText}</span>
-        </span>
-        {!detecting && !installed ? (
-          <PrimaryButton
-            size="sm"
-            className="h-control-sm shrink-0"
-            onClick={(event) => {
-              event.stopPropagation()
-              onInstall()
-            }}
-          >
-            Install
-          </PrimaryButton>
-        ) : null}
-      </div>
-    </div>
+      Agent CLIs
+    </SettingsSectionTitle>
   )
 }
 
@@ -930,9 +898,11 @@ export default function SettingsPanel({
   const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
   const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
   // Detection map shared with the deployment pickers — drives the at-a-glance
-  // status on each CLI card without a per-card probe.
+  // status on every CLI row without a per-row probe.
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
+  const cliAvailabilityError = useWorkspaceStore((s) => s.cliAvailabilityError)
+  const cliAvailabilityCheckedAt = useWorkspaceStore((s) => s.cliAvailabilityCheckedAt)
   const installedPluginRows = useMemo(
     () => orderInstalledPlugins(pluginCatalogEntries),
     [pluginCatalogEntries],
@@ -1048,12 +1018,24 @@ export default function SettingsPanel({
     }
   }, [initialTab])
 
-  // Refresh CLI detection when the Agents tab opens so each card shows current
+  // Refresh CLI detection when the Agents tab opens so every row shows current
   // status. Cache-respecting (no force), so it's a cheap no-op when fresh.
   useEffect(() => {
     if (activeSettingsTab !== 'agents') return
     void refreshCliAvailability({ cliRuntimes })
   }, [activeSettingsTab, refreshCliAvailability, cliRuntimes])
+
+  // The band's freshness meta has to age or it lies: "Checked just now" would
+  // stay on screen for an hour. Re-read the clock every 30s while the tab is
+  // open (and immediately on a new probe) — enough to keep the minute honest,
+  // cheap enough not to matter.
+  const [agentsFreshnessNow, setAgentsFreshnessNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (activeSettingsTab !== 'agents') return
+    setAgentsFreshnessNow(Date.now())
+    const tick = window.setInterval(() => setAgentsFreshnessNow(Date.now()), 30_000)
+    return () => window.clearInterval(tick)
+  }, [activeSettingsTab, cliAvailabilityCheckedAt])
 
   // If the active tab is no longer visible (e.g. the Mobile module was disabled
   // while its tab was active), fall back to the first visible tab so the panel
@@ -1974,24 +1956,14 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-agents"
           className="space-y-3"
         >
-          <SettingsSectionTitle
+          <AgentCliBand
             count={pluginCatalogStatus === 'ready' ? installedPluginRows.length : undefined}
-            action={
-              <GhostButton
-                size="md"
-                onClick={() => void installCliFromFolder()}
-                disabled={cliInstallPending}
-                className="h-control-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              >
-                {cliInstallPending ? 'Installing' : 'Install CLI from folder'}
-              </GhostButton>
-            }
-          >
-            Installed CLIs
-          </SettingsSectionTitle>
-          <p className="text-body leading-5 text-[color:var(--text-muted)]">
-            The agent CLIs that can be launched. Select one to check its status or change how it runs.
-          </p>
+            checkedAt={cliAvailabilityCheckedAt}
+            now={agentsFreshnessNow}
+            addPending={cliInstallPending}
+            onAdd={() => void installCliFromFolder()}
+            onRecheck={() => void refreshCliAvailability({ force: true, cliRuntimes })}
+          />
           {cliInstallMessage ? (
             <MessageBlock tone={cliInstallMessage.tone}>{cliInstallMessage.text}</MessageBlock>
           ) : null}
@@ -2021,53 +1993,69 @@ export default function SettingsPanel({
               </GhostButton>
             </div>
           ) : (
-            <>
-              {/* Calm card grid: one box per CLI showing only name + detection +
-                  Install. Configuration (command override, models) lives in the
-                  detail a card opens, so the resting view stays scannable. */}
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {installedPluginRows.map((plugin) => {
-                  const detailId = `cli-detail-${plugin.id}`
-                  const detecting = cliAvailabilityStatus === 'loading' && !cliAvailability[plugin.id]
-                  return (
-                    <CliCard
-                      key={plugin.id}
-                      plugin={plugin}
-                      availability={cliAvailability[plugin.id]}
-                      detecting={detecting}
-                      selected={selectedCliId === plugin.id}
-                      detailId={detailId}
-                      onToggle={() => {
-                        setInstallIntentId(null)
-                        setSelectedCliId((current) => (current === plugin.id ? null : plugin.id))
-                      }}
-                      onInstall={() => {
-                        setInstallIntentId(plugin.id)
-                        setSelectedCliId(plugin.id)
-                      }}
-                    />
-                  )
-                })}
-              </div>
-
-              {(() => {
-                const plugin = installedPluginRows.find((entry) => entry.id === selectedCliId)
-                if (!plugin) return null
+            <div>
+              {installedPluginRows.map((plugin) => {
                 const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
                 const declaredModels = plugin.modelSelection?.options ?? []
                 const allowCustomModels = Boolean(plugin.modelSelection?.allowCustomId)
                 const userModels = cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS
+                const state = resolveCliProviderState(cliAvailability[plugin.id], cliAvailabilityStatus)
                 return (
-                  <div
-                    id={`cli-detail-${plugin.id}`}
-                    aria-label={`${plugin.displayName} details`}
-                    className="mt-3 border-t border-[color:var(--border-subtle)] pt-4"
+                  <ProviderRow
+                    key={plugin.id}
+                    icon={
+                      <CliIcon
+                        cli={plugin.id}
+                        className="size-icon-lg text-[color:var(--text-default)]"
+                      />
+                    }
+                    health={state.tone}
+                    name={plugin.displayName}
+                    version={state.version}
+                    stateLine={
+                      <>
+                        <CliProviderStateLine
+                          state={state}
+                          binary={plugin.binary}
+                          useWsl={override.useWsl}
+                          probeError={cliAvailabilityError}
+                        />
+                        {/* Provenance, only where it distinguishes: the retired
+                            card stamped "Built-in" on all nine bundled rows,
+                            which said nothing. A plugin the user installed from
+                            a folder is the one this list cannot otherwise
+                            explain. */}
+                        {plugin.source === 'bundled' ? null : ' · installed from a folder'}
+                      </>
+                    }
+                    expanded={selectedCliId === plugin.id}
+                    onExpandedChange={(next) => {
+                      setInstallIntentId(null)
+                      setSelectedCliId(next ? plugin.id : null)
+                    }}
+                    // Install is offered only on a definitive negative probe. A
+                    // CLI whose probe never completed may well be installed, so
+                    // offering to install it would be a fake affordance — those
+                    // rows say so on their state line and route to Re-check.
+                    actions={
+                      state.health === 'missing' ? (
+                        <PrimaryButton
+                          size="xs"
+                          onClick={() => {
+                            setInstallIntentId(plugin.id)
+                            setSelectedCliId(plugin.id)
+                          }}
+                        >
+                          Install
+                        </PrimaryButton>
+                      ) : null
+                    }
                   >
-                    <div className="flex items-center gap-2 text-body font-semibold text-[color:var(--text-strong)]">
-                      <CliIcon cli={plugin.id} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
-                      <span className="truncate">{plugin.displayName}</span>
-                    </div>
-
+                    {/* The per-instance form, in place: the install/detect
+                        control, then how this CLI runs. The row above already
+                        carries name, version, and state, so the control drops
+                        its own name and status line rather than saying it
+                        twice. */}
                     <CliInstallControl
                       cli={plugin.id}
                       displayName={plugin.displayName}
@@ -2075,6 +2063,7 @@ export default function SettingsPanel({
                       command={override.command}
                       useWsl={override.useWsl}
                       showName={false}
+                      showStatus={false}
                       autoOpenInstall={installIntentId === plugin.id}
                       onInstalled={(result) => {
                         if (result.resolvedPath && !override.command) {
@@ -2082,13 +2071,13 @@ export default function SettingsPanel({
                         }
                         void refreshPluginCatalog()
                         // Force-refresh availability so the freshly installed CLI
-                        // shows as detected on its card and in deployment pickers.
+                        // shows as detected on its row and in deployment pickers.
                         void refreshCliAvailability({ force: true, cliRuntimes })
                       }}
                     />
 
                     {declaredModels.length > 0 ? (
-                      <div className="mt-2 flex gap-2 text-body leading-5">
+                      <div className="flex gap-2 text-body leading-5">
                         <span className="shrink-0 text-[color:var(--text-muted)]">Models</span>
                         <span className="min-w-0 font-mono text-[color:var(--text-default)]">
                           {declaredModels.map((model) => model.label ?? model.id).join(' · ')}
@@ -2142,10 +2131,10 @@ export default function SettingsPanel({
                         />
                       ) : null}
                     </div>
-                  </div>
+                  </ProviderRow>
                 )
-              })()}
-            </>
+              })}
+            </div>
           )}
 
           {idleSuspendDescriptor ? (

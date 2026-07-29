@@ -22,6 +22,7 @@
       "button",
       "input",
       "list-row",
+      "provider-row",
       "split-button",
       "switch",
       "task-card",

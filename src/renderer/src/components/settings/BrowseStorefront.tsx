@@ -464,7 +464,7 @@ function inlineServerCommand(server: McpServerConfig): string {
 }
 
 type PluginTrustTier = 'verified' | 'community' | 'unsigned' | 'inline'
-type PluginTrust = { tier: PluginTrustTier; tone: 'good' | 'neutral'; label: string }
+export type PluginTrust = { tier: PluginTrustTier; tone: 'good' | 'neutral'; label: string }
 
 // The signing/trust tier disclosed on the card and detail header, read straight
 // from the registry entry (no download needed). Inline-MCP entries ship raw server
@@ -472,7 +472,7 @@ type PluginTrust = { tier: PluginTrustTier; tone: 'good' | 'neutral'; label: str
 // first-party publisher) or Community (everyone else). All three lower tiers are
 // untrusted until the user grants trust at install (D3). Verified is the quiet
 // default (no dot); the rest surface the neutral dot to earn attention.
-function pluginTrust(plugin: MarketplacePluginEntry): PluginTrust {
+export function pluginTrust(plugin: MarketplacePluginEntry): PluginTrust {
   if (plugin.mcp) return { tier: 'inline', tone: 'neutral', label: 'Inline MCP' }
   if (!plugin.signature) return { tier: 'unsigned', tone: 'neutral', label: 'Unsigned' }
   return plugin.publisher.verified

@@ -489,6 +489,8 @@ code {
 #ds-view-component-input:checked ~ .ds-catalog #component-input { display: block; }
 #ds-view-component-list-row:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-list-row:checked ~ .ds-catalog #component-list-row { display: block; }
+#ds-view-component-provider-row:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-provider-row:checked ~ .ds-catalog #component-provider-row { display: block; }
 #ds-view-component-split-button:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-split-button:checked ~ .ds-catalog #component-split-button { display: block; }
 #ds-view-component-switch:checked ~ .ds-catalog #components { display: block; }
@@ -505,6 +507,8 @@ code {
 #ds-view-component-input:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-input"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-list-row:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-list-row"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-list-row:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-list-row"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-provider-row:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-provider-row"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-provider-row:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-provider-row"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-split-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-split-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-split-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-split-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-switch:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-switch"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -938,6 +942,221 @@ code {
   .ds-list-row-actions {
     transition: none;
   }
+}
+
+/* components/provider-row/component.css */
+/* Provider row — extracted from the source product's ProviderRow primitive
+ * (src/renderer/src/components/ui/ProviderRow.tsx), the shared anatomy for the
+ * installed Agent CLIs list, the Agent CLIs marketplace canvas, and the
+ * onboarding essentials step. */
+
+/* The row group holds the row and its expansion, so the disclosure opens INSIDE
+ * the row's own box and the list below never shifts anything but its position. */
+.ds-provider-row {
+  display: block;
+}
+
+/* No border, on purpose. Five bordered bars in a list read as five panels; the
+ * separating work is done by 12px of vertical padding and the hover fill. The
+ * radius exists only so the fill has a shape — it never draws a box at rest. */
+.ds-provider-row__face {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-lg);
+  padding: var(--sem-space-lg) var(--sem-space-md);
+  border-radius: var(--sem-radius-control);
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-provider-row__face:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+/* Tier 1 selection: a neutral fill, no left bar and no accent (see
+ * patterns/selection.html). For a list whose row drives a detail pane. */
+.ds-provider-row--selected > .ds-provider-row__face {
+  background: var(--sem-color-bg-selected);
+}
+
+/* A row whose disclosure is live takes the whole face as its mouse target. The
+ * chevron is still the only focusable control for it. */
+.ds-provider-row--disclosable > .ds-provider-row__face {
+  cursor: pointer;
+}
+
+/* The brand mark's box. The row sizes the slot and never picks the mark: a
+ * provider whose identity is a logo and one whose identity is a glyph must read
+ * at one weight. 1px down so the mark's optical centre lands on the name's
+ * cap height rather than its baseline. */
+.ds-provider-row__mark {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-lg);
+  height: var(--sem-icon-size-lg);
+  margin-top: 1px; /* ds-lint-allow: optical nudge, not a spacing step */
+}
+
+.ds-provider-row__mark > svg,
+.ds-provider-row__mark > img {
+  width: var(--sem-icon-size-lg);
+  height: var(--sem-icon-size-lg);
+}
+
+/* Health, docked on the mark's corner: 6px of colour inside a 2px keyline in
+ * whatever fill is behind the row. Without the keyline the dot reads as a stain
+ * on the logo; with a keyline hard-coded to the resting surface it halos the
+ * moment the row takes its hover fill, so all three fills are named.
+ *
+ * It is decorative by contract — the state line says the state in words. */
+.ds-provider-row__health {
+  position: absolute;
+  top: -2px; /* ds-lint-allow: the dot overhangs its 22px mark by its own keyline */
+  left: -2px; /* ds-lint-allow: the dot overhangs its 22px mark by its own keyline */
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--sem-color-bg-surface);
+}
+
+.ds-provider-row__face:hover .ds-provider-row__health {
+  box-shadow: 0 0 0 2px var(--sem-color-bg-hover);
+}
+
+.ds-provider-row--selected .ds-provider-row__health {
+  box-shadow: 0 0 0 2px var(--sem-color-bg-selected);
+}
+
+.ds-provider-row__health--good {
+  background: var(--sem-color-status-good);
+}
+
+.ds-provider-row__health--warn {
+  background: var(--sem-color-status-warn);
+}
+
+.ds-provider-row__health--danger {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-provider-row__health--neutral {
+  background: var(--sem-color-status-neutral);
+}
+
+.ds-provider-row__text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Name and version are a baseline PAIR. Neither grows, so they stay adjacent
+ * instead of the version drifting to the far edge on a row that carries no
+ * trailing control. */
+.ds-provider-row__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sem-space-sm);
+}
+
+.ds-provider-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-primary);
+}
+
+/* Real `--version` output is not always a semver — `grok 0.2.114 (0c785038798)
+ * [stable]`, or a whole sentence from GNU bash. Flex shrink is proportional to
+ * content, so the long one absorbs nearly all of it and the name survives; the
+ * 45% cap is the backstop against a one-letter name beside a sentence. */
+.ds-provider-row__version {
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-subtle);
+}
+
+/* One line of state, in words. Never a caption: it says what is true now, not
+ * what the provider is for. */
+.ds-provider-row__state {
+  display: block;
+  margin-top: 1px; /* ds-lint-allow: optical line pairing, not a spacing step */
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-muted);
+}
+
+/* Identifiers inside the state line — a path, an account, a binary name — read
+ * mono, one step down so the data does not out-shout the words around it. */
+.ds-provider-row__id {
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-default);
+}
+
+.ds-provider-row__trail {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--sem-space-md);
+  margin-top: var(--sem-space-3xs);
+}
+
+.ds-provider-row__disclosure {
+  display: inline-flex;
+  padding: var(--sem-space-3xs);
+  border: none;
+  border-radius: var(--sem-radius-chip);
+  background: none;
+  color: var(--sem-color-text-subtle);
+  cursor: pointer;
+}
+
+.ds-provider-row__disclosure:hover {
+  color: var(--sem-color-text-default);
+}
+
+.ds-provider-row__disclosure:focus-visible {
+  outline: none;
+  box-shadow: var(--sem-focus-ring);
+}
+
+/* The chevron rotates rather than being swapped for a second glyph, so the eye
+ * tracks one object. It is the only thing here that moves, so it is the only
+ * thing the reduced-motion guard switches off — the state still reads from the
+ * angle. */
+.ds-provider-row__chevron {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  transition: rotate var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-provider-row__disclosure[aria-expanded='true'] .ds-provider-row__chevron {
+  rotate: 180deg;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-provider-row__face,
+  .ds-provider-row__chevron {
+    transition: none;
+  }
+}
+
+/* The expansion starts on the name's left edge: the face's own inset plus the
+ * mark plus the gap. Disclosure, not navigation — the row above it keeps its
+ * position and nothing else in the list moves. */
+.ds-provider-row__detail {
+  padding-right: var(--sem-space-md);
+  padding-bottom: var(--sem-space-lg);
+  padding-left: calc(var(--sem-space-md) + var(--sem-icon-size-lg) + var(--sem-space-lg));
 }
 
 /* components/split-button/component.css */
@@ -1379,6 +1598,85 @@ code {
   }
 .ds-embed-component-list-row .demo-pane--narrow {
     max-width: 220px;
+  }
+.ds-embed-component-provider-row {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-provider-row .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-provider-row .demo-label {
+    margin: 0 0 var(--sem-space-lg);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-provider-row .demo-band {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    margin: 0 0 var(--sem-space-2xs);
+    padding: 0 var(--sem-space-md);
+  }
+.ds-embed-component-provider-row .demo-band h2 {
+    margin: 0 auto 0 0;
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+  }
+.ds-embed-component-provider-row .demo-band .meta {
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-provider-row .demo-icobtn {
+    display: grid;
+    place-items: center;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    padding: 0;
+    border: none;
+    border-radius: var(--sem-radius-control);
+    background: none;
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
+  }
+.ds-embed-component-provider-row .demo-icobtn:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-primary);
+  }
+.ds-embed-component-provider-row .demo-icobtn:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+.ds-embed-component-provider-row .demo-mono-mark {
+    display: grid;
+    place-items: center;
+    width: var(--sem-icon-size-lg);
+    height: var(--sem-icon-size-lg);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-active);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-muted);
+  }
+.ds-embed-component-provider-row .demo-detail {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+.ds-embed-component-provider-row .demo-ghost {
+    height: var(--sem-size-control-xs);
+    padding: 0 var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: none;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-medium);
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
   }
 .ds-embed-component-split-button {
     margin: 0;
@@ -2125,6 +2423,7 @@ code {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-input" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-list-row" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-provider-row" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-split-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-switch" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-task-card" />
@@ -2153,6 +2452,7 @@ code {
 <label class="catalog-nav-item" for="ds-view-component-button">Button</label>
 <label class="catalog-nav-item" for="ds-view-component-input">Input</label>
 <label class="catalog-nav-item" for="ds-view-component-list-row">List row</label>
+<label class="catalog-nav-item" for="ds-view-component-provider-row">Provider row</label>
 <label class="catalog-nav-item" for="ds-view-component-split-button">Split button</label>
 <label class="catalog-nav-item" for="ds-view-component-switch">Switch</label>
 <label class="catalog-nav-item" for="ds-view-component-task-card">Task card</label>
@@ -3631,6 +3931,895 @@ code {
       &lt;/button&gt;
     &lt;/div&gt;
 
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-provider-row" class="catalog-view catalog-component">
+<h3>Provider row</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-provider-row">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — installed providers, one expanded</p>
+
+  <div class="demo-band">
+    <h2>Agent CLIs</h2>
+    <span class="meta">Checked 2m ago</span>
+    <button type="button" class="demo-icobtn" aria-label="Install a CLI from a folder">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" width="16" height="16">
+        <path d="M12 5.5V18.5M5.5 12H18.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+      </svg>
+    </button>
+    <button type="button" class="demo-icobtn" aria-label="Re-check every CLI now">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" width="16" height="16">
+        <path
+          d="M13.25 7.25A5.25 5.25 0 0 0 4.05 4.1L2.75 5.5m0 0H6m-3.25 0V2.25M2.75 8.75a5.25 5.25 0 0 0 9.2 3.15l1.3-1.4m0 0H10m3.25 0v3.25"
+          stroke="currentColor"
+          stroke-width="1.35"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
+  </div>
+
+  <!-- Healthy, versioned, switched on, closed. -->
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">CL</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--good"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Claude Code</span>
+          <span class="ds-provider-row__version">2.1.220</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Authenticated as <span class="ds-provider-row__id">dev@example.com</span> · Max subscription
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button
+          type="button"
+          class="ds-provider-row__disclosure"
+          aria-expanded="false"
+          aria-controls="detail-claude"
+          aria-label="Claude Code details"
+        >
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button type="button" role="switch" aria-checked="true" aria-label="Claude Code enabled" class="ds-switch">
+          <span aria-hidden="true" class="ds-switch-thumb"></span>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <!-- Expanded: the chevron flipped, the detail on the name's left edge. -->
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">CX</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--good"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Codex</span>
+          <span class="ds-provider-row__version">codex-cli 0.146.0</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Ready — <span class="ds-provider-row__id">/opt/homebrew/bin/codex</span>
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button
+          type="button"
+          class="ds-provider-row__disclosure"
+          aria-expanded="true"
+          aria-controls="detail-codex"
+          aria-label="Codex details"
+        >
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button type="button" role="switch" aria-checked="true" aria-label="Codex enabled" class="ds-switch">
+          <span aria-hidden="true" class="ds-switch-thumb"></span>
+        </button>
+      </span>
+    </div>
+    <div class="ds-provider-row__detail" id="detail-codex">
+      <p class="demo-detail">The per-instance form that already exists: command override, models, credentials.</p>
+    </div>
+  </div>
+
+  <!-- Enabled and unhealthy: the two axes disagreeing, which is legal. -->
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">GK</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--danger"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Grok Build</span>
+          <span class="ds-provider-row__version">grok 0.2.114 (0c785038798) [stable]</span>
+        </span>
+        <span class="ds-provider-row__state">Unavailable — startup timed out after 15s</span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="ds-provider-row__disclosure" aria-expanded="false" aria-controls="detail-grok" aria-label="Grok Build details">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button type="button" role="switch" aria-checked="true" aria-label="Grok Build enabled" class="ds-switch">
+          <span aria-hidden="true" class="ds-switch-thumb"></span>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <!-- Definitively absent: no version at all, and the one action the state earns. -->
+  <div class="ds-provider-row">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">CU</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--warn"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Cursor</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Not installed — no <span class="ds-provider-row__id">cursor-agent</span> on PATH
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="demo-ghost">Install</button>
+      </span>
+    </div>
+  </div>
+
+  <!-- Probe failed, which is NOT absence: no Install offered. -->
+  <div class="ds-provider-row">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">KM</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--warn"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Kimi Code</span>
+        </span>
+        <span class="ds-provider-row__state">Availability unknown — the check did not complete</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- Selected: a marketplace listing whose row drives a detail pane. Neutral
+       health, because this surface has no probe to report. -->
+  <div class="ds-provider-row ds-provider-row--selected">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">OC</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--neutral"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">OpenCode</span>
+          <span class="ds-provider-row__version">Version 4</span>
+        </span>
+        <span class="ds-provider-row__state">Community — published by SST</span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="demo-ghost">Get</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same rows</p>
+
+  <div class="demo-band">
+    <h2>Agent CLIs</h2>
+    <span class="meta">Checked 2m ago</span>
+    <button type="button" class="demo-icobtn" aria-label="Re-check every CLI now">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" width="16" height="16">
+        <path
+          d="M13.25 7.25A5.25 5.25 0 0 0 4.05 4.1L2.75 5.5m0 0H6m-3.25 0V2.25M2.75 8.75a5.25 5.25 0 0 0 9.2 3.15l1.3-1.4m0 0H10m3.25 0v3.25"
+          stroke="currentColor"
+          stroke-width="1.35"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
+  </div>
+
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">CL</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--good"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Claude Code</span>
+          <span class="ds-provider-row__version">2.1.220</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Ready — <span class="ds-provider-row__id">/Users/you/.local/bin/claude</span>
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="ds-provider-row__disclosure" aria-expanded="false" aria-controls="detail-claude-dark" aria-label="Claude Code details">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button type="button" role="switch" aria-checked="true" aria-label="Claude Code enabled" class="ds-switch">
+          <span aria-hidden="true" class="ds-switch-thumb"></span>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">GK</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--danger"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Grok Build</span>
+          <span class="ds-provider-row__version">grok 0.2.114 (0c785038798) [stable]</span>
+        </span>
+        <span class="ds-provider-row__state">Unavailable — startup timed out after 15s</span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="ds-provider-row__disclosure" aria-expanded="false" aria-controls="detail-grok-dark" aria-label="Grok Build details">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button type="button" role="switch" aria-checked="false" aria-label="Grok Build enabled" class="ds-switch">
+          <span aria-hidden="true" class="ds-switch-thumb"></span>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <div class="ds-provider-row ds-provider-row--selected">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">OC</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--neutral"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">OpenCode</span>
+          <span class="ds-provider-row__version">Version 4</span>
+        </span>
+        <span class="ds-provider-row__state">Community — published by SST</span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="demo-ghost">Get</button>
+      </span>
+    </div>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>One row for a *provider*: something the product talks to that can be present-or-absent, healthy-or-not, and configured per-instance. An agent CLI, a source-control forge, an MCP server, a capability module. Extracted from the source product's Agent CLIs lists.</p>
+<p>It is not the general list row. Reach for <code>list-row</code> when the thing in the row is content the user made; reach for this when the row reports on something outside the product that the product depends on.</p>
+<p>Two facts drive the whole anatomy, and they are separate: <strong>health</strong> (is it reachable) and <strong>enablement</strong> (do you want it on). A provider can be switched on and unreachable, or off and perfectly installed. Nothing here derives one from the other.</p>
+<h4>Anatomy</h4>
+<ul><li><code>ds-provider-row</code> — the group. It owns the row and its expansion, so a disclosure opens inside the row's own box rather than pushing a sibling panel into the list.</li><li><code>ds-provider-row__face</code> — the resting row: <code>space.lg</code> of vertical padding, <code>space.md</code> at the sides, and <strong>no border</strong>. Five bordered bars in a list read as five panels; space and the hover fill do the separating.</li><li><code>ds-provider-row__mark</code> — the brand mark's slot at <code>icon.size.lg</code>. The row sizes the slot and never picks the mark: a provider whose identity is a logo and one whose identity is a glyph must read at one weight.</li><li><code>ds-provider-row__health</code> — 6px of status colour docked on the mark's corner inside a 2px keyline in the fill behind it. The keyline is structural, not decoration: without it the dot reads as a stain on the logo.</li><li><code>ds-provider-row__name</code> + <code>ds-provider-row__version</code> — a baseline pair, name at <code>font.size.body</code> / <code>font.weight.emphasis</code>, version mono at <code>font.size.micro</code>. Neither grows, so they stay adjacent on a row with no trailing control.</li><li><code>ds-provider-row__state</code> — exactly one line, at <code>font.size.meta</code>. <code>ds-provider-row__id</code> marks identifiers inside it.</li><li><code>ds-provider-row__trail</code> — actions, then the disclosure chevron, then the switch. It owns its own clicks: flipping the switch must not also toggle the row.</li><li><code>ds-provider-row__detail</code> — the expansion, indented to the name's left edge.</li><li>The section band above the list is the one chrome row: title left, freshness meta and the controls that act on the whole list right. Not part of this component, but a list of these rows without it has nowhere to put &quot;when was this last checked&quot; and the control that re-checks it.</li></ul>
+<h4>Variants</h4>
+<ul><li>Default — icon, name, state line. The floor: every provider row has all three.</li><li>Versioned — adds the mono version. <strong>Absent means nothing is rendered there.</strong> A row that says &quot;unknown&quot; where a version goes has spent a high-signal slot on the absence of information.</li><li>Switched (<code>__switch</code> present) — adds enablement. Only for a host with real enablement state to write to.</li><li>Disclosable (<code>ds-provider-row--disclosable</code>) — adds the chevron and the expansion.</li><li>Selected (<code>ds-provider-row--selected</code>) — Tier 1 selection for a list that drives a detail pane: a neutral fill, no left bar, no accent.</li><li><strong>No tone variants of the row itself, deliberately.</strong> An unhealthy provider is reported by its dot and its state line, not by tinting the row. A list where three of nine rows carry a wash has no resting state left.</li></ul>
+<h4>States</h4>
+<ul><li>Hover: <code>bg.hover</code> on the face, and the dot's keyline switches to the same fill so it does not halo. Rows separate by this fill — it is load-bearing, not feedback.</li><li>Selected: <code>bg.selected</code>, keyline follows again.</li><li>Expanded: the chevron rotates 180°; the face does not change fill. The row keeps its position, and the detail opens under it.</li><li>Health: <code>good</code> / <code>warn</code> / <code>danger</code> / <code>neutral</code> on the dot. <code>neutral</code> is the honest tone where a host has no health probe (a marketplace listing) — it is not a fourth severity.</li><li>Unknown health is a real state and not the same as unhealthy. Where a probe failed rather than reported absence, say so on the state line and do not offer the action that assumes absence.</li><li>Reduced motion: the chevron's rotation is switched off. The state still reads from the angle, so nothing is lost.</li><li>No press-scale, no row-level motion. A list of nine rows that each spring on click is nine springs.</li></ul>
+<h4>Usage</h4>
+<ul><li><strong>The state line is mandatory, and it is state.</strong> &quot;Authenticated as <code>&lt;id&gt;</code> · Max subscription&quot;, &quot;Not installed — no <code>grok</code> on PATH&quot;, &quot;Unavailable — startup timed out after 15s&quot;. Never what the provider is or why you might want it — that is a caption, and it belongs to a marketplace detail panel if anywhere.</li><li><strong>The dot is never the only carrier of a state.</strong> It is <code>aria-hidden</code> and the words are what a screen reader gets, which is also what makes the row survive greyscale and colour-blindness.</li><li><strong>One status idiom.</strong> The dot. No tinted pill beside it, no second badge; a pill and a dot saying the same thing is one of them too many.</li><li>Do not render a switch a host cannot honour. A toggle wired to nothing is worse than no toggle: it reports a state the product does not have.</li><li>Do not render a disclosure over an empty panel. Where a provider has nothing to configure on this surface, the row ends at its state line.</li><li>Offer an action only when the state earns it. An Install button on a provider whose probe never completed is a fake affordance — that row's next action is to check again.</li><li>Keep the expansion the per-instance form that already exists. This is disclosure, not navigation: nothing about opening a row changes where the user is.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The chevron is a real <code>&lt;button&gt;</code> carrying <code>aria-expanded</code> and <code>aria-controls</code> on the panel it opens, plus an <code>aria-label</code> naming its provider (&quot;Claude Code details&quot;) — a list of nine identical &quot;details&quot; is nine unusable controls.</li><li>Exactly <strong>one</strong> focusable control per disclosure. The face is a mouse target that calls the same handler; it is not a second tab stop and never a <code>role=&quot;button&quot;</code> wrapper around a real button.</li><li>The switch is the <code>switch</code> component's contract: <code>role=&quot;switch&quot;</code>, <code>aria-checked</code>, Space toggles and Enter does not.</li><li>The health dot is <code>aria-hidden</code>; the state line is plain text in the reading order right after the name, so the row announces as name, version, state.</li><li>Focus-visible is a 2px <code>border.focus</code> ring on the chevron and the switch independently. The row itself never takes focus, so it never shows a ring.</li><li>Contrast: name, state line, and mono identifiers all clear AA in both modes. The dot is exempt because it is decorative by contract — but the 2px keyline is what keeps it perceptible at all against a brand mark, so it is not optional.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/provider-row/component.css</summary><pre><code>/* Provider row — extracted from the source product's ProviderRow primitive
+ * (src/renderer/src/components/ui/ProviderRow.tsx), the shared anatomy for the
+ * installed Agent CLIs list, the Agent CLIs marketplace canvas, and the
+ * onboarding essentials step. */
+
+/* The row group holds the row and its expansion, so the disclosure opens INSIDE
+ * the row's own box and the list below never shifts anything but its position. */
+.ds-provider-row {
+  display: block;
+}
+
+/* No border, on purpose. Five bordered bars in a list read as five panels; the
+ * separating work is done by 12px of vertical padding and the hover fill. The
+ * radius exists only so the fill has a shape — it never draws a box at rest. */
+.ds-provider-row__face {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-lg);
+  padding: var(--sem-space-lg) var(--sem-space-md);
+  border-radius: var(--sem-radius-control);
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-provider-row__face:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+/* Tier 1 selection: a neutral fill, no left bar and no accent (see
+ * patterns/selection.html). For a list whose row drives a detail pane. */
+.ds-provider-row--selected &gt; .ds-provider-row__face {
+  background: var(--sem-color-bg-selected);
+}
+
+/* A row whose disclosure is live takes the whole face as its mouse target. The
+ * chevron is still the only focusable control for it. */
+.ds-provider-row--disclosable &gt; .ds-provider-row__face {
+  cursor: pointer;
+}
+
+/* The brand mark's box. The row sizes the slot and never picks the mark: a
+ * provider whose identity is a logo and one whose identity is a glyph must read
+ * at one weight. 1px down so the mark's optical centre lands on the name's
+ * cap height rather than its baseline. */
+.ds-provider-row__mark {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-lg);
+  height: var(--sem-icon-size-lg);
+  margin-top: 1px; /* ds-lint-allow: optical nudge, not a spacing step */
+}
+
+.ds-provider-row__mark &gt; svg,
+.ds-provider-row__mark &gt; img {
+  width: var(--sem-icon-size-lg);
+  height: var(--sem-icon-size-lg);
+}
+
+/* Health, docked on the mark's corner: 6px of colour inside a 2px keyline in
+ * whatever fill is behind the row. Without the keyline the dot reads as a stain
+ * on the logo; with a keyline hard-coded to the resting surface it halos the
+ * moment the row takes its hover fill, so all three fills are named.
+ *
+ * It is decorative by contract — the state line says the state in words. */
+.ds-provider-row__health {
+  position: absolute;
+  top: -2px; /* ds-lint-allow: the dot overhangs its 22px mark by its own keyline */
+  left: -2px; /* ds-lint-allow: the dot overhangs its 22px mark by its own keyline */
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--sem-color-bg-surface);
+}
+
+.ds-provider-row__face:hover .ds-provider-row__health {
+  box-shadow: 0 0 0 2px var(--sem-color-bg-hover);
+}
+
+.ds-provider-row--selected .ds-provider-row__health {
+  box-shadow: 0 0 0 2px var(--sem-color-bg-selected);
+}
+
+.ds-provider-row__health--good {
+  background: var(--sem-color-status-good);
+}
+
+.ds-provider-row__health--warn {
+  background: var(--sem-color-status-warn);
+}
+
+.ds-provider-row__health--danger {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-provider-row__health--neutral {
+  background: var(--sem-color-status-neutral);
+}
+
+.ds-provider-row__text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Name and version are a baseline PAIR. Neither grows, so they stay adjacent
+ * instead of the version drifting to the far edge on a row that carries no
+ * trailing control. */
+.ds-provider-row__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sem-space-sm);
+}
+
+.ds-provider-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-primary);
+}
+
+/* Real `--version` output is not always a semver — `grok 0.2.114 (0c785038798)
+ * [stable]`, or a whole sentence from GNU bash. Flex shrink is proportional to
+ * content, so the long one absorbs nearly all of it and the name survives; the
+ * 45% cap is the backstop against a one-letter name beside a sentence. */
+.ds-provider-row__version {
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-subtle);
+}
+
+/* One line of state, in words. Never a caption: it says what is true now, not
+ * what the provider is for. */
+.ds-provider-row__state {
+  display: block;
+  margin-top: 1px; /* ds-lint-allow: optical line pairing, not a spacing step */
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-muted);
+}
+
+/* Identifiers inside the state line — a path, an account, a binary name — read
+ * mono, one step down so the data does not out-shout the words around it. */
+.ds-provider-row__id {
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-default);
+}
+
+.ds-provider-row__trail {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--sem-space-md);
+  margin-top: var(--sem-space-3xs);
+}
+
+.ds-provider-row__disclosure {
+  display: inline-flex;
+  padding: var(--sem-space-3xs);
+  border: none;
+  border-radius: var(--sem-radius-chip);
+  background: none;
+  color: var(--sem-color-text-subtle);
+  cursor: pointer;
+}
+
+.ds-provider-row__disclosure:hover {
+  color: var(--sem-color-text-default);
+}
+
+.ds-provider-row__disclosure:focus-visible {
+  outline: none;
+  box-shadow: var(--sem-focus-ring);
+}
+
+/* The chevron rotates rather than being swapped for a second glyph, so the eye
+ * tracks one object. It is the only thing here that moves, so it is the only
+ * thing the reduced-motion guard switches off — the state still reads from the
+ * angle. */
+.ds-provider-row__chevron {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  transition: rotate var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-provider-row__disclosure[aria-expanded='true'] .ds-provider-row__chevron {
+  rotate: 180deg;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-provider-row__face,
+  .ds-provider-row__chevron {
+    transition: none;
+  }
+}
+
+/* The expansion starts on the name's left edge: the face's own inset plus the
+ * mark plus the gap. Disclosure, not navigation — the row above it keeps its
+ * position and nothing else in the list moves. */
+.ds-provider-row__detail {
+  padding-right: var(--sem-space-md);
+  padding-bottom: var(--sem-space-lg);
+  padding-left: calc(var(--sem-space-md) + var(--sem-icon-size-lg) + var(--sem-space-lg));
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/provider-row/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Provider row&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;!-- The trailing enablement control is the `switch` component, unchanged. Linked
+     so this file also stands alone in a browser; the catalog inlines every
+     component's CSS itself and drops this head. --&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../switch/component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-lg);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* The section band above the list: title left, freshness meta and the controls
+     that act on the whole list right. One chrome row, not two. */
+  .demo-band {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    margin: 0 0 var(--sem-space-2xs);
+    padding: 0 var(--sem-space-md);
+  }
+  .demo-band h2 {
+    margin: 0 auto 0 0;
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-band .meta {
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-icobtn {
+    display: grid;
+    place-items: center;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    padding: 0;
+    border: none;
+    border-radius: var(--sem-radius-control);
+    background: none;
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
+  }
+  .demo-icobtn:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-icobtn:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+  /* Stand-in for the real brand marks, which come from the product's own icon
+     set. Two-letter mono monograms on the icon plate so every demo row reads at
+     the weight a logo would. */
+  .demo-mono-mark {
+    display: grid;
+    place-items: center;
+    width: var(--sem-icon-size-lg);
+    height: var(--sem-icon-size-lg);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-active);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-detail {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-ghost {
+    height: var(--sem-size-control-xs);
+    padding: 0 var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: none;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-medium);
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — installed providers, one expanded&lt;/p&gt;
+
+  &lt;div class=&quot;demo-band&quot;&gt;
+    &lt;h2&gt;Agent CLIs&lt;/h2&gt;
+    &lt;span class=&quot;meta&quot;&gt;Checked 2m ago&lt;/span&gt;
+    &lt;button type=&quot;button&quot; class=&quot;demo-icobtn&quot; aria-label=&quot;Install a CLI from a folder&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; width=&quot;16&quot; height=&quot;16&quot;&gt;
+        &lt;path d=&quot;M12 5.5V18.5M5.5 12H18.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.6&quot; stroke-linecap=&quot;round&quot; /&gt;
+      &lt;/svg&gt;
+    &lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;demo-icobtn&quot; aria-label=&quot;Re-check every CLI now&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; width=&quot;16&quot; height=&quot;16&quot;&gt;
+        &lt;path
+          d=&quot;M13.25 7.25A5.25 5.25 0 0 0 4.05 4.1L2.75 5.5m0 0H6m-3.25 0V2.25M2.75 8.75a5.25 5.25 0 0 0 9.2 3.15l1.3-1.4m0 0H10m3.25 0v3.25&quot;
+          stroke=&quot;currentColor&quot;
+          stroke-width=&quot;1.35&quot;
+          stroke-linecap=&quot;round&quot;
+          stroke-linejoin=&quot;round&quot;
+        /&gt;
+      &lt;/svg&gt;
+    &lt;/button&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Healthy, versioned, switched on, closed. --&gt;
+  &lt;div class=&quot;ds-provider-row ds-provider-row--disclosable&quot;&gt;
+    &lt;div class=&quot;ds-provider-row__face&quot;&gt;
+      &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
+        &lt;span class=&quot;demo-mono-mark&quot;&gt;CL&lt;/span&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__health ds-provider-row__health--good&quot;&gt;&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__text&quot;&gt;
+        &lt;span class=&quot;ds-provider-row__line&quot;&gt;
+          &lt;span class=&quot;ds-provider-row__name&quot;&gt;Claude Code&lt;/span&gt;
+          &lt;span class=&quot;ds-provider-row__version&quot;&gt;2.1.220&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-provider-row__state&quot;&gt;
+          Authenticated as &lt;span class=&quot;ds-provider-row__id&quot;&gt;dev@example.com&lt;/span&gt; · Max subscription
+        &lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__trail&quot;&gt;
+        &lt;button
+          type=&quot;button&quot;
+          class=&quot;ds-provider-row__disclosure&quot;
+          aria-expanded=&quot;false&quot;
+          aria-controls=&quot;detail-claude&quot;
+          aria-label=&quot;Claude Code details&quot;
+        &gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__chevron&quot;&gt;
+            &lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; aria-label=&quot;Claude Code enabled&quot; class=&quot;ds-switch&quot;&gt;
+          &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+        &lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Expanded: the chevron flipped, the detail on the name's left edge. --&gt;
+  &lt;div class=&quot;ds-provider-row ds-provider-row--disclosable&quot;&gt;
+    &lt;div class=&quot;ds-provider-row__face&quot;&gt;
+      &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
+        &lt;span class=&quot;demo-mono-mark&quot;&gt;CX&lt;/span&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__health ds-provider-row__health--good&quot;&gt;&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__text&quot;&gt;
+        &lt;span class=&quot;ds-provider-row__line&quot;&gt;
+          &lt;span class=&quot;ds-provider-row__name&quot;&gt;Codex&lt;/span&gt;
+          &lt;span class=&quot;ds-provider-row__version&quot;&gt;codex-cli 0.146.0&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-provider-row__state&quot;&gt;
+          Ready — &lt;span class=&quot;ds-provider-row__id&quot;&gt;/opt/homebrew/bin/codex&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__trail&quot;&gt;
+        &lt;button
+          type=&quot;button&quot;
+          class=&quot;ds-provider-row__disclosure&quot;
+          aria-expanded=&quot;true&quot;
+          aria-controls=&quot;detail-codex&quot;
+          aria-label=&quot;Codex details&quot;
+        &gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__chevron&quot;&gt;
+            &lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; aria-label=&quot;Codex enabled&quot; class=&quot;ds-switch&quot;&gt;
+          &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+        &lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-provider-row__detail&quot; id=&quot;detail-codex&quot;&gt;
+      &lt;p class=&quot;demo-detail&quot;&gt;The per-instance form that already exists: command override, models, credentials.&lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Enabled and unhealthy: the two axes disagreeing, which is legal. --&gt;
+  &lt;div class=&quot;ds-provider-row ds-provider-row--disclosable&quot;&gt;
+    &lt;div class=&quot;ds-provider-row__face&quot;&gt;
+      &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
+        &lt;span class=&quot;demo-mono-mark&quot;&gt;GK&lt;/span&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__health ds-provider-row__health--danger&quot;&gt;&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__text&quot;&gt;
+        &lt;span class=&quot;ds-provider-row__line&quot;&gt;
+          &lt;span class=&quot;ds-provider-row__name&quot;&gt;Grok Build&lt;/span&gt;
+          &lt;span class=&quot;ds-provider-row__version&quot;&gt;grok 0.2.114 (0c785038798) [stable]&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-provider-row__state&quot;&gt;Unavailable — startup timed out after 15s&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__trail&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-provider-row__disclosure&quot; aria-expanded=&quot;false&quot; aria-controls=&quot;detail-grok&quot; aria-label=&quot;Grok Build details&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__chevron&quot;&gt;
+            &lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; aria-label=&quot;Grok Build enabled&quot; class=&quot;ds-switch&quot;&gt;
+          &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+        &lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Definitively absent: no version at all, and the one action the state earns. --&gt;
+  &lt;div class=&quot;ds-provider-row&quot;&gt;
+    &lt;div class=&quot;ds-provider-row__face&quot;&gt;
+      &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
+        &lt;span class=&quot;demo-mono-mark&quot;&gt;CU&lt;/span&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__health ds-provider-row__health--warn&quot;&gt;&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__text&quot;&gt;
+        &lt;span class=&quot;ds-provider-row__line&quot;&gt;
+          &lt;span class=&quot;ds-provider-row__name&quot;&gt;Cursor&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-provider-row__state&quot;&gt;
+          Not installed — no &lt;span class=&quot;ds-provider-row__id&quot;&gt;cursor-agent&lt;/span&gt; on PATH
+        &lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__trail&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-ghost&quot;&gt;Install&lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Probe failed, which is NOT absence: no Install offered. --&gt;
+  &lt;div class=&quot;ds-provider-row&quot;&gt;
+    &lt;div class=&quot;ds-provider-row__face&quot;&gt;
+      &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
+        &lt;span class=&quot;demo-mono-mark&quot;&gt;KM&lt;/span&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__health ds-provider-row__health--warn&quot;&gt;&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__text&quot;&gt;
+        &lt;span class=&quot;ds-provider-row__line&quot;&gt;
+          &lt;span class=&quot;ds-provider-row__name&quot;&gt;Kimi Code&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-provider-row__state&quot;&gt;Availability unknown — the check did not complete&lt;/span&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Selected: a marketplace listing whose row drives a detail pane. Neutral
+       health, because this surface has no probe to report. --&gt;
+  &lt;div class=&quot;ds-provider-row ds-provider-row--selected&quot;&gt;
+    &lt;div class=&quot;ds-provider-row__face&quot;&gt;
+      &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
+        &lt;span class=&quot;demo-mono-mark&quot;&gt;OC&lt;/span&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__health ds-provider-row__health--neutral&quot;&gt;&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__text&quot;&gt;
+        &lt;span class=&quot;ds-provider-row__line&quot;&gt;
+          &lt;span class=&quot;ds-provider-row__name&quot;&gt;OpenCode&lt;/span&gt;
+          &lt;span class=&quot;ds-provider-row__version&quot;&gt;Version 4&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-provider-row__state&quot;&gt;Community — published by SST&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__trail&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-ghost&quot;&gt;Get&lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same rows&lt;/p&gt;
+
+  &lt;div class=&quot;demo-band&quot;&gt;
+    &lt;h2&gt;Agent CLIs&lt;/h2&gt;
+    &lt;span class=&quot;meta&quot;&gt;Checked 2m ago&lt;/span&gt;
+    &lt;button type=&quot;button&quot; class=&quot;demo-icobtn&quot; aria-label=&quot;Re-check every CLI now&quot;&gt;
+      &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; width=&quot;16&quot; height=&quot;16&quot;&gt;
+        &lt;path
+          d=&quot;M13.25 7.25A5.25 5.25 0 0 0 4.05 4.1L2.75 5.5m0 0H6m-3.25 0V2.25M2.75 8.75a5.25 5.25 0 0 0 9.2 3.15l1.3-1.4m0 0H10m3.25 0v3.25&quot;
+          stroke=&quot;currentColor&quot;
+          stroke-width=&quot;1.35&quot;
+          stroke-linecap=&quot;round&quot;
+          stroke-linejoin=&quot;round&quot;
+        /&gt;
+      &lt;/svg&gt;
+    &lt;/button&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;ds-provider-row ds-provider-row--disclosable&quot;&gt;
+    &lt;div class=&quot;ds-provider-row__face&quot;&gt;
+      &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
+        &lt;span class=&quot;demo-mono-mark&quot;&gt;CL&lt;/span&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__health ds-provider-row__health--good&quot;&gt;&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__text&quot;&gt;
+        &lt;span class=&quot;ds-provider-row__line&quot;&gt;
+          &lt;span class=&quot;ds-provider-row__name&quot;&gt;Claude Code&lt;/span&gt;
+          &lt;span class=&quot;ds-provider-row__version&quot;&gt;2.1.220&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-provider-row__state&quot;&gt;
+          Ready — &lt;span class=&quot;ds-provider-row__id&quot;&gt;/Users/you/.local/bin/claude&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__trail&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-provider-row__disclosure&quot; aria-expanded=&quot;false&quot; aria-controls=&quot;detail-claude-dark&quot; aria-label=&quot;Claude Code details&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__chevron&quot;&gt;
+            &lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; aria-label=&quot;Claude Code enabled&quot; class=&quot;ds-switch&quot;&gt;
+          &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+        &lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;ds-provider-row ds-provider-row--disclosable&quot;&gt;
+    &lt;div class=&quot;ds-provider-row__face&quot;&gt;
+      &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
+        &lt;span class=&quot;demo-mono-mark&quot;&gt;GK&lt;/span&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__health ds-provider-row__health--danger&quot;&gt;&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__text&quot;&gt;
+        &lt;span class=&quot;ds-provider-row__line&quot;&gt;
+          &lt;span class=&quot;ds-provider-row__name&quot;&gt;Grok Build&lt;/span&gt;
+          &lt;span class=&quot;ds-provider-row__version&quot;&gt;grok 0.2.114 (0c785038798) [stable]&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-provider-row__state&quot;&gt;Unavailable — startup timed out after 15s&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__trail&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-provider-row__disclosure&quot; aria-expanded=&quot;false&quot; aria-controls=&quot;detail-grok-dark&quot; aria-label=&quot;Grok Build details&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__chevron&quot;&gt;
+            &lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;false&quot; aria-label=&quot;Grok Build enabled&quot; class=&quot;ds-switch&quot;&gt;
+          &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+        &lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;ds-provider-row ds-provider-row--selected&quot;&gt;
+    &lt;div class=&quot;ds-provider-row__face&quot;&gt;
+      &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
+        &lt;span class=&quot;demo-mono-mark&quot;&gt;OC&lt;/span&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__health ds-provider-row__health--neutral&quot;&gt;&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__text&quot;&gt;
+        &lt;span class=&quot;ds-provider-row__line&quot;&gt;
+          &lt;span class=&quot;ds-provider-row__name&quot;&gt;OpenCode&lt;/span&gt;
+          &lt;span class=&quot;ds-provider-row__version&quot;&gt;Version 4&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-provider-row__state&quot;&gt;Community — published by SST&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__trail&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-ghost&quot;&gt;Get&lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
   &lt;/div&gt;
 &lt;/div&gt;
 &lt;/body&gt;

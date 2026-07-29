@@ -19,6 +19,12 @@ export type CliInstallControlProps = {
   // When false, the status text drops the CLI name (the surrounding row already
   // names it). Onboarding leaves it true since the control is the only label.
   showName?: boolean
+  // When false, the control renders no status glyph, status text, or resolved
+  // path — only its actions and the install flow. Hosts that wrap it in a
+  // `ProviderRow` pass false: the row's health dot, mono version, and state line
+  // already carry all three, and repeating them under the row is the same fact
+  // twice in two vocabularies.
+  showStatus?: boolean
   // When true (and the CLI is not installed), open the install method picker on
   // mount. Lets a parent's "Install" affordance jump straight into the flow.
   autoOpenInstall?: boolean
@@ -36,6 +42,7 @@ export function CliInstallControl({
   useWsl,
   onInstalled,
   showName = true,
+  showStatus = true,
   autoOpenInstall = false,
 }: CliInstallControlProps) {
   const [detect, setDetect] = useState<CliDetectResult | null>(null)
@@ -156,24 +163,26 @@ export function CliInstallControl({
   const selectedMethod = (methods ?? []).find((method) => method.id === selectedMethodId) ?? null
 
   return (
-    <div className="py-2.5">
+    <div className={showStatus ? 'py-2.5' : ''}>
       <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          {detecting ? (
-            <Spinner className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
-          ) : (
-            // Status reads by shape, not a bare dot: a quiet check when the CLI
-            // is present, the warn "!" when it is missing. The adjacent text
-            // names the state, so the glyph never carries meaning by colour alone.
-            <LifecycleGlyph
-              state={installed ? 'done' : 'needs_input'}
-              label={installed ? `${displayName} detected` : `${displayName} not found`}
-            />
-          )}
-          <span className="truncate text-body text-[color:var(--text-default)]">
-            {statusText}
-          </span>
-        </div>
+        {showStatus ? (
+          <div className="flex min-w-0 items-center gap-2">
+            {detecting ? (
+              <Spinner className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
+            ) : (
+              // Status reads by shape, not a bare dot: a quiet check when the CLI
+              // is present, the warn "!" when it is missing. The adjacent text
+              // names the state, so the glyph never carries meaning by colour alone.
+              <LifecycleGlyph
+                state={installed ? 'done' : 'needs_input'}
+                label={installed ? `${displayName} detected` : `${displayName} not found`}
+              />
+            )}
+            <span className="truncate text-body text-[color:var(--text-default)]">
+              {statusText}
+            </span>
+          </div>
+        ) : null}
         {!detecting && (
           <div className="flex shrink-0 items-center gap-2">
             <GhostButton
@@ -192,7 +201,7 @@ export function CliInstallControl({
         )}
       </div>
 
-      {installed && detect?.resolvedPath && (
+      {showStatus && installed && detect?.resolvedPath && (
         <div className="mt-1 pl-6 font-mono text-meta text-[color:var(--text-subtle)] truncate">
           {detect.resolvedPath}
         </div>

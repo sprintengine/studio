@@ -1,0 +1,213 @@
+/* Provider row — extracted from the source product's ProviderRow primitive
+ * (src/renderer/src/components/ui/ProviderRow.tsx), the shared anatomy for the
+ * installed Agent CLIs list, the Agent CLIs marketplace canvas, and the
+ * onboarding essentials step. */
+
+/* The row group holds the row and its expansion, so the disclosure opens INSIDE
+ * the row's own box and the list below never shifts anything but its position. */
+.ds-provider-row {
+  display: block;
+}
+
+/* No border, on purpose. Five bordered bars in a list read as five panels; the
+ * separating work is done by 12px of vertical padding and the hover fill. The
+ * radius exists only so the fill has a shape — it never draws a box at rest. */
+.ds-provider-row__face {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-lg);
+  padding: var(--sem-space-lg) var(--sem-space-md);
+  border-radius: var(--sem-radius-control);
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-provider-row__face:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+/* Tier 1 selection: a neutral fill, no left bar and no accent (see
+ * patterns/selection.html). For a list whose row drives a detail pane. */
+.ds-provider-row--selected > .ds-provider-row__face {
+  background: var(--sem-color-bg-selected);
+}
+
+/* A row whose disclosure is live takes the whole face as its mouse target. The
+ * chevron is still the only focusable control for it. */
+.ds-provider-row--disclosable > .ds-provider-row__face {
+  cursor: pointer;
+}
+
+/* The brand mark's box. The row sizes the slot and never picks the mark: a
+ * provider whose identity is a logo and one whose identity is a glyph must read
+ * at one weight. 1px down so the mark's optical centre lands on the name's
+ * cap height rather than its baseline. */
+.ds-provider-row__mark {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-lg);
+  height: var(--sem-icon-size-lg);
+  margin-top: 1px; /* ds-lint-allow: optical nudge, not a spacing step */
+}
+
+.ds-provider-row__mark > svg,
+.ds-provider-row__mark > img {
+  width: var(--sem-icon-size-lg);
+  height: var(--sem-icon-size-lg);
+}
+
+/* Health, docked on the mark's corner: 6px of colour inside a 2px keyline in
+ * whatever fill is behind the row. Without the keyline the dot reads as a stain
+ * on the logo; with a keyline hard-coded to the resting surface it halos the
+ * moment the row takes its hover fill, so all three fills are named.
+ *
+ * It is decorative by contract — the state line says the state in words. */
+.ds-provider-row__health {
+  position: absolute;
+  top: -2px; /* ds-lint-allow: the dot overhangs its 22px mark by its own keyline */
+  left: -2px; /* ds-lint-allow: the dot overhangs its 22px mark by its own keyline */
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--sem-color-bg-surface);
+}
+
+.ds-provider-row__face:hover .ds-provider-row__health {
+  box-shadow: 0 0 0 2px var(--sem-color-bg-hover);
+}
+
+.ds-provider-row--selected .ds-provider-row__health {
+  box-shadow: 0 0 0 2px var(--sem-color-bg-selected);
+}
+
+.ds-provider-row__health--good {
+  background: var(--sem-color-status-good);
+}
+
+.ds-provider-row__health--warn {
+  background: var(--sem-color-status-warn);
+}
+
+.ds-provider-row__health--danger {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-provider-row__health--neutral {
+  background: var(--sem-color-status-neutral);
+}
+
+.ds-provider-row__text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Name and version are a baseline PAIR. Neither grows, so they stay adjacent
+ * instead of the version drifting to the far edge on a row that carries no
+ * trailing control. */
+.ds-provider-row__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sem-space-sm);
+}
+
+.ds-provider-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-primary);
+}
+
+/* Real `--version` output is not always a semver — `grok 0.2.114 (0c785038798)
+ * [stable]`, or a whole sentence from GNU bash. Flex shrink is proportional to
+ * content, so the long one absorbs nearly all of it and the name survives; the
+ * 45% cap is the backstop against a one-letter name beside a sentence. */
+.ds-provider-row__version {
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-subtle);
+}
+
+/* One line of state, in words. Never a caption: it says what is true now, not
+ * what the provider is for. */
+.ds-provider-row__state {
+  display: block;
+  margin-top: 1px; /* ds-lint-allow: optical line pairing, not a spacing step */
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-muted);
+}
+
+/* Identifiers inside the state line — a path, an account, a binary name — read
+ * mono, one step down so the data does not out-shout the words around it. */
+.ds-provider-row__id {
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-default);
+}
+
+.ds-provider-row__trail {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: var(--sem-space-md);
+  margin-top: var(--sem-space-3xs);
+}
+
+.ds-provider-row__disclosure {
+  display: inline-flex;
+  padding: var(--sem-space-3xs);
+  border: none;
+  border-radius: var(--sem-radius-chip);
+  background: none;
+  color: var(--sem-color-text-subtle);
+  cursor: pointer;
+}
+
+.ds-provider-row__disclosure:hover {
+  color: var(--sem-color-text-default);
+}
+
+.ds-provider-row__disclosure:focus-visible {
+  outline: none;
+  box-shadow: var(--sem-focus-ring);
+}
+
+/* The chevron rotates rather than being swapped for a second glyph, so the eye
+ * tracks one object. It is the only thing here that moves, so it is the only
+ * thing the reduced-motion guard switches off — the state still reads from the
+ * angle. */
+.ds-provider-row__chevron {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  transition: rotate var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-provider-row__disclosure[aria-expanded='true'] .ds-provider-row__chevron {
+  rotate: 180deg;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-provider-row__face,
+  .ds-provider-row__chevron {
+    transition: none;
+  }
+}
+
+/* The expansion starts on the name's left edge: the face's own inset plus the
+ * mark plus the gap. Disclosure, not navigation — the row above it keeps its
+ * position and nothing else in the list moves. */
+.ds-provider-row__detail {
+  padding-right: var(--sem-space-md);
+  padding-bottom: var(--sem-space-lg);
+  padding-left: calc(var(--sem-space-md) + var(--sem-icon-size-lg) + var(--sem-space-lg));
+}

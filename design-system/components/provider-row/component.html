@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Provider row</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<!-- The trailing enablement control is the `switch` component, unchanged. Linked
+     so this file also stands alone in a browser; the catalog inlines every
+     component's CSS itself and drops this head. -->
+<link rel="stylesheet" href="../switch/component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-lg);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* The section band above the list: title left, freshness meta and the controls
+     that act on the whole list right. One chrome row, not two. */
+  .demo-band {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    margin: 0 0 var(--sem-space-2xs);
+    padding: 0 var(--sem-space-md);
+  }
+  .demo-band h2 {
+    margin: 0 auto 0 0;
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-band .meta {
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-icobtn {
+    display: grid;
+    place-items: center;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    padding: 0;
+    border: none;
+    border-radius: var(--sem-radius-control);
+    background: none;
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
+  }
+  .demo-icobtn:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-icobtn:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+  /* Stand-in for the real brand marks, which come from the product's own icon
+     set. Two-letter mono monograms on the icon plate so every demo row reads at
+     the weight a logo would. */
+  .demo-mono-mark {
+    display: grid;
+    place-items: center;
+    width: var(--sem-icon-size-lg);
+    height: var(--sem-icon-size-lg);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-active);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-detail {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-ghost {
+    height: var(--sem-size-control-xs);
+    padding: 0 var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: none;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-medium);
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — installed providers, one expanded</p>
+
+  <div class="demo-band">
+    <h2>Agent CLIs</h2>
+    <span class="meta">Checked 2m ago</span>
+    <button type="button" class="demo-icobtn" aria-label="Install a CLI from a folder">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" width="16" height="16">
+        <path d="M12 5.5V18.5M5.5 12H18.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+      </svg>
+    </button>
+    <button type="button" class="demo-icobtn" aria-label="Re-check every CLI now">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" width="16" height="16">
+        <path
+          d="M13.25 7.25A5.25 5.25 0 0 0 4.05 4.1L2.75 5.5m0 0H6m-3.25 0V2.25M2.75 8.75a5.25 5.25 0 0 0 9.2 3.15l1.3-1.4m0 0H10m3.25 0v3.25"
+          stroke="currentColor"
+          stroke-width="1.35"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
+  </div>
+
+  <!-- Healthy, versioned, switched on, closed. -->
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">CL</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--good"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Claude Code</span>
+          <span class="ds-provider-row__version">2.1.220</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Authenticated as <span class="ds-provider-row__id">dev@example.com</span> · Max subscription
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button
+          type="button"
+          class="ds-provider-row__disclosure"
+          aria-expanded="false"
+          aria-controls="detail-claude"
+          aria-label="Claude Code details"
+        >
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button type="button" role="switch" aria-checked="true" aria-label="Claude Code enabled" class="ds-switch">
+          <span aria-hidden="true" class="ds-switch-thumb"></span>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <!-- Expanded: the chevron flipped, the detail on the name's left edge. -->
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">CX</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--good"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Codex</span>
+          <span class="ds-provider-row__version">codex-cli 0.146.0</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Ready — <span class="ds-provider-row__id">/opt/homebrew/bin/codex</span>
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button
+          type="button"
+          class="ds-provider-row__disclosure"
+          aria-expanded="true"
+          aria-controls="detail-codex"
+          aria-label="Codex details"
+        >
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button type="button" role="switch" aria-checked="true" aria-label="Codex enabled" class="ds-switch">
+          <span aria-hidden="true" class="ds-switch-thumb"></span>
+        </button>
+      </span>
+    </div>
+    <div class="ds-provider-row__detail" id="detail-codex">
+      <p class="demo-detail">The per-instance form that already exists: command override, models, credentials.</p>
+    </div>
+  </div>
+
+  <!-- Enabled and unhealthy: the two axes disagreeing, which is legal. -->
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">GK</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--danger"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Grok Build</span>
+          <span class="ds-provider-row__version">grok 0.2.114 (0c785038798) [stable]</span>
+        </span>
+        <span class="ds-provider-row__state">Unavailable — startup timed out after 15s</span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="ds-provider-row__disclosure" aria-expanded="false" aria-controls="detail-grok" aria-label="Grok Build details">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button type="button" role="switch" aria-checked="true" aria-label="Grok Build enabled" class="ds-switch">
+          <span aria-hidden="true" class="ds-switch-thumb"></span>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <!-- Definitively absent: no version at all, and the one action the state earns. -->
+  <div class="ds-provider-row">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">CU</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--warn"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Cursor</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Not installed — no <span class="ds-provider-row__id">cursor-agent</span> on PATH
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="demo-ghost">Install</button>
+      </span>
+    </div>
+  </div>
+
+  <!-- Probe failed, which is NOT absence: no Install offered. -->
+  <div class="ds-provider-row">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">KM</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--warn"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Kimi Code</span>
+        </span>
+        <span class="ds-provider-row__state">Availability unknown — the check did not complete</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- Selected: a marketplace listing whose row drives a detail pane. Neutral
+       health, because this surface has no probe to report. -->
+  <div class="ds-provider-row ds-provider-row--selected">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">OC</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--neutral"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">OpenCode</span>
+          <span class="ds-provider-row__version">Version 4</span>
+        </span>
+        <span class="ds-provider-row__state">Community — published by SST</span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="demo-ghost">Get</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same rows</p>
+
+  <div class="demo-band">
+    <h2>Agent CLIs</h2>
+    <span class="meta">Checked 2m ago</span>
+    <button type="button" class="demo-icobtn" aria-label="Re-check every CLI now">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" width="16" height="16">
+        <path
+          d="M13.25 7.25A5.25 5.25 0 0 0 4.05 4.1L2.75 5.5m0 0H6m-3.25 0V2.25M2.75 8.75a5.25 5.25 0 0 0 9.2 3.15l1.3-1.4m0 0H10m3.25 0v3.25"
+          stroke="currentColor"
+          stroke-width="1.35"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
+  </div>
+
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">CL</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--good"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Claude Code</span>
+          <span class="ds-provider-row__version">2.1.220</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Ready — <span class="ds-provider-row__id">/Users/you/.local/bin/claude</span>
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="ds-provider-row__disclosure" aria-expanded="false" aria-controls="detail-claude-dark" aria-label="Claude Code details">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button type="button" role="switch" aria-checked="true" aria-label="Claude Code enabled" class="ds-switch">
+          <span aria-hidden="true" class="ds-switch-thumb"></span>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">GK</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--danger"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Grok Build</span>
+          <span class="ds-provider-row__version">grok 0.2.114 (0c785038798) [stable]</span>
+        </span>
+        <span class="ds-provider-row__state">Unavailable — startup timed out after 15s</span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="ds-provider-row__disclosure" aria-expanded="false" aria-controls="detail-grok-dark" aria-label="Grok Build details">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button type="button" role="switch" aria-checked="false" aria-label="Grok Build enabled" class="ds-switch">
+          <span aria-hidden="true" class="ds-switch-thumb"></span>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <div class="ds-provider-row ds-provider-row--selected">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">OC</span>
+        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--neutral"></span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">OpenCode</span>
+          <span class="ds-provider-row__version">Version 4</span>
+        </span>
+        <span class="ds-provider-row__state">Community — published by SST</span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="demo-ghost">Get</button>
+      </span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

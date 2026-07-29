@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useId, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { GhostButton, PrimaryButton } from '../ui'
+import {
+  CliProviderStateLine,
+  GhostButton,
+  PrimaryButton,
+  ProviderRow,
+  resolveCliProviderState,
+} from '../ui'
+import CliIcon from '../CliIcon'
 import { ModuleToggleList } from '../settings/ModuleControls'
 import { CliInstallControl } from '../settings/CliInstallControl'
 import { AppThemePicker } from '../settings/AppThemePicker'
@@ -232,8 +239,18 @@ function EssentialsStep({ titleId, onContinue }: { titleId: string; onContinue: 
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
   const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
+  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
+  const cliAvailabilityError = useWorkspaceStore((s) => s.cliAvailabilityError)
   const setPendingAgentConfigAdoption = useWorkspaceStore((s) => s.setPendingAgentConfigAdoption)
   const rows = useMemo(() => orderInstalledPlugins(pluginCatalogEntries), [pluginCatalogEntries])
+  // One CLI open at a time — on a first run the point is to install one, not to
+  // compare four expanded forms at once.
+  const [openCli, setOpenCli] = useState<string | null>(null)
+  // Which row's Install button was pressed, so its install flow opens straight
+  // away instead of making the user find the same button again inside the
+  // expansion. Cleared whenever the disclosure is driven by the chevron.
+  const [installIntentCli, setInstallIntentCli] = useState<string | null>(null)
 
   // Skipping the step opts out of everything on it, including any default-on
   // config-adoption selection the card recorded — so a user who skips never
@@ -263,25 +280,83 @@ function EssentialsStep({ titleId, onContinue }: { titleId: string; onContinue: 
             No agent CLIs are available to install.
           </p>
         ) : (
-          <div className="divide-y divide-[color:var(--border-subtle)]">
+          // The shared provider anatomy, on the onboarding surface: the same
+          // two-line row, health dot, and state line the Agents settings list
+          // uses, so the first list a user ever sees is the list they come back
+          // to. Onboarding keeps its own step layout around it.
+          <div>
             {rows.map((plugin) => {
               const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
+              const state = resolveCliProviderState(cliAvailability[plugin.id], cliAvailabilityStatus)
               return (
-                <CliInstallControl
+                <ProviderRow
                   key={plugin.id}
-                  cli={plugin.id}
-                  displayName={plugin.displayName}
-                  binary={plugin.binary}
-                  command={override.command}
-                  useWsl={override.useWsl}
-                  onInstalled={(result) => {
-                    if (result.resolvedPath && !override.command) {
-                      setCliRuntime(plugin.id, { command: result.resolvedPath, useWsl: override.useWsl })
-                    }
-                    void refreshPluginCatalog()
-                    void refreshCliAvailability({ force: true, cliRuntimes })
-                  }}
-                />
+                  icon={
+                    <CliIcon
+                      cli={plugin.id}
+                      className="size-icon-lg text-[color:var(--text-default)]"
+                    />
+                  }
+                  health={state.tone}
+                  name={plugin.displayName}
+                  version={state.version}
+                  stateLine={
+                    <CliProviderStateLine
+                      state={state}
+                      binary={plugin.binary}
+                      useWsl={override.useWsl}
+                      probeError={cliAvailabilityError}
+                    />
+                  }
+                  // Only a CLI that still needs installing gets a
+                  // disclosure here — its expansion is the real install flow.
+                  // An installed one has nothing behind the chevron on a first
+                  // run (its command override and models live in Settings), and
+                  // a chevron over an empty panel is a promise the row cannot
+                  // keep.
+                  expanded={openCli === plugin.id}
+                  onExpandedChange={
+                    state.installed
+                      ? undefined
+                      : (next) => {
+                          setInstallIntentCli(null)
+                          setOpenCli(next ? plugin.id : null)
+                        }
+                  }
+                  // Only a definitive negative probe earns an Install button;
+                  // a CLI whose probe never completed may already be installed.
+                  actions={
+                    state.health === 'missing' ? (
+                      <PrimaryButton
+                        size="xs"
+                        onClick={() => {
+                          setInstallIntentCli(plugin.id)
+                          setOpenCli(plugin.id)
+                        }}
+                      >
+                        Install
+                      </PrimaryButton>
+                    ) : null
+                  }
+                >
+                  <CliInstallControl
+                    cli={plugin.id}
+                    displayName={plugin.displayName}
+                    binary={plugin.binary}
+                    command={override.command}
+                    useWsl={override.useWsl}
+                    showName={false}
+                    showStatus={false}
+                    autoOpenInstall={installIntentCli === plugin.id}
+                    onInstalled={(result) => {
+                      if (result.resolvedPath && !override.command) {
+                        setCliRuntime(plugin.id, { command: result.resolvedPath, useWsl: override.useWsl })
+                      }
+                      void refreshPluginCatalog()
+                      void refreshCliAvailability({ force: true, cliRuntimes })
+                    }}
+                  />
+                </ProviderRow>
               )
             })}
           </div>

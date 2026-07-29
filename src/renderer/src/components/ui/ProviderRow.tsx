@@ -141,7 +141,7 @@ export function ProviderRow({
   }, [expanded, onExpandedChange])
 
   return (
-    <div className={`group ${className ?? ''}`}>
+    <div className={className ?? ''}>
       {/* Mouse users get the whole row as the hit target; the chevron is the
           only focusable control for it, so there is exactly one tab stop and
           one aria-expanded per row rather than a row-button wrapping a
@@ -151,7 +151,7 @@ export function ProviderRow({
         className={[
           // 12px vertical padding, no border. The radius only shows under the
           // hover fill, so it matches the fill rather than drawing a box.
-          'flex items-start gap-3 rounded-[var(--radius-sm)] px-2.5 py-3',
+          'group flex items-start gap-3 rounded-[var(--radius-sm)] px-2.5 py-3',
           'transition-colors duration-[var(--motion-fast)] hover:bg-[color:var(--bg-hover)]',
           selected ? 'bg-[color:var(--bg-selected)]' : '',
           disclosable ? 'cursor-pointer' : '',
@@ -175,23 +175,27 @@ export function ProviderRow({
 
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            {/* The name wins the row: it takes the free space and truncates
-                last. The version is capped at 45% and truncates first — a CLI
-                whose `--version` prints a sentence must not reduce its own name
-                to one letter, which is what an uncapped shrink-0 slot did. */}
-            <span className="min-w-0 flex-1 truncate text-body font-semibold text-[color:var(--text-strong)]">
+            {/* Name and version are a baseline PAIR — neither grows, so they
+                stay adjacent instead of the version drifting to the far edge on
+                a row with no trailing controls. Both may truncate; flex shrink
+                is proportional to content, so a `--version` that prints a whole
+                sentence (GNU bash) absorbs nearly all of it and the name
+                survives. The 45% cap is the backstop for the pathological case
+                an uncapped slot got wrong: a one-letter name beside a full
+                sentence of version output. */}
+            <span className="min-w-0 truncate text-body font-semibold text-[color:var(--text-strong)]">
               {name}
             </span>
             {version ? (
               <span
                 title={version}
-                className="max-w-[45%] shrink-0 truncate font-mono text-micro tabular-nums text-[color:var(--text-subtle)]"
+                className="min-w-0 max-w-[45%] truncate font-mono text-micro tabular-nums text-[color:var(--text-subtle)]"
               >
                 {version}
               </span>
             ) : null}
           </span>
-          <span className="mt-px block text-meta leading-[1.45] text-[color:var(--text-muted)]">
+          <span className="mt-px block text-meta leading-[var(--text-line-default)] text-[color:var(--text-muted)]">
             {stateLine}
           </span>
         </span>
