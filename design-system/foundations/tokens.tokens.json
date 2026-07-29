@@ -791,7 +791,7 @@
       "size": {
         "micro": {
           "$type": "dimension",
-          "$value": "10.5px",
+          "$value": "10px",
           "$description": "Micro labels: kbd shortcuts in dense chrome.",
           "$extensions": {
             "com.multicode": {

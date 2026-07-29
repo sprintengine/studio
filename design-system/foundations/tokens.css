@@ -74,7 +74,7 @@
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
   --sem-font-family-ui: Inter, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --sem-font-family-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
-  --sem-font-size-micro: 10.5px;
+  --sem-font-size-micro: 10px;
   --sem-font-size-meta: 11px;
   --sem-font-size-body: 12px;
   --sem-font-size-heading: 13px;
