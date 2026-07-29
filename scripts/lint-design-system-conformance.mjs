@@ -56,17 +56,31 @@
 //                              it, not mirror it by hand.
 //   theme-ramp-contrast        per theme: the ink ramp strong → default →
 //                              muted → subtle → disabled must not invert, and
-//                              `--text-disabled` must clear 3:1 against
-//                              `--bg-surface` ("Accessibility": the ink ramp
-//                              orders identically in both modes).
+//                              `--text-disabled` must clear 3:1 against every
+//                              surface it is painted on — `--bg-surface`,
+//                              `--bg-surface-raised` and `--bg-app`
+//                              ("Accessibility": the ink ramp orders
+//                              identically in both modes). Raised chrome is
+//                              where disabled ink most often lands (the CLI
+//                              listbox, the command palette, the confirm
+//                              dialog), so measuring the app canvas alone
+//                              certifies a floor the product does not meet.
 //
 // ## Tolerance
 //
-// None. Every rule swept clean, so the guard carries no baseline mechanism at
-// all: one violation of one rule fails `npm run lint`. The per-rule baseline
-// files that let the twelve fix tasks land one at a time were deleted once the
-// last of them emptied — a tolerance file that is only ever empty is a place
-// for a regression to be parked, not a safety net.
+// None, with one scoped and self-terminating exception:
+// `scripts/design-system-conformance/disabled-contrast.json` lists
+// `"<theme>:<surface>"` pairings already known to miss the 3:1 disabled floor,
+// so the measurement can land ahead of the nineteen-theme retone that clears
+// it. It is not a general baseline: it tolerates only this one check, an entry
+// whose pairing now clears the floor is itself an error, and a missing or empty
+// file means zero tolerance. The file exists to be emptied and deleted.
+//
+// Every other rule sweeps clean and carries no tolerance at all: one violation
+// fails `npm run lint`. The per-rule baseline files that let the twelve fix
+// tasks land one at a time were deleted once the last of them emptied — a
+// tolerance file that is only ever empty is a place for a regression to be
+// parked, not a safety net.
 //
 // A genuine exception is documented on the line, not in a list.
 //
@@ -90,6 +104,7 @@ import { resolve, join, sep } from 'node:path'
 const SOURCE_ROOT = 'src/renderer/src'
 const APP_CSS_PATH = 'src/renderer/src/assets/index.css'
 const BUNDLE_CSS_PATH = 'design-system/foundations/tokens.css'
+const DISABLED_CONTRAST_BASELINE_PATH = 'scripts/design-system-conformance/disabled-contrast.json'
 
 const SOURCE_EXT = new Set(['.tsx', '.ts'])
 // Review-only surfaces. `design-system/` is never scanned at all: the bundle
@@ -726,6 +741,42 @@ const APP_TO_BUNDLE = new Map(
 
 const RAMP = ['--text-strong', '--text-default', '--text-muted', '--text-subtle', '--text-disabled']
 const DISABLED_CONTRAST_FLOOR = 3
+// Every surface disabled ink is actually painted on. `--bg-surface-raised` is
+// real chrome — `CliModelListbox` paints it and renders `--text-disabled`
+// inside it, as do `CommandPalette`, `ConfirmDialog`, `KbdChord` and
+// `SkillPickerPopover`. `--bg-selected` is deliberately absent: no surface in
+// the tree pairs it with disabled ink today, and a floor no rendered surface
+// needs is a rule that fails on nothing.
+const DISABLED_CONTRAST_SURFACES = ['--bg-surface', '--bg-surface-raised', '--bg-app']
+
+// The tolerated `"<theme>:<surface>"` pairings, mapped to the line each is
+// written on so a stale entry reports somewhere a reader can open. A missing
+// file is zero tolerance, which is what deleting it must mean.
+function readDisabledContrastBaseline() {
+  const abs = resolve(repoRoot, DISABLED_CONTRAST_BASELINE_PATH)
+  if (!existsSync(abs)) return new Map()
+  const raw = readFileSync(abs, 'utf8')
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    process.stderr.write(`${DISABLED_CONTRAST_BASELINE_PATH} is not valid JSON.\n`)
+    process.exit(2)
+  }
+  if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== 'string')) {
+    process.stderr.write(
+      `${DISABLED_CONTRAST_BASELINE_PATH} must be a JSON array of "<theme>:<surface>" strings.\n`,
+    )
+    process.exit(2)
+  }
+  const lines = raw.split('\n')
+  const tolerated = new Map()
+  for (const entry of parsed) {
+    const at = lines.findIndex((line) => line.includes(`"${entry}"`))
+    tolerated.set(entry, at === -1 ? 1 : at + 1)
+  }
+  return tolerated
+}
 
 function resolveBundle(bundleSource) {
   const kinds = maskCssComments(bundleSource)
@@ -952,6 +1003,9 @@ for (const [block, bundleValues, modeLabel] of [
 const themeIds = new Set()
 for (const block of rootBlocks) for (const theme of block.themes) themeIds.add(theme)
 
+const disabledContrastBaseline = readDisabledContrastBaseline()
+const toleratedDisabledContrast = []
+
 for (const theme of [...themeIds].sort()) {
   const resolved = new Map()
   for (const block of rootBlocks) {
@@ -970,9 +1024,14 @@ for (const theme of [...themeIds].sort()) {
       resolved.set(name, declaration)
     }
   }
-  const surface = resolved.get('--bg-surface')
-  const surfaceValue = surface ? resolveTokenValue('--bg-surface', resolved, bundle) : null
-  const surfaceColor = surfaceValue ? parseColor(surfaceValue) : null
+  const surfaces = DISABLED_CONTRAST_SURFACES.map((name) => {
+    const declaration = resolved.get(name)
+    const value = declaration ? resolveTokenValue(name, resolved, bundle) : null
+    return { name, declaration, value, color: value ? parseColor(value) : null }
+  })
+  // The ramp's polarity is judged against `--bg-surface`, the surface it is
+  // authored against; the other two are measured, never used to decide a mode.
+  const surfaceColor = surfaces.find((entry) => entry.name === '--bg-surface').color
   const ramp = RAMP.map((name) => {
     const declaration = resolved.get(name)
     const value = declaration ? resolveTokenValue(name, resolved, bundle) : null
@@ -989,7 +1048,7 @@ for (const theme of [...themeIds].sort()) {
   // failure mode this rule exists to prevent; the carve-out marker is the way
   // out when a value is genuinely beyond it.
   const unresolved = [
-    ...(surfaceColor ? [] : [{ name: '--bg-surface', declaration: surface }]),
+    ...surfaces.filter((entry) => entry.color === null),
     ...ramp.filter((step) => step.color === null),
   ]
   if (unresolved.length > 0) {
@@ -1021,16 +1080,36 @@ for (const theme of [...themeIds].sort()) {
   }
 
   const disabled = ramp[ramp.length - 1]
-  const ratio = contrastRatio(disabled.color, surfaceColor)
-  if (ratio < DISABLED_CONTRAST_FLOOR) {
+  for (const surface of surfaces) {
+    const ratio = contrastRatio(disabled.color, surface.color)
+    if (ratio >= DISABLED_CONTRAST_FLOOR) continue
+    const pairing = `${theme}:${surface.name}`
+    if (disabledContrastBaseline.has(pairing)) {
+      toleratedDisabledContrast.push({ pairing, ratio })
+      disabledContrastBaseline.delete(pairing)
+      continue
+    }
     pushAt(
       'theme-ramp-contrast',
       APP_CSS_PATH,
       lineOf(appCssStarts, disabled.declaration.index),
       `theme "${theme}": --text-disabled (${disabled.value}) is ` +
-        `${ratio.toFixed(2)}:1 on --bg-surface (${surfaceValue}), under the ${DISABLED_CONTRAST_FLOOR}:1 floor`,
+        `${ratio.toFixed(2)}:1 on ${surface.name} (${surface.value}), under the ${DISABLED_CONTRAST_FLOOR}:1 floor`,
     )
   }
+}
+
+// Whatever the baseline still holds names a pairing that no longer fails — or
+// never did. Either way the entry is now the only thing standing between this
+// check and zero tolerance, so it fails until it is deleted.
+for (const [pairing, line] of disabledContrastBaseline) {
+  pushAt(
+    'theme-ramp-contrast',
+    DISABLED_CONTRAST_BASELINE_PATH,
+    line,
+    `"${pairing}" clears the ${DISABLED_CONTRAST_FLOOR}:1 disabled floor (or names no measured ` +
+      'pairing); delete the entry',
+  )
 }
 
 /* ------------------------------------------------------------------ *
@@ -1076,12 +1155,29 @@ if (!QUIET) {
   process.stdout.write(
     `  scope: ${SOURCE_ROOT} (${sourceFiles.length} files) + ${APP_CSS_PATH} vs ${BUNDLE_CSS_PATH}\n`,
   )
-  process.stdout.write('  tolerance: none — any violation fails\n')
+  process.stdout.write(
+    toleratedDisabledContrast.length > 0
+      ? '  tolerance: the disabled-contrast baseline below, and nothing else\n'
+      : '  tolerance: none — any violation fails\n',
+  )
   for (const rule of RULE_IDS) {
     process.stdout.write(`  ${rule}: ${byRule.get(rule).length} found\n`)
   }
   if (suppressed.length > 0) {
     process.stdout.write(`  suppressed by \`${ALLOW_MARKER}\` markers: ${suppressed.length}\n`)
+  }
+  // Named, with their measured ratios, on every run: a tolerated failure that
+  // prints nothing is one nobody clears.
+  if (toleratedDisabledContrast.length > 0) {
+    process.stdout.write(
+      `  tolerated by ${DISABLED_CONTRAST_BASELINE_PATH}: ${toleratedDisabledContrast.length}\n`,
+    )
+    for (const { pairing, ratio } of toleratedDisabledContrast) {
+      const [theme, surface] = pairing.split(':')
+      process.stdout.write(
+        `    ${theme}: --text-disabled ${ratio.toFixed(2)}:1 on ${surface}\n`,
+      )
+    }
   }
 }
 
