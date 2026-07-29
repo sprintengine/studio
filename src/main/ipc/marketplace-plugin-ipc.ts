@@ -22,7 +22,7 @@ import { readTrustedModulesSync } from '../modules/trust-store'
 
 export function registerMarketplacePluginIpc(
   ipcMain: IpcMain,
-  services: Pick<AppServices, 'mcpConfigService' | 'skillPackService'>
+  services: Pick<AppServices, 'mcpConfigService'>
 ): void {
   const trustContext = () => ({
     trustedModules: readTrustedModulesSync(app.getPath('userData')),
@@ -44,7 +44,6 @@ export function registerMarketplacePluginIpc(
   }
   const installPlugin = createMarketplacePluginInstaller({
     mcpConfigService: services.mcpConfigService,
-    skillPackService: services.skillPackService,
     trustContext,
   })
   const verifier = createMarketplacePluginVerifier({
@@ -54,7 +53,6 @@ export function registerMarketplacePluginIpc(
   })
   const lifecycle = createMarketplacePluginLifecycleService({
     mcpConfigService: services.mcpConfigService,
-    skillPackService: services.skillPackService,
     trustContext,
     receiptStorePath: defaultMarketplacePluginInstallStorePath(app.getPath('userData')),
     stagingRoot: defaultMarketplacePluginStagingRoot(app.getPath('userData')),

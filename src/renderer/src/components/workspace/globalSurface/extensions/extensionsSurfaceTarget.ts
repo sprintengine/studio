@@ -10,9 +10,11 @@
 // Pure (a module-level ref + window CustomEvent, no store, no React) so entry
 // points can import it without pulling the door bundle into their graph.
 
-/** The two deep-link destinations the old modal exposed; the surface maps them
- *  onto rail rows (browse → the marketplace grid, installed → Installed). */
-export type ExtensionsSurfaceView = 'browse' | 'installed'
+/** Deep-link destinations, mapped onto rail rows by the surface: browse → the
+ *  marketplace grid, installed → Installed, skills → Skills. `skills` is where
+ *  the retired `skill-packs` settings tab now lands (MC-1936) — the packs are
+ *  gone, but a link that asked for skills must still arrive at skills. */
+export type ExtensionsSurfaceView = 'browse' | 'installed' | 'skills'
 
 export const EXTENSIONS_SURFACE_TARGET_EVENT = 'multicode:extensions-surface-target'
 
@@ -45,7 +47,7 @@ export function subscribeExtensionsSurfaceTarget(
 ): () => void {
   const listener = (event: Event) => {
     const view = (event as CustomEvent<ExtensionsSurfaceView>).detail
-    if (view === 'browse' || view === 'installed') handler(view)
+    if (view === 'browse' || view === 'installed' || view === 'skills') handler(view)
   }
   window.addEventListener(EXTENSIONS_SURFACE_TARGET_EVENT, listener)
   return () => window.removeEventListener(EXTENSIONS_SURFACE_TARGET_EVENT, listener)

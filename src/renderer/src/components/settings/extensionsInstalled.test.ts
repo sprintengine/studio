@@ -6,13 +6,14 @@ import type {
   ThirdPartyModuleListResult,
   ThirdPartyModuleView,
 } from '../../../../shared/modules/manifest'
-import type { SkillPackEntry } from '../../../../shared/electron-api'
+import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../../shared/plugin-manifest'
 import type { McpServerConfig } from '../../types/workspace'
 import {
   deriveInstalledExtensions,
   mcpToInstalled,
   modulesToInstalled,
+  skillsToInstalled,
   type ExtensionsInstalledInput,
   type LoadedSource,
 } from './extensionsInstalled'
@@ -58,15 +59,15 @@ function modulesResult(modules: ThirdPartyModuleView[], rejected: ThirdPartyModu
   return { modules, rejected }
 }
 
-function skillPack(overrides: Partial<SkillPackEntry> = {}): SkillPackEntry {
+function skill(overrides: Partial<WorkspaceSkill> = {}): WorkspaceSkill {
   return {
-    id: 'pack-1',
-    slug: 'frontend-pack',
-    name: 'Frontend Pack',
-    harnesses: ['claude-code'],
-    source: 'bundled',
+    id: 'frontend-design',
+    name: 'Frontend Design',
+    source: 'custom',
+    harnesses: ['claude'],
+    installState: 'installed',
     ...overrides,
-  } as SkillPackEntry
+  }
 }
 
 function cli(overrides: Partial<PluginRegistryListEntry> = {}): PluginRegistryListEntry {
@@ -85,7 +86,7 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
     mcpServers: [],
     modules: { status: 'ok', value: modulesResult([]) },
     moduleOverrides: {},
-    skillPacks: { status: 'ok', value: [] },
+    skills: { status: 'ok', value: [] },
     clis: { status: 'ok', value: [] },
     ...overrides,
   }
@@ -130,13 +131,29 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   assert.equal(rows[0].source, 'Custom')
 }
 
+{
+  // The inventory answers "what do I have": a bundled skill that is only
+  // available must not be listed as installed, and an update is stated.
+  const rows = skillsToInstalled([
+    skill(),
+    skill({ id: 'tdd', name: 'TDD', source: 'builtin', installState: 'available' }),
+    skill({ id: 'debug', name: 'Debug', source: 'builtin', installState: 'update-available' }),
+  ])
+  assert.deepEqual(rows.map((row) => row.id), ['frontend-design', 'debug'])
+  assert.equal(rows[0].kind, 'skill')
+  assert.equal(rows[0].key, 'skill:frontend-design')
+  assert.ok(rows[0].chips.includes('Custom'), 'a skill from a source is not bundled')
+  assert.ok(rows[1].chips.includes('Update available'))
+  assert.ok(!rows[1].chips.includes('Bundled'), 'default provenance carries no chip')
+}
+
 // --- populated state -------------------------------------------------------
 
 {
   const view = deriveInstalledExtensions(
     input({
       mcpServers: [mcp()],
-      skillPacks: { status: 'ok', value: [skillPack()] },
+      skills: { status: 'ok', value: [skill()] },
       clis: { status: 'ok', value: [cli()] },
       modules: { status: 'ok', value: modulesResult([moduleView('trusted')]) },
     }),
@@ -144,8 +161,8 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   assert.equal(view.status, 'ready')
   if (view.status !== 'ready') throw new Error('unreachable')
   assert.equal(view.total, 4)
-  // Group order: mcp, skill-pack, cli, module.
-  assert.deepEqual(view.groups.map((g) => g.kind), ['mcp', 'skill-pack', 'cli', 'module'])
+  // Group order: mcp, skill, cli, module.
+  assert.deepEqual(view.groups.map((g) => g.kind), ['mcp', 'skill', 'cli', 'module'])
   assert.equal(view.notices.length, 0)
 }
 
@@ -158,16 +175,16 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
 }
 
 {
-  // Zero rows but skill packs were unavailable (no workspace): NOT empty — a
+  // Zero rows but skills were unavailable (no workspace): NOT empty — a
   // degraded state, so "Nothing installed yet" never renders under a notice.
   const view = deriveInstalledExtensions(
     input({
-      skillPacks: { status: 'unavailable', reason: 'Open a workspace to see its installed skill packs.' },
+      skills: { status: 'unavailable', reason: 'Open a workspace to see the skills installed in it.' },
     }),
   )
   assert.equal(view.status, 'degraded')
   if (view.status !== 'degraded') throw new Error('unreachable')
-  assert.deepEqual(view.notices.map((n) => `${n.kind}:${n.tone}`), ['skill-pack:warn'])
+  assert.deepEqual(view.notices.map((n) => `${n.kind}:${n.tone}`), ['skill:warn'])
 }
 
 {
@@ -191,7 +208,7 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   const view = deriveInstalledExtensions(
     input({
       mcpServers: [mcp()],
-      skillPacks: { status: 'unavailable', reason: 'Open a workspace to see its installed skill packs.' },
+      skills: { status: 'unavailable', reason: 'Open a workspace to see the skills installed in it.' },
       clis: { status: 'error', message: 'plugin registry unreadable' },
       modules: { status: 'unsupported' },
     }),
@@ -200,7 +217,7 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   if (view.status !== 'ready') throw new Error('unreachable')
   assert.equal(view.groups.length, 1, 'only MCP has items')
   const tones = view.notices.map((n) => `${n.kind}:${n.tone}`)
-  assert.ok(tones.includes('skill-pack:warn'))
+  assert.ok(tones.includes('skill:warn'))
   assert.ok(tones.includes('cli:error'))
   assert.ok(tones.includes('module:warn'))
 }
@@ -210,7 +227,7 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   // blank or a misleading "nothing installed"), carrying every error notice.
   const view = deriveInstalledExtensions(
     input({
-      skillPacks: { status: 'error', message: 'boom' },
+      skills: { status: 'error', message: 'boom' },
       clis: { status: 'error', message: 'boom' },
       modules: { status: 'error', message: 'boom' },
     }),
@@ -250,7 +267,7 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   const view = deriveInstalledExtensions(
     input({
       modules: { status: 'unsupported' },
-      skillPacks: { status: 'unsupported' },
+      skills: { status: 'unsupported' },
       clis: { status: 'unsupported' },
     }),
   )
@@ -264,7 +281,7 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
     input({
       mcpServers: [mcp()],
       modules: { status: 'unsupported' },
-      skillPacks: { status: 'unsupported' },
+      skills: { status: 'unsupported' },
       clis: { status: 'unsupported' },
     }),
   )

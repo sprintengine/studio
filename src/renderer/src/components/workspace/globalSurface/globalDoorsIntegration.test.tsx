@@ -771,19 +771,54 @@ async function main(): Promise<void> {
         ],
       },
     })
-    api.skillPackListCatalog = async () => ({
+    // Skills is sourced, not catalogued: the rail row states how many sources
+    // answered, and only sums their skills once every scan has landed.
+    api.skillsListSources = async () => ({
       ok: true,
-      packs: [
+      sources: [
         {
-          id: 'release-runbook',
-          slug: 'release-runbook',
-          name: 'Release runbook',
-          category: 'Operations',
-          description: 'Cut, verify, and publish a release.',
-          harnesses: [],
+          id: 'github:acme/skills',
+          kind: 'github' as const,
+          name: 'skills',
+          repo: 'acme/skills',
+          monogram: 'AS',
+          blurb: '1 skill from acme/skills.',
+          commitSha: 'abc1234',
+          scannedAt: '2026-07-28T10:00:00.000Z',
         },
       ],
     })
+    api.skillsGetScan = async () => ({
+      ok: true,
+      source: {
+        id: 'github:acme/skills',
+        kind: 'github' as const,
+        name: 'skills',
+        repo: 'acme/skills',
+        monogram: 'AS',
+        blurb: '1 skill from acme/skills.',
+        commitSha: 'abc1234',
+        scannedAt: '2026-07-28T10:00:00.000Z',
+      },
+      scan: {
+        skills: [
+          {
+            id: 'release-runbook',
+            name: 'Release runbook',
+            description: 'Cut, verify, and publish a release.',
+            group: '',
+            files: [{ path: 'SKILL.md', size: 120, blobSha: 'def5678', isEntry: true }],
+            allowedTools: [],
+            hasExecutables: false,
+          },
+        ],
+        groups: [],
+        groupingSignal: 'none' as const,
+        fileCount: 1,
+        commitSha: 'abc1234',
+      },
+    })
+    api.workspaceSkillsList = async () => ({ ok: true, skills: [] })
     // The Installed canvas's inventory sources. Modules resolves the real
     // list shape; the proxy's not-stubbed {ok:false} answers exercise the
     // remaining sources' error notices.
@@ -803,7 +838,7 @@ async function main(): Promise<void> {
       'On this machine',
       'Featured',
       'MCP servers',
-      'Skill packs',
+      'Skills',
       'Modules',
       'Agent CLIs',
       'Installed',
@@ -828,7 +863,7 @@ async function main(): Promise<void> {
     assert.ok(barText.includes('2 in marketplace'), 'the bar counts the connector marketplace')
     assert.ok(railRow('Featured').includes('1 ready to launch'), 'the Featured row counts launchables')
     assert.ok(railRow('MCP servers').includes('2 available'), 'the MCP servers row counts the grid')
-    assert.ok(railRow('Skill packs').includes('1 available'), 'the Skill packs row counts its catalog')
+    assert.ok(railRow('Skills').includes('1 source'), 'the Skills row counts its sources')
     assert.ok(railRow('Modules').includes('1 available'), 'the Modules row counts module plugins')
     assert.ok(railRow('Agent CLIs').includes('1 available'), 'the Agent CLIs row counts cli plugins')
     // The door lands on Featured; the Ready-to-launch rail leads the canvas.
@@ -856,7 +891,7 @@ async function main(): Promise<void> {
     await settle()
     assert.ok(currentRow().includes('Installed'), 'a live installed deep-link selects the Installed row')
     assert.ok(
-      (container.textContent ?? '').includes('Get more skill packs'),
+      (container.textContent ?? '').includes('Bundled skills'),
       'the Installed canvas is the manage view',
     )
 

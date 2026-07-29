@@ -10,13 +10,13 @@ import type {
   BuiltinSkillInstallResult,
   BuiltinSkillStatus,
   BuiltinSkillTargetState,
-  SkillPackHarness,
+  SkillHarness,
 } from '../shared/electron-api'
 import { SKILL_HARNESS_DIR } from '../shared/skill-harnesses'
 
 const MANIFEST_FILE = '.multicode-skill.json'
 
-const DEFAULT_HARNESSES: readonly SkillPackHarness[] = ['agents']
+const DEFAULT_HARNESSES: readonly SkillHarness[] = ['agents']
 const ALL_NATIVE_TARGET_POLICY = 'all-native'
 
 type ManagedSkillManifest = {
@@ -192,11 +192,11 @@ async function hashDirectory(root: string, ignoredNames = new Set<string>()): Pr
   return hash.digest('hex')
 }
 
-function skillHarnesses(skill: BuiltinSkill): readonly SkillPackHarness[] {
+function skillHarnesses(skill: BuiltinSkill): readonly SkillHarness[] {
   return skill.harnesses && skill.harnesses.length > 0 ? skill.harnesses : DEFAULT_HARNESSES
 }
 
-function skillDestination(workspaceRoot: string, skillId: string, harness: SkillPackHarness): string {
+function skillDestination(workspaceRoot: string, skillId: string, harness: SkillHarness): string {
   const workspace = resolve(workspaceRoot)
   const destination = resolve(workspace, SKILL_HARNESS_DIR[harness], 'skills', skillId)
   if (!isInside(workspace, destination)) {

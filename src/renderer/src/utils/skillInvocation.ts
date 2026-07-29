@@ -92,11 +92,12 @@ export function hasInstalledNativeSkillTarget(
 
 // Makes a skill exist where the target agent can read it before an invocation
 // lands: builtins install through the builtin skill manager (which honors each
-// skill's target policy), catalog packs through skillPackInstall. Custom dirs
-// are presence-only — already installed or nothing to do.
+// skill's target policy). Everything else is presence-only — a skill installed
+// from a source is already a directory in the workspace, and re-fetching its
+// repository to invoke it would be a network round-trip for nothing.
 export async function ensureSkillForAgent(input: {
   workspaceRoot: string
-  skill: Pick<WorkspaceSkill, 'id' | 'source' | 'installState' | 'packSlug'>
+  skill: Pick<WorkspaceSkill, 'id' | 'source' | 'installState'>
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const { workspaceRoot, skill } = input
   try {
@@ -106,14 +107,6 @@ export async function ensureSkillForAgent(input: {
       if (!result.ok && result.status !== 'modified' && result.status !== 'local') {
         return { ok: false, message: result.message }
       }
-      return { ok: true }
-    }
-    if (skill.source === 'pack' && skill.installState === 'available') {
-      if (!skill.packSlug) {
-        return { ok: false, message: 'This skill pack has no install slug.' }
-      }
-      const result = await window.api.skillPackInstall({ workspaceRoot, slug: skill.packSlug })
-      if (!result.ok) return { ok: false, message: result.message }
       return { ok: true }
     }
     return { ok: true }

@@ -1,6 +1,6 @@
-import type { SkillPackHarness } from './electron-api'
+import type { SkillHarness } from './skills'
 
-export const SKILL_PACK_HARNESSES: readonly SkillPackHarness[] = [
+export const SKILL_PACK_HARNESSES: readonly SkillHarness[] = [
   'claude',
   'codex',
   'cursor',
@@ -10,7 +10,7 @@ export const SKILL_PACK_HARNESSES: readonly SkillPackHarness[] = [
   'agents',
 ]
 
-export const SKILL_HARNESS_DIR: Record<SkillPackHarness, string> = {
+export const SKILL_HARNESS_DIR: Record<SkillHarness, string> = {
   claude: '.claude',
   codex: '.codex',
   cursor: '.cursor',

@@ -2,15 +2,13 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import type {
   BuiltinSkill,
-  SkillPackCatalogEntry,
-  SkillPackHarness,
+  SkillHarness,
   WorkspaceSkill,
   WorkspaceSkillsListInput,
   WorkspaceSkillsListResult,
 } from '../shared/electron-api'
 import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../shared/skill-harnesses'
 import { BUILTIN_SKILLS } from './builtin-skills'
-import type { SkillPackService } from './skill-pack-service'
 
 // The .multicode-skill.json manifest a builtin install writes next to SKILL.md;
 // version drift against BUILTIN_SKILLS marks the entry update-available without
@@ -26,30 +24,20 @@ type SkillFrontmatter = {
   description?: string
 }
 
-export function createWorkspaceSkillsService(options: {
-  skillPackService: Pick<SkillPackService, 'listCatalog'>
-}): WorkspaceSkillsService {
+export function createWorkspaceSkillsService(): WorkspaceSkillsService {
   return {
     async listWorkspaceSkills(input): Promise<WorkspaceSkillsListResult> {
       const workspaceRoot = input.workspaceRoot?.trim()
       if (!workspaceRoot || !existsSync(workspaceRoot)) {
         return { ok: false, message: 'Workspace root does not exist.' }
       }
-      const catalogResult = options.skillPackService.listCatalog()
-      const catalog = catalogResult.ok ? catalogResult.packs : []
-      return { ok: true, skills: listWorkspaceSkills(workspaceRoot, catalog) }
+      return { ok: true, skills: listWorkspaceSkills(workspaceRoot) }
     },
   }
 }
 
-function listWorkspaceSkills(
-  workspaceRoot: string,
-  catalog: SkillPackCatalogEntry[],
-): WorkspaceSkill[] {
+function listWorkspaceSkills(workspaceRoot: string): WorkspaceSkill[] {
   const builtinById = new Map<string, BuiltinSkill>(BUILTIN_SKILLS.map((skill) => [skill.id, skill]))
-  const catalogByDirName = new Map<string, SkillPackCatalogEntry>(
-    catalog.map((pack) => [pack.installedDirName ?? pack.id, pack]),
-  )
 
   const installed = new Map<string, WorkspaceSkill>()
   for (const harness of SKILL_PACK_HARNESSES) {
@@ -74,7 +62,6 @@ function listWorkspaceSkills(
           skillDir: join(skillsDir, dirName),
           harness,
           builtin: builtinById.get(dirName),
-          catalogEntry: catalogByDirName.get(dirName),
         }),
       )
     }
@@ -95,35 +82,19 @@ function listWorkspaceSkills(
     })
   }
 
-  for (const pack of catalog) {
-    const dirName = pack.installedDirName ?? pack.id
-    if (installed.has(dirName)) continue
-    skills.push({
-      id: pack.id,
-      name: pack.name,
-      description: pack.description,
-      source: 'pack',
-      harnesses: [],
-      installState: 'available',
-      packSlug: pack.slug,
-      version: pack.version,
-    })
-  }
-
   return skills.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 function buildInstalledSkill(input: {
   dirName: string
   skillDir: string
-  harness: SkillPackHarness
+  harness: SkillHarness
   builtin?: BuiltinSkill
-  catalogEntry?: SkillPackCatalogEntry
 }): WorkspaceSkill {
-  const { dirName, skillDir, harness, builtin, catalogEntry } = input
+  const { dirName, skillDir, harness, builtin } = input
   const frontmatter = readSkillFrontmatter(skillDir)
-  const name = frontmatter.name ?? builtin?.name ?? catalogEntry?.name ?? dirName
-  const description = frontmatter.description ?? builtin?.description ?? catalogEntry?.description
+  const name = frontmatter.name ?? builtin?.name ?? dirName
+  const description = frontmatter.description ?? builtin?.description
 
   if (builtin) {
     return {
@@ -134,18 +105,6 @@ function buildInstalledSkill(input: {
       harnesses: [harness],
       installState: builtinInstallState(skillDir, builtin),
       version: builtin.version,
-    }
-  }
-  if (catalogEntry) {
-    return {
-      id: catalogEntry.id,
-      name,
-      description,
-      source: 'pack',
-      harnesses: [harness],
-      installState: 'installed',
-      packSlug: catalogEntry.slug,
-      version: catalogEntry.version,
     }
   }
   return {
@@ -190,7 +149,7 @@ function listSkillDirs(skillsDir: string): string[] {
 
 // Minimal SKILL.md frontmatter read: single-line `name:` / `description:`
 // scalars from the leading `---` block. Anything fancier (folded blocks,
-// multi-line strings) falls back to the catalog/builtin metadata.
+// multi-line strings) falls back to the builtin metadata.
 function readSkillFrontmatter(skillDir: string): SkillFrontmatter {
   let raw: string
   try {

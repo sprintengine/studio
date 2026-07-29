@@ -52,7 +52,6 @@ export function SprintEngineStartPanel({
   roleModelOverrides,
   poolAgentCount,
   selectedToolNames,
-  selectedSkillPackCount,
   onEditStep,
   cliPermissionPreset,
   onChangeCliPermissionPreset,
@@ -81,7 +80,6 @@ export function SprintEngineStartPanel({
   roleModelOverrides: SprintEngineRoleModelOverrides
   poolAgentCount: number
   selectedToolNames: string[]
-  selectedSkillPackCount: number
   onEditStep: (step: StepId) => void
   cliPermissionPreset: SprintEngineCliPermissionPreset
   onChangeCliPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
@@ -124,16 +122,9 @@ export function SprintEngineStartPanel({
         }
 
   const toolsSummary =
-    selectedToolNames.length === 0 && selectedSkillPackCount === 0
+    selectedToolNames.length === 0
       ? 'None — the sprint runs without integrations'
-      : [
-          selectedToolNames.length > 0 ? selectedToolNames.join(', ') : null,
-          selectedSkillPackCount > 0
-            ? `${selectedSkillPackCount} skill pack${selectedSkillPackCount === 1 ? '' : 's'}`
-            : null,
-        ]
-          .filter(Boolean)
-          .join(' · ')
+      : selectedToolNames.join(', ')
 
   const permissionOption =
     cliPermissionOptions.find((option) => option.value === cliPermissionPreset) ?? cliPermissionOptions[0]

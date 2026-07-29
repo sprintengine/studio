@@ -10,7 +10,7 @@ import type {
   McpSettings,
   McpSyncTarget,
   McpValidationIssue,
-  SkillPackHarness,
+  SkillHarness,
 } from '../../shared/electron-api'
 import type {
   MarketplaceComponentKind,
@@ -29,19 +29,18 @@ import { installPluginFolder as installCliPluginFolder } from '../plugin-install
 import { validateManifestSource } from '../plugin-registry'
 import { getPluginRegistryUserRoot, reloadPluginRegistry } from '../plugin-registry-instance'
 import { normalizeMcpClients, normalizeMcpServerConfig, type McpConfigService } from '../mcp-config-service'
-import type { SkillPackService } from '../skill-pack-service'
+import { installSkillDirectory } from '../skills/install'
 import { classifyModuleTrust, isLoadEligible, type ModuleTrust, type ModuleTrustContext } from './module-signature'
 import { defaultUserModuleRoot, installModuleFolder as installCapabilityModuleFolder } from './user-module-registry'
 
 const DEFAULT_MCP_CLIENTS: McpClientTarget[] = ['codex', 'claude-code']
-const DEFAULT_SKILL_HARNESSES: SkillPackHarness[] = ['agents']
+const DEFAULT_SKILL_HARNESSES: SkillHarness[] = ['agents']
 
 type ComponentPath = { kind: MarketplaceComponentKind; path: string }
 
 export type MarketplacePluginInstallerServices = {
   trustContext: () => ModuleTrustContext
   mcpConfigService: McpConfigService
-  skillPackService: SkillPackService
   moduleRoot?: () => string
   pluginRoot?: () => string
   installModuleFolder?: typeof installCapabilityModuleFolder
@@ -181,7 +180,7 @@ async function installComponent(
       case 'mcp':
         return installMcpComponent(component, input, services.mcpConfigService, installed)
       case 'skills':
-        return await installSkillComponent(component, input, services.skillPackService, installed)
+        return await installSkillComponent(component, input, installed)
       case 'module':
         return await installModuleComponent(component, services, installed)
       case 'cli':
@@ -255,10 +254,13 @@ function installMcpComponent(
   }
 }
 
+// A bundle's skill component is a directory that is already on this machine, so
+// it installs by the same copy the Skills surface uses. What it wrote back is
+// the receipt: the harnesses in the result are the ones the copy actually
+// landed in, not the ones that were asked for.
 async function installSkillComponent(
   component: Extract<ResolvedComponent, { kind: 'skills' }>,
   input: MarketplacePluginInstallInput,
-  service: SkillPackService,
   installed: MarketplacePluginInstalledComponent[]
 ): Promise<
   | { ok: true; installed: MarketplacePluginInstalledComponent }
@@ -269,51 +271,22 @@ async function installSkillComponent(
     return componentFailure('skills', 'Workspace root is required to install skill components.', installed)
   }
 
-  const result = await service.install({
+  const result = await installSkillDirectory({
     workspaceRoot,
-    slug: component.path,
+    sourceDir: component.path,
+    dirName: component.installedDirName,
     harnesses: input.skillHarnesses?.length ? input.skillHarnesses : DEFAULT_SKILL_HARNESSES,
-    installedDirName: component.installedDirName,
   })
   if (!result.ok) return componentFailure('skills', result.message, installed)
-
-  const installedDirName = result.installed.installedDirName ?? result.installed.id
-  const writtenSkillComponent: MarketplacePluginInstalledComponent = {
-    kind: 'skills',
-    id: result.installed.id,
-    installedDirName,
-    harnesses: result.installed.harnesses.length
-      ? result.installed.harnesses
-      : input.skillHarnesses?.length
-        ? input.skillHarnesses
-        : DEFAULT_SKILL_HARNESSES,
-    message: `Installed for ${result.installed.harnesses.join(', ') || 'configured harnesses'}.`,
-  }
-  const listed = await service.listInstalled({ workspaceRoot })
-  if (!listed.ok) {
-    return componentFailure('skills', `Skill component installed but could not be listed: ${listed.message}`, [
-      ...installed,
-      writtenSkillComponent,
-    ])
-  }
-  const listedEntry = listed.installed.find((entry) =>
-    entry.id === result.installed.id || entry.installedDirName === installedDirName
-  )
-  if (!listedEntry) {
-    return componentFailure('skills', `Skill component "${installedDirName}" was not found after install.`, [
-      ...installed,
-      writtenSkillComponent,
-    ])
-  }
 
   return {
     ok: true,
     installed: {
       kind: 'skills',
-      id: listedEntry.id,
-      installedDirName,
-      harnesses: listedEntry.harnesses,
-      message: `Installed for ${listedEntry.harnesses.join(', ') || 'configured harnesses'}.`,
+      id: result.dirName,
+      installedDirName: result.dirName,
+      harnesses: result.harnesses,
+      message: `Installed for ${result.harnesses.join(', ')}.`,
     },
   }
 }

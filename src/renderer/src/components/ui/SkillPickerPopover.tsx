@@ -18,13 +18,12 @@ import { TruncatedText } from './TruncatedText'
 // One inventory, every door: the searchable workspace-skill list behind the
 // composer Skills chip, the slash trigger, the terminal panel-header action and
 // the agent composer's "+ Skill" attachment. Rows show the real SKILL.md
-// name/description with a source label, grouped installed-first; catalog
-// entries not yet installed install inline on pick, then behave identically.
+// name/description with a source label, grouped installed-first; a bundled
+// skill not yet installed installs inline on pick, then behaves identically.
 // Picking NEVER auto-sends — callers prefill their input and keep the caret.
 
 const SOURCE_LABEL: Record<WorkspaceSkillSource, string> = {
   builtin: 'Built-in',
-  pack: 'Skill pack',
   custom: 'Custom',
   plugin: 'Plugin',
 }

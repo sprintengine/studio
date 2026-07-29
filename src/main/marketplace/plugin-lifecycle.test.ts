@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { IpcMain } from 'electron'
 
 import type {
   McpSettings,
-  SkillPackEntry,
 } from '../../shared/electron-api'
 import type { MarketplacePluginEntry, MarketplacePluginManifest } from '../../shared/marketplace'
 import { canonicalManifestPayload, validateMarketplacePluginManifest } from '../../shared/marketplace'
@@ -20,7 +19,6 @@ import { classifyModuleTrust, verifyModuleSignature, type ModuleTrustContext } f
 import { planThirdPartyMainModules } from '../modules/third-party-main-loader'
 import { discoverUserModules } from '../modules/user-module-registry'
 import type { InstallPluginResult } from '../plugin-install'
-import type { SkillPackService } from '../skill-pack-service'
 import { createMarketplacePluginLifecycleService, type MarketplacePluginLifecycleServices } from './plugin-lifecycle'
 import { skillContentDigest } from './skill-content'
 import type { MarketplacePluginDownloadFetch } from './plugin-download'
@@ -75,65 +73,6 @@ function mcpPluginManifest(id: string, format: PluginMcpConfigFormat): PluginMan
     mcpConfig: {
       path: `{{workspaceRoot}}/.${id}/config.toml`,
       format,
-    },
-  }
-}
-
-function createLocalSkillService(): SkillPackService {
-  return {
-    listCatalog: () => ({ ok: true, packs: [] }),
-    listInstalled: async (input) => {
-      const skillsDir = join(input.workspaceRoot, '.agents', 'skills')
-      if (!existsSync(skillsDir)) return { ok: true, installed: [] }
-      const entries = await readdir(skillsDir, { withFileTypes: true })
-      return {
-        ok: true,
-        installed: entries
-          .filter((entry) => entry.isDirectory())
-          .map((entry): SkillPackEntry => ({
-            id: entry.name,
-            slug: entry.name,
-            name: entry.name,
-            installedDirName: entry.name,
-            harnesses: ['agents'],
-            source: 'custom',
-          })),
-      }
-    },
-    install: async (input) => {
-      const installedDirName = input.installedDirName ?? basename(input.slug)
-      for (const harness of input.harnesses?.length ? input.harnesses : ['agents' as const]) {
-        const harnessDir = harness === 'agents' ? '.agents' : `.${harness}`
-        await cp(input.slug, join(input.workspaceRoot, harnessDir, 'skills', installedDirName), {
-          recursive: true,
-          force: true,
-        })
-      }
-      return {
-        ok: true,
-        installed: {
-          id: installedDirName,
-          slug: input.slug,
-          name: installedDirName,
-          installedDirName,
-          harnesses: input.harnesses?.length ? input.harnesses : ['agents'],
-          source: 'custom',
-        },
-        log: input.slug,
-      }
-    },
-    remove: async (input) => {
-      const dirName = input.installedDirName ?? basename(input.slug)
-      const removed: string[] = []
-      for (const harness of input.harnesses?.length ? input.harnesses : ['agents' as const]) {
-        const harnessDir = harness === 'agents' ? '.agents' : `.${harness}`
-        const path = join(input.workspaceRoot, harnessDir, 'skills', dirName)
-        if (!existsSync(path)) continue
-        await rm(path, { recursive: true, force: true })
-        removed.push(path)
-      }
-      if (removed.length === 0) return { ok: false, message: `No installed copies of ${dirName} were found in this workspace.` }
-      return { ok: true, slug: input.slug, log: removed.join('\n') }
     },
   }
 }
@@ -342,7 +281,6 @@ async function createServices(temp: string, fetcher: MarketplacePluginDownloadFe
     receiptStorePath,
     services: {
       mcpConfigService: createMcpConfigService({ lookupPlugin, homeDir: () => join(temp, 'home') }),
-      skillPackService: createLocalSkillService(),
       trustContext: () => trustContext,
       moduleRoot: () => moduleRoot,
       pluginRoot: () => pluginRoot,
@@ -727,7 +665,7 @@ async function testDigestMismatchedRegistryInstallDoesNotFanOut(): Promise<void>
   })
 }
 
-async function testSkillPostInstallListingFailureRollsBackResidue(): Promise<void> {
+async function testSkillInstallFailureRollsBackResidue(): Promise<void> {
   await withTempDir(async (temp) => {
     const signer = generateKeyPairSync('ed25519')
     const components: BundleComponents = {
@@ -740,10 +678,10 @@ async function testSkillPostInstallListingFailureRollsBackResidue(): Promise<voi
       createGithubFetcher(folders),
       { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundle.fingerprint]) }
     )
-    services.skillPackService = {
-      ...services.skillPackService,
-      listInstalled: async () => ({ ok: true, installed: [] }),
-    }
+    // A real, deterministic install failure: the harness skill directory is a
+    // file, so nothing can be written under it.
+    await mkdir(join(workspaceRoot, '.agents'), { recursive: true })
+    await writeFile(join(workspaceRoot, '.agents', 'skills'), 'not a directory', 'utf8')
     const lifecycle = createMarketplacePluginLifecycleService(services)
 
     const result = await lifecycle.installFromRegistry({
@@ -756,8 +694,7 @@ async function testSkillPostInstallListingFailureRollsBackResidue(): Promise<voi
     assert.equal(result.ok, false)
     if (result.ok) return
     assert.equal(result.component, 'skills')
-    assert.match(result.message, /was not found after install/)
-    assert.deepEqual(result.installed?.map((component) => component.kind), ['skills'])
+    assert.deepEqual(result.installed ?? [], [])
     assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'registry-skill')), false)
     assert.equal(existsSync(receiptStorePath), false)
   })
@@ -1246,7 +1183,7 @@ async function main(): Promise<void> {
   await testUnsignedCliBearingBundleHardBlocksEvenWithTrust()
   await testInlineMcpEntryRoutesThroughTrustAndSyncs()
   await testDigestMismatchedRegistryInstallDoesNotFanOut()
-  await testSkillPostInstallListingFailureRollsBackResidue()
+  await testSkillInstallFailureRollsBackResidue()
   await testUpdateAndUninstallRemoveOldComponents()
   await testFailedUpdateRollsBackReplacementAndKeepsReceipt()
   await testReceiptStoreValidationRejectsMalformedAndUnsafeState()

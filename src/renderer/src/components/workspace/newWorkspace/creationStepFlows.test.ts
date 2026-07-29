@@ -29,7 +29,7 @@ assert.deepEqual(stepsForMode(''), STEPS_BY_MODE.standard, 'empty mode id falls 
 // Advanced setup disclosure), every flow leads with the shared name/folder
 // fields, and the retired 'mode' pivot never reappears — the hub's rail is the
 // type choice.
-const CONFIG_STEPS = ['mcp-servers', 'skill-packs', 'knowledge'] as const
+const CONFIG_STEPS = ['mcp-servers', 'knowledge'] as const
 for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
   for (const configStep of CONFIG_STEPS) {
     assert.ok(!steps.includes(configStep), `${flowId} flow must not gate on ${configStep}`)

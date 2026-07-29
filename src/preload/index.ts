@@ -23,7 +23,7 @@ import { mcpApi } from './api/mcp'
 import { modulesApi } from './api/modules'
 import { pluginsApi } from './api/plugins'
 import { reviewApi } from './api/review'
-import { skillPackApi } from './api/skill-pack'
+import { skillsApi } from './api/skills'
 import { mobileBridgeApi } from './api/mobile-bridge'
 import { soulsApi } from './api/souls'
 import { sprintEngineApi } from './api/sprintengine'
@@ -69,7 +69,7 @@ const api = {
   ...conversationApi,
   ...credentialApi,
   ...designSystemApi,
-  ...skillPackApi,
+  ...skillsApi,
   ...sprintEngineApi,
   ...switchboardApi,
   ...trackerApi,

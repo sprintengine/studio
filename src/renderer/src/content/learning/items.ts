@@ -1,3 +1,4 @@
+import { SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
 import type { LearningItem } from './types'
 
 export const LEARNING_ITEMS: readonly LearningItem[] = [
@@ -351,16 +352,17 @@ export const LEARNING_ITEMS: readonly LearningItem[] = [
     },
   },
   {
-    id: 'settings.install-skill-packs',
-    title: 'Install skill packs before expecting agents to use them',
-    summary: 'Skill pack state is local app configuration.',
-    body: 'Open Extensions to install bundled or ecosystem skill packs for supported harnesses. Installed state helps this app configure agents; it is not proof another checkout has the same pack.',
+    id: 'settings.install-skills',
+    title: 'Install a skill before expecting agents to use it',
+    summary: 'A skill is installed per workspace, into the directories your agent CLIs read.',
+    body: 'Open Extensions → Skills to add a source and install skills from it. Installing copies the skill into this workspace; it is not proof another checkout has the same skill.',
     category: 'settings',
     difficulty: 'basic',
     action: {
       label: 'Open Extensions',
       kind: 'open-settings-tab',
-      args: { tab: 'skill-packs' },
+      // Routes to the door's Skills row, which is what this lesson is about.
+      args: { tab: SKILLS_SETTINGS_TAB },
     },
   },
   {

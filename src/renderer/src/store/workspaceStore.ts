@@ -47,7 +47,6 @@ import type {
   MemoryGraphSettings,
   WorkspaceHighlight,
   McpServerConfig,
-  SkillPackEntry,
   GuidedBriefRuntimeState,
 } from '../types/workspace'
 import type { AppTheme, WindowMaterial } from '../types/appTheme'
@@ -224,9 +223,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
   removeMcpServer: (serverId: string) => void
-  setSkillPacksInstalled: (installed: SkillPackEntry[]) => void
-  upsertSkillPack: (pack: SkillPackEntry) => void
-  removeSkillPack: (id: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
   setLastSelectedReview: (selection: LastSelectedReview | null) => void

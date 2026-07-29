@@ -156,7 +156,7 @@ export function connectorFacet(category: string): NamedFacet {
   return 'Other'
 }
 
-// Catalog entries always carry an MCP server; a skill link adds a skill-pack
+// Catalog entries always carry an MCP server; a skill link adds a skills
 // component. This mirrors the registry `provides` vocabulary so both sources feed
 // the same COMPONENT_KIND_LABEL map.
 function catalogProvides(server: McpCatalogServer): MarketplaceComponentKind[] {

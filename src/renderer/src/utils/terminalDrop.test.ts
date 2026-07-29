@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import type { SkillPackHarness } from '../../../shared/electron-api'
+import type { SkillHarness } from '../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
 import {
   backlogItemDropDescriptor,
@@ -364,7 +364,7 @@ function bracketedPaste(text: string): string {
 
 function installWindowApiStub(input: {
   sessions: TerminalSessionSnapshot[]
-  backlogSkillHarnesses?: SkillPackHarness[]
+  backlogSkillHarnesses?: SkillHarness[]
   plugins?: PluginRegistryListEntry[]
 }): TerminalWriteCall[] {
   const writes: TerminalWriteCall[] = []

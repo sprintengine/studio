@@ -16,28 +16,27 @@ import type {
   ModuleTrustStatus,
   ThirdPartyModuleListResult,
 } from '../../../../shared/modules/manifest'
-import type { SkillPackEntry } from '../../../../shared/electron-api'
+import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../../shared/plugin-manifest'
 import type { McpServerConfig } from '../../types/workspace'
 
-export type ExtensionKind = 'mcp' | 'skill-pack' | 'cli' | 'module'
+export type ExtensionKind = 'mcp' | 'skill' | 'cli' | 'module'
 
 // Singular, sentence-case kind labels. Group order is the array order below:
-// the direct-install primitives in the same order the MCP / skill-pack / module
-// settings tabs present them.
+// the direct-install primitives in the order the surface presents them.
 export const EXTENSION_KIND_LABEL: Record<ExtensionKind, string> = {
   mcp: 'MCP server',
-  'skill-pack': 'Skill pack',
+  skill: 'Skill',
   cli: 'Agent CLI',
   module: 'Module',
 }
 
-const GROUP_ORDER: ExtensionKind[] = ['mcp', 'skill-pack', 'cli', 'module']
+const GROUP_ORDER: ExtensionKind[] = ['mcp', 'skill', 'cli', 'module']
 
 // One row in the aggregated inventory. `trust` is only carried by capability
 // modules (the security axis the trust dot encodes); `enabled` is tri-state —
 // true/false where the primitive has an enable concept (MCP servers, modules),
-// undefined where "installed" is the only state (skill packs, CLIs), so the row
+// undefined where "installed" is the only state (skills, CLIs), so the row
 // never implies a toggle that does not exist.
 export type InstalledExtension = {
   key: string
@@ -48,7 +47,7 @@ export type InstalledExtension = {
   source: string
   trust?: ModuleTrustStatus
   enabled?: boolean
-  /** Human one-line summary (catalog description, module summary, pack description). */
+  /** Human one-line summary (catalog description, module summary, skill description). */
   summary?: string
   /** At most a couple of small neutral chips — the transport for MCP servers and
    *  provenance only when it is NOT the default 'Bundled'. Anything more is
@@ -64,7 +63,7 @@ export type InstalledExtensionGroup = {
 
 // Per-source load outcome. `unsupported` = the running build's preload predates
 // the API; `unavailable` = a precondition is missing (e.g. no workspace open for
-// skill packs); `error` = the API was reached and failed.
+// skills); `error` = the API was reached and failed.
 export type LoadedSource<T> =
   | { status: 'loading' }
   | { status: 'unsupported' }
@@ -78,7 +77,7 @@ export type ExtensionsInstalledInput = {
   mcpServers: McpServerConfig[]
   modules: LoadedSource<ThirdPartyModuleListResult>
   moduleOverrides: ModuleEnablementOverrides
-  skillPacks: LoadedSource<SkillPackEntry[]>
+  skills: LoadedSource<WorkspaceSkill[]>
   clis: LoadedSource<PluginRegistryListEntry[]>
 }
 
@@ -170,16 +169,23 @@ export function modulesToInstalled(
   }))
 }
 
-export function skillPacksToInstalled(packs: SkillPackEntry[]): InstalledExtension[] {
-  return packs.map((pack) => ({
-    key: `skill-pack:${pack.slug}`,
-    id: pack.slug,
-    name: pack.name,
-    kind: 'skill-pack' as const,
-    source: sourceLabel(pack.source),
-    summary: pack.description,
-    chips: nonDefaultSource(pack.source),
-  }))
+// Only what is actually in the workspace: the inventory answers "what do I
+// have", so a bundled skill the user has not installed is not one of its rows.
+export function skillsToInstalled(skills: WorkspaceSkill[]): InstalledExtension[] {
+  return skills
+    .filter((skill) => skill.installState !== 'available')
+    .map((skill) => ({
+      key: `skill:${skill.id}`,
+      id: skill.id,
+      name: skill.name,
+      kind: 'skill' as const,
+      source: sourceLabel(skill.source === 'builtin' ? 'bundled' : 'custom'),
+      summary: skill.description,
+      chips: [
+        ...nonDefaultSource(skill.source === 'builtin' ? 'bundled' : 'custom'),
+        ...(skill.installState === 'update-available' ? ['Update available'] : []),
+      ],
+    }))
 }
 
 export function clisToInstalled(plugins: PluginRegistryListEntry[]): InstalledExtension[] {
@@ -212,7 +218,7 @@ function sourceNotice(kind: ExtensionKind, source: LoadedSource<unknown>): Sourc
 }
 
 export function deriveInstalledExtensions(input: ExtensionsInstalledInput): ExtensionsInstalledView {
-  const ipcSources = [input.modules, input.skillPacks, input.clis]
+  const ipcSources = [input.modules, input.skills, input.clis]
 
   // Any IPC source still in flight holds the whole view in loading rather than
   // flashing a partial list then reflowing.
@@ -223,7 +229,7 @@ export function deriveInstalledExtensions(input: ExtensionsInstalledInput): Exte
   const groups: InstalledExtensionGroup[] = []
   const byKind: Record<ExtensionKind, InstalledExtension[]> = {
     mcp: mcpToInstalled(input.mcpServers),
-    'skill-pack': input.skillPacks.status === 'ok' ? skillPacksToInstalled(input.skillPacks.value) : [],
+    skill: input.skills.status === 'ok' ? skillsToInstalled(input.skills.value) : [],
     cli: input.clis.status === 'ok' ? clisToInstalled(input.clis.value) : [],
     module: input.modules.status === 'ok' ? modulesToInstalled(input.modules.value, input.moduleOverrides) : [],
   }
@@ -235,7 +241,7 @@ export function deriveInstalledExtensions(input: ExtensionsInstalledInput): Exte
   }
 
   const notices: SourceNotice[] = []
-  const skillNotice = sourceNotice('skill-pack', input.skillPacks)
+  const skillNotice = sourceNotice('skill', input.skills)
   const cliNotice = sourceNotice('cli', input.clis)
   const moduleNotice = sourceNotice('module', input.modules)
   if (skillNotice) notices.push(skillNotice)
