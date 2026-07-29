@@ -266,6 +266,7 @@
      drawers and dialogs use these instead of hand-rolling `shadow-[...]`
      literals or a Tailwind `shadow-lg`. */
   --shadow-drawer: var(--sem-shadow-drawer);
+  --shadow-popover: var(--sem-shadow-popover);
   --shadow-modal: var(--sem-shadow-modal);
 
   /* How much theme ink is mixed into the FileExplorer file-type badge label.
@@ -355,6 +356,7 @@
   --skeleton-shimmer-high: rgba(32, 36, 40, 0.09);
 
   --shadow-drawer: var(--sem-shadow-drawer);
+  --shadow-popover: var(--sem-shadow-popover);
 
   --terminal-bg: #fafafb;
   --terminal-fg: #202428;

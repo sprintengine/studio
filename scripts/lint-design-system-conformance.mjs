@@ -48,12 +48,26 @@
 //
 // Two rules read the token layer instead of the component tree:
 //
-//   app-token-restates-bundle  an app variable in `index.css`'s base dark or
-//                              light block that carries a literal where
-//                              `design-system/foundations/tokens.css` has a
-//                              counterpart. The bundle is the authority
+//   app-token-restates-bundle  the mapping between `index.css` and
+//                              `design-system/foundations/tokens.css`, policed
+//                              three ways. The bundle is the authority
 //                              (`design-system/USAGE.md`); the app must alias
-//                              it, not mirror it by hand.
+//                              it, not mirror it by hand. In the base dark and
+//                              light blocks — the only two permitted to alias,
+//                              because they ARE the bundle's two modes — a
+//                              mapped variable must alias its own counterpart:
+//                              a literal restates or drifts from the bundle,
+//                              and an alias to some *other* `--sem-*` is the
+//                              one error a hand-written mapping is most likely
+//                              to carry. In any other `:root`-family block a
+//                              mapped variable is a violation whatever its
+//                              value: a bare or attribute-conditional `:root`
+//                              declaring one wins the cascade for every theme
+//                              that does not declare it itself (18 of 19), and
+//                              a theme block cannot alias at all because the
+//                              bundle mode it would resolve against is
+//                              whichever one is active. A theme block's own
+//                              literals are the design and stay untouched.
 //   theme-ramp-contrast        per theme: the ink ramp strong → default →
 //                              muted → subtle → disabled must not invert, and
 //                              `--text-disabled` must clear 3:1 against every
@@ -104,6 +118,7 @@ import { resolve, join, sep } from 'node:path'
 const SOURCE_ROOT = 'src/renderer/src'
 const APP_CSS_PATH = 'src/renderer/src/assets/index.css'
 const BUNDLE_CSS_PATH = 'design-system/foundations/tokens.css'
+const TOKENS_JSON_PATH = 'design-system/foundations/tokens.tokens.json'
 const DISABLED_CONTRAST_BASELINE_PATH = 'scripts/design-system-conformance/disabled-contrast.json'
 
 const SOURCE_EXT = new Set(['.tsx', '.ts'])
@@ -114,6 +129,54 @@ const EXCLUDED_DIRS = new Set(['__preview__'])
 const ALLOW_MARKER = 'design-system-allow:'
 
 const repoRoot = process.cwd()
+
+/* ------------------------------------------------------------------ *
+ * Bundle-derived numbers
+ * ------------------------------------------------------------------ */
+
+// The rules below carry numeric floors that are bundle values. Read them from
+// the bundle's own source rather than typing them in again: a second copy of a
+// token value with nothing keeping it in sync is the drift this guard exists to
+// catch, and the guard must not be the thing that drifts.
+function readTokenDimensionPx(tokens, path) {
+  let node = tokens
+  for (const key of path.split('.')) {
+    if (node === null || typeof node !== 'object') return null
+    node = node[key]
+  }
+  const declared = node?.$value
+  if (typeof declared !== 'string') return null
+  const px = declared.match(/^(\d+(?:\.\d+)?)px$/)
+  return px ? Number(px[1]) : null
+}
+
+function readBundleDimensions() {
+  const abs = resolve(repoRoot, TOKENS_JSON_PATH)
+  if (!existsSync(abs)) {
+    process.stderr.write(`Missing ${TOKENS_JSON_PATH}. Run this from the repo root.\n`)
+    process.exit(2)
+  }
+  let tokens
+  try {
+    tokens = JSON.parse(readFileSync(abs, 'utf8'))
+  } catch {
+    process.stderr.write(`${TOKENS_JSON_PATH} is not valid JSON.\n`)
+    process.exit(2)
+  }
+  const microFontSizePx = readTokenDimensionPx(tokens, 'sem.font.size.micro')
+  const radiusSteps = Object.keys(tokens?.sem?.radius ?? {})
+    .map((step) => readTokenDimensionPx(tokens, `sem.radius.${step}`))
+    .filter((value) => value !== null)
+  if (microFontSizePx === null || radiusSteps.length === 0) {
+    process.stderr.write(
+      `${TOKENS_JSON_PATH} must declare sem.font.size.micro and sem.radius.* as px dimensions.\n`,
+    )
+    process.exit(2)
+  }
+  return { microFontSizePx, largestRadiusPx: Math.max(...radiusSteps) }
+}
+
+const bundleDimensions = readBundleDimensions()
 
 /* ------------------------------------------------------------------ *
  * Lexing helpers
@@ -397,16 +460,35 @@ const TRACKING = /(?<![\w-])tracking-/
 const GROUP_HOVER_REVEAL = /(?<![\w-])group-hover:opacity-100(?![\w-])/g
 const FOCUS_REVEAL = /(?:group-)?focus(?:-within|-visible)?:opacity-100/
 
-// `rounded-2xl` is 16px; the arbitrary form is caught at the same threshold.
+// `rounded-2xl` is 16px; the arbitrary form is caught at the same threshold, so
+// spelling `rounded-2xl` as `rounded-[16px]` does not evade the rule.
 // `rounded-full` is deliberately absent: a pill or a dot is its own idiom, not
 // a marketing radius.
+//
+// 16px is a Tailwind step, not a bundle value — the system's shape scale tops
+// out at `sem.radius.shell` (9px). The threshold tracks the named utilities
+// rather than the scale because the two must agree: dropping it to the scale
+// would fail `rounded-[10px]` while `rounded-xl` (12px, a named step this rule
+// does not list) still passed. Closing that band is a rule change, not a floor
+// change. What IS read from the bundle is the assertion below: if the system
+// ever declares a radius that reaches the marketing floor, this rule would fire
+// on the system's own chrome, and it says so instead of drifting.
 const MARKETING_RADIUS = /(?<![\w-])rounded-(?:2xl|3xl|4xl|\[(\d+(?:\.\d+)?)px\])(?![\w-])/g
 const MARKETING_RADIUS_FLOOR_PX = 16
 
-// The micro floor. `sem.font.size.micro` is the smallest step the system
-// declares; anything under it is type shrunk to fit a container.
+if (bundleDimensions.largestRadiusPx >= MARKETING_RADIUS_FLOOR_PX) {
+  process.stderr.write(
+    `${TOKENS_JSON_PATH} declares a ${bundleDimensions.largestRadiusPx}px radius, at or above the ` +
+      `${MARKETING_RADIUS_FLOOR_PX}px marketing floor: the marketing-radii rule would fail the ` +
+      'shape scale the system itself declares. Revisit the rule, not the bundle.\n',
+  )
+  process.exit(2)
+}
+
+// The micro floor: `sem.font.size.micro` is the smallest step the system
+// declares, and anything under it is type shrunk to fit a container.
 const TEXT_SIZE = /(?<![\w-])text-\[(\d+(?:\.\d+)?)px\]/g
-const MICRO_FLOOR_PX = 10
+const MICRO_FLOOR_PX = bundleDimensions.microFontSizePx
 
 function scanSourceFile(file, push) {
   const { source, kinds } = file
@@ -572,14 +654,20 @@ function readTopLevelBlocks(source, kinds) {
   return blocks
 }
 
-// The subset whose selector list is made only of `:root` and
-// `:root[data-theme="…"]` parts. Blocks with a descendant selector (the git
+// The subset whose selector list is made only of bare `:root` parts and
+// single-attribute `:root[…]` parts. Blocks with a descendant selector (the git
 // ref pills, the date-picker chrome) are not token blocks and are skipped.
+//
+// `data-theme` parts name the themes a block declares for. Any other attribute
+// (`data-window-material`) is a conditional overlay: it declares for no theme in
+// particular and stacks on top of whichever one is active, so it contributes
+// nothing to the cascade the ramp check walks — but it is still a `:root` block
+// that can carry a token, which is why it is read rather than skipped.
 function readRootBlocks(source, kinds) {
   const blocks = []
   for (const block of readTopLevelBlocks(source, kinds)) {
     const parts = block.selector.split(',').map((part) => part.trim())
-    if (!parts.every((part) => /^:root(?:\[data-theme="[\w-]+"\])?$/.test(part))) continue
+    if (!parts.every((part) => /^:root(?:\[[\w-]+="[\w-]+"\])?$/.test(part))) continue
     blocks.push({
       ...block,
       parts,
@@ -716,6 +804,8 @@ const APP_TO_BUNDLE = new Map(
     '--tone-warn-soft': '--sem-color-status-warn-soft',
     '--tone-error-soft': '--sem-color-status-danger-soft',
     '--shadow-drawer': '--sem-shadow-drawer',
+    '--shadow-popover': '--sem-shadow-popover',
+    '--shadow-modal': '--sem-shadow-modal',
     '--text-size-2xs': '--sem-font-size-micro',
     '--text-size-xs': '--sem-font-size-meta',
     '--text-size-sm': '--sem-font-size-body',
@@ -849,8 +939,10 @@ const FIX_HINT = {
   'uppercase-tracked': 'sentence case; hierarchy from weight and size',
   'marketing-radii': 'operational chrome uses --radius-sm / --radius-md',
   'hover-without-focus': 'pair the hover reveal with group-focus-within:opacity-100',
-  'micro-type-floor': 'grow the container rather than shrinking the type below 10px',
-  'app-token-restates-bundle': 'alias the bundle variable instead of restating its value',
+  'micro-type-floor': `grow the container rather than shrinking the type below ${MICRO_FLOOR_PX}px`,
+  'app-token-restates-bundle':
+    'alias the bundle variable instead of restating its value, and keep mapped names in the ' +
+    'base dark and light blocks',
   'theme-ramp-contrast': 'order the ink ramp identically in every theme and clear 3:1 on disabled',
 }
 
@@ -976,23 +1068,78 @@ if (!baseBlock || !lightBlock) {
   process.exit(2)
 }
 
-for (const [block, bundleValues, modeLabel] of [
-  [baseBlock, bundle.dark, 'dark'],
-  [lightBlock, bundle.light, 'light'],
-]) {
+// The two blocks that carry the mapping. They are the only place a mapped name
+// may alias the bundle: the base block IS the dark mode and the light block IS
+// the light mode, so a `var(--sem-…)` written there resolves against a known
+// polarity. Everywhere else the mode is whatever is active, which is not a
+// thing the alias can be checked against.
+const ALIAS_BLOCKS = new Map([
+  [baseBlock, { bundleValues: bundle.dark, modeLabel: 'dark' }],
+  [lightBlock, { bundleValues: bundle.light, modeLabel: 'light' }],
+])
+
+const SEM_ALIAS = /^var\((--sem-[\w-]+)\)$/
+
+// Every `:root`-family block, not just the two that alias. A mapped name
+// declared in a bare `:root` block outside the mapping wins the cascade for
+// every theme that does not declare that name itself — 18 of 19 today, since
+// only `dark` is picked up by the base block's higher-specificity half. Its
+// value is beside the point: the block is the violation.
+for (const block of rootBlocks) {
+  const aliasBlock = ALIAS_BLOCKS.get(block)
   const declarations = readDeclarations(appCss, appCssKinds, block)
   for (const [name, declaration] of declarations) {
     const counterpart = APP_TO_BUNDLE.get(name)
     if (!counterpart) continue
-    if (/^var\(--sem-[\w-]+\)$/.test(declaration.value)) continue
-    const bundleValue = bundleValues.get(counterpart)
+    const line = lineOf(appCssStarts, declaration.index)
+    const alias = declaration.value.match(SEM_ALIAS)
+
+    if (!aliasBlock) {
+      // A theme block holds its own literal palette — that is the design, and
+      // specificity keeps it winning. What it must not do is alias, or be a
+      // second all-themes block shadowing the mapping.
+      if (block.appliesToAllThemes || block.themes.length === 0) {
+        pushAt(
+          'app-token-restates-bundle',
+          APP_CSS_PATH,
+          line,
+          `${name} is mapped to ${counterpart} but declared in \`${block.selector}\`, which ` +
+            'applies to every theme; only the base dark and light blocks may carry a mapped name',
+        )
+      } else if (alias) {
+        pushAt(
+          'app-token-restates-bundle',
+          APP_CSS_PATH,
+          line,
+          `theme "${block.themes.join('/')}" ${name} aliases ${alias[1]}, but a theme block ` +
+            'resolves against whichever mode is active; only the base dark and light blocks may alias',
+        )
+      }
+      continue
+    }
+
+    // The mapping rule polices the mapping. An alias to some other `--sem-*` is
+    // the one error a hand-written name-for-name map is most likely to carry,
+    // and it is invisible both in a diff and in the value the guard reads back.
+    if (alias) {
+      if (alias[1] === counterpart) continue
+      pushAt(
+        'app-token-restates-bundle',
+        APP_CSS_PATH,
+        line,
+        `${aliasBlock.modeLabel} ${name} aliases ${alias[1]}, counterpart is ${counterpart}`,
+      )
+      continue
+    }
+
+    const bundleValue = aliasBlock.bundleValues.get(counterpart)
     if (bundleValue === undefined) continue
     const matches = normalizeValue(bundleValue) === normalizeValue(declaration.value)
     pushAt(
       'app-token-restates-bundle',
       APP_CSS_PATH,
-      lineOf(appCssStarts, declaration.index),
-      `${modeLabel} ${name} ${matches ? 'restates' : 'drifts from'} ${counterpart} ` +
+      line,
+      `${aliasBlock.modeLabel} ${name} ${matches ? 'restates' : 'drifts from'} ${counterpart} ` +
         `(app ${declaration.value}${matches ? '' : `, bundle ${bundleValue}`})`,
     )
   }
