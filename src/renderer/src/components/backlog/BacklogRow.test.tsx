@@ -470,6 +470,18 @@ run('panel rows resolve the row color (highlight ▸ epic ▸ derived risk) thro
       !/swatch\.bg/.test(source),
       `the ${surface} list no longer paints the lit identity fill over the selection fill`,
     )
+    // Epic group headers are rows in the same list and select the same way. The
+    // door's header used to fill with --accent-primary-soft, which is the one
+    // thing selection may never be (design-system/patterns/selection.html).
+    assert.ok(
+      !source.includes('bg-[color:var(--accent-primary-soft)]'),
+      `the ${surface} list never paints the accent as a row fill`,
+    )
+    assert.match(
+      source,
+      /backlogRowPaintClass\(\{\s*color: (group|row\.group)\.color,\s*litFill: false,/,
+      `the ${surface} list paints its epic group headers through the same seam`,
+    )
   }
 })
 

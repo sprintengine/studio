@@ -491,6 +491,7 @@ async function main() {
       )
     }
 
+
     // The resting tier reaches the Backlog list too: a selected row in a pane
     // that is not driving the keyboard drops to --bg-selected-resting. Painting
     // the token instead of a baked tint is what makes an epic row obey it.
@@ -528,6 +529,69 @@ async function main() {
       `row ${tierFills.fill}, --bg-selected ${tierFills.selected}, --bg-selected-resting ${tierFills.resting}`,
     )
     transcript.push({ surface: 'resting-tier', restingTier, tierFills })
+
+    /* ---------------- The epic group header row ---------------- */
+    // Headers only render with the Group axis on, which is why the T13 review
+    // never saw this row: the door's header painted --accent-primary-soft when
+    // selected, spending the brand accent on being chosen.
+    console.log('\n=== the epic group header row ===')
+    await page.evaluate(() => {
+      document.documentElement.setAttribute('data-theme', 'dark')
+      document.documentElement.setAttribute('data-mode', 'dark')
+    })
+    await page.waitForTimeout(400)
+    await click(page, page.getByRole('button', { name: /^Filter and sort/ }))
+    await page.waitForTimeout(700)
+    const groupedOn = await click(page, page.getByRole('menuitemradio', { name: 'By epic', exact: true }))
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(1500)
+    // A header is a `role="option"` that owns the collapse chevron; the epic's
+    // own item row carries a timestamp instead. Distinguishing them matters:
+    // measuring the item row here would report a pass for a row this fix does
+    // not touch.
+    const header = await page.evaluate(`(() => {
+      ${MEASURE_LIB}
+      const probe = document.createElement('span')
+      probe.style.position = 'fixed'
+      probe.style.opacity = '0'
+      document.body.appendChild(probe)
+      const token = (name) => { probe.style.backgroundColor = 'var(' + name + ')'; return toSrgb(getComputedStyle(probe).backgroundColor) }
+      const tokens = { selected: token('--bg-selected'), accentSoft: token('--accent-primary-soft'), accent: token('--accent-primary') }
+      probe.remove()
+      const li = Array.from(document.querySelectorAll('li[role="option"]')).find(
+        (n) => (n.textContent || '').includes('Tinted epic') && n.querySelector('[aria-expanded]'),
+      )
+      if (!li) return { error: 'no group header on screen', tokens }
+      li.id = 't19-group-header'
+      li.click()
+      return { tokens, text: (li.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 40) }
+    })()`)
+    await page.waitForTimeout(800)
+    const headerAfter = await page.evaluate(`(() => {
+      ${MEASURE_LIB}
+      const li = document.getElementById('t19-group-header')
+      return li ? describeRow(li) : { error: 'header lost' }
+    })()`)
+    console.log(`  group header: ${JSON.stringify(header)} -> ${JSON.stringify(headerAfter)}`)
+    await page.screenshot({ path: join(outDir, '20-dark-group-header-selected.png') })
+    check(
+      'the Group axis is on, so an epic group header renders',
+      groupedOn && !header.error && !headerAfter.error,
+      `${header.error || headerAfter.error || `header "${header.text}"`}`,
+    )
+    if (!header.error && !headerAfter.error) {
+      check(
+        'a selected epic group header paints the neutral selection fill, never the accent',
+        headerAfter.fill === header.tokens.selected,
+        `header ${headerAfter.fill}, --bg-selected ${header.tokens.selected}, --accent-primary-soft ${header.tokens.accentSoft}`,
+      )
+      check(
+        'the group header keeps the epic hue in its 3px bar',
+        headerAfter.barWidth === '3px' && !/rgba\(0, 0, 0, 0\)/.test(headerAfter.bar),
+        `${headerAfter.barWidth} ${headerAfter.bar}`,
+      )
+    }
+    transcript.push({ surface: 'group-header', header, headerAfter })
 
     await writeFile(
       join(outDir, 'backlog-selection-transcript.json'),

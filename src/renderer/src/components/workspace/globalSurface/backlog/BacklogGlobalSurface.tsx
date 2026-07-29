@@ -48,7 +48,6 @@ import {
   sprintEngineRunLinkForItem,
 } from '../../../../utils/sprintengineBacklogLinks'
 import { deriveSprintEngineRunGlyph } from '../../../../utils/sprintengine'
-import { getHighlightSwatch } from '../../../../utils/highlight'
 import { basename } from '../../../../utils/paths'
 import { focusOrAddFileTab } from '../../../../utils/modelRegistry'
 import { getRendererHost, selectModuleEnabled } from '../../../../modules'
@@ -903,7 +902,6 @@ function BacklogDoorList({
           )
         }
         if (row.kind === 'header') {
-          const swatch = row.group.color ? getHighlightSwatch(row.group.color) : null
           const headerIndex = navRows.findIndex((candidate) => candidate.key === row.key)
           return (
             <li
@@ -911,9 +909,15 @@ function BacklogDoorList({
               id={`backlog-door-opt-${headerIndex}`}
               role="option"
               aria-selected={row.key === selectedKey}
-              className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${
-                row.key === selectedKey ? 'bg-[color:var(--accent-primary-soft)]' : 'hover:bg-[color:var(--bg-hover)]'
-              } ${swatch ? swatch.border : 'border-l-transparent'}`}
+              // A group header is a Backlog row like any other: selection is the
+              // neutral fill, and the epic's hue stays in the bar. It used to
+              // paint --accent-primary-soft, which spent the brand accent on
+              // being chosen — the violation T4 removed everywhere else.
+              className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${backlogRowPaintClass({
+                color: row.group.color,
+                litFill: false,
+                selected: row.key === selectedKey,
+              })}`}
               onClick={() => {
                 onSelect(row.key)
                 onToggleGroup(row.feed.rootKey, row.group)

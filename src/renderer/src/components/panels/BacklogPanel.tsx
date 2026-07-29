@@ -2117,7 +2117,6 @@ function BacklogGroupHeaderRow({
 }): JSX.Element {
   const { group } = row
   const epic = group.kind === 'epic' ? group.epic : null
-  const swatch = group.color ? getHighlightSwatch(group.color) : null
   return (
     <li
       id={`backlog-opt-${optionIndex}`}
@@ -2130,11 +2129,11 @@ function BacklogGroupHeaderRow({
       // item has nothing to select, so the row click collapses it instead.
       onClick={() => (epic ? onSelect(epic.id) : onToggleCollapse(group))}
       title={epic ? epic.relativePath : group.title}
-      className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${
-        selected
-          ? `${swatch ? swatch.border : 'border-l-transparent'} bg-[color:var(--bg-selected)]`
-          : `${swatch ? swatch.border : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
-      }`}
+      className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${backlogRowPaintClass({
+        color: group.color,
+        litFill: false,
+        selected,
+      })}`}
     >
       <BacklogEpicHeaderContent
         group={group}
