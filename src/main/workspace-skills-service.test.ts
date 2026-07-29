@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { AgentCliAvailabilityMap } from '../shared/electron-api'
 import type { PluginManifest, PluginRegistryListEntry } from '../shared/plugin-manifest'
+import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createPluginRegistry, type PluginRegistry } from './plugin-registry'
 import { createAppPluginRegistryOptions } from './plugin-registry-instance'
 import { BUILTIN_SKILLS } from './builtin-skills'
@@ -127,6 +130,7 @@ async function main(): Promise<void> {
   assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b)))
 
   await testAgentCapabilities()
+  await testThirteenthCli()
 
   console.log('workspace-skills-service tests passed')
 }
@@ -386,6 +390,157 @@ async function testCapabilityServers(context: {
   assert.ok(shell.ok)
   assert.deepEqual(shell.servers, [])
   assert.deepEqual(shell.diagnostics, [])
+}
+
+// The acceptance test for the whole backend, run rather than reasoned about:
+// a thirteenth CLI nobody has heard of, dropped into the user plugin root as a
+// plugin.json and nothing else, must resolve its skills and its servers — and
+// receive an attach — with no edit to any production file. Every path here is
+// invented (`.hypertron/agent-skills`, `hyper-mcp.json`) precisely so that a
+// hardcoded directory, config path or CLI list anywhere in the chain fails it.
+const THIRTEENTH_MANIFEST = {
+  id: 'hypertron',
+  displayName: 'Hypertron',
+  publisher: 'fixture',
+  version: 1,
+  binary: 'hypertron',
+  permissionPresets: {
+    default: { label: 'Default', args: [] },
+    bypass_all: { label: 'Bypass all approvals (dangerous)', args: ['--yolo'] },
+  },
+  launch: { argv: ['{{binary}}', { spreadIf: 'permissionArgs' }] },
+  promptInjection: { mode: 'positional-arg' },
+  completion: { mode: 'process-exit' },
+  capabilities: {
+    resumeSession: false,
+    sessionIdFromCaller: false,
+    toolUse: true,
+    mcpServers: true,
+  },
+  mcpConfig: {
+    path: '{{workspaceRoot}}/hyper-mcp.json',
+    userPath: '{{home}}/.hypertron/hyper-mcp.json',
+    format: 'claude-code',
+  },
+  skillIntegration: {
+    support: 'native',
+    harnessId: 'hypertron',
+    installTargets: [
+      {
+        scope: 'workspace',
+        path: '{{workspaceRoot}}/.hypertron/agent-skills/{{skillId}}',
+        format: 'generic',
+        restartRequired: false,
+      },
+    ],
+    invocation: { explicitTemplate: '#{{skillId}}', fileDropTemplate: '#{{skillId}} {{path}}' },
+  },
+}
+
+async function testThirteenthCli(): Promise<void> {
+  const temp = await mkdtemp(join(tmpdir(), 'multicode-thirteenth-cli-'))
+  const userPluginRoot = join(temp, 'user-plugins')
+  await mkdir(join(userPluginRoot, 'hypertron'), { recursive: true })
+  await writeFile(
+    join(userPluginRoot, 'hypertron', 'plugin.json'),
+    JSON.stringify(THIRTEENTH_MANIFEST, null, 2),
+    'utf-8',
+  )
+
+  // Loaded through the real registry, so the manifest is validated exactly as a
+  // dropped-in plugin would be rather than hand-built into the shape the map wants.
+  const registry = createPluginRegistry(
+    createAppPluginRegistryOptions(
+      join(process.cwd(), 'node_modules', '.cache', 'multicode'),
+      join(process.cwd(), 'resources', 'plugins'),
+      userPluginRoot,
+    ),
+  )
+  const report = registry.loadSync()
+  assert.deepEqual(report.rejected, [], 'the fixture manifest is accepted as written')
+  const plugins = registry.list()
+  assert.equal(
+    plugins.length,
+    bundledRegistry().list().length + 1,
+    'the bundled CLIs plus the fixture, which is one more than the app ships',
+  )
+  assert.ok(plugins.some((plugin) => plugin.id === 'hypertron'))
+
+  const workspaceRoot = join(temp, 'workspace')
+  const home = join(temp, 'home')
+  await mkdir(join(workspaceRoot, '.hypertron', 'agent-skills', 'deploy'), { recursive: true })
+  await writeFile(
+    join(workspaceRoot, '.hypertron', 'agent-skills', 'deploy', 'SKILL.md'),
+    '---\nname: Deploy\ndescription: Ship it.\n---\n\n# Deploy\n',
+    'utf-8',
+  )
+  // Both declared scopes hold a server, so the union and the workspace-wins
+  // precedence are exercised on a config path no bundled CLI declares.
+  await writeFile(
+    join(workspaceRoot, 'hyper-mcp.json'),
+    JSON.stringify({ mcpServers: { linear: { type: 'stdio', command: 'npx' } } }),
+    'utf-8',
+  )
+  await mkdir(join(home, '.hypertron'), { recursive: true })
+  await writeFile(
+    join(home, '.hypertron', 'hyper-mcp.json'),
+    JSON.stringify({ mcpServers: { sentry: { type: 'http', url: 'https://mcp.sentry.dev' } } }),
+    'utf-8',
+  )
+
+  const service = createAgentCapabilityService({
+    reader: createFsSkillDirectoryReader(),
+    listPlugins: () => plugins,
+    lookupManifest: (pluginId) => registry.get(pluginId)?.manifest,
+    mcpResolver: createMcpServerResolver({ homeDir: () => home }),
+  })
+
+  const resolved = await service.resolve({ workspaceRoot, pluginId: 'hypertron' })
+  assert.ok(resolved.ok)
+  assert.equal(resolved.support, 'native')
+  assert.equal(resolved.harnessId, 'hypertron')
+  assert.deepEqual(resolved.diagnostics, [])
+  assert.deepEqual(
+    resolved.skills.map((skill) => [skill.id, skill.name, skill.invocation, skill.source, skill.pluginIds]),
+    [['deploy', 'Deploy', '#deploy', 'local', ['hypertron']]],
+    'the invented harness directory is read and invoked from its own template',
+  )
+  assert.deepEqual(
+    resolved.servers.map((server) => [server.id, server.transport, server.scope, server.configPath]),
+    [
+      ['linear', 'stdio', 'workspace', join(workspaceRoot, 'hyper-mcp.json')],
+      ['sentry', 'http', 'user', join(home, '.hypertron', 'hyper-mcp.json')],
+    ],
+    'both declared scopes are read from the paths the fixture manifest names',
+  )
+
+  // The write path fans out by the same derived map: a skill living in one
+  // harness reaches the thirteenth CLI's directory with no edit either.
+  await mkdir(join(workspaceRoot, '.claude', 'skills', 'shipit'), { recursive: true })
+  await writeFile(
+    join(workspaceRoot, '.claude', 'skills', 'shipit', 'SKILL.md'),
+    '---\nname: Ship It\ndescription: Ship it harder.\n---\n',
+    'utf-8',
+  )
+  const installer = createAgentSkillInstaller({
+    listPlugins: () => plugins,
+    detectAvailability: async () =>
+      ({
+        'claude-code': { installed: true },
+        hypertron: { installed: true },
+      }) as unknown as AgentCliAvailabilityMap,
+  })
+  const attached = await installer.attach({ workspaceRoot, skillId: 'shipit' })
+  assert.ok(attached.ok)
+  const hypertronTarget = attached.targets.find((target) => target.harnessId === 'hypertron')
+  assert.ok(hypertronTarget, 'the thirteenth CLI is an attach target')
+  assert.equal(hypertronTarget.path, '.hypertron/agent-skills/shipit')
+  assert.equal(hypertronTarget.status, 'written')
+  assert.equal(hypertronTarget.restartRequired, false, 'restart truth comes from its own manifest')
+  assert.ok(
+    existsSync(join(workspaceRoot, '.hypertron', 'agent-skills', 'shipit', 'SKILL.md')),
+    'the copy is on disk in the directory the fixture manifest declared',
+  )
 }
 
 main().catch((error) => {

@@ -15,12 +15,30 @@
 // product behaviour is affected; suites that genuinely test layout state import
 // flexlayout directly under `--packages=bundle` and never hit this stub.
 //
-// The Proxy returns a harmless no-op class for every accessed symbol
-// (Actions, DockLocation, Model, RowNode, TabNode, TabSetNode, …), so any
-// bundle that references a flexlayout export loads without throwing; the value
-// is never called on these code paths.
+// Every value-level export the app imports is an **own property** here, not
+// only a Proxy `get` trap. esbuild turns `import { DockLocation } from …` into a
+// namespace built by `__toESM`, which copies own enumerable keys — a symbol that
+// exists only behind a `get` trap is absent from that namespace and reads back
+// as `undefined`. That is invisible while a symbol is dereferenced inside a
+// function, and a load-time crash the moment one is read at module scope (as
+// `modelRegistry.ts`'s rail table reads `DockLocation.LEFT`).
+//
+// `DockLocation` therefore carries its real member names. The classes stay
+// no-ops: these suites never construct a layout, they only need the module to
+// load. The Proxy is kept for anything not listed, so an export added later
+// still resolves for a plain `require()` consumer rather than throwing.
 const Noop = class {}
-module.exports = new Proxy(
-  { __esModule: true },
-  { get: (target, prop) => (prop in target ? target[prop] : Noop) },
-)
+const exported = {
+  __esModule: true,
+  Actions: Noop,
+  DockLocation: { LEFT: 'left', RIGHT: 'right', TOP: 'top', BOTTOM: 'bottom', CENTER: 'center' },
+  Layout: Noop,
+  Model: Noop,
+  Rect: Noop,
+  RowNode: Noop,
+  TabNode: Noop,
+  TabSetNode: Noop,
+}
+module.exports = new Proxy(exported, {
+  get: (target, prop) => (prop in target ? target[prop] : Noop),
+})

@@ -213,6 +213,27 @@ async function discoverExistingAgentConfig(
   return { mcpServers: dedupeMcpServers(mcpServers, warnings), skills, warnings }
 }
 
+/**
+ * STATUS, settled by the spec review of the capability read path: this wizard is
+ * *partly* migrated, deliberately. Its format parsing moved onto the shared
+ * adapters (the imports above), so it and the capability query can never
+ * disagree about what a config file says. Its *sources* are still this literal
+ * pair, because it answers a different question: what an existing user-scope
+ * install of Codex or Claude Code holds that Multicode could adopt on first run.
+ * `AgentConfigImportSource` is the two-value union the onboarding surface
+ * renders, so widening this list is a product change, not a refactor.
+ *
+ * It is not the map for "what can this agent reach" — `agentCapabilities`
+ * (src/main/workspace-skills-service.ts) is, and it is manifest-driven end to
+ * end. Nothing here is read by that path.
+ *
+ * Migrating the remainder is blocked on the manifests, not on this file. Only
+ * `codex` and `opencode` declare an `mcpConfig.userPath`; the five claude-format
+ * CLIs declare none, so there is nothing for `resolveMcpConfigPath(spec, 'user',
+ * …)` to resolve. The three candidate paths below are what Claude Code actually
+ * uses, and which of them is authoritative has not been established — that is
+ * the decision to settle before this list is derived rather than written.
+ */
 function sourceConfigs(home: string): SourceConfig[] {
   return [
     {
