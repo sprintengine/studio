@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import type { SkillHarness } from '../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
+import { plainSkillInvocation, resolveSkillInvocation } from '../../../shared/skill-invocation'
 import {
   backlogItemDropDescriptor,
   backlogSkillInvocationForDrop,
@@ -667,11 +668,42 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
   },
 ]
 
+// The capability resolver's answer for one CLI, from the same two declarations
+// the real one reads: the harness directories the skill is in, and the plugin's
+// own invocation template. Standing in for it here — rather than for the
+// workspace inventory this path used to consult — is what keeps a CLI added by
+// manifest alone on the same footing as the bundled ones.
+function stubbedCapabilities(pluginId: string, harnesses: SkillHarness[]) {
+  const integration = skillPluginEntries.find((entry) => entry.id === pluginId)?.skillIntegration
+  const visible = Boolean(
+    integration
+    && integration.support !== 'unsupported'
+    && harnesses.some((harness) => harness === integration.harnessId),
+  )
+  return {
+    ok: true as const,
+    support: integration?.support ?? ('unsupported' as const),
+    harnessId: integration?.harnessId ?? '',
+    skills: visible
+      ? [{
+        id: 'backlog',
+        name: 'backlog',
+        description: 'Work Backlog items.',
+        invocation: resolveSkillInvocation(integration, 'backlog') ?? plainSkillInvocation('backlog'),
+        source: 'builtin' as const,
+        pluginIds: [pluginId],
+      }]
+      : [],
+    servers: [],
+    diagnostics: [],
+  }
+}
+
 function installSkillWindowApiStub(input: {
   sessions: TerminalSessionSnapshot[]
   /** Harness directories the skill is actually installed in. */
   harnesses?: SkillHarness[]
-  skillsResult?: { ok: false; message: string }
+  capabilitiesResult?: { ok: false; message: string }
 }): TerminalWriteCall[] {
   const writes: TerminalWriteCall[] = []
   Object.defineProperty(globalThis, 'window', {
@@ -683,20 +715,8 @@ function installSkillWindowApiStub(input: {
           writes.push({ sessionId, data })
         },
         pluginsList: async () => ({ ok: true as const, plugins: skillPluginEntries }),
-        workspaceSkillsList: async () =>
-          input.skillsResult ?? {
-            ok: true as const,
-            skills: [
-              {
-                id: 'backlog',
-                name: 'backlog',
-                description: 'Work Backlog items.',
-                source: 'builtin' as const,
-                harnesses: input.harnesses ?? [],
-                installState: (input.harnesses ?? []).length ? ('installed' as const) : ('available' as const),
-              },
-            ],
-          },
+        agentCapabilities: async ({ pluginId }: { pluginId: string }) =>
+          input.capabilitiesResult ?? stubbedCapabilities(pluginId, input.harnesses ?? []),
       },
     },
   })
@@ -813,7 +833,7 @@ async function testDeadSessionReportsRatherThanNoOps(): Promise<void> {
 async function testUnreadableWorkspaceReportsRatherThanGuessing(): Promise<void> {
   const writes = installSkillWindowApiStub({
     sessions: [agentSession({ cli: 'claude-code' })],
-    skillsResult: { ok: false, message: 'Workspace root does not exist.' },
+    capabilitiesResult: { ok: false, message: 'Workspace root does not exist.' },
   })
   const sent = await sendSkillToTerminal({
     skillId: 'backlog',

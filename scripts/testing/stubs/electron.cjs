@@ -55,10 +55,15 @@ const ipcRenderer = {
     if (!handler) {
       throw new Error(`Error invoking remote method '${channel}': no handler registered`)
     }
-    // The real first argument is an IpcMainInvokeEvent; every handler these
-    // suites cross ignores it, and one that starts reading it should fail here
-    // rather than receive a fabricated sender.
-    return handler(null, ...args)
+    // The real first argument is an IpcMainInvokeEvent. Its `sender` is the ONE
+    // window below — the same object `webContents.send` pushes through — so a
+    // handler that subscribes on behalf of its sender (the agent-capabilities
+    // watch) delivers its events back to the preload listeners registered on
+    // this stub. Not a fabricated stand-in: it is the single renderer these
+    // suites model, and a handler reaching past `id` / `isDestroyed` / `once` /
+    // `send` still fails on the missing member rather than getting a plausible
+    // answer.
+    return handler({ sender: webContents }, ...args)
   },
   on(channel, listener) {
     const listeners = rendererListeners.get(channel) ?? new Set()
@@ -77,7 +82,15 @@ const ipcRenderer = {
 // runs-changed broadcast, the brief-run event) reaches the renderer listeners
 // registered above through its normal `webContents.send` path.
 const webContents = {
+  // Stable id: main-side code that keys subscriptions per sender (the
+  // agent-capabilities watch) needs one, and there is exactly one renderer here.
+  id: 1,
   isDestroyed: () => false,
+  // `once('destroyed')` is a teardown hook; this window never closes inside a
+  // suite, so the listener is accepted and never fired.
+  once() {
+    return webContents
+  },
   send(channel, ...args) {
     for (const listener of rendererListeners.get(channel) ?? []) {
       listener({ sender: webContents }, ...args)

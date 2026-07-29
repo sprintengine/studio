@@ -1,14 +1,13 @@
 import type {
   BuiltinSkillTargetState,
   SkillHarness,
-  WorkspaceSkill,
 } from '../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
+import type { AgentSkill } from '../../../shared/skills'
+import { plainSkillInvocation } from '../../../shared/skill-invocation'
 import {
   hasInstalledNativeSkillTarget,
-  renderSkillInvocation,
   renderSkillInvocationTemplate,
-  skillInstalledForHarness,
 } from './skillInvocation'
 
 export const MULTICODE_FILE_DROP_MIME = 'application/x-multicode-file-drop'
@@ -159,6 +158,12 @@ export async function pasteDroppedSkillIntoTerminal(input: {
  * Nothing on this path writes to disk. Attach is the pane's other verb and has
  * its own; a skill missing from the target's harness is never installed behind
  * the user's back to make an invocation work.
+ *
+ * "Can this CLI see it, and in what form" is asked of `agentCapabilities` — the
+ * one resolver — rather than derived here from the workspace-wide inventory.
+ * That inventory walks a frozen list of harnesses, so a CLI added by manifest
+ * alone was invisible to it and its skills silently fell back to the plain
+ * mention even where the manifest declared a native form.
  */
 export async function sendSkillToTerminal(input: {
   skillId: string
@@ -177,19 +182,19 @@ export async function sendSkillToTerminal(input: {
   }
 
   let plugins: PluginRegistryListEntry[]
-  let workspaceSkills: WorkspaceSkill[]
+  let reachable: AgentSkill | undefined
   try {
-    const [pluginsResult, skillsResult] = await Promise.all([
+    const [pluginsResult, capabilities] = await Promise.all([
       window.api.pluginsList(),
-      window.api.workspaceSkillsList({ workspaceRoot: input.workspaceRoot }),
+      window.api.agentCapabilities({ workspaceRoot: input.workspaceRoot, pluginId: session.cli }),
     ])
     // Either read failing leaves the form of the invocation unknown, and a
     // guessed one is worse than none: a Claude tab silently handed a sentence
     // where `/skill` was expected looks like the skill simply did not work.
     if (!pluginsResult.ok) return { ok: false, message: pluginsResult.message }
-    if (!skillsResult.ok) return { ok: false, message: skillsResult.message }
+    if (!capabilities.ok) return { ok: false, message: capabilities.message }
     plugins = pluginsResult.plugins
-    workspaceSkills = skillsResult.skills
+    reachable = capabilities.skills.find((candidate) => candidate.id === input.skillId)
   } catch (error) {
     return {
       ok: false,
@@ -205,12 +210,11 @@ export async function sendSkillToTerminal(input: {
     return { ok: false, message: 'This agent does not read skills.' }
   }
 
-  const skill = workspaceSkills.find((candidate) => candidate.id === input.skillId)
-  const invocation = renderSkillInvocation({
-    skill: skill ?? { id: input.skillId, name: input.skillId },
-    integration,
-    nativeInstalled: skill ? skillInstalledForHarness(skill, integration) : false,
-  })
+  // The resolver already rendered this CLI's own form for a skill it can see.
+  // A skill it cannot see has no native form to offer: the plain mention is what
+  // any agent can act on, and naming `/skill` for a directory that is not there
+  // would look like the skill simply did not work.
+  const invocation = reachable?.invocation ?? plainSkillInvocation(input.skillId)
 
   // The trailing space is the convention every other prefill follows: the
   // invocation is complete, and the caret sits where arguments go. Nothing is
