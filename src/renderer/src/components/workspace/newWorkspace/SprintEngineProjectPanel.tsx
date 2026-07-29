@@ -10,6 +10,7 @@
 
 import React from 'react'
 
+import { CheckIcon } from '../../AppIcons'
 import { Field, Select } from '../../ui'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { basename } from '../../../utils/paths'
@@ -180,14 +181,17 @@ function ProjectRepoChip({
       aria-pressed={selected}
       disabled={disabled}
       onClick={onToggle}
-      className={`h-[24px] max-w-full truncate rounded-full px-2.5 text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING_CLASS} ${
+      className={`inline-flex h-[24px] max-w-full items-center gap-1 rounded-full px-2.5 text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING_CLASS} ${
         selected
           ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
           : 'border border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
       }`}
     >
-      {label}
-      {selected ? <span aria-hidden="true"> ✓</span> : null}
+      <span className="min-w-0 truncate">{label}</span>
+      {/* aria-pressed above already announces the on state, so the mark is
+          silent; it sits beside the truncating label so a long repo name
+          cannot clip it. */}
+      {selected ? <CheckIcon className="icon-xs shrink-0" /> : null}
     </button>
   )
 }

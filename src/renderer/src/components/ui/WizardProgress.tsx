@@ -1,5 +1,7 @@
 import React from 'react'
 
+import { CheckIcon } from '../AppIcons'
+
 export type WizardProgressProps = {
   /** Total number of steps in the flow. */
   total: number
@@ -73,9 +75,9 @@ export function WizardProgress({
           const label = stepLabels[idx] ?? `Step ${idx + 1}`
           const body = (
             <>
-              {isDone ? (
-                <span aria-hidden="true" className="text-[10px] leading-none text-[color:var(--accent-primary)]">✓</span>
-              ) : null}
+              {/* The step's own name carries the meaning, so the tick is a
+                  silent mark that inherits the station's ink. */}
+              {isDone ? <CheckIcon className="icon-xs shrink-0" /> : null}
               {isCurrent ? (
                 <span aria-hidden="true" className="h-[5px] w-[5px] rounded-full bg-[color:var(--accent-primary)]" />
               ) : null}

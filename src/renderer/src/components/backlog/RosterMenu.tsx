@@ -11,6 +11,7 @@
 
 import { useState } from 'react'
 
+import { CheckIcon } from '../AppIcons'
 import { Popover } from '../ui'
 import type { SprintEngineRoster } from '../../types/workspace'
 import { NO_ROLES_ROSTER_NAME, isNoRolesRosterRef } from '../workspace/newWorkspace/savedRosters'
@@ -133,10 +134,8 @@ export function RosterMenu({
               setOpen(false)
             }}
           >
-            <span className="min-w-0 flex-1 truncate">
-              Use the horizon&apos;s roster
-              {inherit.selected ? <span className="text-[color:var(--accent-primary)]"> ✓</span> : null}
-            </span>
+            <span className="min-w-0 flex-1 truncate">Use the horizon&apos;s roster</span>
+            {inherit.selected ? <CheckIcon className="icon-xs shrink-0" /> : null}
             <span className="shrink-0 max-w-[7.5rem] truncate text-[11px] text-[color:var(--text-subtle)]">
               {inherit.resolvedLabel}
             </span>
@@ -164,10 +163,8 @@ export function RosterMenu({
         className={itemClass}
         onClick={() => pick(undefined)}
       >
-        <span className="min-w-0 flex-1 truncate">
-          {NO_ROLES_ROSTER_NAME}
-          {noRolesSelected ? <span className="text-[color:var(--accent-primary)]"> ✓</span> : null}
-        </span>
+        <span className="min-w-0 flex-1 truncate">{NO_ROLES_ROSTER_NAME}</span>
+        {noRolesSelected ? <CheckIcon className="icon-xs shrink-0" /> : null}
         <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">default</span>
       </button>
       <div className="my-1 border-t border-[color:var(--border-subtle)]" />
@@ -184,10 +181,11 @@ export function RosterMenu({
             className={itemClass}
             onClick={() => pick(roster.name)}
           >
-            <span className="min-w-0 flex-1 truncate">
-              {roster.name}
-              {checked ? <span className="text-[color:var(--accent-primary)]"> ✓</span> : null}
-            </span>
+            <span className="min-w-0 flex-1 truncate">{roster.name}</span>
+            {/* Every row here is a menuitemradio, so aria-checked already
+                announces the choice and the mark stays silent. It sits outside
+                the truncating label so a long roster name cannot clip it. */}
+            {checked ? <CheckIcon className="icon-xs shrink-0" /> : null}
             {/* A name alone is not enough to choose between rosters. */}
             <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
               {staffed} role{staffed === 1 ? '' : 's'}

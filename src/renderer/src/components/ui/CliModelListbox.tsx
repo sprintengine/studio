@@ -1,4 +1,5 @@
 import React from 'react'
+import { CheckIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { Popover } from './Popover'
 import { Tooltip } from './Tooltip'
@@ -255,7 +256,10 @@ function CliModelRow({
         <span className="shrink-0 whitespace-nowrap font-sans text-[10px] text-[color:var(--text-muted)]">{note}</span>
       ) : null}
       {picker ?? null}
-      {selected ? <span className="shrink-0 text-[color:var(--accent-primary)]">✓</span> : null}
+      {/* The row already announces itself through aria-selected, so the mark is
+          hidden. It inherits the selected row's --text-strong rather than the
+          accent: selection is neutral. */}
+      {selected ? <CheckIcon className="icon-xs shrink-0" /> : null}
     </div>
   )
 }

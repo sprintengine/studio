@@ -15,7 +15,7 @@ import {
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
-import { WarningIcon } from '../../AppIcons'
+import { CheckIcon, WarningIcon } from '../../AppIcons'
 import { CloseIconButton, LifecycleGlyph, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
 import { parentPath } from '../../../utils/paths'
 import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
@@ -1259,7 +1259,7 @@ function DesignSystemReleaseCard({
       {phase.kind === 'released' ? (
         <>
           <p role="status" className="flex items-center gap-2 text-[12px] font-semibold text-[color:var(--text-strong)]">
-            <span aria-hidden="true" className="text-[11px] text-[color:var(--tone-good)]">✓</span>
+            <CheckIcon className="icon-xs shrink-0 text-[color:var(--tone-good)]" />
             Saved{' '}
             <code className="font-mono text-[11px] font-normal">
               {phase.release.name}@{phase.release.version}
@@ -1289,7 +1289,7 @@ function DesignSystemReleaseCard({
             </span>
             {phase.kind === 'idle' ? (
               <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-[color:var(--tone-good)]">
-                <span aria-hidden="true" className="text-[10px]">✓</span>
+                <CheckIcon className="icon-xs shrink-0" />
                 Lint clean · 0 issues
               </span>
             ) : phase.kind === 'validating' ? (
@@ -1298,7 +1298,7 @@ function DesignSystemReleaseCard({
               </span>
             ) : phase.kind === 'releasing' ? (
               <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-[color:var(--tone-good)]">
-                <span aria-hidden="true" className="text-[10px]">✓</span>
+                <CheckIcon className="icon-xs shrink-0" />
                 Lint clean
               </span>
             ) : phase.kind === 'lint-failed' ? (

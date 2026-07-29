@@ -1,5 +1,6 @@
 import React from 'react'
 
+import { CheckIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
 import { CliModelPickerButton, Popover, RoleAvatar, Tooltip } from '../../ui'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
@@ -352,7 +353,8 @@ export function AgentCliPicker({
           >
             <CliIcon cli={option.value} className="icon-sm shrink-0" />
             <span className="min-w-0 flex-1 truncate">{option.label}</span>
-            {isCurrent ? <span className="ml-auto text-[color:var(--accent-primary)]">✓</span> : null}
+            {/* aria-selected on the option carries the meaning. */}
+            {isCurrent ? <CheckIcon className="icon-xs ml-auto shrink-0" /> : null}
           </button>
         )
       })}

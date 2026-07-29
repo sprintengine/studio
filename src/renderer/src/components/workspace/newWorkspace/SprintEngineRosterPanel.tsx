@@ -26,7 +26,7 @@ import {
   listSprintEngineWizardRoles,
   sprintEngineRosterRoleFloor,
 } from '../../../utils/sprintengineRoleOptions'
-import { ChevronDownIcon } from '../../AppIcons'
+import { CheckIcon, ChevronDownIcon } from '../../AppIcons'
 import { CliModelPickerButton, Field, Popover, PrimaryButton, RoleAvatar, SegmentedControl, Switch } from '../../ui'
 import { AgentCliPicker, type SprintEngineCliOption } from './SprintEngineRosterTable'
 import {
@@ -495,10 +495,9 @@ function SavedRostersMenu({
             className={itemClass}
             onClick={() => { onSelectRoster(NO_ROLES_ROSTER_ID); setOpen(false) }}
           >
-            <span className="min-w-0 flex-1 truncate">
-              {NO_ROLES_ROSTER_NAME}
-              {noRolesSelected ? <span className="text-[color:var(--accent-primary)]"> ✓</span> : null}
-            </span>
+            <span className="min-w-0 flex-1 truncate">{NO_ROLES_ROSTER_NAME}</span>
+            {/* aria-checked on the radio already announces the choice. */}
+            {noRolesSelected ? <CheckIcon className="icon-xs shrink-0" /> : null}
             <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">default</span>
           </button>
           <div className="my-1 border-t border-[color:var(--border-subtle)]" />
@@ -525,12 +524,16 @@ function SavedRostersMenu({
                       setOpen(false)
                     }}
                   >
-                    <span className="min-w-0 flex-1 truncate">
-                      {roster.name}
-                      {roster.id === selectedRosterId ? (
-                        <span className="text-[color:var(--accent-primary)]"> ✓</span>
-                      ) : null}
-                    </span>
+                    <span className="min-w-0 flex-1 truncate">{roster.name}</span>
+                    {/* Unlike the pinned "No roles" radio above, these rows are
+                        plain menuitems: nothing else announces which one is in
+                        use, so the mark carries its own name. */}
+                    {roster.id === selectedRosterId ? (
+                      <>
+                        <CheckIcon className="icon-xs shrink-0" />
+                        <span className="sr-only">Selected</span>
+                      </>
+                    ) : null}
                     <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
                       {total} role{total === 1 ? '' : 's'}
                     </span>
