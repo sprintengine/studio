@@ -1214,3 +1214,158 @@ fills, and `scripts/testing/design-system-integration-pass.mjs` exits 0.
 - **The mutation test covered one rule.** T20's disabled-contrast rule was
   proven live by regressing a value and watching the guard fail. The other
   thirteen rules were confirmed only by their zero counts on a clean tree.
+
+---
+
+# Integration re-check, second pass — 2026-07-29 (T24, after T25 and T26)
+
+The first T24 pass met three of five criteria and escalated; architect triage
+filed the two fixes (T25 for the resting tier on the Backlog door, T26 for the
+ringless search field) and made T24 depend on them. Both landed. This is the
+re-run, whole rather than partial — both fixes touch files this task had
+verified as shared seams, so the guard and the seams were re-proved too.
+
+Verdict: **all five criteria met.**
+
+## Criteria
+
+| # | criterion | result |
+|---|---|---|
+| 1 | `npm run lint` exits 0, every baseline file empty, non-empty baselines recorded as 0 | **met** |
+| 2 | `npm run verify:app` and the test suite pass | **met** |
+| 3 | both shared-seam files carry every concurrent writer's change intact | **met** |
+| 4 | resting / resting-selected / selected are three distinguishable states on an epic-member Backlog row, dark and light | **met** — was I1 |
+| 5 | every tab stop on the Backlog and Extensions doors draws the converged ring | **met** — was R1 |
+
+### 1 — the guard, at zero tolerance
+
+`npm run lint` exits **0**: `tolerance: none`, 0 found on all fourteen rules
+over 595 renderer files, 9 `design-system-allow:` suppressions. **Non-empty
+baseline files: 0** — `scripts/design-system-conformance/` is still empty and
+tracks nothing (`git ls-files` returns 0 entries), which is zero tolerance by
+construction.
+
+Re-proved **live**, not merely green: regressing one theme's `--text-disabled`
+to `#707070` makes the guard exit **1** with `theme "ayu-mirage":
+--text-disabled (#707070) is 2.95:1 on --bg-surface-raised (#242838), under the
+3:1 floor` — the raised surface T20 added to the measurement. The file was
+restored from a byte copy and `git diff` on it is empty.
+
+### 2 — the suite
+
+`npm run verify:app` exits **0** (typecheck + lint + the full main / preload /
+renderer / shared / seam suite, including
+`test:seams:design-system-conformance`), with the harness edit below in the tree.
+
+### 3 — the shared seams, now three
+
+`scripts/lint-design-system-conformance.mjs` — T18's `APP_TO_BUNDLE` entry at
+`:693` and T20's rule both present; the mutation above proves T20's half is the
+one actually running. Neither T25 nor T26 wrote to this file.
+
+`src/renderer/src/assets/index.css` — 21 `--bg-selected-resting` declarations at
+T18's own commits and 21 at HEAD, with no `+`/`-` on any of those lines since,
+so T18's block is intact under T21's and T22's later additions. Last writer is
+still T22; T25 and T26 did not touch it.
+
+**A third seam appeared, and it is this task's own instrument.** T25's commit
+`4a76e059` wrote 191 lines into
+`scripts/testing/design-system-integration-pass.mjs` — the harness that
+adjudicates T25's and T26's own acceptance. Two changes matter:
+
+- *Part A*: focus is now put inside the row's pane before the `selected` read,
+  because a synthetic `element.click()` does not run the browser's
+  focus-the-nearest-focusable-ancestor step. The reasoning is correct and the
+  effect is to make the read stricter, not laxer.
+- *Part B*: `ringOn` accepts a ring painted by an ancestor that is itself
+  `:focus-within` (`compositeRing`), for a composite control whose tab stop and
+  visible border box are different elements.
+
+The second is a **weakening** — it can only ever convert a fail into a pass — so
+it was not taken on trust. See below.
+
+### 4 — the T18/T19 seam on one surface
+
+Now three distinct fills in both themes, on a seeded epic-member row, with
+selection handed back to a plain row between themes:
+
+```
+dark    resting          rgb(23, 22, 33)     (the epic tint)
+        resting-selected rgb(28, 32, 36)     step from resting        1.092:1
+        selected         rgb(36, 36, 44)     step from resting-sel.   1.064:1
+                                             step from resting        1.162:1
+
+light   resting          rgb(246, 245, 255)
+        resting-selected rgb(228, 232, 236)  step from resting        1.139:1
+        selected         rgb(216, 220, 224)  step from resting-sel.   1.119:1
+                                             step from resting        1.275:1
+```
+
+The row's nearest `[data-selection-pane]` is now `primary` (3 panes on the
+surface), where the first pass read `null`. The resting→selected numbers are
+unchanged from the first pass and from T23's F1, so T19's compositing was not
+disturbed; the third state was added between them rather than replacing either.
+
+R3's ink half rests with the fill, which the first pass reported as missing on
+this surface: title ink is `rgb(200,200,208)` resting, `rgb(236,236,236)`
+selected, and back to `rgb(200,200,208)` resting-selected — a **1.408:1** ink
+step dark, **1.579:1** light. Resting-selected ink still clears its own fill at
+9.855:1 dark and 8.031:1 light.
+
+T25 chose `primary` over `auto`, and the pass now pins that choice: with focus
+moved to the door's own toolbar — outside every pane — the row keeps the
+full-strength fill, and only focus landing in *another* pane rests it.
+
+### 5 — the converged ring, door by door
+
+**Seventy-six of seventy-six tab stops draw the converged ring. Zero Chromium UA
+outlines** (the first pass: 70 of 74, with 2 UA outlines). One treatment across
+both doors, `rgb(63, 148, 104) 0px 0px 0px 2px` and its `inset` variant, alpha 1.
+
+Each of the four stops the first pass named is fixed by a product change, not by
+the harness widening:
+
+| stop | fix |
+|---|---|
+| Backlog `Open epic Tinted epic` | T25 — `FOCUS_RING_CLASS` on the button (`BacklogPanel.tsx:2456`) |
+| Extensions `Featured` tabpanel | T26 — `FOCUS_RING_CLASS` + `focus-visible:ring-inset` on `TabPanel` |
+| both door search inputs | T26 — the ring moved to the wrapper, `has-[input:focus]` |
+
+Only the two search inputs use the widened `composite` path, so that is the only
+place the weakened rule is load-bearing.
+
+**The widening, counter-checked.** `assertConvergedRing` consults the ancestor
+chain only when the element itself has no ring, so the failure it cannot see by
+construction is the opposite one: a stop drawing its own ring *inside* a wrapper
+still drawing one — two concentric rings on a single stop, which the
+one-treatment rule forbids. That is the exact shape of this field, whose clear
+button is a descendant of the ringed wrapper, and it is what T26's second commit
+moved from `focus-within` to `has-[input:focus]` to prevent. The pass now
+asserts it directly (`assertSearchFieldRing`), on both doors:
+
+- field focused → the `<input>` paints nothing and **exactly one** ancestor
+  rings: `DIV.flex: rgb(63, 148, 104) 0px 0px 0px 2px`.
+- Tab → `Clear search` paints that same ring on itself and **zero** ancestors
+  ring.
+
+Confirmed in pixels as well as in computed style: clipped screenshots of the
+field in both states are written next to the pass transcript, and show one green
+ring around the field, then one around the cross alone.
+
+30/30 harness checks pass (24 before these additions).
+
+## What this pass did not establish
+
+- **Two doors, not every surface.** Sprints and Reviews carry the same
+  `InboxSearchInput` and so inherit T26's fix by construction, but were not
+  walked. Unchanged from the first pass.
+- **One theme for the ring walk.** Both walks ran in dark. The tier measurements
+  ran in dark and light.
+- **R2 was not re-measured** — not in this task's criteria; it stands where T23
+  left it. R3 is covered here from the ink side (criterion 4).
+- **The mutation test covered one rule.** The other thirteen are confirmed only
+  by their zero counts on a clean tree.
+- **The 1.064:1 fill step is small on its own.** Dark resting-selected →
+  selected is a subtle fill move; what makes the state legible is fill *and* ink
+  moving together (1.408:1 on the title). A future ramp change that touches one
+  channel without the other would weaken the tier without failing this pass.

@@ -519,6 +519,100 @@ async function fillSearchField(page, labelFragment, text) {
   return { ...filled, hasClear }
 }
 
+// The composite ring, checked from the other side.
+//
+// `assertConvergedRing` accepts a stop whose ring is drawn by an ancestor, which
+// is correct for a composite control but is a WEAKER test than the element-only
+// one it replaced: it can only ever add passes. The widening therefore needs its
+// own counter-check, and the one that matters is the failure it cannot see. The
+// composite lookup runs only when the element itself has no ring, so a stop that
+// draws its own ring INSIDE a wrapper still drawing one — two concentric rings
+// on a single stop, which the one-treatment rule forbids — reads as a clean
+// `self` pass. That is exactly the shape of the search field: the clear button
+// is a descendant of the ringed wrapper.
+//
+// So: focus the input, then Tab to the clear button, and read the whole ancestor
+// chain's painted layers in both states. Clipped screenshots of the field are
+// written beside them, because a ring that measures right and looks wrong is
+// still wrong.
+async function assertSearchFieldRing(page, surface, labelFragment, shotPrefix) {
+  const read = async () =>
+    page.evaluate(() => {
+      const el = document.activeElement
+      if (!el) return { error: 'no activeElement' }
+      const painted = (s) =>
+        !s || s === 'none'
+          ? []
+          : s
+              .split(/,(?![^(]*\))/)
+              .map((x) => x.trim())
+              .filter((l) => !/rgba\([^)]*,\s*0\s*\)/.test(l))
+      const describe = (n) => ({
+        tag: n.tagName + (n.getAttribute('class') ? '.' + n.getAttribute('class').split(/\s+/)[0] : ''),
+        label: (n.getAttribute('aria-label') || '').slice(0, 44),
+        shadow: painted(getComputedStyle(n).boxShadow),
+      })
+      const chain = []
+      let n = el
+      for (let i = 0; n && n !== document.body && i < 6; i += 1) {
+        chain.push(describe(n))
+        n = n.parentElement
+      }
+      return {
+        focused: describe(el),
+        ringedAncestors: chain
+          .slice(1)
+          .filter((c) => c.shadow.length > 0)
+          .map((c) => `${c.tag}: ${c.shadow.join(' | ')}`),
+      }
+    })
+
+  const box = await page.evaluate((fragment) => {
+    const input = Array.from(document.querySelectorAll('input[type="search"]')).find((n) =>
+      (n.getAttribute('aria-label') || '').includes(fragment),
+    )
+    if (!input) return null
+    input.focus()
+    const r = input.parentElement.getBoundingClientRect()
+    return { x: r.x, y: r.y, width: r.width, height: r.height }
+  }, labelFragment)
+  if (!box) {
+    check(`${surface}: the search field could be focused for the ring probe`, false, labelFragment)
+    return null
+  }
+  const clip = {
+    x: Math.max(0, box.x - 12),
+    y: Math.max(0, box.y - 12),
+    width: box.width + 24,
+    height: box.height + 24,
+  }
+  await page.waitForTimeout(500)
+
+  const onInput = await read()
+  check(
+    `${surface}: with the field focused exactly one box draws a ring, and it is the wrapper`,
+    onInput.focused.shadow.length === 0 && onInput.ringedAncestors.length === 1,
+    `self=[${onInput.focused.shadow.join(' | ') || 'none'}] ancestors=[${onInput.ringedAncestors.join(' ; ') || 'none'}]`,
+  )
+  await page.screenshot({ path: join(outDir, `${shotPrefix}-field-focused.png`), clip })
+
+  await page.keyboard.press('Tab')
+  await page.waitForTimeout(500)
+  const onClear = await read()
+  check(
+    `${surface}: the stop after the field is its clear button`,
+    onClear.focused.label === 'Clear search',
+    JSON.stringify(onClear.focused.label),
+  )
+  check(
+    `${surface}: the clear button rings itself and the wrapper drops its ring (no two rings on one stop)`,
+    onClear.focused.shadow.length > 0 && onClear.ringedAncestors.length === 0,
+    `self=[${onClear.focused.shadow.join(' | ') || 'none'}] ancestors=[${onClear.ringedAncestors.join(' ; ') || 'none'}]`,
+  )
+  await page.screenshot({ path: join(outDir, `${shotPrefix}-clear-focused.png`), clip })
+  return { onInput, onClear }
+}
+
 async function enterSurface(page, selector) {
   const ok = await page.evaluate((sel) => {
     const node = document.querySelector(sel)
@@ -821,6 +915,7 @@ async function main() {
       backlogSearch.ok && backlogSearch.hasClear,
       JSON.stringify(backlogSearch),
     )
+    await assertSearchFieldRing(page, 'Backlog door', 'backlog', '11-backlog-search')
     await enterSurface(page, 'section[aria-label="Backlog"], aside[aria-label="Backlog list"], main')
     const backlogStops = await tabWalk(page, 'Backlog door')
     const backlogRings = assertConvergedRing('Backlog door', backlogStops)
@@ -840,6 +935,7 @@ async function main() {
       extSearch.ok && extSearch.hasClear,
       JSON.stringify(extSearch),
     )
+    await assertSearchFieldRing(page, 'Extensions door', 'connectors', '22-extensions-search')
     await enterSurface(page, 'section[aria-label="Extensions"], aside[aria-label], main')
     const extStops = await tabWalk(page, 'Extensions door')
     const extRings = assertConvergedRing('Extensions door', extStops)
