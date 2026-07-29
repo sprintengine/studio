@@ -30,12 +30,17 @@ export function InboxSearchInput({
         'flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)]',
         'bg-[color:var(--bg-surface-raised)] px-2 text-[12px]',
         // The field is a composite: the input is the tab stop, but the border
-        // box a user sees is this wrapper. So the wrapper draws the ring, on
-        // `focus-within`, in the same 2px `--border-focus` every other control
-        // uses (FOCUS_RING_CLASS's treatment). `focus-within` rather than
-        // `focus-visible` because the stop is a text field, which Chromium
-        // treats as focus-visible on click too — the two coincide here.
-        'focus-within:ring-2 focus-within:ring-[color:var(--border-focus)]',
+        // box a user sees is this wrapper. So the wrapper draws the ring, in
+        // the same 2px `--border-focus` every other control uses
+        // (FOCUS_RING_CLASS's treatment).
+        //
+        // Keyed to the input's own focus, NOT to `focus-within`: the clear
+        // button is a descendant, so a `focus-within` ring would still be
+        // painted while that button is focused and drawing its own — two
+        // concentric rings on one stop, which the one-treatment rule forbids.
+        // `:focus` rather than `:focus-visible` because the stop is a text
+        // field, which Chromium treats as focus-visible on click anyway.
+        'has-[input:focus]:ring-2 has-[input:focus]:ring-[color:var(--border-focus)]',
       ].join(' ')}
     >
       <SearchGlyph />
