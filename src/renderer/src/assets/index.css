@@ -347,6 +347,21 @@
   --file-badge-ink-mix: 50%;
 }
 
+/* ── Theme catalogue ────────────────────────────────────────────────────────
+   Every theme below restates the full ink ramp for its own surfaces. Two
+   invariants hold in all of them, and `scripts/lint-design-system-conformance.mjs`
+   (rule `theme-ramp-contrast`) fails the build when one breaks:
+
+     1. --text-strong → default → muted → subtle → disabled decreases in
+        contrast against that theme's --bg-surface, and never inverts.
+     2. --text-disabled clears 3:1 on --bg-surface (WCAG 2.1 AA-large).
+
+   Steps are spaced at least 1.10x apart in contrast so each reads as its own
+   rung — the bundle, which is the authority, runs its own bottom step at
+   1.23x (dark) and 1.16x (light). A ramp step under AA for body text is by
+   design: subtle and disabled carry metadata, never prose. Retone on the
+   ink's own hue/chroma line so a fix never shifts a theme's identity. */
+
 /* Slate uses a neutral grey ramp, lighter than the default ink scale so
    adjacent editor surfaces remain distinct. The accent stays brand blue.
    Anti-dither baseline. */
@@ -363,7 +378,7 @@
   --text-default: #cccccc;
   --text-muted: #9c9c9c;
   --text-subtle: #7c7c7c;
-  --text-disabled: #5c5c5c;
+  --text-disabled: #707070;
   --text-on-accent: #ffffff;
 
   --border-subtle: rgba(252, 252, 252, 0.07);
@@ -412,7 +427,7 @@
   --text-default: #a8b8a8;
   --text-muted: #8c988c;
   --text-subtle: #6c786c;
-  --text-disabled: #546054;
+  --text-disabled: #607060;
   /* Dark sage on muted-gold accent — used by PrimaryButton's label and
      Switch's thumb when checked. */
   --text-on-accent: #141814;
@@ -458,7 +473,7 @@
   --text-default: #d4c8a8;
   --text-muted: #a89c78;
   --text-subtle: #7c7054;
-  --text-disabled: #605440;
+  --text-disabled: #746854;
   --text-on-accent: #08080c;
 
   --border-subtle: rgba(244, 236, 216, 0.06);
@@ -500,7 +515,7 @@
   --text-default: #d8c4a0;
   --text-muted: #a89870;
   --text-subtle: #7c6c54;
-  --text-disabled: #605440;
+  --text-disabled: #746450;
   --text-on-accent: #181408;
 
   --border-subtle: rgba(244, 232, 200, 0.06);
@@ -541,8 +556,8 @@
   --text-strong: #d0c8e0;
   --text-default: #b4acc4;
   --text-muted: #888098;
-  --text-subtle: #605870;
-  --text-disabled: #443c50;
+  --text-subtle: #7c708c;
+  --text-disabled: #70687c;
   --text-on-accent: #14141c;
 
   --border-subtle: rgba(208, 200, 224, 0.06);
@@ -582,8 +597,8 @@
   --text-strong: #c0c8dc;
   --text-default: #a0a8c0;
   --text-muted: #707898;
-  --text-subtle: #555c78;
-  --text-disabled: #3c405c;
+  --text-subtle: #6c7090;
+  --text-disabled: #646884;
   --text-on-accent: #181824;
 
   --border-subtle: rgba(192, 200, 220, 0.06);
@@ -622,8 +637,8 @@
   --text-strong: #e0d4dc;
   --text-default: #c4b4bc;
   --text-muted: #9c8c98;
-  --text-subtle: #786870;
-  --text-disabled: #584850;
+  --text-subtle: #806c78;
+  --text-disabled: #74646c;
   --text-on-accent: #181420;
 
   --border-subtle: rgba(224, 212, 220, 0.06);
@@ -663,8 +678,8 @@
   --text-strong: #ccd0d8;
   --text-default: #a8b0b8;
   --text-muted: #7c8088;
-  --text-subtle: #585c64;
-  --text-disabled: #404448;
+  --text-subtle: #747884;
+  --text-disabled: #6c7074;
   --text-on-accent: #1c2030;
 
   --border-subtle: rgba(204, 208, 216, 0.06);
@@ -704,8 +719,8 @@
   --text-strong: #ecdcb4;
   --text-default: #d8c8a8;
   --text-muted: #a89880;
-  --text-subtle: #806c5c;
-  --text-disabled: #5c4c40;
+  --text-subtle: #907868;
+  --text-disabled: #807060;
   --text-on-accent: #1c1c18;
 
   --border-subtle: rgba(236, 220, 180, 0.06);
@@ -755,7 +770,7 @@
   --text-strong: #2c2418;
   --text-default: #4c4030;
   --text-muted: #6c6048;
-  --text-subtle: #645840;
+  --text-subtle: #7c6c54;
   /* Disabled deepened to clear AA-large (3:1) on the warm canvas, not just on
      the lighter surface — empty-state hints sit on both. */
   --text-disabled: #887c64;
@@ -846,7 +861,7 @@
   --text-strong: #242818;
   --text-default: #444830;
   --text-muted: #586040;
-  --text-subtle: #585c3c;
+  --text-subtle: #686c48;
   --text-disabled: #74785c;
   --text-on-accent: #ffffff;
 
@@ -1074,7 +1089,7 @@
   --text-default: #c4ccb4;
   --text-muted: #98a488;
   --text-subtle: #7c8868;
-  --text-disabled: #5c6850;
+  --text-disabled: #68785c;
   --text-on-accent: #ffffff;
 
   --border-subtle: rgba(232, 236, 216, 0.07);
@@ -1128,7 +1143,7 @@
   --text-default: #ccccb0;
   --text-muted: #a0a084;
   --text-subtle: #808060;
-  --text-disabled: #606048;
+  --text-disabled: #74785c;
   --text-on-accent: #ffffff;
 
   --border-subtle: rgba(232, 232, 212, 0.07);
@@ -1182,7 +1197,7 @@
   --text-default: #d4ccb0;
   --text-muted: #a8a07c;
   --text-subtle: #888864;
-  --text-disabled: #686048;
+  --text-disabled: #7c7458;
   --text-on-accent: #ffffff;
 
   --border-subtle: rgba(240, 234, 210, 0.08);
@@ -1245,7 +1260,7 @@
   --text-default: #c4ccb4;
   --text-muted: #9ca48c;
   --text-subtle: #7c8470;
-  --text-disabled: #5c6450;
+  --text-disabled: #647058;
   /* Sage accent carries dark ink (a light label would wash out on it). */
   --text-on-accent: #181c14;
 
