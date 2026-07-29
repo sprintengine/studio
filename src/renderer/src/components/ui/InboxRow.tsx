@@ -21,7 +21,8 @@ type InboxRowProps = {
    *  because the row itself renders as a `<button>` and nested interactives are
    *  invalid HTML. */
   trailing?: React.ReactNode
-  /** Visual selection. Backed by --accent-primary-soft. */
+  /** Visual selection. A neutral --bg-selected fill — never the accent, and
+   *  never a left bar (`design-system/patterns/selection.html`). */
   selected?: boolean
   /** Row is interactive (renders as button). Default true when onSelect is set.
    *  Receives the click event so callers can read modifier keys (shift/meta) for
@@ -74,11 +75,13 @@ export function InboxRow({
 
   const className = [
     'group flex w-full items-start gap-2 px-3 py-2 text-left transition-colors',
-    'border-l-2',
-    selected
-      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-      : 'border-transparent',
-    interactive ? 'cursor-pointer hover:bg-[color:var(--bg-hover)]' : '',
+    // Selection is the neutral fill and nothing else: the title already sits at
+    // --text-strong, and the state is carried to AT by aria-current below.
+    selected ? 'bg-[color:var(--bg-selected)]' : '',
+    interactive ? 'cursor-pointer' : '',
+    // Hover is skipped on the selected row: --bg-hover sits below --bg-selected,
+    // so letting it win would dim the row the pointer is over.
+    interactive && !selected ? 'hover:bg-[color:var(--bg-hover)]' : '',
     disabled ? 'cursor-not-allowed opacity-50' : '',
     interactive ? FOCUS_RING_CLASS : '',
   ].join(' ')

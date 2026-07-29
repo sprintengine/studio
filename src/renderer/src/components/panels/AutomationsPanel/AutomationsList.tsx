@@ -114,10 +114,10 @@ function DefinitionRow({
       // select.
       onClick={onSelect}
       className={[
-        'group relative cursor-pointer border-b border-[color:var(--border-subtle)] py-2 transition-colors',
+        'group relative cursor-pointer border-b border-[color:var(--border-subtle)] px-4 py-2 transition-colors',
         selected
-          ? 'border-l-[3px] border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] pl-[13px] pr-3'
-          : 'px-4 hover:bg-[color:var(--bg-hover)]',
+          ? 'bg-[color:var(--bg-selected)]'
+          : 'hover:bg-[color:var(--bg-hover)]',
       ].join(' ')}
     >
       <button

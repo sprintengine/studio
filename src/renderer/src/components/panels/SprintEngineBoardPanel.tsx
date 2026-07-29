@@ -15,6 +15,7 @@ import {
  OverflowMenu,
  GhostButton,
  LifecycleGlyph,
+ FOCUS_RING_CLASS,
  Popover,
  SidePane,
  Spinner,
@@ -345,7 +346,7 @@ function SprintEngineModelField({
  }
  }
  }}
- className="mt-1 w-full rounded-md border border-[color:var(--border-subtle)] bg-transparent px-3 py-2 font-mono text-[13px] text-[color:var(--text-default)] placeholder:font-sans placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] focus:outline-none"
+ className={`mt-1 w-full rounded-md border border-[color:var(--border-subtle)] bg-transparent px-3 py-2 font-mono text-[13px] text-[color:var(--text-default)] placeholder:font-sans placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}
  />
  ) : null}
  </Popover>
@@ -2865,7 +2866,7 @@ export function SprintRunBoard({
  id="sprintengine-view-panel-tasks"
  role="tabpanel"
  aria-labelledby="sprintengine-view-tab-tasks"
- className={`flex min-h-0 flex-1 flex-col bg-[color:var(--bg-surface)] ${effectiveTasksLayout === 'kanban' ? 'focus:outline-none' : ''}`}
+ className={`flex min-h-0 flex-1 flex-col bg-[color:var(--bg-surface)] ${effectiveTasksLayout === 'kanban' ? `${FOCUS_RING_CLASS} focus-visible:ring-inset` : ''}`}
  tabIndex={effectiveTasksLayout === 'kanban' ? 0 : -1}
  onKeyDown={effectiveTasksLayout === 'kanban' ? handleKanbanKeyDown : undefined}
  aria-label={effectiveTasksLayout === 'kanban' ? 'Sprint kanban' : undefined}
@@ -3208,10 +3209,10 @@ export function SprintRunBoard({
  key={role}
  onClick={() => selectAddMemberRole(role as SprintEngineRole)}
  aria-pressed={selected}
- className={`w-full rounded-md border-l-2 px-3 py-3 text-left interactive transition-colors ${
+ className={`w-full rounded-md px-3 py-3 text-left interactive transition-colors ${
  selected
- ? 'border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
- : 'border-l-transparent text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
+ ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+ : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
  }`}
  >
  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">

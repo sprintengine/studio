@@ -109,10 +109,10 @@ function SkillFileList({
                   type="button"
                   onClick={() => onOpen(file.path)}
                   aria-current={current ? 'true' : undefined}
-                  className={`flex w-full items-center gap-2 rounded-md border-l-2 px-2 py-1 text-left transition-colors ${FOCUS_RING_CLASS} ${
+                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors ${FOCUS_RING_CLASS} ${
                     current
-                      ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-selected)]'
-                      : 'border-transparent hover:bg-[color:var(--bg-hover)]'
+                      ? 'bg-[color:var(--bg-selected)]'
+                      : 'hover:bg-[color:var(--bg-hover)]'
                   }`}
                 >
                   <span

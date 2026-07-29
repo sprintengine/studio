@@ -168,10 +168,11 @@ run('Now names the running step; the remainder is an unlabelled ordered list', (
   assert.equal((markup.match(/>Now</g) ?? []).length, 1)
 })
 
-run('selection is the accent-soft fill plus the 2px left accent bar', () => {
+run('selection is the neutral fill, with no left bar and no accent', () => {
   const markup = render({ lanes: SIMPLE, selectedRef: 'backlog/one.md' })
-  assert.match(markup, /border-l-2/)
-  assert.match(markup, /border-\[color:var\(--accent-primary\)\] bg-\[color:var\(--accent-primary-soft\)\]/)
+  assert.match(markup, /bg-\[color:var\(--bg-selected\)\]/)
+  assert.doesNotMatch(markup, /border-l-2/)
+  assert.doesNotMatch(markup, /bg-\[color:var\(--accent-primary-soft\)\]/)
   assert.match(markup, /aria-current="true"/)
 })
 

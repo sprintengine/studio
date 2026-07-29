@@ -1,18 +1,1 @@
-[
-  "src/renderer/src/components/panels/AgentChatView.tsx:3454",
-  "src/renderer/src/components/panels/AutomationsPanel/AutomationsList.tsx:119",
-  "src/renderer/src/components/panels/BacklogPanel.tsx:2046",
-  "src/renderer/src/components/panels/BacklogPanel.tsx:2136",
-  "src/renderer/src/components/panels/roadmapBoard/HorizonPlanColumn.tsx:657",
-  "src/renderer/src/components/panels/roadmapBoard/HorizonPlanColumn.tsx:852",
-  "src/renderer/src/components/panels/SprintEngineBoardPanel.tsx:3213",
-  "src/renderer/src/components/ui/InboxRow.tsx:79",
-  "src/renderer/src/components/ui/TaskCard.tsx:114",
-  "src/renderer/src/components/workspace/globalSurface/backlog/BacklogGlobalSurface.tsx:957",
-  "src/renderer/src/components/workspace/globalSurface/extensions/skills/SkillReader.tsx:114",
-  "src/renderer/src/components/workspace/guidedBrief/CanvasStudio/ScreensDrawer.tsx:105",
-  "src/renderer/src/components/workspace/newWorkspace/SprintEngineRosterTable.tsx:124",
-  "src/renderer/src/components/workspace/NewWorkspacePanel.tsx:4207",
-  "src/renderer/src/components/workspace/WorkspaceSidebar.tsx:222",
-  "src/renderer/src/components/workspace/WorkspaceSidebar.tsx:234"
-]
+[]

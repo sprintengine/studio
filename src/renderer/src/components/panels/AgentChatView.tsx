@@ -34,7 +34,7 @@ import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetChips } from '../worksp
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { renderMarkdown } from '../../utils/markdown'
-import { ContextMenu, FilterMenu, GhostButton, InlineSkillPicker, MenuDivider, MenuItem, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, GhostButton, InlineSkillPicker, MenuDivider, MenuItem, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillPrefill } from '../../utils/skillInvocation'
@@ -2704,7 +2704,7 @@ function ModelPickerPill({
               onChange={(event) => setQuery(event.currentTarget.value)}
               placeholder="Search models…"
               aria-label="Search models"
-              className="min-w-0 flex-1 bg-transparent px-1 py-1 text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] focus:outline-none"
+              className={`min-w-0 flex-1 bg-transparent px-1 py-1 text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
             />
             {groups.length > 1 ? (
               <FilterMenu
@@ -3449,10 +3449,10 @@ function ConversationQuestionCard({
               aria-checked={checked}
               disabled={busy}
               onClick={() => toggleOption(option.label)}
-              className={`flex items-start gap-2.5 rounded-lg border-l-[3px] px-2.5 py-2 text-left transition-colors ${
+              className={`flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
                 checked
-                  ? 'border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-                  : 'border-l-transparent hover:bg-[color:var(--bg-hover)]'
+                  ? 'bg-[color:var(--bg-selected)]'
+                  : 'hover:bg-[color:var(--bg-hover)]'
               }`}
             >
               {index < 9 ? (
@@ -3512,7 +3512,7 @@ function ConversationQuestionCard({
             placeholder="Something else…"
             disabled={busy}
             aria-label={`Other answer for: ${question.question}`}
-            className="w-full rounded-lg border border-[color:var(--border-subtle)] bg-transparent px-2.5 py-2 text-[12.5px] text-[color:var(--text-default)] placeholder:text-[color:var(--text-subtle)] focus:border-[color:var(--accent-primary)] focus:outline-none"
+            className={`w-full rounded-lg border border-[color:var(--border-subtle)] bg-transparent px-2.5 py-2 text-[12.5px] text-[color:var(--text-default)] placeholder:text-[color:var(--text-subtle)] focus:border-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}
           />
         </div>
       ) : null}

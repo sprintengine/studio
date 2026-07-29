@@ -2043,7 +2043,7 @@ function BacklogOptionRow({
       onClick={() => onSelect(item.id)}
       className={`cursor-pointer border-l-[3px] ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
         selected
-          ? `${swatch ? swatch.border : 'border-l-[color:var(--accent-primary)]'} ${litFill && swatch ? swatch.bg : 'bg-[color:var(--accent-primary-soft)]'} ${indented ? 'pl-[21px]' : 'pl-[9px]'}`
+          ? `${swatch ? swatch.border : 'border-l-transparent'} ${litFill && swatch ? swatch.bg : 'bg-[color:var(--bg-selected)]'} ${indented ? 'pl-[21px]' : 'pl-[9px]'}`
           : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
       } ${archived ? 'opacity-70' : ''}`}
     >
@@ -2133,7 +2133,7 @@ function BacklogGroupHeaderRow({
       title={epic ? epic.relativePath : group.title}
       className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${
         selected
-          ? `${swatch ? swatch.border : 'border-l-[color:var(--accent-primary)]'} bg-[color:var(--accent-primary-soft)] pl-[9px]`
+          ? `${swatch ? swatch.border : 'border-l-transparent'} bg-[color:var(--bg-selected)] pl-[9px]`
           : `${swatch ? swatch.border : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
       }`}
     >

@@ -22,11 +22,12 @@ import { FOCUS_RING_CLASS, type Tone } from './tokens'
  * have different content shapes. The shared primitive keeps the anatomy locked.
  *
  * Family-resemblance contract — documented in
- * `knowledge/brand/panel-design-system.md`:
+ * `knowledge/brand/panel-patterns.md`:
  *   - StatusDot leading at 6 px.
  *   - Identifier: `font-mono tabular-nums text-[11px] text-[color:var(--text-subtle)]`.
  *   - Title: `text-[12px] font-medium`.
- *   - Selected state: `--accent-primary` border-l + `--accent-primary-soft` fill.
+ *   - Selected state: neutral `--bg-selected` fill + title ink at
+ *     `--text-strong`. No left bar, no border box, no accent.
  *   - Hover: `--bg-hover` only — no shadow, no scale, no glow.
  */
 export type TaskCardVariant = 'row' | 'card'
@@ -105,14 +106,17 @@ export function TaskCard({
   // --bg-surface-raised and adds an inset hairline). Both fall back to the
   // default flat-on-canvas card, so callers that don't set them are unaffected.
   const className = [
-    'group relative flex items-start gap-2 rounded-[5px] border-l-2 px-2.5 py-1.5 text-left shadow-[var(--task-card-shadow,none)] transition-colors',
+    'group relative flex items-start gap-2 rounded-[5px] px-2.5 py-1.5 text-left shadow-[var(--task-card-shadow,none)] transition-colors',
     isCard ? 'w-full' : '',
     FOCUS_RING_CLASS,
     draggable ? (dragging ? 'cursor-grabbing opacity-60' : 'cursor-grab') : 'cursor-pointer',
     justMovedClassName ?? '',
+    // Selection is the neutral fill plus the ink lift — no left bar, no accent
+    // (`design-system/components/task-card/component.md`). aria-pressed below
+    // carries the state for assistive technology.
     selected
-      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-      : `border-transparent ${isCard ? 'bg-[color:var(--task-card-bg,var(--bg-surface))]' : ''} text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]`,
+      ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+      : `${isCard ? 'bg-[color:var(--task-card-bg,var(--bg-surface))]' : ''} text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]`,
   ]
     .filter(Boolean)
     .join(' ')

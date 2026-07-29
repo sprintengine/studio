@@ -652,10 +652,10 @@ function StepRow({
         onClick={onSelect}
         // Identifier and title in one accessible name, as the family contract asks.
         aria-label={`${row.title}${row.sizeLabel ? `, ${row.sizeLabel} items` : ''}`}
-        className={`flex h-[26px] w-full min-w-0 items-center gap-1.5 border-l-2 pl-1.5 pr-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
+        className={`flex h-[26px] w-full min-w-0 items-center gap-1.5 pl-1.5 pr-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
           selected
-            ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-            : 'border-transparent hover:bg-[color:var(--bg-hover)]'
+            ? 'bg-[color:var(--bg-selected)]'
+            : 'hover:bg-[color:var(--bg-hover)]'
         } ${cursored ? 'ring-2 ring-inset ring-[color:var(--border-focus)]' : ''}`}
       >
         <span
@@ -847,10 +847,10 @@ function DeliveredFooter({
                   type="button"
                   aria-current={row.ref === selectedRef ? 'true' : undefined}
                   onClick={() => onSelect(row.ref)}
-                  className={`flex h-[26px] w-full min-w-0 items-center gap-1.5 border-l-2 pl-1.5 pr-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
+                  className={`flex h-[26px] w-full min-w-0 items-center gap-1.5 pl-1.5 pr-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
                     row.ref === selectedRef
-                      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-                      : 'border-transparent hover:bg-[color:var(--bg-hover)]'
+                      ? 'bg-[color:var(--bg-selected)]'
+                      : 'hover:bg-[color:var(--bg-hover)]'
                   }`}
                 >
                   <span aria-hidden="true" className="w-[11px] shrink-0" />

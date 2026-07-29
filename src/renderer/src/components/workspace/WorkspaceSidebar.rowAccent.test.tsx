@@ -10,17 +10,20 @@ function ws(mode: Workspace['mode'], highlight?: Workspace['highlight']): Worksp
 
 const allEnabled: ModuleEnablementOverrides = {}
 
-// Enabled bundled modes keep their tool/identity accent (parity).
-assert.ok(rowAccent(ws('sprintengine'), allEnabled).border.includes('--tool-sprintengine'), 'enabled sprintengine row keeps its accent border')
+// Tool identity now rides the glyph alone: selection is a neutral fill, so the
+// row carries no identity border for the accent to live on.
 assert.ok(rowAccent(ws('sprintengine'), allEnabled).glyph.includes('--tool-sprintengine'), 'enabled sprintengine row keeps its glyph accent')
 assert.ok(rowAccent(ws('switchboard'), allEnabled).glyph.includes('--tool-switchboard'), 'enabled switchboard row keeps its glyph accent')
+assert.ok(
+  !Object.values(rowAccent(ws('sprintengine'), allEnabled)).some((value) => value.includes('border-l-')),
+  'no row accent field carries a left bar'
+)
 
 // AC4: a disabled module degrades the row to the generic standard accent
-// (muted glyph, neutral border) instead of the tool accent.
+// (muted glyph) instead of the tool accent.
 const seOff = rowAccent(ws('sprintengine'), { 'sprint-engine': false })
 assert.ok(seOff.glyph.includes('--text-muted'), 'disabled sprint-engine row uses the muted glyph')
 assert.ok(!seOff.glyph.includes('--tool-sprintengine'), 'disabled sprint-engine row drops the tool glyph accent')
-assert.ok(seOff.border.includes('--border-strong'), 'disabled sprint-engine row uses the neutral standard border')
 
 const sbOff = rowAccent(ws('switchboard'), { switchboard: false })
 assert.ok(sbOff.glyph.includes('--text-muted'), 'disabled switchboard row uses the muted glyph')

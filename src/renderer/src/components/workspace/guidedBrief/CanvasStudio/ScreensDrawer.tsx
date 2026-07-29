@@ -98,12 +98,12 @@ export function ScreensDrawer({ screens, activeId, onSelect, onClose }: Props) {
                 onClose()
               }}
               className={`
-                flex w-full items-center gap-2.5 border-l-2 py-1.5 pl-3 pr-3.5 text-left outline-none transition-colors
+                flex w-full items-center gap-2.5 py-1.5 pl-3 pr-3.5 text-left outline-none transition-colors
                 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]
                 ${
                   isSelected
-                    ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-                    : 'border-transparent hover:bg-[color:var(--bg-hover)]'
+                    ? 'bg-[color:var(--bg-selected)]'
+                    : 'hover:bg-[color:var(--bg-hover)]'
                 }
               `}
             >

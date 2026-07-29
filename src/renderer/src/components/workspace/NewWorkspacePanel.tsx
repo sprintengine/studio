@@ -59,7 +59,7 @@ import {
 } from '../../utils/sprintengine'
 import MulticodeMark from '../brand/MulticodeMark'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { CliModelPickerButton, CloseIconButton, Field, GhostButton, Select, TruncatedText, WizardProgress } from '../ui'
+import { CliModelPickerButton, CloseIconButton, Field, FOCUS_RING_CLASS, GhostButton, Select, TruncatedText, WizardProgress } from '../ui'
 import {
   analyzeWorkspaceTargetPath,
   defaultWorkspaceFolderPath,
@@ -4036,7 +4036,7 @@ function GuidedRoleToggle({
           checked={effectiveChecked}
           disabled={disabled || locked}
           onChange={(event) => onChange(event.currentTarget.checked)}
-          className="h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--accent-primary)] disabled:cursor-not-allowed"
+          className={`h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] disabled:cursor-not-allowed ${FOCUS_RING_CLASS}`}
         />
       </span>
     </div>
@@ -4198,14 +4198,14 @@ function BacklogSourcePicker({
               aria-pressed={selected}
               onClick={() => onSelect(item)}
               className={`
-                block w-full cursor-pointer border-b border-l-[3px] border-[color:var(--border-subtle)]
+                block w-full cursor-pointer border-b border-[color:var(--border-subtle)]
                 px-3 py-2 text-left transition-colors last:border-b-0
                 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset
                 focus-visible:ring-[color:var(--accent-primary)]
                 ${
                   selected
-                    ? 'border-l-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] pl-[9px]'
-                    : 'border-l-transparent hover:bg-[color:var(--bg-hover)]'
+                    ? 'bg-[color:var(--bg-selected)]'
+                    : 'hover:bg-[color:var(--bg-hover)]'
                 }
               `}
             >

@@ -119,10 +119,10 @@ export function SprintEngineRosterTable({
         return (
           <div
             key={role}
-            className={`group relative flex items-stretch gap-2 border-l-2 transition-colors ${
+            className={`group relative flex items-stretch gap-2 transition-colors ${
               isAdded
-                ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-                : 'border-transparent hover:bg-[color:var(--bg-hover)]'
+                ? 'bg-[color:var(--bg-selected)]'
+                : 'hover:bg-[color:var(--bg-hover)]'
             }`}
           >
             <button

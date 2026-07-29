@@ -182,7 +182,6 @@ function buildFolderGroups(workspaces: Workspace[]): FolderGroup[] {
 }
 
 type RowAccent = {
-  border: string
   bg: string
   text: string
   shadow: string
@@ -191,17 +190,20 @@ type RowAccent = {
   glyph: string
 }
 
-// Mode identity now reads through the canonical tool tokens: the colored
-// 4 px left rail and the icon glyph carry the mode signal, while the active
-// row body sits on the brighter `--bg-selected` surface — the same canonical
-// selection fill used elsewhere (notifications, file/artifact selection) — so
-// the selected row clears the hover `--bg-surface-raised` fill by a full step.
-// The previous per-mode blended backgrounds and decorative inset+glow halos
-// stay dropped in favour of a hairline + identity-rail composition that matches
-// the audit's one-accent restraint.
+// Mode identity reads through the canonical tool tokens on the icon glyph
+// alone. The active row body sits on the brighter `--bg-selected` surface —
+// the same canonical selection fill used elsewhere (notifications,
+// file/artifact selection) — so the selected row clears the hover
+// `--bg-surface-raised` fill by a full step.
+//
+// The colored 4px left rail is gone: selection is a neutral fill and carries no
+// left bar (`design-system/patterns/selection.html`). A collapsed icon rail is
+// the one place the design system still permits a stripe — rows there are too
+// narrow for a fill to read — but this sidebar has no such rail to except:
+// collapsing hides the whole aside rather than narrowing it to icons (the
+// `hidden` class on the <aside> below), so no stripe survives here.
 const modeAccents: Record<Workspace['mode'], RowAccent> = {
   sprintengine: {
-    border: 'border-l-[color:var(--tool-sprintengine)]',
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
     shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
@@ -210,7 +212,6 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
     glyph: 'text-[color:var(--tool-sprintengine)]',
   },
   switchboard: {
-    border: 'border-l-[color:var(--tool-switchboard)]',
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
     shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
@@ -219,7 +220,6 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
     glyph: 'text-[color:var(--tool-switchboard)]',
   },
   'guided-brief': {
-    border: 'border-l-[color:var(--accent-primary)]',
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
     shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
@@ -231,7 +231,6 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
   // accentToken (--accent-primary) so its rows read distinctly from the muted
   // `standard` rows that dominate the list, instead of falling through to it.
   'automations-host': {
-    border: 'border-l-[color:var(--accent-primary)]',
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
     shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
@@ -240,7 +239,6 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
     glyph: 'text-[color:var(--accent-primary)]',
   },
   standard: {
-    border: 'border-l-[color:var(--border-strong)]',
     bg: 'bg-[color:var(--bg-selected)]',
     text: 'text-[color:var(--text-strong)]',
     shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
@@ -261,7 +259,6 @@ export function rowAccent(workspace: Workspace, moduleOverrides: ModuleEnablemen
   if (highlight) {
     const swatch = getHighlightSwatch(highlight)
     return {
-      border: swatch.border,
       bg: swatch.bg,
       text: swatch.text,
       shadow: swatch.shadow,
@@ -276,9 +273,20 @@ export function rowAccent(workspace: Workspace, moduleOverrides: ModuleEnablemen
   return modeAccents[effectiveMode] ?? modeAccents.standard
 }
 
+// A user-set highlight colour is workspace identity, not selection, so its rail
+// reads the same whether or not the row is the active one. Rows with no
+// highlight keep the base transparent 4px border and show no rail at all.
+function highlightRailClass(workspace: Workspace): string {
+  if (!hasHighlightOverride(workspace.highlight)) return ''
+  return `border-l-[4px] ${getHighlightSwatch(workspace.highlight!.color!).border}`
+}
+
+// The selected row is its fill and its ink lift — no left bar of its own. The
+// base row keeps `border-l-[4px] border-l-transparent`, so a highlight rail
+// appears and disappears without shifting the row's content sideways.
 function activeRowClass(workspace: Workspace, moduleOverrides: ModuleEnablementOverrides): string {
   const accent = rowAccent(workspace, moduleOverrides)
-  return `border-l-[4px] ${accent.border} ${accent.bg} ${accent.text} ${accent.shadow}`
+  return `${highlightRailClass(workspace)} ${accent.bg} ${accent.text} ${accent.shadow}`
 }
 
 // Class fragment applied to inactive rows that have a highlight color set, so
@@ -289,7 +297,7 @@ function activeRowClass(workspace: Workspace, moduleOverrides: ModuleEnablementO
 function inactiveHighlightClass(workspace: Workspace): string {
   if (!hasHighlightOverride(workspace.highlight)) return ''
   const swatch = getHighlightSwatch(workspace.highlight!.color!)
-  return `border-l-[4px] ${swatch.border} ${swatch.dimBg}`
+  return `${highlightRailClass(workspace)} ${swatch.dimBg}`
 }
 
 // Chat/session workspaces use the terminal activity idiom: active work earns a
