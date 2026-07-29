@@ -491,6 +491,8 @@ code {
 #ds-view-component-list-row:checked ~ .ds-catalog #component-list-row { display: block; }
 #ds-view-component-task-card:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-task-card:checked ~ .ds-catalog #component-task-card { display: block; }
+#ds-view-component-tooltip:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-tooltip:checked ~ .ds-catalog #component-tooltip { display: block; }
 #ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-components:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -501,6 +503,8 @@ code {
 #ds-view-component-list-row:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-list-row"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-task-card:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-task-card"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-task-card:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-task-card"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-tooltip:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-tooltip"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-tooltip:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-tooltip"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns { display: block; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns .catalog-view { display: block; }
 #ds-view-pattern-selection:checked ~ .ds-catalog #patterns { display: block; }
@@ -770,13 +774,24 @@ code {
 
 /* ── Text ────────────────────────────────────────────────────────────────
  * Title is the row's one priority and claims the width; everything else is
- * demoted to the supporting line or the trailing slot. */
+ * demoted to the supporting line or the trailing slot.
+ *
+ * The text block is a flex row so both children blockify: the ellipsis they
+ * declare below is inert on an inline box. The gap also carries the word
+ * space between title and supporting that inline layout used to supply. */
 .ds-list-row-text {
   min-width: 0;
   flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sem-space-xs);
 }
 
+/* The title claims the width it needs; the supporting clause takes what is
+ * left (basis 0) and so truncates first. */
 .ds-list-row-title {
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: var(--sem-font-size-body);
   font-weight: var(--sem-font-weight-medium);
   letter-spacing: var(--sem-font-tracking-normal);
@@ -787,6 +802,8 @@ code {
 }
 
 .ds-list-row-supporting {
+  flex: 1 1 0;
+  min-width: 0;
   font-size: var(--sem-font-size-meta);
   color: var(--sem-color-text-subtle);
   white-space: nowrap;
@@ -829,7 +846,11 @@ code {
   transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
-.ds-list-row:hover .ds-list-row-actions,
+/* Hover reveal hangs off the host, not the row: in the host pattern the actions
+ * are the row's SIBLING, so a descendant selector on the row never matches.
+ * The row-scoped focus rule stays for a row used without the host wrapper. */
+.ds-list-row-host:hover .ds-list-row-actions,
+.ds-list-row-host:focus-within .ds-list-row-actions,
 .ds-list-row:focus-visible .ds-list-row-actions,
 .ds-list-row-actions:focus-within {
   opacity: 1;
@@ -848,6 +869,19 @@ code {
   right: var(--sem-space-sm);
 }
 
+/* The absolute slot reserves no width of its own, so the host declares how
+ * many actions it carries and the row reserves that much trailing padding —
+ * text truncates before it reaches the icons, and revealing never reflows. */
+.ds-list-row-host[data-actions='1'] .ds-list-row {
+  padding-right: calc(var(--sem-space-sm) + var(--sem-size-control-xs) + var(--sem-space-xs));
+}
+
+.ds-list-row-host[data-actions='2'] .ds-list-row {
+  padding-right: calc(
+    var(--sem-space-sm) + var(--sem-size-control-xs) * 2 + var(--sem-space-3xs) + var(--sem-space-xs)
+  );
+}
+
 .ds-list-row-action {
   display: grid;
   place-items: center;
@@ -860,6 +894,9 @@ code {
   border-radius: var(--sem-radius-chip);
   background: transparent;
   color: var(--sem-color-text-muted);
+  /* Without this the button falls back to the UA font — a third family the
+   * system does not have. Latent while the actions are icon-only. */
+  font-family: inherit;
   cursor: pointer;
 }
 
@@ -988,6 +1025,58 @@ code {
   }
 }
 
+/* components/tooltip/component.css */
+/* Tooltip — the trigger-anchored description for a value the surface itself
+ * cannot show: a title truncated to one line, an icon-only control's name, a
+ * path abbreviated to its tail.
+ *
+ * Family contract: one surface per document, repositioned per trigger, so a
+ * list of 200 rows mounts one node and not 200. The consumer's script writes
+ * `--ds-tooltip-top` and `--ds-tooltip-left` (viewport coordinates) and toggles
+ * `hidden`; nothing else about the surface changes between triggers.
+ *
+ * Never interactive. `pointer-events: none` is load-bearing, not defensive: a
+ * surface that can swallow a click is a popover, and the two are different
+ * components with different keyboard contracts. */
+
+.ds-tooltip {
+  position: fixed;
+  top: var(--ds-tooltip-top, 0);
+  left: var(--ds-tooltip-left, 0);
+  z-index: var(--sem-z-popover);
+  /* A measure cap, not a spacing step: past ~50 characters a tooltip is an
+   * article and the value belongs in the detail pane. Declared border-box so
+   * the cap is the surface, whether or not the host page ships a reset. */
+  box-sizing: border-box;
+  max-width: 280px;
+  padding: var(--sem-space-xs) var(--sem-space-md);
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-overlay);
+  background: var(--sem-color-bg-surface-raised);
+  box-shadow: var(--sem-shadow-popover);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-relaxed);
+  pointer-events: none;
+}
+
+/* The resting state is `hidden` — an attribute, so the surface is out of the
+ * accessibility tree as well as out of view. It carries no entrance animation:
+ * a tooltip is neither alive-right-now nor just-changed, and the pointer delay
+ * already does the pacing a fade would be reaching for. */
+.ds-tooltip[hidden] {
+  display: none;
+}
+
+/* The identifier the tooltip elaborates — the truncated title, restated in
+ * full above the description that explains it. */
+.ds-tooltip-title {
+  display: block;
+  color: var(--sem-color-text-primary);
+  font-weight: var(--sem-font-weight-medium);
+}
+
 </style>
 <style>
 /* Demo and pattern scaffolding, scoped to each embed wrapper. */
@@ -1063,6 +1152,9 @@ code {
     color: var(--sem-color-text-subtle);
     padding: var(--sem-space-2xs) var(--sem-space-md) var(--sem-space-sm);
   }
+.ds-embed-component-list-row .demo-pane--narrow {
+    max-width: 220px;
+  }
 .ds-embed-component-task-card {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -1080,6 +1172,137 @@ code {
     margin: 0 0 var(--sem-space-2xs);
     font-size: var(--sem-font-size-meta);
     color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-tooltip {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-tooltip .demo-readout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sem-space-md);
+    margin: 0;
+    padding: var(--sem-space-sm) var(--sem-space-3xl);
+    border-bottom: 1px solid var(--sem-color-border-default);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-muted);
+    font-size: var(--sem-font-size-meta);
+  }
+.ds-embed-component-tooltip .demo-readout b {
+    color: var(--sem-color-text-primary);
+    font-weight: var(--sem-font-weight-medium);
+  }
+.ds-embed-component-tooltip .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-tooltip .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-tooltip .demo-columns {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--sem-space-lg);
+  }
+.ds-embed-component-tooltip .demo-pane {
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+.ds-embed-component-tooltip .demo-pane--list {
+    flex: 0 0 200px;
+    max-width: 200px;
+  }
+.ds-embed-component-tooltip .demo-scroll {
+    max-height: 112px;
+    overflow-y: auto;
+  }
+.ds-embed-component-tooltip .demo-row {
+    display: block;
+    width: 100%;
+    padding: var(--sem-space-2xs) var(--sem-space-sm);
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+.ds-embed-component-tooltip .demo-row:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-tooltip .demo-row:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+.ds-embed-component-tooltip .demo-controls {
+    display: flex;
+    gap: var(--sem-space-2xs);
+    padding: var(--sem-space-2xs);
+  }
+.ds-embed-component-tooltip .demo-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    padding: 0;
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
+  }
+.ds-embed-component-tooltip .demo-icon:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-tooltip .demo-icon:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+.ds-embed-component-tooltip .demo-icon svg {
+    width: var(--sem-icon-size-sm);
+    height: var(--sem-icon-size-sm);
+  }
+.ds-embed-component-tooltip .demo-edges {
+    display: flex;
+    justify-content: space-between;
+    margin: var(--sem-space-lg) calc(-1 * var(--sem-space-3xl)) 0;
+  }
+.ds-embed-component-tooltip .demo-dock {
+    padding: var(--sem-space-2xs) var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    cursor: pointer;
+  }
+.ds-embed-component-tooltip .demo-dock:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+.ds-embed-component-tooltip .demo-specimen {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sem-space-md);
+    margin-bottom: var(--sem-space-lg);
+  }
+.ds-embed-component-tooltip .ds-tooltip.demo-parked {
+    position: static;
   }
 .ds-embed-pattern-selection {
     margin: 0;
@@ -1177,6 +1400,7 @@ code {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-input" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-list-row" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-task-card" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tooltip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-patterns" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-pattern-selection" />
 <div class="ds-catalog">
@@ -1200,6 +1424,7 @@ code {
 <label class="catalog-nav-item" for="ds-view-component-input">Input</label>
 <label class="catalog-nav-item" for="ds-view-component-list-row">List row</label>
 <label class="catalog-nav-item" for="ds-view-component-task-card">Task card</label>
+<label class="catalog-nav-item" for="ds-view-component-tooltip">Tooltip</label>
 <label class="catalog-nav-group" for="ds-view-patterns">Patterns</label>
 <label class="catalog-nav-item" for="ds-view-pattern-selection">Selection</label>
 </nav>
@@ -1878,7 +2103,7 @@ code {
 
     <div class="demo-pane">
       <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
-      <div class="ds-list-row-host">
+      <div class="ds-list-row-host" data-actions="2">
         <button type="button" class="ds-list-row">
           <span class="ds-list-row-text">
             <span class="ds-list-row-title">Engineering</span>
@@ -1908,11 +2133,50 @@ code {
       </button>
     </div>
 
+    <div class="demo-pane demo-pane--narrow">
+      <p class="demo-pane-title">Narrow — long lines truncate</p>
+      <div class="ds-list-row-host" data-actions="2">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">workspace-knowledge</span>
+            <span class="ds-list-row-supporting">Read and update the repo-local knowledge graph before implementing</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Reveal workspace-knowledge in folder">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="ds-list-row-action" aria-label="Remove workspace-knowledge">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <div class="ds-list-row-host" data-actions="1">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">design-system-conformance</span>
+            <span class="ds-list-row-supporting">Check a surface against the tokens and components it claims to use</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Remove design-system-conformance">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">backlog</span>
+          <span class="ds-list-row-supporting">Work, create, or triage backlog items and epics</span>
+        </span>
+      </button>
+    </div>
+
   </div>
 </div>
 
 <div class="demo-stage" data-mode="dark">
-  <p class="demo-label">Dark — the same three panes.</p>
+  <p class="demo-label">Dark — the same four panes.</p>
   <div class="demo-panes">
 
     <div class="demo-pane">
@@ -1973,7 +2237,7 @@ code {
 
     <div class="demo-pane">
       <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
-      <div class="ds-list-row-host">
+      <div class="ds-list-row-host" data-actions="2">
         <button type="button" class="ds-list-row">
           <span class="ds-list-row-text">
             <span class="ds-list-row-title">Engineering</span>
@@ -2003,6 +2267,45 @@ code {
       </button>
     </div>
 
+    <div class="demo-pane demo-pane--narrow">
+      <p class="demo-pane-title">Narrow — long lines truncate</p>
+      <div class="ds-list-row-host" data-actions="2">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">workspace-knowledge</span>
+            <span class="ds-list-row-supporting">Read and update the repo-local knowledge graph before implementing</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Reveal workspace-knowledge in folder">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="ds-list-row-action" aria-label="Remove workspace-knowledge">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <div class="ds-list-row-host" data-actions="1">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">design-system-conformance</span>
+            <span class="ds-list-row-supporting">Check a surface against the tokens and components it claims to use</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Remove design-system-conformance">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">backlog</span>
+          <span class="ds-list-row-supporting">Work, create, or triage backlog items and epics</span>
+        </span>
+      </button>
+    </div>
+
   </div>
 </div>
 </div>
@@ -2010,7 +2313,7 @@ code {
 <p>The pick-an-item worklist row: rails, source lists, inboxes, categories, search results. The most repeated surface in the product, and the default answer for any list of things a person chooses between.</p>
 <p>Use <code>task-card</code> instead when the item is a card on a board. Use this when the item is a row in a list.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-list-row</code> | yes — renders as <code>&lt;button&gt;</code> when interactive | | Leading mark | <code>.ds-list-row-leading</code> | no — a status glyph, type icon, or monogram | | Text block | <code>.ds-list-row-text</code> | yes | | Title | <code>.ds-list-row-title</code> | yes — the row's one priority, claims the width | | Supporting line | <code>.ds-list-row-supporting</code> | no — one line, truncated | | Identifier | <code>.ds-list-row-id</code> | no — mono, tabular, inside the supporting line | | Trailing meta | <code>.ds-list-row-trailing</code> | no — display only, never interactive | | Action host | <code>.ds-list-row-host</code> | only when the row has revealed actions | | Actions | <code>.ds-list-row-actions</code> | no — at most two | | Action | <code>.ds-list-row-action</code> | — |</p>
+<p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-list-row</code> | yes — renders as <code>&lt;button&gt;</code> when interactive | | Leading mark | <code>.ds-list-row-leading</code> | no — a status glyph, type icon, or monogram | | Text block | <code>.ds-list-row-text</code> | yes | | Title | <code>.ds-list-row-title</code> | yes — the row's one priority, claims the width | | Supporting line | <code>.ds-list-row-supporting</code> | no — one line, truncated | | Identifier | <code>.ds-list-row-id</code> | no — mono, tabular, inside the supporting line | | Trailing meta | <code>.ds-list-row-trailing</code> | no — display only, never interactive | | Action host | <code>.ds-list-row-host</code> | only when the row has revealed actions | | Action count | <code>data-actions</code> on the host | yes when there are actions — <code>&quot;1&quot;</code> or <code>&quot;2&quot;</code>, the value the trailing padding is reserved from | | Actions | <code>.ds-list-row-actions</code> | no — at most two | | Action | <code>.ds-list-row-action</code> | — |</p>
 <p>At most <strong>four visual elements at rest</strong>. A fifth means the row is carrying work that belongs in the detail pane.</p>
 <h4>Variants</h4>
 <ul><li><strong>Default</strong> — no modifier. The resting, unselected row.</li><li><strong><code>--selected</code></strong> — the selected row of the pane that currently has focus. Neutral <code>bg.selected</code> fill, title lifts to <code>text.primary</code>.</li><li><strong><code>--resting</code></strong> — the selected row of a pane that does not have focus. Quieter <code>bg.selected-resting</code> fill, title stays at <code>text.default</code>.</li></ul>
@@ -2020,9 +2323,9 @@ code {
 <p>| State | Treatment | |---|---| | Rest | Transparent background, <code>text.muted</code> | | Hover | <code>bg.hover</code>, ink lifts to <code>text.default</code>. Background only — no shadow, scale, glow, or border that shifts geometry | | Focus-visible | <code>focus.ring</code>, <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring | | Selected (focused pane) | <code>bg.selected</code> + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code> + <code>text.default</code> | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code>. Stays in layout and stays readable |</p>
 <h4>Usage</h4>
 <p><strong>Actions are withheld until reached for.</strong> Per-row actions — remove, reveal in folder, roll back, close — live in <code>.ds-list-row-actions</code> and are invisible at rest. They appear on hover and on keyboard focus. Ceiling: two. A third action belongs in an overflow menu or the detail pane.</p>
-<p>The row itself is the <code>&lt;button&gt;</code>, so an action cannot be nested inside it — that is invalid HTML and breaks Safari and JAWS. Wrap the row and its actions in <code>.ds-list-row-host</code> instead, which positions the actions over the row's trailing padding. The slot reserves its space, so revealing never reflows.</p>
+<p>The row itself is the <code>&lt;button&gt;</code>, so an action cannot be nested inside it — that is invalid HTML and breaks Safari and JAWS. Wrap the row and its actions in <code>.ds-list-row-host</code> instead, which positions the actions over the row's trailing padding. Declare <code>data-actions=&quot;1&quot;</code> or <code>&quot;2&quot;</code> on that host: the actions are positioned absolutely and reserve no width themselves, so the count is what the row reserves its trailing padding from. Without it the text runs under the icons. With it the space is held at rest, so revealing never reflows.</p>
 <p>Do not put anything interactive in <code>.ds-list-row-trailing</code>. It is for a count, a timestamp, or a status word.</p>
-<p>Titles truncate to one line. If the full value matters, attach a tooltip that appears only when the text actually overflows — never a native <code>title</code> attribute on a control.</p>
+<p>Titles truncate to one line. If the full value matters, attach the system's <code>tooltip</code> component, and only when the text actually overflows — never a native <code>title</code> attribute on a control.</p>
 <h4>Accessibility</h4>
 <ul><li>Interactive rows render as <code>&lt;button type=&quot;button&quot;&gt;</code>. A row that only displays information renders as a <code>&lt;div&gt;</code> and takes no focus.</li><li>The selected row carries <code>aria-current=&quot;true&quot;</code>. A single-select list may instead use <code>role=&quot;listbox&quot;</code> with <code>role=&quot;option&quot;</code> and <code>aria-selected</code>; pick one model and hold to it for the whole list.</li><li>Every action button has an <code>aria-label</code> naming both the verb and the item (&quot;Remove Engineering&quot;), because the label is read out of the row's context.</li><li>Leading glyphs are <code>aria-hidden=&quot;true&quot;</code> when the title already carries the meaning.</li><li><strong>Revealed actions must be keyboard-reachable.</strong> They are in the tab order and become visible on <code>:focus-within</code> — an action that only exists on hover is unreachable for keyboard and touch users.</li><li>Status shown by a leading glyph reads by shape, not colour alone, and carries an accessible name when no adjacent text states it.</li><li>Disabled rows use the <code>disabled</code> attribute (or <code>aria-disabled=&quot;true&quot;</code> when they must stay focusable to explain why).</li><li>Reduced motion removes the reveal fade but never the reveal itself.</li></ul>
 </div>
@@ -2113,13 +2416,24 @@ code {
 
 /* ── Text ────────────────────────────────────────────────────────────────
  * Title is the row's one priority and claims the width; everything else is
- * demoted to the supporting line or the trailing slot. */
+ * demoted to the supporting line or the trailing slot.
+ *
+ * The text block is a flex row so both children blockify: the ellipsis they
+ * declare below is inert on an inline box. The gap also carries the word
+ * space between title and supporting that inline layout used to supply. */
 .ds-list-row-text {
   min-width: 0;
   flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sem-space-xs);
 }
 
+/* The title claims the width it needs; the supporting clause takes what is
+ * left (basis 0) and so truncates first. */
 .ds-list-row-title {
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: var(--sem-font-size-body);
   font-weight: var(--sem-font-weight-medium);
   letter-spacing: var(--sem-font-tracking-normal);
@@ -2130,6 +2444,8 @@ code {
 }
 
 .ds-list-row-supporting {
+  flex: 1 1 0;
+  min-width: 0;
   font-size: var(--sem-font-size-meta);
   color: var(--sem-color-text-subtle);
   white-space: nowrap;
@@ -2172,7 +2488,11 @@ code {
   transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
-.ds-list-row:hover .ds-list-row-actions,
+/* Hover reveal hangs off the host, not the row: in the host pattern the actions
+ * are the row's SIBLING, so a descendant selector on the row never matches.
+ * The row-scoped focus rule stays for a row used without the host wrapper. */
+.ds-list-row-host:hover .ds-list-row-actions,
+.ds-list-row-host:focus-within .ds-list-row-actions,
 .ds-list-row:focus-visible .ds-list-row-actions,
 .ds-list-row-actions:focus-within {
   opacity: 1;
@@ -2191,6 +2511,19 @@ code {
   right: var(--sem-space-sm);
 }
 
+/* The absolute slot reserves no width of its own, so the host declares how
+ * many actions it carries and the row reserves that much trailing padding —
+ * text truncates before it reaches the icons, and revealing never reflows. */
+.ds-list-row-host[data-actions='1'] .ds-list-row {
+  padding-right: calc(var(--sem-space-sm) + var(--sem-size-control-xs) + var(--sem-space-xs));
+}
+
+.ds-list-row-host[data-actions='2'] .ds-list-row {
+  padding-right: calc(
+    var(--sem-space-sm) + var(--sem-size-control-xs) * 2 + var(--sem-space-3xs) + var(--sem-space-xs)
+  );
+}
+
 .ds-list-row-action {
   display: grid;
   place-items: center;
@@ -2203,6 +2536,9 @@ code {
   border-radius: var(--sem-radius-chip);
   background: transparent;
   color: var(--sem-color-text-muted);
+  /* Without this the button falls back to the UA font — a third family the
+   * system does not have. Latent while the actions are icon-only. */
+  font-family: inherit;
   cursor: pointer;
 }
 
@@ -2269,6 +2605,12 @@ code {
     color: var(--sem-color-text-subtle);
     padding: var(--sem-space-2xs) var(--sem-space-md) var(--sem-space-sm);
   }
+  /* Deliberately the narrowest pane the grid allows: the width at which
+     truncation and the reserved action slot are actually exercised. A demo
+     whose strings never overflow cannot show whether either one works. */
+  .demo-pane--narrow {
+    max-width: 220px;
+  }
 &lt;/style&gt;
 &lt;/head&gt;
 &lt;body&gt;
@@ -2334,7 +2676,7 @@ code {
 
     &lt;div class=&quot;demo-pane&quot;&gt;
       &lt;p class=&quot;demo-pane-title&quot;&gt;Hover or tab a row to reveal its actions&lt;/p&gt;
-      &lt;div class=&quot;ds-list-row-host&quot;&gt;
+      &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;2&quot;&gt;
         &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
           &lt;span class=&quot;ds-list-row-text&quot;&gt;
             &lt;span class=&quot;ds-list-row-title&quot;&gt;Engineering&lt;/span&gt;
@@ -2364,11 +2706,50 @@ code {
       &lt;/button&gt;
     &lt;/div&gt;
 
+    &lt;div class=&quot;demo-pane demo-pane--narrow&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Narrow — long lines truncate&lt;/p&gt;
+      &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;2&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;workspace-knowledge&lt;/span&gt;
+            &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Read and update the repo-local knowledge graph before implementing&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/button&gt;
+        &lt;span class=&quot;ds-list-row-actions&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Reveal workspace-knowledge in folder&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Remove workspace-knowledge&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+        &lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;1&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;design-system-conformance&lt;/span&gt;
+            &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Check a surface against the tokens and components it claims to use&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/button&gt;
+        &lt;span class=&quot;ds-list-row-actions&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Remove design-system-conformance&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+        &lt;/span&gt;
+      &lt;/div&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;backlog&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Work, create, or triage backlog items and epics&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
   &lt;/div&gt;
 &lt;/div&gt;
 
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same three panes.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same four panes.&lt;/p&gt;
   &lt;div class=&quot;demo-panes&quot;&gt;
 
     &lt;div class=&quot;demo-pane&quot;&gt;
@@ -2429,7 +2810,7 @@ code {
 
     &lt;div class=&quot;demo-pane&quot;&gt;
       &lt;p class=&quot;demo-pane-title&quot;&gt;Hover or tab a row to reveal its actions&lt;/p&gt;
-      &lt;div class=&quot;ds-list-row-host&quot;&gt;
+      &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;2&quot;&gt;
         &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
           &lt;span class=&quot;ds-list-row-text&quot;&gt;
             &lt;span class=&quot;ds-list-row-title&quot;&gt;Engineering&lt;/span&gt;
@@ -2455,6 +2836,45 @@ code {
         &lt;span class=&quot;ds-list-row-text&quot;&gt;
           &lt;span class=&quot;ds-list-row-title&quot;&gt;Deprecated&lt;/span&gt;
           &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Unavailable while the source reindexes&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-pane demo-pane--narrow&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Narrow — long lines truncate&lt;/p&gt;
+      &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;2&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;workspace-knowledge&lt;/span&gt;
+            &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Read and update the repo-local knowledge graph before implementing&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/button&gt;
+        &lt;span class=&quot;ds-list-row-actions&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Reveal workspace-knowledge in folder&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Remove workspace-knowledge&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+        &lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;1&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;design-system-conformance&lt;/span&gt;
+            &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Check a surface against the tokens and components it claims to use&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/button&gt;
+        &lt;span class=&quot;ds-list-row-actions&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Remove design-system-conformance&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+        &lt;/span&gt;
+      &lt;/div&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;backlog&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Work, create, or triage backlog items and epics&lt;/span&gt;
         &lt;/span&gt;
       &lt;/button&gt;
     &lt;/div&gt;
@@ -2715,6 +3135,528 @@ code {
     &lt;span class=&quot;ds-task-card-trailing&quot;&gt;1h&lt;/span&gt;
   &lt;/button&gt;
 &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-tooltip" class="catalog-view catalog-component">
+<h3>Tooltip</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-tooltip">
+<p class="demo-readout">
+  <span>Tooltip surfaces in this document: <b id="demo-surfaces">1</b></span>
+  <span>Triggers: <b id="demo-triggers">—</b></span>
+  <span>Last shown: <b id="demo-last">—</b></span>
+</p>
+
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — hover a row and it waits; Tab into the list and it shows at once. Escape or scroll dismisses.</p>
+
+  <div class="demo-specimen">
+    <div class="ds-tooltip demo-parked" id="ds-tooltip-demo" role="tooltip">
+      <span class="ds-tooltip-title">production-reality-gate</span>
+      Refuses sample data, stubbed transports, and disconnected UI state as completion evidence.
+    </div>
+  </div>
+
+  <div class="demo-columns">
+    <div class="demo-pane demo-pane--list">
+      <div class="demo-scroll">
+        <button type="button" class="demo-row" data-tip-title="workspace-knowledge" data-tip="Read and update the repo-local knowledge graph in the same handoff as the code change.">workspace-knowledge</button>
+        <button type="button" class="demo-row" data-tip-title="design-system-conformance" data-tip="Check a surface against the tokens and components it claims to use.">design-system-conformance</button>
+        <button type="button" class="demo-row" data-tip-title="terminal-first-review-guide" data-tip="Walk a reviewer through a change from the terminal, before they open the diff.">terminal-first-review-guide</button>
+        <button type="button" class="demo-row" data-tip-title="production-reality-gate" data-tip="Refuses sample data, stubbed transports, and disconnected UI state as completion evidence.">production-reality-gate</button>
+        <button type="button" class="demo-row" data-tip-title="backlog" data-tip="Work, create, or triage backlog items and epics.">backlog</button>
+      </div>
+    </div>
+
+    <div class="demo-pane">
+      <div class="demo-controls">
+        <button type="button" class="demo-icon" aria-label="Reveal in folder" data-tip="Opens the skill's folder in Finder.">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="demo-icon" aria-label="Sync source" data-tip="Refetches the source and reindexes every skill it publishes.">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M11.5 6a4.5 4.5 0 10-.9 3.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M11.9 2.6v3.1H8.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="demo-icon" aria-label="Remove source" data-tip="Detaches the source. Skills already attached to a workspace stay attached.">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-edges">
+    <button type="button" class="demo-dock" data-tip-title="Left edge" data-tip="No room on the preferred side, so the surface flips to the other one.">Docked left</button>
+    <button type="button" class="demo-dock" data-tip-title="Right edge" data-tip="The preferred side, and the reason it is the preferred one: a right-docked pane has room only on its left.">Docked right</button>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same triggers, the same one surface. It mirrors the mode of the container it is describing.</p>
+
+  <div class="demo-columns">
+    <div class="demo-pane demo-pane--list">
+      <div class="demo-scroll">
+        <button type="button" class="demo-row" data-tip-title="workspace-knowledge" data-tip="Read and update the repo-local knowledge graph in the same handoff as the code change.">workspace-knowledge</button>
+        <button type="button" class="demo-row" data-tip-title="design-system-conformance" data-tip="Check a surface against the tokens and components it claims to use.">design-system-conformance</button>
+        <button type="button" class="demo-row" data-tip-title="terminal-first-review-guide" data-tip="Walk a reviewer through a change from the terminal, before they open the diff.">terminal-first-review-guide</button>
+        <button type="button" class="demo-row" data-tip-title="production-reality-gate" data-tip="Refuses sample data, stubbed transports, and disconnected UI state as completion evidence.">production-reality-gate</button>
+        <button type="button" class="demo-row" data-tip-title="backlog" data-tip="Work, create, or triage backlog items and epics.">backlog</button>
+      </div>
+    </div>
+
+    <div class="demo-pane">
+      <div class="demo-controls">
+        <button type="button" class="demo-icon" aria-label="Reveal in folder" data-tip="Opens the skill's folder in Finder.">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="demo-icon" aria-label="Sync source" data-tip="Refetches the source and reindexes every skill it publishes.">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M11.5 6a4.5 4.5 0 10-.9 3.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M11.9 2.6v3.1H8.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="demo-icon" aria-label="Remove source" data-tip="Detaches the source. Skills already attached to a workspace stay attached.">
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-edges">
+    <button type="button" class="demo-dock" data-tip-title="Left edge" data-tip="No room on the preferred side, so the surface flips to the other one.">Docked left</button>
+    <button type="button" class="demo-dock" data-tip-title="Right edge" data-tip="The preferred side, and the reason it is the preferred one: a right-docked pane has room only on its left.">Docked right</button>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>The description for a value the surface itself cannot show: a title truncated to one line, an icon-only control's name, a path abbreviated to its tail. It elaborates what is already on screen, and never becomes the only route to a value: the detail pane, a menu, or the control's own accessible name still carries it.</p>
+<p>One surface per document, repositioned per trigger. A list of 200 rows mounts one tooltip, not 200.</p>
+<p>Use a popover instead when the content is interactive, a menu when it is a list of actions, and the detail pane when the value is long enough to read rather than glance at. Never a native <code>title</code> attribute on a control: it is unstyleable, slow, invisible to touch, and inconsistent between browsers.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Trigger | — | the consumer's own element, carrying <code>aria-describedby</code> only while the surface is shown | | Surface | <code>.ds-tooltip</code> | yes — <code>role=&quot;tooltip&quot;</code>, a stable <code>id</code>, <code>hidden</code> at rest | | Title | <code>.ds-tooltip-title</code> | no — the identifier the description elaborates |</p>
+<p>The surface lives at the end of <code>&lt;body&gt;</code>, not beside its trigger, so it escapes every scroll container and stacking context on the page. Position comes from two custom properties the consumer writes in viewport coordinates: <code>--ds-tooltip-top</code> and <code>--ds-tooltip-left</code>.</p>
+<p>Content is one short description — at most a couple of lines. A tooltip that needs a heading, a list, or a link is the wrong component.</p>
+<h4>Variants</h4>
+<p>None. A tooltip has one appearance, and the only optional part is the title.</p>
+<p>There is no arrow, no tone variant, and no size variant. An error or warning tooltip in particular is a rejected idea: a state a person must act on is never disclosed on hover.</p>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Rest | <code>hidden</code> — out of view and out of the accessibility tree | | Shown from pointer | Appears after ~350 ms of hover over the trigger | | Shown from keyboard | Appears immediately on <code>:focus-visible</code> | | Preferred side | Inline-start of the trigger, <code>8px</code> clear of it, vertically centred | | Flipped | Inline-end instead, when the preferred side has no room; then clamped inside the viewport |</p>
+<p>The surface has no entrance animation. It is neither *alive right now* nor *just changed* — the two things motion is allowed to mean — and the pointer delay already does the pacing a fade would be reaching for.</p>
+<h4>Usage</h4>
+<p><strong>Both paths, always.</strong> Shown on pointer-over <strong>and</strong> on <code>:focus-visible</code>. Hover-only fails the same progressive-disclosure clause that governs row actions. <code>:focus-visible</code> and not <code>:focus</code>: clicking a control must not draw a tooltip over the thing that was just clicked.</p>
+<p><strong>The delay is asymmetric on purpose.</strong> ~350 ms on pointer, so crossing a list does not fire every row in turn; none on keyboard focus, because there is no crossing to absorb.</p>
+<p><strong>Four ways out</strong>, all of them cheap: the pointer leaves the trigger, focus leaves it, Escape, or any scroll. Scroll dismissal is not optional — a fixed surface anchored to a row that has scrolled away is pointing at nothing. Listen for scroll in the capture phase so nested containers dismiss too.</p>
+<p><strong>Never interactive.</strong> <code>pointer-events: none</code>. Anything clickable belongs in a popover, which is a different component with a different keyboard contract.</p>
+<p><strong>Flip, do not shrink.</strong> Prefer the inline-start side and flip when there is no room. This is load-bearing for a right-docked pane, where the natural side is off-screen.</p>
+<p><strong>Restate a value only when it is actually cut off.</strong> When the tooltip's job is to repeat a title the row truncated, compare <code>scrollWidth</code> with <code>clientWidth</code> and attach only when it overflows — on text that fits it repeats what the person can already read. A tooltip that instead *adds* a description the row has no room for is a different job, and that description has to stay reachable without hovering.</p>
+<p><strong>Touch has no hover.</strong> Anything a tooltip explains must also be reachable without one — in the detail pane, an overflow menu, or the accessible name of the control itself.</p>
+<p><strong>Rebuilding it in a framework:</strong> keep the single shared surface. Mounting one per row is the defect this component exists to prevent, and it is the easy mistake to make in a component tree. When a subtree forces <code>data-mode</code>, mirror that mode onto the surface — it sits on the body and would otherwise be lit by the document's mode instead of the container's.</p>
+<h4>Accessibility</h4>
+<ul><li>The surface carries <code>role=&quot;tooltip&quot;</code> and a stable <code>id</code>. The trigger carries <code>aria-describedby</code> pointing at that <code>id</code> <strong>only while it is shown</strong>, so a screen reader announces the description at the moment it appears rather than on every trigger in the list.</li><li><code>aria-describedby</code>, never <code>aria-labelledby</code>: a tooltip describes a control, it does not name one. An icon-only button still needs its own <code>aria-label</code>, and the tooltip says something that label does not — the consequence of the action, not a restatement of its name.</li><li>The trigger must be focusable. A tooltip on a <code>&lt;div&gt;</code> nobody can Tab to is unreachable for keyboard and screen-reader users.</li><li>Escape dismisses, matching the overlay rule that Escape closes the topmost surface only. The tooltip never takes focus, so nothing has to be restored.</li><li>The surface is never the only place a value exists. It is an elaboration of on-screen content, so a person who cannot summon it loses nothing they cannot reach another way.</li><li>Contrast is <code>text.default</code> on <code>bg.surface-raised</code> in both modes. Do not drop the description to <code>text.subtle</code> to make it feel secondary — it is already secondary by being hidden.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/tooltip/component.css</summary><pre><code>/* Tooltip — the trigger-anchored description for a value the surface itself
+ * cannot show: a title truncated to one line, an icon-only control's name, a
+ * path abbreviated to its tail.
+ *
+ * Family contract: one surface per document, repositioned per trigger, so a
+ * list of 200 rows mounts one node and not 200. The consumer's script writes
+ * `--ds-tooltip-top` and `--ds-tooltip-left` (viewport coordinates) and toggles
+ * `hidden`; nothing else about the surface changes between triggers.
+ *
+ * Never interactive. `pointer-events: none` is load-bearing, not defensive: a
+ * surface that can swallow a click is a popover, and the two are different
+ * components with different keyboard contracts. */
+
+.ds-tooltip {
+  position: fixed;
+  top: var(--ds-tooltip-top, 0);
+  left: var(--ds-tooltip-left, 0);
+  z-index: var(--sem-z-popover);
+  /* A measure cap, not a spacing step: past ~50 characters a tooltip is an
+   * article and the value belongs in the detail pane. Declared border-box so
+   * the cap is the surface, whether or not the host page ships a reset. */
+  box-sizing: border-box;
+  max-width: 280px;
+  padding: var(--sem-space-xs) var(--sem-space-md);
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-overlay);
+  background: var(--sem-color-bg-surface-raised);
+  box-shadow: var(--sem-shadow-popover);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-relaxed);
+  pointer-events: none;
+}
+
+/* The resting state is `hidden` — an attribute, so the surface is out of the
+ * accessibility tree as well as out of view. It carries no entrance animation:
+ * a tooltip is neither alive-right-now nor just-changed, and the pointer delay
+ * already does the pacing a fade would be reaching for. */
+.ds-tooltip[hidden] {
+  display: none;
+}
+
+/* The identifier the tooltip elaborates — the truncated title, restated in
+ * full above the description that explains it. */
+.ds-tooltip-title {
+  display: block;
+  color: var(--sem-color-text-primary);
+  font-weight: var(--sem-font-weight-medium);
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/tooltip/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Tooltip&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-readout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sem-space-md);
+    margin: 0;
+    padding: var(--sem-space-sm) var(--sem-space-3xl);
+    border-bottom: 1px solid var(--sem-color-border-default);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-muted);
+    font-size: var(--sem-font-size-meta);
+  }
+  .demo-readout b {
+    color: var(--sem-color-text-primary);
+    font-weight: var(--sem-font-weight-medium);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-columns {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--sem-space-lg);
+  }
+  .demo-pane {
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  /* Deliberately narrow: the width at which a title actually truncates, which
+     is the condition that earns a tooltip in the first place. */
+  .demo-pane--list {
+    flex: 0 0 200px;
+    max-width: 200px;
+  }
+  /* Two rows short of the content, so the list scrolls — scrolling dismisses,
+     and a demo that cannot scroll cannot show it. */
+  .demo-scroll {
+    max-height: 112px;
+    overflow-y: auto;
+  }
+  .demo-row {
+    display: block;
+    width: 100%;
+    padding: var(--sem-space-2xs) var(--sem-space-sm);
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  .demo-row:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-default);
+  }
+  .demo-row:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+  .demo-controls {
+    display: flex;
+    gap: var(--sem-space-2xs);
+    padding: var(--sem-space-2xs);
+  }
+  .demo-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    padding: 0;
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
+  }
+  .demo-icon:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-default);
+  }
+  .demo-icon:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+  .demo-icon svg {
+    width: var(--sem-icon-size-sm);
+    height: var(--sem-icon-size-sm);
+  }
+  /* Full-bleed: cancels the stage padding so each trigger sits against the
+     viewport edge, where the preferred side has no room and the surface has to
+     flip. A trigger in the middle of the page never exercises this. */
+  .demo-edges {
+    display: flex;
+    justify-content: space-between;
+    margin: var(--sem-space-lg) calc(-1 * var(--sem-space-3xl)) 0;
+  }
+  .demo-dock {
+    padding: var(--sem-space-2xs) var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    cursor: pointer;
+  }
+  .demo-dock:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+  .demo-specimen {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sem-space-md);
+    margin-bottom: var(--sem-space-lg);
+  }
+  /* The surface is authored here so it is visible at rest — the catalog embeds
+     this demo with scripts off, and a surface that only exists once JavaScript
+     has run would show as an empty stage. The script lifts this exact node to
+     the document body on load; it is never cloned, so the document still holds
+     one tooltip no matter how many triggers there are. */
+  .ds-tooltip.demo-parked {
+    position: static;
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;p class=&quot;demo-readout&quot;&gt;
+  &lt;span&gt;Tooltip surfaces in this document: &lt;b id=&quot;demo-surfaces&quot;&gt;1&lt;/b&gt;&lt;/span&gt;
+  &lt;span&gt;Triggers: &lt;b id=&quot;demo-triggers&quot;&gt;—&lt;/b&gt;&lt;/span&gt;
+  &lt;span&gt;Last shown: &lt;b id=&quot;demo-last&quot;&gt;—&lt;/b&gt;&lt;/span&gt;
+&lt;/p&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — hover a row and it waits; Tab into the list and it shows at once. Escape or scroll dismisses.&lt;/p&gt;
+
+  &lt;div class=&quot;demo-specimen&quot;&gt;
+    &lt;div class=&quot;ds-tooltip demo-parked&quot; id=&quot;ds-tooltip-demo&quot; role=&quot;tooltip&quot;&gt;
+      &lt;span class=&quot;ds-tooltip-title&quot;&gt;production-reality-gate&lt;/span&gt;
+      Refuses sample data, stubbed transports, and disconnected UI state as completion evidence.
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;demo-columns&quot;&gt;
+    &lt;div class=&quot;demo-pane demo-pane--list&quot;&gt;
+      &lt;div class=&quot;demo-scroll&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-row&quot; data-tip-title=&quot;workspace-knowledge&quot; data-tip=&quot;Read and update the repo-local knowledge graph in the same handoff as the code change.&quot;&gt;workspace-knowledge&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-row&quot; data-tip-title=&quot;design-system-conformance&quot; data-tip=&quot;Check a surface against the tokens and components it claims to use.&quot;&gt;design-system-conformance&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-row&quot; data-tip-title=&quot;terminal-first-review-guide&quot; data-tip=&quot;Walk a reviewer through a change from the terminal, before they open the diff.&quot;&gt;terminal-first-review-guide&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-row&quot; data-tip-title=&quot;production-reality-gate&quot; data-tip=&quot;Refuses sample data, stubbed transports, and disconnected UI state as completion evidence.&quot;&gt;production-reality-gate&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-row&quot; data-tip-title=&quot;backlog&quot; data-tip=&quot;Work, create, or triage backlog items and epics.&quot;&gt;backlog&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-pane&quot;&gt;
+      &lt;div class=&quot;demo-controls&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-icon&quot; aria-label=&quot;Reveal in folder&quot; data-tip=&quot;Opens the skill's folder in Finder.&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-icon&quot; aria-label=&quot;Sync source&quot; data-tip=&quot;Refetches the source and reindexes every skill it publishes.&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M11.5 6a4.5 4.5 0 10-.9 3.3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;path d=&quot;M11.9 2.6v3.1H8.8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-icon&quot; aria-label=&quot;Remove source&quot; data-tip=&quot;Detaches the source. Skills already attached to a workspace stay attached.&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;demo-edges&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;demo-dock&quot; data-tip-title=&quot;Left edge&quot; data-tip=&quot;No room on the preferred side, so the surface flips to the other one.&quot;&gt;Docked left&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;demo-dock&quot; data-tip-title=&quot;Right edge&quot; data-tip=&quot;The preferred side, and the reason it is the preferred one: a right-docked pane has room only on its left.&quot;&gt;Docked right&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same triggers, the same one surface. It mirrors the mode of the container it is describing.&lt;/p&gt;
+
+  &lt;div class=&quot;demo-columns&quot;&gt;
+    &lt;div class=&quot;demo-pane demo-pane--list&quot;&gt;
+      &lt;div class=&quot;demo-scroll&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-row&quot; data-tip-title=&quot;workspace-knowledge&quot; data-tip=&quot;Read and update the repo-local knowledge graph in the same handoff as the code change.&quot;&gt;workspace-knowledge&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-row&quot; data-tip-title=&quot;design-system-conformance&quot; data-tip=&quot;Check a surface against the tokens and components it claims to use.&quot;&gt;design-system-conformance&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-row&quot; data-tip-title=&quot;terminal-first-review-guide&quot; data-tip=&quot;Walk a reviewer through a change from the terminal, before they open the diff.&quot;&gt;terminal-first-review-guide&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-row&quot; data-tip-title=&quot;production-reality-gate&quot; data-tip=&quot;Refuses sample data, stubbed transports, and disconnected UI state as completion evidence.&quot;&gt;production-reality-gate&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-row&quot; data-tip-title=&quot;backlog&quot; data-tip=&quot;Work, create, or triage backlog items and epics.&quot;&gt;backlog&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-pane&quot;&gt;
+      &lt;div class=&quot;demo-controls&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-icon&quot; aria-label=&quot;Reveal in folder&quot; data-tip=&quot;Opens the skill's folder in Finder.&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-icon&quot; aria-label=&quot;Sync source&quot; data-tip=&quot;Refetches the source and reindexes every skill it publishes.&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M11.5 6a4.5 4.5 0 10-.9 3.3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;path d=&quot;M11.9 2.6v3.1H8.8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-icon&quot; aria-label=&quot;Remove source&quot; data-tip=&quot;Detaches the source. Skills already attached to a workspace stay attached.&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;demo-edges&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;demo-dock&quot; data-tip-title=&quot;Left edge&quot; data-tip=&quot;No room on the preferred side, so the surface flips to the other one.&quot;&gt;Docked left&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;demo-dock&quot; data-tip-title=&quot;Right edge&quot; data-tip=&quot;The preferred side, and the reason it is the preferred one: a right-docked pane has room only on its left.&quot;&gt;Docked right&lt;/button&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+/* Reference behaviour for the component contract in component.md. Rebuild it
+   idiomatically in your framework — what must survive the rewrite is the one
+   shared surface, the two show paths with their different delays, the four
+   dismissals, and aria-describedby living only while the surface is shown. */
+
+const POINTER_DELAY_MS = 350
+const VIEWPORT_GAP_PX = 8
+
+/* One surface, authored in the markup so it is visible with scripts off, then
+   lifted to the body so it escapes every scroll container and stacking
+   context on the page. Moved, never cloned. */
+const tip = document.getElementById('ds-tooltip-demo')
+tip.classList.remove('demo-parked')
+tip.hidden = true
+document.body.appendChild(tip)
+document.querySelector('.demo-specimen').remove()
+
+const surfacesOut = document.getElementById('demo-surfaces')
+const triggersOut = document.getElementById('demo-triggers')
+const lastOut = document.getElementById('demo-last')
+
+let timer = null
+/* The trigger the delay is counting down for. Without it, crossing from a
+   button onto its own glyph re-fires pointerover, restarts the timer, and a
+   pointer that keeps moving inside one trigger never reaches 350 ms. */
+let pending = null
+let owner = null
+
+function esc(text) {
+  return text.replace(/[&amp;&lt;&gt;]/g, (char) =&gt; ({ '&amp;': '&amp;amp;', '&lt;': '&amp;lt;', '&gt;': '&amp;gt;' })[char])
+}
+
+/* Preferred side first — inline-start, so a right-docked pane's tooltip lands
+   over the page and not off it. Flip only when that side has no room, then
+   clamp vertically so a trigger near an edge cannot push the surface out. */
+function place(trigger) {
+  const anchor = trigger.getBoundingClientRect()
+  const surface = tip.getBoundingClientRect()
+  let left = anchor.left - surface.width - VIEWPORT_GAP_PX
+  if (left &lt; VIEWPORT_GAP_PX) {
+    left = Math.min(anchor.right + VIEWPORT_GAP_PX, window.innerWidth - surface.width - VIEWPORT_GAP_PX)
+  }
+  const centred = anchor.top + anchor.height / 2 - surface.height / 2
+  const top = Math.max(
+    VIEWPORT_GAP_PX,
+    Math.min(centred, window.innerHeight - surface.height - VIEWPORT_GAP_PX),
+  )
+  tip.style.setProperty('--ds-tooltip-left', Math.round(left) + 'px')
+  tip.style.setProperty('--ds-tooltip-top', Math.round(top) + 'px')
+}
+
+function show(trigger, source) {
+  const title = trigger.dataset.tipTitle
+  tip.innerHTML =
+    (title ? '&lt;span class=&quot;ds-tooltip-title&quot;&gt;' + esc(title) + '&lt;/span&gt;' : '') + esc(trigger.dataset.tip)
+  /* The surface sits on the body, outside the container it describes. Mirror
+     that container's forced mode so it is not lit by the page's mode instead. */
+  const scope = trigger.closest('[data-mode]')
+  if (scope) tip.setAttribute('data-mode', scope.dataset.mode)
+  else tip.removeAttribute('data-mode')
+  tip.hidden = false
+  place(trigger)
+  trigger.setAttribute('aria-describedby', tip.id)
+  pending = null
+  owner = trigger
+  lastOut.textContent = source
+}
+
+function hide() {
+  window.clearTimeout(timer)
+  timer = null
+  pending = null
+  if (owner) {
+    owner.removeAttribute('aria-describedby')
+    owner = null
+  }
+  tip.hidden = true
+}
+
+document.addEventListener('pointerover', (event) =&gt; {
+  const trigger = event.target.closest('[data-tip]')
+  if (!trigger) {
+    if (owner || timer) hide()
+    return
+  }
+  if (trigger === owner || trigger === pending) return
+  hide()
+  pending = trigger
+  timer = window.setTimeout(() =&gt; show(trigger, 'pointer, after ' + POINTER_DELAY_MS + ' ms'), POINTER_DELAY_MS)
+})
+
+/* Keyboard focus shows at once: the delay exists to keep a pointer crossing
+   the list from firing every row, and a keyboard has no such crossing.
+   :focus-visible, not :focus — clicking a control must not draw a tooltip on
+   top of the thing that was just clicked. */
+document.addEventListener('focusin', (event) =&gt; {
+  const trigger = event.target.closest('[data-tip]')
+  if (trigger &amp;&amp; trigger.matches(':focus-visible')) show(trigger, 'keyboard, immediately')
+  else hide()
+})
+
+document.addEventListener('focusout', hide)
+document.addEventListener('pointerdown', hide)
+document.addEventListener('keydown', (event) =&gt; {
+  if (event.key === 'Escape') hide()
+})
+/* Capture, so a scroll inside any nested container dismisses too — otherwise
+   the surface stays put while the row it describes slides away. */
+window.addEventListener('scroll', hide, true)
+window.addEventListener('resize', hide)
+
+surfacesOut.textContent = String(document.querySelectorAll('.ds-tooltip').length)
+triggersOut.textContent = String(document.querySelectorAll('[data-tip]').length)
+&lt;/script&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>

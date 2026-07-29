@@ -37,6 +37,12 @@
     color: var(--sem-color-text-subtle);
     padding: var(--sem-space-2xs) var(--sem-space-md) var(--sem-space-sm);
   }
+  /* Deliberately the narrowest pane the grid allows: the width at which
+     truncation and the reserved action slot are actually exercised. A demo
+     whose strings never overflow cannot show whether either one works. */
+  .demo-pane--narrow {
+    max-width: 220px;
+  }
 </style>
 </head>
 <body>
@@ -102,7 +108,7 @@
 
     <div class="demo-pane">
       <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
-      <div class="ds-list-row-host">
+      <div class="ds-list-row-host" data-actions="2">
         <button type="button" class="ds-list-row">
           <span class="ds-list-row-text">
             <span class="ds-list-row-title">Engineering</span>
@@ -132,11 +138,50 @@
       </button>
     </div>
 
+    <div class="demo-pane demo-pane--narrow">
+      <p class="demo-pane-title">Narrow — long lines truncate</p>
+      <div class="ds-list-row-host" data-actions="2">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">workspace-knowledge</span>
+            <span class="ds-list-row-supporting">Read and update the repo-local knowledge graph before implementing</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Reveal workspace-knowledge in folder">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="ds-list-row-action" aria-label="Remove workspace-knowledge">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <div class="ds-list-row-host" data-actions="1">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">design-system-conformance</span>
+            <span class="ds-list-row-supporting">Check a surface against the tokens and components it claims to use</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Remove design-system-conformance">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">backlog</span>
+          <span class="ds-list-row-supporting">Work, create, or triage backlog items and epics</span>
+        </span>
+      </button>
+    </div>
+
   </div>
 </div>
 
 <div class="demo-stage" data-mode="dark">
-  <p class="demo-label">Dark — the same three panes.</p>
+  <p class="demo-label">Dark — the same four panes.</p>
   <div class="demo-panes">
 
     <div class="demo-pane">
@@ -197,7 +242,7 @@
 
     <div class="demo-pane">
       <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
-      <div class="ds-list-row-host">
+      <div class="ds-list-row-host" data-actions="2">
         <button type="button" class="ds-list-row">
           <span class="ds-list-row-text">
             <span class="ds-list-row-title">Engineering</span>
@@ -223,6 +268,45 @@
         <span class="ds-list-row-text">
           <span class="ds-list-row-title">Deprecated</span>
           <span class="ds-list-row-supporting">Unavailable while the source reindexes</span>
+        </span>
+      </button>
+    </div>
+
+    <div class="demo-pane demo-pane--narrow">
+      <p class="demo-pane-title">Narrow — long lines truncate</p>
+      <div class="ds-list-row-host" data-actions="2">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">workspace-knowledge</span>
+            <span class="ds-list-row-supporting">Read and update the repo-local knowledge graph before implementing</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Reveal workspace-knowledge in folder">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="ds-list-row-action" aria-label="Remove workspace-knowledge">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <div class="ds-list-row-host" data-actions="1">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">design-system-conformance</span>
+            <span class="ds-list-row-supporting">Check a surface against the tokens and components it claims to use</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Remove design-system-conformance">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">backlog</span>
+          <span class="ds-list-row-supporting">Work, create, or triage backlog items and epics</span>
         </span>
       </button>
     </div>

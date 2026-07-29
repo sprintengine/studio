@@ -3,7 +3,11 @@ import type {
   WorkspaceSkill,
 } from '../../../shared/electron-api'
 import type { PluginSkillInvocation, PluginSkillSupport } from '../../../shared/plugin-manifest'
-import { renderSkillInvocationTemplate, resolveSkillInvocation } from '../../../shared/skill-invocation'
+import {
+  plainSkillInvocation,
+  renderSkillInvocationTemplate,
+  resolveSkillInvocation,
+} from '../../../shared/skill-invocation'
 
 // Re-exported from the node-free shared module (its home now that the automation
 // backlog.work handoff composes invocations in main); existing renderer callers
@@ -35,7 +39,7 @@ export function renderSkillInvocation(input: {
     const native = resolveSkillInvocation(integration, skill.id)
     if (native) return native
   }
-  return `Use the ${skill.id} skill.`
+  return plainSkillInvocation(skill.id)
 }
 
 // Conversation-agent draft prefill (approved mockup copy): a plain sentence
@@ -91,25 +95,28 @@ export function hasInstalledNativeSkillTarget(
 }
 
 // Makes a skill exist where the target agent can read it before an invocation
-// lands: builtins install through the builtin skill manager (which honors each
-// skill's target policy). Everything else is presence-only — a skill installed
-// from a source is already a directory in the workspace, and re-fetching its
-// repository to invoke it would be a network round-trip for nothing.
+// lands. The one install path the renderer has: main attaches it to every
+// installed, skill-capable harness (src/main/agent-skill-installer.ts), which
+// is also what the Skills pane's Add does — a skill the user can invoke in one
+// CLI should not be missing from the next one they open.
+//
+// Partial success is success here: the caller is about to invoke the skill, and
+// one harness that refused the write does not make the others unusable. Only a
+// request that reached nothing is a failure worth stopping for.
 export async function ensureSkillForAgent(input: {
   workspaceRoot: string
-  skill: Pick<WorkspaceSkill, 'id' | 'source' | 'installState'>
+  skill: Pick<WorkspaceSkill, 'id'>
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const { workspaceRoot, skill } = input
   try {
-    if (skill.source === 'builtin') {
-      if (skill.installState === 'installed') return { ok: true }
-      const result = await window.api.builtinSkillInstall({ workspaceRoot, skillId: skill.id })
-      if (!result.ok && result.status !== 'modified' && result.status !== 'local') {
-        return { ok: false, message: result.message }
-      }
-      return { ok: true }
+    const result = await window.api.agentSkillAttach({ workspaceRoot, skillId: skill.id })
+    if (!result.ok) return { ok: false, message: result.message }
+    const usable = result.targets.filter((target) => target.status !== 'failed')
+    if (usable.length > 0) return { ok: true }
+    return {
+      ok: false,
+      message: result.targets[0]?.message ?? 'Unable to install the skill.',
     }
-    return { ok: true }
   } catch (error) {
     return {
       ok: false,

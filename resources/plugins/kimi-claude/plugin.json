@@ -73,7 +73,8 @@
         "scope": "workspace",
         "path": "{{workspaceRoot}}/.claude/skills/{{skillId}}",
         "format": "claude-code",
-        "restartRequired": true
+        "$comment": "restartRequired verified false on 2026-07-29: a skill directory created while `claude` was already running appeared in its /skill picker without a restart. kimi-claude and zai run the same `claude` binary against the same .claude/skills, so the finding covers all three.",
+        "restartRequired": false
       }
     ],
     "invocation": {

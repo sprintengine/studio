@@ -84,13 +84,24 @@
 
 /* ── Text ────────────────────────────────────────────────────────────────
  * Title is the row's one priority and claims the width; everything else is
- * demoted to the supporting line or the trailing slot. */
+ * demoted to the supporting line or the trailing slot.
+ *
+ * The text block is a flex row so both children blockify: the ellipsis they
+ * declare below is inert on an inline box. The gap also carries the word
+ * space between title and supporting that inline layout used to supply. */
 .ds-list-row-text {
   min-width: 0;
   flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sem-space-xs);
 }
 
+/* The title claims the width it needs; the supporting clause takes what is
+ * left (basis 0) and so truncates first. */
 .ds-list-row-title {
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: var(--sem-font-size-body);
   font-weight: var(--sem-font-weight-medium);
   letter-spacing: var(--sem-font-tracking-normal);
@@ -101,6 +112,8 @@
 }
 
 .ds-list-row-supporting {
+  flex: 1 1 0;
+  min-width: 0;
   font-size: var(--sem-font-size-meta);
   color: var(--sem-color-text-subtle);
   white-space: nowrap;
@@ -143,7 +156,11 @@
   transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
-.ds-list-row:hover .ds-list-row-actions,
+/* Hover reveal hangs off the host, not the row: in the host pattern the actions
+ * are the row's SIBLING, so a descendant selector on the row never matches.
+ * The row-scoped focus rule stays for a row used without the host wrapper. */
+.ds-list-row-host:hover .ds-list-row-actions,
+.ds-list-row-host:focus-within .ds-list-row-actions,
 .ds-list-row:focus-visible .ds-list-row-actions,
 .ds-list-row-actions:focus-within {
   opacity: 1;
@@ -162,6 +179,19 @@
   right: var(--sem-space-sm);
 }
 
+/* The absolute slot reserves no width of its own, so the host declares how
+ * many actions it carries and the row reserves that much trailing padding —
+ * text truncates before it reaches the icons, and revealing never reflows. */
+.ds-list-row-host[data-actions='1'] .ds-list-row {
+  padding-right: calc(var(--sem-space-sm) + var(--sem-size-control-xs) + var(--sem-space-xs));
+}
+
+.ds-list-row-host[data-actions='2'] .ds-list-row {
+  padding-right: calc(
+    var(--sem-space-sm) + var(--sem-size-control-xs) * 2 + var(--sem-space-3xs) + var(--sem-space-xs)
+  );
+}
+
 .ds-list-row-action {
   display: grid;
   place-items: center;
@@ -174,6 +204,9 @@
   border-radius: var(--sem-radius-chip);
   background: transparent;
   color: var(--sem-color-text-muted);
+  /* Without this the button falls back to the UA font — a third family the
+   * system does not have. Latent while the actions are icon-only. */
+  font-family: inherit;
   cursor: pointer;
 }
 

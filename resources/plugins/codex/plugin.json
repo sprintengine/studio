@@ -86,7 +86,8 @@
         "scope": "workspace",
         "path": "{{workspaceRoot}}/.codex/skills/{{skillId}}",
         "format": "codex",
-        "restartRequired": true
+        "$comment": "restartRequired verified false on 2026-07-29: a skill directory created while `codex` was already running appeared in its $skill picker without a restart.",
+        "restartRequired": false
       }
     ],
     "invocation": {

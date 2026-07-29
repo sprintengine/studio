@@ -162,6 +162,149 @@ export type SkillDiscoveryResult<T> = {
 /** Shortest query code search is asked to run; below it GitHub matches everything. */
 export const MIN_SKILL_SEARCH_QUERY_LENGTH = 3
 
+// Agent capabilities: what the agent in one terminal can actually reach.
+//
+// Derived on demand from the harness directories and CLI config files, never
+// from a record of what we intended to install — someone who hand-edits
+// `.claude/skills` or `.mcp.json` sees the result here. One query answers the
+// whole question so no surface joins several calls and drifts from the next.
+
+/** Where an installed skill directory came from, read from its provenance marker. */
+export type AgentSkillSource = 'builtin' | 'source' | 'local'
+
+export type AgentSkill = {
+  /** Directory name, which is the skill's identity to every CLI that reads it. */
+  id: string
+  name: string
+  /** '' when the SKILL.md carries no description; never invented copy. */
+  description: string
+  /** How to invoke it in this CLI, rendered from the plugin's own template. */
+  invocation: string
+  source: AgentSkillSource
+  /**
+   * Every CLI bound to this harness. The skill lives in one directory, and each
+   * of these can read it — this is the attribution that stops a shared skill
+   * being counted once per CLI.
+   */
+  pluginIds: string[]
+}
+
+/**
+ * An MCP server a CLI is configured with, read from that CLI's own config file
+ * by the format adapter its manifest declares. Configured, not necessarily
+ * loaded: a config that marks a server disabled still declares it, and both
+ * CLIs that express that state list it as disabled rather than omitting it, so
+ * dropping it here would hide something the user wrote.
+ */
+export type AgentMcpServer = {
+  id: string
+  transport: string
+  /** Absent unless the config states it — a count is never guessed. */
+  toolCount?: number
+  /** Which of the CLI's two declared config files this entry won from. */
+  scope: 'workspace' | 'user'
+  configPath: string
+}
+
+/**
+ * Why one path could not be read, or could not be kept true. A union, not a
+ * boolean: `malformed` (a file that opened but could not be parsed) is a
+ * different fault from one that could not be opened at all, and the likeliest
+ * real-world one for a config file. `watch_unavailable` is not a read failure
+ * at all — the answer is correct as of the read and may go stale.
+ */
+export type CapabilityDiagnosticReason = 'unreadable' | 'malformed' | 'watch_unavailable'
+
+/**
+ * Which half of the answer a fault belongs to, or `freshness` for one that
+ * belongs to neither: a path that could not be watched leaves both halves
+ * readable but possibly stale, which a surface must say differently from a
+ * half that failed to read.
+ */
+export type CapabilityKind = 'skills' | 'servers' | 'freshness'
+
+export type CapabilityDiagnostic = {
+  /**
+   * A surface that renders one half must not be blanked by the other half's
+   * fault: an unparseable `.mcp.json` is not a reason to stop listing skills.
+   */
+  capability: CapabilityKind
+  reason: CapabilityDiagnosticReason
+  /** The path that failed, so the surface can name it. */
+  path: string
+  message: string
+}
+
+/**
+ * Whether installing a bundled skill would actually put it where this harness
+ * reads: `all-native` covers every natively-supported CLI, a static list covers
+ * the harnesses it names, and the default target (`.agents`, prompt-injected)
+ * reaches no CLI's own directory.
+ *
+ * One rule, because two surfaces ask it — the Skills pane's search-only
+ * catalogue and `SkillPickerPopover`'s "available" rows. Offering a skill the
+ * attach path will route into some *other* CLI's directory is an Add that
+ * reports success and changes nothing for the agent the user is looking at —
+ * the picker applied that rule privately, the pane did not apply it at all.
+ * It lives here rather than beside either of them because it is a fact about a
+ * bundled skill's declared targets, not about how a surface draws them.
+ */
+export function builtinInstallsIntoHarness(
+  skill: { harnesses?: readonly string[]; targetPolicy?: string },
+  harnessId: string,
+): boolean {
+  if (skill.targetPolicy === 'all-native') return true
+  return (skill.harnesses ?? []).some((harness) => harness === harnessId)
+}
+
+export type AgentCapabilitiesInput = {
+  workspaceRoot: string
+  pluginId: string
+}
+
+/**
+ * `ok: false` is reserved for a question that could not be asked (no workspace).
+ * A CLI with no skill support, and a harness directory that was never created,
+ * are both `ok: true` with a stated `support` — an unavailable capability is a
+ * result, never an empty list.
+ */
+export type AgentCapabilitiesResult =
+  | {
+      ok: true
+      support: 'native' | 'prompt-shim' | 'unsupported'
+      /** '' when the plugin declares no skill integration at all. */
+      harnessId: string
+      skills: AgentSkill[]
+      servers: AgentMcpServer[]
+      diagnostics: CapabilityDiagnostic[]
+    }
+  | { ok: false; message: string }
+
+export type AgentCapabilitiesWatchInput = {
+  workspaceRoot: string
+}
+
+// Named once and imported by both sides: main registering a channel the preload
+// spells differently is a failure that only shows up in a running app.
+export const AGENT_CAPABILITIES_WATCH_START_CHANNEL = 'skills:agent-capabilities-watch-start'
+export const AGENT_CAPABILITIES_WATCH_STOP_CHANNEL = 'skills:agent-capabilities-watch-stop'
+export const AGENT_CAPABILITIES_INVALIDATED_CHANNEL = 'skills:agent-capabilities-invalidated'
+
+/**
+ * "Ask again" — never the new answer. One per `(workspaceRoot, harnessId)`
+ * after the watcher's debounce, so a ten-file install moves the surface once.
+ *
+ * `harnessId` is the coalescing identity; `pluginIds` says which CLIs' queries
+ * it covers, because a CLI can declare an MCP config and no skill integration
+ * at all (cursor) and so has no harness id to be addressed by.
+ */
+export type AgentCapabilitiesInvalidation = {
+  workspaceRoot: string
+  /** '' when the group is a CLI that declares no skill integration. */
+  harnessId: string
+  pluginIds: string[]
+}
+
 export type SkillFrontmatter = {
   name: string
   description: string

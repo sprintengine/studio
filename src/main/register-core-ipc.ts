@@ -82,7 +82,12 @@ export function registerCoreIpc(
   registerMcpIpc(ipcMain, services.mcpConfigService)
   registerAgentConfigImportIpc(ipcMain, services.agentConfigImportService)
   registerSkillsIpc(ipcMain, services.skillsService)
-  registerWorkspaceSkillsIpc(ipcMain, services.workspaceSkillsService)
+  registerWorkspaceSkillsIpc(ipcMain, {
+    workspaceSkills: services.workspaceSkillsService,
+    agentCapabilities: services.agentCapabilityService,
+    capabilityWatcher: services.capabilityWatcher,
+    agentSkillInstaller: services.agentSkillInstaller,
+  })
   registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
   registerFilesystemReadIpc(ipcMain, createFilesystemReadHandlers())
   // Memory/knowledge-graph backend is foundational: agent context injection

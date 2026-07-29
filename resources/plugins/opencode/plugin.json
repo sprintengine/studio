@@ -60,6 +60,7 @@
         "scope": "workspace",
         "path": "{{workspaceRoot}}/.opencode/skills/{{skillId}}",
         "format": "opencode",
+        "$comment": "restartRequired NOT verified on 2026-07-29: OpenCode has no local skill picker to observe (skills are invoked by mention), and this machine has no provider credentials, so a model turn could not be run to test it. Left true — a banner that over-warns is recoverable, one that under-warns is not.",
         "restartRequired": true
       }
     ],

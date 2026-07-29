@@ -356,6 +356,12 @@ export default function AgentComposerPopover({
               open={skillPickerOpen}
               onOpenChange={setSkillPickerOpen}
               workspaceRoot={activeWorkspaceRoot}
+              // The CLI this spawn will actually launch, so the list is what
+              // that agent can reach — the same scoping the panel-density
+              // sibling uses. A conversation agent is not a CLI, so it gets the
+              // workspace-wide inventory instead of an engine default that is
+              // not what runs.
+              pluginId={composer.selection.kind === 'conversation' ? null : composer.selectionCli}
               onPick={(skill) => composer.setSkillAttachment(skill)}
               placement="bottom-start"
               renderTrigger={({ ref, triggerProps, togglePopover }) => (

@@ -3,7 +3,7 @@
 // identity + controls read as belonging to the workspace rather than floating in
 // one full-width bar. Left→right:
 //
-//   Files·Git·Backlog switches │ WorkspaceIdentity ····· WorkspaceActions · attention · sprints
+//   Backlog switch │ WorkspaceIdentity ····· WorkspaceActions · diagnostics · attention · Skills
 //
 // The strip is an `app-drag` region; interactive controls opt out. Non-mac window
 // controls are NOT here — they pin to the window's absolute top-right corner
@@ -168,12 +168,28 @@ export function WorkspaceHeader<MenuItem extends string>({
         )}
       </div>
 
-      {/* Right: workspace controls, then the cross-workspace surfaces. */}
+      {/* Right: workspace controls, then the cross-workspace surfaces. Skills
+          renders outermost, past diagnostics and the attention cue — the mirror
+          of the collapse control's outermost position on the left edge. The pane
+          it opens does not slide in: animating a docked pane's width reflows the
+          whole workspace card, terminals included, every frame (the call
+          workspaceAsideColumn.tsx already made for this same column). */}
       <div className="flex shrink-0 items-center">
         {actionsSlot}
-        <div className="flex items-center gap-0.5 px-1.5">
+        <div
+          role="toolbar"
+          aria-label="Workspace surfaces"
+          className="flex items-center gap-0.5 px-1.5"
+        >
           {onOpenDiagnostics ? <DiagnosticsButton onOpen={onOpenDiagnostics} /> : null}
           <AttentionQueuePopover {...attentionQueue} />
+          {/* Workspace-scoped, so it goes with the left cluster while a door
+              paints over the card: diagnostics and the attention cue stay useful
+              on a door, but toggling a pane in a layout nobody can see would be
+              a control that visibly does nothing. */}
+          {globalSurfaceActive ? null : (
+            <PanelSwitches activeWorkspaceId={activeWorkspaceId} cluster="right" />
+          )}
         </div>
       </div>
     </div>

@@ -22,7 +22,8 @@
       "button",
       "input",
       "list-row",
-      "task-card"
+      "task-card",
+      "tooltip"
     ],
     "patterns": [
       "patterns/selection.html"

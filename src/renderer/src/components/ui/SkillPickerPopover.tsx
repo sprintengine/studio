@@ -7,7 +7,13 @@ import React, {
   useRef,
   useState,
 } from 'react'
-import type { WorkspaceSkill, WorkspaceSkillSource } from '../../../../shared/electron-api'
+import type {
+  AgentCapabilitiesResult,
+  SkillHarness,
+  WorkspaceSkill,
+  WorkspaceSkillSource,
+} from '../../../../shared/electron-api'
+import { builtinInstallsIntoHarness } from '../../../../shared/skills'
 import { ensureSkillForAgent } from '../../utils/skillInvocation'
 import { Popover, type PopoverPlacement, type PopoverProps } from './Popover'
 import { FOCUS_RING_CLASS } from './tokens'
@@ -35,9 +41,77 @@ type SkillInventoryState = {
   error: string | null
 }
 
-// Loads the unified inventory when `active` flips true (each open refetches —
-// installs/removals elsewhere must show up on the next open).
-function useWorkspaceSkills(workspaceRoot: string | null, active: boolean): SkillInventoryState {
+type LoadedInventory = { skills: WorkspaceSkill[]; error: string | null }
+
+type AgentSkillRow = Extract<AgentCapabilitiesResult, { ok: true }>['skills'][number]
+
+// The capability service answers for one CLI, so its skills are already known to
+// be reachable there; the harness id travels with them because callers render
+// the CLI-native invocation from it.
+function reachableRow(skill: AgentSkillRow, harnessId: string): WorkspaceSkill {
+  return {
+    id: skill.id,
+    name: skill.name,
+    ...(skill.description ? { description: skill.description } : {}),
+    // A row carries one source label; `source` and `local` are both "not one of
+    // ours" here, and the full provenance lives in the Extensions inventory.
+    source: skill.source === 'builtin' ? 'builtin' : 'custom',
+    // The harness id is a manifest value, so a user plugin can name one this
+    // legacy union does not enumerate. Attribution stays truthful either way.
+    harnesses: [harnessId as SkillHarness],
+    installState: 'installed',
+  }
+}
+
+// One inventory, two questions. With a CLI in play the rows are what that agent
+// can actually reach, through the one capability query. Without one — a
+// conversation provider, or a scheduled automation that installs into a per-run
+// worktree — there is no harness to ask about, and the workspace-wide inventory
+// is the honest answer.
+async function loadInventory(workspaceRoot: string, pluginId: string | null): Promise<LoadedInventory> {
+  if (!pluginId) {
+    const result = await window.api.workspaceSkillsList({ workspaceRoot })
+    return result.ok ? { skills: result.skills, error: null } : { skills: [], error: result.message }
+  }
+
+  const capabilities = await window.api.agentCapabilities({ workspaceRoot, pluginId })
+  if (!capabilities.ok) return { skills: [], error: capabilities.message }
+  if (capabilities.support === 'unsupported') {
+    return { skills: [], error: 'This agent does not read workspace skills.' }
+  }
+  // A path that failed to read must never render as an empty list. Only the
+  // skills half is this list's business: an unparseable MCP config is a real
+  // fault, but not a reason to stop showing the skills that did read.
+  const [failed] = capabilities.diagnostics.filter((diagnostic) => diagnostic.capability === 'skills')
+  if (failed) return { skills: [], error: `Could not read ${failed.path} — ${failed.message}` }
+
+  const reachable = capabilities.skills.map((skill) => reachableRow(skill, capabilities.harnessId))
+  const reachableIds = new Set(reachable.map((skill) => skill.id))
+  const bundled = await window.api.builtinSkillsList()
+  const available = bundled
+    .filter(
+      (skill) => !reachableIds.has(skill.id) && builtinInstallsIntoHarness(skill, capabilities.harnessId),
+    )
+    .map((skill): WorkspaceSkill => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description,
+      source: 'builtin',
+      harnesses: [],
+      installState: 'available',
+      version: skill.version,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+  return { skills: [...reachable, ...available], error: null }
+}
+
+// Loads the inventory when `active` flips true (each open refetches — installs
+// and removals elsewhere must show up on the next open).
+function useWorkspaceSkills(
+  workspaceRoot: string | null,
+  pluginId: string | null,
+  active: boolean,
+): SkillInventoryState {
   const [state, setState] = useState<SkillInventoryState>({ skills: [], loading: false, error: null })
   useEffect(() => {
     if (!active) return
@@ -47,12 +121,10 @@ function useWorkspaceSkills(workspaceRoot: string | null, active: boolean): Skil
     }
     let cancelled = false
     setState((prev) => ({ ...prev, loading: true, error: null }))
-    window.api
-      .workspaceSkillsList({ workspaceRoot })
-      .then((result) => {
+    loadInventory(workspaceRoot, pluginId)
+      .then((loaded) => {
         if (cancelled) return
-        if (result.ok) setState({ skills: result.skills, loading: false, error: null })
-        else setState({ skills: [], loading: false, error: result.message })
+        setState({ skills: loaded.skills, loading: false, error: loaded.error })
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -65,7 +137,7 @@ function useWorkspaceSkills(workspaceRoot: string | null, active: boolean): Skil
     return () => {
       cancelled = true
     }
-  }, [active, workspaceRoot])
+  }, [active, pluginId, workspaceRoot])
   return state
 }
 
@@ -288,6 +360,10 @@ export type SkillPickerPopoverProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   workspaceRoot: string | null
+  // The CLI plugin the picked skill is for. Set it wherever one agent's CLI is
+  // known, and the list becomes what that agent can actually reach instead of
+  // everything in the workspace. Omit it where no single CLI applies.
+  pluginId?: string | null
   onPick: (skill: WorkspaceSkill) => void
   // "Manage skills →" footer; omit to hide (e.g. surfaces with no route to
   // Connectors → Installed).
@@ -309,6 +385,7 @@ export function SkillPickerPopover({
   open,
   onOpenChange,
   workspaceRoot,
+  pluginId = null,
   onPick,
   onManageSkills,
   placement = 'top-start',
@@ -318,7 +395,7 @@ export function SkillPickerPopover({
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const [actionError, setActionError] = useState<string | null>(null)
-  const inventory = useWorkspaceSkills(workspaceRoot, open)
+  const inventory = useWorkspaceSkills(workspaceRoot, pluginId, open)
   const visibleSkills = useMemo(
     () => (filterSkill ? inventory.skills.filter(filterSkill) : inventory.skills),
     [inventory.skills, filterSkill],
@@ -444,6 +521,7 @@ export const InlineSkillPicker = forwardRef<
   InlineSkillPickerHandle,
   {
     workspaceRoot: string | null
+    pluginId?: string | null
     query: string
     onPick: (skill: WorkspaceSkill) => void
     // Fires when the settled (not loading, not errored) match count changes,
@@ -451,10 +529,13 @@ export const InlineSkillPicker = forwardRef<
     onMatchCountChange?: (count: number) => void
     className?: string
   }
->(function InlineSkillPicker({ workspaceRoot, query, onPick, onMatchCountChange, className }, ref) {
+>(function InlineSkillPicker(
+  { workspaceRoot, pluginId = null, query, onPick, onMatchCountChange, className },
+  ref,
+) {
   const [activeIndex, setActiveIndex] = useState(0)
   const [actionError, setActionError] = useState<string | null>(null)
-  const inventory = useWorkspaceSkills(workspaceRoot, true)
+  const inventory = useWorkspaceSkills(workspaceRoot, pluginId, true)
   const groups = useMemo(() => groupSkills(inventory.skills, query), [inventory.skills, query])
   const clampedActive = Math.min(activeIndex, Math.max(0, groups.flat.length - 1))
 

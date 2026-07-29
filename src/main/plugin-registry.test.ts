@@ -133,7 +133,12 @@ async function testBundledManifestsLoad(): Promise<void> {
   const codexEntry = registry.list().find((entry) => entry.id === 'codex')
   assert.equal(codexEntry?.skillIntegration?.support, 'native')
   assert.equal(codexEntry?.skillIntegration?.harnessId, 'codex')
-  assert.equal(codexEntry?.skillIntegration?.installTargetCount, 1)
+  assert.equal(codexEntry?.skillIntegration?.installTargets.length, 1)
+  assert.equal(codexEntry?.skillIntegration?.installTargets[0].path, '{{workspaceRoot}}/.codex/skills/{{skillId}}')
+  // False since 2026-07-29: Codex picks up a skill directory created while it
+  // is running (verified against codex-cli 0.146.0), so the manifest no longer
+  // claims a restart the surface would warn about.
+  assert.equal(codexEntry?.skillIntegration?.installTargets[0].restartRequired, false)
   assert.equal(codexEntry?.skillIntegration?.invocation?.fileDropTemplate, 'Use ${{skillId}} to work {{path}}.')
   assert.equal(
     registry.list().some((entry) => entry.id === 'openrouter'),

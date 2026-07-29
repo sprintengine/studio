@@ -34,7 +34,7 @@ import {
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import type { AgentCli, FuturePlanWorkspaceSource, HighlightColor, SprintEngineRuntimeAgentStatus, Workspace } from '../../types/workspace'
-import { captureNavRailWidthFraction, consumePendingAgentFlash, deleteTabPreservingNavRail, registerModel, restoreNavRailWidthFraction, unregisterModel } from '../../utils/modelRegistry'
+import { captureRailWidthFractions, consumePendingAgentFlash, deleteTabPreservingRails, registerModel, restoreRailWidthFractions, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
@@ -99,6 +99,11 @@ const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBo
 const SprintEngineRunSummaryPanel = React.lazy(() => import('../panels/SprintEngineRunSummaryPanel'))
 const SprintEnginePlanReaderPanel = React.lazy(() => import('../panels/SprintEnginePlanReaderPanel'))
 const GuidedBriefWorkspacePanel = React.lazy(() => import('./guidedBrief/GuidedBriefWorkspacePanel'))
+// The right-docked Skills pane. Local rather than host-registered because it
+// belongs to no capability module — every workspace with an agent tab can ask
+// what that agent reaches — and because a module gate here would hide the pane
+// its own header switch just opened.
+const SkillsPanel = React.lazy(() => import('./skills/SkillsPanel'))
 // Shown when a host panel can't render because its owning module is disabled or
 // the layout tab is stale/unknown. An explicit, labeled unavailable state —
 // never a silently blank surface — applied to every gated/stale arm below.
@@ -545,6 +550,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
             : DISABLED_SURFACE
+        case 'skills':
+          return timedPanel('SkillsPanel', <SkillsPanel workspaceId={workspaceId} />)
         case 'guided-brief':
           // Guided Brief hands its build off to a Sprint Engine run, so it
           // follows sprint-engine enablement: a stale guided-brief workspace
@@ -563,7 +570,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
                 workspaceId={workspaceId}
                 onClose={() => {
                   const model = modelRef.current
-                  if (model) deleteTabPreservingNavRail(model, node.getId())
+                  if (model) deleteTabPreservingRails(model, node.getId())
                 }}
               />
             ))
@@ -575,7 +582,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
                 workspaceId={workspaceId}
                 onClose={() => {
                   const model = modelRef.current
-                  if (model) deleteTabPreservingNavRail(model, node.getId())
+                  if (model) deleteTabPreservingRails(model, node.getId())
                 }}
               />
             ))
@@ -658,18 +665,18 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
   const handleAction = useCallback(
     (action: Action) => {
       // Removing a tabset hands its weight back to flexlayout, which spreads it
-      // across every remaining sibling — including the strip-less Files/Git/
-      // Backlog nav rail, which would otherwise grow when a terminal beside it
-      // is closed. Snapshot the rail's width before the deletion applies, then
-      // re-pin it once the model has settled so the freed space goes to the
-      // editor/terminal siblings instead.
+      // across every remaining sibling — including the strip-less Backlog rail
+      // on the left and the Skills rail on the right, either of which would
+      // otherwise grow when a terminal beside it is closed. Snapshot both rails'
+      // widths before the deletion applies, then re-pin them once the model has
+      // settled so the freed space goes to the editor/terminal siblings instead.
       if (action.type === Actions.DELETE_TAB || action.type === Actions.DELETE_TABSET) {
         const model = modelRef.current
-        const navFraction = model ? captureNavRailWidthFraction(model) : null
-        if (navFraction != null) {
+        const railFractions = model ? captureRailWidthFractions(model) : null
+        if (railFractions != null) {
           queueMicrotask(() => {
             const current = modelRef.current
-            if (current) restoreNavRailWidthFraction(current, navFraction)
+            if (current) restoreRailWidthFractions(current, railFractions)
           })
         }
       }
@@ -724,7 +731,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
   const closeTabWithCleanup = useCallback((node: TabNode) => {
     cleanupNode(node)
     const model = modelRef.current
-    if (model) deleteTabPreservingNavRail(model, node.getId())
+    if (model) deleteTabPreservingRails(model, node.getId())
   }, [cleanupNode])
 
   const handleAuxMouseClick = useCallback<NodeMouseEvent>((node, event) => {
@@ -781,7 +788,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
     })
     agentNodeIds.forEach((nodeId) => {
       hideTabWithoutCleanupRef.current.add(nodeId)
-      deleteTabPreservingNavRail(model, nodeId)
+      deleteTabPreservingRails(model, nodeId)
     })
   }, [])
 
@@ -790,7 +797,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
     hideTabWithoutCleanupRef.current.add(node.getId())
     const parent = node.getParent()
     const model = modelRef.current
-    if (model) deleteTabPreservingNavRail(model, node.getId())
+    if (model) deleteTabPreservingRails(model, node.getId())
 
     // The hide button is removed with the tab, leaving focus on <body>; hand it back to the new active tab.
     if (!(parent instanceof TabSetNode)) return
@@ -994,7 +1001,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
             if (!filePath) return
             void openExternalFileWindow({ workspaceId, path: filePath, name: node.getName() })
             useWorkspaceStore.getState().setOpenFilesInExternalWindow(true)
-            deleteTabPreservingNavRail(node.getModel(), node.getId())
+            deleteTabPreservingRails(node.getModel(), node.getId())
           }
         : undefined
       // A live PTY bolds the tab name, mirroring the sidebar's resident-workspace

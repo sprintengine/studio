@@ -1,5 +1,9 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type {
+  AgentCapabilitiesInput,
+  AgentCapabilitiesInvalidation,
+  AgentCapabilitiesResult,
+  AgentCapabilitiesWatchInput,
   ScanResult,
   SkillDiscoveryResult,
   SkillHarness,
@@ -10,6 +14,18 @@ import type {
 // Re-exported because the harness identity is part of this IPC contract: it
 // rides BuiltinSkill, WorkspaceSkill and every install/uninstall result.
 export type { SkillHarness } from './skills'
+// The capability query's shapes live with the other skill shapes; these are its
+// IPC envelopes, same split as the skill-source calls below.
+export type {
+  AgentCapabilitiesInput,
+  AgentCapabilitiesInvalidation,
+  AgentCapabilitiesResult,
+  AgentCapabilitiesWatchInput,
+  AgentMcpServer,
+  AgentSkill,
+  AgentSkillSource,
+  CapabilityDiagnostic,
+} from './skills'
 import type { SprintEngineAutomationIntentRecord } from './sprintengine/automation-intent'
 import type { SprintEngineAutomationMode as SprintEngineAutomationIntentMode } from './sprintengine/automation-types'
 import type { SprintEngineLaunchSettings } from './sprintengine/launch-settings'
@@ -842,6 +858,19 @@ export type McpSyncInput = {
   pruneUnlistedServers?: boolean
 }
 
+/**
+ * The two CLIs the first-run import wizard scans for existing config. A closed
+ * pair, not a list of every CLI: the paths it scans are the *user-level* ones
+ * (`~/.codex/config.toml`, `~/.claude.json`), which no plugin manifest declares
+ * — manifests declare the workspace paths the writer owns.
+ *
+ * The parsers behind it are already shared with the manifest-driven read path
+ * (src/main/mcp-config-readers), so there is one parser per format. What is
+ * still literal here is the path list; widening the wizard to every CLI means
+ * declaring those user-level paths in the manifests and resolving them through
+ * `resolveMcpConfigPath`, which is the read path's job (MC-1960), not another
+ * hardcoded pair here.
+ */
 export type AgentConfigImportSource = 'codex' | 'claude-code'
 
 export type AgentConfigDetectedMcpServer = {
@@ -933,6 +962,52 @@ export type WorkspaceSkillsListInput = {
 
 export type WorkspaceSkillsListResult =
   | { ok: true; skills: WorkspaceSkill[] }
+  | { ok: false; message: string }
+
+// Attaching a skill to the agents that can use it, and removing it again.
+// src/main/agent-skill-installer.ts owns the behaviour; these are the IPC
+// envelopes.
+
+/**
+ * What happened at one harness directory. Attach reaches several at once, so
+ * three successes and one permission error must render as three successes and
+ * one error — never as a bare "failed", and never as a success that quietly
+ * wrote nothing.
+ */
+export type AgentSkillTargetStatus = 'written' | 'unchanged' | 'removed' | 'skipped' | 'failed'
+
+/**
+ * `not-ours` is a skill the user wrote by hand under that name: reported, never
+ * overwritten or deleted. `absent` is a remove target that held nothing.
+ */
+export type AgentSkillSkipReason = 'not-ours' | 'absent'
+
+export type AgentSkillTarget = {
+  harnessId: string
+  /** Every installed CLI that reads this directory — `.claude` serves three. */
+  pluginIds: string[]
+  /** Workspace-relative, e.g. `.claude/skills/backlog`. */
+  path: string
+  /** Whether the CLIs reading it pick the change up only after a restart. */
+  restartRequired: boolean
+  status: AgentSkillTargetStatus
+  reason?: AgentSkillSkipReason
+  /** Present on `failed`, naming what the filesystem said. */
+  message?: string
+}
+
+export type AgentSkillWriteInput = {
+  workspaceRoot: string
+  skillId: string
+}
+
+/**
+ * `ok: false` is reserved for a request that could not be attempted at all — no
+ * workspace, an unusable skill id, no installed CLI that reads skills, or
+ * nothing to copy. Anything that reached the directories reports per target.
+ */
+export type AgentSkillWriteResult =
+  | { ok: true; skillId: string; targets: AgentSkillTarget[] }
   | { ok: false; message: string }
 
 // Skill sources (src/shared/skills.ts owns the shapes; these are the IPC
@@ -2904,6 +2979,21 @@ export type ElectronApi = {
   mcpPreviewSync: (input: McpSyncInput) => Promise<McpSyncPreview>
   mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
   workspaceSkillsList: (input: WorkspaceSkillsListInput) => Promise<WorkspaceSkillsListResult>
+  // Everything the agent in one CLI can reach in one workspace, in one call:
+  // its skills, its MCP servers, and any path that failed to read.
+  agentCapabilities: (input: AgentCapabilitiesInput) => Promise<AgentCapabilitiesResult>
+  // Keeping that answer true while a surface stays open. Main watches the paths
+  // it resolved and says only *that* they changed; the refetch goes back through
+  // agentCapabilities, so there is one source of truth for the list. Refcounted:
+  // stop what you start, or the watchers outlive the surface.
+  agentCapabilitiesWatchStart: (input: AgentCapabilitiesWatchInput) => Promise<void>
+  agentCapabilitiesWatchStop: (input: AgentCapabilitiesWatchInput) => Promise<void>
+  onAgentCapabilitiesInvalidated: (cb: (event: AgentCapabilitiesInvalidation) => void) => () => void
+  // Put one skill where every installed, skill-capable CLI reads it, and take
+  // it away again. Both report per target and neither returns the new list: the
+  // write invalidates, and the surface re-reads through agentCapabilities.
+  agentSkillAttach: (input: AgentSkillWriteInput) => Promise<AgentSkillWriteResult>
+  agentSkillRemove: (input: AgentSkillWriteInput) => Promise<AgentSkillWriteResult>
   skillsListSources: () => Promise<SkillSourcesResult>
   skillsAddSource: (input: SkillAddSourceInput) => Promise<SkillAddSourceResult>
   skillsRemoveSource: (input: SkillRemoveSourceInput) => Promise<SkillRemoveSourceResult>

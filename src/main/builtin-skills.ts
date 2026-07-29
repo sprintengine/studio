@@ -14,12 +14,15 @@ import type {
 } from '../shared/electron-api'
 import { SKILL_HARNESS_DIR } from '../shared/skill-harnesses'
 
-const MANIFEST_FILE = '.multicode-skill.json'
+// The marker a managed copy carries. Exported because the attach path
+// (src/main/agent-skill-installer.ts) reads and writes the same file, and two
+// spellings of this name would be two conventions.
+export const MANAGED_SKILL_MANIFEST_FILE = '.multicode-skill.json'
 
 const DEFAULT_HARNESSES: readonly SkillHarness[] = ['agents']
 const ALL_NATIVE_TARGET_POLICY = 'all-native'
 
-type ManagedSkillManifest = {
+export type ManagedSkillManifest = {
   id: string
   source: 'multicode-builtin'
   version: string
@@ -167,7 +170,14 @@ async function readJson<T>(path: string): Promise<T | null> {
   }
 }
 
-async function hashDirectory(root: string, ignoredNames = new Set<string>()): Promise<string> {
+/**
+ * Content identity of a skill directory: every file's path and bytes, in a
+ * stable order. Exported because the attach path compares a source against an
+ * installed copy with it, and two different hashes of "the same" directory
+ * would make an unchanged copy look modified. Pass `MANAGED_SKILL_MANIFEST_FILE`
+ * to ignore the marker, which is written after the hash is taken.
+ */
+export async function hashSkillDirectory(root: string, ignoredNames = new Set<string>()): Promise<string> {
   const hash = createHash('sha256')
 
   async function visit(dir: string): Promise<void> {
@@ -192,6 +202,48 @@ async function hashDirectory(root: string, ignoredNames = new Set<string>()): Pr
   return hash.digest('hex')
 }
 
+/**
+ * Replace `destinationDir` with a copy of `sourceDir`, parents included. The
+ * two skill install paths — this manager's policy fan-out and the pane's attach
+ * (src/main/agent-skill-installer.ts) — share it so a skill copy is made one
+ * way. Whether the destination may be replaced at all is the caller's decision:
+ * both refuse to overwrite a directory Multicode did not write.
+ */
+export async function copySkillDirectory(sourceDir: string, destinationDir: string): Promise<void> {
+  await rm(destinationDir, { recursive: true, force: true })
+  await mkdir(join(destinationDir, '..'), { recursive: true })
+  await cp(sourceDir, destinationDir, { recursive: true, force: false, errorOnExist: true })
+}
+
+/**
+ * Stamp a freshly written copy of a bundled skill with the manifest
+ * `getTargetState` reads back. Without it the copy is indistinguishable from a
+ * hand-made directory, and every later install would refuse to touch it.
+ */
+export async function writeManagedSkillManifest(input: {
+  destinationDir: string
+  skill: Pick<BuiltinSkill, 'id' | 'version'>
+  sourceHash: string
+  now?: string
+}): Promise<void> {
+  const timestamp = input.now ?? new Date().toISOString()
+  const manifest: ManagedSkillManifest = {
+    id: input.skill.id,
+    source: 'multicode-builtin',
+    version: input.skill.version,
+    sourceHash: input.sourceHash,
+    // Taken before the manifest exists, which is also how it is re-checked.
+    installedSkillHash: await hashSkillDirectory(input.destinationDir),
+    installedAt: timestamp,
+    updatedAt: timestamp,
+  }
+  await writeFile(join(input.destinationDir, MANAGED_SKILL_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8')
+}
+
+export function findBuiltinSkill(skillId: string): BuiltinSkill | null {
+  return BUILTIN_SKILLS.find((skill) => skill.id === skillId) ?? null
+}
+
 function skillHarnesses(skill: BuiltinSkill): readonly SkillHarness[] {
   return skill.harnesses && skill.harnesses.length > 0 ? skill.harnesses : DEFAULT_HARNESSES
 }
@@ -211,17 +263,18 @@ function canonicalTarget(targets: BuiltinSkillTargetState[]): BuiltinSkillTarget
     ?? targets[0]
 }
 
-function defaultSourceRoot(): string {
+/** Where the skills Multicode ships live, bundled or in the checkout. */
+export function builtinSkillSourceRoot(): string {
   if (app.isPackaged) return join(process.resourcesPath, 'skills')
   return join(process.cwd(), 'resources', 'skills')
 }
 
 export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = {}) {
-  const sourceRoot = options.sourceRoot ?? defaultSourceRoot()
+  const sourceRoot = options.sourceRoot ?? builtinSkillSourceRoot()
   const listPlugins = options.listPlugins ?? (() => [])
 
   function getSkill(id: string): BuiltinSkill | null {
-    return BUILTIN_SKILLS.find((skill) => skill.id === id) ?? null
+    return findBuiltinSkill(id)
   }
 
   function getSourcePath(id: string): string {
@@ -331,12 +384,12 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
       return { ...base, destinationPath, status: 'missing' }
     }
 
-    const manifest = await readJson<ManagedSkillManifest>(join(destinationPath, MANIFEST_FILE))
+    const manifest = await readJson<ManagedSkillManifest>(join(destinationPath, MANAGED_SKILL_MANIFEST_FILE))
     if (!manifest || manifest.id !== skill.id || manifest.source !== 'multicode-builtin') {
       return { ...base, destinationPath, status: 'local' }
     }
 
-    const currentHash = await hashDirectory(destinationPath, new Set([MANIFEST_FILE]))
+    const currentHash = await hashSkillDirectory(destinationPath, new Set([MANAGED_SKILL_MANIFEST_FILE]))
     if (currentHash !== manifest.installedSkillHash) {
       return { ...base, destinationPath, status: 'modified', installedVersion: manifest.version }
     }
@@ -358,7 +411,7 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
       return { ok: false, status: 'missing-source', skillId, message: `Built-in skill source is missing: ${skill.id}` }
     }
 
-    const sourceHash = await hashDirectory(sourcePath)
+    const sourceHash = await hashSkillDirectory(sourcePath)
     const targets: BuiltinSkillTargetState[] = []
     for (const target of skillTargets(workspaceRoot, skill)) {
       targets.push(await getTargetState(skill, sourceHash, target))
@@ -414,31 +467,18 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     }
 
     const sourcePath = getSourcePath(status.skill.id)
-    const sourceHash = await hashDirectory(sourcePath)
+    const sourceHash = await hashSkillDirectory(sourcePath)
     const now = new Date().toISOString()
 
     for (const target of actionable) {
       if (!target.destinationPath) continue
-      if (target.status !== 'missing') {
-        await rm(target.destinationPath, { recursive: true, force: true })
-      }
-      await mkdir(join(target.destinationPath, '..'), { recursive: true })
-      await cp(sourcePath, target.destinationPath, { recursive: true, force: false, errorOnExist: true })
-      const installedSkillHash = await hashDirectory(target.destinationPath)
-      const manifest: ManagedSkillManifest = {
-        id: status.skill.id,
-        source: 'multicode-builtin',
-        version: status.skill.version,
+      await copySkillDirectory(sourcePath, target.destinationPath)
+      await writeManagedSkillManifest({
+        destinationDir: target.destinationPath,
+        skill: status.skill,
         sourceHash,
-        installedSkillHash,
-        installedAt: now,
-        updatedAt: now,
-      }
-      await writeFile(
-        join(target.destinationPath, MANIFEST_FILE),
-        `${JSON.stringify(manifest, null, 2)}\n`,
-        'utf-8'
-      )
+        now,
+      })
     }
 
     return {

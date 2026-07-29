@@ -1,11 +1,87 @@
-import type { IpcMain } from 'electron'
-import type { WorkspaceSkillsListInput, WorkspaceSkillsListResult } from '../../shared/electron-api'
-import type { WorkspaceSkillsService } from '../workspace-skills-service'
+import type { IpcMain, WebContents } from 'electron'
+import type {
+  AgentCapabilitiesWatchInput,
+  AgentSkillWriteInput,
+  AgentSkillWriteResult,
+  WorkspaceSkillsListInput,
+  WorkspaceSkillsListResult,
+} from '../../shared/electron-api'
+import type { AgentSkillInstaller } from '../agent-skill-installer'
+import {
+  AGENT_CAPABILITIES_INVALIDATED_CHANNEL,
+  AGENT_CAPABILITIES_WATCH_START_CHANNEL,
+  AGENT_CAPABILITIES_WATCH_STOP_CHANNEL,
+  type AgentCapabilitiesInput,
+  type AgentCapabilitiesResult,
+} from '../../shared/skills'
+import type { CapabilityWatcher } from '../capability-watcher'
+import type { AgentCapabilityService, WorkspaceSkillsService } from '../workspace-skills-service'
 
-export function registerWorkspaceSkillsIpc(ipcMain: IpcMain, service: WorkspaceSkillsService): void {
+export function registerWorkspaceSkillsIpc(
+  ipcMain: IpcMain,
+  services: {
+    workspaceSkills: WorkspaceSkillsService
+    agentCapabilities: AgentCapabilityService
+    capabilityWatcher: CapabilityWatcher
+    agentSkillInstaller: AgentSkillInstaller
+  },
+): void {
   ipcMain.handle(
     'skills:list-workspace',
     (_, input: WorkspaceSkillsListInput): Promise<WorkspaceSkillsListResult> =>
-      service.listWorkspaceSkills(input),
+      services.workspaceSkills.listWorkspaceSkills(input),
   )
+  ipcMain.handle(
+    'skills:agent-capabilities',
+    (_, input: AgentCapabilitiesInput): Promise<AgentCapabilitiesResult> =>
+      services.agentCapabilities.resolve(input),
+  )
+  ipcMain.handle(
+    'skills:agent-skill-attach',
+    (_, input: AgentSkillWriteInput): Promise<AgentSkillWriteResult> =>
+      services.agentSkillInstaller.attach(input),
+  )
+  ipcMain.handle(
+    'skills:agent-skill-remove',
+    (_, input: AgentSkillWriteInput): Promise<AgentSkillWriteResult> =>
+      services.agentSkillInstaller.remove(input),
+  )
+
+  // One subscription per (sender, workspace), refcounted in the watcher: the
+  // first start attaches the watchers and the last stop tears them down. A
+  // window that closes without stopping is released on `destroyed`; a window
+  // that *reloads* keeps its sender id, and the re-subscribe is deduplicated by
+  // that key, so it reuses the subscription instead of stacking a second one.
+  const subscriptions = new Map<string, () => void>()
+  const trackedSenders = new Set<number>()
+  const key = (sender: WebContents, workspaceRoot: string): string => `${sender.id}::${workspaceRoot}`
+
+  ipcMain.handle(AGENT_CAPABILITIES_WATCH_START_CHANNEL, (event, input: AgentCapabilitiesWatchInput): void => {
+    const workspaceRoot = input.workspaceRoot?.trim()
+    if (!workspaceRoot || subscriptions.has(key(event.sender, workspaceRoot))) return
+    const sender = event.sender
+    const release = services.capabilityWatcher.subscribe(workspaceRoot, (invalidation) => {
+      if (sender.isDestroyed()) return
+      sender.send(AGENT_CAPABILITIES_INVALIDATED_CHANNEL, invalidation)
+    })
+    subscriptions.set(key(sender, workspaceRoot), release)
+    if (trackedSenders.has(sender.id)) return
+    trackedSenders.add(sender.id)
+    sender.once('destroyed', () => {
+      trackedSenders.delete(sender.id)
+      for (const [subscriptionKey, dispose] of subscriptions) {
+        if (!subscriptionKey.startsWith(`${sender.id}::`)) continue
+        dispose()
+        subscriptions.delete(subscriptionKey)
+      }
+    })
+  })
+
+  ipcMain.handle(AGENT_CAPABILITIES_WATCH_STOP_CHANNEL, (event, input: AgentCapabilitiesWatchInput): void => {
+    const workspaceRoot = input.workspaceRoot?.trim()
+    if (!workspaceRoot) return
+    const subscriptionKey = key(event.sender, workspaceRoot)
+    subscriptions.get(subscriptionKey)?.()
+    subscriptions.delete(subscriptionKey)
+  })
 }

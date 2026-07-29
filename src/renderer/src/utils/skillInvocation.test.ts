@@ -103,39 +103,52 @@ function main(): void {
 
 async function ensureSkillTests(): Promise<void> {
   const calls: string[] = []
+  let reply: unknown = { ok: true, skillId: 'x', targets: [{ path: '.claude/skills/x', status: 'written' }] }
   ;(globalThis as { window?: unknown }).window = {
     api: {
-      builtinSkillInstall: async (input: { skillId: string }) => {
-        calls.push(`builtin:${input.skillId}`)
-        return { ok: true, status: 'installed' }
+      agentSkillAttach: async (input: { skillId: string }) => {
+        calls.push(`attach:${input.skillId}`)
+        return reply
       },
     },
   }
 
-  // Already-installed builtin: no install call.
-  const installedBuiltin = await ensureSkillForAgent({
-    workspaceRoot: '/ws',
-    skill: { id: 'backlog', source: 'builtin', installState: 'installed' },
-  })
-  assert.deepEqual(installedBuiltin, { ok: true })
-  assert.deepEqual(calls, [])
-
-  // Missing builtin installs through the builtin manager.
-  const missingBuiltin = await ensureSkillForAgent({
-    workspaceRoot: '/ws',
-    skill: { id: 'debug', source: 'builtin', installState: 'available' },
-  })
-  assert.deepEqual(missingBuiltin, { ok: true })
-  assert.deepEqual(calls, ['builtin:debug'])
-
-  // A skill installed from a source is presence-only: already a directory in
-  // the workspace, so nothing is fetched to invoke it.
-  const custom = await ensureSkillForAgent({
-    workspaceRoot: '/ws',
-    skill: { id: 'c', source: 'custom', installState: 'installed' },
-  })
+  // One path for every skill, whatever it came from: the renderer asks main to
+  // put it where the agents read, and does not decide where that is.
+  const builtin = await ensureSkillForAgent({ workspaceRoot: '/ws', skill: { id: 'debug' } })
+  assert.deepEqual(builtin, { ok: true })
+  const custom = await ensureSkillForAgent({ workspaceRoot: '/ws', skill: { id: 'c' } })
   assert.deepEqual(custom, { ok: true })
-  assert.deepEqual(calls, ['builtin:debug'])
+  assert.deepEqual(calls, ['attach:debug', 'attach:c'])
+
+  // One harness refusing the write does not block an invocation the others can
+  // serve; every harness failing does.
+  reply = {
+    ok: true,
+    skillId: 'debug',
+    targets: [
+      { path: '.claude/skills/debug', status: 'written' },
+      { path: '.grok/skills/debug', status: 'failed', message: 'EACCES' },
+    ],
+  }
+  assert.deepEqual(await ensureSkillForAgent({ workspaceRoot: '/ws', skill: { id: 'debug' } }), { ok: true })
+
+  reply = {
+    ok: true,
+    skillId: 'debug',
+    targets: [{ path: '.claude/skills/debug', status: 'failed', message: 'EACCES: permission denied' }],
+  }
+  assert.deepEqual(await ensureSkillForAgent({ workspaceRoot: '/ws', skill: { id: 'debug' } }), {
+    ok: false,
+    message: 'EACCES: permission denied',
+  })
+
+  // A request main could not attempt keeps its own message.
+  reply = { ok: false, message: 'No agent CLI on this machine reads workspace skills.' }
+  assert.deepEqual(await ensureSkillForAgent({ workspaceRoot: '/ws', skill: { id: 'debug' } }), {
+    ok: false,
+    message: 'No agent CLI on this machine reads workspace skills.',
+  })
 
   console.log('skillInvocation tests passed')
 }

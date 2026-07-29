@@ -19,6 +19,7 @@ item is a row in a list.
 | Identifier | `.ds-list-row-id` | no — mono, tabular, inside the supporting line |
 | Trailing meta | `.ds-list-row-trailing` | no — display only, never interactive |
 | Action host | `.ds-list-row-host` | only when the row has revealed actions |
+| Action count | `data-actions` on the host | yes when there are actions — `"1"` or `"2"`, the value the trailing padding is reserved from |
 | Actions | `.ds-list-row-actions` | no — at most two |
 | Action | `.ds-list-row-action` | — |
 
@@ -61,14 +62,17 @@ belongs in an overflow menu or the detail pane.
 The row itself is the `<button>`, so an action cannot be nested inside it —
 that is invalid HTML and breaks Safari and JAWS. Wrap the row and its actions
 in `.ds-list-row-host` instead, which positions the actions over the row's
-trailing padding. The slot reserves its space, so revealing never reflows.
+trailing padding. Declare `data-actions="1"` or `"2"` on that host: the actions
+are positioned absolutely and reserve no width themselves, so the count is what
+the row reserves its trailing padding from. Without it the text runs under the
+icons. With it the space is held at rest, so revealing never reflows.
 
 Do not put anything interactive in `.ds-list-row-trailing`. It is for a count,
 a timestamp, or a status word.
 
-Titles truncate to one line. If the full value matters, attach a tooltip that
-appears only when the text actually overflows — never a native `title`
-attribute on a control.
+Titles truncate to one line. If the full value matters, attach the system's
+`tooltip` component, and only when the text actually overflows — never a native
+`title` attribute on a control.
 
 ## Accessibility
 

@@ -145,36 +145,31 @@ function firstTabset(model: Model): TabSetNode | null {
   return targetTabset
 }
 
-// True when every tab in the tabset is a strip-less nav switch (Files / Git /
-// Backlog / Knowledge Graph) — i.e. this is the left "sidebar" pane. Content
-// tabs (terminals, agents, editors) must never dock into it.
-function isNavRailTabset(tabset: TabSetNode): boolean {
-  const tabs = tabset.getChildren().filter((child): child is TabNode => child instanceof TabNode)
-  if (tabs.length === 0) return false
-  return tabs.every((tab) => {
-    const component = tab.getComponent()
-    return Boolean(component && NAV_RAIL_COMPONENTS.has(component))
-  })
+// True when the tabset is one of the docked rails (see RAILS): a strip-less pane
+// holding only that edge's switches. Content tabs (terminals, agents, editors)
+// must never dock into either one.
+function isRailTabset(tabset: TabSetNode): boolean {
+  return railSideOfTabset(tabset) !== null
 }
 
-function firstNonNavTabset(model: Model): TabSetNode | null {
+function firstNonRailTabset(model: Model): TabSetNode | null {
   let found: TabSetNode | null = null
   model.visitNodes((node) => {
     if (found || !(node instanceof TabSetNode)) return
-    if (!isNavRailTabset(node)) found = node
+    if (!isRailTabset(node)) found = node
   })
   return found
 }
 
 // Resolves the tabset that should host a new content tab (terminal, agent,
 // editor): the active tabset when it is real content, otherwise the first
-// non-nav tabset. Never the sidebar's strip-less nav pane — docking content
-// there buries it under the open Files/Git/Backlog panel. Returns null when the
-// only tabset is the nav pane, so callers dock a fresh column on the right edge.
+// non-rail tabset. Never a strip-less rail pane — docking content there buries
+// it under the open Backlog / Skills panel. Returns null when the only tabsets
+// are rails, so callers dock a fresh column on the right edge.
 function activeContentTabset(model: Model): TabSetNode | null {
   const active = model.getActiveTabset()
-  if (active && !isNavRailTabset(active)) return active
-  return firstNonNavTabset(model)
+  if (active && !isRailTabset(active)) return active
+  return firstNonRailTabset(model)
 }
 
 function agentTileLocation(targetTabset: TabSetNode): DockLocation {
@@ -612,7 +607,7 @@ function addEditorSurfaceNode(
     return true
   }
 
-  const navTabset = findNavRailTabset(model)
+  const navTabset = findRailTabset(model, 'left')
   if (navTabset) {
     model.doAction(Actions.addNode(tabJson, navTabset.getId(), DockLocation.RIGHT, -1, true))
     return true
@@ -621,6 +616,14 @@ function addEditorSurfaceNode(
   const terminalHost = firstTerminalLikeTabset(model)
   if (terminalHost) {
     model.doAction(Actions.addNode(tabJson, terminalHost.getId(), DockLocation.LEFT, -1, true))
+    return true
+  }
+
+  // Only the right rail is open: dock the document area beside it rather than
+  // stacking (invisibly) into a strip-less rail pane.
+  const rightRail = findRailTabset(model, 'right')
+  if (rightRail) {
+    model.doAction(Actions.addNode(tabJson, rightRail.getId(), DockLocation.LEFT, -1, true))
     return true
   }
 
@@ -946,6 +949,11 @@ type JsonLayoutNode = {
   type?: string
   component?: string
   children?: JsonLayoutNode[]
+  // Tabset-only: `selected` is the index of the visible tab, `active` marks the
+  // one tabset the user is driving (flexlayout allows exactly one).
+  selected?: number
+  active?: boolean
+  config?: { agentId?: string; sessionId?: string }
 }
 
 // Walks a serialized IJsonModel and reports whether a tab with `component` is
@@ -965,6 +973,59 @@ export function jsonModelHasComponent(model: IJsonModel | undefined | null, comp
   }
   const layout = (model as unknown as { layout?: JsonLayoutNode }).layout
   return visit(layout)
+}
+
+/** The agent whose terminal is on screen, and the live session behind it. */
+export type FocusedAgentTab = {
+  agentId: string
+  /** The tab's own session id; null when the agent has not launched one yet. */
+  sessionId: string | null
+}
+
+/**
+ * Which agent a workspace-scoped surface is talking about.
+ *
+ * Derived from the persisted `workspace.layoutModel` rather than the live Model
+ * so it is reactive: `onModelChange` writes the JSON on every layout mutation,
+ * selecting a tab included, and the live Model exposes no listener API. A pane
+ * that read the Model directly would answer once and then go stale the moment
+ * the user switched tabs.
+ *
+ * The active tabset wins, because that is the one the user is driving. With no
+ * tabset marked active — a freshly restored layout, before any click — the
+ * first agent tab in document order stands in, which is the tab the user is
+ * looking at in the common single-tabset case.
+ */
+export function focusedAgentTabInLayout(model: IJsonModel | undefined | null): FocusedAgentTab | null {
+  if (!model) return null
+
+  const selectedAgentOf = (tabset: JsonLayoutNode): FocusedAgentTab | null => {
+    const children = tabset.children ?? []
+    const tab = children[tabset.selected ?? 0]
+    if (!tab || tab.type !== 'tab' || tab.component !== 'agent') return null
+    const agentId = tab.config?.agentId
+    if (!agentId) return null
+    return { agentId, sessionId: tab.config?.sessionId ?? null }
+  }
+
+  let fallback: FocusedAgentTab | null = null
+  let active: FocusedAgentTab | null = null
+
+  const visit = (node: JsonLayoutNode | undefined): void => {
+    if (!node || active) return
+    if (node.type === 'tabset') {
+      const focused = selectedAgentOf(node)
+      if (focused) {
+        if (node.active) active = focused
+        else if (!fallback) fallback = focused
+      }
+      return
+    }
+    for (const child of node.children ?? []) visit(child)
+  }
+
+  visit((model as unknown as { layout?: JsonLayoutNode }).layout)
+  return active ?? fallback
 }
 
 export function removeComponentTab(workspaceId: string, component: string): boolean {
@@ -992,9 +1053,11 @@ export function toggleComponentTab(
   return focusOrAddComponentTab(workspaceId, component, name)
 }
 
+export type RailSide = 'left' | 'right'
+
 // Strip-less navigational rail components. Files / Git / Backlog are
 // single-instance navigational surfaces, so they share ONE left-docked pane
-// whose FlexLayout tab strip is hidden and the PanelRail buttons act as
+// whose FlexLayout tab strip is hidden and the PanelSwitches buttons act as
 // exclusive switches into it — exactly one shows at a time. Knowledge Graph
 // keeps the same nav-pane semantics but is reached through the command
 // palette / View menu rather than a rail glyph. Sprint Engines is NOT here:
@@ -1009,113 +1072,217 @@ export const NAV_RAIL_COMPONENTS = new Set<string>([
   'memory-graph',
 ])
 
-// PanelRail click handler (also the command-palette/menu toggle route). Nav
-// switches route to the exclusive strip-less left pane; the Editor keeps
+// The right-docked rail. Skills is a SECOND exclusive group rather than a fifth
+// nav component: adding it to NAV_RAIL_COMPONENTS would make opening Skills
+// close Backlog, and the point of docking it opposite is that the item on the
+// left and the agent's capabilities on the right are read together.
+export const RIGHT_RAIL_COMPONENTS = new Set<string>(['skills'])
+
+// One table, two edges. Everything below dispatches on side rather than keeping
+// a second copy of the toggle — the width capture/restore pair in particular is
+// exactly the kind of fix that lands in one copy and not the other.
+const RAILS: Record<RailSide, {
+  components: Set<string>
+  dock: DockLocation
+  // Width in px the rail takes the first time it docks, and the floor the
+  // splitter will not cross. The left rail deliberately has neither: it has
+  // shipped on flexlayout's default sizing, and pinning it here would silently
+  // resize the Backlog pane in every existing workspace.
+  defaultWidthPx?: number
+  minWidthPx?: number
+}> = {
+  left: { components: NAV_RAIL_COMPONENTS, dock: DockLocation.LEFT },
+  right: {
+    components: RIGHT_RAIL_COMPONENTS,
+    dock: DockLocation.RIGHT,
+    defaultWidthPx: 348,
+    minWidthPx: 280,
+  },
+}
+
+const RAIL_SIDES = Object.keys(RAILS) as RailSide[]
+
+// The rail a component docks into, or null when it is ordinary content.
+function railSideOfComponent(component: string): RailSide | null {
+  return RAIL_SIDES.find((side) => RAILS[side].components.has(component)) ?? null
+}
+
+// The rail a tabset IS, from its tab components — null when they are mixed, or
+// content. Every tab must belong to the same side, so a legacy layout that
+// stacked a nav tab beside the editor never gets its strip hidden (which would
+// hide the editor's file tabs); those legacy tabs are pulled into a clean pane
+// on the next toggle instead. Exported for the persisted-layout migration in
+// layoutSlice, which answers the same question against raw JSON.
+export function railSideOfComponents(components: readonly string[]): RailSide | null {
+  if (components.length === 0) return null
+  const side = railSideOfComponent(components[0])
+  if (!side) return null
+  return components.every((component) => RAILS[side].components.has(component)) ? side : null
+}
+
+function railSideOfTabset(tabset: TabSetNode): RailSide | null {
+  const tabs = tabset.getChildren().filter((child): child is TabNode => child instanceof TabNode)
+  return railSideOfComponents(tabs.map((tab) => tab.getComponent() ?? ''))
+}
+
+// PanelSwitches click handler (also the command-palette/menu toggle route). Rail
+// switches route to their edge's exclusive strip-less pane; the Editor keeps
 // standard document-tab semantics so its open files stay switchable.
 export function togglePanelRailComponent(
   workspaceId: string,
   component: string,
   name: string
 ): boolean {
-  if (NAV_RAIL_COMPONENTS.has(component)) {
-    return toggleNavRailComponent(workspaceId, component, name)
-  }
+  const side = railSideOfComponent(component)
+  if (side) return toggleRailComponent(workspaceId, component, name, side)
   return toggleEditorRailComponent(workspaceId, component, name)
 }
 
-// The single left-docked pane that hosts the nav switches. Matches only a
-// tabset whose every tab is a nav component, so a legacy layout that stacked a
-// nav tab beside the editor never gets its strip hidden (which would hide the
-// editor's file tabs); those legacy tabs are pulled into a clean pane on the
-// next toggle instead.
-function findNavRailTabset(model: Model): TabSetNode | null {
+// The single docked pane on one edge. Matches only a tabset whose every tab
+// belongs to that side's component set.
+export function findRailTabset(model: Model, side: RailSide): TabSetNode | null {
   let found: TabSetNode | null = null
   model.visitNodes((node) => {
     if (found || !(node instanceof TabSetNode)) return
-    if (isNavRailTabset(node)) found = node
+    if (railSideOfTabset(node) === side) found = node
   })
   return found
 }
 
-// Records the nav rail's share of its parent row, as a width fraction, so it can
-// survive a sibling tabset being removed. Returns null when there is no nav rail,
-// it isn't in a horizontal split (fraction would be ~1), or its rect hasn't been
-// laid out yet. Read this BEFORE applying a tab/tabset deletion.
-export function captureNavRailWidthFraction(model: Model): number | null {
-  const nav = findNavRailTabset(model)
-  if (!nav) return null
-  const parent = nav.getParent()
+// Records a rail's share of its parent row, as a width fraction, so it can
+// survive a sibling tabset being removed. Returns null when that rail is not
+// open, it isn't in a horizontal split (fraction would be ~1), or its rect
+// hasn't been laid out yet. Read this BEFORE applying a tab/tabset deletion.
+export function captureRailWidthFraction(model: Model, side: RailSide): number | null {
+  const rail = findRailTabset(model, side)
+  if (!rail) return null
+  const parent = rail.getParent()
   if (!(parent instanceof RowNode)) return null
   const parentWidth = parent.getRect().width
-  const navWidth = nav.getRect().width
-  if (!(parentWidth > 0) || !(navWidth > 0)) return null
-  const fraction = navWidth / parentWidth
+  const railWidth = rail.getRect().width
+  if (!(parentWidth > 0) || !(railWidth > 0)) return null
+  const fraction = railWidth / parentWidth
   return fraction > 0 && fraction < 1 ? fraction : null
 }
 
-// Re-pins the nav rail to a previously captured width fraction. flexlayout
+export type RailWidthFractions = Partial<Record<RailSide, number>>
+
+// Both edges at once — what the delete paths capture, since a closed terminal's
+// weight is handed to every sibling and either rail can be one of them.
+export function captureRailWidthFractions(model: Model): RailWidthFractions | null {
+  const fractions: RailWidthFractions = {}
+  for (const side of RAIL_SIDES) {
+    const fraction = captureRailWidthFraction(model, side)
+    if (fraction != null) fractions[side] = fraction
+  }
+  return Object.keys(fractions).length > 0 ? fractions : null
+}
+
+// Re-pins each open rail to a previously captured width fraction. flexlayout
 // redistributes a removed tabset's weight across ALL remaining siblings in
-// proportion to their weight — including the strip-less Files/Git/Backlog pane,
-// which then visibly grows when a terminal beside it is closed. Re-pinning the
-// nav rail keeps its pixel width and lets the freed space flow to the editor /
-// terminal siblings instead. Call this AFTER the deletion has been applied (the
-// sibling weights it reads must already reflect the removed tabset).
-export function restoreNavRailWidthFraction(model: Model, fraction: number): void {
-  if (!(fraction > 0) || !(fraction < 1)) return
-  const nav = findNavRailTabset(model)
-  if (!nav) return
-  const parent = nav.getParent()
-  if (!(parent instanceof RowNode)) return
-  const siblings = parent.getChildren().filter((child) => child !== nav)
-  if (siblings.length === 0) return
-  const otherWeight = siblings.reduce((sum, child) => {
-    const weight = child instanceof TabSetNode || child instanceof RowNode ? child.getWeight() : 0
-    return sum + (weight > 0 ? weight : 0)
-  }, 0)
-  if (!(otherWeight > 0)) return
-  // navWeight / (navWeight + otherWeight) === fraction  ⇒  solve for navWeight.
-  const targetWeight = (fraction * otherWeight) / (1 - fraction)
-  if (!Number.isFinite(targetWeight) || targetWeight <= 0) return
-  if (Math.abs(nav.getWeight() - targetWeight) < 0.01) return
-  model.doAction(Actions.updateNodeAttributes(nav.getId(), { weight: targetWeight }))
+// proportion to their weight — including a strip-less rail, which then visibly
+// grows when a terminal beside it is closed. Re-pinning keeps each rail's pixel
+// width and lets the freed space flow to the editor / terminal siblings instead.
+// Call this AFTER the deletion has been applied (the sibling weights it reads
+// must already reflect the removed tabset).
+export function restoreRailWidthFractions(model: Model, fractions: RailWidthFractions): void {
+  // Grouped by parent row: both rails normally dock into the root row, and their
+  // weights only make sense solved together — pinning them one after the other
+  // makes each restore perturb the other's share.
+  const byParent = new Map<RowNode, { node: TabSetNode; fraction: number }[]>()
+  for (const side of RAIL_SIDES) {
+    const fraction = fractions[side]
+    if (fraction == null || !(fraction > 0) || !(fraction < 1)) continue
+    const rail = findRailTabset(model, side)
+    if (!rail) continue
+    const parent = rail.getParent()
+    if (!(parent instanceof RowNode)) continue
+    const group = byParent.get(parent) ?? []
+    group.push({ node: rail, fraction })
+    byParent.set(parent, group)
+  }
+
+  for (const [parent, rails] of byParent) {
+    const railNodes = new Set(rails.map((rail) => rail.node))
+    const otherWeight = parent.getChildren().reduce((sum, child) => {
+      if (child instanceof TabSetNode && railNodes.has(child)) return sum
+      const weight = child instanceof TabSetNode || child instanceof RowNode ? child.getWeight() : 0
+      return sum + (weight > 0 ? weight : 0)
+    }, 0)
+    if (!(otherWeight > 0)) continue
+    // railWeight / (allRailWeights + otherWeight) === fraction, for every rail in
+    // the row at once ⇒ solve the system rather than one rail at a time.
+    const railShare = rails.reduce((sum, rail) => sum + rail.fraction, 0)
+    if (!(railShare > 0) || !(railShare < 1)) continue
+    for (const rail of rails) {
+      const targetWeight = (rail.fraction * otherWeight) / (1 - railShare)
+      if (!Number.isFinite(targetWeight) || targetWeight <= 0) continue
+      if (Math.abs(rail.node.getWeight() - targetWeight) < 0.01) continue
+      model.doAction(Actions.updateNodeAttributes(rail.node.getId(), { weight: targetWeight }))
+    }
+  }
 }
 
-// Drop-in for `model.doAction(Actions.deleteTab(id))` that keeps the strip-less
-// Files/Git/Backlog nav rail at its current width. App-initiated closes (the tab
-// context menu, middle-click, a panel's own close button) dispatch straight to
-// the model and so never reach the Layout's onAction hook; routing them through
-// here gives them the same width-preserving behaviour as flexlayout's built-in
-// close button. Runs synchronously: the deletion settles the sibling weights
-// before the rail is re-pinned.
-export function deleteTabPreservingNavRail(model: Model, tabId: string): void {
-  const fraction = captureNavRailWidthFraction(model)
+export function restoreRailWidthFraction(model: Model, fraction: number, side: RailSide): void {
+  restoreRailWidthFractions(model, { [side]: fraction })
+}
+
+// Drop-in for `model.doAction(Actions.deleteTab(id))` that keeps both strip-less
+// rails at their current width. App-initiated closes (the tab context menu,
+// middle-click, a panel's own close button) dispatch straight to the model and
+// so never reach the Layout's onAction hook; routing them through here gives
+// them the same width-preserving behaviour as flexlayout's built-in close
+// button. Runs synchronously: the deletion settles the sibling weights before
+// the rails are re-pinned.
+export function deleteTabPreservingRails(model: Model, tabId: string): void {
+  const fractions = captureRailWidthFractions(model)
   model.doAction(Actions.deleteTab(tabId))
-  if (fraction != null) restoreNavRailWidthFraction(model, fraction)
+  if (fractions) restoreRailWidthFractions(model, fractions)
 }
 
-// Drops every nav tab except the one just selected, anywhere in the model, so
-// the rail stays single-select even when an older layout left a stray nav tab
-// in another tabset.
-function removeNavRailTabsExcept(model: Model, keepComponent: string): void {
+// Drops every tab on THIS rail except the one just selected, anywhere in the
+// model, so the rail stays single-select even when an older layout left a stray
+// tab of its own in another tabset. The other edge is untouched — that is what lets
+// Backlog and Skills stay open together.
+function removeRailTabsExcept(model: Model, keepComponent: string, side: RailSide): void {
   const tabIds: string[] = []
   model.visitNodes((node) => {
     if (!(node instanceof TabNode)) return
     const component = node.getComponent()
-    if (component && NAV_RAIL_COMPONENTS.has(component) && component !== keepComponent) {
+    if (component && RAILS[side].components.has(component) && component !== keepComponent) {
       tabIds.push(node.getId())
     }
   })
   tabIds.forEach((tabId) => model.doAction(Actions.deleteTab(tabId)))
 }
 
-// Reveals a nav switch in the exclusive strip-less left pane: focuses it when
-// it's already open, swaps it in when another switch is showing, or docks a
-// fresh LEFT column when none is. The non-toggling entry point shared by the
-// command palette and menu reveals.
-export function revealNavRailComponent(
+// A freshly docked tabset takes flexlayout's default weight of 100 — half the
+// row on a single-terminal workspace. Pin the rail to its intended pixel width
+// the first time it docks (the same weight solve the width-preserving restore
+// uses) and stamp the splitter's floor. Sides without widths configured keep
+// flexlayout's default. Headless/not-yet-laid-out models report a 0-width row;
+// those skip the pin rather than divide by it.
+function applyRailDefaultWidth(model: Model, rail: TabSetNode, side: RailSide): void {
+  const { defaultWidthPx, minWidthPx } = RAILS[side]
+  if (minWidthPx != null) {
+    model.doAction(Actions.updateNodeAttributes(rail.getId(), { minWidth: minWidthPx }))
+  }
+  if (defaultWidthPx == null) return
+  const parent = rail.getParent()
+  if (!(parent instanceof RowNode)) return
+  const rowWidth = parent.getRect().width
+  if (!(rowWidth > defaultWidthPx)) return
+  restoreRailWidthFraction(model, defaultWidthPx / rowWidth, side)
+}
+
+// Reveals a rail switch in its edge's exclusive strip-less pane: focuses it when
+// it's already open, swaps it in when another switch on the SAME edge is
+// showing, or docks a fresh column on that edge when none is.
+function revealRailComponent(
   workspaceId: string,
   component: string,
-  name: string
+  name: string,
+  side: RailSide
 ): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
@@ -1123,34 +1290,70 @@ export function revealNavRailComponent(
   // Already open — just make sure it's the visible switch.
   if (focusComponentTab(workspaceId, component)) return true
 
-  // Stack into the existing nav pane when one is open, else dock a fresh column
-  // on the LEFT of the root so terminals/agents stay on the right.
-  const navTabset = findNavRailTabset(model)
-  const targetId = navTabset ? navTabset.getId() : model.getRoot().getId()
-  const location = navTabset ? DockLocation.CENTER : DockLocation.LEFT
+  // Stack into this edge's existing pane when one is open, else dock a fresh
+  // column on that edge of the root so terminals/agents keep the middle. The
+  // pane appears at full width with no entrance animation, deliberately:
+  // animating a docked pane's width reflows the whole workspace card, terminals
+  // included, every frame and reads as lag (the call workspaceAsideColumn.tsx
+  // already made for this same column). Backlog appears instantly; Skills
+  // matching it is the consistent answer.
+  const railTabset = findRailTabset(model, side)
+  const targetId = railTabset ? railTabset.getId() : model.getRoot().getId()
+  const location = railTabset ? DockLocation.CENTER : RAILS[side].dock
   model.doAction(Actions.addNode({ type: 'tab', name, component }, targetId, location, -1, true))
 
-  // Enforce single-select, then hide the strip on whichever tabset now holds
-  // the lone nav switch.
-  removeNavRailTabsExcept(model, component)
-  const pane = findNavRailTabset(model)
+  // Enforce single-select on this edge, then hide the strip on whichever tabset
+  // now holds the lone switch.
+  removeRailTabsExcept(model, component, side)
+  const pane = findRailTabset(model, side)
   if (pane) {
     model.doAction(Actions.updateNodeAttributes(pane.getId(), { enableTabStrip: false }))
+    if (!railTabset) applyRailDefaultWidth(model, pane, side)
   }
   return true
 }
 
-// Exclusive toggle into the strip-less left nav pane. Clicking the open switch
-// closes it (the pane collapses when it empties); clicking another swaps it in.
+// The non-toggling entry point shared by the command palette and menu reveals.
+// Kept under its original name — a dozen call sites name it — but the edge is
+// derived from the component, so revealing 'skills' docks right without closing
+// Backlog on the left. A component that belongs to no rail is refused rather
+// than guessed into the left pane.
+export function revealNavRailComponent(
+  workspaceId: string,
+  component: string,
+  name: string
+): boolean {
+  const side = railSideOfComponent(component)
+  if (!side) return false
+  return revealRailComponent(workspaceId, component, name, side)
+}
+
+// Exclusive toggle into one edge's strip-less pane. Clicking the open switch
+// closes it (the pane collapses when it empties); clicking another switch on the
+// same edge swaps it in.
+function toggleRailComponent(
+  workspaceId: string,
+  component: string,
+  name: string,
+  side: RailSide
+): boolean {
+  if (hasComponentTab(workspaceId, component)) {
+    return removeComponentTab(workspaceId, component)
+  }
+  return revealRailComponent(workspaceId, component, name, side)
+}
+
+// The identity cluster's chip toggles (folder → Files, branch → Git) name this
+// directly, so it keeps its original name; like the reveal above, the edge is
+// derived from the component rather than assumed to be the left one.
 export function toggleNavRailComponent(
   workspaceId: string,
   component: string,
   name: string
 ): boolean {
-  if (hasComponentTab(workspaceId, component)) {
-    return removeComponentTab(workspaceId, component)
-  }
-  return revealNavRailComponent(workspaceId, component, name)
+  const side = railSideOfComponent(component)
+  if (!side) return false
+  return toggleRailComponent(workspaceId, component, name, side)
 }
 
 // The Editor keeps its document tab strip. Toggling removes the standalone
