@@ -1,5 +1,7 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type {
+  AgentCapabilitiesInput,
+  AgentCapabilitiesResult,
   ScanResult,
   SkillDiscoveryResult,
   SkillHarness,
@@ -10,6 +12,16 @@ import type {
 // Re-exported because the harness identity is part of this IPC contract: it
 // rides BuiltinSkill, WorkspaceSkill and every install/uninstall result.
 export type { SkillHarness } from './skills'
+// The capability query's shapes live with the other skill shapes; these are its
+// IPC envelopes, same split as the skill-source calls below.
+export type {
+  AgentCapabilitiesInput,
+  AgentCapabilitiesResult,
+  AgentMcpServer,
+  AgentSkill,
+  AgentSkillSource,
+  CapabilityDiagnostic,
+} from './skills'
 import type { SprintEngineAutomationIntentRecord } from './sprintengine/automation-intent'
 import type { SprintEngineAutomationMode as SprintEngineAutomationIntentMode } from './sprintengine/automation-types'
 import type { SprintEngineLaunchSettings } from './sprintengine/launch-settings'
@@ -2904,6 +2916,9 @@ export type ElectronApi = {
   mcpPreviewSync: (input: McpSyncInput) => Promise<McpSyncPreview>
   mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
   workspaceSkillsList: (input: WorkspaceSkillsListInput) => Promise<WorkspaceSkillsListResult>
+  // Everything the agent in one CLI can reach in one workspace, in one call:
+  // its skills, its MCP servers, and any path that failed to read.
+  agentCapabilities: (input: AgentCapabilitiesInput) => Promise<AgentCapabilitiesResult>
   skillsListSources: () => Promise<SkillSourcesResult>
   skillsAddSource: (input: SkillAddSourceInput) => Promise<SkillAddSourceResult>
   skillsRemoveSource: (input: SkillRemoveSourceInput) => Promise<SkillRemoveSourceResult>

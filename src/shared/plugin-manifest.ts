@@ -375,11 +375,22 @@ export type PluginReasoningCatalog = {
   default?: string
 }
 
+// Renderer-facing skill-integration metadata. Carries the declared install
+// targets verbatim (path template included) because the template *is* the
+// declaration of where a harness keeps its skills — `buildHarnessMap`
+// (src/shared/harness-map.ts) parses it, and nothing anywhere writes a harness
+// directory as a string literal.
+export type PluginSkillCatalogTarget = {
+  scope: PluginSkillInstallScope
+  path: string
+  format: PluginSkillFormat
+  restartRequired: boolean
+}
+
 export type PluginSkillCatalog = {
   support: PluginSkillSupport
   harnessId: string
-  restartRequired: boolean
-  installTargetCount: number
+  installTargets: PluginSkillCatalogTarget[]
   invocation?: PluginSkillInvocation
 }
 

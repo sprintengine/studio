@@ -556,8 +556,12 @@ export function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEnt
           skillIntegration: {
             support: skillIntegration.support,
             harnessId: skillIntegration.harnessId,
-            restartRequired: (skillIntegration.installTargets ?? []).some((target) => target.restartRequired === true),
-            installTargetCount: skillIntegration.installTargets?.length ?? 0,
+            installTargets: (skillIntegration.installTargets ?? []).map((target) => ({
+              scope: target.scope,
+              path: target.path,
+              format: target.format,
+              restartRequired: target.restartRequired === true,
+            })),
             ...(skillIntegration.invocation
               ? {
                   invocation: {

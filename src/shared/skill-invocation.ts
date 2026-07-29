@@ -15,6 +15,15 @@ export function renderSkillInvocationTemplate(
 }
 
 /**
+ * The plain-prompt invocation, for a CLI with no native explicit form. Every
+ * agent can follow it, so it is the fallback wherever a native template is
+ * absent — one wording, shared by the resolver and the renderer.
+ */
+export function plainSkillInvocation(skillId: string): string {
+  return `Use the ${skillId} skill.`
+}
+
+/**
  * The CLI-native explicit invocation for a skill (e.g. `/debug` / `/use-railway`
  * for Claude, `Use $debug.` / `Use $use-railway.` for Codex), read from a
  * plugin's declared skill-invocation template with `{{skillId}}` substituted.

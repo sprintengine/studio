@@ -162,6 +162,83 @@ export type SkillDiscoveryResult<T> = {
 /** Shortest query code search is asked to run; below it GitHub matches everything. */
 export const MIN_SKILL_SEARCH_QUERY_LENGTH = 3
 
+// Agent capabilities: what the agent in one terminal can actually reach.
+//
+// Derived on demand from the harness directories and CLI config files, never
+// from a record of what we intended to install — someone who hand-edits
+// `.claude/skills` or `.mcp.json` sees the result here. One query answers the
+// whole question so no surface joins several calls and drifts from the next.
+
+/** Where an installed skill directory came from, read from its provenance marker. */
+export type AgentSkillSource = 'builtin' | 'source' | 'local'
+
+export type AgentSkill = {
+  /** Directory name, which is the skill's identity to every CLI that reads it. */
+  id: string
+  name: string
+  /** '' when the SKILL.md carries no description; never invented copy. */
+  description: string
+  /** How to invoke it in this CLI, rendered from the plugin's own template. */
+  invocation: string
+  source: AgentSkillSource
+  /**
+   * Every CLI bound to this harness. The skill lives in one directory, and each
+   * of these can read it — this is the attribution that stops a shared skill
+   * being counted once per CLI.
+   */
+  pluginIds: string[]
+}
+
+/**
+ * An MCP server a CLI is configured with. Populated by the MCP read path;
+ * the resolver returns an empty list until then.
+ */
+export type AgentMcpServer = {
+  id: string
+  transport: string
+  /** Absent unless the config states it — a count is never guessed. */
+  toolCount?: number
+  scope: 'workspace' | 'user'
+  configPath: string
+}
+
+/**
+ * Why one path could not be read. A union, not a boolean: the MCP read path
+ * adds `malformed` (a file that parsed to nothing usable), which is a different
+ * fault from one that could not be opened at all.
+ */
+export type CapabilityDiagnosticReason = 'unreadable'
+
+export type CapabilityDiagnostic = {
+  reason: CapabilityDiagnosticReason
+  /** The path that failed, so the surface can name it. */
+  path: string
+  message: string
+}
+
+export type AgentCapabilitiesInput = {
+  workspaceRoot: string
+  pluginId: string
+}
+
+/**
+ * `ok: false` is reserved for a question that could not be asked (no workspace).
+ * A CLI with no skill support, and a harness directory that was never created,
+ * are both `ok: true` with a stated `support` — an unavailable capability is a
+ * result, never an empty list.
+ */
+export type AgentCapabilitiesResult =
+  | {
+      ok: true
+      support: 'native' | 'prompt-shim' | 'unsupported'
+      /** '' when the plugin declares no skill integration at all. */
+      harnessId: string
+      skills: AgentSkill[]
+      servers: AgentMcpServer[]
+      diagnostics: CapabilityDiagnostic[]
+    }
+  | { ok: false; message: string }
+
 export type SkillFrontmatter = {
   name: string
   description: string
