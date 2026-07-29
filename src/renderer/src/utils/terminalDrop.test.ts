@@ -151,8 +151,7 @@ const pluginEntries: PluginRegistryListEntry[] = [
     skillIntegration: {
       support: 'native',
       harnessId: 'claude',
-      restartRequired: true,
-      installTargetCount: 1,
+      installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.claude/skills/{{skillId}}', format: 'claude-code', restartRequired: true }],
       invocation: { fileDropTemplate: '/{{skillId}} {{path}}', nativeSlashCommand: true },
     },
   },
@@ -167,8 +166,7 @@ const pluginEntries: PluginRegistryListEntry[] = [
     skillIntegration: {
       support: 'native',
       harnessId: 'codex',
-      restartRequired: true,
-      installTargetCount: 1,
+      installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.codex/skills/{{skillId}}', format: 'codex', restartRequired: true }],
       invocation: { fileDropTemplate: 'Use ${{skillId}} to work {{path}}.', explicitMention: true },
     },
   },
@@ -183,8 +181,7 @@ const pluginEntries: PluginRegistryListEntry[] = [
     skillIntegration: {
       support: 'native',
       harnessId: 'pi',
-      restartRequired: false,
-      installTargetCount: 1,
+      installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.pi/skills/{{skillId}}', format: 'generic', restartRequired: false }],
       invocation: { fileDropTemplate: 'pi-skill {{skillId}} {{path}}' },
     },
   },
@@ -199,8 +196,7 @@ const pluginEntries: PluginRegistryListEntry[] = [
     skillIntegration: {
       support: 'unsupported',
       harnessId: 'generic-shell',
-      restartRequired: false,
-      installTargetCount: 0,
+      installTargets: [],
     },
   },
 ]

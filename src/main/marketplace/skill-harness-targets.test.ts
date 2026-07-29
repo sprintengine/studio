@@ -18,7 +18,7 @@ function cliEntry(id: string, harnessId: string, support: PluginSkillSupport = '
     binary: id,
     resumeSession: false,
     sessionIdFromCaller: false,
-    skillIntegration: { support, harnessId, restartRequired: false, installTargetCount: 1 },
+    skillIntegration: { support, harnessId, installTargets: [{ scope: 'workspace', path: `{{workspaceRoot}}/.${harnessId}/skills/{{skillId}}`, format: 'generic', restartRequired: false }] },
   }
 }
 

@@ -212,8 +212,7 @@ export function backlogSlashCommandForDrop(
       skillIntegration: {
         support: 'native',
         harnessId: 'claude',
-        restartRequired: true,
-        installTargetCount: 1,
+        installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.claude/skills/{{skillId}}', format: 'claude-code', restartRequired: true }],
         invocation: { fileDropTemplate: '/{{skillId}} {{path}}', nativeSlashCommand: true },
       },
     },
@@ -228,8 +227,7 @@ export function backlogSlashCommandForDrop(
       skillIntegration: {
         support: 'native',
         harnessId: 'claude',
-        restartRequired: true,
-        installTargetCount: 1,
+        installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.claude/skills/{{skillId}}', format: 'claude-code', restartRequired: true }],
         invocation: { fileDropTemplate: '/{{skillId}} {{path}}', nativeSlashCommand: true },
       },
     },
@@ -244,8 +242,7 @@ export function backlogSlashCommandForDrop(
       skillIntegration: {
         support: 'native',
         harnessId: 'codex',
-        restartRequired: true,
-        installTargetCount: 1,
+        installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.codex/skills/{{skillId}}', format: 'codex', restartRequired: true }],
         invocation: { fileDropTemplate: 'Use ${{skillId}} to work {{path}}.', explicitMention: true },
       },
     },

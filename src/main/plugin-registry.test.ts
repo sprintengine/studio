@@ -133,7 +133,9 @@ async function testBundledManifestsLoad(): Promise<void> {
   const codexEntry = registry.list().find((entry) => entry.id === 'codex')
   assert.equal(codexEntry?.skillIntegration?.support, 'native')
   assert.equal(codexEntry?.skillIntegration?.harnessId, 'codex')
-  assert.equal(codexEntry?.skillIntegration?.installTargetCount, 1)
+  assert.equal(codexEntry?.skillIntegration?.installTargets.length, 1)
+  assert.equal(codexEntry?.skillIntegration?.installTargets[0].path, '{{workspaceRoot}}/.codex/skills/{{skillId}}')
+  assert.equal(codexEntry?.skillIntegration?.installTargets[0].restartRequired, true)
   assert.equal(codexEntry?.skillIntegration?.invocation?.fileDropTemplate, 'Use ${{skillId}} to work {{path}}.')
   assert.equal(
     registry.list().some((entry) => entry.id === 'openrouter'),

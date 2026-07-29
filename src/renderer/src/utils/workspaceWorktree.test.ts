@@ -297,15 +297,13 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
   const claude: PluginSkillCatalog = {
     support: 'native',
     harnessId: 'claude',
-    restartRequired: true,
-    installTargetCount: 1,
+    installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.claude/skills/{{skillId}}', format: 'claude-code', restartRequired: true }],
     invocation: { explicitTemplate: '/{{skillId}}', nativeSlashCommand: true },
   }
   const codex: PluginSkillCatalog = {
     support: 'native',
     harnessId: 'codex',
-    restartRequired: true,
-    installTargetCount: 1,
+    installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.codex/skills/{{skillId}}', format: 'codex', restartRequired: true }],
     invocation: { explicitTemplate: 'Use ${{skillId}}.', explicitMention: true },
   }
   assert.equal(resolveSkillInvocation(claude, 'use-railway'), '/use-railway')
@@ -316,9 +314,9 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 //     so the caller falls back to the plain instruction.
 {
   assert.equal(resolveSkillInvocation(undefined, 'use-railway'), undefined)
-  const unsupported: PluginSkillCatalog = { support: 'unsupported', harnessId: 'x', restartRequired: false, installTargetCount: 0 }
+  const unsupported: PluginSkillCatalog = { support: 'unsupported', harnessId: 'x', installTargets: [] }
   assert.equal(resolveSkillInvocation(unsupported, 'use-railway'), undefined)
-  const noTemplate: PluginSkillCatalog = { support: 'native', harnessId: 'claude', restartRequired: true, installTargetCount: 1, invocation: {} }
+  const noTemplate: PluginSkillCatalog = { support: 'native', harnessId: 'claude', installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.claude/skills/{{skillId}}', format: 'claude-code', restartRequired: true }], invocation: {} }
   assert.equal(resolveSkillInvocation(noTemplate, 'use-railway'), undefined)
 }
 

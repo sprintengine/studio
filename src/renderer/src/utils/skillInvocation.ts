@@ -3,7 +3,11 @@ import type {
   WorkspaceSkill,
 } from '../../../shared/electron-api'
 import type { PluginSkillInvocation, PluginSkillSupport } from '../../../shared/plugin-manifest'
-import { renderSkillInvocationTemplate, resolveSkillInvocation } from '../../../shared/skill-invocation'
+import {
+  plainSkillInvocation,
+  renderSkillInvocationTemplate,
+  resolveSkillInvocation,
+} from '../../../shared/skill-invocation'
 
 // Re-exported from the node-free shared module (its home now that the automation
 // backlog.work handoff composes invocations in main); existing renderer callers
@@ -35,7 +39,7 @@ export function renderSkillInvocation(input: {
     const native = resolveSkillInvocation(integration, skill.id)
     if (native) return native
   }
-  return `Use the ${skill.id} skill.`
+  return plainSkillInvocation(skill.id)
 }
 
 // Conversation-agent draft prefill (approved mockup copy): a plain sentence
