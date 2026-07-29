@@ -21,7 +21,10 @@
   transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
-.ds-provider-row__face:hover {
+/* Hover fill only where the face is actionable. A fill on hover says "you can
+ * act on me"; a row whose only live control is a trailing button must not make
+ * that promise, or the whole row reads as a click target that does nothing. */
+.ds-provider-row--disclosable > .ds-provider-row__face:hover {
   background: var(--sem-color-bg-hover);
 }
 
@@ -73,7 +76,7 @@
   box-shadow: 0 0 0 2px var(--sem-color-bg-surface);
 }
 
-.ds-provider-row__face:hover .ds-provider-row__health {
+.ds-provider-row--disclosable > .ds-provider-row__face:hover .ds-provider-row__health {
   box-shadow: 0 0 0 2px var(--sem-color-bg-hover);
 }
 
@@ -163,9 +166,15 @@
   margin-top: var(--sem-space-3xs);
 }
 
+/* The chevron is drawn at icon.size.xs and the button pads out around it to
+ * size.hit-target-min. Drawn size and target size are different numbers: a
+ * 13px glyph in a 17px button is a 17px target, which is under the floor. */
 .ds-provider-row__disclosure {
-  display: inline-flex;
-  padding: var(--sem-space-3xs);
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  padding: 0;
   border: none;
   border-radius: var(--sem-radius-chip);
   background: none;

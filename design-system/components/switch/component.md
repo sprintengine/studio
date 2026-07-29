@@ -16,14 +16,18 @@ needs an explainer sentence under it is the wrong control, or the wrong label.
 | Thumb | `.ds-switch-thumb` | yes — `aria-hidden`, purely the position indicator |
 
 The track is 32x18 with a 12px thumb inset 2px from whichever end it rests
-against, so the whole control clears `size.hit-target-min` on its short axis
-once its row padding is counted.
+against. 18px is 6px under `size.hit-target-min`, and the control does not pad
+out to it: the geometry is fixed by the owner ruling this size came from, and
+padding the button would inflate the track it draws. This is the one sanctioned
+exception in the system, and it is a real one — a near-miss above or below a
+switch lands on whatever the host row does with a click. A host that puts a
+switch in a row with its own click behaviour owes the switch clearance.
 
 The off-state hairline is an inset shadow rather than a border. A border would
 take 1px out of the box on the off state only — the thumb would then sit 1px
 further in when off than when on — and it would pop in and out on toggle
 instead of crossfading. As a shadow it is free of layout, and it composes with
-the focus ring rather than replacing it.
+the focus outline rather than replacing it.
 
 There is no label part. The name is the consumer's own text, pointed at with
 `aria-labelledby`, or an `aria-label` when the control is genuinely alone.
@@ -44,12 +48,21 @@ belongs in a notice rather than in a setting.
 | Off | `bg.active` fill, `border.default` hairline, thumb in `text.primary` at the leading end |
 | On | `accent.primary` fill, hairline faded to transparent, thumb in `text.on-accent` at the trailing end |
 | Pressed | Thumb stretches to 15px, anchored at the end it is resting against |
-| Focus | `focus-ring`, from `:focus-visible` only |
+| Focus | `border.focus` outline at a `focus-ring-width` offset, from `:focus-visible` only |
 | Disabled | 45% opacity, `not-allowed` cursor, no press stretch |
 
 The thumb's ink follows the surface under it: `text.on-accent` on the accent
 fill, `text.primary` on the neutral one. A statically light thumb vanishes on
 any theme whose accent is itself bright.
+
+Focus is the one place this component departs from the shared `focus-ring`.
+`border.focus` and `accent.primary` are the same value, and `focus-ring` is a
+zero-offset shadow — so on a checked switch the ring lands directly against a
+track of its own colour and focused becomes indistinguishable from unfocused.
+An outline at a 2px offset separates them through a transparent gap. A ring
+offset would need a fill colour behind it, and the fill behind a switch is
+whatever its host row is painting; the gap needs no such guess. Any other
+accent-filled control has the same collision and the same fix available.
 
 Travel runs at `motion.duration.normal` on the standard ease — slow enough to
 be read as movement rather than a jump. The fill, the hairline, and the thumb's

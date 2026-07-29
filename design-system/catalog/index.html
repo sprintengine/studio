@@ -968,7 +968,10 @@ code {
   transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
-.ds-provider-row__face:hover {
+/* Hover fill only where the face is actionable. A fill on hover says "you can
+ * act on me"; a row whose only live control is a trailing button must not make
+ * that promise, or the whole row reads as a click target that does nothing. */
+.ds-provider-row--disclosable > .ds-provider-row__face:hover {
   background: var(--sem-color-bg-hover);
 }
 
@@ -1020,7 +1023,7 @@ code {
   box-shadow: 0 0 0 2px var(--sem-color-bg-surface);
 }
 
-.ds-provider-row__face:hover .ds-provider-row__health {
+.ds-provider-row--disclosable > .ds-provider-row__face:hover .ds-provider-row__health {
   box-shadow: 0 0 0 2px var(--sem-color-bg-hover);
 }
 
@@ -1110,9 +1113,15 @@ code {
   margin-top: var(--sem-space-3xs);
 }
 
+/* The chevron is drawn at icon.size.xs and the button pads out around it to
+ * size.hit-target-min. Drawn size and target size are different numbers: a
+ * 13px glyph in a 17px button is a 17px target, which is under the floor. */
 .ds-provider-row__disclosure {
-  display: inline-flex;
-  padding: var(--sem-space-3xs);
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  padding: 0;
   border: none;
   border-radius: var(--sem-radius-chip);
   background: none;
@@ -1316,9 +1325,16 @@ code {
   box-shadow: inset 0 0 0 1px transparent;
 }
 
+/* The one control whose resting fill IS the focus colour: checked, the track
+ * paints accent.primary, and border.focus resolves to that same value. The
+ * standard `focus-ring` is a zero-offset shadow, so on a checked switch it
+ * merges into the track and focused reads identically to unfocused. An outline
+ * at a 2px offset separates them through a transparent gap — and unlike a ring
+ * offset it makes no assumption about the fill behind the control, which is
+ * whatever the host row is painting at the time. */
 .ds-switch:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring-width) solid var(--sem-color-border-focus);
+  outline-offset: var(--sem-focus-ring-width);
 }
 
 .ds-switch:disabled {
@@ -4230,7 +4246,7 @@ code {
 <h4>Usage</h4>
 <ul><li><strong>The state line is mandatory, and it is state.</strong> &quot;Authenticated as <code>&lt;id&gt;</code> · Max subscription&quot;, &quot;Not installed — no <code>grok</code> on PATH&quot;, &quot;Unavailable — startup timed out after 15s&quot;. Never what the provider is or why you might want it — that is a caption, and it belongs to a marketplace detail panel if anywhere.</li><li><strong>The dot is never the only carrier of a state.</strong> It is <code>aria-hidden</code> and the words are what a screen reader gets, which is also what makes the row survive greyscale and colour-blindness.</li><li><strong>One status idiom.</strong> The dot. No tinted pill beside it, no second badge; a pill and a dot saying the same thing is one of them too many.</li><li>Do not render a switch a host cannot honour. A toggle wired to nothing is worse than no toggle: it reports a state the product does not have.</li><li>Do not render a disclosure over an empty panel. Where a provider has nothing to configure on this surface, the row ends at its state line.</li><li>Offer an action only when the state earns it. An Install button on a provider whose probe never completed is a fake affordance — that row's next action is to check again.</li><li>Keep the expansion the per-instance form that already exists. This is disclosure, not navigation: nothing about opening a row changes where the user is.</li></ul>
 <h4>Accessibility</h4>
-<ul><li>The chevron is a real <code>&lt;button&gt;</code> carrying <code>aria-expanded</code> and <code>aria-controls</code> on the panel it opens, plus an <code>aria-label</code> naming its provider (&quot;Claude Code details&quot;) — a list of nine identical &quot;details&quot; is nine unusable controls.</li><li>Exactly <strong>one</strong> focusable control per disclosure. The face is a mouse target that calls the same handler; it is not a second tab stop and never a <code>role=&quot;button&quot;</code> wrapper around a real button.</li><li>The switch is the <code>switch</code> component's contract: <code>role=&quot;switch&quot;</code>, <code>aria-checked</code>, Space toggles and Enter does not.</li><li>The health dot is <code>aria-hidden</code>; the state line is plain text in the reading order right after the name, so the row announces as name, version, state.</li><li>Focus-visible is a 2px <code>border.focus</code> ring on the chevron and the switch independently. The row itself never takes focus, so it never shows a ring.</li><li>Contrast: name, state line, and mono identifiers all clear AA in both modes. The dot is exempt because it is decorative by contract — but the 2px keyline is what keeps it perceptible at all against a brand mark, so it is not optional.</li></ul>
+<ul><li>The chevron is a real <code>&lt;button&gt;</code> carrying <code>aria-expanded</code> and <code>aria-controls</code> on the panel it opens, plus an <code>aria-label</code> naming its provider (&quot;Claude Code details&quot;) — a list of nine identical &quot;details&quot; is nine unusable controls.</li><li>Exactly <strong>one</strong> focusable control per disclosure. The face is a mouse target that calls the same handler; it is not a second tab stop and never a <code>role=&quot;button&quot;</code> wrapper around a real button.</li><li>The switch is the <code>switch</code> component's contract: <code>role=&quot;switch&quot;</code>, <code>aria-checked</code>, Space toggles and Enter does not.</li><li>The health dot is <code>aria-hidden</code>; the state line is plain text in the reading order right after the name, so the row announces as name, version, state.</li><li>Focus-visible is a 2px <code>border.focus</code> mark on the chevron and the switch independently — a ring on the chevron, an offset outline on the switch, whose checked fill is <code>border.focus</code>'s own colour. The row itself never takes focus, so it never shows either.</li><li>The chevron pads out to <code>size.hit-target-min</code> around its <code>icon.size.xs</code> glyph. The glyph is what you see; the button is what you hit.</li><li>The face takes a hover fill only when it is disclosable. A fill on hover is this system's promise that the thing under the cursor is actionable, and a row whose only live control is a trailing button cannot keep it.</li><li>Contrast: name, state line, and mono identifiers all clear AA in both modes. The dot is exempt because it is decorative by contract — but the 2px keyline is what keeps it perceptible at all against a brand mark, so it is not optional.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/provider-row/component.css</summary><pre><code>/* Provider row — extracted from the source product's ProviderRow primitive
@@ -4256,7 +4272,10 @@ code {
   transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
-.ds-provider-row__face:hover {
+/* Hover fill only where the face is actionable. A fill on hover says &quot;you can
+ * act on me&quot;; a row whose only live control is a trailing button must not make
+ * that promise, or the whole row reads as a click target that does nothing. */
+.ds-provider-row--disclosable &gt; .ds-provider-row__face:hover {
   background: var(--sem-color-bg-hover);
 }
 
@@ -4308,7 +4327,7 @@ code {
   box-shadow: 0 0 0 2px var(--sem-color-bg-surface);
 }
 
-.ds-provider-row__face:hover .ds-provider-row__health {
+.ds-provider-row--disclosable &gt; .ds-provider-row__face:hover .ds-provider-row__health {
   box-shadow: 0 0 0 2px var(--sem-color-bg-hover);
 }
 
@@ -4398,9 +4417,15 @@ code {
   margin-top: var(--sem-space-3xs);
 }
 
+/* The chevron is drawn at icon.size.xs and the button pads out around it to
+ * size.hit-target-min. Drawn size and target size are different numbers: a
+ * 13px glyph in a 17px button is a 17px target, which is under the floor. */
 .ds-provider-row__disclosure {
-  display: inline-flex;
-  padding: var(--sem-space-3xs);
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  padding: 0;
   border: none;
   border-radius: var(--sem-radius-chip);
   background: none;
@@ -5307,15 +5332,16 @@ code {
 <p>Use a checkbox when the value is one entry in a set the person submits later, and a segmented control when there are three or more choices. A switch that needs an explainer sentence under it is the wrong control, or the wrong label.</p>
 <h4>Anatomy</h4>
 <p>| Part | Class | Required | |---|---|---| | Track | <code>.ds-switch</code> | yes — <code>role=&quot;switch&quot;</code>, <code>aria-checked</code>, and a name from <code>aria-label</code> or <code>aria-labelledby</code> | | Thumb | <code>.ds-switch-thumb</code> | yes — <code>aria-hidden</code>, purely the position indicator |</p>
-<p>The track is 32x18 with a 12px thumb inset 2px from whichever end it rests against, so the whole control clears <code>size.hit-target-min</code> on its short axis once its row padding is counted.</p>
-<p>The off-state hairline is an inset shadow rather than a border. A border would take 1px out of the box on the off state only — the thumb would then sit 1px further in when off than when on — and it would pop in and out on toggle instead of crossfading. As a shadow it is free of layout, and it composes with the focus ring rather than replacing it.</p>
+<p>The track is 32x18 with a 12px thumb inset 2px from whichever end it rests against. 18px is 6px under <code>size.hit-target-min</code>, and the control does not pad out to it: the geometry is fixed by the owner ruling this size came from, and padding the button would inflate the track it draws. This is the one sanctioned exception in the system, and it is a real one — a near-miss above or below a switch lands on whatever the host row does with a click. A host that puts a switch in a row with its own click behaviour owes the switch clearance.</p>
+<p>The off-state hairline is an inset shadow rather than a border. A border would take 1px out of the box on the off state only — the thumb would then sit 1px further in when off than when on — and it would pop in and out on toggle instead of crossfading. As a shadow it is free of layout, and it composes with the focus outline rather than replacing it.</p>
 <p>There is no label part. The name is the consumer's own text, pointed at with <code>aria-labelledby</code>, or an <code>aria-label</code> when the control is genuinely alone.</p>
 <h4>Variants</h4>
 <p>None. One size, one shape, one accent.</p>
 <p>A small variant is a rejected idea: the control is already at the floor of what reads in a dense row. A tone variant is also rejected — the fill is the one accent, and a red or amber switch would be a state a person must act on, which belongs in a notice rather than in a setting.</p>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Off | <code>bg.active</code> fill, <code>border.default</code> hairline, thumb in <code>text.primary</code> at the leading end | | On | <code>accent.primary</code> fill, hairline faded to transparent, thumb in <code>text.on-accent</code> at the trailing end | | Pressed | Thumb stretches to 15px, anchored at the end it is resting against | | Focus | <code>focus-ring</code>, from <code>:focus-visible</code> only | | Disabled | 45% opacity, <code>not-allowed</code> cursor, no press stretch |</p>
+<p>| State | Treatment | |---|---| | Off | <code>bg.active</code> fill, <code>border.default</code> hairline, thumb in <code>text.primary</code> at the leading end | | On | <code>accent.primary</code> fill, hairline faded to transparent, thumb in <code>text.on-accent</code> at the trailing end | | Pressed | Thumb stretches to 15px, anchored at the end it is resting against | | Focus | <code>border.focus</code> outline at a <code>focus-ring-width</code> offset, from <code>:focus-visible</code> only | | Disabled | 45% opacity, <code>not-allowed</code> cursor, no press stretch |</p>
 <p>The thumb's ink follows the surface under it: <code>text.on-accent</code> on the accent fill, <code>text.primary</code> on the neutral one. A statically light thumb vanishes on any theme whose accent is itself bright.</p>
+<p>Focus is the one place this component departs from the shared <code>focus-ring</code>. <code>border.focus</code> and <code>accent.primary</code> are the same value, and <code>focus-ring</code> is a zero-offset shadow — so on a checked switch the ring lands directly against a track of its own colour and focused becomes indistinguishable from unfocused. An outline at a 2px offset separates them through a transparent gap. A ring offset would need a fill colour behind it, and the fill behind a switch is whatever its host row is painting; the gap needs no such guess. Any other accent-filled control has the same collision and the same fix available.</p>
 <p>Travel runs at <code>motion.duration.normal</code> on the standard ease — slow enough to be read as movement rather than a jump. The fill, the hairline, and the thumb's ink all crossfade at <code>fast</code>, so the colour has settled by the time the thumb lands. The press stretch is one detail, not a spring: 3px, anchored, gone on release.</p>
 <h4>Usage</h4>
 <p><strong>It commits immediately.</strong> Never pair a switch with a Save button, and never put one in a form that submits later — that is a checkbox. If the write can fail, the row owns the failure: show the error next to the control and put the switch back where it was.</p>
@@ -5362,9 +5388,16 @@ code {
   box-shadow: inset 0 0 0 1px transparent;
 }
 
+/* The one control whose resting fill IS the focus colour: checked, the track
+ * paints accent.primary, and border.focus resolves to that same value. The
+ * standard `focus-ring` is a zero-offset shadow, so on a checked switch it
+ * merges into the track and focused reads identically to unfocused. An outline
+ * at a 2px offset separates them through a transparent gap — and unlike a ring
+ * offset it makes no assumption about the fill behind the control, which is
+ * whatever the host row is painting at the time. */
 .ds-switch:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring-width) solid var(--sem-color-border-focus);
+  outline-offset: var(--sem-focus-ring-width);
 }
 
 .ds-switch:disabled {

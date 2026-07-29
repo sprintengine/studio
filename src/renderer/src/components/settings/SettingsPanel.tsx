@@ -1,4 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type {
+  VersionControlProviderId,
+  VersionControlProviderProbe,
+} from '../../../../shared/version-control'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { RegisteredSettingsSection } from '../../modules/renderer-host'
@@ -28,6 +32,7 @@ import {
   IconButton,
   PrimaryButton,
   ProviderRow,
+  ProviderStateId,
   RefreshIcon,
   resolveCliProviderState,
   Select,
@@ -45,6 +50,12 @@ import MobileSettingsTab from './MobileSettingsTab'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
 import { MetaCell, SettingsRow, SettingsSectionTitle, formatNullableDate } from './SettingsAtoms'
+import {
+  resolveVersionControlRow,
+  versionControlSections,
+  type VersionControlProbeStatus,
+  type VersionControlRowView,
+} from './versionControlProviders'
 import { ProjectKnowledgeList } from './ProjectKnowledgeList'
 import CliIcon from '../CliIcon'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
@@ -165,7 +176,10 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'agents', label: 'Agents', icon: AgentsSettingsIcon },
   { id: 'providers', label: 'Providers', icon: ProvidersSettingsIcon },
   { id: 'roles', label: 'Roles', icon: RolesSettingsIcon },
-  { id: 'github', label: 'GitHub', icon: GithubSettingsIcon },
+  // Covers both groups on the page (the VCS itself, then the hosting provider),
+  // so the label is the subject rather than one of the two rows. The tab *id*
+  // stays 'github' — it is a persisted deep-link target (menus, module routes).
+  { id: 'github', label: 'Version control', icon: GithubSettingsIcon },
   { id: 'trackers', label: 'Trackers', icon: TrackersSettingsIcon },
   { id: 'knowledge-graph', label: 'Knowledge graph', icon: KnowledgeGraphSettingsIcon },
   { id: 'modules', label: 'Modules', icon: ModulesSettingsIcon },
@@ -731,6 +745,179 @@ function AgentCliBand({
     >
       Agent CLIs
     </SettingsSectionTitle>
+  )
+}
+
+// The mono mark for a version-control provider. The repo ships no brand logo for
+// either of these — `git` and `gh` are command-line binaries whose identity IS
+// their name — so the mark is the binary's name in the same 22px monogram box
+// the tracker connections list uses, sized by ProviderRow's slot.
+function VersionControlMark({ monogram }: { monogram: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="flex size-icon-lg items-center justify-center rounded-[var(--radius-xs)] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-micro font-semibold text-[color:var(--text-muted)]"
+    >
+      {monogram}
+    </span>
+  )
+}
+
+// The state line for one provider row: the words from the view model, with the
+// identifiers inside them mono. Every branch is a state the probe can actually
+// report — there is no "unknown version" placeholder and no caption explaining
+// what the provider is for.
+//
+// The install and auth lines are the only sentences on this page that carry more
+// than a state, and they earn it: the one command that fixes the row is a
+// consequence the screen cannot otherwise show.
+function VersionControlStateLine({ view }: { view: VersionControlRowView }) {
+  switch (view.kind) {
+    case 'checking':
+      return <>Checking…</>
+    case 'available':
+      return <>Available</>
+    case 'authenticated':
+      return (
+        <>
+          {'Authenticated as '}
+          <ProviderStateId>{view.login}</ProviderStateId>
+        </>
+      )
+    case 'unauthenticated':
+      return (
+        <>
+          {'Not authenticated — '}
+          <ProviderStateId>{view.command}</ProviderStateId>
+        </>
+      )
+    case 'not-installed':
+      return view.command ? (
+        <>
+          {'Not installed — '}
+          <ProviderStateId>{view.command}</ProviderStateId>
+          {view.thenAuthenticate ? ', then authenticate' : null}
+        </>
+      ) : (
+        <>
+          {'Not installed — no '}
+          <ProviderStateId>{view.binary}</ProviderStateId>
+          {' on PATH'}
+        </>
+      )
+    case 'probe-failed':
+      return <>Availability unknown — the check did not complete</>
+  }
+}
+
+// The version-control tab body: two spaced sections of provider rows over the
+// read-only probe, and the GitHub access token behind the GitHub row's own
+// disclosure.
+//
+// Its own component so the probe runs when the tab mounts, not when the Settings
+// dialog opens: the channel spawns a login shell per provider plus `gh auth
+// status` and has no cache in front of it, so it is called on mount and on an
+// explicit re-check, never per render.
+//
+// **No enablement switch, deliberately.** The mockup draws one per row, but this
+// product has no git or GitHub enablement to write to: git's backend is
+// foundational (always registered, because editor and explorer decorations call
+// it unconditionally), the `git` module override governs the Git *panel* — a
+// different fact, already owned by the Modules tab — and GitHub has no module at
+// all. ProviderRow's contract is explicit that a host with no real enablement
+// state passes no switch rather than rendering a dead one, and a switch that
+// only looks like it does something is worse than the absence of one. The dot
+// and the state line carry health; nothing here pretends to carry enablement.
+function VersionControlSections({
+  githubToken,
+}: {
+  githubToken: React.ReactNode
+}) {
+  const [probes, setProbes] = useState<Partial<Record<VersionControlProviderId, VersionControlProviderProbe>>>({})
+  const [probeStatus, setProbeStatus] = useState<VersionControlProbeStatus>('loading')
+  const [probeError, setProbeError] = useState<string | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [expandedId, setExpandedId] = useState<VersionControlProviderId | null>(null)
+  const sections = useMemo(() => versionControlSections(), [])
+  const platform = window.api.platform
+
+  const runProbe = useCallback(async () => {
+    setChecking(true)
+    try {
+      const results = await window.api.probeVersionControlProviders()
+      // Replace rather than merge: a re-check is a fresh reading of the machine,
+      // so a provider that disappeared must not keep its old version line.
+      setProbes(Object.fromEntries(results.map((result) => [result.id, result])))
+      setProbeStatus('ready')
+      setProbeError(null)
+    } catch (error) {
+      // The whole round-trip failed, which is one fact about the list — stated
+      // once under the band rather than repeated down every row.
+      setProbeStatus('error')
+      setProbeError(error instanceof Error ? error.message : 'The check could not be run.')
+    } finally {
+      setChecking(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void runProbe()
+  }, [runProbe])
+
+  return (
+    <div className="space-y-6">
+      {sections.map((section, index) => (
+        <section key={section.id} className="space-y-1">
+          <SettingsSectionTitle
+            // One chrome row for the whole page: both sections read from the same
+            // round-trip, so the control that refreshes it belongs to the first
+            // band, not to each one.
+            action={
+              index === 0 ? (
+                <Tooltip content="Re-check now">
+                  <IconButton
+                    aria-label="Re-check now"
+                    disabled={checking}
+                    onClick={() => void runProbe()}
+                  >
+                    {checking ? <Spinner className="icon-sm" /> : <RefreshIcon />}
+                  </IconButton>
+                </Tooltip>
+              ) : null
+            }
+          >
+            {section.title}
+          </SettingsSectionTitle>
+
+          {index === 0 && probeStatus === 'error' && probeError ? (
+            <MessageBlock tone="warn">{`Version control could not be checked: ${probeError}`}</MessageBlock>
+          ) : null}
+
+          {section.providers.map((spec) => {
+            const view = resolveVersionControlRow(spec, probes[spec.id], probeStatus, platform)
+            // Only GitHub has per-instance configuration to reveal (the app's own
+            // access token). ProviderRow draws no chevron for a row with nothing
+            // behind it, so git renders as a plain row rather than an empty
+            // disclosure.
+            const detail = spec.id === 'gh' ? githubToken : null
+            return (
+              <ProviderRow
+                key={spec.id}
+                icon={<VersionControlMark monogram={spec.monogram} />}
+                health={view.tone}
+                name={spec.label}
+                version={view.version}
+                stateLine={<VersionControlStateLine view={view} />}
+                expanded={expandedId === spec.id}
+                onExpandedChange={(next) => setExpandedId(next ? spec.id : null)}
+              >
+                {detail}
+              </ProviderRow>
+            )
+          })}
+        </section>
+      ))}
+    </div>
   )
 }
 
@@ -1870,80 +2057,87 @@ export default function SettingsPanel({
           role="tabpanel"
           id="settings-panel-github"
           aria-labelledby="settings-tab-github"
-          className="space-y-4"
         >
-          <SettingsRow
-            label="Access token"
-            help={
-              <>
-                Switchboard uses this to import private GitHub issues. Stored on this device; never written to workspace files.
-                {githubTokenStatus && !githubTokenStatus.encryptionAvailable
-                  ? ' Secure storage is unavailable, so the token is kept for this app session only.'
-                  : ''}
-              </>
-            }
-            htmlFor={githubTokenInputVisible ? 'github-token-input' : undefined}
-          >
-            {githubTokenInputVisible ? (
-              <>
-                <input
-                  id="github-token-input"
-                  type="password"
-                  value={githubTokenDraft}
-                  onChange={(event) => setGithubTokenDraft(event.target.value)}
-                  placeholder="Fine-grained GitHub token"
-                  autoComplete="off"
-                  className={`${ROW_INPUT_CLASS} w-60`}
-                />
-                <PrimaryButton
-                  size="md"
-                  onClick={() => void saveGitHubToken()}
-                  disabled={githubTokenPending || !githubTokenDraft.trim()}
+          <VersionControlSections
+            githubToken={
+              <div className="space-y-2">
+                <SettingsRow
+                  label="Access token"
+                  // No caption: the row above already names the provider and its
+                  // state, and what a GitHub token is needs no explaining. The
+                  // one line that survives is a consequence the screen cannot
+                  // show — that without secure storage the token does not
+                  // outlive the session — and it appears only when true.
+                  help={
+                    githubTokenStatus && !githubTokenStatus.encryptionAvailable
+                      ? 'Secure storage is unavailable, so this is kept for the current session only.'
+                      : undefined
+                  }
+                  htmlFor={githubTokenInputVisible ? 'github-token-input' : undefined}
                 >
-                  Save
-                </PrimaryButton>
-                {githubTokenStatus?.configured ? (
-                  <GhostButton
-                    size="md"
-                    onClick={() => {
-                      setGithubTokenEditing(false)
-                      setGithubTokenDraft('')
-                    }}
-                  >
-                    Cancel
-                  </GhostButton>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <span className="text-body font-medium text-[color:var(--text-default)]">
-                  {formatGitHubTokenStatus(githubTokenStatus)}
-                </span>
-                <GhostButton
-                  size="md"
-                  onClick={() => setGithubTokenEditing(true)}
-                  disabled={githubTokenStatus === null}
-                  className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                >
-                  Replace
-                </GhostButton>
-                <GhostButton
-                  size="md"
-                  onClick={() => void clearGitHubToken()}
-                  disabled={githubTokenPending || githubTokenStatus?.source !== 'settings'}
-                  className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                >
-                  Clear
-                </GhostButton>
-              </>
-            )}
-          </SettingsRow>
+                  {githubTokenInputVisible ? (
+                    <>
+                      <input
+                        id="github-token-input"
+                        type="password"
+                        value={githubTokenDraft}
+                        onChange={(event) => setGithubTokenDraft(event.target.value)}
+                        placeholder="Fine-grained GitHub token"
+                        autoComplete="off"
+                        className={`${ROW_INPUT_CLASS} w-60`}
+                      />
+                      <PrimaryButton
+                        size="md"
+                        onClick={() => void saveGitHubToken()}
+                        disabled={githubTokenPending || !githubTokenDraft.trim()}
+                      >
+                        Save
+                      </PrimaryButton>
+                      {githubTokenStatus?.configured ? (
+                        <GhostButton
+                          size="md"
+                          onClick={() => {
+                            setGithubTokenEditing(false)
+                            setGithubTokenDraft('')
+                          }}
+                        >
+                          Cancel
+                        </GhostButton>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-body font-medium text-[color:var(--text-default)]">
+                        {formatGitHubTokenStatus(githubTokenStatus)}
+                      </span>
+                      <GhostButton
+                        size="md"
+                        onClick={() => setGithubTokenEditing(true)}
+                        disabled={githubTokenStatus === null}
+                        className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                      >
+                        Replace
+                      </GhostButton>
+                      <GhostButton
+                        size="md"
+                        onClick={() => void clearGitHubToken()}
+                        disabled={githubTokenPending || githubTokenStatus?.source !== 'settings'}
+                        className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                      >
+                        Clear
+                      </GhostButton>
+                    </>
+                  )}
+                </SettingsRow>
 
-          {githubTokenMessage ? (
-            <p role="status" className="text-body leading-5 text-[color:var(--text-muted)]">
-              {githubTokenMessage}
-            </p>
-          ) : null}
+                {githubTokenMessage ? (
+                  <p role="status" className="text-body leading-5 text-[color:var(--text-muted)]">
+                    {githubTokenMessage}
+                  </p>
+                ) : null}
+              </div>
+            }
+          />
         </div>
       ) : null}
 

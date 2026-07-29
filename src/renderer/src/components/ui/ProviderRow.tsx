@@ -152,9 +152,17 @@ export function ProviderRow({
           // 12px vertical padding, no border. The radius only shows under the
           // hover fill, so it matches the fill rather than drawing a box.
           'group flex items-start gap-3 rounded-[var(--radius-sm)] px-2.5 py-3',
-          'transition-colors duration-[var(--motion-fast)] hover:bg-[color:var(--bg-hover)]',
+          // The crossfade is a raw utility rather than `.interactive` because
+          // `.interactive` also carries the 0.97 press scale, which belongs to
+          // a button and not to a full-width row. That means the shared
+          // reduced-motion guard does not reach it, so the row names its own.
+          'transition-colors duration-[var(--motion-fast)] motion-reduce:transition-none',
+          // Hover fill only where the face is actually actionable. In this
+          // system a row that lights up says "you can act on me" — a marketplace
+          // row whose only control is its Get button, or an onboarding row with
+          // nothing behind a chevron, must not make that promise.
+          disclosable ? 'cursor-pointer hover:bg-[color:var(--bg-hover)]' : '',
           selected ? 'bg-[color:var(--bg-selected)]' : '',
-          disclosable ? 'cursor-pointer' : '',
         ].join(' ')}
       >
         <span className="relative mt-px grid size-icon-lg shrink-0 place-items-center">
@@ -166,7 +174,10 @@ export function ProviderRow({
             aria-hidden="true"
             className={[
               'absolute -left-0.5 -top-0.5 size-1.5 rounded-full',
-              DOT_KEYLINE_HOVER,
+              // Tracks the fill the face will actually take. A face that no
+              // longer paints a hover fill must not ring its dot in the hover
+              // colour either, or the keyline halos on a surface-coloured row.
+              disclosable ? DOT_KEYLINE_HOVER : '',
               selected ? DOT_KEYLINE_SELECTED : DOT_KEYLINE_RESTING,
             ].join(' ')}
             style={{ backgroundColor: STATUS_TONE_COLOR_VAR[health] }}
@@ -219,7 +230,12 @@ export function ProviderRow({
                 // is a broken reference rather than a harmless one.
                 aria-controls={open ? detailId : undefined}
                 aria-label={`${name} details`}
-                className={`interactive rounded-[var(--radius-xs)] p-0.5 text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                // The glyph stays 13px and the button pads out to the
+                // hit-target floor around it, per foundations/principles.md
+                // ("a small glyph pads out to it with a transparent hit area
+                // rather than shrinking its target"). Drawn size and target
+                // size are different numbers.
+                className={`interactive grid size-[var(--hit-target-min)] place-items-center rounded-[var(--radius-xs)] text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
               >
                 <DisclosureChevron expanded={open} />
               </button>

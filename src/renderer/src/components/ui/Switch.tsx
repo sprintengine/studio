@@ -1,5 +1,15 @@
 import React, { useCallback } from 'react'
-import { FOCUS_RING_CLASS } from './tokens'
+
+// The one control in the system whose resting fill IS the focus colour: when
+// checked the track paints `--accent-primary`, and `--border-focus` resolves to
+// that same value. The shared FOCUS_RING_CLASS draws its ring as a zero-offset
+// box-shadow, so on a checked switch the ring merges into the track and focused
+// and unfocused are pixel-identical. An outline at a 2px offset separates the
+// two with a transparent gap — no assumption about the fill behind the control,
+// which a `ring-offset` colour would have to make and would get wrong the
+// moment the row takes its hover or selected fill.
+const SWITCH_FOCUS_RING_CLASS =
+  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--border-focus)]'
 
 type SwitchProps = {
   checked: boolean
@@ -61,15 +71,15 @@ export function Switch({
         // stays a true 32px: a layout border would push the thumb 1px in on
         // the off state only, and would pop rather than fade on toggle. It
         // rides `.interactive`'s box-shadow transition, and composes with the
-        // focus ring (a separate Tailwind shadow slot) instead of replacing
-        // it. Travel, press stretch, and the reduced-motion guard live on
-        // `.switch-track`/`.switch-thumb` in assets/index.css.
+        // focus outline instead of fighting it. Travel, press stretch, and the
+        // reduced-motion guard live on `.switch-track`/`.switch-thumb` in
+        // assets/index.css.
         'switch-track interactive relative inline-flex h-[18px] w-8 shrink-0 items-center rounded-full',
         'disabled:cursor-not-allowed disabled:opacity-45',
         checked
           ? 'bg-[color:var(--accent-primary)] shadow-[inset_0_0_0_1px_transparent]'
           : 'bg-[color:var(--bg-active)] shadow-[inset_0_0_0_1px_var(--border-default)]',
-        FOCUS_RING_CLASS,
+        SWITCH_FOCUS_RING_CLASS,
         className ?? '',
       ].join(' ')}
     >

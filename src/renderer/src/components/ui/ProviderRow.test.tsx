@@ -86,13 +86,12 @@ const BASE = {
 
   // The 2px keyline is what keeps the dot legible against the mark it sits on.
   assert.match(dot?.className ?? '', /shadow-\[0_0_0_2px_var\(--bg-surface\)\]/)
-  assert.match(dot?.className ?? '', /group-hover:shadow-\[0_0_0_2px_var\(--bg-hover\)\]/)
 
-  // No box per row: rows separate by hover fill and spacing.
+  // No box per row: rows separate by spacing, and by the hover fill where the
+  // face is actionable (asserted on the disclosable row below).
   const rowBox = host.firstElementChild?.firstElementChild as HTMLElement
   assert.doesNotMatch(rowBox.className, /\bborder\b/, 'the row draws no border box')
   assert.match(rowBox.className, /py-3/, '12px vertical padding')
-  assert.match(rowBox.className, /hover:bg-\[color:var\(--bg-hover\)\]/, 'hover fill separates rows')
 
   // One status idiom: the dot. No tinted pill anywhere on the row.
   assert.doesNotMatch(host.innerHTML, /rounded-full bg-\[color:var\(--tone/, 'no tinted status pill')
@@ -191,6 +190,84 @@ const BASE = {
 {
   const { host, root } = mount(<ProviderRow {...BASE} health="neutral" />)
   assert.equal(host.querySelector('button[aria-expanded]'), null)
+  unmount(root, host)
+}
+
+// ---------------------------------------------------------------------------
+// The hover fill is a promise the face has to be able to keep
+// ---------------------------------------------------------------------------
+// A fill on hover is this system's signal that the thing under the cursor is
+// actionable. The marketplace canvas and onboarding both render rows whose only
+// live control is a trailing button — those must not light up, or the whole row
+// reads as a click target that does nothing. The dot's keyline tracks the same
+// condition: ringing it in the hover colour on a face that never takes the
+// hover fill would halo it.
+{
+  const disclosable = mount(
+    <ProviderRow {...BASE} health="good" expanded={false} onExpandedChange={() => {}}>
+      <p>Detail</p>
+    </ProviderRow>,
+  )
+  const liveFace = disclosable.host.firstElementChild?.firstElementChild as HTMLElement
+  assert.match(liveFace.className, /hover:bg-\[color:var\(--bg-hover\)\]/, 'an actionable face lights up')
+  assert.match(liveFace.className, /cursor-pointer/)
+  assert.match(
+    disclosable.host.querySelector('span[aria-hidden="true"][style*="background-color"]')?.className ?? '',
+    /group-hover:shadow-\[0_0_0_2px_var\(--bg-hover\)\]/,
+    'the keyline follows the fill the face will take',
+  )
+  unmount(disclosable.root, disclosable.host)
+
+  const inert = mount(<ProviderRow {...BASE} health="good" actions={<button type="button">Get</button>} />)
+  const inertFace = inert.host.firstElementChild?.firstElementChild as HTMLElement
+  assert.doesNotMatch(inertFace.className, /hover:bg-/, 'an inert face makes no hover promise')
+  assert.doesNotMatch(inertFace.className, /cursor-pointer/)
+  assert.doesNotMatch(
+    inert.host.querySelector('span[aria-hidden="true"][style*="background-color"]')?.className ?? '',
+    /group-hover:shadow-/,
+    'and its keyline stays on the resting fill',
+  )
+  unmount(inert.root, inert.host)
+}
+
+// ---------------------------------------------------------------------------
+// Drawn size and target size are different numbers
+// ---------------------------------------------------------------------------
+// foundations/principles.md: nothing interactive is drawn below
+// sem.size.hit-target-min — a small glyph pads out to it with a transparent hit
+// area rather than shrinking its target. The chevron glyph stays icon.size.xs.
+{
+  const { host, root } = mount(
+    <ProviderRow {...BASE} health="good" expanded={false} onExpandedChange={() => {}}>
+      <p>Detail</p>
+    </ProviderRow>,
+  )
+  const chevron = host.querySelector('button[aria-expanded]') as HTMLButtonElement
+  assert.match(
+    chevron.className,
+    /size-\[var\(--hit-target-min\)\]/,
+    'the chevron button fills the hit-target floor',
+  )
+  assert.doesNotMatch(chevron.className, /\bp-0\.5\b/, 'it is not a 13px glyph in a 17px box')
+  assert.match(chevron.querySelector('svg')?.getAttribute('class') ?? '', /size-icon-xs/)
+  unmount(root, host)
+}
+
+// ---------------------------------------------------------------------------
+// Reduced motion reaches the row's own crossfade
+// ---------------------------------------------------------------------------
+// The face cannot use `.interactive` (that utility also carries the 0.97 press
+// scale, which belongs to a button, not a full-width row), so the shared guard
+// in assets/index.css does not cover it and the row must name its own.
+{
+  const { host, root } = mount(
+    <ProviderRow {...BASE} health="good" expanded={false} onExpandedChange={() => {}}>
+      <p>Detail</p>
+    </ProviderRow>,
+  )
+  const face = host.firstElementChild?.firstElementChild as HTMLElement
+  assert.match(face.className, /transition-colors/)
+  assert.match(face.className, /motion-reduce:transition-none/, 'reduce kills the crossfade')
   unmount(root, host)
 }
 

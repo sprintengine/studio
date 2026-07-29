@@ -111,8 +111,15 @@ the other.
   `aria-checked`, Space toggles and Enter does not.
 - The health dot is `aria-hidden`; the state line is plain text in the reading
   order right after the name, so the row announces as name, version, state.
-- Focus-visible is a 2px `border.focus` ring on the chevron and the switch
-  independently. The row itself never takes focus, so it never shows a ring.
+- Focus-visible is a 2px `border.focus` mark on the chevron and the switch
+  independently — a ring on the chevron, an offset outline on the switch, whose
+  checked fill is `border.focus`'s own colour. The row itself never takes focus,
+  so it never shows either.
+- The chevron pads out to `size.hit-target-min` around its `icon.size.xs` glyph.
+  The glyph is what you see; the button is what you hit.
+- The face takes a hover fill only when it is disclosable. A fill on hover is
+  this system's promise that the thing under the cursor is actionable, and a
+  row whose only live control is a trailing button cannot keep it.
 - Contrast: name, state line, and mono identifiers all clear AA in both modes.
   The dot is exempt because it is decorative by contract — but the 2px keyline is
   what keeps it perceptible at all against a brand mark, so it is not optional.

@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Context rail</title>
+<link rel="stylesheet" href="../foundations/tokens.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+  }
+  .pat-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .pat-title {
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: 0 0 var(--sem-space-2xs);
+  }
+  .pat-lede {
+    color: var(--sem-color-text-muted);
+    max-width: 62ch;
+    margin: 0 0 var(--sem-space-2xl);
+  }
+  .pat-heading {
+    font-size: var(--sem-font-size-heading);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: var(--sem-space-3xl) 0 var(--sem-space-sm);
+  }
+  .pat-caption {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    max-width: 62ch;
+    margin: var(--sem-space-sm) 0 0;
+  }
+  .pat-verdict {
+    display: inline-block;
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    letter-spacing: var(--sem-font-tracking-wide);
+    padding: var(--sem-space-3xs) var(--sem-space-xs);
+    border-radius: var(--sem-radius-chip);
+    border: 1px solid var(--sem-color-border-default);
+    color: var(--sem-color-text-muted);
+    margin-bottom: var(--sem-space-sm);
+  }
+  .pat-list {
+    max-width: 62ch;
+    margin: 0 0 var(--sem-space-lg);
+    padding-left: var(--sem-space-xl);
+    color: var(--sem-color-text-muted);
+  }
+  .pat-list li {
+    margin-bottom: var(--sem-space-2xs);
+  }
+  .pat-list strong {
+    color: var(--sem-color-text-default);
+    font-weight: var(--sem-font-weight-medium);
+  }
+  code {
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-default);
+  }
+
+  /* ── the app frame the pattern is drawn inside ─────────────────────────── */
+
+  .cr-frame {
+    display: flex;
+    min-height: 268px;
+    background: var(--sem-color-bg-app);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    overflow: hidden;
+  }
+  /* The ONE navigation column. Every drilled-in surface renders its rail here,
+     at this width — in the product that width is the app sidebar's own,
+     user-resizable value, so there is exactly one number for it anywhere. */
+  .cr-column {
+    position: relative;
+    width: 208px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .cr-canvas {
+    flex: 1;
+    min-width: 0;
+    background: var(--sem-color-bg-surface);
+    padding: var(--sem-space-lg) var(--sem-space-xl);
+    color: var(--sem-color-text-muted);
+    font-size: var(--sem-font-size-meta);
+  }
+  .cr-canvas h3 {
+    font-size: var(--sem-font-size-heading);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+    margin: 0 0 var(--sem-space-md);
+  }
+  .cr-field {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sem-space-xl);
+    padding: var(--sem-space-sm) 0;
+    border-bottom: 1px solid var(--sem-color-border-subtle);
+    max-width: 44ch;
+  }
+  .cr-field span:first-child {
+    color: var(--sem-color-text-default);
+    font-weight: var(--sem-font-weight-medium);
+  }
+
+  /* Brand row: the fixed header above the rail. It does NOT participate in the
+     swap — the product name is not context, it is the window. */
+  .cr-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-xs);
+    padding: var(--sem-space-md) var(--sem-space-lg) var(--sem-space-sm);
+    color: var(--sem-color-text-primary);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+  }
+  .cr-brand em {
+    font-style: normal;
+    color: var(--sem-color-accent-primary);
+  }
+
+  .cr-rail {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .cr-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--sem-space-xs) var(--sem-space-xs) var(--sem-space-sm);
+  }
+  .cr-group {
+    font-size: var(--sem-font-size-micro);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-subtle);
+    padding: var(--sem-space-sm) var(--sem-space-xs) var(--sem-space-3xs);
+  }
+  .cr-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    width: 100%;
+    padding: var(--sem-space-2xs) var(--sem-space-sm);
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-default);
+    font: inherit;
+    font-size: var(--sem-font-size-meta);
+    text-align: left;
+    cursor: pointer;
+  }
+  .cr-row:hover {
+    background: var(--sem-color-bg-hover);
+  }
+  .cr-row:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+  .cr-row-count {
+    margin-left: auto;
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-disabled);
+  }
+  /* The two selection tiers, straight from patterns/selection.html — a neutral
+     fill, never the accent, never an edge bar. */
+  .cr-row--selected {
+    background: var(--sem-color-bg-selected);
+    color: var(--sem-color-text-primary);
+    font-weight: var(--sem-font-weight-medium);
+  }
+  .cr-row--resting {
+    background: var(--sem-color-bg-selected-resting);
+    color: var(--sem-color-text-default);
+  }
+  /* An outer-context GROUP rests permanently: it says which container you are
+     in, not what you are working on, so it never competes for the one focused
+     selection — whether or not the rail holds focus. */
+  .cr-group-rows--outer .cr-row--selected {
+    background: var(--sem-color-bg-selected-resting);
+    color: var(--sem-color-text-default);
+    font-weight: var(--sem-font-weight-regular);
+  }
+  /* Back: a rail row pinned to the column's bottom, above nothing. */
+  .cr-back {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-sm) var(--sem-space-lg);
+    border: 0;
+    border-top: 1px solid var(--sem-color-border-subtle);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    font: inherit;
+    font-size: var(--sem-font-size-meta);
+    text-align: left;
+    cursor: pointer;
+  }
+  .cr-back:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-primary);
+  }
+  .cr-back:focus-visible {
+    outline: none;
+    box-shadow: var(--sem-focus-ring);
+  }
+  .cr-glyph {
+    width: var(--sem-icon-size-sm);
+    height: var(--sem-icon-size-sm);
+    flex: none;
+    color: var(--sem-color-text-subtle);
+  }
+
+  /* ── the swap, driven by a checkbox so the motion is real ───────────────── */
+
+  .cr-toggle {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .cr-swap {
+    display: grid;
+    flex: 1;
+    min-height: 0;
+  }
+  .cr-swap > .cr-rail {
+    grid-area: 1 / 1;
+  }
+  .cr-toggle:not(:checked) ~ .cr-swap > .cr-rail--surface,
+  .cr-toggle:checked ~ .cr-swap > .cr-rail--app {
+    visibility: hidden;
+  }
+  .cr-toggle:not(:checked) ~ .cr-swap > .cr-rail--app,
+  .cr-toggle:checked ~ .cr-swap > .cr-rail--surface {
+    animation: cr-swap-in var(--sem-motion-duration-normal) var(--sem-motion-ease-standard) both;
+  }
+  .cr-toggle:focus-visible ~ .cr-swap .cr-swap-trigger {
+    box-shadow: var(--sem-focus-ring);
+  }
+  @keyframes cr-swap-in {
+    from {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  /* The whole treatment drops out rather than shortening: a 40ms slide reads as
+     a stutter, and the pattern is legible without it. */
+  @media (prefers-reduced-motion: reduce) {
+    .cr-toggle ~ .cr-swap > .cr-rail {
+      animation: none;
+    }
+  }
+
+  /* ── the anti-pattern, drawn only here ─────────────────────────────────── */
+
+  .cr-nested .cr-column {
+    border-right: 1px solid var(--sem-color-border-subtle);
+  }
+  .cr-nested .cr-column:nth-of-type(2),
+  .cr-nested .cr-column:nth-of-type(3) {
+    width: 152px;
+  }
+  .cr-nested-tag {
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-disabled);
+    padding: var(--sem-space-sm) var(--sem-space-lg) var(--sem-space-2xs);
+  }
+</style>
+</head>
+<body>
+
+<div class="pat-stage" data-mode="dark">
+  <p class="pat-title">Context rail</p>
+  <p class="pat-lede">
+    Drilling into a surface <em>replaces</em> the rail. It never mounts a second
+    column of navigation beside the first. One rail, in one column, at one width —
+    and <code>Back</code> pinned at its bottom to restore what it replaced.
+  </p>
+
+  <p class="pat-heading">The rule: one rail, ever</p>
+  <p class="pat-verdict">DO</p>
+  <div class="cr-frame">
+    <div class="cr-column">
+      <!-- The brand row is the window, not context: it sits above the rail and
+           stays put through every swap. -->
+      <div class="cr-brand">sprint<em>engine</em></div>
+      <input class="cr-toggle" type="checkbox" id="cr-drill" />
+      <div class="cr-swap">
+        <div class="cr-rail cr-rail--app">
+          <div class="cr-scroll">
+            <label class="cr-row cr-swap-trigger" for="cr-drill">
+              <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M4.8 11a3.2 3.2 0 0 1 6.4 0M2 11h12M8 5.4V3.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+              Horizon
+            </label>
+            <div class="cr-group">Projects</div>
+            <div class="cr-group-rows">
+              <button type="button" class="cr-row cr-row--selected" aria-current="true">multicode</button>
+              <button type="button" class="cr-row">website</button>
+              <button type="button" class="cr-row">relay</button>
+            </div>
+          </div>
+        </div>
+        <div class="cr-rail cr-rail--surface">
+          <div class="cr-scroll">
+            <!-- Outer level, folded into a GROUP of this one rail rather than
+                 given a column of its own. -->
+            <div class="cr-group">Horizons</div>
+            <div class="cr-group-rows cr-group-rows--outer">
+              <button type="button" class="cr-row cr-row--selected" aria-current="true">Q3 platform</button>
+              <button type="button" class="cr-row">Mobile beta</button>
+            </div>
+            <div class="cr-group">Plan</div>
+            <div class="cr-group-rows">
+              <button type="button" class="cr-row">Type + icon ramp<span class="cr-row-count">9</span></button>
+              <button type="button" class="cr-row cr-row--selected" aria-current="true">Model pickers<span class="cr-row-count">4</span></button>
+              <button type="button" class="cr-row">Provider rows<span class="cr-row-count">6</span></button>
+            </div>
+          </div>
+          <label class="cr-back" for="cr-drill">
+            <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M13 8H3.5m0 0L7 4.5M3.5 8 7 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            Back
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="cr-canvas">
+      <h3>Model pickers</h3>
+      <div class="cr-field"><span>Delivered by</span><span>sprint-1932</span></div>
+      <div class="cr-field"><span>Track</span><span>Delivery</span></div>
+      <div class="cr-field"><span>Depends on</span><span>Type + icon ramp</span></div>
+    </div>
+  </div>
+  <p class="pat-caption">
+    Click <strong>Horizon</strong>, then <strong>Back</strong>. The rail is
+    replaced in place and slides in from its leading edge; the brand row above it
+    does not move, and the canvas keeps the whole of the rest of the window.
+  </p>
+
+  <p class="pat-heading">The failure this prevents</p>
+  <p class="pat-verdict">DO NOT</p>
+  <div class="cr-frame cr-nested">
+    <div class="cr-column">
+      <div class="cr-nested-tag">app rail</div>
+      <div class="cr-scroll">
+        <button type="button" class="cr-row cr-row--resting" aria-current="true">multicode</button>
+        <button type="button" class="cr-row">website</button>
+      </div>
+    </div>
+    <div class="cr-column">
+      <div class="cr-nested-tag">door rail</div>
+      <div class="cr-scroll">
+        <button type="button" class="cr-row cr-row--resting" aria-current="true">Q3 platform</button>
+        <button type="button" class="cr-row">Mobile beta</button>
+      </div>
+    </div>
+    <div class="cr-column">
+      <div class="cr-nested-tag">plan column</div>
+      <div class="cr-scroll">
+        <button type="button" class="cr-row cr-row--selected" aria-current="true">Model pickers</button>
+        <button type="button" class="cr-row">Provider rows</button>
+      </div>
+    </div>
+    <div class="cr-canvas">
+      <h3>Model pickers</h3>
+      Content starts three columns in. Each one is a list of things to choose,
+      so nothing says which choice the screen is actually about.
+    </div>
+  </div>
+  <p class="pat-caption">
+    Three navigation columns before the first word of content. A surface that
+    seems to need two levels of rail folds the outer level into a group of the one
+    rail, as above — never into a column of its own.
+  </p>
+
+  <p class="pat-heading">Anatomy</p>
+  <ul class="pat-list">
+    <li><strong>Brand row.</strong> Fixed above the rail. Outside the swap.</li>
+    <li><strong>Create + narrow.</strong> The surface's <code>New …</code> row and
+      its search/filter lead the rail and stay pinned while the list scrolls —
+      the same anatomy on every surface, so there is one place to look.</li>
+    <li><strong>Groups.</strong> One list, or several under quiet headings. A
+      heading earns its place only by separating one group from another: over a
+      lone list, or over a list whose search field already names it, it is the
+      same word said twice.</li>
+    <li><strong>Back.</strong> A rail row pinned to the bottom, below everything.
+      It restores the rail the surface replaced, and <code>Escape</code> does the
+      same. The canvas carries no back affordance — two affordances are two
+      answers to one question.</li>
+  </ul>
+
+  <p class="pat-heading">Selection in a two-level rail</p>
+  <ul class="pat-list">
+    <li>The rail keeps <strong>one focused selection</strong>, at
+      <code>bg.selected</code>: the thing the canvas is showing.</li>
+    <li>A group carrying <strong>outer context</strong> — which horizon, which
+      project, which run — rests at <code>bg.selected-resting</code>
+      <em>permanently</em>, whether or not the rail holds focus. It answers
+      "where am I?", and it must not compete with "what am I looking at?".</li>
+    <li>Mark the group, never infer it from position: which group is the outer one
+      belongs to the surface.</li>
+  </ul>
+
+  <p class="pat-heading">Motion</p>
+  <ul class="pat-list">
+    <li>The incoming rail slides in from its leading edge over
+      <code>motion.duration.normal</code> on <code>motion.ease.standard</code> —
+      opacity and one transform, nothing that reflows.</li>
+    <li>Replacement in the same column at the same width is precisely the change a
+      hard cut reads as a glitch: without the slide, everything in the column
+      changes at once with nothing to say it arrived.</li>
+    <li>Under <code>prefers-reduced-motion: reduce</code> the treatment drops out
+      entirely. A shortened slide is a stutter.</li>
+  </ul>
+</div>
+
+<div class="pat-stage" data-mode="light">
+  <p class="pat-title">Context rail — light</p>
+  <p class="pat-lede">The same one column, the same two tiers, from the same tokens.</p>
+  <div class="cr-frame">
+    <div class="cr-column">
+      <div class="cr-brand">sprint<em>engine</em></div>
+      <div class="cr-rail">
+        <div class="cr-scroll">
+          <div class="cr-group">Horizons</div>
+          <div class="cr-group-rows cr-group-rows--outer">
+            <button type="button" class="cr-row cr-row--selected" aria-current="true">Q3 platform</button>
+            <button type="button" class="cr-row">Mobile beta</button>
+          </div>
+          <div class="cr-group">Plan</div>
+          <div class="cr-group-rows">
+            <button type="button" class="cr-row">Type + icon ramp<span class="cr-row-count">9</span></button>
+            <button type="button" class="cr-row cr-row--selected" aria-current="true">Model pickers<span class="cr-row-count">4</span></button>
+            <button type="button" class="cr-row">Provider rows<span class="cr-row-count">6</span></button>
+          </div>
+        </div>
+        <button type="button" class="cr-back">
+          <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M13 8H3.5m0 0L7 4.5M3.5 8 7 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          Back
+        </button>
+      </div>
+    </div>
+    <div class="cr-canvas">
+      <h3>Model pickers</h3>
+      <div class="cr-field"><span>Delivered by</span><span>sprint-1932</span></div>
+      <div class="cr-field"><span>Track</span><span>Delivery</span></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -159,6 +159,15 @@ expectIncludes(
   'var(--accent-primary)',
   'Switch uses the accent token for the checked state',
 )
+// --border-focus resolves to --accent-primary, so a zero-offset focus ring
+// against a checked track is invisible: focused and unfocused render
+// identically. The offset outline is the only thing separating them, and it is
+// why this control does not use the shared FOCUS_RING_CLASS.
+expectMatches(
+  switchPrimitive,
+  /focus-visible:outline-offset-2[\s\S]*focus-visible:outline-\[color:var\(--border-focus\)\]/,
+  'Switch shows focus as an offset outline, so the checked track cannot swallow it',
+)
 
 expectIncludes(field, 'htmlFor={htmlFor}', 'Field links its <label> to the child input via htmlFor')
 expectIncludes(field, "'aria-invalid'", 'Field exposes aria-invalid on the labelled element when an error is set')
