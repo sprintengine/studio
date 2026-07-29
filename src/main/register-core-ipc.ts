@@ -86,6 +86,7 @@ export function registerCoreIpc(
     workspaceSkills: services.workspaceSkillsService,
     agentCapabilities: services.agentCapabilityService,
     capabilityWatcher: services.capabilityWatcher,
+    agentSkillInstaller: services.agentSkillInstaller,
   })
   registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
   registerFilesystemReadIpc(ipcMain, createFilesystemReadHandlers())

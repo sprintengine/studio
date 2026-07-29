@@ -66,6 +66,7 @@
         "scope": "workspace",
         "path": "{{workspaceRoot}}/.grok/skills/{{skillId}}",
         "format": "claude-code",
+        "$comment": "restartRequired NOT verified on 2026-07-29: the probe could not reach an interactive session because this machine is not signed in to Grok (the TUI sits on its browser-approval screen). Left true — a banner that over-warns is recoverable, one that under-warns is not. Verify by adding a skill directory while `grok` runs and checking its /skill picker.",
         "restartRequired": true
       }
     ],
