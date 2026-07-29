@@ -1269,9 +1269,9 @@ so T18's block is intact under T21's and T22's later additions. Last writer is
 still T22; T25 and T26 did not touch it.
 
 **A third seam appeared, and it is this task's own instrument.** T25's commit
-`4a76e059` wrote 191 lines into
-`scripts/testing/design-system-integration-pass.mjs` — the harness that
-adjudicates T25's and T26's own acceptance. Two changes matter:
+`4a76e059` wrote 185 lines into
+`scripts/testing/design-system-integration-pass.mjs` (185 added, 6 removed) —
+the harness that adjudicates T25's and T26's own acceptance. Two changes matter:
 
 - *Part A*: focus is now put inside the row's pane before the `selected` read,
   because a synthetic `element.click()` does not run the browser's
@@ -1343,10 +1343,16 @@ button is a descendant of the ringed wrapper, and it is what T26's second commit
 moved from `focus-within` to `has-[input:focus]` to prevent. The pass now
 asserts it directly (`assertSearchFieldRing`), on both doors:
 
-- field focused → the `<input>` paints nothing and **exactly one** ancestor
-  rings: `DIV.flex: rgb(63, 148, 104) 0px 0px 0px 2px`.
-- Tab → `Clear search` paints that same ring on itself and **zero** ancestors
-  ring.
+- field focused → **exactly one** box in the element's chain draws a ring.
+  Observed: the `<input>` paints nothing and the wrapper carries
+  `rgb(63, 148, 104) 0px 0px 0px 2px`. The assertion counts rings rather than
+  naming the box, so a later implementation that rings the input itself and
+  drops the wrapper's still passes — one is the invariant, the wrapper is only
+  today's answer.
+- Tab → `Clear search` paints exactly one ring **on itself** and **zero**
+  ancestors ring. Here the box is named deliberately: a ring on the wrapper
+  while the cross holds focus points at the wrong control even if it is the
+  only ring on screen.
 
 Confirmed in pixels as well as in computed style: clipped screenshots of the
 field in both states are written next to the pass transcript, and show one green

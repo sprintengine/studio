@@ -540,13 +540,27 @@ async function assertSearchFieldRing(page, surface, labelFragment, shotPrefix) {
     page.evaluate(() => {
       const el = document.activeElement
       if (!el) return { error: 'no activeElement' }
+      // Same two filters `paintedLayers` applies in DESCRIBE_STOP — a layer
+      // counts as painted only if it is neither fully transparent nor
+      // zero-sized. Dropping the second one here would let a `0px 0px 0px 0px`
+      // layer read as a ring and manufacture a double-ring failure.
       const painted = (s) =>
         !s || s === 'none'
           ? []
           : s
               .split(/,(?![^(]*\))/)
               .map((x) => x.trim())
-              .filter((l) => !/rgba\([^)]*,\s*0\s*\)/.test(l))
+              .filter((l) => {
+                const colour = l.match(/rgba?\(([^)]+)\)/)
+                let alpha = 1
+                if (colour) {
+                  const parts = colour[1].split(/[,\s/]+/).filter(Boolean)
+                  if (parts.length >= 4) alpha = parseFloat(parts[3])
+                }
+                if (!(alpha > 0)) return false
+                const lengths = (l.replace(/rgba?\([^)]*\)/, '').match(/-?\d*\.?\d+px/g) || []).map(parseFloat)
+                return lengths.some((n) => n !== 0)
+              })
       const describe = (n) => ({
         tag: n.tagName + (n.getAttribute('class') ? '.' + n.getAttribute('class').split(/\s+/)[0] : ''),
         label: (n.getAttribute('aria-label') || '').slice(0, 44),
@@ -588,11 +602,17 @@ async function assertSearchFieldRing(page, surface, labelFragment, shotPrefix) {
   }
   await page.waitForTimeout(500)
 
+  // One ring on the stop, wherever it is drawn. Deliberately not "the wrapper
+  // draws it and the input does not": a later implementation that rings the
+  // input itself and drops the wrapper's would be equally correct, and an
+  // assertion naming the box would fail it for no user-visible reason. What is
+  // never correct is two.
   const onInput = await read()
+  const inputRings = onInput.focused.shadow.length + onInput.ringedAncestors.length
   check(
-    `${surface}: with the field focused exactly one box draws a ring, and it is the wrapper`,
-    onInput.focused.shadow.length === 0 && onInput.ringedAncestors.length === 1,
-    `self=[${onInput.focused.shadow.join(' | ') || 'none'}] ancestors=[${onInput.ringedAncestors.join(' ; ') || 'none'}]`,
+    `${surface}: with the field focused exactly one box in its chain draws a ring`,
+    inputRings === 1,
+    `${inputRings} ring(s) — self=[${onInput.focused.shadow.join(' | ') || 'none'}] ancestors=[${onInput.ringedAncestors.join(' ; ') || 'none'}]`,
   )
   await page.screenshot({ path: join(outDir, `${shotPrefix}-field-focused.png`), clip })
 
@@ -604,9 +624,12 @@ async function assertSearchFieldRing(page, surface, labelFragment, shotPrefix) {
     onClear.focused.label === 'Clear search',
     JSON.stringify(onClear.focused.label),
   )
+  // Here the box IS named, and has to be: the clear button is a small control
+  // inside the field, so a ring on the wrapper while the cross holds focus
+  // points at the wrong thing even if it is the only ring drawn.
   check(
     `${surface}: the clear button rings itself and the wrapper drops its ring (no two rings on one stop)`,
-    onClear.focused.shadow.length > 0 && onClear.ringedAncestors.length === 0,
+    onClear.focused.shadow.length === 1 && onClear.ringedAncestors.length === 0,
     `self=[${onClear.focused.shadow.join(' | ') || 'none'}] ancestors=[${onClear.ringedAncestors.join(' ; ') || 'none'}]`,
   )
   await page.screenshot({ path: join(outDir, `${shotPrefix}-clear-focused.png`), clip })
