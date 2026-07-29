@@ -4,7 +4,7 @@ import {
   isNoRolesRosterRef,
 } from '../../../../shared/sprintengine/run-types'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
-import { isConnectorsFoldedSettingsTab } from '../../components/settings/extensionsRoute'
+import { isConnectorsFoldedSettingsTab, SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
 import { dispatchExtensionsSurfaceTarget } from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import type {
   AgentCli,
@@ -30,9 +30,6 @@ import type {
   SprintEngineRoster,
   SprintEngineRosterMode,
   SprintEngineSavedRoster,
-  SkillPackEntry,
-  SkillPackHarness,
-  SkillPackSettings,
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
   SprintEngineRoleRegistry,
@@ -226,71 +223,6 @@ export function normalizeMcpSettings(value: unknown): McpSettings {
     syncEnabled: candidate.syncEnabled === true,
     servers,
   }
-}
-
-const SKILL_PACK_HARNESSES: readonly SkillPackHarness[] = [
-  'claude',
-  'codex',
-  'cursor',
-  'gemini',
-  'opencode',
-  'grok',
-  'agents',
-]
-
-export function defaultSkillPackSettings(): SkillPackSettings {
-  return { installed: {} }
-}
-
-export function normalizeSkillPackId(value: unknown): string {
-  return typeof value === 'string'
-    ? value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
-    : ''
-}
-
-export function normalizeSkillPack(value: unknown): SkillPackEntry | null {
-  if (!value || typeof value !== 'object') return null
-  const candidate = value as Partial<SkillPackEntry>
-  const id = normalizeSkillPackId(candidate.id)
-  const slug = typeof candidate.slug === 'string' ? candidate.slug.trim() : ''
-  const name = typeof candidate.name === 'string' && candidate.name.trim()
-    ? candidate.name.trim()
-    : id
-  if (!id || !slug) return null
-  const harnesses = Array.isArray(candidate.harnesses)
-    ? candidate.harnesses.filter((h): h is SkillPackHarness =>
-        SKILL_PACK_HARNESSES.includes(h as SkillPackHarness),
-      )
-    : []
-  const source = candidate.source === 'custom' ? 'custom' : 'bundled'
-  return {
-    id,
-    slug,
-    name,
-    category: typeof candidate.category === 'string' ? candidate.category.trim() || undefined : undefined,
-    description: typeof candidate.description === 'string' ? candidate.description.trim() || undefined : undefined,
-    version: typeof candidate.version === 'string' ? candidate.version.trim() || undefined : undefined,
-    sourceUrl: typeof candidate.sourceUrl === 'string' ? candidate.sourceUrl.trim() || undefined : undefined,
-    installedDirName: typeof candidate.installedDirName === 'string'
-      ? candidate.installedDirName.trim() || undefined
-      : undefined,
-    harnesses,
-    source,
-    installedAt: typeof candidate.installedAt === 'string' ? candidate.installedAt : undefined,
-  }
-}
-
-export function normalizeSkillPackSettings(value: unknown): SkillPackSettings {
-  if (!value || typeof value !== 'object') return defaultSkillPackSettings()
-  const candidate = value as Partial<SkillPackSettings>
-  const installed: Record<string, SkillPackEntry> = {}
-  if (candidate.installed && typeof candidate.installed === 'object') {
-    for (const entry of Object.values(candidate.installed)) {
-      const normalized = normalizeSkillPack(entry)
-      if (normalized) installed[normalized.id] = normalized
-    }
-  }
-  return { installed }
 }
 
 export function defaultUsageTelemetrySettings(): UsageTelemetrySettings {
@@ -1019,7 +951,6 @@ export const defaultAppSettings = (): AppSettings => ({
   },
   keybindings: defaultKeybindingSettings(),
   mcp: defaultMcpSettings(),
-  skillPacks: defaultSkillPackSettings(),
   lastSelectedCli: 'claude-code',
   lastSelectedConversationModel: null,
   lastSelectedReview: null,
@@ -1087,7 +1018,6 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     cliModelCatalog: normalizeCliModelCatalogs(settings?.cliModelCatalog),
     keybindings: normalizeKeybindingSettings(settings?.keybindings),
     mcp: normalizeMcpSettings(settings?.mcp),
-    skillPacks: normalizeSkillPackSettings(settings?.skillPacks),
     lastSelectedCli: normalizeSelectedCli(settings?.lastSelectedCli, defaults.lastSelectedCli),
     lastSelectedConversationModel: normalizeConversationModel(settings?.lastSelectedConversationModel),
     lastSelectedReview: normalizeLastSelectedReview(settings?.lastSelectedReview),
@@ -1238,9 +1168,6 @@ export interface SettingsSliceActions {
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
   removeMcpServer: (serverId: string) => void
-  setSkillPacksInstalled: (installed: SkillPackEntry[]) => void
-  upsertSkillPack: (pack: SkillPackEntry) => void
-  removeSkillPack: (id: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
   /** Remember (or clear with `null`) the review last opened in the Reviews door. */
@@ -1388,12 +1315,13 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     openSettingsOverlay: (opts) => {
       // The MCPs / Skill packs / Extensions settings tabs folded into the
       // connectors surface (T3), which is the Extensions door now (MC-1847).
-      // Deep-links that once opened one of those tabs land on the door's
-      // marketplace grid, so no caller has to know either move happened. The
-      // latch dispatch stays outside the producer — its listeners run
-      // synchronously and must never observe a mid-update store.
+      // Deep-links that once opened one of those tabs land on the door, so no
+      // caller has to know either move happened; the old skill-packs tab lands
+      // on Skills, which is what it was asking for (MC-1936). The latch
+      // dispatch stays outside the producer — its listeners run synchronously
+      // and must never observe a mid-update store.
       if (isConnectorsFoldedSettingsTab(opts?.initialTab)) {
-        dispatchExtensionsSurfaceTarget('browse')
+        dispatchExtensionsSurfaceTarget(opts?.initialTab === SKILLS_SETTINGS_TAB ? 'skills' : 'browse')
         set((state) => {
           state.activeGlobalSurface = 'extensions'
           // The door mounts in the card region UNDER the settings overlay, so
@@ -1533,36 +1461,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         const current = normalizeMcpSettings(state.appSettings.mcp)
         delete current.servers[normalizeMcpId(serverId)]
         state.appSettings.mcp = { ...current, syncEnabled: true }
-      }),
-
-    setSkillPacksInstalled: (installed) =>
-      set((state) => {
-        const next: Record<string, SkillPackEntry> = {}
-        for (const entry of installed) {
-          const normalized = normalizeSkillPack(entry)
-          if (normalized) next[normalized.id] = normalized
-        }
-        state.appSettings.skillPacks = { installed: next }
-      }),
-
-    upsertSkillPack: (pack) =>
-      set((state) => {
-        const normalized = normalizeSkillPack(pack)
-        if (!normalized) return
-        const current = normalizeSkillPackSettings(state.appSettings.skillPacks)
-        state.appSettings.skillPacks = {
-          installed: {
-            ...current.installed,
-            [normalized.id]: normalized,
-          },
-        }
-      }),
-
-    removeSkillPack: (id) =>
-      set((state) => {
-        const current = normalizeSkillPackSettings(state.appSettings.skillPacks)
-        delete current.installed[normalizeSkillPackId(id)]
-        state.appSettings.skillPacks = current
       }),
 
     setLastSelectedCli: (cli) =>

@@ -31,6 +31,7 @@ import {
 } from '../../specialists/specialistActions'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { EXTENSIONS_BROWSE_DEEPLINK } from '../../components/settings/extensionsRoute'
+import { consumePendingExtensionsSurfaceTarget } from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { guidedBriefTransportForCli } from '../../components/workspace/guidedBrief/types'
 
 const workspaceWithMemoryRoot = {
@@ -477,10 +478,18 @@ assert.equal(carrier.workspaceAsideWidth, 296, 'a non-finite width falls back to
 for (const foldedTab of ['mcps', 'skill-packs', 'extensions', EXTENSIONS_BROWSE_DEEPLINK]) {
   carrier.activeGlobalSurface = null
   carrier.settingsOverlay = { open: false, initialTab: null, checkForUpdatesRequestId: null }
+  consumePendingExtensionsSurfaceTarget()
   slice.openSettingsOverlay({ initialTab: foldedTab })
   assert.equal(carrier.activeGlobalSurface, 'extensions', `${foldedTab} routes to the Extensions door`)
   assert.equal(carrier.settingsOverlay.open, false, `${foldedTab} does not open a settings overlay`)
   assert.equal(carrier.settingsOverlay.initialTab, null, `${foldedTab} leaves no dangling settings tab`)
+  // MC-1936: skill packs are gone, so the tab that named them lands on Skills —
+  // the door's other deep-links still land on the marketplace grid.
+  assert.equal(
+    consumePendingExtensionsSurfaceTarget(),
+    foldedTab === 'skill-packs' ? 'skills' : 'browse',
+    `${foldedTab} lands on the rail row it was asking for`,
+  )
 }
 
 const sprintEngineRunPath = '/Users/example/project/.multi-code/sprintengine/run/run.yaml'

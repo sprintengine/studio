@@ -14,8 +14,9 @@ import type {
 } from '../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../shared/marketplace'
 import { isClaudeCodePluginEntry, validateMarketplaceIndex } from '../../shared/marketplace'
-import type { SkillPackHarness } from '../../shared/electron-api'
+import type { SkillHarness } from '../../shared/electron-api'
 import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../../shared/skill-harnesses'
+import { uninstallSkill } from '../skills/install'
 import { installMarketplacePlugin, type MarketplacePluginInstallerServices } from '../modules/plugin-bundle-installer'
 import { normalizeMcpClients, normalizeMcpServerConfig } from '../mcp-config-service'
 import { defaultUserModuleRoot, moduleInstallPath } from '../modules/user-module-registry'
@@ -67,7 +68,7 @@ export type MarketplacePluginLifecycleServices = MarketplacePluginInstallerServi
    * passes no explicit `skillHarnesses` (see resolveInstalledSkillHarnesses).
    * Absent, installs fall back to Claude-only.
    */
-  resolveSkillHarnesses?: () => Promise<SkillPackHarness[]>
+  resolveSkillHarnesses?: () => Promise<SkillHarness[]>
   /** Test seam for packaged resource resolution (bundled claude-plugin skills). */
   packagedResourceResolver?: MarketplaceResourceResolver
   log?: MarketplaceInstallLog
@@ -455,10 +456,10 @@ async function installInlineMcpEntry(
 // Claude-only constant is the last-resort fallback when no resolver is wired.
 // Commands/agents in the plugin are not installed — skills are the one
 // component Multicode delivers.
-const DEFAULT_CLAUDE_PLUGIN_HARNESSES: SkillPackHarness[] = ['claude']
+const DEFAULT_CLAUDE_PLUGIN_HARNESSES: SkillHarness[] = ['claude']
 
-function previousHarnesses(previous: MarketplacePluginInstallReceipt | undefined): SkillPackHarness[] {
-  const harnesses = new Set<SkillPackHarness>()
+function previousHarnesses(previous: MarketplacePluginInstallReceipt | undefined): SkillHarness[] {
+  const harnesses = new Set<SkillHarness>()
   for (const component of previous?.components ?? []) {
     if (component.kind !== 'skills') continue
     for (const harness of component.harnesses ?? []) harnesses.add(harness)
@@ -470,7 +471,7 @@ async function resolveInstallHarnesses(
   input: MarketplacePluginRegistryInstallInput,
   services: MarketplacePluginLifecycleServices,
   previous: MarketplacePluginInstallReceipt | undefined
-): Promise<SkillPackHarness[]> {
+): Promise<SkillHarness[]> {
   // An explicit caller set is authoritative — a deliberate narrowing may
   // legitimately drop harness copies (the stale sweep handles it).
   if (input.skillHarnesses?.length) return input.skillHarnesses
@@ -492,7 +493,7 @@ async function resolveInstallHarnesses(
   // from CLIs that are actually still installed. Union with the prior set so
   // an auto-resolved update is only ever additive; a genuinely-removed CLI
   // keeps its harmless copy until an explicit skillHarnesses narrows it.
-  const union = new Set<SkillPackHarness>([...resolved, ...previousHarnesses(previous)])
+  const union = new Set<SkillHarness>([...resolved, ...previousHarnesses(previous)])
   return SKILL_PACK_HARNESSES.filter((harness) => union.has(harness))
 }
 
@@ -547,11 +548,11 @@ async function installClaudeCodePluginEntry(
   const harnesses = await resolveInstallHarnesses(input, services, previous)
   // Ownership is per dir AND per harness: a previous install owning "foo" in
   // .claude says nothing about a hand-authored .agents/skills/foo.
-  const previousHarnessesByDir = new Map<string, Set<SkillPackHarness>>()
+  const previousHarnessesByDir = new Map<string, Set<SkillHarness>>()
   for (const component of previous?.components ?? []) {
     if (component.kind !== 'skills') continue
     const dir = component.installedDirName ?? component.id
-    const owned = previousHarnessesByDir.get(dir) ?? new Set<SkillPackHarness>()
+    const owned = previousHarnessesByDir.get(dir) ?? new Set<SkillHarness>()
     for (const harness of component.harnesses ?? []) owned.add(harness)
     previousHarnessesByDir.set(dir, owned)
   }
@@ -589,7 +590,7 @@ async function installClaudeCodePluginEntry(
       // Count each harness BEFORE its copy starts so a mid-copy failure still
       // rolls back the partially written target — an untracked partial dir
       // would otherwise survive as an orphan the next install refuses over.
-      const attempted: SkillPackHarness[] = []
+      const attempted: SkillHarness[] = []
       try {
         for (const harness of harnesses) {
           attempted.push(harness)
@@ -787,7 +788,7 @@ async function uninstallReceipt(
           nextMcpSettings = removeMcpComponent(component, input, services, nextMcpSettings)
           break
         case 'skills':
-          await removeSkillComponent(component, input, services)
+          await removeSkillComponent(component, input)
           break
         case 'module':
           await rm(moduleInstallPath((services.moduleRoot ?? defaultUserModuleRoot)(), component.id), { recursive: true, force: true })
@@ -858,18 +859,25 @@ function removeMcpComponent(
 
 async function removeSkillComponent(
   component: MarketplacePluginInstalledComponent,
-  input: MarketplacePluginUninstallInput,
-  services: MarketplacePluginLifecycleServices
+  input: MarketplacePluginUninstallInput
 ): Promise<void> {
   const workspaceRoot = input.workspaceRoot?.trim()
   if (!workspaceRoot) throw new Error('Workspace root is required to uninstall skill components.')
-  const result = await services.skillPackService.remove({
+  const dirName = component.installedDirName ?? component.id
+  const result = await uninstallSkill({
     workspaceRoot,
-    slug: component.installedDirName ?? component.id,
-    installedDirName: component.installedDirName ?? component.id,
-    harnesses: component.harnesses?.length ? component.harnesses : input.skillHarnesses,
+    dirName,
+    // The receipt names the harnesses the install wrote; without one, every
+    // harness dir is swept rather than guessing which held a copy.
+    harnesses: component.harnesses?.length
+      ? component.harnesses
+      : input.skillHarnesses?.length
+        ? input.skillHarnesses
+        : SKILL_PACK_HARNESSES,
   })
-  if (!result.ok && !/No installed copies/.test(result.message)) throw new Error(result.message)
+  // Already gone is the state uninstall wants, so an empty sweep is fine here;
+  // only a real failure is one.
+  if (!result.ok) throw new Error(result.message)
 }
 
 function clientsFromServers(servers: McpServerConfig[]): McpClientTarget[] {

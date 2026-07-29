@@ -198,7 +198,7 @@ export async function runGuidedBriefStartBuild(
   }
 
   // Fail-closed preflight: persist the Advanced setup selections (real MCP sync +
-  // skill-pack install) before any handoff write or run/workspace creation. If
+  // knowledge root) before any handoff write or run/workspace creation. If
   // this fails, abort here so a partially-created Sprint Engine workspace is
   // never left behind; the message surfaces on the existing advancedSetupError
   // surface.

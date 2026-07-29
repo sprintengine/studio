@@ -281,32 +281,6 @@ export type McpCatalogServer = Omit<McpServerConfig, 'enabled' | 'scope' | 'sour
   icon?: string
 }
 
-export type SkillPackHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'grok' | 'agents'
-export type SkillPackSource = 'bundled' | 'custom'
-
-export type SkillPackEntry = {
-  id: string
-  slug: string
-  name: string
-  category?: string
-  description?: string
-  version?: string
-  sourceUrl?: string
-  installedDirName?: string
-  harnesses: SkillPackHarness[]
-  source: SkillPackSource
-  installedAt?: string
-}
-
-export type SkillPackCatalogEntry = Omit<SkillPackEntry, 'source' | 'installedAt'> & {
-  recommended?: boolean
-  setupNotes?: string
-}
-
-export type SkillPackSettings = {
-  installed: Record<string, SkillPackEntry>
-}
-
 export type WorktreeEntry = {
   id: string
   path: string
@@ -499,7 +473,6 @@ export type AppSettings = {
   cliModelCatalog?: Partial<Record<AgentCli, DiscoveredCliModelCatalog>>
   keybindings: KeybindingSettings
   mcp: McpSettings
-  skillPacks: SkillPackSettings
   /**
    * The user's global default CLI — the fallback shown for any specialist,
    * Sprint Engine role, or automation with no per-agent default,

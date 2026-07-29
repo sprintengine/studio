@@ -9,7 +9,7 @@
 
 import React, { type MutableRefObject } from 'react'
 
-import type { McpCatalogServer, SkillPackCatalogEntry } from '../../../types/workspace'
+import type { McpCatalogServer } from '../../../types/workspace'
 import type { DesignSystemAttachSource } from '../../../../../shared/design-system/attach'
 import { mcpServerDisplayName, mcpServerPurpose } from '../../../utils/mcpDisplayName'
 import { DesignSystemAttachStep } from './DesignSystemAttachStep'
@@ -21,9 +21,6 @@ export function SprintEngineToolsPanel({
   mcpCatalog,
   mcpSettings,
   onToggleMcp,
-  skillPackCatalog,
-  selectedSkillPackIds,
-  onToggleSkillPack,
   message,
   knowledgeProjectRoot,
   committedKnowledgeRoot,
@@ -36,9 +33,6 @@ export function SprintEngineToolsPanel({
   mcpCatalog: McpCatalogServer[]
   mcpSettings: { servers: Record<string, { enabled: boolean }> } | null
   onToggleMcp: (server: McpCatalogServer) => void
-  skillPackCatalog: SkillPackCatalogEntry[]
-  selectedSkillPackIds: Set<string>
-  onToggleSkillPack: (pack: SkillPackCatalogEntry) => void
   message: string | null
   /** Project root when the knowledge section applies; null hides it. */
   knowledgeProjectRoot: string | null
@@ -67,10 +61,6 @@ export function SprintEngineToolsPanel({
   const collapsed = !q && !showAllTools && availableServers.length > AVAILABLE_ROWS_AT_REST
   const visibleAvailable = collapsed ? availableServers.slice(0, AVAILABLE_ROWS_AT_REST) : availableServers
 
-  const filteredPacks = skillPackCatalog.filter((pack) =>
-    matches([pack.name, pack.slug, pack.category, pack.description]),
-  )
-
   return (
     <div className="flex flex-col gap-1">
       <div className="flex h-[30px] items-center gap-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5">
@@ -78,8 +68,8 @@ export function SprintEngineToolsPanel({
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search tools and skills"
-          aria-label="Search tools and skills"
+          placeholder="Search tools"
+          aria-label="Search tools"
           className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-subtle)]"
         />
       </div>
@@ -117,23 +107,6 @@ export function SprintEngineToolsPanel({
           </ToolGroup>
         </>
       )}
-
-      {skillPackCatalog.length > 0 ? (
-        <ToolGroup label="Skill packs">
-          {filteredPacks.length === 0 ? (
-            <p className="py-2 text-[11px] text-[color:var(--text-subtle)]">No skill packs match the search.</p>
-          ) : (
-            filteredPacks.map((pack) => (
-              <SkillPackRow
-                key={pack.id}
-                pack={pack}
-                selected={selectedSkillPackIds.has(pack.id)}
-                onToggle={() => onToggleSkillPack(pack)}
-              />
-            ))
-          )}
-        </ToolGroup>
-      ) : null}
 
       {message ? <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">{message}</p> : null}
 
@@ -226,44 +199,6 @@ function McpToolRow({
       <span className="shrink-0 font-mono text-[10px] text-[color:var(--text-disabled)]">
         {server.transport}
         {server.category ? ` · ${server.category.toLowerCase()}` : ''}
-      </span>
-    </button>
-  )
-}
-
-function SkillPackRow({
-  pack,
-  selected,
-  onToggle,
-}: {
-  pack: SkillPackCatalogEntry
-  selected: boolean
-  onToggle: () => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onToggle}
-      className="
-        flex h-9 w-full items-center gap-3 border-b border-[color:var(--border-subtle)] text-left transition-colors
-        hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--accent-primary)]
-      "
-    >
-      <RowCheck checked={selected} />
-      <span className="min-w-[150px] shrink-0 text-[12px] font-medium text-[color:var(--text-strong)]">
-        {pack.name}
-        {pack.recommended ? (
-          <span className="ml-1.5 rounded border border-[color:var(--border-default)] px-1 text-[9px] font-semibold text-[color:var(--text-subtle)]">
-            Recommended
-          </span>
-        ) : null}
-      </span>
-      <span className="min-w-0 flex-1 truncate text-[11px] text-[color:var(--text-subtle)]">
-        {pack.description ?? pack.category ?? ''}
-      </span>
-      <span className="shrink-0 font-mono text-[10px] text-[color:var(--text-disabled)]">
-        {pack.version ? `v${pack.version}` : pack.slug}
       </span>
     </button>
   )

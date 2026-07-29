@@ -7,7 +7,7 @@
 // or without native skill support get no directory writes — a copy nothing
 // can read is not an install.
 
-import type { AgentCliAvailabilityMap, SkillPackHarness } from '../../shared/electron-api'
+import type { AgentCliAvailabilityMap, SkillHarness } from '../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../shared/plugin-manifest'
 import { SKILL_PACK_HARNESSES } from '../../shared/skill-harnesses'
 import { detectAgentCliAvailability } from '../cli-availability'
@@ -20,19 +20,19 @@ export type ResolveInstalledSkillHarnessesDeps = {
 
 export async function resolveInstalledSkillHarnesses(
   deps: ResolveInstalledSkillHarnessesDeps = {}
-): Promise<SkillPackHarness[]> {
+): Promise<SkillHarness[]> {
   const listEntries = deps.listEntries ?? listPluginRegistryEntries
   // Probed without per-CLI command overrides (those live in renderer
   // settings); a CLI on a custom command may probe as absent and only miss
   // its native copy — the `.agents` copy still installs.
   const detectAvailability = deps.detectAvailability ?? (() => detectAgentCliAvailability())
   const availability = await detectAvailability()
-  const wanted = new Set<SkillPackHarness>(['agents'])
+  const wanted = new Set<SkillHarness>(['agents'])
   for (const entry of listEntries()) {
     const integration = entry.skillIntegration
     if (integration?.support !== 'native') continue
     if (availability[entry.id]?.installed !== true) continue
-    const harness = integration.harnessId as SkillPackHarness
+    const harness = integration.harnessId as SkillHarness
     if (!SKILL_PACK_HARNESSES.includes(harness)) continue
     wanted.add(harness)
   }

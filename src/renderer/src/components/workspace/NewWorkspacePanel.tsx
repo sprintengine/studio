@@ -16,7 +16,6 @@ import type {
   LayoutTemplate,
   McpCatalogServer,
   ReviewGuideConfig,
-  SkillPackCatalogEntry,
   SprintEngineAutoState,
   SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
@@ -167,10 +166,6 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     title: 'Pick tool integrations',
     subtitle: 'Connect agent tools for this project. Optional — skip and add later from Settings.',
   },
-  'skill-packs': {
-    title: 'Pick skill packs',
-    subtitle: 'Curated agent skills installed into this project on creation. Optional — skip and add later from Settings.',
-  },
   knowledge: {
     title: 'Connect a knowledge graph',
     subtitle: 'Point new agents at a folder of project knowledge they should read. Optional — skip and set it later in Settings.',
@@ -212,7 +207,6 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
 const STEP_LABEL: Record<StepId, string> = {
   workspace: 'Where',
   'mcp-servers': 'Tools',
-  'skill-packs': 'Skills',
   knowledge: 'Knowledge',
   'standard-layout': 'Layout',
   'sprintengine-team': 'What',
@@ -777,13 +771,11 @@ export default function NewWorkspacePanel({
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
-  const upsertSkillPack = useWorkspaceStore((s) => s.upsertSkillPack)
   const [integrationsMcpCatalog, setIntegrationsMcpCatalog] = useState<McpCatalogServer[]>([])
-  const [integrationsSkillPackCatalog, setIntegrationsSkillPackCatalog] = useState<SkillPackCatalogEntry[]>([])
   const [integrationsMessage] = useState<string | null>(null)
-  const [selectedSkillPackIds, setSelectedSkillPackIds] = useState<Set<string>>(new Set())
-  // Surfaced when create-time Advanced setup persistence (MCP sync / skill-pack
-  // install) fails, so the wizard reports the failure instead of closing as success.
+  // Surfaced when create-time Advanced setup persistence (MCP sync, knowledge
+  // root, design system) fails, so the wizard reports the failure instead of
+  // closing as success.
   const [advancedSetupError, setAdvancedSetupError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -792,12 +784,6 @@ export default function NewWorkspacePanel({
       void window.api.mcpListCatalog().then((result) => {
         if (cancelled) return
         if (result.ok) setIntegrationsMcpCatalog(result.servers)
-      }).catch(() => {})
-    }
-    if (typeof window.api.skillPackListCatalog === 'function') {
-      void window.api.skillPackListCatalog().then((result) => {
-        if (cancelled) return
-        if (result.ok) setIntegrationsSkillPackCatalog(result.packs)
       }).catch(() => {})
     }
     return () => {
@@ -836,15 +822,6 @@ export default function NewWorkspacePanel({
         sourceUrl: server.sourceUrl,
       })
     }
-  }
-
-  const toggleSkillPackInWizard = (pack: SkillPackCatalogEntry) => {
-    setSelectedSkillPackIds((current) => {
-      const next = new Set(current)
-      if (next.has(pack.id)) next.delete(pack.id)
-      else next.add(pack.id)
-      return next
-    })
   }
 
   // Attach is offered on the three build entry points (standard, Sprint
@@ -994,38 +971,6 @@ export default function NewWorkspacePanel({
         }
       }
 
-      if (selectedSkillPackIds.size > 0 && typeof window.api.skillPackInstall === 'function') {
-        const picks = integrationsSkillPackCatalog.filter((pack) => selectedSkillPackIds.has(pack.id))
-        for (const pack of picks) {
-          try {
-            const result = await window.api.skillPackInstall({
-              workspaceRoot,
-              slug: pack.slug,
-              harnesses: pack.harnesses,
-              installedDirName: pack.installedDirName,
-            })
-            if (result.ok) {
-              upsertSkillPack({
-                ...result.installed,
-                id: pack.id,
-                name: pack.name,
-                category: pack.category,
-                description: pack.description,
-                version: pack.version,
-                sourceUrl: pack.sourceUrl,
-                installedDirName: pack.installedDirName ?? result.installed.installedDirName,
-              })
-            } else {
-              failures.push(`Skill pack ${pack.name} failed: ${result.message}`)
-            }
-          } catch (error) {
-            failures.push(
-              `Skill pack ${pack.name} failed: ${error instanceof Error ? error.message : 'install error'}`,
-            )
-          }
-        }
-      }
-
       // Attach the selected design system through the real T8 IPC. Fail
       // closed like the other setup steps: a refusal (conflict, invalid
       // bundle) aborts the create with the pipeline's own message — never a
@@ -1067,9 +1012,6 @@ export default function NewWorkspacePanel({
     },
     [
       mcpSettings,
-      selectedSkillPackIds,
-      integrationsSkillPackCatalog,
-      upsertSkillPack,
       dsAttachSelection,
       designSystemAttachEligible,
       committedKnowledgeRoot,
@@ -1474,11 +1416,11 @@ export default function NewWorkspacePanel({
   // whose intent step is still unanswered.
   const hintStep = !currentStepReady ? step : firstBlockedStepId ?? step
   // The Tools page's footer hint states the live selection count (MC-1646):
-  // enabled MCP servers plus selected skill packs.
+  // the enabled MCP servers.
   const selectedMcpServers = integrationsMcpCatalog.filter((server) =>
     Boolean(mcpSettings?.servers[server.id]?.enabled),
   )
-  const toolsSelectedCount = selectedMcpServers.length + selectedSkillPackIds.size
+  const toolsSelectedCount = selectedMcpServers.length
   const blockingMessage = getStepBlockingMessage({
     step: hintStep,
     workspaceFolderReady: folderTargetUsable,
@@ -3056,9 +2998,6 @@ export default function NewWorkspacePanel({
                 mcpCatalog={integrationsMcpCatalog}
                 mcpSettings={mcpSettings ?? null}
                 onToggleMcp={toggleMcpInWizard}
-                skillPackCatalog={integrationsSkillPackCatalog}
-                selectedSkillPackIds={selectedSkillPackIds}
-                onToggleSkillPack={toggleSkillPackInWizard}
                 message={integrationsMessage}
                 knowledgeProjectRoot={folderPath && knowledgeStepEligible ? folderPath : null}
                 committedKnowledgeRoot={committedKnowledgeRoot}
@@ -3095,7 +3034,6 @@ export default function NewWorkspacePanel({
                 roleModelOverrides={seRoleModelOverrides}
                 poolAgentCount={seMaxParallelAgents}
                 selectedToolNames={selectedMcpServers.map(mcpServerDisplayName)}
-                selectedSkillPackCount={selectedSkillPackIds.size}
                 onEditStep={(target) => jumpToStep(steps.indexOf(target))}
                 cliPermissionPreset={cliPermissionPreset}
                 onChangeCliPermissionPreset={setCliPermissionPreset}
@@ -3121,9 +3059,6 @@ export default function NewWorkspacePanel({
               mcpCatalog={integrationsMcpCatalog}
               mcpSettings={mcpSettings ?? null}
               onToggleMcp={toggleMcpInWizard}
-              skillPackCatalog={integrationsSkillPackCatalog}
-              selectedSkillPackIds={selectedSkillPackIds}
-              onToggleSkillPack={toggleSkillPackInWizard}
               integrationsMessage={integrationsMessage}
               knowledgeProjectRoot={folderPath && knowledgeStepEligible ? folderPath : null}
               committedKnowledgeRoot={committedKnowledgeRoot}
@@ -3396,9 +3331,6 @@ function AdvancedSetupDisclosure({
   mcpCatalog,
   mcpSettings,
   onToggleMcp,
-  skillPackCatalog,
-  selectedSkillPackIds,
-  onToggleSkillPack,
   integrationsMessage,
   knowledgeProjectRoot,
   committedKnowledgeRoot,
@@ -3411,9 +3343,6 @@ function AdvancedSetupDisclosure({
   mcpCatalog: McpCatalogServer[]
   mcpSettings: { servers: Record<string, { enabled: boolean }> } | null
   onToggleMcp: (server: McpCatalogServer) => void
-  skillPackCatalog: SkillPackCatalogEntry[]
-  selectedSkillPackIds: Set<string>
-  onToggleSkillPack: (pack: SkillPackCatalogEntry) => void
   integrationsMessage: string | null
   knowledgeProjectRoot: string | null
   committedKnowledgeRoot: string | null
@@ -3427,7 +3356,6 @@ function AdvancedSetupDisclosure({
   const [open, setOpen] = useState(false)
   const selectedCount =
     mcpCatalog.reduce((count, server) => count + (mcpSettings?.servers[server.id]?.enabled ? 1 : 0), 0) +
-    skillPackCatalog.reduce((count, pack) => count + (selectedSkillPackIds.has(pack.id) ? 1 : 0), 0) +
     (designSystemAttachSelection ? 1 : 0)
 
   return (
@@ -3467,15 +3395,6 @@ function AdvancedSetupDisclosure({
               mcpCatalog={mcpCatalog}
               mcpSettings={mcpSettings}
               onToggleMcp={onToggleMcp}
-              message={integrationsMessage}
-            />
-          </section>
-          <section className="flex flex-col gap-2">
-            <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Skill packs</h4>
-            <SkillPacksStep
-              skillPackCatalog={skillPackCatalog}
-              selectedSkillPackIds={selectedSkillPackIds}
-              onToggleSkillPack={onToggleSkillPack}
               message={integrationsMessage}
             />
           </section>
@@ -3581,107 +3500,6 @@ function McpServersStep({
                   {server.recommendedScope === 'user' ? (
                     <span className="rounded-sm border border-[color:var(--border-default)] px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--text-subtle)]">
                       user
-                    </span>
-                  ) : null}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-      {message ? (
-        <p className="text-[11px] leading-4 text-[color:var(--text-muted)]">{message}</p>
-      ) : null}
-    </div>
-  )
-}
-
-function SkillPacksStep({
-  skillPackCatalog,
-  selectedSkillPackIds,
-  onToggleSkillPack,
-  message,
-}: {
-  skillPackCatalog: SkillPackCatalogEntry[]
-  selectedSkillPackIds: Set<string>
-  onToggleSkillPack: (pack: SkillPackCatalogEntry) => void
-  message: string | null
-}) {
-  const selectedCount = skillPackCatalog.reduce(
-    (count, pack) => count + (selectedSkillPackIds.has(pack.id) ? 1 : 0),
-    0,
-  )
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Each selected pack is added to this project when you create it, ready for your agents to use.
-        </p>
-        {skillPackCatalog.length > 0 ? (
-          <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
-            {selectedCount} selected
-          </span>
-        ) : null}
-      </div>
-      {skillPackCatalog.length === 0 ? (
-        <p className="text-[11px] text-[color:var(--text-subtle)]">Loading…</p>
-      ) : (
-        <ul className="grid grid-cols-1 gap-2 min-[760px]:grid-cols-2">
-          {skillPackCatalog.map((pack) => {
-            const selected = selectedSkillPackIds.has(pack.id)
-            return (
-              <li key={pack.id}>
-                <button
-                  type="button"
-                  onClick={() => onToggleSkillPack(pack)}
-                  aria-pressed={selected}
-                  className={`
-                    grid h-full min-h-[58px] w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md border px-3 py-2 text-left
-                    transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
-                    ${selected
-                      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
-                      : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
-                  `}
-                >
-                  <span
-                    aria-hidden
-                    className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
-                      selected
-                        ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
-                        : 'border-[color:var(--border-default)]'
-                    }`}
-                  >
-                    {selected ? (
-                      <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <polyline points="1.5,5 4,7.5 8.5,2.5" />
-                      </svg>
-                    ) : null}
-                  </span>
-                  <span className="min-w-0">
-                    <TruncatedText
-                      as="span"
-                      text={pack.name}
-                      className="block text-[13px] font-semibold text-[color:var(--text-strong)]"
-                    />
-                    <TruncatedText
-                      as="span"
-                      text={pack.slug}
-                      className="mt-0.5 block font-mono text-[10px] leading-4 text-[color:var(--text-subtle)]"
-                    />
-                  </span>
-                  {pack.recommended || pack.version ? (
-                    <span className="flex max-w-[92px] flex-col items-end gap-1">
-                      {pack.recommended ? (
-                        <span className="rounded-sm border border-[color:var(--border-default)] px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--text-subtle)]">
-                          rec
-                        </span>
-                      ) : null}
-                      {pack.version ? (
-                        <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">
-                          v{pack.version}
-                        </span>
-                      ) : null}
                     </span>
                   ) : null}
                 </button>
@@ -4875,8 +4693,6 @@ function isStepReady(
       return readiness.workspaceStepReady
     case 'mcp-servers':
       return true
-    case 'skill-packs':
-      return true
     case 'knowledge':
       return true
     case 'standard-layout':
@@ -4962,8 +4778,6 @@ function getStepBlockingMessage(args: {
       return 'Ready to create.'
     case 'mcp-servers':
       return 'Pick tool integrations, or skip to add them later from Settings.'
-    case 'skill-packs':
-      return 'Pick skill packs, or skip to add them later from Settings.'
     case 'knowledge':
       return committedKnowledgeRoot
         ? `Knowledge folder: ${committedKnowledgeRoot} — continue, or change it.`

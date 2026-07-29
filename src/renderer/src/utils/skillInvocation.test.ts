@@ -109,10 +109,6 @@ async function ensureSkillTests(): Promise<void> {
         calls.push(`builtin:${input.skillId}`)
         return { ok: true, status: 'installed' }
       },
-      skillPackInstall: async (input: { slug: string }) => {
-        calls.push(`pack:${input.slug}`)
-        return { ok: true, installed: {}, log: '' }
-      },
     },
   }
 
@@ -132,27 +128,14 @@ async function ensureSkillTests(): Promise<void> {
   assert.deepEqual(missingBuiltin, { ok: true })
   assert.deepEqual(calls, ['builtin:debug'])
 
-  // Available pack installs by slug; missing slug is a clean failure.
-  const pack = await ensureSkillForAgent({
-    workspaceRoot: '/ws',
-    skill: { id: 'p', source: 'pack', installState: 'available', packSlug: 'org/pack' },
-  })
-  assert.deepEqual(pack, { ok: true })
-  assert.deepEqual(calls, ['builtin:debug', 'pack:org/pack'])
-
-  const noSlug = await ensureSkillForAgent({
-    workspaceRoot: '/ws',
-    skill: { id: 'p2', source: 'pack', installState: 'available' },
-  })
-  assert.equal(noSlug.ok, false)
-
-  // Custom skills are presence-only.
+  // A skill installed from a source is presence-only: already a directory in
+  // the workspace, so nothing is fetched to invoke it.
   const custom = await ensureSkillForAgent({
     workspaceRoot: '/ws',
     skill: { id: 'c', source: 'custom', installState: 'installed' },
   })
   assert.deepEqual(custom, { ok: true })
-  assert.deepEqual(calls, ['builtin:debug', 'pack:org/pack'])
+  assert.deepEqual(calls, ['builtin:debug'])
 
   console.log('skillInvocation tests passed')
 }

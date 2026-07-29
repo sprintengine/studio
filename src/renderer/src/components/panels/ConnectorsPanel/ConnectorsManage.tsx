@@ -4,8 +4,9 @@
 // grid; this view owns the lower-frequency management the grid can't express:
 //   • the read-only cross-primitive inventory (InstalledExtensionsInventory),
 //   • active MCP servers (remove) + a custom-MCP form + the automation server,
-//   • bundled built-in skills (install / update) + the skill-pack ecosystem
-//     catalog (install / remove).
+//   • bundled built-in skills (install / update). Everything else about skills —
+//     the sources they come from, browsing and installing them — is the Skills
+//     surface's, not this view's.
 // This is a presentation-only relocation: every store action and window.api.*
 // call is the one the Settings tabs used — no state or IPC changed.
 
@@ -20,7 +21,6 @@ import { McpBrandIcon } from '../../settings/McpCatalog'
 import { AutomationServerSettings } from '../../settings/AutomationServerSettings'
 import { ConnectorRow, ConnectorSectionHeading } from './ConnectorRow'
 import { InstalledExtensionsInventory } from './InstalledExtensionsInventory'
-import { SkillPackCatalogList, useSkillPackCatalog } from './skillPackCatalog'
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
 
@@ -84,14 +84,29 @@ export function ConnectorsManage({
   const [builtinSkillPendingId, setBuiltinSkillPendingId] = useState<string | null>(null)
   const [builtinSkillMessage, setBuiltinSkillMessage] = useState<string | null>(null)
 
-  // The inventory lists skill packs over IPC, so a successful install/remove
+  // The inventory lists skills and modules over IPC, so a successful remove
   // bumps this to remount it and re-list; MCP rows ride the store and need no
   // refresh.
   const [inventoryRefresh, setInventoryRefresh] = useState(0)
-  // Skill-pack catalog state shared with the door's Skill packs canvas
-  // (MC-1847 C2) — the load, the install/remove toggle, and the by-slug remove
-  // the inventory rows use all live in the one hook.
-  const skillPacks = useSkillPackCatalog(activeWorkspaceRoot, () => setInventoryRefresh((count) => count + 1))
+  const [skillMessage, setSkillMessage] = useState<string | null>(null)
+
+  // Removing an installed skill takes its directory back out of every harness
+  // dir that holds a copy. The outcome is stated: a removal that failed must
+  // never leave the row looking gone.
+  const removeSkill = useCallback(
+    async (dirName: string) => {
+      if (!activeWorkspaceRoot) return
+      setSkillMessage(null)
+      try {
+        const result = await window.api.skillsUninstall({ workspaceRoot: activeWorkspaceRoot, dirName })
+        setSkillMessage(result.ok ? `${dirName} removed.` : result.message)
+        if (result.ok) setInventoryRefresh((count) => count + 1)
+      } catch (error) {
+        setSkillMessage(error instanceof Error ? error.message : `Failed to remove ${dirName}.`)
+      }
+    },
+    [activeWorkspaceRoot],
+  )
 
   // Bundled built-in skills: list them always; probe per-workspace install status
   // only when a workspace is open (status is workspace-scoped).
@@ -203,9 +218,10 @@ export function ConnectorsManage({
             removeMcpServer(serverId)
             setMcpMessage(null)
           }}
-          onRemoveSkillPack={skillPacks.removeBySlug}
+          onRemoveSkill={(dirName) => void removeSkill(dirName)}
           onUseSkillInNewAgent={onUseSkillInNewAgent}
         />
+        {skillMessage ? <ManageNote tone="accent">{skillMessage}</ManageNote> : null}
       </section>
 
       <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
@@ -343,25 +359,6 @@ export function ConnectorsManage({
         {builtinSkillMessage ? <ManageNote tone="warn">{builtinSkillMessage}</ManageNote> : null}
       </section>
 
-      {/* Installed skill packs live in the inventory above (with Remove); the
-          get-more ecosystem catalog stays collapsed until asked for, matching
-          the Add-a-custom-MCP affordance. */}
-      <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
-        <details className="group space-y-3 [&[open]]:space-y-3">
-          <summary className="interactive flex cursor-pointer list-none items-center justify-between gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] p-2.5 text-[13px] font-semibold text-[color:var(--text-strong)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]">
-            <span>Get more skill packs</span>
-            <span className="flex items-center gap-2">
-              <span className="tabular-nums font-mono text-[10px] font-normal text-[color:var(--text-subtle)]">
-                {skillPacks.catalog.length}
-              </span>
-              <span aria-hidden className="text-[10px] font-medium text-[color:var(--text-subtle)] transition-transform group-open:rotate-180">▾</span>
-            </span>
-          </summary>
-          <SkillPackCatalogList state={skillPacks} />
-        </details>
-
-        {skillPacks.message ? <ManageNote tone="accent">{skillPacks.message}</ManageNote> : null}
-      </section>
     </div>
   )
 }

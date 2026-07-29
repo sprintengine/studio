@@ -22,7 +22,6 @@ import type { CreationMode } from './types'
 export type StepId =
   | 'workspace'
   | 'mcp-servers'
-  | 'skill-packs'
   | 'knowledge'
   | 'standard-layout'
   | 'sprintengine-team'
@@ -39,7 +38,7 @@ export type StepId =
 export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'sprintengine' | 'guided-brief' | 'review'
 
 // Default flows keep only the steps a person needs to reach the thing they came
-// to make. The developer-configuration steps — 'mcp-servers', 'skill-packs', and
+// to make. The developer-configuration steps — 'mcp-servers' and
 // 'knowledge' — are deliberately NOT in the create gate: they're optional,
 // jargon-heavy, and equally reachable from Settings (and the opt-in "Advanced
 // setup" disclosure, which the hub shows for any flow with real config steps).

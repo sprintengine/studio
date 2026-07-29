@@ -1,4 +1,15 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
+import type {
+  ScanResult,
+  SkillDiscoveryResult,
+  SkillHarness,
+  SkillRepoHit,
+  SkillSearchHit,
+  SkillSource,
+} from './skills'
+// Re-exported because the harness identity is part of this IPC contract: it
+// rides BuiltinSkill, WorkspaceSkill and every install/uninstall result.
+export type { SkillHarness } from './skills'
 import type { SprintEngineAutomationIntentRecord } from './sprintengine/automation-intent'
 import type { SprintEngineAutomationMode as SprintEngineAutomationIntentMode } from './sprintengine/automation-types'
 import type { SprintEngineLaunchSettings } from './sprintengine/launch-settings'
@@ -399,7 +410,7 @@ export type BuiltinSkill = {
   name: string
   version: string
   description: string
-  harnesses?: SkillPackHarness[]
+  harnesses?: SkillHarness[]
   targetPolicy?: 'agents' | 'all-native'
 }
 
@@ -467,7 +478,7 @@ export type MarketplacePluginInstallInput = {
   workspaceRoot?: string
   mcpSettings?: McpSettings
   mcpClients?: McpClientTarget[]
-  skillHarnesses?: SkillPackHarness[]
+  skillHarnesses?: SkillHarness[]
 }
 
 // Both bundle and inline-MCP registry installs use this shape: a bundle entry
@@ -487,7 +498,7 @@ export type MarketplacePluginUninstallInput = {
   workspaceRoot?: string
   mcpSettings?: McpSettings
   mcpClients?: McpClientTarget[]
-  skillHarnesses?: SkillPackHarness[]
+  skillHarnesses?: SkillHarness[]
 }
 
 export type MarketplacePluginTrustClassification = 'verified' | 'community' | 'unsigned' | 'invalid'
@@ -515,7 +526,7 @@ export type MarketplacePluginInstalledComponent = {
   message?: string
   serverIds?: string[]
   servers?: McpServerConfig[]
-  harnesses?: SkillPackHarness[]
+  harnesses?: SkillHarness[]
   installedDirName?: string
 }
 
@@ -898,68 +909,12 @@ export type AgentConfigAdoptResult =
       warnings?: string[]
     }
 
-export type SkillPackHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'grok' | 'agents'
-export type SkillPackSource = 'bundled' | 'custom'
-
-export type SkillPackEntry = {
-  id: string
-  slug: string
-  name: string
-  category?: string
-  description?: string
-  version?: string
-  sourceUrl?: string
-  installedDirName?: string
-  harnesses: SkillPackHarness[]
-  source: SkillPackSource
-  installedAt?: string
-}
-
-export type SkillPackCatalogEntry = Omit<SkillPackEntry, 'source' | 'installedAt'> & {
-  recommended?: boolean
-  setupNotes?: string
-}
-
-export type SkillPackCatalogResult =
-  | { ok: true; packs: SkillPackCatalogEntry[] }
-  | { ok: false; message: string }
-
-export type SkillPackListInstalledInput = {
-  workspaceRoot: string
-}
-
-export type SkillPackListInstalledResult =
-  | { ok: true; installed: SkillPackEntry[] }
-  | { ok: false; message: string }
-
-export type SkillPackInstallInput = {
-  workspaceRoot: string
-  slug: string
-  harnesses?: SkillPackHarness[]
-  installedDirName?: string
-}
-
-export type SkillPackInstallResult =
-  | { ok: true; installed: SkillPackEntry; log: string }
-  | { ok: false; message: string; log?: string }
-
-export type SkillPackRemoveInput = {
-  workspaceRoot: string
-  slug: string
-  installedDirName?: string
-  harnesses?: SkillPackHarness[]
-}
-
-export type SkillPackRemoveResult =
-  | { ok: true; slug: string; log: string }
-  | { ok: false; message: string; log?: string }
-
-// One entry in the unified workspace skill inventory: built-ins, installed
-// skill packs, hand-dropped custom skill dirs, and not-yet-installed catalog
-// entries, deduped by skill id across harness dirs. Name/description come from
-// the installed SKILL.md frontmatter when present, falling back to the catalog
-// or BUILTIN_SKILLS metadata, then the directory name.
-export type WorkspaceSkillSource = 'builtin' | 'pack' | 'custom' | 'plugin'
+// One entry in the unified workspace skill inventory: built-ins, skills
+// installed from a source, and hand-dropped custom skill dirs, deduped by skill
+// id across harness dirs. Name/description come from the installed SKILL.md
+// frontmatter when present, falling back to BUILTIN_SKILLS metadata, then the
+// directory name.
+export type WorkspaceSkillSource = 'builtin' | 'custom' | 'plugin'
 export type WorkspaceSkillInstallState = 'installed' | 'available' | 'update-available'
 
 export type WorkspaceSkill = {
@@ -967,10 +922,8 @@ export type WorkspaceSkill = {
   name: string
   description?: string
   source: WorkspaceSkillSource
-  harnesses: SkillPackHarness[]
+  harnesses: SkillHarness[]
   installState: WorkspaceSkillInstallState
-  // For source 'pack': the catalog slug that drives skillPackInstall.
-  packSlug?: string
   version?: string
 }
 
@@ -981,6 +934,96 @@ export type WorkspaceSkillsListInput = {
 export type WorkspaceSkillsListResult =
   | { ok: true; skills: WorkspaceSkill[] }
   | { ok: false; message: string }
+
+// Skill sources (src/shared/skills.ts owns the shapes; these are the IPC
+// envelopes). Sources are app-level; installing is workspace-level, so
+// skillsInstall is the only call here that needs a workspace root.
+export type SkillSourcesResult =
+  | { ok: true; sources: SkillSource[] }
+  | { ok: false; message: string }
+
+export type SkillAddSourceInput = {
+  /** `owner/name`, a github.com URL, or a /tree/<ref> deep link. */
+  repo: string
+  /** Re-scan a source already in the list instead of refusing it. */
+  replace?: boolean
+}
+
+export type SkillAddSourceResult =
+  | { ok: true; source: SkillSource; scan: ScanResult }
+  | { ok: false; message: string }
+
+export type SkillRemoveSourceInput = { sourceId: string }
+
+export type SkillRemoveSourceResult =
+  | { ok: true; sourceId: string }
+  | { ok: false; message: string }
+
+export type SkillScanInput = { sourceId: string }
+
+export type SkillScanOutcome =
+  | { ok: true; source: SkillSource; scan: ScanResult }
+  | { ok: false; message: string }
+
+export type SkillReadFileInput = { sourceId: string; skillId: string; path: string }
+
+export type SkillReadFileResult =
+  | { ok: true; path: string; content: string }
+  | { ok: false; message: string }
+
+export type SkillInstallInput = { sourceId: string; skillId: string; workspaceRoot: string }
+
+export type SkillInstallOutcome =
+  | { ok: true; dirName: string; harnesses: SkillHarness[]; paths: string[]; fileCount: number }
+  | { ok: false; message: string }
+
+/**
+ * Uninstalling is by directory name, not by source: a skill installed from a
+ * source that has since been removed is still a directory in the workspace, and
+ * the user must still be able to take it back out.
+ */
+export type SkillUninstallInput = { workspaceRoot: string; dirName: string }
+
+export type SkillUninstallOutcome =
+  | { ok: true; dirName: string; removedPaths: string[] }
+  | { ok: false; message: string }
+
+/** The workspace whose installed copies get re-copied; null with no workspace open. */
+export type SkillSyncSourceInput = { sourceId: string; workspaceRoot: string | null }
+
+export type SkillSyncFailure = { skillId: string; message: string }
+
+/**
+ * What a sync did, in counts. What changed *inside* a skill is not derivable
+ * here and is not guessed at: the repository's own commit history answers that,
+ * which is why the surface links to it instead of rendering a diff.
+ */
+export type SkillSyncSourceOutcome =
+  | {
+      ok: true
+      source: SkillSource
+      scan: ScanResult
+      /** Skills the refreshed scan holds that the cached one did not. */
+      added: number
+      /** Skills the cached scan held that the repository no longer does. */
+      removed: number
+      /** Installed skills re-copied from the refreshed scan. */
+      refreshed: number
+      /** Installed skills whose re-copy failed; the list still refreshed. */
+      failures: SkillSyncFailure[]
+    }
+  | { ok: false; message: string }
+
+/**
+ * Discover. Both calls answer with `{ results, rateLimit, degraded }` and no
+ * ok flag: a failed or limited query is a stated condition on the same shape,
+ * so a caller can never mistake it for "GitHub had no match".
+ */
+export type SkillSearchInput = { query: string }
+
+export type SkillSearchOutcome = SkillDiscoveryResult<SkillSearchHit>
+
+export type SkillPopularReposOutcome = SkillDiscoveryResult<SkillRepoHit>
 
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
@@ -2860,11 +2903,17 @@ export type ElectronApi = {
   mcpListCatalog: () => Promise<McpCatalogResult>
   mcpPreviewSync: (input: McpSyncInput) => Promise<McpSyncPreview>
   mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
-  skillPackListCatalog: () => Promise<SkillPackCatalogResult>
-  skillPackListInstalled: (input: SkillPackListInstalledInput) => Promise<SkillPackListInstalledResult>
-  skillPackInstall: (input: SkillPackInstallInput) => Promise<SkillPackInstallResult>
-  skillPackRemove: (input: SkillPackRemoveInput) => Promise<SkillPackRemoveResult>
   workspaceSkillsList: (input: WorkspaceSkillsListInput) => Promise<WorkspaceSkillsListResult>
+  skillsListSources: () => Promise<SkillSourcesResult>
+  skillsAddSource: (input: SkillAddSourceInput) => Promise<SkillAddSourceResult>
+  skillsRemoveSource: (input: SkillRemoveSourceInput) => Promise<SkillRemoveSourceResult>
+  skillsGetScan: (input: SkillScanInput) => Promise<SkillScanOutcome>
+  skillsReadFile: (input: SkillReadFileInput) => Promise<SkillReadFileResult>
+  skillsInstall: (input: SkillInstallInput) => Promise<SkillInstallOutcome>
+  skillsUninstall: (input: SkillUninstallInput) => Promise<SkillUninstallOutcome>
+  skillsSyncSource: (input: SkillSyncSourceInput) => Promise<SkillSyncSourceOutcome>
+  skillsSearch: (input: SkillSearchInput) => Promise<SkillSearchOutcome>
+  skillsListPopularRepos: () => Promise<SkillPopularReposOutcome>
   cliDetect: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliDetectResult>
   cliInstallMethods: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallMethodInfo[]>
   cliInstall: (input: CliInstallInput, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>

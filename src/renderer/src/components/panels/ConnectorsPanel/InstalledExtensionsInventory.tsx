@@ -1,7 +1,7 @@
 // The installed-extensions inventory, relocated from the (removed) Settings →
 // Extensions tab into the Connectors surface (T3). It is the aggregated roll-up
 // of everything installed across the four extension primitives — MCP servers,
-// skill packs, agent CLIs, and capability modules — so the Connectors
+// skills, agent CLIs, and capability modules — so the Connectors
 // "Installed" view has one honest "what do I have" surface. Rows render the same
 // ConnectorRow as Browse so the whole surface reads as one system. The
 // list-building lives in the DOM-free `extensionsInstalled` view-model for unit
@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../../../../../shared/modules/manifest'
-import type { McpCatalogServer, SkillPackEntry, WorkspaceSkill } from '../../../../../shared/electron-api'
+import type { McpCatalogServer, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type { PluginRegistryListEntry } from '../../../../../shared/plugin-manifest'
 import type { McpServerConfig } from '../../../types/workspace'
@@ -43,8 +43,8 @@ type InventoryActions = {
   onLaunchConnector?: (connector: AgentComposerConnector) => void
   onUseInAutomation?: (serverId: string) => void
   onRemoveMcpServer?: (serverId: string) => void
-  // Keyed by the pack slug (the inventory row id for skill packs).
-  onRemoveSkillPack?: (slug: string) => void
+  // Keyed by the skill's directory name (the inventory row id for skills).
+  onRemoveSkill?: (dirName: string) => void
   // "Use in agent → New agent…": spawn a fresh agent with the skill attached
   // (ensure-installed, invocation prefilled). Running-agent inserts are handled
   // inside the row menu itself via the terminal APIs.
@@ -64,7 +64,7 @@ export function InstalledExtensionsInventory({
   workspaceRoot: string | null
 } & InventoryActions) {
   const [modules, setModules] = useState<LoadedSource<ThirdPartyModuleListResult>>({ status: 'loading' })
-  const [skillPacks, setSkillPacks] = useState<LoadedSource<SkillPackEntry[]>>({ status: 'loading' })
+  const [skills, setSkills] = useState<LoadedSource<WorkspaceSkill[]>>({ status: 'loading' })
   const [clis, setClis] = useState<LoadedSource<PluginRegistryListEntry[]>>({ status: 'loading' })
 
   const loadModules = useCallback(async () => {
@@ -100,22 +100,20 @@ export function InstalledExtensionsInventory({
     }
   }, [])
 
-  const loadSkillPacks = useCallback(async () => {
-    if (typeof window.api.skillPackListInstalled !== 'function') {
-      setSkillPacks({ status: 'unsupported' })
+  const loadSkills = useCallback(async () => {
+    if (typeof window.api.workspaceSkillsList !== 'function') {
+      setSkills({ status: 'unsupported' })
       return
     }
     if (!workspaceRoot) {
-      setSkillPacks({ status: 'unavailable', reason: 'Open a workspace to see its installed skill packs.' })
+      setSkills({ status: 'unavailable', reason: 'Open a workspace to see the skills installed in it.' })
       return
     }
     try {
-      const result = await window.api.skillPackListInstalled({ workspaceRoot })
-      setSkillPacks(
-        result.ok ? { status: 'ok', value: result.installed } : { status: 'error', message: result.message },
-      )
+      const result = await window.api.workspaceSkillsList({ workspaceRoot })
+      setSkills(result.ok ? { status: 'ok', value: result.skills } : { status: 'error', message: result.message })
     } catch (error) {
-      setSkillPacks({ status: 'error', message: errorMessage(error, 'Could not list installed skill packs.') })
+      setSkills({ status: 'error', message: errorMessage(error, 'Could not list installed skills.') })
     }
   }, [workspaceRoot])
 
@@ -124,18 +122,18 @@ export function InstalledExtensionsInventory({
     void loadClis()
   }, [loadModules, loadClis])
 
-  // Skill packs are workspace-scoped, so re-list when the active workspace
-  // changes (loadSkillPacks closes over workspaceRoot).
+  // Skills are workspace-scoped, so re-list when the active workspace changes
+  // (loadSkills closes over workspaceRoot).
   useEffect(() => {
-    setSkillPacks({ status: 'loading' })
-    void loadSkillPacks()
-  }, [loadSkillPacks])
+    setSkills({ status: 'loading' })
+    void loadSkills()
+  }, [loadSkills])
 
   const view = deriveInstalledExtensions({
     mcpServers,
     modules,
     moduleOverrides,
-    skillPacks,
+    skills,
     clis,
   })
 
@@ -203,7 +201,7 @@ function InstalledView({
   if (view.status === 'empty') {
     return (
       <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
-        Nothing installed yet. Get MCP servers, skill packs, agent CLIs, or modules from the Browse view and they appear
+        Nothing installed yet. Get MCP servers, skills, agent CLIs, or modules from the Browse view and they appear
         here.
       </div>
     )
@@ -232,7 +230,7 @@ function InstalledView({
 // · neutral metadata chips · plain-language status · actions revealed on
 // hover/focus. Actions exist only where a real handler does: launch/automation
 // for any enabled MCP server (the connector chat attaches it with or without a
-// driving skill), remove for MCP servers and skill packs.
+// driving skill), remove for MCP servers and skills.
 function InstalledRow({
   item,
   actions,
@@ -279,24 +277,24 @@ function InstalledRow({
         </GhostButton>,
       )
     }
-  } else if (item.kind === 'skill-pack') {
+  } else if (item.kind === 'skill') {
     if (skillUse.workspaceRoot) {
       rowActions.push(
         <UseSkillMenu
           key="use"
-          slug={item.id}
+          skillId={item.id}
           name={item.name}
           skillUse={skillUse}
           onNewAgent={actions.onUseSkillInNewAgent}
         />,
       )
     }
-    if (actions.onRemoveSkillPack) {
+    if (actions.onRemoveSkill) {
       rowActions.push(
         <GhostButton
           key="remove"
           size="sm"
-          onClick={() => actions.onRemoveSkillPack!(item.id)}
+          onClick={() => actions.onRemoveSkill!(item.id)}
           className="border border-[color:var(--border-default)]"
           aria-label={`Remove ${item.name}`}
         >
@@ -336,7 +334,7 @@ function InstalledRow({
 
 // The row's decision-relevant status — trust for capability modules,
 // active/inactive for MCP servers — as a StatusDot always paired with its text
-// label, so status is never colour-only. Skill packs and CLIs have no such axis
+// label, so status is never colour-only. Skills and CLIs have no such axis
 // (presence is the only state), so they carry no dot.
 function RowStatus({ item }: { item: InstalledExtension }) {
   if (item.kind === 'module' && item.trust) {
@@ -367,12 +365,12 @@ function RowStatus({ item }: { item: InstalledExtension }) {
 // door. Worktree agents are excluded (they don't read the main checkout's
 // harness dirs).
 function UseSkillMenu({
-  slug,
+  skillId,
   name,
   skillUse,
   onNewAgent,
 }: {
-  slug: string
+  skillId: string
   name: string
   skillUse: SkillUseContext
   onNewAgent?: (skill: WorkspaceSkill) => void
@@ -409,8 +407,9 @@ function UseSkillMenu({
     }
   }, [open])
 
-  // The row is a SkillPackEntry projection; the unified inventory record (with
-  // source, harnesses, install slug) is what the invocation machinery needs.
+  // The row is a projection of the inventory record; the invocation machinery
+  // needs the record itself (source, harnesses), re-read at click time so a
+  // skill installed since the list loaded still resolves.
   const resolveSkill = async (): Promise<WorkspaceSkill | null> => {
     if (!skillUse.workspaceRoot) return null
     const result = await window.api.workspaceSkillsList({ workspaceRoot: skillUse.workspaceRoot })
@@ -418,7 +417,7 @@ function UseSkillMenu({
       setError(result.message)
       return null
     }
-    return result.skills.find((skill) => skill.packSlug === slug || skill.id === slug) ?? null
+    return result.skills.find((skill) => skill.id === skillId) ?? null
   }
 
   const insertIntoSession = async (session: TerminalSessionSnapshot) => {

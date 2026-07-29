@@ -27,7 +27,7 @@ const NO_SECRET_DECLARED_FRAGMENT = 'does not declare a secret'
 /** Top-level state of the Providers tab, derived from the list IPC result. */
 export type ProviderTabState =
   // The running build predates the conversation IPC (older preload). Mirrors the
-  // MCP/skill-pack tabs' "needs a restart" degradation.
+  // MCP tab's "needs a restart" degradation.
   | { kind: 'unavailable'; message: string }
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
