@@ -54,6 +54,7 @@ import { focusOrAddFileTab } from '../../../../utils/modelRegistry'
 import { getRendererHost, selectModuleEnabled } from '../../../../modules'
 import type { BacklogLinkProvider } from '../../../../modules/renderer-host'
 import { BacklogFilterMenu } from '../../../backlog/BacklogFilterMenu'
+import { backlogRowPaintClass } from '../../../backlog/backlogRowPaint'
 import {
   BacklogEpicHeaderContent,
   BacklogRowContent,
@@ -943,7 +944,6 @@ function BacklogDoorList({
         const epicProgress = item.isEpic ? feed.derived.epicProgressBySlug.get(epicSlug(item)) : undefined
         const runGlyph = runGlyphByRowKey.get(row.key)
         const { color, litFill } = resolveBacklogRowColor(item, epicMeta?.color ?? null)
-        const swatch = color ? getHighlightSwatch(color) : null
         return (
           <li
             key={row.key}
@@ -953,9 +953,7 @@ function BacklogDoorList({
             onClick={() => onSelect(row.key)}
             onContextMenu={(event) => onContextMenu(event, row.key)}
             className={`cursor-pointer border-l-[3px] ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
-              selected
-                ? `${swatch ? swatch.border : 'border-l-transparent'} ${litFill && swatch ? swatch.bg : 'bg-[color:var(--bg-selected)]'}`
-                : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
+              backlogRowPaintClass({ color, litFill, selected })
             } ${item.status === 'archived' ? 'opacity-70' : ''}`}
           >
             <Tooltip

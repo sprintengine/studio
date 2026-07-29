@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import { BacklogRowContent, BacklogRowHoverCard } from './BacklogRow'
+import { backlogRowPaintClass } from './backlogRowPaint'
+import { getHighlightSwatch } from '../../utils/highlight'
 import { BacklogDependenciesSection } from './BacklogDependenciesSection'
 import { BacklogMockupsSection } from './BacklogMockupsSection'
 import type { BacklogActions } from './BacklogItemContextMenu'
@@ -423,6 +425,13 @@ const backlogPanelSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/panels/BacklogPanel.tsx'),
   'utf8',
 )
+const backlogDoorSource = readFileSync(
+  join(
+    process.cwd(),
+    'src/renderer/src/components/workspace/globalSurface/backlog/BacklogGlobalSurface.tsx',
+  ),
+  'utf8',
+)
 const sourcePickerSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/workspace/NewWorkspacePanel.tsx'),
   'utf8',
@@ -446,15 +455,68 @@ run('panel rows resolve the row color (highlight ▸ epic ▸ derived risk) thro
     /resolveBacklogRowColor\(item, epicMeta\?\.color \?\? null\)/,
     'row color resolves via the shared helper, factoring the epic identity colour between the manual highlight and the derived risk heat',
   )
-  assert.match(
-    backlogPanelSource,
-    /getHighlightSwatch\(stripeColor\)/,
-    'stripe classes come from utils/highlight, not duplicated hexes',
+  // Both row surfaces — the panel list and the door list — paint through the one
+  // seam, so the paint order below cannot hold in one and drift in the other.
+  for (const [surface, source] of [
+    ['panel', backlogPanelSource],
+    ['door', backlogDoorSource],
+  ] as const) {
+    assert.match(
+      source,
+      /backlogRowPaintClass\(\{ color(: \w+)?, litFill, selected \}\)/,
+      `the ${surface} list paints its rows through the shared paint-order seam, not its own ternary`,
+    )
+    assert.ok(
+      !/swatch\.bg/.test(source),
+      `the ${surface} list no longer paints the lit identity fill over the selection fill`,
+    )
+  }
+})
+
+// Paint order, measured on the helper rather than on a regex: selection owns the
+// row background, identity owns the bar and the unselected tint. This is F1 of
+// docs/reviews/design-system-conformance-ui.md — an epic-member row used to keep
+// its tint when selected, so the click left no visible mark.
+// A hand-set highlight and an epic identity hue are the same `litFill` case by
+// the time the row is painted — resolveBacklogRowColor collapses them to one
+// {color, litFill} (its own precedence test above) — so the rule below covers
+// both, and cannot be satisfied for epic rows alone.
+const purple = getHighlightSwatch('purple')
+
+run('paint order: selection outranks the identity tint on a lit row', () => {
+  const selected = backlogRowPaintClass({ color: 'purple', litFill: true, selected: true })
+  assert.match(selected, /bg-\[color:var\(--bg-selected\)\]/, 'selection owns the row background')
+  assert.ok(
+    !selected.includes(purple.bg) && !selected.includes(purple.dimBg),
+    'no identity tint survives over the selection fill',
+  )
+  assert.ok(selected.includes(purple.border), 'the 3px identity bar still renders on the selected row')
+})
+
+run('paint order: an unselected lit row keeps the full identity tint', () => {
+  const resting = backlogRowPaintClass({ color: 'purple', litFill: true, selected: false })
+  assert.ok(resting.includes(purple.dimBg), 'the epic/highlight tint reads across an unpicked row')
+  assert.ok(resting.includes(purple.border), 'the identity bar is drawn in both states')
+  assert.ok(!resting.includes('var(--bg-selected)'), 'an unselected row is never selection-painted')
+})
+
+run('paint order: derived risk heat tints the stripe alone, never the row', () => {
+  const heat = backlogRowPaintClass({ color: 'red', litFill: false, selected: false })
+  assert.ok(heat.includes(getHighlightSwatch('red').border), 'the derived heat reaches the stripe')
+  assert.ok(!heat.includes('highlight-bg'), 'an unearned fill never lights the row')
+})
+
+run('paint order: a plain row and a lit row select to the same fill', () => {
+  const fills = (value: string) => value.split(' ').filter((c) => c.startsWith('bg-') || c.includes('highlight-bg'))
+  assert.deepEqual(
+    fills(backlogRowPaintClass({ color: null, litFill: false, selected: true })),
+    fills(backlogRowPaintClass({ color: 'green', litFill: true, selected: true })),
+    'the selected step is the same magnitude whatever colour the row carries',
   )
   assert.match(
-    backlogPanelSource,
-    /litFill && swatch \? swatch\.bg/,
-    'a hand-set highlight or an epic colour (litFill) lights the full row; a derived risk color tints the stripe alone',
+    backlogRowPaintClass({ color: null, litFill: false, selected: true }),
+    /border-l-transparent/,
+    'a colourless row still reserves the bar width, so rows do not shift as colour comes and goes',
   )
 })
 
