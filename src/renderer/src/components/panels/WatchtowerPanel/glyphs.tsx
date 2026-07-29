@@ -74,8 +74,10 @@ export function CheckboxGlyph({ checked }: { checked: boolean }) {
       aria-hidden="true"
       className={[
         'inline-flex h-3 w-3 shrink-0 items-center justify-center rounded-[3px] border',
+        // Checked reads by shape — the tick either is there or is not — so the
+        // box stays on the neutral ramp and leaves the accent to the one action.
         checked
-          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
+          ? 'border-[color:var(--text-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
           : 'border-[color:var(--border-strong)] bg-transparent',
       ].join(' ')}
     >
@@ -94,11 +96,13 @@ export function RadioGlyph({ active }: { active: boolean }) {
       aria-hidden="true"
       className={[
         'inline-flex h-3 w-3 shrink-0 items-center justify-center rounded-full border',
-        active ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-strong)]',
+        // Same rule as the checkbox: the dot's presence is the state, so ring
+        // and dot both come from the ink ramp.
+        active ? 'border-[color:var(--text-strong)]' : 'border-[color:var(--border-strong)]',
       ].join(' ')}
     >
       {/* design-tokens-allow: radio-button inner fill — not a status idiom, must remain inside the radio glyph */}
-      {active ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--accent-primary)]" /> : null}
+      {active ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--text-strong)]" /> : null}
     </span>
   )
 }

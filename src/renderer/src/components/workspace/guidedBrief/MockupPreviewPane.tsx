@@ -818,7 +818,7 @@ function CommentToggle({
         inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-[11px]
         transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
         ${unavailable ? 'cursor-not-allowed text-[color:var(--text-muted)] opacity-50' : ''}
-        ${!unavailable && active ? 'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]' : ''}
+        ${!unavailable && active ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : ''}
         ${!unavailable && !active ? 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]' : ''}
       `}
     >

@@ -4069,20 +4069,16 @@ function GuidedChoiceCard({
       disabled={disabled}
       onClick={onSelect}
       className={`
-        relative flex min-h-[88px] w-full flex-col items-start gap-1.5 overflow-hidden rounded-md border p-3 text-left
+        flex min-h-[88px] w-full flex-col items-start gap-1.5 overflow-hidden rounded-md border p-3 text-left
         transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
         disabled:cursor-not-allowed disabled:opacity-55
         ${active
-          ? 'border-[color:var(--accent-primary-soft-strong)] bg-[color:var(--accent-primary-soft)]'
+          ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
           : disabled
             ? 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)]'
             : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
       `}
     >
-      <span
-        aria-hidden="true"
-        className={`absolute inset-x-0 top-0 h-[3px] ${active ? 'bg-[color:var(--accent-primary)]' : 'bg-transparent'}`}
-      />
       <span className="text-[13px] font-semibold leading-4 text-[color:var(--text-strong)]">
         {title}
       </span>

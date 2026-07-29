@@ -35,8 +35,10 @@ function CheckGlyph({ checked, mixed }: { checked: boolean; mixed?: boolean }) {
       aria-hidden="true"
       className={[
         'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border',
+        // The tick (or the dash) is the state; the box stays on the neutral
+        // ramp so the accent is left to the one action in this view.
         filled
-          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
+          ? 'border-[color:var(--text-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
           : 'border-[color:var(--border-strong)] bg-transparent',
       ].join(' ')}
     >
@@ -284,7 +286,7 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
           return (
             <li
               key={entry.key}
-              className={`-mx-2 rounded-md px-2 ${isActive ? 'bg-[color:var(--accent-primary-soft)]' : ''}`}
+              className={`-mx-2 rounded-md px-2 ${isActive ? 'bg-[color:var(--bg-selected)]' : ''}`}
             >
               <div className="flex items-center gap-3 py-2.5">
                 <button
