@@ -1,0 +1,20 @@
+[
+  "src/renderer/src/components/backlog/RosterMenu.tsx:138",
+  "src/renderer/src/components/backlog/RosterMenu.tsx:169",
+  "src/renderer/src/components/backlog/RosterMenu.tsx:189",
+  "src/renderer/src/components/panels/AgentChatView.tsx:2799",
+  "src/renderer/src/components/panels/AgentChatView.tsx:3872",
+  "src/renderer/src/components/ui/CliModelListbox.tsx:258",
+  "src/renderer/src/components/ui/WizardProgress.tsx:77",
+  "src/renderer/src/components/workspace/guidedBrief/GuidedBriefFlow.tsx:1261",
+  "src/renderer/src/components/workspace/guidedBrief/GuidedBriefFlow.tsx:1291",
+  "src/renderer/src/components/workspace/guidedBrief/GuidedBriefFlow.tsx:1300",
+  "src/renderer/src/components/workspace/guidedBrief/interviewProtocol.ts:58",
+  "src/renderer/src/components/workspace/guidedBrief/interviewProtocol.ts:58",
+  "src/renderer/src/components/workspace/guidedBrief/sessionAdapter.ts:354",
+  "src/renderer/src/components/workspace/guidedBrief/sessionAdapter.ts:354",
+  "src/renderer/src/components/workspace/newWorkspace/SprintEngineProjectPanel.tsx:190",
+  "src/renderer/src/components/workspace/newWorkspace/SprintEngineRosterPanel.tsx:499",
+  "src/renderer/src/components/workspace/newWorkspace/SprintEngineRosterPanel.tsx:530",
+  "src/renderer/src/components/workspace/newWorkspace/SprintEngineRosterTable.tsx:355"
+]
