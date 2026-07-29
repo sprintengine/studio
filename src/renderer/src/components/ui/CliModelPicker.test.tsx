@@ -138,7 +138,7 @@ async function main(): Promise<void> {
     const view: Mounted = {
       container,
       rows: () => query<HTMLElement>('[data-model-row="true"]'),
-      tabs: () => query<HTMLButtonElement>('[role="tab"]'),
+      tabs: () => query<HTMLButtonElement>('[role="radio"]'),
       search: () => query<HTMLInputElement>('input[type="search"]')[0]!,
       menuItems: () => query<HTMLButtonElement>('[data-reasoning-option="true"]'),
       click: async (element) => {
@@ -257,7 +257,7 @@ async function main(): Promise<void> {
       ['Claude Code', 'Codex'],
       'no ★ entry until something is starred',
     )
-    assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true', 'the current CLI’s rail entry is selected')
+    assert.equal(tabs[0]!.getAttribute('aria-checked'), 'true', 'the current CLI’s rail entry is selected')
     assert.equal(view.rows().length, 4, 'Claude Code’s own row plus its three models')
     await view.click(tabs[1])
     assert.equal(view.rows().length, 3, 'Codex’s own row plus its two models')
@@ -271,7 +271,7 @@ async function main(): Promise<void> {
     assert.equal(names.length, 2, 'both Codex models matched from the Claude rail')
     assert.ok(names.every((name) => name.includes('GPT')))
     assert.ok(
-      view.tabs().every((tab) => tab.getAttribute('aria-selected') === 'false'),
+      view.tabs().every((tab) => tab.getAttribute('aria-checked') === 'false'),
       'and no rail entry claims to be filtering while a query is live',
     )
     view.unmount()
@@ -413,6 +413,29 @@ async function main(): Promise<void> {
       'and the ★ filter shows exactly the starred row',
     )
     second.unmount()
+    dom.window.localStorage.clear()
+  })
+
+  await run('unstarring the last favourite from the ★ filter does not strand the list', async () => {
+    dom.window.localStorage.clear()
+    const view = mountSurface({})
+    await view.click(view.rows()[3]!.querySelector('[data-model-star="true"]'))
+    await view.click(view.tabs()[0])
+    assert.equal(view.rows().length, 1, 'the ★ filter is showing the one starred row')
+
+    await view.click(view.rows()[0]!.querySelector('[data-model-star="true"]'))
+    assert.deepEqual(
+      view.tabs().map((tab) => tab.getAttribute('aria-label')),
+      ['Claude Code', 'Codex'],
+      'the ★ entry retired with the last star',
+    )
+    assert.equal(view.tabs()[0]!.getAttribute('aria-checked'), 'true', 'and the rail fell back to the current CLI')
+    assert.equal(view.rows().length, 4, 'rather than leaving an empty list under a rail selecting nothing')
+    assert.ok(
+      view.tabs().some((tab) => tab.getAttribute('tabindex') === '0'),
+      'so the rail is still reachable by Tab',
+    )
+    view.unmount()
     dom.window.localStorage.clear()
   })
 

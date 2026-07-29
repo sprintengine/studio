@@ -182,15 +182,22 @@ export function CliModelPopoverSurface({
     [options, currentCli, effectiveModelFor],
   )
   const hasFavourites = rows.some((row) => favouriteSet.has(row.key))
+  // Unstarring the last favourite retires the starred rail entry underneath the
+  // filter that is pointing at it. Falling back to the current CLI is what stops
+  // that leaving an empty list beside a rail where nothing is selected — and,
+  // because the rail's tab stop follows the active entry, a rail Tab cannot
+  // reach either.
+  const filterIsLive = filter !== FAVOURITES_FILTER || hasFavourites
+  const activeFilter: RailFilter = filterIsLive ? filter : currentCli
   // Searching reaches across every provider — a name you can spell is faster
   // than a rail you have to pick first — so a live query suspends the filter
   // rather than intersecting with it.
   const searching = query.trim().length > 0
   const visible = searching
     ? rows.filter((row) => rowMatchesQuery(row, query))
-    : filter === FAVOURITES_FILTER
+    : activeFilter === FAVOURITES_FILTER
       ? rows.filter((row) => favouriteSet.has(row.key))
-      : rows.filter((row) => row.cli === filter)
+      : rows.filter((row) => row.cli === activeFilter)
 
   const effectiveModel = effectiveModelFor(currentCli)
   const isSelected = (row: ModelRow): boolean => {
@@ -255,7 +262,7 @@ export function CliModelPopoverSurface({
   // The rail is one tab stop with arrows moving inside it, as a tablist is.
   const onRailKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
-    const tabs = Array.from(railRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [])
+    const tabs = Array.from(railRef.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [])
     const index = tabs.indexOf(event.target as HTMLButtonElement)
     if (index < 0 || tabs.length === 0) return
     event.preventDefault()
@@ -263,6 +270,7 @@ export function CliModelPopoverSurface({
     tabs[(index + (event.key === 'ArrowDown' ? 1 : -1) + tabs.length) % tabs.length]?.focus()
   }
 
+  const reasoningWired = Boolean(onSelectReasoning && effectiveReasoningFor)
   const currentOption = options.find((option) => option.value === currentCli)
   const currentFamily = familyForModel(
     buildModelFamilies(currentOption?.modelSelection?.options),
@@ -271,7 +279,7 @@ export function CliModelPopoverSurface({
   const reasoningAxes = {
     reasoningSelection: currentOption?.reasoningSelection,
     family: currentFamily,
-    reasoningEnabled: Boolean(onSelectReasoning && effectiveReasoningFor),
+    reasoningEnabled: reasoningWired,
   }
 
   const railEntries: Array<{ key: RailFilter; label: string; glyph: React.ReactNode }> = [
@@ -290,14 +298,16 @@ export function CliModelPopoverSurface({
       glyph: <CliIcon cli={option.value} className="size-icon-sm" />,
     })),
   ]
-  const activeRail = searching ? null : filter
+  const activeRail = searching ? null : activeFilter
   const chordModifier = quickSelectModifier()
 
   return (
     <div className="flex w-[380px] max-w-[calc(100vw-2rem)]" onKeyDown={onSurfaceKeyDown}>
       <div
         ref={railRef}
-        role="tablist"
+        // A one-of-N filter, not tabs: `tablist`/`tab` promises a tabpanel this
+        // rail does not have, and a screen reader announces one.
+        role="radiogroup"
         aria-label="Provider"
         aria-orientation="vertical"
         onKeyDown={onRailKeyDown}
@@ -356,7 +366,7 @@ export function CliModelPopoverSurface({
                 tabbable={index === (selectedRowIndex < 0 ? 0 : selectedRowIndex)}
                 chord={index < QUICK_SELECT_LIMIT ? index + 1 : undefined}
                 chordModifier={chordModifier}
-                showProvider={searching || filter === FAVOURITES_FILTER}
+                showProvider={searching || activeFilter === FAVOURITES_FILTER}
                 starred={favouriteSet.has(row.key)}
                 onToggleStar={() => toggleModelFavourite(row.key)}
                 onSelect={() => choose(row)}
@@ -372,7 +382,7 @@ export function CliModelPopoverSurface({
               reasoningSelection={currentOption?.reasoningSelection}
               reasoning={effectiveReasoningFor?.(currentCli)}
               onSelectReasoning={
-                onSelectReasoning ? (reasoning) => onSelectReasoning(currentCli, reasoning) : undefined
+                reasoningWired ? (reasoning) => onSelectReasoning!(currentCli, reasoning) : undefined
               }
               family={currentFamily}
               model={effectiveModel}
@@ -404,8 +414,8 @@ function RailButton({
     <Tooltip content={label} placement="bottom">
       <button
         type="button"
-        role="tab"
-        aria-selected={selected}
+        role="radio"
+        aria-checked={selected}
         aria-controls={controls}
         aria-label={label}
         tabIndex={tabbable ? 0 : -1}
@@ -610,10 +620,11 @@ export function CliModelPickerButton({
   // still reads as its raw id rather than vanishing.
   const modelLabel = family?.label ?? model ?? selected.label
   const reasoning = effectiveReasoningFor?.(cli)
+  const reasoningWired = Boolean(onSelectReasoning && effectiveReasoningFor)
   const axisLabel = reasoningTriggerLabel({
     reasoningSelection: selected.reasoningSelection,
     family,
-    reasoningEnabled: Boolean(onSelectReasoning && effectiveReasoningFor),
+    reasoningEnabled: reasoningWired,
     reasoning,
     model,
   })
@@ -687,7 +698,7 @@ export function CliModelPickerButton({
         ariaLabel={`Reasoning for ${ariaLabel}`}
         reasoningSelection={selected.reasoningSelection}
         reasoning={reasoning}
-        onSelectReasoning={onSelectReasoning ? (next) => onSelectReasoning(cli, next) : undefined}
+        onSelectReasoning={reasoningWired ? (next) => onSelectReasoning!(cli, next) : undefined}
         family={family}
         model={model}
         onSelectModel={(next) => onSelectModel(cli, next)}

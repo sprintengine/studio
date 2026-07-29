@@ -139,6 +139,11 @@ const BASE = {
   assert.ok(chevron, 'a disclosable row renders a chevron button')
   assert.equal(chevron.getAttribute('aria-expanded'), 'false')
   assert.equal(chevron.getAttribute('aria-label'), 'Claude details')
+  assert.equal(
+    chevron.getAttribute('aria-controls'),
+    null,
+    'a closed row points at no panel — the panel is unmounted, and aria-controls must not dangle',
+  )
   assert.equal(host.querySelector('[data-testid="detail"]'), null, 'the detail is closed')
   assert.doesNotMatch(
     chevron.querySelector('svg')?.getAttribute('class') ?? '',
@@ -438,6 +443,28 @@ assert.match(settings, /refreshCliAvailability\(\{ force: true, cliRuntimes \}\)
 // The registry canvas states registry availability, not a local health probe.
 assert.match(canvas, /pluginTrust/, 'the canvas row reads the registry signing tier')
 assert.doesNotMatch(canvas, /resolveCliProviderState/, 'the canvas runs no local install probe')
+// Matched on the prop, not on any mention: the code comment beside it explains
+// why `plugin.latest` is NOT rendered, so a bare /plugin\.latest/ would trip on
+// its own rationale.
+assert.match(
+  canvas,
+  /version=\{null\}/,
+  "the marketplace row renders no version — `latest` is the registry's bundle revision, not the CLI's own version",
+)
+assert.doesNotMatch(canvas, /version=\{[^}]*plugin\.latest/, 'and the bundle revision never reaches the version slot')
+
+// A failed batch probe is one global fact, stated once, not once per row.
+assert.match(
+  settings,
+  /cliAvailabilityStatus === 'error' && cliAvailabilityError/,
+  'the settings section surfaces a failed availability probe (it was surfaced nowhere before)',
+)
+assert.match(settings, /probeError=\{null\}/, 'and the rows do not repeat it nine times')
+assert.match(
+  onboarding,
+  /probeError=\{cliAvailabilityError\}/,
+  'onboarding has no section band, so its rows keep the reason',
+)
 // Capability modules keep their existing row until their own item converts them.
 assert.match(canvas, /kind === 'cli' \?/, 'only the Agent CLIs list adopted the anatomy')
 assert.match(canvas, /<ConnectorEntryRow/, 'the modules canvas is untouched')

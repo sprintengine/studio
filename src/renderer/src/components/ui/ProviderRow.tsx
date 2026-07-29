@@ -213,7 +213,11 @@ export function ProviderRow({
                 type="button"
                 onClick={toggleExpanded}
                 aria-expanded={open}
-                aria-controls={detailId}
+                // Only while open: the panel is deliberately unmounted when
+                // closed (the per-instance forms behind it probe on mount), and
+                // aria-controls pointing at an id that is not in the document
+                // is a broken reference rather than a harmless one.
+                aria-controls={open ? detailId : undefined}
                 aria-label={`${name} details`}
                 className={`interactive rounded-[var(--radius-xs)] p-0.5 text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
               >
