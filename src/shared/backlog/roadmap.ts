@@ -656,6 +656,14 @@ export type RoadmapItemState = {
 
 const itemProjectKey = (item: RoadmapItemState): ProjectKey => item.projectKey ?? null
 
+// The graph/runtime identity of a backlog item in the universe — the SAME key a
+// lane unit, a run link and a persisted lane handle use. One definition, so a
+// member's key can never be spelled two ways (an un-normalized `ref` from one
+// caller's scan would otherwise miss a normalized handle).
+export function roadmapItemKey(item: RoadmapItemState): string {
+  return qualifiedRef(itemProjectKey(item), normalizeRef(item.ref))
+}
+
 // Validate a parsed roadmap against the known backlog universe. `items` supplies
 // dependsOn edges (keyed within each project) for cycle detection; without a
 // dependsOn axis a roadmap's lane order is linear and cannot cycle. Dangling
@@ -710,7 +718,7 @@ export function validateRoadmap(
     const units = flattenLaneUnits(lane)
     for (const unit of units) {
       for (const member of membersOf(unit)) {
-        const memberKey = qualifiedRef(itemProjectKey(member), normalizeRef(member.ref))
+        const memberKey = roadmapItemKey(member)
         if (!memberOf.has(memberKey)) memberOf.set(memberKey, unit.key)
       }
     }
@@ -1008,8 +1016,6 @@ export function nextEligible(
   }
   const resolvable = resolvableProjects ?? presentProjects
   const membersOf = epicMemberLookup(items)
-  const memberKey = (member: RoadmapItemState): string =>
-    qualifiedRef(itemProjectKey(member), normalizeRef(member.ref))
 
   // A unit's effective backlog state. An item unit reads its own state. An epic
   // unit runs as ONE sprint but is DELIVERED by its members, so its effective
@@ -1045,8 +1051,8 @@ export function nextEligible(
     // still holds the step — the lane must not advance past it.
     if (unit.kind === 'epic') {
       for (const member of membersOf(unit)) {
-        const link = runLinks.get(memberKey(member))
-        if (link?.mode === 'worktree' && link.prMerged !== true) return false
+        const memberLink = runLinks.get(roadmapItemKey(member))
+        if (memberLink?.mode === 'worktree' && memberLink.prMerged !== true) return false
       }
     }
     // Shared runs and manual/untracked items: terminal (effective) status is the

@@ -19,8 +19,8 @@ import {
   epicMemberLookup,
   flattenLaneUnits,
   nextEligible,
-  qualifiedRef,
   resolveEntryRoster,
+  roadmapItemKey,
   type EpicMemberLookup,
   type ProjectKey,
   type Roadmap,
@@ -260,9 +260,7 @@ function plannedKeysOf(lane: RoadmapLane, membersOf: EpicMemberLookup): Set<stri
   const planned = new Set<string>()
   for (const unit of flattenLaneUnits(lane)) {
     planned.add(unit.key)
-    for (const member of membersOf(unit)) {
-      planned.add(qualifiedRef(member.projectKey ?? null, member.ref))
-    }
+    for (const member of membersOf(unit)) planned.add(roadmapItemKey(member))
   }
   return planned
 }

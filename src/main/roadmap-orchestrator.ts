@@ -41,6 +41,7 @@ import {
   parseRoadmap,
   qualifiedRef,
   resolveRoadmapPermissionPreset,
+  roadmapItemKey,
   roadmapRefSlug,
   splitQualifiedRef,
   type ProjectKey,
@@ -725,17 +726,16 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     const membersOf = epicMemberLookup(entry.itemStates)
     for (const lane of entry.roadmap.lanes) {
       for (const unit of flattenLaneUnits(lane)) {
-        const members = membersOf(unit).map((member) => ({
-          projectKey: member.projectKey ?? null,
-          relativePath: member.ref,
-        }))
+        const members = membersOf(unit)
         if (unit.key === itemRef) {
           return members.length > 0
-            ? members
+            ? members.map((member) => ({ projectKey: member.projectKey ?? null, relativePath: member.ref }))
             : [{ projectKey: unit.projectKey, relativePath: unit.relativePath }]
         }
         for (const member of members) {
-          if (qualifiedRef(member.projectKey, member.relativePath) === itemRef) return [member]
+          if (roadmapItemKey(member) === itemRef) {
+            return [{ projectKey: member.projectKey ?? null, relativePath: member.ref }]
+          }
         }
       }
     }
