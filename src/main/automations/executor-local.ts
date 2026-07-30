@@ -341,7 +341,7 @@ export async function defaultCreateRunWorktree(
   const repoRoot = await resolveRepoRoot(input.workspaceRoot)
   throw new RunWorktreeUnavailableError(
     repoRoot.ok ? 'worktree_creation_failed' : 'not_a_git_repository',
-    created.message ?? 'Unable to create the automation run worktree.'
+    created.message
   )
 }
 
