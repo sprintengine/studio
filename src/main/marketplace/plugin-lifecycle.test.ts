@@ -13,7 +13,11 @@ import type { MarketplacePluginEntry, MarketplacePluginManifest } from '../../sh
 import { canonicalManifestPayload, validateMarketplacePluginManifest } from '../../shared/marketplace'
 import { canonicalManifestPayload as canonicalModulePayload, validateThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
 import type { PluginManifest, PluginMcpConfigFormat } from '../../shared/plugin-manifest'
+import { createDefinitionWriteCore } from '../automations/definition-write'
+import { allowAutomationProvider, createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
+import { AutomationsStore } from '../automations/store'
 import { createMcpConfigService, type PluginLookup } from '../mcp-config-service'
+import type { MarketplaceAutomationInstaller } from '../modules/plugin-bundle-installer'
 import { loadMainModules } from '../module-host/load-modules'
 import { classifyModuleTrust, verifyModuleSignature, type ModuleTrustContext } from '../modules/module-signature'
 import { planThirdPartyMainModules } from '../modules/third-party-main-loader'
@@ -28,6 +32,7 @@ type BundleComponents = {
   skills?: { path: string; name: string }
   module?: { path: string; id: string }
   cli?: { path: string; id: string }
+  automation?: { path: string; name: string }
 }
 
 type Signer = {
@@ -205,6 +210,15 @@ async function writeBundle(
     }, null, 2)}\n`)
   }
 
+  if (components.automation) {
+    files.set(components.automation.path, `${JSON.stringify({
+      name: components.automation.name,
+      status: 'enabled',
+      trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' } },
+      action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
+    }, null, 2)}\n`)
+  }
+
   const signed = signedPluginManifest(components, files, signer, version)
   // An unsigned bundle is the same authoring manifest with the signature
   // stripped; the download/installer decide trust from signature presence.
@@ -285,10 +299,33 @@ async function createServices(temp: string, fetcher: MarketplacePluginDownloadFe
       moduleRoot: () => moduleRoot,
       pluginRoot: () => pluginRoot,
       reloadPlugins: () => undefined,
+      installAutomationDefinition: automationInstaller(),
       receiptStorePath,
       stagingRoot: join(temp, 'staging'),
       fetcher,
     },
+  }
+}
+
+// The real automations write path against a real per-project store, so the
+// receipt and uninstall assertions below are about a definition that exists.
+function automationInstaller(): MarketplaceAutomationInstaller {
+  const registry = createBuiltInAutomationProviderRegistry()
+  const core = createDefinitionWriteCore({
+    createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
+    getTriggerProviderRegistrations: () => registry.listTriggerProviderRegistrations(),
+    getActionProviderRegistrations: () => registry.listActionProviderRegistrations(),
+    checkProviderPermission: allowAutomationProvider,
+    now: () => Date.parse('2026-07-30T12:00:00.000Z'),
+  })
+  return async (input) => {
+    const result = await core.installFromCatalogue(input.workspaceRoot, {
+      payload: input.definition,
+      sourceCatalogueId: input.sourceCatalogueId,
+      ...(input.sourcePublisher ? { sourcePublisher: input.sourcePublisher } : {}),
+    })
+    if (!result.ok) return result
+    return { ok: true, value: result.value }
   }
 }
 
@@ -775,6 +812,68 @@ async function testUpdateAndUninstallRemoveOldComponents(): Promise<void> {
   })
 }
 
+async function testAutomationInstallRecordsReceiptAndSurvivesUninstall(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const bundle = await writeBundle(temp, 'automation-plugin', {
+      skills: { path: 'skills/sweep-skill', name: 'sweep-skill' },
+      automation: { path: 'automation/automation.json', name: 'Nightly dependency sweep' },
+    }, signer, 1)
+    const folders = new Map([['automation-plugin', bundle.files]])
+    const { services, workspaceRoot, receiptStorePath } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundle.fingerprint]) }
+    )
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const installed = await lifecycle.installFromRegistry({
+      entry: bundle.entry,
+      workspaceRoot,
+      mcpSettings: { syncEnabled: false, servers: {} },
+      skillHarnesses: ['agents'],
+      automationDefaultCli: 'claude-code',
+    })
+
+    assert.equal(installed.ok, true, JSON.stringify(installed))
+    if (!installed.ok) return
+    assert.deepEqual(installed.installed.map((component) => component.kind), ['skills', 'automation'])
+
+    const definitions = await new AutomationsStore(workspaceRoot).listDefinitions()
+    assert.equal(definitions.ok, true)
+    if (!definitions.ok) return
+    assert.equal(definitions.values.length, 1)
+    const automationId = definitions.values[0].id
+
+    const receipts = JSON.parse(await readFile(receiptStorePath, 'utf8')) as {
+      plugins: Record<string, { components: Array<{ kind: string; id: string }> }>
+    }
+    const receiptComponents = receipts.plugins['registry-plugin']?.components ?? []
+    const automationReceipt = receiptComponents.find((component) => component.kind === 'automation')
+    assert.equal(
+      automationReceipt?.id,
+      automationId,
+      'the receipt carries the automation kind and the store-issued id it created'
+    )
+
+    const uninstalled = await lifecycle.uninstall({
+      pluginId: 'registry-plugin',
+      workspaceRoot,
+      skillHarnesses: ['agents'],
+    })
+    assert.equal(uninstalled.ok, true, JSON.stringify(uninstalled))
+    assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'sweep-skill')), false, 'the skill copy is removed')
+
+    // Owner ruling: an added automation is the user's. Uninstalling the plugin
+    // that shipped its starter must not silently delete a scheduled job that
+    // touches their repo.
+    const afterUninstall = await new AutomationsStore(workspaceRoot).listDefinitions()
+    assert.equal(afterUninstall.ok, true)
+    if (!afterUninstall.ok) return
+    assert.deepEqual(afterUninstall.values.map((definition) => definition.id), [automationId])
+  })
+}
+
 async function testFailedUpdateRollsBackReplacementAndKeepsReceipt(): Promise<void> {
   await withTempDir(async (temp) => {
     const signer = generateKeyPairSync('ed25519')
@@ -1185,6 +1284,7 @@ async function main(): Promise<void> {
   await testDigestMismatchedRegistryInstallDoesNotFanOut()
   await testSkillInstallFailureRollsBackResidue()
   await testUpdateAndUninstallRemoveOldComponents()
+  await testAutomationInstallRecordsReceiptAndSurvivesUninstall()
   await testFailedUpdateRollsBackReplacementAndKeepsReceipt()
   await testReceiptStoreValidationRejectsMalformedAndUnsafeState()
   await testClaudePluginRequiresTrustGrant()

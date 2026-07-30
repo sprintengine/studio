@@ -1,0 +1,22 @@
+{
+  "id": "merged-pr-seam-review-automation",
+  "displayName": "Merged-PR seam review",
+  "version": 1,
+  "defaultEnabled": false,
+  "source": "third-party",
+  "permissions": [],
+  "publisher": "Multicode Labs",
+  "category": "Code Review",
+  "summary": "Reviews the day’s merged pull requests together for the seams between them. One agent run each evening at 18:00 UTC, opening a pull request.",
+  "components": {
+    "automation": {
+      "path": "automation/automation.json",
+      "files": [
+        {
+          "path": "automation/automation.json",
+          "sha256": "f29e73a65c4ceb71a4b798140eb6aef0f02928a7245d183a58cae746a92904e3"
+        }
+      ]
+    }
+  }
+}

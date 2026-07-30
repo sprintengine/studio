@@ -15,6 +15,7 @@ import {
   WATCHTOWER_REVIEW_ACTION_KIND,
 } from './actions/switchboard'
 import {
+  RunWorktreeUnavailableError,
   createBuiltInAutomationActionProviders,
   createLocalAutomationExecutor,
   defaultCreateRunWorktree,
@@ -94,7 +95,6 @@ function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDe
     status: 'enabled',
     trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
     action: { kind: 'spawn-agent', config: { folderPath: '/repo/a', prompt: 'Review the repo.' } },
-    autonomyDefault: 'review_only',
     nextRunAt: '2026-06-17T10:00:00.000Z',
     lastRunAt: null,
     lastRunId: null,
@@ -189,8 +189,13 @@ function executorHarness(
         }
       })(),
       sleep: async () => undefined,
-      // Hermetic by default: no real `git worktree` subprocess in unit tests.
-      createRunWorktree: options.createRunWorktree ?? (async () => null),
+      // Hermetic by default: no real `git worktree` subprocess in unit tests, but
+      // the run still gets the isolation it asked for — a run that cannot get a
+      // worktree is blocked now, so "no worktree" is not a neutral default.
+      createRunWorktree: options.createRunWorktree ?? (async (input) => ({
+        worktreePath: `${input.workspaceRoot}/.multi-code/automations/worktrees/${input.runId}`,
+        branch: `automations/${input.runId}`,
+      })),
       ...(options.actionProviders ? { actionProviders: options.actionProviders } : {}),
       ...(options.isIntegrationAvailable ? { isIntegrationAvailable: options.isIntegrationAvailable } : {}),
       ...(options.resolveAgentExecutionId ? { resolveAgentExecutionId: options.resolveAgentExecutionId } : {}),
@@ -279,8 +284,10 @@ async function assertDefaultRunCreatesHostWorkspaceAndLaunchesOnBus(): Promise<v
 
   const launch = harness.requests[1]
   assert.equal(launch.kind, 'agent.launch')
-  assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /review_only/)
-  assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /Do not edit files/)
+  assert.match(
+    launch.kind === 'agent.launch' ? launch.prompt ?? '' : '',
+    /You may modify files only when the requested task requires it\./
+  )
   assert.equal(harness.workspaces.find((entry) => entry.id === 'ws-created')?.agents['agent-1']?.cliHasLaunched, true)
 }
 
@@ -349,7 +356,10 @@ async function assertDefaultRunReusesRestartRestoredHostViaRendererMode(): Promi
       }
     })(),
     sleep: async () => undefined,
-    createRunWorktree: async () => null,
+    createRunWorktree: async (input) => ({
+      worktreePath: `${input.workspaceRoot}/.multi-code/automations/worktrees/${input.runId}`,
+      branch: `automations/${input.runId}`,
+    }),
   })
   const result = await executor({
     workspaceRoot: '/repo/a',
@@ -506,7 +516,7 @@ async function assertRunWorktreeIsThreadedToLaunchAndPatch(): Promise<void> {
   })
   const result = await harness.executor({
     workspaceRoot: '/repo/a',
-    definition: definition({ autonomyDefault: 'allow_changes' }),
+    definition: definition(),
     run: run(),
     triggerPayload: { kind: 'schedule' },
   })
@@ -562,8 +572,11 @@ async function assertConnectorRunWithoutWorktreeFailsClosed(): Promise<void> {
   // rather than falling back to the workspace checkout. The connector's `.mcp.json`
   // must never be written into the user's real checkout, so no launch is delegated.
   const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
-  // Default harness createRunWorktree returns null (no git worktree available).
-  const harness = executorHarness([host])
+  const harness = executorHarness([host], {
+    createRunWorktree: async () => {
+      throw new RunWorktreeUnavailableError('not_a_git_repository', 'Choose a folder inside a Git repository.')
+    },
+  })
   const result = await harness.executor({
     workspaceRoot: '/repo/a',
     definition: definition({
@@ -573,9 +586,10 @@ async function assertConnectorRunWithoutWorktreeFailsClosed(): Promise<void> {
     triggerPayload: { kind: 'schedule' },
   })
 
-  assert.equal(result.status, 'failed')
-  assert.match(result.summary ?? '', /railway/)
-  assert.match(result.summary ?? '', /isolated worktree/)
+  assert.equal(result.status, 'blocked')
+  assert.match(result.blockedReason ?? '', /railway/)
+  assert.match(result.blockedReason ?? '', /isolated worktree/)
+  assert.match(result.blockedReason ?? '', /is not a git repository/)
   assert.deepEqual(harness.requests, [], 'connector run without a worktree never delegates a launch')
 }
 
@@ -584,8 +598,8 @@ async function assertNonConnectorRunHonorsRunInWorktreeOptOut(): Promise<void> {
   // connectorId still launches directly (no worktree, no failure) — the connector
   // branch must not have changed baseline spawn behaviour.
   const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
-  // Default harness createRunWorktree returns null; a non-connector opt-out run
-  // must launch anyway rather than fail closed.
+  // The opt-out never asks for a worktree at all, so the harness creator is not
+  // consulted: the run launches directly in the checkout, by the user's choice.
   const harness = executorHarness([host])
   const result = await harness.executor({
     workspaceRoot: '/repo/a',
@@ -619,7 +633,6 @@ async function assertDirtyWorkspaceNoLongerBlocksLaunch(): Promise<void> {
   const result = await harness.executor({
     workspaceRoot: '/repo/dirty',
     definition: definition({
-      autonomyDefault: 'allow_changes',
       action: { kind: 'spawn-agent', config: { folderPath: '/repo/dirty', prompt: 'Fix this.' } },
     }),
     run: run(),
@@ -638,7 +651,6 @@ async function assertNonGitWorkspaceNoLongerBlocksLaunch(): Promise<void> {
   const result = await harness.executor({
     workspaceRoot: folderPath,
     definition: definition({
-      autonomyDefault: 'allow_changes',
       action: { kind: 'spawn-agent', config: { folderPath, prompt: 'Fix this.' } },
     }),
     run: run(),
@@ -852,7 +864,10 @@ async function assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered(): Promise
   const launch = harness.requests[0]
   assert.equal(launch.kind, 'agent.launch')
   assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /^\/loop backlog/m)
-  assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /review_only/)
+  assert.match(
+    launch.kind === 'agent.launch' ? launch.prompt ?? '' : '',
+    /You may modify files only when the requested task requires it\./
+  )
 }
 
 async function assertFirstPartyActionsInvokeFrontDoors(): Promise<void> {

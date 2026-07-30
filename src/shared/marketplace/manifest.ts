@@ -36,6 +36,7 @@ export {
 
 export {
   MARKETPLACE_COMPONENT_KINDS,
+  marketplaceAutomationPayloadIssues,
   parseMarketplacePluginAuthoringManifest,
   parseMarketplacePluginManifest,
   validateMarketplacePluginAuthoringManifest,

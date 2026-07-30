@@ -1328,6 +1328,9 @@ async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void>
         // No MCP tool edits a definition (create + run only), so an update here
         // would mean the surface grew: refuse rather than fake a success.
         updateDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool updates definitions.' }),
+        // Nor does any MCP tool install a marketplace automation — that is the
+        // marketplace install path's door, reached from the app, not from a tool.
+        installCatalogueDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool installs catalogue automations.' }),
         runNow: async (input) => {
           ran.push(input)
           return { ok: true, value: { definition: { id: 'auto-1' }, run: { runId: 'run-1' } } as never }
@@ -1382,6 +1385,119 @@ async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void>
   }
 }
 
+// Automations spawn their agents in bypass by default (an unattended run cannot
+// answer a permission prompt), and that default is resolved in the spawn-agent
+// action. It changes nothing here: an EXTERNAL caller still gets exactly two
+// presets and cannot grant itself bypass. This pins the boundary so the default
+// is never read as permission to widen it.
+async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> {
+  const created: unknown[] = []
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      getAutomationsFrontDoor: () => ({
+        createDefinition: async (input) => {
+          created.push(input)
+          return { ok: true, value: { id: 'auto-1', name: 'Nightly' } as never }
+        },
+        updateDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool updates definitions.' }),
+        // Nor does any MCP tool install a marketplace automation — that is the
+        // marketplace install path's door, reached from the app, not from a tool.
+        installCatalogueDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool installs catalogue automations.' }),
+        runNow: async () => ({ ok: false, code: 'not_stubbed', message: 'Not exercised here.' }),
+      }),
+    })
+  )
+
+  // The advertised vocabulary is the boundary: two members, bypass_all absent,
+  // on every tool that launches an agent.
+  for (const name of ['agent.launch', 'backlog.work'] as const) {
+    const properties = tool(tools, name).inputSchema.properties as Record<string, { enum?: unknown }>
+    assert.deepEqual(
+      properties.permissionPreset?.enum,
+      ['default', 'auto_workspace'],
+      `${name} advertises exactly the two allowed presets`,
+    )
+  }
+
+  // And the refusals say what was refused and who can set it — a caller can act
+  // on the message without reading the code.
+  const launchRefusal = await tool(tools, 'agent.launch').handler({ workspaceId: 'ws-1', permissionPreset: 'bypass_all' })
+  const createRefusal = await tool(tools, 'automation.create').handler({
+    workspaceId: 'ws-1',
+    definition: {
+      name: 'Nightly',
+      trigger: { kind: 'schedule', config: { cadence: 'daily' } },
+      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass_all' } },
+    },
+  })
+  for (const [surface, refusal] of [['agent.launch', launchRefusal], ['automation.create', createRefusal]] as const) {
+    const error = (refusal.structuredContent as { error: { code: string; message: string } }).error
+    assert.equal(refusal.isError, true, `${surface} refuses bypass_all`)
+    assert.equal(error.code, 'permission_preset_not_allowed', `${surface} refuses with its own code`)
+    assert.match(error.message, /bypass_all/, `${surface} names the refused preset`)
+    assert.match(error.message, /person can set that preset/, `${surface} says who can set it instead`)
+  }
+  assert.deepEqual(created, [], 'a refused draft never reaches the create pipeline')
+
+  // Refusing the literal string is not the boundary — the boundary is the preset
+  // the run ACTUALLY gets. Omitting the key resolves to the unattended default on
+  // an agent-backed action, and the renderer fills an omitted launch preset from
+  // the user's last spawn choice (which ships as bypass_all), so both surfaces
+  // must resolve rather than read.
+  const omittedCreate = await tool(tools, 'automation.create').handler({
+    workspaceId: 'ws-1',
+    definition: {
+      name: 'Nightly',
+      trigger: { kind: 'schedule', config: { cadence: 'daily' } },
+      action: { kind: 'spawn-agent', config: { prompt: 'do it' } },
+    },
+  })
+  assert.equal(omittedCreate.isError, true, 'an agent-backed draft that names no preset is refused')
+  assert.equal(
+    (omittedCreate.structuredContent as { error: { code: string } }).error.code,
+    'permission_preset_not_allowed',
+    'omission is refused as a preset problem, not a validation problem',
+  )
+  assert.deepEqual(created, [], 'the preset-less draft never reaches the create pipeline either')
+
+  // A non-agent action has no preset to resolve and must stay creatable.
+  const webhookCreate = await tool(tools, 'automation.create').handler({
+    workspaceId: 'ws-1',
+    definition: {
+      name: 'Ping',
+      trigger: { kind: 'schedule', config: { cadence: 'daily' } },
+      action: { kind: 'http-post', config: { url: 'https://example.invalid/hook' } },
+    },
+  })
+  assert.equal(webhookCreate.isError, undefined, 'a non-agent action is unaffected by the preset gate')
+  assert.equal(created.length, 1, 'the non-agent draft reaches the create pipeline')
+
+  // An explicitly-named allowed preset still passes through verbatim.
+  for (const preset of ['default', 'auto_workspace'] as const) {
+    const allowed = await tool(tools, 'automation.create').handler({
+      workspaceId: 'ws-1',
+      definition: {
+        name: 'Nightly',
+        trigger: { kind: 'schedule', config: { cadence: 'daily' } },
+        action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: preset } },
+      },
+    })
+    assert.equal(allowed.isError, undefined, `an explicit "${preset}" automation is created`)
+  }
+
+  // agent.launch never forwards an absent preset to the renderer's own default.
+  const omittedLaunch = launchHarness()
+  const launched = await tool(omittedLaunch.tools, 'agent.launch').handler({ workspaceId: 'ws-1', prompt: 'go' })
+  assert.equal(launched.isError, undefined, JSON.stringify(launched.structuredContent))
+  const launchRequest = omittedLaunch.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  assert.equal(
+    launchRequest.permissionPreset,
+    'default',
+    'an omitted launch preset is pinned to the most restrictive allowed value, not left for the renderer to fill',
+  )
+}
+
 async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise<void> {
   const tools = createAutomationTools(
     backendsOf({
@@ -1389,13 +1505,22 @@ async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise
       getAutomationsFrontDoor: () => ({
         createDefinition: async () => ({ ok: false, code: 'workspace_root_untrusted', message: 'Folder is not an open workspace.' }),
         updateDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool updates definitions.' }),
+        // Nor does any MCP tool install a marketplace automation — that is the
+        // marketplace install path's door, reached from the app, not from a tool.
+        installCatalogueDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool installs catalogue automations.' }),
         runNow: async () => ({ ok: false, code: 'unsupported_trigger', message: 'Run now needs a schedule trigger.' }),
       }),
     })
   )
   const created = await tool(tools, 'automation.create').handler({
     workspaceId: 'ws-1',
-    definition: { name: 'X', trigger: { kind: 'schedule', config: {} }, action: { kind: 'spawn-agent', config: {} } },
+    // An explicit allowed preset, so the draft clears the preset gate and the
+    // pipeline's own failure is what surfaces.
+    definition: {
+      name: 'X',
+      trigger: { kind: 'schedule', config: {} },
+      action: { kind: 'spawn-agent', config: { permissionPreset: 'auto_workspace' } },
+    },
   })
   assert.equal((created.structuredContent as { error: { code: string } }).error.code, 'workspace_root_untrusted')
 
@@ -2601,6 +2726,7 @@ const tests = [
   testRoadmapToolsReadPlanAndSteer,
   testHorizonCreateAndConfigure,
   testAutomationMutationToolsGateOnPresetAndModule,
+  testBypassStaysRefusedAtTheExternalToolBoundary,
   testAutomationMutationToolsPassPipelineFailuresThrough,
   testSprintReadToolsAnswerFromDisk,
   testSprintCreateDelegatesAndConfirms,

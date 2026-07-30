@@ -105,4 +105,19 @@ run('the rail carries the search field and the filter glyph', () => {
   assert.ok(html.includes('aria-label="Filter automations"'), 'so does the filter control')
 })
 
+// MC-2035 — the rail carries ONE group: what this project actually runs. The
+// starter-editor prototype had a second "Starters" group from when this door was
+// a discovery alternative; discovery is ruled to the Extensions shelf, so that
+// group would duplicate it. Its absence is a decision, so it is asserted.
+run('the rail is the single "In this project" list, with no Starters group', () => {
+  const html = render()
+  assert.ok(
+    html.includes('aria-label="Automations: In this project"'),
+    'the list is named for the one group it carries',
+  )
+  assert.ok(!/Starters/i.test(html), 'no Starters group — discovery lives on the Extensions shelf')
+  // One list, not one per notional group.
+  assert.equal((html.match(/role="list"/g) ?? []).length, 1, 'exactly one list in the rail')
+})
+
 console.log('all automations rail render tests passed')

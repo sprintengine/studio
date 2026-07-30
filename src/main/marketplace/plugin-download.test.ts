@@ -28,6 +28,9 @@ const API_ROOT = 'https://api.github.com/repos/multicode-labs/marketplace/conten
 const API_MCP = 'https://api.github.com/repos/multicode-labs/marketplace/contents/plugins/downloaded-plugin/mcp?ref=main'
 const RAW_PLUGIN = 'https://raw.githubusercontent.com/multicode-labs/marketplace/main/plugins/downloaded-plugin/plugin.json'
 const RAW_MCP = 'https://raw.githubusercontent.com/multicode-labs/marketplace/main/plugins/downloaded-plugin/mcp/server.json'
+const API_AUTOMATION = 'https://api.github.com/repos/multicode-labs/marketplace/contents/plugins/downloaded-plugin/automation?ref=main'
+const RAW_AUTOMATION = 'https://raw.githubusercontent.com/multicode-labs/marketplace/main/plugins/downloaded-plugin/automation/automation.json'
+const AUTOMATION_COMPONENT_PATH = 'automation/automation.json'
 
 type BundleFixture = {
   entry: MarketplacePluginEntry
@@ -151,6 +154,45 @@ function createUnsignedFixture(overrides: {
       latest: 1,
       source: SOURCE_URL,
       provides,
+    },
+  }
+}
+
+function automationComponentSource(): string {
+  return `${JSON.stringify({
+    name: 'Nightly dependency sweep',
+    status: 'paused',
+    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' } },
+    action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
+  }, null, 2)}\n`
+}
+
+// Serves a bundle whose only component is the automation definition, so the
+// staged tree is exactly what the manifest declares.
+function createAutomationGithubFetcher(pluginJson: string, automationJson: string): MarketplacePluginDownloadFetch {
+  return async (url) => {
+    if (url === API_ROOT) {
+      return jsonResponse([
+        { type: 'file', path: 'plugins/downloaded-plugin/plugin.json', download_url: RAW_PLUGIN },
+        { type: 'dir', path: 'plugins/downloaded-plugin/automation', url: API_AUTOMATION },
+      ])
+    }
+    if (url === API_AUTOMATION) {
+      return jsonResponse([
+        { type: 'file', path: `plugins/downloaded-plugin/${AUTOMATION_COMPONENT_PATH}`, download_url: RAW_AUTOMATION },
+      ])
+    }
+    if (url === RAW_PLUGIN) return textResponse(pluginJson)
+    if (url === RAW_AUTOMATION) return textResponse(automationJson)
+    return new Response('not found', { status: 404 })
+  }
+}
+
+function automationComponents(automationJson: string): Record<string, unknown> {
+  return {
+    automation: {
+      path: AUTOMATION_COMPONENT_PATH,
+      files: [{ path: AUTOMATION_COMPONENT_PATH, sha256: sha256Hex(automationJson) }],
     },
   }
 }
@@ -459,6 +501,87 @@ async function testUnsignedCodeBearingBundleRejectedAndRemovesStage(): Promise<v
     if (result.ok) return
     assert.equal(result.classification, 'unsigned')
     assert.match(result.message, /unsigned/i)
+    assert.deepEqual(await readdir(stagingRoot), [])
+  })
+}
+
+async function testUnsignedAutomationOnlyBundleStagesAsUnsigned(): Promise<void> {
+  await withTempDir(async (dir) => {
+    // An automation is a declarative definition, not code: it joins mcp/skills
+    // on the may-stage-unsigned side of the trust split.
+    const automationJson = automationComponentSource()
+    const fixture = createUnsignedFixture({
+      provides: ['automation'],
+      components: automationComponents(automationJson),
+    })
+    const fetcher = createAutomationGithubFetcher(`${JSON.stringify(fixture.manifest, null, 2)}\n`, automationJson)
+
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: { trustedModules: new Map() },
+      stagingRoot: join(dir, 'staging'),
+      fetcher,
+    })
+
+    assert.equal(result.ok, true, result.ok ? '' : result.message)
+    if (!result.ok) return
+    assert.equal(result.classification, 'unsigned')
+    assert.equal(result.loadEligible, false)
+    assert.equal(existsSync(join(result.stagedBundlePath, 'automation', 'automation.json')), true)
+  })
+}
+
+async function testUnsignedAutomationWithCodeComponentRejected(): Promise<void> {
+  await withTempDir(async (dir) => {
+    // The regression that matters: adding an automation must not become a way
+    // to smuggle an unsigned code-bearing component past the gate.
+    const automationJson = automationComponentSource()
+    const fixture = createUnsignedFixture({
+      provides: ['automation', 'module'],
+      components: { ...automationComponents(automationJson), module: { path: 'module' } },
+    })
+    const fetcher = createAutomationGithubFetcher(`${JSON.stringify(fixture.manifest, null, 2)}\n`, automationJson)
+    const stagingRoot = join(dir, 'staging')
+
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: { trustedModules: new Map() },
+      stagingRoot,
+      fetcher,
+    })
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.classification, 'unsigned')
+    assert.match(result.message, /unsigned/i)
+    assert.deepEqual(await readdir(stagingRoot), [])
+  })
+}
+
+async function testAutomationPayloadThatIsNotADefinitionRejected(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const automationJson = `${JSON.stringify({ name: 'No trigger, no action' }, null, 2)}\n`
+    const fixture = createUnsignedFixture({
+      provides: ['automation'],
+      components: automationComponents(automationJson),
+    })
+    const fetcher = createAutomationGithubFetcher(`${JSON.stringify(fixture.manifest, null, 2)}\n`, automationJson)
+    const stagingRoot = join(dir, 'staging')
+
+    const result = await downloadMarketplacePluginBundle({
+      entry: fixture.entry,
+      trustContext: { trustedModules: new Map() },
+      stagingRoot,
+      fetcher,
+    })
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.classification, 'invalid')
+    assert.deepEqual(
+      result.issues?.map((issue) => issue.path),
+      ['components.automation.trigger', 'components.automation.action']
+    )
     assert.deepEqual(await readdir(stagingRoot), [])
   })
 }
@@ -883,6 +1006,9 @@ async function main(): Promise<void> {
   await testTamperedPluginSignatureBlocksAndRemovesStage()
   await testUnsignedMcpOnlyBundleStagesAsUnsigned()
   await testUnsignedCodeBearingBundleRejectedAndRemovesStage()
+  await testUnsignedAutomationOnlyBundleStagesAsUnsigned()
+  await testUnsignedAutomationWithCodeComponentRejected()
+  await testAutomationPayloadThatIsNotADefinitionRejected()
   await testUnsignedBundleUnderSignedRegistryEntryRejected()
   await testRejectsNonHttpsSourceBeforeFetch()
   await testRejectsNonAllowlistedSourceHostBeforeFetch()

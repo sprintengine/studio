@@ -213,7 +213,6 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
               branch: input.branch,
               title: input.title,
               body: input.body,
-              autonomy: input.autonomy,
             }),
           removeRunWorktree: defaultRemoveRunWorktree,
           disposeRunAgent: (input) =>

@@ -1,0 +1,21 @@
+{
+  "name": "Duplication review",
+  "status": "enabled",
+  "trigger": {
+    "kind": "schedule",
+    "config": {
+      "kind": "schedule",
+      "timezone": "UTC",
+      "cadence": {
+        "type": "daily",
+        "timeLocal": "02:30"
+      }
+    }
+  },
+  "action": {
+    "kind": "spawn-agent",
+    "config": {
+      "prompt": "Find places where the same logic is written more than twice and an abstraction would genuinely pay for itself.\n\nDo not extract on similarity of shape alone — the duplicates must change together, for the same reason. Premature abstraction costs more than the duplication it removes.\n\nFor each candidate, write up the call sites, the abstraction you would introduce, and the argument against introducing it. Open a pull request containing the write-up only; do not refactor.\n\nWrite the write-up to reports/duplication-review-<today's date, YYYY-MM-DD>.md. That file is the only change this run may leave behind: no code edits, no test edits, no reformatting, no other files. If nothing you found earns an abstraction, say so in the file — a short honest report is the right output, and a manufactured one is worse than none."
+    }
+  }
+}

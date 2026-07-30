@@ -26,6 +26,7 @@ export const COMPONENT_KIND_LABEL: Record<MarketplaceComponentKind, string> = {
   skills: 'Skill pack',
   module: 'Module',
   cli: 'Agent CLI',
+  automation: 'Automation',
 }
 
 export function componentKindLabels(provides: MarketplaceComponentKind[]): string[] {

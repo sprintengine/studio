@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import type { AutomationDefinition } from '../../shared/automations/contracts'
 import { runGitCommand } from '../git-utils'
 
 const execFileAsync = promisify(execFile)
@@ -16,10 +15,7 @@ const execFileAsync = promisify(execFile)
 
 export type AutomationPullRequestResult =
   | { ok: true; url: string; created: boolean }
-  // `withheldChanges` marks the review_only safeguard: a non-empty working diff
-  // was found and deliberately not staged/committed/pushed (vs an ordinary
-  // "could not link a PR" reason like a missing `gh`).
-  | { ok: false; reason: string; withheldChanges?: boolean }
+  | { ok: false; reason: string }
 
 export type CommandResult = { ok: boolean; stdout: string; stderr: string }
 
@@ -33,13 +29,6 @@ export type OpenAutomationRunPullRequestInput = {
   branch: string
   title: string
   body: string
-  /**
-   * Run autonomy mode. `review_only` runs must never publish unexpected writes:
-   * a non-empty working diff is refused (not staged/committed/pushed) instead of
-   * being backstop-committed. A review_only agent writes nothing at all, so a
-   * clean review_only run has an empty working diff and still finalizes.
-   */
-  autonomy: AutomationDefinition['autonomyDefault']
   /** Backstop commit message used when the agent left uncommitted work. */
   commitMessage?: string
 }
@@ -55,18 +44,10 @@ export async function openAutomationRunPullRequest(
   if (!status.ok) return { ok: false, reason: commandReason('read git status', status) }
   const hasWorkingDiff = status.stdout.trim().length > 0
 
-  // review_only safeguard: a review_only run is not expected to change code, so a
-  // non-empty working diff is an anomaly. Refuse to stage/commit/push it and surface it,
-  // independent of the CLI permission preset — the guard holds even if the preset
-  // is misconfigured to permit writes.
-  if (input.autonomy === 'review_only' && hasWorkingDiff) {
-    return {
-      ok: false,
-      reason: 'review_only run left unexpected uncommitted changes; they were not staged, committed, or pushed.',
-      withheldChanges: true,
-    }
-  }
-
+  // Every run may backstop-commit its diff: a working diff on the run's own
+  // branch is the expected output, not an anomaly. The containment is the
+  // per-run worktree, the per-run branch, and a pull request nothing merges
+  // automatically — not a mode that told the agent to write nothing.
   if (hasWorkingDiff) {
     const add = await deps.runGit(worktreePath, ['add', '-A'])
     if (!add.ok) return { ok: false, reason: commandReason('stage changes', add) }

@@ -10,6 +10,7 @@ import type {
   AutomationsEngineRunSummary,
   AutomationsProjectFolder,
 } from './engine'
+import { completeAutomationRun as completeRun } from './run-record'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
 
 export const TRIGGER_EVENT_DEDUP_RETENTION_LIMIT = 100
@@ -179,21 +180,6 @@ function runRecord(
     automationId: input.definition.id,
     dueAt,
     ...fields,
-  }
-}
-
-function completeRun(run: AutomationRun, patch: Partial<AutomationRun>, completedAt: string): AutomationRun {
-  return {
-    ...run,
-    status: patch.status ?? 'completed',
-    completedAt,
-    blockedReason: patch.blockedReason,
-    workspaceId: patch.workspaceId,
-    agentId: patch.agentId,
-    promptFingerprint: patch.promptFingerprint,
-    touchedFiles: patch.touchedFiles,
-    commandsRan: patch.commandsRan,
-    summary: patch.summary,
   }
 }
 

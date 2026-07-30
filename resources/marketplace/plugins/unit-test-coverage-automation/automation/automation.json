@@ -1,0 +1,21 @@
+{
+  "name": "Unit test coverage",
+  "status": "enabled",
+  "trigger": {
+    "kind": "schedule",
+    "config": {
+      "kind": "schedule",
+      "timezone": "UTC",
+      "cadence": {
+        "type": "daily",
+        "timeLocal": "03:00"
+      }
+    }
+  },
+  "action": {
+    "kind": "spawn-agent",
+    "config": {
+      "prompt": "Find the code paths in this repository with the weakest test coverage and the highest cost of being wrong, and write unit tests for them.\n\nTest observable behaviour, not implementation detail. Do not change production code except where a test proves a bug — file that separately rather than fixing it here.\n\nOpen a pull request with the new tests.\n\nBound the run: cover at most five production files, chosen for the highest cost of being wrong, and leave the rest for tomorrow. Run every test you write and keep only the ones that pass against the code as it stands. Write reports/unit-test-coverage-<today's date, YYYY-MM-DD>.md naming what you covered, what you deliberately left for the next run, and any bug a test exposed — that file is where a bug gets filed, not the production code."
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "dead-code-sweep-automation",
+  "displayName": "Dead code sweep",
+  "version": 1,
+  "defaultEnabled": false,
+  "source": "third-party",
+  "permissions": [],
+  "publisher": "Multicode Labs",
+  "category": "Code Quality",
+  "summary": "Deletes code nothing reaches, with the evidence for each removal. One agent run nightly at 02:00 UTC, opening a pull request.",
+  "components": {
+    "automation": {
+      "path": "automation/automation.json",
+      "files": [
+        {
+          "path": "automation/automation.json",
+          "sha256": "dba528e6c4cd8ed87373881be805ed2265618ab8faa37c471f09b58e7821a836"
+        }
+      ]
+    }
+  }
+}

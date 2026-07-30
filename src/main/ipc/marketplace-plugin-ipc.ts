@@ -17,12 +17,12 @@ import { defaultMarketplacePluginStagingRoot, type MarketplaceInstallLog } from 
 import { createMarketplacePluginVerifier } from '../marketplace/plugin-verify'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
 import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/trusted-publishers'
-import { createMarketplacePluginInstaller } from '../modules/plugin-bundle-installer'
+import { createMarketplacePluginInstaller, type MarketplaceAutomationInstaller } from '../modules/plugin-bundle-installer'
 import { readTrustedModulesSync } from '../modules/trust-store'
 
 export function registerMarketplacePluginIpc(
   ipcMain: IpcMain,
-  services: Pick<AppServices, 'mcpConfigService'>
+  services: Pick<AppServices, 'mcpConfigService' | 'getAutomationsAppFrontDoor'>
 ): void {
   const trustContext = () => ({
     trustedModules: readTrustedModulesSync(app.getPath('userData')),
@@ -42,9 +42,23 @@ export function registerMarketplacePluginIpc(
       ...(details ? { details } : {}),
     }).catch(() => undefined)
   }
+  // An automation component installs through the Automations module's own front
+  // door — the app's single write path for definitions. The module registers
+  // after app services are built and can be switched off, so it is resolved at
+  // call time and its absence is an explicit failure, never a silent skip.
+  const installAutomationDefinition: MarketplaceAutomationInstaller = async (input) => {
+    const frontDoor = services.getAutomationsAppFrontDoor()
+    if (!frontDoor) {
+      return { ok: false, code: 'automations_unavailable', message: 'The Automations module is not running.' }
+    }
+    const result = await frontDoor.installCatalogueDefinition(input)
+    if (!result.ok) return result
+    return { ok: true, value: { definition: result.value.definition, alreadyAdded: result.value.alreadyAdded } }
+  }
   const installPlugin = createMarketplacePluginInstaller({
     mcpConfigService: services.mcpConfigService,
     trustContext,
+    installAutomationDefinition,
   })
   const verifier = createMarketplacePluginVerifier({
     trustContext,
@@ -54,6 +68,7 @@ export function registerMarketplacePluginIpc(
   const lifecycle = createMarketplacePluginLifecycleService({
     mcpConfigService: services.mcpConfigService,
     trustContext,
+    installAutomationDefinition,
     receiptStorePath: defaultMarketplacePluginInstallStorePath(app.getPath('userData')),
     stagingRoot: defaultMarketplacePluginStagingRoot(app.getPath('userData')),
     resolveSkillHarnesses: () => resolveInstalledSkillHarnesses(),

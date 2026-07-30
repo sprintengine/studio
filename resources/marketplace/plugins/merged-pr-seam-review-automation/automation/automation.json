@@ -1,0 +1,21 @@
+{
+  "name": "Merged-PR seam review",
+  "status": "enabled",
+  "trigger": {
+    "kind": "schedule",
+    "config": {
+      "kind": "schedule",
+      "timezone": "UTC",
+      "cadence": {
+        "type": "daily",
+        "timeLocal": "18:00"
+      }
+    }
+  },
+  "action": {
+    "kind": "spawn-agent",
+    "config": {
+      "prompt": "List the pull requests merged into the default branch in the last 24 hours. These were built independently and reviewed separately.\n\nReview them together for the seams between them: duplicated concepts introduced under different names, contradictory assumptions about shared state, interfaces one changed and another still consumes, and behaviour that is correct per-PR but wrong in combination.\n\nOpen a pull request with the findings; fix only what is unambiguous.\n\nRead the merged list with `gh pr list --state merged --limit 50 --json number,title,mergedAt,url`, and fall back to `git log --merges --since=\"24 hours ago\"` on the default branch when `gh` is missing or not authenticated. Write the findings to reports/merged-pr-seam-review-<today's date, YYYY-MM-DD>.md. If neither route can read the merge history, write that file saying exactly which one failed and how, and review nothing — substituting some other review and reporting it as this one is the failure this job exists to avoid. If the history reads and nothing merged in the window, say that instead."
+    }
+  }
+}

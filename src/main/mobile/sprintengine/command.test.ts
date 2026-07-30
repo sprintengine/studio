@@ -312,7 +312,6 @@ async function assertAutomationsControlSurfacesABlockedProviderHonestly(): Promi
     status: 'blocked',
     trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
     action: { kind: 'acme.unregistered-action', config: {} },
-    autonomyDefault: 'review_only',
     nextRunAt: null,
     lastRunAt: null,
     lastRunId: null,
@@ -482,7 +481,6 @@ async function automationsFixture(): Promise<{
             config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'interval', everyMinutes: 10 } },
           },
           action: { kind: 'spawn-agent', config: { prompt: 'Review this workspace.' } },
-          autonomyDefault: 'review_only',
           ...overrides,
         },
       })

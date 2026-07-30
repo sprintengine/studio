@@ -284,7 +284,6 @@ function automationDefinition(id: string, status: 'enabled' | 'paused'): Automat
     // carries no wall-clock — the whole projection is content-only.
     trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' } },
     action: { kind: 'agent-run', config: { prompt: 'sweep' } },
-    autonomyDefault: 'review_only',
     nextRunAt: null,
     lastRunAt: generatedAtA,
     lastRunId: null,

@@ -203,7 +203,23 @@ const bundlesAndPlugins = picked
   )
 const projection = toMarketplaceIndex(bundlesAndPlugins, { inlineIcons: true })
 
+// Repo-authored first-party entries ride through (MC-2036: the nightly
+// automation starters). They are hand-written here, not projected from the
+// snapshot, so a regenerate that only wrote the projection would delete them —
+// silently, inside a diff too large to notice it in. An entry qualifies when it
+// owns a committed plugins/<id>/ bundle AND the projection did not emit it: the
+// snapshot-owned signed bundles keep coming from the projection, so nothing is
+// carried twice.
 const marketplacePath = path.join(repoRoot, 'resources', 'marketplace', 'marketplace.json')
+const projectedIds = new Set(projection.index.plugins.map((plugin) => plugin.id))
+const carried = existsSync(marketplacePath)
+  ? (JSON.parse(readFileSync(marketplacePath, 'utf8')).plugins ?? []).filter(
+      (plugin) =>
+        !projectedIds.has(plugin.id) &&
+        existsSync(path.join(repoRoot, 'resources', 'marketplace', 'plugins', plugin.id, 'plugin.json'))
+    )
+  : []
+projection.index.plugins = [...projection.index.plugins, ...carried]
 writeFileSync(marketplacePath, `${JSON.stringify(projection.index, null, 2)}\n`, 'utf8')
 
 // --- resources/marketplace/skills/<id>/: bundled skill payloads -------------
@@ -252,6 +268,7 @@ console.log(
     `dropped by policy: ${dropped} unlisted official-registry entries (full-index search stays a hosted-registry feature)`,
     `catalog.json: ${servers.length} servers (${servers.filter((s) => s.skill).length} with launch skills)`,
     `marketplace.json: ${projection.index.plugins.length} plugins (${projection.skipped.length} skipped: ${projection.skipped.map((s) => `${s.id} — ${s.reason}`).join('; ') || 'none'})`,
+    `repo-authored entries carried through: ${carried.length}${carried.length > 0 ? ` (${carried.map((plugin) => plugin.id).join(', ')})` : ''}`,
     `skill payloads: ${payloadFiles} files, ${(payloadBytes / (1024 * 1024)).toFixed(1)} MB across ${payloadPlugins} plugins under resources/marketplace/skills (${metadataOnlySkills} skills metadata-only — no bundled content)`,
   ].join('\n')
 )

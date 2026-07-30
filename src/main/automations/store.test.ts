@@ -13,6 +13,7 @@ void main().catch((error) => {
 
 async function main(): Promise<void> {
   await assertDefinitionRoundTrip()
+  await assertLegacyAutonomyDefinitionLoadsAndIsNotWrittenBack()
   await assertRunHistoryIsBounded()
   await assertRunExecutionIdRoundTrip()
   await assertMalformedDefinitionFailsClosed()
@@ -44,7 +45,6 @@ function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDe
       kind: 'spawn-agent',
       config: { prompt: 'Review the repository.' },
     },
-    autonomyDefault: 'review_only',
     nextRunAt: '2026-06-18T01:00:00.000Z',
     lastRunAt: null,
     lastRunId: null,
@@ -120,6 +120,42 @@ async function assertDefinitionRoundTrip(): Promise<void> {
   const afterDelete = await store.listDefinitions()
   assert.equal(afterDelete.ok, true)
   assert.deepEqual(afterDelete.ok && afterDelete.values, [])
+}
+
+async function assertLegacyAutonomyDefinitionLoadsAndIsNotWrittenBack(): Promise<void> {
+  // A definition written before autonomy was retired is still on users' disks.
+  // It must load (the parse was strict, and a required-field check would have
+  // bricked it the other way round), and a load → edit → save round trip must
+  // not carry the dead key back into the file. `review_only` is translated on
+  // read into the runtime-only marker the launch prompt reads — that marker is
+  // not persisted either, so the round trip drops the intent along with the key.
+  const workspaceRoot = await createWorkspace()
+  const definitionsDirectory = join(workspaceRoot, '.multi-code', 'automations', 'definitions')
+  await mkdir(definitionsDirectory, { recursive: true })
+  const path = join(definitionsDirectory, 'nightly-review.json')
+  await writeFile(path, JSON.stringify({ ...definition(), autonomyDefault: 'review_only' }, null, 2), 'utf8')
+
+  const store = new AutomationsStore(workspaceRoot)
+  const loaded = await store.getDefinition('nightly-review')
+  assert.equal(loaded.ok, true, 'a legacy definition still loads')
+  if (!loaded.ok) return
+  assert.deepEqual(
+    loaded.value,
+    { ...definition(), legacyWriteUpOnly: true },
+    'the retired key is dropped on read and its review-only intent kept as the runtime marker'
+  )
+
+  const saved = await store.updateDefinition({ ...loaded.value, name: 'Renamed', updatedAt: '2026-06-17T12:05:00.000Z' })
+  assert.equal(saved.ok, true)
+  assert.equal(
+    saved.ok && Object.hasOwn(saved.value, 'legacyWriteUpOnly'),
+    false,
+    'the saved record is the one that reached disk: no marker'
+  )
+  const onDisk = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
+  assert.equal(Object.hasOwn(onDisk, 'autonomyDefault'), false, 'saving does not write the retired key back')
+  assert.equal(Object.hasOwn(onDisk, 'legacyWriteUpOnly'), false, 'nor the marker derived from it')
+  assert.equal(onDisk.name, 'Renamed', 'the edit itself persisted')
 }
 
 async function assertRunHistoryIsBounded(): Promise<void> {
