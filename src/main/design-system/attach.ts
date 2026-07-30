@@ -11,7 +11,7 @@ import type {
   DesignSystemAttachSource,
 } from '../../shared/design-system/attach'
 import { findEscapingSymlink } from './bundle-copy-confinement'
-import { readDesignSystemLibraryEntry } from './library-registry'
+import { readDesignSystemLibraryEntry, type LibraryPaths } from './library-registry'
 
 // Attach materializes a library bundle into a consuming workspace at
 // <workspace>/design-system/ — a one-time copy exactly like knowledge/brand/,
@@ -41,17 +41,27 @@ interface ResolvedAttachSource {
 
 async function resolveAttachSource(
   source: DesignSystemAttachSource,
-  libraryRoot: string,
+  libraryPaths: LibraryPaths,
 ): Promise<ResolvedAttachSource | { failure: DesignSystemAttachResult & { ok: false } }> {
   if (source.kind === 'library') {
-    const read = await readDesignSystemLibraryEntry(libraryRoot, source.name, source.version)
+    // A library entry is now a REGISTERED PATH, addressed by id: two cloned
+    // repos can hold the same name@version, which the old `<name>/<version>`
+    // addressing could not express. Attach still COPIES what it finds there —
+    // pointing at a folder is how the library learns a system exists; attaching
+    // is how a project gets one, and agents read it out of the repo they work in.
+    const read = await readDesignSystemLibraryEntry(libraryPaths, source.id)
     if (!read.ok) {
       return { failure: { ok: false, stage: 'source', message: read.message } }
     }
     return {
       dir: read.entry.path,
       manifest: read.manifest,
-      libraryCoords: { name: source.name, version: source.version },
+      // Provenance is stamped only when the source really has both coordinates;
+      // a registered folder whose manifest we could read always does.
+      libraryCoords:
+        read.entry.name && read.entry.version
+          ? { name: read.entry.name, version: read.entry.version }
+          : null,
     }
   }
 
@@ -95,9 +105,9 @@ async function resolveAttachSource(
 export async function attachDesignSystemBundle(
   source: DesignSystemAttachSource,
   workspaceRoot: string,
-  libraryRoot: string,
+  libraryPaths: LibraryPaths,
 ): Promise<DesignSystemAttachResult> {
-  const resolved = await resolveAttachSource(source, libraryRoot)
+  const resolved = await resolveAttachSource(source, libraryPaths)
   if ('failure' in resolved) return resolved.failure
   const { dir: sourceDir, manifest, libraryCoords } = resolved
 

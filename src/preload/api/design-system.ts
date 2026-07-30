@@ -8,6 +8,7 @@ import type { DesignSystemBundleReadResult } from '../../shared/design-system/bu
 import type {
   DesignSystemLibraryListResult,
   DesignSystemLibraryReadResult,
+  DesignSystemRegisterResult,
 } from '../../shared/design-system/library'
 import type {
   DesignSystemAttachResult,
@@ -31,8 +32,12 @@ export const designSystemApi = {
     ipcRenderer.invoke('design-system:read-bundle', bundleDir),
   listDesignSystemLibrary: (): Promise<DesignSystemLibraryListResult> =>
     ipcRenderer.invoke('design-system:library-list'),
-  readDesignSystemLibraryEntry: (name: string, version: string): Promise<DesignSystemLibraryReadResult> =>
-    ipcRenderer.invoke('design-system:library-read', name, version),
+  readDesignSystemLibraryEntry: (id: string): Promise<DesignSystemLibraryReadResult> =>
+    ipcRenderer.invoke('design-system:library-read', id),
+  registerDesignSystemFolder: (folderPath: string): Promise<DesignSystemRegisterResult> =>
+    ipcRenderer.invoke('design-system:library-register', folderPath),
+  forgetDesignSystemFolder: (id: string): Promise<{ ok: true; forgotten: boolean }> =>
+    ipcRenderer.invoke('design-system:library-forget', id),
   attachDesignSystemBundle: (
     source: DesignSystemAttachSource,
     workspaceRoot: string,
@@ -47,5 +52,7 @@ export const designSystemApi = {
   | 'readDesignSystemBundle'
   | 'listDesignSystemLibrary'
   | 'readDesignSystemLibraryEntry'
+  | 'registerDesignSystemFolder'
+  | 'forgetDesignSystemFolder'
   | 'attachDesignSystemBundle'
 >

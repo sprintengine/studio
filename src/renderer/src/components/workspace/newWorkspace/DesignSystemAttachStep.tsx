@@ -63,7 +63,7 @@ export type DesignSystemAttachStepProps = {
 
 function sourceKey(source: DesignSystemAttachSource | null): string {
   if (!source) return 'none'
-  return source.kind === 'library' ? `library:${source.name}@${source.version}` : `folder:${source.path}`
+  return source.kind === 'library' ? `library:${source.id}` : `folder:${source.path}`
 }
 
 // A selection made before the conflict pre-check trips is stale: attach would
@@ -90,7 +90,14 @@ export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: D
       .listDesignSystemLibrary()
       .then((result) => {
         if (cancelled) return
-        setLibrary({ kind: 'ready', entries: result.entries, rejectedCount: result.rejected.length })
+        // Only folders we can actually read are offerable: attaching from a
+        // folder that has moved would fail at the copy with a worse message.
+        // A broken registration is the Design door's to surface and repair.
+        setLibrary({
+          kind: 'ready',
+          entries: result.entries.filter((entry) => entry.sourceState === 'ok'),
+          rejectedCount: result.entries.filter((entry) => entry.sourceState !== 'ok').length,
+        })
       })
       .catch((error) => {
         if (cancelled) return
@@ -165,16 +172,12 @@ export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: D
         ) : null}
         {library.kind === 'ready' && library.entries.length === 0 ? (
           <p className="px-1 text-meta leading-5 text-[color:var(--text-subtle)]">
-            No releases in your library yet — release one from a Design system studio, or browse to a bundle folder below.
+            No design systems in your library yet — point the Design door at a bundle folder, or browse to one below.
           </p>
         ) : null}
         {library.kind === 'ready'
           ? library.entries.map((entry) => {
-              const source: DesignSystemAttachSource = {
-                kind: 'library',
-                name: entry.name,
-                version: entry.version,
-              }
+              const source: DesignSystemAttachSource = { kind: 'library', id: entry.id }
               return (
                 <AttachChoiceRow
                   key={sourceKey(source)}

@@ -31,6 +31,32 @@ export interface DesignRailEntry {
   identity: DesignSystemBundleIdentity | null
   /** Why this row cannot be read, when it cannot be. */
   failure: DesignSystemBundleReadFailure | null
+  /**
+   * The library registration id, for rows the registry owns.
+   *
+   * Absent on the attached in-project bundle: that folder is a copy inside the
+   * workspace, not something the user pointed at, so there is nothing to forget.
+   */
+  registrationId?: string
+  /**
+   * Name and version last read, kept by the registry so a folder that has gone
+   * missing still shows what it used to be rather than going blank.
+   */
+  cachedName?: string | null
+  cachedVersion?: string | null
+}
+
+/**
+ * Map the registry's probe result onto the reader's failure vocabulary.
+ *
+ * They are deliberately the same four states: the registry probes cheaply while
+ * listing, the reader confirms on open, and a row must not change WHICH kind of
+ * broken it is between the two.
+ */
+export function sourceStateFailure(
+  state: 'ok' | 'missing' | 'no-manifest' | 'invalid-manifest' | 'unreadable',
+): DesignSystemBundleReadFailure | null {
+  return state === 'ok' ? null : state
 }
 
 export const DESIGN_RAIL_GROUP_LABELS: Record<DesignRailGroupKey, string> = {
@@ -59,8 +85,10 @@ export function libraryRowId(bundlePath: string): string {
  */
 export function designRowStateLine(entry: DesignRailEntry): string {
   if (entry.failure) return designFailureLine(entry.failure, entry.path)
-  if (!entry.identity) return 'Reading…'
-  return entry.identity.version
+  if (entry.identity) return entry.identity.version
+  // Registered and not yet read: show the version the registry cached rather
+  // than a bare "Reading…" that loses the row's identity mid-refresh.
+  return entry.cachedVersion ?? 'Reading…'
 }
 
 export function designFailureLine(
@@ -82,7 +110,9 @@ export function designFailureLine(
 /** The title a row shows: the bundle's own name, falling back to its folder. */
 export function designRowTitle(entry: DesignRailEntry): string {
   if (entry.identity) return entry.identity.name
-  return basenameOf(entry.path)
+  // The registry's cached name keeps a missing folder recognisable; the folder
+  // name is the last resort so a row is never untitled.
+  return entry.cachedName ?? basenameOf(entry.path)
 }
 
 function basenameOf(path: string): string {
@@ -102,6 +132,7 @@ export function designRowMatchesSearch(entry: DesignRailEntry, query: string): b
   const needle = query.trim().toLowerCase()
   if (!needle) return true
   if (entry.path.toLowerCase().includes(needle)) return true
+  if (entry.cachedName?.toLowerCase().includes(needle)) return true
   const identity = entry.identity
   if (!identity) return false
   return (

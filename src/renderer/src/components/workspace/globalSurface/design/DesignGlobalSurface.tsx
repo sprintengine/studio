@@ -8,16 +8,18 @@ import type {
   DesignSystemBundleReadFailure,
 } from '../../../../../../shared/design-system/bundle-view'
 import type { DesignSystemBundleView } from '../../../../../../shared/design-system/bundle-view'
-import { PrimaryButton } from '../../../ui'
+import { GhostButton, PrimaryButton } from '../../../ui'
 import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
 import { SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
+import type { DesignSystemLibraryEntry } from '../../../../../../shared/design-system/library'
 import { DesignCanvas } from './DesignCanvas'
 import { DesignRail } from './DesignRail'
 import {
   designFailureLine,
   libraryRowId,
   projectRowId,
+  sourceStateFailure,
   type DesignRailEntry,
   type DesignRailStatusFilter,
 } from './designRailState'
@@ -45,17 +47,6 @@ interface BundleRead {
   failure: DesignSystemBundleReadFailure | null
 }
 
-/**
- * Folders pointed at during this window's session.
- *
- * Item 2004 replaces this with the persisted registry at
- * `~/.multicode/design-systems.json`; until it lands, pointing at a folder
- * genuinely opens and renders it, and says so honestly by not surviving a
- * restart rather than by pretending to save. Module-scoped, like the Sprints
- * door's rail selection: view state for the life of the window.
- */
-let sessionBundlePaths: string[] = []
-
 export default function DesignGlobalSurface(): JSX.Element {
   const back = useSurfaceBackNav()
   const scheme = useResolvedColorScheme()
@@ -73,7 +64,10 @@ export default function DesignGlobalSurface(): JSX.Element {
     ? pathJoin(activeWorkspace.folderPath, ATTACHED_BUNDLE_DIRECTORY)
     : null
 
-  const [libraryPaths, setLibraryPaths] = useState<string[]>(() => [...sessionBundlePaths])
+  // The persisted registry (item 2004): every folder the user has pointed at,
+  // with the source state the main process probed for it. Ids are stable across
+  // sessions, so a selection survives a reload.
+  const [registered, setRegistered] = useState<DesignSystemLibraryEntry[]>([])
   const [reads, setReads] = useState<Record<string, BundleRead>>({})
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -104,8 +98,7 @@ export default function DesignGlobalSurface(): JSX.Element {
     try {
       const result = await window.api.listDesignSystemLibrary()
       if (!mounted.current) return
-      const paths = [...new Set([...result.entries.map((entry) => entry.path), ...sessionBundlePaths])]
-      setLibraryPaths(paths)
+      setRegistered(result.entries)
       setLoadState('ready')
     } catch (error) {
       if (!mounted.current) return
@@ -122,10 +115,15 @@ export default function DesignGlobalSurface(): JSX.Element {
   // reader is the only thing that knows the bundle layout — the renderer never
   // walks a bundle directory itself.
   const knownPaths = useMemo(() => {
-    const paths = [...libraryPaths]
+    // Only folders the registry says are readable are worth a full read; a
+    // broken one already carries its state from the probe, and re-reading it
+    // would just repeat the same failure on every render.
+    const paths = registered
+      .filter((entry) => entry.sourceState === 'ok')
+      .map((entry) => entry.path)
     if (projectBundlePath) paths.unshift(projectBundlePath)
     return [...new Set(paths)]
-  }, [libraryPaths, projectBundlePath])
+  }, [registered, projectBundlePath])
 
   useEffect(() => {
     let cancelled = false
@@ -166,19 +164,25 @@ export default function DesignGlobalSurface(): JSX.Element {
         failure: read?.failure ?? null,
       })
     }
-    for (const path of libraryPaths) {
-      if (path === projectBundlePath) continue
-      const read = reads[path]
+    for (const entry of registered) {
+      if (entry.path === projectBundlePath) continue
+      const read = reads[entry.path]
       rows.push({
-        id: libraryRowId(path),
+        id: libraryRowId(entry.path),
         group: 'library',
-        path,
+        path: entry.path,
+        // A registration id, so a broken row can still be re-pointed or forgotten.
+        registrationId: entry.id,
         identity: read?.identity ?? null,
-        failure: read?.failure ?? null,
+        // The registry's probe is authoritative for a broken folder; a live read
+        // refines it for a readable one.
+        failure: read?.failure ?? sourceStateFailure(entry.sourceState),
+        cachedName: entry.name,
+        cachedVersion: entry.version,
       })
     }
     return rows
-  }, [projectBundlePath, activeWorkspace, projectHasBundle, libraryPaths, reads])
+  }, [projectBundlePath, activeWorkspace, projectHasBundle, registered, reads])
 
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.id === selectedId) ?? null,
@@ -235,28 +239,71 @@ export default function DesignGlobalSurface(): JSX.Element {
     setPointError(null)
     const picked = await window.api.openDir()
     if (!picked || !mounted.current) {
-      // Cancelling leaves nothing behind — including the selection, which
-      // returns to the rail rather than stranding the canvas on a create screen.
+      // Cancelling leaves nothing behind — nothing on disk, nothing in the
+      // registry, and the selection returns to the rail rather than stranding
+      // the canvas on a create screen.
       setNewSelected(false)
       return
     }
-    const result = await window.api.readDesignSystemBundle(picked)
+    // Registering a REFERENCE: no copy is made anywhere, and the folder stays
+    // exactly where the user's repo put it.
+    const result = await window.api.registerDesignSystemFolder(picked)
     if (!mounted.current) return
     if (!result.ok) {
       // A folder that is not a design system is an explicit refusal naming the
       // path, never a row quietly added and then shown as broken.
-      setPointError(designFailureLine(result.reason, result.path))
+      setPointError(result.message)
       return
     }
-    sessionBundlePaths = [...new Set([...sessionBundlePaths, picked])]
-    setReads((previous) => ({
-      ...previous,
-      [picked]: { identity: result.view.identity, view: result.view, failure: null },
-    }))
-    setLibraryPaths((previous) => [...new Set([...previous, picked])])
+    const read = await window.api.readDesignSystemBundle(result.entry.path)
+    if (!mounted.current) return
+    if (read.ok) {
+      setReads((previous) => ({
+        ...previous,
+        [result.entry.path]: { identity: read.view.identity, view: read.view, failure: null },
+      }))
+    }
+    setRegistered((previous) => {
+      const others = previous.filter((entry) => entry.id !== result.entry.id)
+      return [...others, result.entry]
+    })
     setNewSelected(false)
-    setSelectedId(libraryRowId(picked))
+    setSelectedId(libraryRowId(result.entry.path))
   }, [])
+
+  /**
+   * Re-point a broken registration at wherever the folder went.
+   *
+   * Implemented as forget-then-register rather than an in-place path edit: the
+   * id IS the path, so a moved folder is genuinely a different registration, and
+   * pretending otherwise would leave the id lying about where it points.
+   */
+  const repointEntry = useCallback(async (entry: DesignRailEntry) => {
+    const picked = await window.api.openDir()
+    if (!picked || !mounted.current) return
+    const result = await window.api.registerDesignSystemFolder(picked)
+    if (!mounted.current) return
+    if (!result.ok) {
+      setPointError(result.message)
+      return
+    }
+    if (entry.registrationId) await window.api.forgetDesignSystemFolder(entry.registrationId)
+    if (!mounted.current) return
+    await loadLibrary()
+    if (!mounted.current) return
+    setSelectedId(libraryRowId(result.entry.path))
+  }, [loadLibrary])
+
+  /**
+   * Forget a registration: the reference goes, the user's folder does not.
+   */
+  const forgetEntry = useCallback(async (entry: DesignRailEntry) => {
+    if (!entry.registrationId) return
+    await window.api.forgetDesignSystemFolder(entry.registrationId)
+    if (!mounted.current) return
+    setSelectedId(null)
+    await loadLibrary()
+  }, [loadLibrary])
 
   const rail = (
     <DesignRail
@@ -306,6 +353,8 @@ export default function DesignGlobalSurface(): JSX.Element {
         onCloseComponent={() => setOpenComponent(null)}
         onReloadBundle={() => selectedEntry && void reloadBundle(selectedEntry.path)}
         reloadingBundle={reloadingPath !== null}
+        onRepoint={() => selectedEntry && void repointEntry(selectedEntry)}
+        onForget={() => selectedEntry && void forgetEntry(selectedEntry)}
         pointError={pointError}
         onPointAtFolder={() => void pointAtFolder()}
       />
@@ -330,6 +379,8 @@ function DesignSurfaceBody({
   onCloseComponent,
   onReloadBundle,
   reloadingBundle,
+  onRepoint,
+  onForget,
   pointError,
   onPointAtFolder,
 }: {
@@ -345,6 +396,8 @@ function DesignSurfaceBody({
   onCloseComponent: () => void
   onReloadBundle: () => void
   reloadingBundle: boolean
+  onRepoint: () => void
+  onForget: () => void
   pointError: string | null
   onPointAtFolder: () => void
 }): JSX.Element {
@@ -393,14 +446,26 @@ function DesignSurfaceBody({
     )
   }
   if (selectedEntry.failure) {
+    // A broken row keeps its place in the rail and says which way it is broken,
+    // with the registered path visible. The two repairs live HERE, where the row
+    // is selected: point the library at wherever the folder went, or drop the
+    // reference. Neither touches the user's files.
     return (
       <SurfaceCanvasState
         kind="error"
-        title="This design system could not be read."
-        hint="It may have moved, been renamed, or lost its manifest."
+        title={brokenTitle(selectedEntry.failure)}
+        hint={brokenHint(selectedEntry.failure)}
         detail={designFailureLine(selectedEntry.failure, selectedEntry.path)}
         onRetry={onRetry}
         retryLabel="Read it again"
+        extraAction={
+          selectedEntry.registrationId ? (
+            <>
+              <GhostButton onClick={onRepoint}>Re-point…</GhostButton>
+              <GhostButton onClick={onForget}>Forget</GhostButton>
+            </>
+          ) : undefined
+        }
       />
     )
   }
@@ -420,6 +485,33 @@ function DesignSurfaceBody({
       reloading={reloadingBundle}
     />
   )
+}
+
+/** Each broken state says what happened in the user's terms, not the reader's. */
+function brokenTitle(failure: DesignSystemBundleReadFailure): string {
+  switch (failure) {
+    case 'missing':
+      return 'That folder is no longer there.'
+    case 'no-manifest':
+      return 'That folder is not a design system.'
+    case 'invalid-manifest':
+      return 'This design system’s manifest could not be read.'
+    case 'unreadable':
+      return 'This folder could not be opened.'
+  }
+}
+
+function brokenHint(failure: DesignSystemBundleReadFailure): string {
+  switch (failure) {
+    case 'missing':
+      return 'It may have moved or been renamed. Point the library at its new location, or forget it.'
+    case 'no-manifest':
+      return 'A design system is a folder holding design-system.json.'
+    case 'invalid-manifest':
+      return 'The folder is there, but its design-system.json does not parse.'
+    case 'unreadable':
+      return 'Check the folder’s permissions, or forget it.'
+  }
 }
 
 function DesignGlyph(): JSX.Element {

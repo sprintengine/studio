@@ -11,17 +11,19 @@ import { regenerateBundleDerivedFiles, type BundleScriptFork } from './derived-f
 import {
   listDesignSystemLibrary,
   readDesignSystemLibraryEntry,
+  registerDesignSystemFolder,
+  type LibraryPaths,
 } from './library-registry'
 
 // Layer 1 of the Design Wizard verification harness (MC-1506): the whole
 // design-system pipeline a real designer run rides, minus the agent. It scaffolds
 // the bundle skeleton from the shipped templates, overlays the known-good example
 // bundle's authored sources as if an agent had written them, then walks
-// lint -> derived-file regeneration -> library read-back against the real
-// production functions. Runs offline with no agent CLI: a green run proves
-// scaffold, schema, lint, derived files, and library reading still compose end
-// to end. The app-local release pipeline this used to walk was removed
-// 2026-07-30, so the library is staged by copy — which is what import does.
+// lint -> derived-file regeneration -> register -> library read-back against the
+// real production functions. Runs offline with no agent CLI: a green run proves
+// scaffold, schema, lint, derived files, and the library still compose end to
+// end. The app-local release pipeline this used to walk was removed 2026-07-30;
+// the library is a registry of paths, so the bundle is pointed at where it is.
 //
 // Deliberately NOT here (see backlog/2026-07-07-wizard-verification-harness.md):
 // driving a live agent (nondeterministic, needs subscription auth on runners).
@@ -90,7 +92,7 @@ async function scaffoldBundle(prefix: string, name: string): Promise<{ workspace
   return { workspace, bundleDir: result.bundleDir }
 }
 
-run('round-trip: scaffold -> overlay -> lint -> derive -> library read-back', async () => {
+run('round-trip: scaffold -> overlay -> lint -> derive -> register -> read back', async () => {
   const { workspace, bundleDir } = await scaffoldBundle('ds-rt-happy-', 'wizard-roundtrip')
   const root = mkdtempSync(join(tmpdir(), 'ds-rt-lib-'))
   try {
@@ -132,28 +134,28 @@ run('round-trip: scaffold -> overlay -> lint -> derive -> library read-back', as
     const catalog = readFileSync(join(bundleDir, 'catalog', 'index.html'), 'utf8')
     assert.ok(catalog.includes('ds-embed-component-button'), 'catalog embeds the overlaid button component')
 
-    // Stage the finished bundle into a library root the way an import does —
-    // a plain copy, since nothing in the app writes the library any more — and
-    // read it back through the production reader.
-    const entryDir = join(root, 'wizard-roundtrip', '1.0.0')
-    mkdirSync(join(root, 'wizard-roundtrip'), { recursive: true })
-    cpSync(bundleDir, entryDir, { recursive: true })
-    const staged = parseDesignSystemManifest(readFileSync(join(entryDir, 'design-system.json'), 'utf8'))
-    staged.version = '1.0.0'
-    writeFileSync(join(entryDir, 'design-system.json'), `${JSON.stringify(staged, null, 2)}\n`)
+    // Point the library at the finished bundle WHERE IT IS — the library is a
+    // registry of paths now (item 2004), so nothing is copied — and read it back
+    // through the production reader.
+    const libraryPaths: LibraryPaths = {
+      registryPath: join(root, 'design-systems.json'),
+      legacyRoot: join(root, 'design-systems'),
+    }
+    const registered = await registerDesignSystemFolder(libraryPaths, bundleDir)
+    assert.equal(registered.ok, true, registered.ok ? '' : registered.message)
+    if (!registered.ok) return
+    assert.equal(registered.entry.path, bundleDir, 'registered in place, not copied')
 
-    const readBack = await readDesignSystemLibraryEntry(root, 'wizard-roundtrip', '1.0.0')
+    const readBack = await readDesignSystemLibraryEntry(libraryPaths, registered.entry.id)
     assert.equal(readBack.ok, true, readBack.ok ? '' : readBack.message)
     if (readBack.ok) {
       assert.equal(readBack.manifest.name, 'wizard-roundtrip')
-      assert.equal(readBack.manifest.version, '1.0.0')
     }
-    const listed = await listDesignSystemLibrary(root)
-    assert.deepEqual(listed.rejected, [])
+    const listed = await listDesignSystemLibrary(libraryPaths)
     assert.deepEqual(
-      listed.entries.map((entry) => entry.version),
-      ['1.0.0'],
-      'library lists the staged bundle',
+      listed.entries.map((entry) => entry.path),
+      [bundleDir],
+      'the library lists the bundle where the author left it',
     )
   } finally {
     rmSync(workspace, { recursive: true, force: true })

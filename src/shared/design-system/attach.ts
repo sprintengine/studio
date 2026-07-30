@@ -11,7 +11,9 @@
  * escape hatch (validated as a bundle before anything is copied).
  */
 export type DesignSystemAttachSource =
-  | { kind: 'library'; name: string; version: string }
+  /** A folder registered in the library, addressed by its registration id. */
+  | { kind: 'library'; id: string }
+  /** Any folder on disk, addressed directly (the new-workspace browse row). */
   | { kind: 'folder'; path: string }
 
 /**

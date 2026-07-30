@@ -203,6 +203,7 @@ import type { DesignSystemBundleReadResult } from './design-system/bundle-view'
 import type {
   DesignSystemLibraryListResult,
   DesignSystemLibraryReadResult,
+  DesignSystemRegisterResult,
 } from './design-system/library'
 import type {
   DesignSystemAttachResult,
@@ -3176,10 +3177,14 @@ export type ElectronApi = {
   lintDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleLintRunResult>
   /** Read one design-system bundle directory for the Design door: identity, accent resolved from the token SOURCE, and the parsed manifest. Read-only — never writes, never forks a bundle script. */
   readDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleReadResult>
-  /** List design systems in the user-global library (name, version, summary per entry). */
+  /** List the library: every registered folder, probed live for its source state. */
   listDesignSystemLibrary: () => Promise<DesignSystemLibraryListResult>
-  /** Read one design system's manifest from the user-global library. */
-  readDesignSystemLibraryEntry: (name: string, version: string) => Promise<DesignSystemLibraryReadResult>
+  /** Read one registered design system by its registration id. */
+  readDesignSystemLibraryEntry: (id: string) => Promise<DesignSystemLibraryReadResult>
+  /** Point the library at a folder on disk. Registers a reference — copies nothing. */
+  registerDesignSystemFolder: (folderPath: string) => Promise<DesignSystemRegisterResult>
+  /** Drop a registration. Removes the reference only; the user's folder is untouched. */
+  forgetDesignSystemFolder: (id: string) => Promise<{ ok: true; forgotten: boolean }>
   /** Attach a design-system bundle (library entry or browsed folder) to a workspace as a one-time copy at design-system/, provenance stamped. Refuses if design-system/ already exists. */
   attachDesignSystemBundle: (source: DesignSystemAttachSource, workspaceRoot: string) => Promise<DesignSystemAttachResult>
   /** List installed third-party capability modules with trust, permissions, and launch readiness. */

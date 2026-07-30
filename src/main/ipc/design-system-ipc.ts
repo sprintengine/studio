@@ -17,21 +17,29 @@ import { resolveDesignSystemBrandDemoSeedDir } from '../design-system/brand-demo
 import { runDesignSystemBundleLint } from '../design-system/bundle-lint-run'
 import {
   defaultDesignSystemLibraryRoot,
+  defaultDesignSystemRegistryPath,
+  forgetDesignSystemFolder,
   listDesignSystemLibrary,
   readDesignSystemLibraryEntry,
+  registerDesignSystemFolder,
+  type LibraryPaths,
 } from '../design-system/library-registry'
 import { attachDesignSystemBundle } from '../design-system/attach'
 import { readDesignSystemBundle } from '../design-system/bundle-read'
 
+/** The two paths the library needs: its registry file, and the legacy copy root. */
+function libraryPaths(): LibraryPaths {
+  return {
+    registryPath: defaultDesignSystemRegistryPath(),
+    legacyRoot: defaultDesignSystemLibraryRoot(),
+  }
+}
+
 function parseAttachSource(value: unknown): DesignSystemAttachSource | null {
   if (typeof value !== 'object' || value === null) return null
   const source = value as Record<string, unknown>
-  if (
-    source.kind === 'library' &&
-    typeof source.name === 'string' &&
-    typeof source.version === 'string'
-  ) {
-    return { kind: 'library', name: source.name, version: source.version }
+  if (source.kind === 'library' && typeof source.id === 'string' && source.id.trim().length > 0) {
+    return { kind: 'library', id: source.id }
   }
   if (source.kind === 'folder' && typeof source.path === 'string' && source.path.trim().length > 0) {
     return { kind: 'folder', path: source.path }
@@ -94,20 +102,27 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
     (_event, bundleDir: unknown): Promise<DesignSystemBundleReadResult> =>
       readDesignSystemBundle(typeof bundleDir === 'string' ? bundleDir : ''),
   )
-  // Library list/read: bundles under ~/.multicode/design-systems/<name>/<version>/
-  // (library-registry.ts). Read-only — the app-local release pipeline that used
-  // to write them was removed 2026-07-30.
-  ipcMain.handle('design-system:library-list', () =>
-    listDesignSystemLibrary(defaultDesignSystemLibraryRoot()),
-  )
+  // The library: a REGISTRY OF PATHS the user pointed at (item 2004), read live.
+  // Nothing here copies a bundle, and nothing writes inside a registered folder.
+  ipcMain.handle('design-system:library-list', () => listDesignSystemLibrary(libraryPaths()))
   ipcMain.handle(
     'design-system:library-read',
-    (_event, name: unknown, version: unknown): Promise<DesignSystemLibraryReadResult> => {
-      if (typeof name !== 'string' || typeof version !== 'string') {
-        return Promise.resolve({ ok: false, message: 'A design-system name and version are required.' })
+    (_event, id: unknown): Promise<DesignSystemLibraryReadResult> => {
+      if (typeof id !== 'string' || id.trim().length === 0) {
+        return Promise.resolve({
+          ok: false,
+          message: 'No design system id provided.',
+          sourceState: 'missing',
+        })
       }
-      return readDesignSystemLibraryEntry(defaultDesignSystemLibraryRoot(), name, version)
+      return readDesignSystemLibraryEntry(libraryPaths(), id)
     },
+  )
+  ipcMain.handle('design-system:library-register', (_event, folderPath: unknown) =>
+    registerDesignSystemFolder(libraryPaths(), typeof folderPath === 'string' ? folderPath : ''),
+  )
+  ipcMain.handle('design-system:library-forget', (_event, id: unknown) =>
+    forgetDesignSystemFolder(libraryPaths(), typeof id === 'string' ? id : ''),
   )
   // Attach: one-time copy of a bundle (library entry or browsed
   // folder) into a consuming workspace at design-system/, provenance stamped
@@ -126,7 +141,7 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
       if (typeof workspaceRoot !== 'string' || workspaceRoot.trim().length === 0) {
         return Promise.resolve({ ok: false, stage: 'request', message: 'No workspace root provided.' })
       }
-      return attachDesignSystemBundle(parsedSource, workspaceRoot, defaultDesignSystemLibraryRoot())
+      return attachDesignSystemBundle(parsedSource, workspaceRoot, libraryPaths())
     },
   )
 }
