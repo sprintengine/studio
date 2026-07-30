@@ -11,9 +11,10 @@ import type { AutomationDefinition } from '../../shared/automations/contracts'
 import type { MarketplacePluginInstallInput, McpClientTarget, McpSettings } from '../../shared/electron-api'
 import { canonicalManifestPayload, validateMarketplacePluginManifest } from '../../shared/marketplace'
 import type { PluginManifest, PluginMcpConfigFormat } from '../../shared/plugin-manifest'
-import { createDefinitionWriteCore } from '../automations/definition-write'
-import { allowAutomationProvider, createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
+import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
+import { createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
 import { AutomationsStore } from '../automations/store'
+import { registerAutomationsIpc } from '../ipc/automations-ipc'
 import { createMcpConfigService, type PluginLookup } from '../mcp-config-service'
 import { installMarketplacePlugin, type MarketplaceAutomationInstaller } from './plugin-bundle-installer'
 
@@ -253,26 +254,37 @@ async function createBundle(
   return bundle
 }
 
-// The real automations write path, wired to a real per-project store — the
-// installer's automation arm is only worth testing against the thing it must
-// actually create.
-function automationInstaller(): MarketplaceAutomationInstaller {
+// The real automations app front door over a real per-project store — the same
+// object `marketplace-plugin-ipc.ts` resolves, reached the same way, so the
+// installer's automation arm is tested against the path it actually uses rather
+// than a stand-in that could disagree with it about the input shape.
+function automationInstaller(workspaceRoot: string): MarketplaceAutomationInstaller {
   const registry = createBuiltInAutomationProviderRegistry()
-  const core = createDefinitionWriteCore({
-    createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
-    getTriggerProviderRegistrations: () => registry.listTriggerProviderRegistrations(),
-    getActionProviderRegistrations: () => registry.listActionProviderRegistrations(),
-    checkProviderPermission: allowAutomationProvider,
-    now: () => Date.parse('2026-07-30T12:00:00.000Z'),
-  })
+  const frontDoor = registerAutomationsIpc(
+    { registerIpc: () => undefined },
+    {
+      engine: {
+        runNow: async () => ({ ok: false as const, problem: { code: 'not_stubbed', message: 'Installing never runs an automation.' } }),
+        finalizeRun: async () => ({ ok: false as const, problem: { code: 'not_stubbed', message: 'Installing never finalizes a run.' } }),
+      },
+      triggerProviders: registry.listTriggerProviders(),
+      actionProviders: registry.listActionProviders(),
+      getWorkspaceSyncSnapshot: () => ({
+        sequence: 1,
+        state: {
+          activeWorkspaceId: 'ws-1',
+          primaryWorkspaceWindowId: 'primary',
+          workspaceWindows: [],
+          workspaces: [{ id: 'ws-1', folderPath: workspaceRoot }],
+        },
+      } as unknown as WorkspaceSyncSnapshot),
+      now: () => Date.parse('2026-07-30T12:00:00.000Z'),
+    }
+  )
   return async (input) => {
-    const result = await core.installFromCatalogue(input.workspaceRoot, {
-      payload: input.payload,
-      sourceCatalogueId: input.sourceCatalogueId,
-      ...(input.sourcePublisher ? { sourcePublisher: input.sourcePublisher } : {}),
-    })
+    const result = await frontDoor.installCatalogueDefinition(input)
     if (!result.ok) return result
-    return { ok: true, value: result.value }
+    return { ok: true, value: { definition: result.value.definition, alreadyAdded: result.value.alreadyAdded } }
   }
 }
 
@@ -309,7 +321,7 @@ async function installInput(temp: string, bundle: string, options: {
   })
   const mcpSettings: McpSettings = { syncEnabled: false, servers: {} }
   const automationDefaultCli = options.automationDefaultCli === null ? undefined : options.automationDefaultCli ?? 'claude-code'
-  const installAutomationDefinition = options.automations === null ? undefined : options.automations ?? automationInstaller()
+  const installAutomationDefinition = options.automations === null ? undefined : options.automations ?? automationInstaller(workspaceRoot)
   return {
     input: {
       localFolder: bundle,

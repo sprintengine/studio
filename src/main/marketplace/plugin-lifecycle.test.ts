@@ -320,7 +320,7 @@ function automationInstaller(): MarketplaceAutomationInstaller {
   })
   return async (input) => {
     const result = await core.installFromCatalogue(input.workspaceRoot, {
-      payload: input.payload,
+      payload: input.definition,
       sourceCatalogueId: input.sourceCatalogueId,
       ...(input.sourcePublisher ? { sourcePublisher: input.sourcePublisher } : {}),
     })

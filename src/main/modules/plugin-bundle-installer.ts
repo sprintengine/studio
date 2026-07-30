@@ -52,7 +52,8 @@ type ComponentPath = { kind: MarketplaceComponentKind; path: string }
  */
 export type MarketplaceAutomationInstaller = (input: {
   workspaceRoot: string
-  payload: unknown
+  /** The bundle's automation payload, verbatim; the front door owns parsing it. */
+  definition: unknown
   sourceCatalogueId: string
   sourcePublisher?: string
 }) => Promise<AutomationsResult<{ definition: AutomationDefinition; alreadyAdded: boolean }>>
@@ -398,7 +399,7 @@ async function installAutomationComponent(
 
   const result = await services.installAutomationDefinition({
     workspaceRoot,
-    payload: component.payload,
+    definition: component.payload,
     sourceCatalogueId: component.catalogueId,
     ...(component.publisher ? { sourcePublisher: component.publisher } : {}),
   })
