@@ -116,6 +116,76 @@ const BASE = {
 }
 
 // ---------------------------------------------------------------------------
+// Selection: the face drives a pane beside the row, and it is a real tab stop
+// ---------------------------------------------------------------------------
+{
+  let selected = 0
+  let acted = 0
+  const { host, root, render } = mount(
+    <ProviderRow
+      {...BASE}
+      health="neutral"
+      onSelect={() => {
+        selected += 1
+      }}
+      actions={
+        <button type="button" onClick={() => { acted += 1 }}>
+          Get
+        </button>
+      }
+    />,
+  )
+  const face = host.querySelector('button[aria-label="Show details for Claude"]') as HTMLButtonElement
+  assert.ok(face, 'the mark and text become one button, so the pane opens by keyboard as well as by mouse')
+  assert.equal(face.getAttribute('aria-expanded'), 'false', 'the face states whether its pane is open')
+
+  act(() => face.click())
+  assert.equal(selected, 1, 'clicking the face selects the row')
+  assert.equal(acted, 0, 'and does not fire the row action')
+
+  const action = [...host.querySelectorAll('button')].find((node) => node.textContent === 'Get') as HTMLButtonElement
+  assert.notEqual(action, face, 'the action keeps its own tab stop rather than nesting inside the face')
+  act(() => action.click())
+  assert.equal(acted, 1, 'the action fires on its own')
+  assert.equal(selected, 1, 'and does not also re-select the row')
+
+  // A selectable face is actionable, so it earns the hover fill and its dot
+  // tracks that fill instead of haloing on it.
+  const rowBox = host.firstElementChild?.firstElementChild as HTMLElement
+  assert.match(rowBox.className, /hover:bg-\[color:var\(--bg-hover\)\]/)
+  const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]') as HTMLElement
+  assert.match(dot.className, /group-hover:shadow-\[0_0_0_2px_var\(--bg-hover\)\]/)
+
+  render(
+    <ProviderRow {...BASE} health="good" selected onSelect={() => {}} stateLine="Added — Daily at 02:00" />,
+  )
+  const selectedFace = host.querySelector('button[aria-label="Show details for Claude"]') as HTMLButtonElement
+  assert.equal(selectedFace.getAttribute('aria-expanded'), 'true', 'selection is announced, not only painted')
+  assert.match(
+    (host.firstElementChild?.firstElementChild as HTMLElement).className,
+    /bg-\[color:var\(--bg-selected\)\]/,
+    'tier 1 selection is a neutral fill — no accent, no border',
+  )
+  unmount(root, host)
+}
+
+// A disclosable row keeps its single chevron tab stop: it cannot also be a
+// selection face, because a row cannot both expand in place and drive a pane.
+{
+  const { host, root } = mount(
+    <ProviderRow {...BASE} health="neutral" expanded={false} onExpandedChange={() => {}} onSelect={() => {}}>
+      <div>detail</div>
+    </ProviderRow>,
+  )
+  assert.equal(
+    host.querySelector('button[aria-label="Show details for Claude"]'),
+    null,
+    'disclosure wins: no second face button appears',
+  )
+  unmount(root, host)
+}
+
+// ---------------------------------------------------------------------------
 // Disclosure: expands in place, flips the chevron, collapse restores
 // ---------------------------------------------------------------------------
 {

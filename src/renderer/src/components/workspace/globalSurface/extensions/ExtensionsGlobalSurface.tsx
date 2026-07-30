@@ -10,9 +10,12 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
+import type { AutomationDefinition } from '../../../../../../shared/automations/contracts'
 import type { WorkspaceSkill } from '../../../../../../shared/electron-api'
 import type { AgentComposerConnector } from '../../agentComposer/AgentComposer'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
+import { automationsDoorTarget } from '../../../automations/runTarget'
+import { dispatchAutomationSurfaceTarget } from '../automations/automationSurfaceTarget'
 import { AutomationServerSettings } from '../../../settings/AutomationServerSettings'
 import {
   ConnectorsBrowseCanvas,
@@ -44,10 +47,12 @@ import {
 // the canvas's facet — selecting a row sets the facet, and changing the facet
 // tab moves the rail highlight — so the rail and the facet tabs can never
 // contradict each other. Skills owns its own sources and their nested rail;
-// Modules and Agent CLIs (MC-1847 C2) are kind canvases over the registry.
+// Automations, Modules and Agent CLIs are kind canvases over the registry
+// (MC-1847 C2, MC-2034).
 type ExtensionsSection =
   | 'marketplace'
   | 'skills'
+  | 'automations'
   | 'modules'
   | 'agent-clis'
   | 'installed'
@@ -59,6 +64,12 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     (s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId)?.folderPath ?? null,
   )
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
+  const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
+  // The CLI an agent-backed automation falls back to when its own config names
+  // none. Only app settings hold it and the shelf's canvas is store-free, so the
+  // door reads it and hands it down — an install that needs it and cannot get it
+  // is refused rather than creating a job that fails at 02:00.
+  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
   const sources = useConnectorSources(activeWorkspaceRoot)
 
   const [section, setSection] = useState<ExtensionsSection>('marketplace')
@@ -107,6 +118,19 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     getExtensionsSurfaceHost()?.onUseSkillInNewAgent(skill)
   }, [])
 
+  // An automation already in this project is opened where it is configured, not
+  // here: leave this door and land the Automations door on that automation. The
+  // deep-link seam is the one automations already use (a run notification's
+  // Open), with no run to focus — the surface selects the automation and the
+  // empty run id focuses nothing.
+  const openAutomation = useCallback(
+    (definition: AutomationDefinition) => {
+      dispatchAutomationSurfaceTarget(automationsDoorTarget(definition.id, '', activeWorkspaceRoot))
+      openGlobalSurface('automations')
+    },
+    [activeWorkspaceRoot, openGlobalSurface],
+  )
+
   // ── Counts for the bar + rail state lines (honest per source state) ────────
   const catalog = sources.catalogLoad.status === 'ready' ? sources.catalogLoad.data : []
   const plugins = sources.registryLoad.status === 'ready' ? sources.registryLoad.data : []
@@ -128,6 +152,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     () => buildConnectorEntries(catalog, plugins, sources.installedServerIds).length,
     [catalog, plugins, sources.installedServerIds],
   )
+  const automationCount = useMemo(() => registryEntriesForKinds(plugins, ['automation']).length, [plugins])
   const moduleCount = useMemo(() => registryEntriesForKinds(plugins, ['module']).length, [plugins])
   const cliCount = useMemo(() => registryEntriesForKinds(plugins, ['cli']).length, [plugins])
   const installedCount = sources.installedServerIds.size
@@ -182,6 +207,14 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
           title: 'Skills',
           stateLine: skillsStateLine,
           icon: <SkillsGlyph />,
+        },
+        // Order follows MARKETPLACE_COMPONENT_KINDS, so the shelf reads in the
+        // same order the kind set is declared in.
+        {
+          id: 'automations',
+          title: 'Automations',
+          stateLine: registryStateLine(automationCount),
+          icon: <AutomationGlyph />,
         },
         {
           id: 'modules',
@@ -286,6 +319,16 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
             onConfigureGitHubToken={() => openSettingsOverlay({ initialTab: 'github' })}
           />
         )
+      case 'automations':
+        return (
+          <ExtensionKindCanvas
+            kind="automation"
+            sources={sources}
+            workspaceRoot={activeWorkspaceRoot}
+            automationDefaultCli={lastSelectedCli}
+            onOpenAutomation={openAutomation}
+          />
+        )
       case 'modules':
         return <ExtensionKindCanvas kind="module" sources={sources} workspaceRoot={activeWorkspaceRoot} />
       case 'agent-clis':
@@ -380,6 +423,25 @@ function SkillsGlyph(): JSX.Element {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  )
+}
+
+// A clock hand sweeping into a branch: a job that fires on a schedule and lands
+// on its own branch. Distinct from the automation-server glyph's plain clock,
+// which is a listening endpoint rather than a scheduled job.
+function AutomationGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-muted)]" aria-hidden="true">
+      <path
+        d="M4 2.8v4.4a2 2 0 0 0 2 2h5.2M11.8 2.8v10.4"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="4" cy="2.8" r="1.3" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="11.8" cy="13.2" r="1.3" stroke="currentColor" strokeWidth="1.3" />
     </svg>
   )
 }
