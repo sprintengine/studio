@@ -28,14 +28,9 @@ import { Popover, Tooltip } from '../ui'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { TRAFFIC_LIGHT_INSET } from './AppTitleBar'
 
-// Same transparent-strip idiom as AppTitleBar's STRIP_BUTTON: no fill at rest or
-// on hover, only a subtle→default ink shift, opts out of the drag region.
-const STRIP_BUTTON = `app-no-drag interactive inline-flex size-control-sm items-center justify-center bg-transparent text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`
-
-// The brand row's own trailing controls. `control-xs` is the system's icon-button
-// step (principles.md, "Space and size"), one notch under the window row's
-// labelled-control step, so the two rows read as chrome of different weight
-// rather than one 72px slab of buttons.
+// The row's icon buttons. `control-xs` is the system's icon-button step
+// (principles.md, "Space and size"), and with four of them sharing the row with
+// the wordmark it is also the only step that fits.
 //
 // The ink lives on the two variants, never layered over a shared default: two
 // `text-[color:…]` utilities on one element are resolved by Tailwind's own
@@ -109,18 +104,17 @@ function SearchButton({ onOpen }: { onOpen: () => void }) {
 // a screen-reader user needs to know what the control does, and the product name
 // is not information they are missing.
 //
-// `px-2` inside the row's own `px-2` puts the first letterform at x=16 — the
-// same left edge the rail rows below put their first glyph on, and the same edge
-// their hover pill starts at. Measured, not eyeballed: at `px-1.5` the mark sat
-// 4px inboard of the column's text edge and the left side read crooked.
-function BrandButton({ onNewChat }: { onNewChat: () => void }) {
+// `visibility` is a container query, not a prop: the sidebar is drag-resized, so
+// the mark has to appear and disappear as the column crosses the width that fits
+// it — continuously, without a re-render per pointer-move.
+function BrandButton({ onNewChat, visibility }: { onNewChat: () => void; visibility: string }) {
   return (
     <Tooltip content="New chat" placement="bottom">
       <button
         type="button"
         onClick={onNewChat}
         aria-label="New chat"
-        className={`app-no-drag interactive inline-flex h-control-xs items-center rounded-md bg-transparent px-2 transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+        className={`app-no-drag interactive h-control-xs items-center rounded-md bg-transparent px-2 transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${visibility}`}
       >
         <SprintEngineWordmark />
       </button>
@@ -132,7 +126,7 @@ function NavHistoryButton({ direction, onClick }: { direction: 'back' | 'forward
   const label = direction === 'back' ? 'Back' : 'Forward'
   return (
     <Tooltip content={label} placement="bottom">
-      <button type="button" onClick={onClick} aria-label={label} className={STRIP_BUTTON}>
+      <button type="button" onClick={onClick} aria-label={label} className={BRAND_ROW_BUTTON}>
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <path
             d={direction === 'back' ? 'M10 3.5L5.5 8L10 12.5' : 'M6 3.5L10.5 8L6 12.5'}
@@ -217,36 +211,56 @@ export function SidebarChrome<MenuItem extends string>({
   // collapsed — the collapsed launcher lives in WorkspaceHeader instead).
   const reserveTrafficLights = isMac && !isFullScreen
 
-  return (
-    <>
-      {/* Window row. Height-locked to WorkspaceHeader's 36px so the two halves of
-          the split chrome meet at the same line across the column seam. */}
-      <div className="app-drag flex h-[36px] shrink-0 items-center">
-        {reserveTrafficLights ? <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} /> : null}
-        {!isMac ? (
-          <div className="flex shrink-0 items-center pl-1.5">
-            <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} />
-          </div>
-        ) : null}
-        <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-1.5">
-          <NavHistoryButton direction="back" onClick={onNavigateBack} />
-          <NavHistoryButton direction="forward" onClick={onNavigateForward} />
-        </div>
-      </div>
-      {/* Brand row. No divider under it: the rail below already owns the one
-          "the list starts here" rule (principles.md, Composition), and a second
-          hairline 34px above it would only stripe the chrome.
+  // The width at which the wordmark still fits beside everything the row must
+  // keep. Below it the mark drops out and the four controls stay — the sidebar is
+  // drag-resizable down to SIDEBAR_MIN_WIDTH (200), and one row cannot hold all
+  // five plus the macOS reserve at that width.
+  //
+  // The row is: [leading] + mark 100 + (4 × 26 controls + 3 × 2 gaps + 8 pad) 118.
+  // Leading is the 78px traffic-light reserve, or the 34px app-menu cluster on
+  // win/linux (4 pad + 30 button), or nothing on macOS in fullscreen.
+  //
+  // Literal class strings, never interpolated: Tailwind generates a container
+  // query only from a variant it can see in the source text.
+  const wordmarkVisibility = reserveTrafficLights
+    ? 'hidden @[296px]:inline-flex' // 78 + 100 + 118
+    : isMac
+      ? 'hidden @[218px]:inline-flex' // 0 + 100 + 118
+      : 'hidden @[252px]:inline-flex' // 34 + 100 + 118
 
-          `px-2` matches the rail cluster's own `mx-2`, so the row's leading and
-          trailing edges land on the column's text edges rather than 4px inboard
-          and 2px outboard of them. */}
-      <div className="app-drag flex shrink-0 items-center gap-0.5 px-2 py-1">
-        <BrandButton onNewChat={onNewChat} />
-        <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          <SearchButton onOpen={onOpenSearch} />
-          <CollapseButton onToggle={onToggleSidebar} />
+  return (
+    // ONE row (owner, 2026-07-30): one chrome row per content region. Height-
+    // locked to WorkspaceHeader's 36px so the two halves of the split chrome meet
+    // at the same line across the column seam, and no divider under it — the rail
+    // below owns the single "the list starts here" rule (principles.md,
+    // Composition).
+    //
+    // On macOS the 78px traffic-light reserve is the wordmark's left inset, so
+    // the mark cannot also sit on the rail's 16px text edge; in fullscreen the
+    // reserve collapses and it moves left with it. That is the cost of one row,
+    // and one row is the ruling.
+    //
+    // `@container` so the wordmark can drop out below the width that fits it
+    // (owner, 2026-07-30: at narrow widths the mark is the thing to lose, not a
+    // control). The four icon buttons are the row's floor — they are the
+    // functional controls and never drop.
+    <div className="@container app-drag flex h-[36px] shrink-0 items-center">
+      {reserveTrafficLights ? <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} /> : null}
+      {!isMac ? (
+        <div className="flex shrink-0 items-center pl-1">
+          <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} />
         </div>
+      ) : null}
+      <BrandButton onNewChat={onNewChat} visibility={wordmarkVisibility} />
+      {/* Every control at the `control-xs` step, not the labelled-control step:
+          four icon buttons plus the wordmark plus the reserve is what the row has
+          to hold, and the wider step does not fit beside the mark. */}
+      <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-2">
+        <NavHistoryButton direction="back" onClick={onNavigateBack} />
+        <NavHistoryButton direction="forward" onClick={onNavigateForward} />
+        <SearchButton onOpen={onOpenSearch} />
+        <CollapseButton onToggle={onToggleSidebar} />
       </div>
-    </>
+    </div>
   )
 }
