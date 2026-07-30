@@ -68,11 +68,14 @@ export const TOOL_COLOR_VAR: Record<ToolIdentity, string> = {
 // text while scanning source, and it does not evaluate template literals: a
 // constant built as `` `peer-focus-visible:${FOCUS_RING_UTILITY}` `` produces no
 // CSS at all, so every consumer of it silently renders with no focus indicator.
-// That is not hypothetical — it is how the two variants below shipped inert
-// (T13 review, 2026-07-30): `focus-visible:focus-ring` survived only because
-// eight components happen to write it literally in their own className strings,
-// while `peer-focus-visible:` and `has-[input:focus]:` were written nowhere else
-// and so were absent from the built stylesheet entirely.
+// That is not hypothetical — it is how two of the four below shipped inert
+// (T13 review, 2026-07-30). `focus-visible:focus-ring` and its `-inset` form
+// survived only by accident: dozens of components also write them literally in
+// their own className strings, which is what put them in the stylesheet. The
+// two rarer variants — `peer-focus-visible:` and `has-[input:focus]:` — had no
+// such literal anywhere, so they were absent from the built CSS entirely and
+// their only consumers (TrackerWriteBackSettings' checkbox, InboxSearchInput's
+// wrapper) rendered with no focus indicator at all.
 //
 // So: one literal per constant, and grep for the literal — not for the constant
 // name — when checking whether a variant reaches the CSS.

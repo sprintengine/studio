@@ -451,7 +451,9 @@ expectIncludes(settingsPanel, 'await window.api.copyPathInto(target.sourcePath, 
   // can see while scanning source and does not evaluate template literals, so an
   // interpolated constant compiles to no CSS and its consumers render with no
   // indicator at all. `peer-focus-visible:` and `has-[input:focus]:` shipped
-  // exactly that way and were absent from the built stylesheet (T13, 2026-07-30).
+  // exactly that way and were absent from the built stylesheet (T13,
+  // 2026-07-30); the other two survived only because many components also write
+  // them literally, which is luck, not a contract.
   for (const [name, literal] of [
     ['FOCUS_RING_CLASS', 'focus-visible:focus-ring'],
     ['FOCUS_RING_INSET_CLASS', 'focus-visible:focus-ring-inset'],
