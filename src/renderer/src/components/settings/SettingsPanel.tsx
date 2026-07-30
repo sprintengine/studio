@@ -30,6 +30,7 @@ import {
   FOCUS_RING_CLASS,
   GhostButton,
   IconButton,
+  InlineNotice,
   PrimaryButton,
   ProviderRow,
   ProviderStateId,
@@ -842,6 +843,14 @@ function VersionControlSections({
   const platform = window.api.platform
 
   const runProbe = useCallback(async () => {
+    if (typeof window.api.probeVersionControlProviders !== 'function') {
+      // An older preload than this renderer. Named as the missing capability it
+      // is, rather than letting the call throw a TypeError whose message would
+      // reach the screen as "… is not a function".
+      setProbeStatus('error')
+      setProbeError(null)
+      return
+    }
     setChecking(true)
     try {
       const results = await window.api.probeVersionControlProviders()
@@ -852,9 +861,11 @@ function VersionControlSections({
       setProbeError(null)
     } catch (error) {
       // The whole round-trip failed, which is one fact about the list — stated
-      // once under the band rather than repeated down every row.
+      // once under the first band rather than repeated down every row. The rows
+      // keep whatever they had already resolved; only the ones with no answer
+      // read as unknown.
       setProbeStatus('error')
-      setProbeError(error instanceof Error ? error.message : 'The check could not be run.')
+      setProbeError(error instanceof Error ? error.message : String(error))
     } finally {
       setChecking(false)
     }
@@ -867,8 +878,9 @@ function VersionControlSections({
   return (
     <div className="space-y-6">
       {sections.map((section, index) => (
-        <section key={section.id} className="space-y-1">
+        <section key={section.id} aria-labelledby={`version-control-${section.id}`} className="space-y-1">
           <SettingsSectionTitle
+            id={`version-control-${section.id}`}
             // One chrome row for the whole page: both sections read from the same
             // round-trip, so the control that refreshes it belongs to the first
             // band, not to each one.
@@ -889,8 +901,17 @@ function VersionControlSections({
             {section.title}
           </SettingsSectionTitle>
 
-          {index === 0 && probeStatus === 'error' && probeError ? (
-            <MessageBlock tone="warn">{`Version control could not be checked: ${probeError}`}</MessageBlock>
+          {/* The app's one error card, not a tone-bar: a 1px hairline, the soft
+              tint, and the tone glyph, with the raw message behind "Show
+              details" rather than inline. No action of its own — the re-check
+              control that would retry it sits in this section's own band, two
+              lines up. */}
+          {index === 0 && probeStatus === 'error' ? (
+            <InlineNotice
+              tone="warn"
+              title="Version control could not be checked."
+              detail={probeError ?? undefined}
+            />
           ) : null}
 
           {section.providers.map((spec) => {
