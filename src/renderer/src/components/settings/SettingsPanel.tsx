@@ -80,6 +80,7 @@ import {
   PlusIcon,
 } from '../AppIcons'
 import { hasActiveProPlan } from '../workspace/workspaceManagerHelpers'
+import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
 import { TrackerConnectionsTab } from './TrackerConnectionsTab'
 import {
@@ -104,11 +105,14 @@ interface Props {
   onOpenSettingsTab?: (tabId: string) => void
   /**
    * `'panel'` (default) wraps the content in `WorkspacePanel` chrome.
-   * `'overlay'` renders the full-app Settings route layout (header + rail +
-   * content + optional right column). The surrounding overlay handles focus,
-   * Escape, and scroll-lock.
+   * `'door'` is how Settings actually opens (owner, 2026-07-30): the shared
+   * door substrate, so the categories replace the app sidebar and the content
+   * takes the card region — the same anatomy as Backlog, Sprints or Extensions,
+   * rather than a dialog floating over the app it configures.
+   * `'overlay'` renders the same rail-and-content layout inside a caller-owned
+   * dialog surface; kept for hosts that genuinely have no card region.
    */
-  chrome?: 'panel' | 'overlay'
+  chrome?: 'panel' | 'overlay' | 'door'
   /** When `chrome='overlay'`, the surrounding dialog supplies its aria title id. */
   titleId?: string
 }
@@ -2766,6 +2770,18 @@ export default function SettingsPanel({
       ) : null}
     </div>
   )
+
+  if (chrome === 'door') {
+    // The door owns the bar (its name rides the app strip) and the rail column;
+    // this contributes the categories and the body, and nothing else. No Close
+    // control of its own: leaving is the rail's Back row, Escape, or opening
+    // any other door — the one way out every door already has.
+    return (
+      <GlobalSurfaceShell ariaLabel="Settings" bar={{ title: 'Settings' }} rail={sidebarNode}>
+        <div className="h-full min-h-0 overflow-y-auto px-5 py-4">{bodyContent}</div>
+      </GlobalSurfaceShell>
+    )
+  }
 
   if (chrome === 'overlay') {
     return (

@@ -66,8 +66,13 @@ import { collapseDuplicateKeybindings } from '../../commands/keybindings'
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 50
 
+// Settings is a DOOR (`activeGlobalSurface === 'settings'`), not an overlay:
+// its categories replace the sidebar rail and its content takes the card
+// region, exactly like Backlog or Sprints. What survives here is the REQUEST
+// that opened it — which category to land on, and whether the caller asked for
+// an update check — read once by the door as it mounts. Openness itself lives
+// in `activeGlobalSurface`, so there is one answer to "is settings showing".
 export type SettingsOverlayState = {
-  open: boolean
   initialTab: string | null
   checkForUpdatesRequestId: number | null
 }
@@ -1284,7 +1289,7 @@ type SettingsSliceSet = (mutator: (state: SettingsSliceCarrier) => void) => void
 export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
   return {
     appSettings: defaultAppSettings(),
-    settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
+    settingsOverlay: { initialTab: null, checkForUpdatesRequestId: null },
     runSummaryOverlay: { open: false, workspaceId: null },
     activeGlobalSurface: null,
     sidebarCollapsed: false,
@@ -1333,18 +1338,16 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       if (isConnectorsFoldedSettingsTab(opts?.initialTab)) {
         dispatchExtensionsSurfaceTarget(opts?.initialTab === SKILLS_SETTINGS_TAB ? 'skills' : 'browse')
         set((state) => {
+          // Both are doors, and a door replaces a door: opening Extensions from
+          // inside Settings leaves nothing of Settings behind.
           state.activeGlobalSurface = 'extensions'
-          // The door mounts in the card region UNDER the settings overlay, so
-          // an open overlay (this deep-link can fire from inside Settings)
-          // must close or the click reads as a dead button.
-          state.settingsOverlay.open = false
           state.settingsOverlay.initialTab = null
           state.settingsOverlay.checkForUpdatesRequestId = null
         })
         return
       }
       set((state) => {
-        state.settingsOverlay.open = true
+        state.activeGlobalSurface = 'settings'
         state.settingsOverlay.initialTab = opts?.initialTab ?? null
         state.settingsOverlay.checkForUpdatesRequestId = opts?.checkForUpdates ? Date.now() : null
       })
@@ -1352,7 +1355,9 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
 
     closeSettingsOverlay: () =>
       set((state) => {
-        state.settingsOverlay.open = false
+        // Only ever closes SETTINGS: a caller that means "leave settings" must
+        // not clear another door someone navigated to in the meantime.
+        if (state.activeGlobalSurface === 'settings') state.activeGlobalSurface = null
         state.settingsOverlay.initialTab = null
         state.settingsOverlay.checkForUpdatesRequestId = null
       }),
@@ -1383,10 +1388,9 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       dispatchExtensionsSurfaceTarget(opts?.view ?? 'browse')
       set((state) => {
         state.activeGlobalSurface = 'extensions'
-        // Callers can sit inside the open settings overlay (Settings → Modules
-        // "Browse marketplace"); the door mounts under it, so the overlay must
-        // close or the click reads as a dead button.
-        state.settingsOverlay.open = false
+        // Callers can sit inside the Settings door (Settings → Modules
+        // "Browse marketplace"): one door replaces the other, and the settings
+        // request it was carrying goes with it.
         state.settingsOverlay.initialTab = null
         state.settingsOverlay.checkForUpdatesRequestId = null
       })

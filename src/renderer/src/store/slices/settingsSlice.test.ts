@@ -400,10 +400,10 @@ const carrier = {
     } as Workspace,
   ],
   appSettings: defaultAppSettings(),
-  settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null } as SettingsOverlayState,
+  settingsOverlay: { initialTab: null, checkForUpdatesRequestId: null } as SettingsOverlayState,
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
-  activeGlobalSurface: null,
+  activeGlobalSurface: null as string | null,
   sidebarCollapsed: false,
   sidebarWidth: 280,
   workspaceAsideOpen: false,
@@ -413,23 +413,33 @@ const carrier = {
   agentConfigAdoptionResult: null,
 }
 const slice = createSettingsSlice((mutator) => mutator(carrier))
+// Settings is a DOOR (owner, 2026-07-30): opening it routes the card region the
+// same way every other door does, and what stays in `settingsOverlay` is only
+// the REQUEST — which category, and whether an update check was asked for.
 slice.openSettingsOverlay({ initialTab: 'integrations', checkForUpdates: true })
-assert.equal(carrier.settingsOverlay.open, true)
+assert.equal(carrier.activeGlobalSurface, 'settings', 'settings opens as a door, not an overlay')
 assert.equal(carrier.settingsOverlay.initialTab, 'integrations')
 assert.equal(typeof carrier.settingsOverlay.checkForUpdatesRequestId, 'number')
 slice.closeSettingsOverlay()
-assert.deepEqual(carrier.settingsOverlay, { open: false, initialTab: null, checkForUpdatesRequestId: null })
+assert.equal(carrier.activeGlobalSurface, null, 'closing settings leaves the door')
+assert.deepEqual(carrier.settingsOverlay, { initialTab: null, checkForUpdatesRequestId: null })
+
+// Closing settings never clears somebody ELSE's door.
+carrier.activeGlobalSurface = 'backlog'
+slice.closeSettingsOverlay()
+assert.equal(carrier.activeGlobalSurface, 'backlog', 'another open door survives a settings close')
 
 // openExtensionsSurface opens the Extensions DOOR (MC-1847 B1) — the modal and
-// its store flag are gone; closing is the door's own closeGlobalSurface. A
-// caller can sit inside the open settings overlay (Settings → Modules "Browse
-// marketplace"), and the door mounts UNDER the overlay, so opening the door
-// must also close Settings or the click reads as a dead button.
-carrier.settingsOverlay = { open: true, initialTab: 'modules', checkForUpdatesRequestId: null }
+// its store flag are gone; closing is the door's own closeGlobalSurface. The
+// caller can be inside the Settings door (Settings → Modules "Browse
+// marketplace"): one door replaces the other, and the settings request it was
+// carrying goes with it rather than surviving to re-open a category later.
+carrier.activeGlobalSurface = 'settings'
+carrier.settingsOverlay = { initialTab: 'modules', checkForUpdatesRequestId: null }
 slice.openExtensionsSurface()
 assert.equal(carrier.activeGlobalSurface, 'extensions')
 assert.equal('connectorsSurface' in carrier, false, 'the modal-era store flag is gone')
-assert.equal(carrier.settingsOverlay.open, false, 'opening the door closes the settings overlay above it')
+assert.equal(carrier.settingsOverlay.initialTab, null, 'the settings request does not outlive its door')
 slice.closeGlobalSurface()
 assert.equal(carrier.activeGlobalSurface, null)
 
@@ -477,11 +487,10 @@ assert.equal(carrier.workspaceAsideWidth, 296, 'a non-finite width falls back to
 // longer exists.
 for (const foldedTab of ['mcps', 'skill-packs', 'extensions', EXTENSIONS_BROWSE_DEEPLINK]) {
   carrier.activeGlobalSurface = null
-  carrier.settingsOverlay = { open: false, initialTab: null, checkForUpdatesRequestId: null }
+  carrier.settingsOverlay = { initialTab: null, checkForUpdatesRequestId: null }
   consumePendingExtensionsSurfaceTarget()
   slice.openSettingsOverlay({ initialTab: foldedTab })
   assert.equal(carrier.activeGlobalSurface, 'extensions', `${foldedTab} routes to the Extensions door`)
-  assert.equal(carrier.settingsOverlay.open, false, `${foldedTab} does not open a settings overlay`)
   assert.equal(carrier.settingsOverlay.initialTab, null, `${foldedTab} leaves no dangling settings tab`)
   // MC-1936: skill packs are gone, so the tab that named them lands on Skills —
   // the door's other deep-links still land on the marketplace grid.

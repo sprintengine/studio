@@ -54,14 +54,11 @@ async function main(): Promise<void> {
       React.createElement(
         GlobalSurfaceBarSlotContext.Provider,
         { value: { el: strip } },
-        React.createElement(
-          GlobalSurfaceShell,
-          {
-            ariaLabel: 'Backlog',
-            bar: { title: 'Backlog', actions: React.createElement('button', { type: 'button' }, 'New item') },
-          },
-          React.createElement('div', { 'data-testid': 'canvas' }, 'rows'),
-        ),
+        React.createElement(GlobalSurfaceShell, {
+          ariaLabel: 'Backlog',
+          bar: { title: 'Backlog', actions: React.createElement('button', { type: 'button' }, 'New item') },
+          children: React.createElement('div', { 'data-testid': 'canvas' }, 'rows'),
+        }),
       ),
     )
   })
@@ -84,11 +81,11 @@ async function main(): Promise<void> {
   const soloRoot = createRoot(soloContainer)
   await act(async () => {
     soloRoot.render(
-      React.createElement(
-        GlobalSurfaceShell,
-        { ariaLabel: 'Backlog', bar: { title: 'Backlog' } },
-        React.createElement('div', null, 'rows'),
-      ),
+      React.createElement(GlobalSurfaceShell, {
+        ariaLabel: 'Backlog',
+        bar: { title: 'Backlog' },
+        children: React.createElement('div', null, 'rows'),
+      }),
     )
   })
   assert.equal(

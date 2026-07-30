@@ -57,7 +57,7 @@ export default function OnboardingFlow({
   // card region under this overlay — step aside for that door too, or the
   // teaser's click reads as a dead button.
   const settingsOpen = useWorkspaceStore(
-    (s) => s.settingsOverlay.open || s.activeGlobalSurface === 'extensions',
+    (s) => s.activeGlobalSurface === 'settings' || s.activeGlobalSurface === 'extensions',
   )
 
   const titleId = useId()

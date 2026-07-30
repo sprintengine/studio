@@ -4,7 +4,6 @@ import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
 import OnboardingFlow from '../onboarding/OnboardingFlow'
 import { planDeferredAdoption } from '../onboarding/agentConfigAdoption'
-import SettingsOverlay from '../settings/SettingsOverlay'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -174,6 +173,17 @@ const NewChatPanel = React.lazy(() => import('./agentComposer/NewChatPanel'))
 // modal), so its subtree — and the diagnostics report formatter / learning
 // catalog it pulls — is fetched at open time, not at boot.
 const CommandPalette = React.lazy(() => import('../CommandPalette'))
+// Settings rides the door substrate but belongs to the app, not to a module —
+// see the resolution below for why it can never be module-gated. Shaped like a
+// registered surface so the mount path stays identical to every other door.
+const SettingsGlobalSurface = React.lazy(
+  () => import('./globalSurface/settings/SettingsGlobalSurface'),
+)
+const CORE_SETTINGS_SURFACE = {
+  id: 'settings',
+  moduleId: 'core',
+  Component: SettingsGlobalSurface,
+} as const
 const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
 const TipStartupModal = React.lazy(() =>
   import('../learn/TipStartupModal').then((m) => ({ default: m.TipStartupModal })),
@@ -324,7 +334,7 @@ export default function WorkspaceManager() {
   const sidebarWidth = useWorkspaceStore((s) => s.sidebarWidth)
   const setSidebarWidth = useWorkspaceStore((s) => s.setSidebarWidth)
   const setSprintEngineRoleRegistry = useWorkspaceStore((s) => s.setSprintEngineRoleRegistry)
-  const settingsOverlayOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
+  const settingsOverlayOpen = useWorkspaceStore((s) => s.activeGlobalSurface === 'settings')
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
   // The door-routed full-page surface for this window (global-surfaces epic 1704):
@@ -746,8 +756,14 @@ export default function WorkspaceManager() {
   // A disabled or unregistered surface id resolves to null — the card region
   // falls back to the active workspace rather than painting a blank page (a
   // stale flag from before a module toggle can never strand the region).
+  //
+  // Settings is the exception, and deliberately NOT a module's surface: module
+  // enablement is edited inside Settings, so a Settings door that could be
+  // gated off by a module toggle is a door that can lock its own key inside.
+  // It resolves from the app itself, ungated.
   const activeGlobalSurfaceEntry = useMemo(() => {
     if (!activeGlobalSurface) return null
+    if (activeGlobalSurface === 'settings') return CORE_SETTINGS_SURFACE
     const entry = getRendererHost().getGlobalSurface(activeGlobalSurface)
     if (!entry) return null
     if (!selectModuleEnabled(moduleEnablement, entry.moduleId)) return null
@@ -3369,7 +3385,6 @@ export default function WorkspaceManager() {
             </GlobalSurfaceBarSlotContext.Provider>
           </div>
         ) : null}
-        <SettingsOverlay />
         {/* T6 first-run payoff: supply the real app actions it needs. A CLI is
             "configured" when at least one catalog entry is confirmed installed;
             the run reuses createNewChat against the just-created workspace

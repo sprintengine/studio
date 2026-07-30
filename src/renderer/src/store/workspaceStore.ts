@@ -163,8 +163,9 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setWorkspaceAsideWidth: (width: number) => void
   openFilesInExternalWindow: boolean
   setOpenFilesInExternalWindow: (enabled: boolean) => void
+  // The request that opened the Settings DOOR — not an overlay's visibility;
+  // `activeGlobalSurface === 'settings'` is what says it is showing.
   settingsOverlay: {
-    open: boolean
     initialTab: string | null
     checkForUpdatesRequestId: number | null
   }
