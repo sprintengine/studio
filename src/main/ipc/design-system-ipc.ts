@@ -4,6 +4,7 @@ import type { DesignSystemBundleLintRunResult } from '../../shared/design-system
 import type { DesignSystemRegenResult } from '../../shared/design-system/derived-files'
 import type { DesignSystemScaffoldResult } from '../../shared/design-system/bundle-scaffold'
 import type { DesignSystemLibraryReadResult } from '../../shared/design-system/library'
+import type { DesignSystemBundleReadResult } from '../../shared/design-system/bundle-view'
 import type {
   DesignSystemAttachResult,
   DesignSystemAttachSource,
@@ -20,6 +21,7 @@ import {
   readDesignSystemLibraryEntry,
 } from '../design-system/library-registry'
 import { attachDesignSystemBundle } from '../design-system/attach'
+import { readDesignSystemBundle } from '../design-system/bundle-read'
 
 function parseAttachSource(value: unknown): DesignSystemAttachSource | null {
   if (typeof value !== 'object' || value === null) return null
@@ -84,6 +86,13 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
       }
       return runDesignSystemBundleLint(bundleDir, forkBundleScriptInUtilityProcess)
     },
+  )
+  // The Design door's reader (item 2002): one call returns everything the door
+  // draws for one bundle directory. Read-only — it opens files and nothing else.
+  ipcMain.handle(
+    'design-system:read-bundle',
+    (_event, bundleDir: unknown): Promise<DesignSystemBundleReadResult> =>
+      readDesignSystemBundle(typeof bundleDir === 'string' ? bundleDir : ''),
   )
   // Library list/read: bundles under ~/.multicode/design-systems/<name>/<version>/
   // (library-registry.ts). Read-only — the app-local release pipeline that used

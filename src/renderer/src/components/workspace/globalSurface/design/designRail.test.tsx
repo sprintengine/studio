@@ -1,0 +1,237 @@
+import assert from 'node:assert/strict'
+import { renderToStaticMarkup } from 'react-dom/server'
+
+import type { DesignSystemBundleIdentity } from '../../../../../../shared/design-system/bundle-view'
+import { DesignRail } from './DesignRail'
+import {
+  buildDesignRailGroups,
+  designFailureLine,
+  designRowMatchesSearch,
+  designRowStateLine,
+  designRowTitle,
+  libraryRowId,
+  projectRowId,
+  type DesignRailEntry,
+} from './designRailState'
+
+// The Design door's rail (item 2002). Two halves: the pure grouping/search model,
+// and the markup contracts the shared door anatomy fixes — the house New
+// affordance, one divider, sentence-case headings that DROP to a single group,
+// and an identity chip that is a rounded square rather than the status circle.
+
+function run(name: string, body: () => void): void {
+  try {
+    body()
+    console.log(`ok - ${name}`)
+  } catch (error) {
+    console.error(`not ok - ${name}`)
+    throw error
+  }
+}
+
+function identity(overrides: Partial<DesignSystemBundleIdentity> = {}): DesignSystemBundleIdentity {
+  return {
+    path: '/work/brand/design-system',
+    name: 'multicode',
+    version: '2.4.0',
+    summary: 'The in-house system.',
+    // design-tokens-allow: a PREVIEWED bundle's own accent is content under test, not app chrome — the whole point is that it is not one of our tokens.
+    accent: { light: '#2f6a4a', dark: '#4daf7d' },
+    ...overrides,
+  }
+}
+
+function entry(overrides: Partial<DesignRailEntry> = {}): DesignRailEntry {
+  const path = overrides.path ?? '/work/brand/design-system'
+  return {
+    id: libraryRowId(path),
+    group: 'library',
+    path,
+    identity: identity({ path }),
+    failure: null,
+    ...overrides,
+  }
+}
+
+function markup(node: Parameters<typeof renderToStaticMarkup>[0]): string {
+  return renderToStaticMarkup(node)
+}
+
+function railMarkup(entries: DesignRailEntry[], selectedId: string | null = null): string {
+  return markup(
+    <DesignRail
+      entries={entries}
+      selectedId={selectedId}
+      accentMode="dark"
+      search=""
+      onSearch={() => {}}
+      status="all"
+      onStatus={() => {}}
+      onSelect={() => {}}
+      onCreate={() => {}}
+      newSelected={false}
+    />,
+  )
+}
+
+// ── The pure model ───────────────────────────────────────────────────────────
+
+run('row ids separate the attached copy from the same folder in the library', () => {
+  // A bundle attached to the open project and the same bundle registered in the
+  // library are two rows for one folder; selecting one must not light the other.
+  assert.notEqual(projectRowId('ws-1'), libraryRowId('/work/brand/design-system'))
+  assert.equal(projectRowId('ws-1'), 'project:ws-1')
+  assert.equal(libraryRowId('/a/b'), 'lib:/a/b')
+})
+
+run('a group with no rows is dropped, so one group means no headings', () => {
+  // SurfaceRail hides its headings below two groups, so dropping empties is what
+  // makes "only one group has rows → both headings drop" fall out.
+  const libraryOnly = buildDesignRailGroups([entry()], '')
+  assert.deepEqual(libraryOnly.map((group) => group.key), ['library'])
+
+  const both = buildDesignRailGroups(
+    [entry({ group: 'project', id: projectRowId('ws-1') }), entry({ path: '/other/design-system' })],
+    '',
+  )
+  assert.deepEqual(both.map((group) => group.key), ['project', 'library'])
+  // In this project leads Library — the attached one is the one you are working in.
+  assert.deepEqual(both.map((group) => group.label), ['In this project', 'Library'])
+})
+
+run('search matches name, summary and path — and never hides a broken row', () => {
+  const readable = entry()
+  assert.equal(designRowMatchesSearch(readable, 'multi'), true, 'by name')
+  assert.equal(designRowMatchesSearch(readable, 'in-house'), true, 'by summary')
+  assert.equal(designRowMatchesSearch(readable, '/work/brand'), true, 'by folder')
+  assert.equal(designRowMatchesSearch(readable, 'nothing'), false)
+
+  // A row whose identity never resolved is matched on its path, so a system
+  // whose folder broke cannot vanish behind a search box.
+  const broken = entry({ identity: null, failure: 'missing', path: '/gone/design-system' })
+  assert.equal(designRowMatchesSearch(broken, 'gone'), true)
+  assert.equal(designRowMatchesSearch(broken, ''), true)
+})
+
+run('the status lens separates readable from broken', () => {
+  const rows = [entry(), entry({ path: '/gone', identity: null, failure: 'missing' })]
+  assert.equal(buildDesignRailGroups(rows, '', 'all')[0].entries.length, 2)
+  assert.equal(buildDesignRailGroups(rows, '', 'readable')[0].entries.length, 1)
+  const broken = buildDesignRailGroups(rows, '', 'broken')
+  assert.equal(broken[0].entries.length, 1)
+  assert.equal(broken[0].entries[0].path, '/gone')
+})
+
+run('every failure names its own kind AND its path', () => {
+  // A folder we cannot read must never render identically to a system with no
+  // components, and the path is what makes the row actionable.
+  const kinds = ['missing', 'no-manifest', 'invalid-manifest', 'unreadable'] as const
+  const lines = kinds.map((kind) => designFailureLine(kind, '/work/gone'))
+  assert.equal(new Set(lines).size, kinds.length, 'four distinct states, four distinct lines')
+  for (const line of lines) assert.ok(line.includes('/work/gone'), line)
+})
+
+run('a row still being read says so rather than showing a blank version', () => {
+  assert.equal(designRowStateLine(entry({ identity: null })), 'Reading…')
+  assert.equal(designRowStateLine(entry()), '2.4.0')
+  // An unresolved row falls back to its folder name rather than going untitled.
+  assert.equal(designRowTitle(entry({ identity: null, path: '/work/harbor' })), 'harbor')
+  assert.equal(designRowTitle(entry()), 'multicode')
+})
+
+// ── The rendered anatomy ─────────────────────────────────────────────────────
+
+run('the New affordance is the house dashed row, never an accent-filled button', () => {
+  const html = railMarkup([entry()])
+  assert.match(html, /New design system/)
+  const newRow = html.slice(0, html.indexOf('New design system'))
+  assert.match(newRow, /border-dashed/, 'the shared dashed treatment')
+  assert.ok(
+    !/bg-\[color:var\(--accent-primary\)\]/.test(newRow),
+    'an accent fill would make this door a stranger beside Sprints and Automations',
+  )
+})
+
+run('the identity chip is a rounded square in the system’s own accent', () => {
+  const html = railMarkup([entry()])
+  // The 6px dot is the status idiom; identity gets a rounded square.
+  assert.match(html, /rounded-\[3px\]/, 'rounded square')
+  assert.ok(!/rounded-full/.test(html), 'never the status circle')
+  // Dark mode was asked for, so the bundle's dark accent is what paints.
+  // design-tokens-allow: asserting the fixture bundle's own colour reached the chip.
+  assert.match(html, /background:#4daf7d/, 'the previewed system’s own colour, per mode')
+})
+
+run('a bundle with no resolvable accent gets an outline, never a fabricated colour', () => {
+  const html = railMarkup([entry({ identity: identity({ accent: { light: null, dark: null } }) })])
+  assert.match(html, /border-dashed border-\[color:var\(--border-default\)\]/)
+  // design-tokens-allow: asserting the ABSENCE of any painted colour.
+  assert.ok(!/background:#/.test(html), 'no invented colour')
+})
+
+run('headings appear only when both groups have rows', () => {
+  const oneGroup = railMarkup([entry()])
+  assert.ok(!/In this project/.test(oneGroup), 'a heading must separate something from something')
+  const twoGroups = railMarkup([
+    entry({ group: 'project', id: projectRowId('ws-1'), path: '/proj/design-system' }),
+    entry(),
+  ])
+  assert.match(twoGroups, /In this project/)
+  assert.match(twoGroups, /Library/)
+  // Sentence case, not uppercase letter-spaced labels.
+  assert.ok(!/IN THIS PROJECT/.test(twoGroups))
+  assert.ok(!/uppercase/.test(twoGroups), 'no uppercase utility on the headings')
+})
+
+run('the filter glyph is offered only once something is actually broken', () => {
+  const allReadable = railMarkup([entry()])
+  assert.ok(
+    !/aria-label="Filter design systems"/.test(allReadable),
+    'a lens that narrows nothing is a control that does nothing',
+  )
+  const withBroken = railMarkup([entry(), entry({ path: '/gone', identity: null, failure: 'missing' })])
+  assert.match(withBroken, /aria-label="Filter design systems"/)
+})
+
+run('a search that matches nothing says so instead of reading as an empty library', () => {
+  const html = markup(
+    <DesignRail
+      entries={[entry()]}
+      selectedId={null}
+      accentMode="light"
+      search="zzz"
+      onSearch={() => {}}
+      status="all"
+      onStatus={() => {}}
+      onSelect={() => {}}
+      onCreate={() => {}}
+      newSelected={false}
+    />,
+  )
+  assert.match(html, /No design systems match\./)
+})
+
+run('while New holds the selection, no row is current', () => {
+  const selectedRow = railMarkup([entry()], libraryRowId('/work/brand/design-system'))
+  assert.match(selectedRow, /aria-current="true"/)
+  const newHolds = markup(
+    <DesignRail
+      entries={[entry()]}
+      selectedId={libraryRowId('/work/brand/design-system')}
+      accentMode="light"
+      search=""
+      onSearch={() => {}}
+      status="all"
+      onStatus={() => {}}
+      onSelect={() => {}}
+      onCreate={() => {}}
+      newSelected
+    />,
+  )
+  // Exactly one focused selection across rail and canvas: New took it, so the
+  // row that was selected must not stay lit alongside it.
+  const rowRegion = newHolds.slice(newHolds.indexOf('New design system'))
+  assert.ok(!/aria-current="true"/.test(rowRegion), 'the row released the selection')
+})
+
+console.log('designRail.test.tsx: ok')

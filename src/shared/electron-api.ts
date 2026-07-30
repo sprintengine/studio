@@ -199,6 +199,7 @@ import type { DesignSystemBrandDemoResolveResult } from './design-system/brand-d
 import type { DesignSystemBundleLintRunResult } from './design-system/bundle-lint-run'
 import type { DesignSystemRegenResult } from './design-system/derived-files'
 import type { DesignSystemScaffoldResult } from './design-system/bundle-scaffold'
+import type { DesignSystemBundleReadResult } from './design-system/bundle-view'
 import type {
   DesignSystemLibraryListResult,
   DesignSystemLibraryReadResult,
@@ -3173,6 +3174,8 @@ export type ElectronApi = {
   resolveDesignSystemBrandDemoSeed: () => Promise<DesignSystemBrandDemoResolveResult>
   /** Run a bundle's own scripts/lint.mjs on demand (the guided-brief studio's validating preview — the author's contribution gate). */
   lintDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleLintRunResult>
+  /** Read one design-system bundle directory for the Design door: identity, accent resolved from the token SOURCE, and the parsed manifest. Read-only — never writes, never forks a bundle script. */
+  readDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleReadResult>
   /** List design systems in the user-global library (name, version, summary per entry). */
   listDesignSystemLibrary: () => Promise<DesignSystemLibraryListResult>
   /** Read one design system's manifest from the user-global library. */

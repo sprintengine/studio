@@ -4,6 +4,7 @@ import type { DesignSystemBrandDemoResolveResult } from '../../shared/design-sys
 import type { DesignSystemBundleLintRunResult } from '../../shared/design-system/bundle-lint-run'
 import type { DesignSystemRegenResult } from '../../shared/design-system/derived-files'
 import type { DesignSystemScaffoldResult } from '../../shared/design-system/bundle-scaffold'
+import type { DesignSystemBundleReadResult } from '../../shared/design-system/bundle-view'
 import type {
   DesignSystemLibraryListResult,
   DesignSystemLibraryReadResult,
@@ -26,6 +27,8 @@ export const designSystemApi = {
     ipcRenderer.invoke('design-system:resolve-brand-demo-seed'),
   lintDesignSystemBundle: (bundleDir: string): Promise<DesignSystemBundleLintRunResult> =>
     ipcRenderer.invoke('design-system:lint-bundle', bundleDir),
+  readDesignSystemBundle: (bundleDir: string): Promise<DesignSystemBundleReadResult> =>
+    ipcRenderer.invoke('design-system:read-bundle', bundleDir),
   listDesignSystemLibrary: (): Promise<DesignSystemLibraryListResult> =>
     ipcRenderer.invoke('design-system:library-list'),
   readDesignSystemLibraryEntry: (name: string, version: string): Promise<DesignSystemLibraryReadResult> =>
@@ -41,6 +44,7 @@ export const designSystemApi = {
   | 'scaffoldDesignSystemBundle'
   | 'resolveDesignSystemBrandDemoSeed'
   | 'lintDesignSystemBundle'
+  | 'readDesignSystemBundle'
   | 'listDesignSystemLibrary'
   | 'readDesignSystemLibraryEntry'
   | 'attachDesignSystemBundle'

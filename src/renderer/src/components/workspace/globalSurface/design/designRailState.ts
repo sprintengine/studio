@@ -1,0 +1,174 @@
+import type {
+  DesignSystemBundleReadFailure,
+  DesignSystemBundleIdentity,
+} from '../../../../../../shared/design-system/bundle-view'
+
+// Pure rail model for the Design door (item 2002). Grouping, row identity, and
+// search matching live here so the surface stays composition and the rules are
+// testable without a DOM.
+//
+// Two groups, and two is the minimum that earns headings at all — `principles.md`:
+// a heading must separate something from something else. `SurfaceRail` already
+// hides headings when it is handed a single group, so dropping empty groups here
+// is what makes "one group, no headings" fall out rather than be special-cased.
+
+/** Where a rail row's bundle came from. */
+export type DesignRailGroupKey = 'project' | 'library'
+
+/**
+ * One design system in the rail.
+ *
+ * `id` is the row's stable selection key. A bundle attached to the open project
+ * and the same bundle registered in the library are two rows for one folder, so
+ * the group is part of the identity — selecting one must not light the other.
+ */
+export interface DesignRailEntry {
+  id: string
+  group: DesignRailGroupKey
+  /** Absolute bundle directory. The row's real subject. */
+  path: string
+  /** Resolved identity, or null while a read is in flight or has failed. */
+  identity: DesignSystemBundleIdentity | null
+  /** Why this row cannot be read, when it cannot be. */
+  failure: DesignSystemBundleReadFailure | null
+}
+
+export const DESIGN_RAIL_GROUP_LABELS: Record<DesignRailGroupKey, string> = {
+  // Sentence case: `principles.md` rejects uppercase letter-spaced labels as
+  // hierarchy, on section headers and metadata alike.
+  project: 'In this project',
+  library: 'Library',
+}
+
+/** The row id for the bundle attached to the open project. */
+export function projectRowId(workspaceId: string): string {
+  return `project:${workspaceId}`
+}
+
+/** The row id for a bundle the library knows about, keyed by its folder. */
+export function libraryRowId(bundlePath: string): string {
+  return `lib:${bundlePath}`
+}
+
+/**
+ * The one-line state a row shows beneath its title.
+ *
+ * A row that cannot be read says which way it is broken and shows its path —
+ * never a generic error, and never a silently dropped row. A row still loading
+ * says so rather than rendering an empty line that reads as "no version".
+ */
+export function designRowStateLine(entry: DesignRailEntry): string {
+  if (entry.failure) return designFailureLine(entry.failure, entry.path)
+  if (!entry.identity) return 'Reading…'
+  return entry.identity.version
+}
+
+export function designFailureLine(
+  failure: DesignSystemBundleReadFailure,
+  path: string,
+): string {
+  switch (failure) {
+    case 'missing':
+      return `Folder not found · ${path}`
+    case 'no-manifest':
+      return `No design-system.json · ${path}`
+    case 'invalid-manifest':
+      return `Manifest could not be read · ${path}`
+    case 'unreadable':
+      return `Folder could not be read · ${path}`
+  }
+}
+
+/** The title a row shows: the bundle's own name, falling back to its folder. */
+export function designRowTitle(entry: DesignRailEntry): string {
+  if (entry.identity) return entry.identity.name
+  return basenameOf(entry.path)
+}
+
+function basenameOf(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] ?? path
+}
+
+/**
+ * Does this row survive the rail's search box?
+ *
+ * Matches the name and the folder path: a user who cannot remember what they
+ * named a system can still find it by where it lives. A row whose identity has
+ * not resolved is matched on its path alone rather than being hidden, so a
+ * broken row cannot disappear behind a search.
+ */
+export function designRowMatchesSearch(entry: DesignRailEntry, query: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  if (entry.path.toLowerCase().includes(needle)) return true
+  const identity = entry.identity
+  if (!identity) return false
+  return (
+    identity.name.toLowerCase().includes(needle) ||
+    identity.summary.toLowerCase().includes(needle)
+  )
+}
+
+/**
+ * The rail's one narrowing axis, behind the filter glyph (the shared door
+ * anatomy: project/status lenses live in the FilterMenu, never as a standing
+ * Select above the rows).
+ *
+ * Readable-vs-broken is a real axis here rather than a decorative one: a folder
+ * that moved, lost its manifest, or will not parse stays in the rail as a named
+ * broken row, so "show me only the ones that need fixing" is a question the list
+ * can actually answer.
+ */
+export type DesignRailStatusFilter = 'all' | 'readable' | 'broken'
+
+export const DESIGN_RAIL_STATUS_ITEMS: ReadonlyArray<{
+  value: DesignRailStatusFilter
+  label: string
+}> = [
+  { value: 'all', label: 'All' },
+  { value: 'readable', label: 'Readable' },
+  { value: 'broken', label: 'Needs attention' },
+]
+
+export function designRowMatchesStatus(
+  entry: DesignRailEntry,
+  status: DesignRailStatusFilter,
+): boolean {
+  if (status === 'all') return true
+  // A row still being read is neither yet. Keep it under "readable" so rows do
+  // not flicker out of the list and back while their reads land.
+  if (status === 'broken') return entry.failure !== null
+  return entry.failure === null
+}
+
+export interface DesignRailGroup {
+  key: DesignRailGroupKey
+  label: string
+  entries: DesignRailEntry[]
+}
+
+/**
+ * Group the rail's entries, dropping any group with no rows.
+ *
+ * Dropping empties is load-bearing: `SurfaceRail` hides its headings when it is
+ * handed fewer than two groups, so an empty library leaves "In this project" as
+ * the only group and both headings correctly disappear.
+ */
+export function buildDesignRailGroups(
+  entries: readonly DesignRailEntry[],
+  search: string,
+  status: DesignRailStatusFilter = 'all',
+): DesignRailGroup[] {
+  const matching = entries.filter(
+    (entry) => designRowMatchesSearch(entry, search) && designRowMatchesStatus(entry, status),
+  )
+  const order: DesignRailGroupKey[] = ['project', 'library']
+  return order
+    .map((key) => ({
+      key,
+      label: DESIGN_RAIL_GROUP_LABELS[key],
+      entries: matching.filter((entry) => entry.group === key),
+    }))
+    .filter((group) => group.entries.length > 0)
+}

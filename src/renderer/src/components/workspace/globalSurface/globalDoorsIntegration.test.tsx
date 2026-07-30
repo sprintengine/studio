@@ -127,6 +127,56 @@ function projectionFor(name: string): Record<string, unknown> {
 let indexFails = false
 let indexCalls = 0
 
+// The Design door's world (item 2002): an empty library first, then one real
+// bundle, so the door can be driven through both its first-run empty state and
+// its populated rail.
+let designLibrary: Array<{ path: string; name: string; version: string; summary: string; releasedAt: string | null }> = []
+const designBundlePath = `${multicode}/design-system`
+const designLibraryOnlyPath = '/work/harbor/design-system'
+const designBundles: Record<string, unknown> = {
+  [designLibraryOnlyPath]: {
+    identity: {
+      path: designLibraryOnlyPath,
+      name: 'harbor',
+      version: '1.2.0',
+      summary: 'A cloned system.',
+      accent: { light: null, dark: null },
+    },
+    manifest: {
+      schemaVersion: 1,
+      name: 'harbor',
+      version: '1.2.0',
+      summary: 'A cloned system.',
+      modes: ['light', 'dark'],
+      namingGrammar: {},
+      contents: { foundations: [], components: ['card'], patterns: [], glyphs: [], assets: [] },
+      derived: {},
+      provenance: {},
+    },
+  },
+  [designBundlePath]: {
+    identity: {
+      path: designBundlePath,
+      name: 'multicode',
+      version: '2.4.0',
+      summary: 'The in-house system.',
+      // design-tokens-allow: a previewed bundle's own accent is content, not app chrome.
+      accent: { light: '#2f6a4a', dark: '#4daf7d' },
+    },
+    manifest: {
+      schemaVersion: 1,
+      name: 'multicode',
+      version: '2.4.0',
+      summary: 'The in-house system.',
+      modes: ['light', 'dark'],
+      namingGrammar: {},
+      contents: { foundations: ['tokens'], components: ['button', 'input'], patterns: [], glyphs: [], assets: [] },
+      derived: {},
+      provenance: {},
+    },
+  },
+}
+
 const api: Record<string, unknown> = {
   platform: 'darwin',
   listSprintRuns: async () => {
@@ -143,6 +193,13 @@ const api: Record<string, unknown> = {
       ? { ok: true, data: projectionFor('old-run'), token: 'token-1' }
       : { ok: false, message: 'This run’s projection could not be read.' },
   // Each project's Backlog display key, as the door reads it from disk.
+  // The Design door's library index and per-bundle reader. `designLibrary` is
+  // switchable so the door can be driven through "nothing pointed at yet".
+  listDesignSystemLibrary: async () => ({ entries: designLibrary, rejected: [] }),
+  readDesignSystemBundle: async (bundleDir: string) =>
+    designBundles[bundleDir]
+      ? { ok: true, view: designBundles[bundleDir] }
+      : { ok: false, reason: 'missing', path: bundleDir, message: `gone: ${bundleDir}` },
   readfile: async (path: string) => {
     if (path.startsWith(multicode)) return JSON.stringify({ key: 'MC' })
     if (path.startsWith(multiauth)) return JSON.stringify({ key: 'MA' })
@@ -213,12 +270,16 @@ async function main(): Promise<void> {
   const container: HTMLDivElement = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(container)
 
-  // ═══ 1. The six doors coexist on the real kernel ══════════════════════════
+  // ═══ 1. The seven doors coexist on the real kernel ════════════════════════
   // Registration is module-owned and eager, so this reads the SAME host the app
   // boots with — not a hand-built one. Sprints (item 1763) and Backlog (1769)
   // had to join a rail Automations/Roadmap/Reviews already occupied, at the
   // orders mockup §4's sidebar shows, without colliding with each other;
-  // Extensions (MC-1847) took the retired hardcoded Connectors slot at 30.
+  // Extensions (MC-1847) took the retired hardcoded Connectors slot at 30, and
+  // Design (item 2002) seats at 35 — directly after Extensions, so the work
+  // doors lead, the "what you build with" pair follows, and planning/review
+  // trail. Design is owned by its OWN bundled `design` module, not by
+  // `design-wizard` (MC-1860): the door and the Wizard are separate things.
   {
     const host = getRendererHost()
     const entries = host.getSidebarNavEntries()
@@ -230,6 +291,7 @@ async function main(): Promise<void> {
         ['sprints', 20],
         ['backlog', 25],
         ['extensions', 30],
+        ['design', 35],
         ['roadmap', 40],
         ['reviews', 50],
       ],
@@ -254,7 +316,19 @@ async function main(): Promise<void> {
       !host.getGlobalSurfaces(withoutSprintEngine).some((surface) => surface.id === 'sprints'),
       'and so does the Sprints surface',
     )
-    console.log('ok - six doors, mockup order, each backed by a surface and gated by its module')
+    // The same gating for Design, and from its own module id: registering a
+    // door from a module that does not own it throws, so this also pins WHICH
+    // module owns the Design door.
+    const withoutDesign = (moduleId: string): boolean => moduleId !== 'design'
+    assert.ok(
+      !host.getSidebarNavEntries(withoutDesign).some((entry) => entry.id === 'design'),
+      'the Design row leaves with the design module',
+    )
+    assert.ok(
+      !host.getGlobalSurfaces(withoutDesign).some((surface) => surface.id === 'design'),
+      'and so does the Design surface',
+    )
+    console.log('ok - seven doors, mockup order, each backed by a surface and gated by its module')
   }
 
   // ═══ 2. The Sprints door survives an unreadable index — and recovers ══════
@@ -661,6 +735,83 @@ async function main(): Promise<void> {
   })
   console.log('ok - the Reviews door mounts without a re-render storm')
 
+  // ═══ 5b. The Design door: empty first-run, then two real groups ══════════
+  // Two things only a real mount can prove. First, the MC-2014 trap: the door
+  // must mount exactly ONE rail — Extensions grew a second nested SurfaceRail
+  // after the context-rail move, and a door with two navigation columns is the
+  // shape item 1993 forbids outright. Second, an empty library must offer the
+  // create path rather than leaving a bare column.
+  const { default: DesignGlobalSurface } = await import('./design/DesignGlobalSurface')
+  useWorkspaceStore.setState({ activeGlobalSurface: 'design' } as never)
+  // First run proper: nothing pointed at, and no project open — so there is no
+  // attached system either. Anything less is not the empty state.
+  const residentWorkspaces = useWorkspaceStore.getState().workspaces
+  useWorkspaceStore.setState({ activeWorkspaceId: null } as never)
+  designLibrary = []
+  const designRoot = createRoot(container)
+  await act(async () => {
+    designRoot.render(
+      React.createElement(ConfirmDialogProvider, null, React.createElement(DesignGlobalSurface)),
+    )
+  })
+  await settle()
+  {
+    const text = container.textContent ?? ''
+    assert.match(text, /No design systems yet/, 'the empty library says so')
+    assert.match(text, /Point at a folder/, 'and offers the create path, the way Sprints does')
+    // The rail is DECLARED, so it is present even with nothing in it — and it
+    // is present exactly once.
+    const newRows = [...container.querySelectorAll('button')].filter((button) =>
+      (button.textContent ?? '').includes('New design system'),
+    )
+    assert.equal(newRows.length, 1, 'one rail, so one New affordance — never a nested second rail')
+    assert.equal(
+      container.querySelectorAll('input[aria-label="Search your design systems"]').length,
+      1,
+      'and one search field',
+    )
+  }
+  await act(async () => {
+    designRoot.unmount()
+  })
+  console.log('ok - the Design door’s empty library offers the create path behind exactly one rail')
+
+  // Now with a project open that carries an attached system AND a separate one
+  // in the library: two groups, so the headings earn their place.
+  const designProjectWorkspace = residentWorkspaces.find((workspace) => workspace.folderPath === multicode)
+  assert.ok(designProjectWorkspace, 'the fixture keeps a workspace rooted at the multicode project')
+  useWorkspaceStore.setState({
+    activeWorkspaceId: designProjectWorkspace.id,
+  } as never)
+  designLibrary = [
+    { path: designLibraryOnlyPath, name: 'harbor', version: '1.2.0', summary: 'A cloned system.', releasedAt: null },
+  ]
+  const designRoot2 = createRoot(container)
+  await act(async () => {
+    designRoot2.render(
+      React.createElement(ConfirmDialogProvider, null, React.createElement(DesignGlobalSurface)),
+    )
+  })
+  await settle()
+  {
+    const text = container.textContent ?? ''
+    assert.match(text, /multicode/, 'the attached system is listed by its own name')
+    assert.match(text, /harbor/, 'beside the one that is only in the library')
+    // Two groups with rows, so the headings separate something from something.
+    assert.match(text, /In this project/)
+    assert.match(text, /Library/)
+    // Sentence case, never uppercase letter-spaced labels.
+    assert.ok(!text.includes('IN THIS PROJECT'))
+    // The canvas shows the groups the MANIFEST declares, with their counts, and
+    // does not draw a group the manifest declares empty.
+    assert.match(text, /Components/, 'a declared, non-empty group renders')
+    assert.ok(!text.includes('Patterns'), 'a group the manifest declares empty is not drawn')
+  }
+  await act(async () => {
+    designRoot2.unmount()
+  })
+  console.log('ok - the Design door groups the attached system and the library, headings and all')
+
   // ═══ 6. A door failure is contained to the door (MC-1835) ═════════════════
   // A surface that throws during render must land in the boundary's fallback —
   // with both recoveries working — instead of white-screening the renderer.
@@ -972,6 +1123,7 @@ async function main(): Promise<void> {
       ['sprints', SprintsGlobalSurface],
       ['backlog', BacklogGlobalSurface],
       ['extensions', ExtensionsDoor],
+      ['design', DesignGlobalSurface],
       ['roadmap', RoadmapGlobalSurface],
       ['reviews', ReviewsGlobalSurface],
     ]
@@ -1019,7 +1171,7 @@ async function main(): Promise<void> {
       host.remove()
       slot.remove()
     }
-    console.log('ok - all six doors declare a rail while loading and while empty')
+    console.log('ok - all seven doors declare a rail while loading and while empty')
   }
 
   // Drop the shared scans (and their watchers) so this process can exit.
