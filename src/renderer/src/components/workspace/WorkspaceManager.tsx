@@ -773,10 +773,26 @@ export default function WorkspaceManager() {
   // column while a door is open. Same contract as the bar slot above — a fresh
   // object identity only on element change.
   const [surfaceRailEl, setSurfaceRailEl] = useState<HTMLDivElement | null>(null)
-  const surfaceRailSlot = useMemo(() => ({ el: surfaceRailEl }), [surfaceRailEl])
+  // Whether the open surface actually HAS a rail. The column has to be mounted
+  // before the surface can portal into it, so the answer arrives one commit
+  // after the question; until then (and for a surface with no rail at all) the
+  // workspaces rail stays exactly where it is. A door that mounts no rail —
+  // Backlog, whose canvas is a work list beside its own preview — nests no
+  // second navigation column, so it has nothing to replace.
+  const [surfaceHasRail, setSurfaceHasRail] = useState(false)
+  const surfaceRailSlot = useMemo(
+    () => ({ el: surfaceRailEl, onRailPresence: setSurfaceHasRail }),
+    [surfaceRailEl],
+  )
+  // Derived, never trusted on its own: `surfaceHasRail` is reported BY the
+  // surface, so it is still true for a commit after the surface has gone. Reading
+  // it through the live entry is what puts the workspaces rail back in the same
+  // commit that clears the door — which is in turn what makes focus land on the
+  // door's own row rather than on a row that is still `display:none`.
+  const contextRailActive = activeGlobalSurfaceEntry !== null && surfaceHasRail
   // The door's canvas region, for deciding whether an Escape belongs to the door.
   const [surfaceRegionEl, setSurfaceRegionEl] = useState<HTMLDivElement | null>(null)
-  const surfaceTrigger = useSurfaceTriggerFocus(activeGlobalSurfaceEntry ? activeGlobalSurface : null)
+  const surfaceTrigger = useSurfaceTriggerFocus(activeGlobalSurface)
 
   // Leaving a door: restore the rail it replaced and hand the keyboard back to
   // the row that opened it. `closeGlobalSurface` is the whole of "back" for a
@@ -3022,20 +3038,23 @@ export default function WorkspaceManager() {
           />
         }
         contextRail={
-          // Drill-in replaces the rail (item 1993): while a door is open its rail
-          // renders in this column and the workspaces rail steps aside. The
-          // column is the HOST's, not the surface's, so `Back` exists even for a
-          // door that portals no rail into it — a door is never a room with no
-          // door out.
+          // Drill-in replaces the rail (item 1993): while a door with a rail is
+          // open, that rail renders in this column and the workspaces rail steps
+          // aside. The column is the HOST's, not the surface's, so `Back` is a
+          // rail row rather than a per-door affordance — a door is never a room
+          // with no door out.
           activeGlobalSurfaceEntry ? (
             <ContextRailColumn
               surfaceKey={activeGlobalSurfaceEntry.id}
               ariaLabel={`${surfaceLabel} rail`}
+              active={contextRailActive}
               railRef={setSurfaceRailEl}
               onBack={leaveGlobalSurface}
             />
           ) : undefined
         }
+        // Only a surface that brought a rail takes the column over.
+        contextRailActive={contextRailActive}
         activityByWorkspaceId={activityByWorkspaceId}
         residentWorkspaceIds={residentWorkspaceIds}
         terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}

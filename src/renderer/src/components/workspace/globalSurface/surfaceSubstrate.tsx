@@ -12,8 +12,9 @@
 //   • SurfaceRail — the internal list rail: list semantics (role="list"), a
 //       status glyph + title + state line per row, ↑/↓ + j/k keyboard navigation,
 //       the "New …" affordance at the top, an optional leading project lens, and
-//       an optional search + filter row (the Backlog toolbar idiom). The rail is
-//       the surface's, never the app sidebar.
+//       an optional search + filter row (the Backlog toolbar idiom). The rail's
+//       CONTENT is the surface's; since item 1993 its COLUMN is the app
+//       sidebar's, which the surface's rail replaces while the door is open.
 //   • BarStatusChip — the one status idiom in the surface bar: a 6 px dot + label,
 //       never a competing pill or badge.
 
@@ -383,7 +384,12 @@ export function SurfaceRail({
           full-width Select above the search — a second control stacked over the
           field it narrows read as chrome for its own sake, and put the same
           choice in two different shapes on two different doors. */}
-      <div className="sticky -top-2.5 z-10 -mx-2.5 -mt-2.5 mb-2 shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2.5 pt-2.5">
+      {/* `--rail-ground` is the material of whichever column hosts this rail —
+          the door-panel raised tone in the shell's inline aside, the sidebar's
+          own ground when the rail replaces the app sidebar (item 1993). The
+          sticky header must paint the SAME ground it sits on, or the rows
+          passing under it show through the seam. */}
+      <div className="sticky -top-2.5 z-10 -mx-2.5 -mt-2.5 mb-2 shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--rail-ground,var(--bg-surface-raised))] px-2.5 pt-2.5">
         <button
           type="button"
           aria-current={newAffordance.selected ? 'true' : undefined}

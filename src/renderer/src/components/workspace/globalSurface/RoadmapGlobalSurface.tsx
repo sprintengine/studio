@@ -4,13 +4,14 @@
 // WorkspaceManager over the workspace card region when the Horizon door opens —
 // no scrim, no card, no Escape trap: this is a page, not a dialog.
 //
-// Anatomy: a horizons RAIL (every horizon file in this Multicode, exactly one
-// Active, the rest drafts), a surface BAR (name · Active/Draft · the ONE
-// progress readout · Saved · Pause), a 360px PLAN COLUMN of one-line selectable
-// steps, and a DETAIL pane for the selected step. A Horizon step IS a backlog
-// item, so the plan column reads as a worklist and the detail is the Backlog
-// door's own detail — Horizon adds exactly one thing Backlog cannot know: which
-// sprint is delivering this step.
+// Anatomy (rebuilt again by item 1993 to ONE rail): a context RAIL carrying two
+// levels — the horizons group (every horizon file in this Multicode, exactly one
+// Active, the rest drafts) and, under it, the selected horizon's PLAN of one-line
+// selectable steps — a surface BAR (name · Active/Draft · the ONE progress
+// readout · Saved · Pause), and a DETAIL pane that takes the rest of the window.
+// A Horizon step IS a backlog item, so the plan reads as a worklist and the
+// detail is the Backlog door's own detail — Horizon adds exactly one thing
+// Backlog cannot know: which sprint is delivering this step.
 //
 // There is no separate "waiting on you" strip (MC-1922) and no edit mode
 // (MC-1926): an approval, a merge or a park shows on the track it belongs to
@@ -867,30 +868,72 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       })
     : undefined
 
+  // ONE rail, two levels (item 1993, `design-system/patterns/context-rail.html`).
+  // Horizon used to reach three columns of navigation before content: the app
+  // sidebar, this horizons rail, and a 360px plan column. The outer level is now a
+  // GROUP of the same rail — which horizon you are in, at the resting selection
+  // tier because it is context — with the selected horizon's plan under it at the
+  // focused tier. The detail pane takes the whole of the rest of the window.
+  //
+  // The plan renders only once its file has resolved: the canvas is showing that
+  // failure or that wait in its own words, and a rail group under a "couldn't read
+  // this horizon" canvas would be steps from the horizon before it.
   const rail = (
-    <RoadmapRail
-      rows={railRows}
-      selectedRef={effectiveSelectedRef}
-      search={railSearch}
-      onSelect={(ref) => {
-        setSelectedRef(ref)
-        setSelectedStepRef(null)
-        setBacklogOpen(false)
-      }}
-      onSearch={setRailSearch}
-      onNewRoadmap={() => void handleCreateRoadmap()}
-      actions={{
-        onMakeActive: (ref) => {
-          const file = roadmapFiles.find((candidate) => candidate.roadmapRef === ref)
-          if (file) void handleMakeActive(file)
-        },
-        ...(canRevealHomeFile ? { onRevealFile: handleRevealRoadmapFile } : {}),
-        onDelete: (ref) => {
-          if (deleting) return
-          void handleDeleteRoadmap(ref)
-        },
-      }}
-    />
+    <div className="flex min-w-0 flex-col">
+      <div data-rail-group="outer-context" className="flex min-w-0 flex-col">
+        <RoadmapRail
+          rows={railRows}
+          selectedRef={effectiveSelectedRef}
+          search={railSearch}
+          onSelect={(ref) => {
+            setSelectedRef(ref)
+            setSelectedStepRef(null)
+            setBacklogOpen(false)
+          }}
+          onSearch={setRailSearch}
+          onNewRoadmap={() => void handleCreateRoadmap()}
+          actions={{
+            onMakeActive: (ref) => {
+              const file = roadmapFiles.find((candidate) => candidate.roadmapRef === ref)
+              if (file) void handleMakeActive(file)
+            },
+            ...(canRevealHomeFile ? { onRevealFile: handleRevealRoadmapFile } : {}),
+            onDelete: (ref) => {
+              if (deleting) return
+              void handleDeleteRoadmap(ref)
+            },
+          }}
+        />
+      </div>
+      {planItem ? (
+        <HorizonPlanColumn
+          plan={horizonPlan}
+          lanes={plan.draft.lanes}
+          selectedRef={selectedStepRef}
+          onSelect={(ref) => {
+            setSelectedStepRef(ref)
+            // Selecting a step is a request to SEE it, so it returns the pane
+            // from the backlog to the step's own detail.
+            setBacklogOpen(false)
+          }}
+          showProjectTag={spansProjects}
+          rosters={savedRosters}
+          policyRoster={plan.draft.policy.roster}
+          onManageRosters={() => setRosterManagerOpen(true)}
+          onLanes={plan.setLanes}
+          onAddRef={addRef}
+          onResyncEpic={handleResyncEpic}
+          onOpenItem={handleOpenStep}
+          onAddWork={() => setBacklogOpen((open) => !open)}
+          addWorkActive={backlogOpen}
+          libraryDragRef={libraryDrag}
+          steering={steering}
+          onRenameTrack={(laneIndex) => void handleRenameTrack(laneIndex)}
+          onRemoveTrack={(laneIndex) => void handleRemoveTrack(laneIndex)}
+          selectedHasRunStrip={selectedRun !== null}
+        />
+      ) : null}
+    </div>
   )
 
   return (
@@ -987,34 +1030,10 @@ export default function RoadmapGlobalSurface(): JSX.Element {
               <SurfaceCanvasState kind="loading" label="Loading your horizon…" />
             )
           ) : (
+            // The plan lives in the rail (item 1993), so the canvas is the detail
+            // pane and nothing else. Two modes, ONE slot — the backlog you drag
+            // work from swaps into the same space, never beside it.
             <div className="flex h-full min-h-0">
-              <HorizonPlanColumn
-                plan={horizonPlan}
-                lanes={plan.draft.lanes}
-                selectedRef={selectedStepRef}
-                onSelect={(ref) => {
-                  setSelectedStepRef(ref)
-                  // Selecting a step is a request to SEE it, so it returns the
-                  // pane from the backlog to the step's own detail.
-                  setBacklogOpen(false)
-                }}
-                showProjectTag={spansProjects}
-                rosters={savedRosters}
-                policyRoster={plan.draft.policy.roster}
-                onManageRosters={() => setRosterManagerOpen(true)}
-                onLanes={plan.setLanes}
-                onAddRef={addRef}
-                onResyncEpic={handleResyncEpic}
-                onOpenItem={handleOpenStep}
-                onAddWork={() => setBacklogOpen((open) => !open)}
-                addWorkActive={backlogOpen}
-                libraryDragRef={libraryDrag}
-                steering={steering}
-                onRenameTrack={(laneIndex) => void handleRenameTrack(laneIndex)}
-                onRemoveTrack={(laneIndex) => void handleRemoveTrack(laneIndex)}
-                selectedHasRunStrip={selectedRun !== null}
-              />
-              {/* Two modes, ONE slot — never a fourth column. */}
               {backlogOpen ? (
                 <HorizonBacklogSource
                   projects={library.projects}

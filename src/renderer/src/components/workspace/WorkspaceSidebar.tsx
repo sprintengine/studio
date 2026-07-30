@@ -83,6 +83,18 @@ type WorkspaceSidebarProps = {
   // top of the full-height sidebar. Rendered as the first child inside the aside
   // so it shares the column's exact width and resize behavior.
   chromeSlot?: React.ReactNode
+  // The drilled-in surface's rail (item 1993). When a door or another drilled-in
+  // surface is open its rail REPLACES this column's own content — one rail, ever,
+  // never a second navigation column beside the first. The chrome strip above
+  // does not participate in the swap. The workspaces rail stays mounted and
+  // hidden underneath, so the row that opened the door is still there to take
+  // focus back and the tree's scroll offset survives the round trip.
+  contextRail?: React.ReactNode
+  // Whether that rail is actually occupying the column. A surface with no rail
+  // of its own nests nothing, so it replaces nothing and this stays false — the
+  // node above is still mounted (it is the portal target that asks the
+  // question), it is simply out of the layout.
+  contextRailActive?: boolean
   activityByWorkspaceId: Record<WorkspaceId, Activity>
   // Workspaces whose agents are resident (live PTY) right now — bolded as "hot"
   // (instant switch) versus suspended/exited rows that re-launch on open.
@@ -449,6 +461,8 @@ export default function WorkspaceSidebar({
   isDetachedWindow,
   sidebarCollapsed,
   chromeSlot,
+  contextRail,
+  contextRailActive = false,
   activityByWorkspaceId,
   residentWorkspaceIds,
   terminalRecencyByWorkspaceId,
@@ -550,6 +564,18 @@ export default function WorkspaceSidebar({
     if (!root) return []
     return Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]'))
   }, [])
+
+  // Drilling into a surface hides this rail (item 1993), and hiding a scrollport
+  // drops its offset to zero — so Back would return the workspaces rail scrolled
+  // to the top instead of returning the rail the surface replaced. The offset is
+  // recorded as the user scrolls (a ref write, never a re-render) and put back
+  // before the restored rail paints.
+  const treeScrollTopRef = useRef(0)
+  useEffect(() => {
+    if (contextRailActive) return
+    const node = treeRef.current
+    if (node) node.scrollTop = treeScrollTopRef.current
+  }, [contextRailActive])
 
   const handleTreeRowKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>, workspaceId: WorkspaceId) => {
@@ -1454,7 +1480,19 @@ export default function WorkspaceSidebar({
        * header over the content, not here.
        */}
       {chromeSlot}
-      <div className="mx-2 mt-1 flex flex-col gap-1.5">
+      {/* Drill-in REPLACES the rail (item 1993,
+       * `design-system/patterns/context-rail.html`): while a surface is open its
+       * rail renders here, in this column, at this width — never as a second
+       * navigation column beside it. `hidden` rather than unmounted, because the
+       * door row that opened the surface has to still be here for Back to hand
+       * focus back to it, and the tree's folds/reveals belong to the operator,
+       * not to whether they visited a door in between.
+       *
+       * A surface that brought no rail leaves this inactive: it nests no second
+       * navigation column, so it has nothing to replace, and emptying the column
+       * for it would trade a problem it does not have for a blank rail. */}
+      {contextRail}
+      <div className={`mx-2 mt-1 flex flex-col gap-1.5 ${contextRailActive ? 'hidden' : ''}`}>
         {/* Instance-level top-nav cluster. Every door carries an explicit `order`
             — the shell's own built-ins (Create=0, Sprints=20, Connectors=30)
             alongside module-contributed doors (Automations=10 and Roadmap=40, from
@@ -1540,7 +1578,7 @@ export default function WorkspaceSidebar({
 
       <div
         aria-hidden="true"
-        className="mx-2 my-2 h-px bg-[color:var(--border-subtle)]"
+        className={`mx-2 my-2 h-px bg-[color:var(--border-subtle)] ${contextRailActive ? 'hidden' : ''}`}
       />
 
       {/* Tree: Starred first, then folder groups directly — no "Projects"
@@ -1554,7 +1592,14 @@ export default function WorkspaceSidebar({
           labels (pl-4 + 14px icon slot + gap-1.5), workspace-row content
           (mx-1.5 + 4px rail + pl-[26px]) and the fold row's chevron
           (mx-1.5 + pl-[30px]). Keep these in step when touching any one. */}
-      <nav ref={treeRef} className="flex-1 overflow-y-auto pb-2" role="tree">
+      <nav
+        ref={treeRef}
+        className={`flex-1 overflow-y-auto pb-2 ${contextRailActive ? 'hidden' : ''}`}
+        role="tree"
+        onScroll={(event) => {
+          treeScrollTopRef.current = event.currentTarget.scrollTop
+        }}
+      >
         {starredWorkspaces.length > 0 ? (
           <section className="relative pt-1" aria-label="Starred workspaces">
             <button
@@ -1715,6 +1760,10 @@ export default function WorkspaceSidebar({
           (Cursor-parity). Pinned to the bottom because the <nav> above is
           flex-1; this is where the Automations rail used to sit (now a top-nav
           entry). */}
+      {/* The drilled-in rail's bottom row is Back, so the account cluster steps
+          aside with the rest of this column's content — one rail, one thing
+          pinned at its foot. It returns with the rail. */}
+      <div className={`flex flex-col ${contextRailActive ? 'hidden' : ''}`}>
       <SidebarAccountBar
         collapsed={sidebarCollapsed}
         authState={authState}
@@ -1727,6 +1776,7 @@ export default function WorkspaceSidebar({
         openSettings={openSettings}
         settingsOpen={settingsOpen}
       />
+      </div>
 
       {/* The "+" create menu: one row per creatable type, mirroring the
           creation hub rail's list and order (buildModeModels). Chat routes to

@@ -117,6 +117,22 @@ function render({
 
 const SIMPLE = lanesOf('## Delivery\n- backlog/one.md\n')
 
+// Item 1993: the plan is a GROUP of the door's one context rail, not a column
+// beside it. Each of these is what made it a third navigation column, and each
+// would come back invisibly — a width, a dividing border, or a scrollport of its
+// own that stops the rail scrolling as one list.
+run('the plan is a rail group, not a column of its own', () => {
+  const markup = render({ lanes: SIMPLE })
+  assert.doesNotMatch(markup, /w-\[360px\]/, 'no width of its own — the rail column supplies it')
+  assert.doesNotMatch(markup, /shrink-0 flex-col border-r/, 'no dividing border against a pane beside it')
+  assert.doesNotMatch(
+    markup,
+    /min-h-0 flex-1 overflow-y-auto pb-2/,
+    'no scrollport of its own: horizons above and steps below scroll as one rail',
+  )
+  assert.match(markup, /aria-label="Plan"/, 'it is still one labelled region')
+})
+
 run('the head names the single track and carries Add work', () => {
   const markup = render({ lanes: SIMPLE })
   assert.match(markup, /Delivery/)

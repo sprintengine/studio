@@ -1,13 +1,20 @@
-// The plan column (MC-1924, mockup `2026-07-27-horizon-plan-detail-v2.html`
-// frame 1) — the middle pane of the Horizon door, and the surface that replaced
-// `RoadmapLaneColumn`'s container-for-everything.
+// The plan — the `Plan` group of the Horizon door's ONE context rail (item 1993;
+// originally MC-1924's middle pane, mockup `2026-07-27-horizon-plan-detail-v2`,
+// and the surface that replaced `RoadmapLaneColumn`'s container-for-everything).
 //
-// What it is: a 360px column of ONE-LINE selectable steps. `Now` names the
-// running step because it is the only group the order does not already imply;
-// everything after it is a plain ordered list; `Delivered` is a closed footer at
-// the bottom. Two or more tracks become named bands in this ONE column — never
-// side-by-side kanban — so there is still exactly one selection driving one
-// detail pane.
+// What it is: a list of ONE-LINE selectable steps. `Now` names the running step
+// because it is the only group the order does not already imply; everything
+// after it is a plain ordered list; `Delivered` is a closed footer at the end.
+// Two or more tracks become named bands in this ONE list — never side-by-side
+// kanban — so there is still exactly one selection driving one detail pane.
+//
+// It used to be a 360px column of its own, which put it BESIDE the door's rail
+// and the app sidebar: three columns of navigation before any content. It is now
+// a group of the rail itself — no width, no border, no scrollport (the rail
+// scrolls as one list, so the horizons above and the steps below move together
+// under one scrollbar). Its selection is the door's `selectedStepRef`, which has
+// always lived one level up in `RoadmapGlobalSurface`; folding the column in
+// moved the pane, not the state.
 //
 // What a row says, and nothing more: a lifecycle glyph, the title, and its size.
 // No id (the detail carries it), no status word beside the glyph that already
@@ -322,15 +329,22 @@ export function HorizonPlanColumn({
     <section
       aria-label="Plan"
       onKeyDown={handleKeyDown}
-      className="flex w-[360px] shrink-0 flex-col border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]"
+      // The rail's focused selection: the horizons group above it tracks outer
+      // context and rests permanently (assets/index.css, "Selection tiers"), so
+      // this list is the one thing on the screen that reads as chosen.
+      className="flex min-w-0 flex-col"
     >
-      <header className="flex h-[34px] shrink-0 items-center gap-1.5 border-b border-[color:var(--border-subtle)] pl-2.5 pr-1.5">
+      {/* A rail GROUP header, in the rail's own quiet heading idiom — not a pane
+          bar. It earns its place by separating the steps from the horizons above
+          them, which is also why the horizons group needs no label of its own:
+          the search field over it already reads "Search horizons…". */}
+      <header className="flex items-center gap-1.5 px-2 pb-1 pt-2">
         <TruncatedText
           as="h2"
           text={plan.headTitle}
-          className="min-w-0 flex-1 text-[13px] font-semibold text-[color:var(--text-strong)]"
+          className="min-w-0 flex-1 text-[11px] font-semibold text-[color:var(--text-subtle)]"
         />
-        {/* The one call to action on this pane. It reads as current while the
+        {/* The one call to action on this group. It reads as current while the
             detail pane is showing the backlog it opens. */}
         {addWorkActive ? (
           <PrimaryButton size="xs" onClick={onAddWork}>
@@ -348,9 +362,9 @@ export function HorizonPlanColumn({
         {announcement}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+      <div className="min-w-0 pb-2">
         {plan.bands.length === 0 ? (
-          <p className="px-3 py-6 text-center text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <p className="px-2 py-6 text-center text-[12px] leading-5 text-[color:var(--text-muted)]">
             No tracks yet. A track is a lane of steps that run in order, one sprint at a time.
           </p>
         ) : (
@@ -503,7 +517,7 @@ function PlanBand({
   return (
     <div>
       {band.kind === 'rest' && leading ? null : (
-        <div className="flex items-center gap-2 py-1 pl-2.5 pr-1.5 pt-2.5 text-micro font-medium text-[color:var(--text-subtle)]">
+        <div className="flex items-center gap-2 px-2 py-1 pt-2.5 text-micro font-medium text-[color:var(--text-subtle)]">
           {band.label ? <span className="shrink-0">{band.label}</span> : null}
           <span aria-hidden="true" className="h-px min-w-0 flex-1 bg-[color:var(--border-subtle)]" />
           {band.count ? (
@@ -550,7 +564,7 @@ function PlanBand({
         }}
       >
         {band.rows.length === 0 && band.kind !== 'now' ? (
-          <li className="list-none px-2.5 py-2 text-[11px] text-[color:var(--text-disabled)]">
+          <li className="list-none px-2 py-2 text-[11px] text-[color:var(--text-disabled)]">
             {band.kind === 'track' ? 'No steps in this track yet.' : 'Nothing queued — use “Add work”.'}
           </li>
         ) : null}
@@ -652,7 +666,9 @@ function StepRow({
         onClick={onSelect}
         // Identifier and title in one accessible name, as the family contract asks.
         aria-label={`${row.title}${row.sizeLabel ? `, ${row.sizeLabel} items` : ''}`}
-        className={`flex h-[26px] w-full min-w-0 items-center gap-1.5 pl-1.5 pr-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
+        // Rounded like every other row in this rail: the plan is a group of the
+        // rail now, not a column with its own full-bleed rows.
+        className={`flex h-[26px] w-full min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
           selected
             ? 'bg-[color:var(--bg-selected)]'
             : 'hover:bg-[color:var(--bg-hover)]'
@@ -829,7 +845,7 @@ function DeliveredFooter({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className={`flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+        className={`flex w-full items-center gap-1.5 px-2 py-2 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
       >
         <ChevronGlyph open={open} />
         Delivered
@@ -847,7 +863,7 @@ function DeliveredFooter({
                   type="button"
                   aria-current={row.ref === selectedRef ? 'true' : undefined}
                   onClick={() => onSelect(row.ref)}
-                  className={`flex h-[26px] w-full min-w-0 items-center gap-1.5 pl-1.5 pr-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
+                  className={`flex h-[26px] w-full min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
                     row.ref === selectedRef
                       ? 'bg-[color:var(--bg-selected)]'
                       : 'hover:bg-[color:var(--bg-hover)]'

@@ -1,7 +1,9 @@
-import React, { useContext } from 'react'
+import React, { useContext, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 import { FOCUS_RING_CLASS } from '../../ui'
+import { SIDEBAR_DEFAULT_WIDTH } from '../sidebarWidth'
+import { useContextRailSlot } from './contextRail'
 
 // A host that mounts a global surface as a full-page "door" can lift the surface
 // bar out of the surface body and into the app's top strip, collapsing what would
@@ -27,7 +29,12 @@ export const GlobalSurfaceBarSlotContext = React.createContext<{ readonly el: HT
 // Roadmap tenant (T1) renders canvas-only while its board keeps its own header,
 // and the roadmap-page rebuild (T2) plus the Automations/Reviews pages lift their
 // bar and rail into these slots. This is not a modal — it fills the card region
-// as a page — so it carries no scrim, no close affordance, and no Escape trap.
+// as a page — so it carries no scrim and no focus trap.
+//
+// Both chrome slots LIFT into the app shell when the host offers a destination:
+// the bar into the top strip, and (item 1993) the rail into the app sidebar's own
+// column, replacing the workspaces rail for as long as the surface is open. A
+// surface writes its bar and rail once and does not know which host it got.
 
 export type GlobalSurfaceBar = {
   /** The surface name. Rendered as the page-region heading. */
@@ -54,6 +61,11 @@ export type GlobalSurfaceShellProps = {
    * is true the bar shows a leading chevron that invokes `onBack` — returning to
    * the location the door was opened from. Omit for a surface with nowhere to go
    * back to; surfaces derive both from `useSurfaceBackNav`.
+   *
+   * Only the inline (non-replacing) host renders this. A host that replaces its
+   * rail with the surface's owns the affordance itself, as the rail's pinned
+   * `Back` row (item 1993) — the bar/canvas then carries none, because two back
+   * affordances on one screen is two answers to one question.
    */
   onBack?: () => void
   canGoBack?: boolean
@@ -70,12 +82,27 @@ export function GlobalSurfaceShell({
   canGoBack,
   children,
 }: GlobalSurfaceShellProps): JSX.Element {
-  const showBack = Boolean(canGoBack && onBack)
   // When a lift target is provided the bar rides the app's top strip instead of a
   // second row here; `liftBar` stays true even while `el` is momentarily null so
   // the inline bar never flashes in during the settle.
   const barSlot = useContext(GlobalSurfaceBarSlotContext)
   const liftBar = barSlot !== null
+  // Item 1993: a host that replaces its rail takes this surface's rail into the
+  // app sidebar's own column, and owns `Back` there as a rail row. Same settle
+  // rule as the bar, and the same reason: the inline aside must never flash in.
+  const railSlot = useContextRailSlot()
+  const liftRail = railSlot !== null
+  const hasRail = Boolean(rail)
+  const onRailPresence = railSlot?.onRailPresence
+  // Tell the host whether there is a rail to take. A surface with none replaces
+  // nothing (the host keeps its own rail) and therefore keeps its bar chevron —
+  // otherwise it would be a page with no way out at all.
+  useEffect(() => {
+    if (!onRailPresence) return undefined
+    onRailPresence(hasRail)
+    return () => onRailPresence(false)
+  }, [onRailPresence, hasRail])
+  const showBack = Boolean(canGoBack && onBack) && !(liftRail && hasRail)
   return (
     <section
       aria-label={ariaLabel}
@@ -122,11 +149,20 @@ export function GlobalSurfaceShell({
       {attention ? (
         <div className="shrink-0 border-b border-[color:var(--border-subtle)]">{attention}</div>
       ) : null}
+      {rail && liftRail && railSlot.el ? createPortal(rail, railSlot.el) : null}
       <div className="flex min-h-0 flex-1">
-        {rail ? (
+        {rail && !liftRail ? (
           <aside
             aria-label={`${ariaLabel} list`}
-            className="flex w-[224px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-2.5"
+            // ONE rail width in the product: the app sidebar's own column, which
+            // this surface's rail renders inside whenever the host replaces it
+            // (item 1993). This inline aside is the fallback for a host that does
+            // not — it adopts the same width from the same constant rather than
+            // keeping the second number (`w-[224px]`) that made a door two rails
+            // wide. `--rail-ground` is the material SurfaceRail's sticky header
+            // paints; here it is the door-panel raised tone.
+            style={{ width: SIDEBAR_DEFAULT_WIDTH }}
+            className="flex shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-2.5 [--rail-ground:var(--bg-surface-raised)]"
           >
             {rail}
           </aside>
