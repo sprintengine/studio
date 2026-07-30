@@ -100,6 +100,15 @@ function write(root: string, relativePath: string, body: string): void {
   writeFileSync(absolute, body, 'utf8')
 }
 
+/** A child item's title: its first `# Heading`, which is what the task takes. */
+function itemTitle(root: string, relativePath: string): string {
+  const heading = readFileSync(join(root, relativePath), 'utf8')
+    .split('\n')
+    .find((line) => line.startsWith('# '))
+  assert.ok(heading, `${relativePath} has no title heading`)
+  return heading.slice(2).trim()
+}
+
 function makeGitProject(root: string): void {
   mkdirSync(root, { recursive: true })
   git(root, 'init', '-q')
@@ -353,13 +362,16 @@ async function testSeededEpicPipeline(root: string): Promise<void> {
   // 2. MINTING — one task per child, each pointing at its item, each declaring
   //    modules. This is the coordinator's output: the engine cannot infer modules,
   //    so the test plays the coordinator and the engine's rules are what is asserted.
-  engine(root, statePath, 'plan', 'add-task', '--task-id', 'T1', '--title', 'Checkout total',
+  // Titles come from the items, read off the fixture files rather than retyped, so
+  // "takes its title from the item" is asserted against the item and not against a
+  // literal that could drift from it.
+  engine(root, statePath, 'plan', 'add-task', '--task-id', 'T1', '--title', itemTitle(root, CHILD_TOTAL),
     '--role', 'developer', '--path', 'src/checkout', '--backlog-ref', CHILD_TOTAL, '--backlog-key', 'MC-2101')
-  engine(root, statePath, 'plan', 'add-task', '--task-id', 'T2', '--title', 'Checkout tax',
+  engine(root, statePath, 'plan', 'add-task', '--task-id', 'T2', '--title', itemTitle(root, CHILD_TAX),
     '--role', 'developer', '--path', 'src/checkout/tax', '--backlog-ref', CHILD_TAX)
-  engine(root, statePath, 'plan', 'add-task', '--task-id', 'T3', '--title', 'Mailer templates',
+  engine(root, statePath, 'plan', 'add-task', '--task-id', 'T3', '--title', itemTitle(root, CHILD_MAILER),
     '--role', 'developer', '--path', 'src/mailer', '--backlog-ref', CHILD_MAILER)
-  engine(root, statePath, 'plan', 'add-task', '--task-id', 'T4', '--title', 'Docs pricing',
+  engine(root, statePath, 'plan', 'add-task', '--task-id', 'T4', '--title', itemTitle(root, CHILD_DOCS),
     '--role', 'developer', '--path', 'docs', '--backlog-ref', CHILD_DOCS, '--depends-on', 'T1')
 
   // One task per item: a second task pointing at an already-delivered child is
@@ -384,6 +396,15 @@ async function testSeededEpicPipeline(root: string): Promise<void> {
     'exactly one task per child, each carrying its own item',
   )
   assert.equal(taskById(minted, 'T1').backlogRef?.displayKey, 'MC-2101', 'the human key rides the pointer')
+  // Each card is titled from the item it points at, not from anything the planner
+  // invented: read the title back off the file the task's own backlogRef names.
+  for (const task of minted.filter((candidate) => candidate.backlogRef)) {
+    assert.equal(
+      task.title,
+      itemTitle(root, task.backlogRef!.projectRelativePath),
+      `${task.id} is not titled from ${task.backlogRef!.projectRelativePath}`,
+    )
+  }
   for (const id of ['T1', 'T2', 'T3', 'T4']) {
     const task = taskById(minted, id)
     assert.equal(task.description, '', `${id} must carry no description — the item is the spec`)
