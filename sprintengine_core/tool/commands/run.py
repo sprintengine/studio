@@ -576,7 +576,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 # and the epic chose that over drift machinery (backlog item
                 # 2018), so the duty rides the terminal task that already exists
                 # rather than a new mechanism.
-                "Give the run's terminal integration-review task the same live-membership pass to run at close, in its own scope: re-read `epic:` membership and file a task for any child that appeared after the graph was approved, or state that none did. Do not add a separate mechanism for it.",
+                "Write the same live-membership pass into the acceptance of the run's terminal integration-review task, so it runs again at close: re-read `epic:` membership, and file a task for any child that appeared after the graph was approved or state that none did. Fold it into that task — do not add a separate mechanism.",
                 "Take each task's title from its item. Leave the description and acceptance criteria empty: --source-doc injects the item into the worker's claim prompt as read-in-full context, so restating it in the card only creates a second version to drift.",
                 "Cross-task contracts, decisions, and risks belong in the plan.md manifest, not in the minted cards.",
                 "Infer each task's modules from its item — package or directory level, never a file. A loose, honest guess is the target; this does not need to be precise.",
