@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
-import MulticodeWordmark from '../brand/MulticodeWordmark'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   CliProviderStateLine,
@@ -178,8 +177,10 @@ export default function OnboardingFlow({
 
 function WelcomeStep({ titleId, onContinue }: { titleId: string; onContinue: () => void }) {
   return (
+    // No wordmark: the brand's one placement is the sidebar chrome row
+    // (design-system/foundations/principles.md). The welcome heading already
+    // names the product — first-run is one of the places copy may.
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8 py-14 text-center">
-      <MulticodeWordmark className="h-7" />
       <div className="space-y-1.5">
         <h2 id={titleId} className="text-[15px] font-semibold text-[color:var(--text-strong)]">
           Welcome to Sprint Engine Studio

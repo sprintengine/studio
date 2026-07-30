@@ -3033,6 +3033,10 @@ export default function WorkspaceManager() {
             onNavigateBack={() => runCommand('workspace.history.back')}
             onNavigateForward={() => runCommand('workspace.history.forward')}
             onOpenSearch={() => runCommand('commandPalette.open')}
+            // The brand row's wordmark is the New chat button, so it routes to the
+            // same panel as the rail's New chat row below it — one action, two
+            // affordances, never two behaviours.
+            onNewChat={() => openNewChatPanel()}
             menuItems={window.api.platform === 'darwin' ? [] : MENU_BAR_ITEMS}
             onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
           />

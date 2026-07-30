@@ -1,18 +1,29 @@
-// The sidebar's own top strip — the left half of the split top chrome. It runs
+// The sidebar's own top chrome — the left half of the split top chrome. It runs
 // to the very top of the window (the full-height sidebar desktop editors use), so the
-// window's leftmost controls live here rather than in a full-width title bar:
+// window's leftmost controls live here rather than in a full-width title bar.
+// Two rows, and the split is by owner rather than by taste: the first row
+// belongs to the WINDOW, the second to the PRODUCT.
 //
-//   macOS   : [native traffic lights] collapse · search ····· back/forward
-//   win/lin : [app-menu hamburger]     collapse · search ····· back/forward
+//   window : [native traffic lights | app-menu hamburger] ····· back/forward
+//   brand  : sprintengine ································ search · collapse
 //
-// The whole strip is an `app-drag` region; every interactive control opts back
-// out with `app-no-drag`. On macOS the leftmost slice is reserved for the native
-// traffic lights inset by the hiddenInset frame (window-factory.ts); the reserve
-// collapses in fullscreen where the lights are hidden. The right-side window
-// controls (min/max/close) are NOT here on win/linux — they pin to the window's
-// top-right corner over the content, since the aside can own that corner.
+// Both rows are `app-drag` regions; every interactive control opts back out with
+// `app-no-drag`. On macOS the window row's leftmost slice is reserved for the
+// native traffic lights inset by the hiddenInset frame (window-factory.ts); the
+// reserve collapses in fullscreen where the lights are hidden. The right-side
+// window controls (min/max/close) are NOT here on win/linux — they pin to the
+// window's top-right corner over the content, since the aside can own that
+// corner.
+//
+// The brand row is chrome, not rail content (item 1991): WorkspaceSidebar mounts
+// this above both the workspaces rail and a door's context rail, and outside the
+// tree's scroll container — so a drill-in that swaps the rail underneath leaves
+// the row untouched, and the row never scrolls away. Collapsed, the whole
+// sidebar is hidden and the expand control moves to WorkspaceHeader's launcher;
+// there is no wordmark and no glyph standing in for it there.
 
 import React from 'react'
+import SprintEngineWordmark from '../brand/SprintEngineWordmark'
 import { Popover, Tooltip } from '../ui'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { TRAFFIC_LIGHT_INSET } from './AppTitleBar'
@@ -21,6 +32,22 @@ import { TRAFFIC_LIGHT_INSET } from './AppTitleBar'
 // on hover, only a subtle→default ink shift, opts out of the drag region.
 const STRIP_BUTTON = `app-no-drag interactive inline-flex size-control-sm items-center justify-center bg-transparent text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`
 
+// The brand row's own trailing controls. `control-xs` is the system's icon-button
+// step (principles.md, "Space and size"), one notch under the window row's
+// labelled-control step, so the two rows read as chrome of different weight
+// rather than one 72px slab of buttons.
+//
+// The ink lives on the two variants, never layered over a shared default: two
+// `text-[color:…]` utilities on one element are resolved by Tailwind's own
+// stylesheet order, not by the order they appear in the attribute, so appending
+// `text-strong` to a base that already says `text-subtle` silently loses. The
+// base therefore sets no colour at all.
+const BRAND_ROW_BUTTON_BASE = `app-no-drag interactive inline-flex size-control-xs items-center justify-center rounded-md bg-transparent transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`
+const BRAND_ROW_BUTTON = `${BRAND_ROW_BUTTON_BASE} text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]`
+// For a control whose panel is open: strong at rest and on hover, so hovering
+// the open state never reads as dimming it.
+const BRAND_ROW_BUTTON_STRONG = `${BRAND_ROW_BUTTON_BASE} text-[color:var(--text-strong)]`
+
 type SidebarChromeProps<MenuItem extends string> = {
   isMac: boolean
   isFullScreen: boolean
@@ -28,6 +55,7 @@ type SidebarChromeProps<MenuItem extends string> = {
   onNavigateBack: () => void
   onNavigateForward: () => void
   onOpenSearch: () => void
+  onNewChat: () => void
   // Win/linux only: the app menu, rendered as a single hamburger at all widths
   // (the inline File/Edit/… label bar is dropped here — the ~sidebar-width strip
   // has no room for it). macOS passes an empty list; those menus are the native
@@ -37,9 +65,9 @@ type SidebarChromeProps<MenuItem extends string> = {
 }
 
 // Sidebar toggle. Mirrors the Sprints aside toggle: white (text-strong) while its
-// panel — the sidebar — is open. This button only renders in the expanded strip,
-// so it's always the open state here; the collapsed-state open button lives in
-// WorkspaceHeader's launcher and stays muted.
+// panel — the sidebar — is open. This button only renders in the expanded brand
+// row, so it's always the open state here; the collapsed-state open button lives
+// in WorkspaceHeader's launcher and stays muted.
 function CollapseButton({ onToggle }: { onToggle: () => void }) {
   return (
     <Tooltip content="Collapse sidebar" placement="bottom">
@@ -48,7 +76,7 @@ function CollapseButton({ onToggle }: { onToggle: () => void }) {
         onClick={onToggle}
         aria-label="Collapse sidebar"
         aria-pressed={true}
-        className={`app-no-drag interactive inline-flex size-control-sm items-center justify-center bg-transparent text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+        className={BRAND_ROW_BUTTON_STRONG}
       >
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
@@ -59,14 +87,42 @@ function CollapseButton({ onToggle }: { onToggle: () => void }) {
   )
 }
 
+// Opens the command palette's search. The rail's own filter field is a different
+// control with a different reach — it narrows the list below it and stays down
+// there in the list anatomy.
 function SearchButton({ onOpen }: { onOpen: () => void }) {
   return (
     <Tooltip content="Search" placement="bottom">
-      <button type="button" onClick={onOpen} aria-label="Search" className={STRIP_BUTTON}>
+      <button type="button" onClick={onOpen} aria-label="Search" className={BRAND_ROW_BUTTON}>
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.5" />
           <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
+      </button>
+    </Tooltip>
+  )
+}
+
+// The wordmark IS the New chat button — the row spends no width on a second
+// control for the app's most common action, and the mark gets a reason to be
+// clickable beyond decoration. Its accessible name is the action, not the brand:
+// a screen-reader user needs to know what the control does, and the product name
+// is not information they are missing.
+//
+// `px-2` inside the row's own `px-2` puts the first letterform at x=16 — the
+// same left edge the rail rows below put their first glyph on, and the same edge
+// their hover pill starts at. Measured, not eyeballed: at `px-1.5` the mark sat
+// 4px inboard of the column's text edge and the left side read crooked.
+function BrandButton({ onNewChat }: { onNewChat: () => void }) {
+  return (
+    <Tooltip content="New chat" placement="bottom">
+      <button
+        type="button"
+        onClick={onNewChat}
+        aria-label="New chat"
+        className={`app-no-drag interactive inline-flex h-control-xs items-center rounded-md bg-transparent px-2 transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+      >
+        <SprintEngineWordmark />
       </button>
     </Tooltip>
   )
@@ -153,6 +209,7 @@ export function SidebarChrome<MenuItem extends string>({
   onNavigateBack,
   onNavigateForward,
   onOpenSearch,
+  onNewChat,
   menuItems,
   onShowMenu,
 }: SidebarChromeProps<MenuItem>) {
@@ -161,17 +218,35 @@ export function SidebarChrome<MenuItem extends string>({
   const reserveTrafficLights = isMac && !isFullScreen
 
   return (
-    <div className="app-drag flex h-[36px] shrink-0 items-center">
-      {reserveTrafficLights ? <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} /> : null}
-      <div className="flex min-w-0 flex-1 items-center gap-0.5 pl-1.5">
-        {!isMac ? <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} /> : null}
-        <CollapseButton onToggle={onToggleSidebar} />
-        <SearchButton onOpen={onOpenSearch} />
+    <>
+      {/* Window row. Height-locked to WorkspaceHeader's 36px so the two halves of
+          the split chrome meet at the same line across the column seam. */}
+      <div className="app-drag flex h-[36px] shrink-0 items-center">
+        {reserveTrafficLights ? <div aria-hidden="true" className={TRAFFIC_LIGHT_INSET} /> : null}
+        {!isMac ? (
+          <div className="flex shrink-0 items-center pl-1.5">
+            <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} />
+          </div>
+        ) : null}
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-1.5">
+          <NavHistoryButton direction="back" onClick={onNavigateBack} />
+          <NavHistoryButton direction="forward" onClick={onNavigateForward} />
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5 pr-1.5">
-        <NavHistoryButton direction="back" onClick={onNavigateBack} />
-        <NavHistoryButton direction="forward" onClick={onNavigateForward} />
+      {/* Brand row. No divider under it: the rail below already owns the one
+          "the list starts here" rule (principles.md, Composition), and a second
+          hairline 34px above it would only stripe the chrome.
+
+          `px-2` matches the rail cluster's own `mx-2`, so the row's leading and
+          trailing edges land on the column's text edges rather than 4px inboard
+          and 2px outboard of them. */}
+      <div className="app-drag flex shrink-0 items-center gap-0.5 px-2 py-1">
+        <BrandButton onNewChat={onNewChat} />
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          <SearchButton onOpen={onOpenSearch} />
+          <CollapseButton onToggle={onToggleSidebar} />
+        </div>
       </div>
-    </div>
+    </>
   )
 }
