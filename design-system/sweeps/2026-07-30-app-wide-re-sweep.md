@@ -142,10 +142,10 @@ backlog item below.
 
 ## Filed rather than fixed
 
-Four structural findings became backlog items carrying `epic: premium-feel-pass`
-rather than unfinished work inside this task. All four are `status: idea`, not
-`ready` — each changes UI, and the owner rule of 2026-07-26 says a UI item is
-not ready without a build-to-it mockup.
+Five structural findings became backlog items carrying `epic: premium-feel-pass`
+rather than unfinished work inside this task. All five are `status: idea`, not
+`ready` — each changes UI or a gate, and the owner rule of 2026-07-26 says a UI
+item is not ready without a build-to-it mockup.
 
 - `backlog/2026-07-30-display-type-tier-above-title.md` — the ramp tops out at
   `title` (16px) and 4 sites sit at 20/22/32px. Collapsing a pairing code from
@@ -161,6 +161,14 @@ not ready without a build-to-it mockup.
   between `icon.lg` (22px) and `control.xs` (26px) with no step to land on.
   Two of them are interactive and below the minimum hit target, which is an
   accessibility question rather than tidiness.
+- `backlog/2026-07-30-guard-arbitrary-type-and-icon-sizes.md` — **the one that
+  decides whether this sweep lasts.** Nothing currently fails a reintroduced
+  `text-[12px]`: `lint-design-system-conformance.mjs` holds the `TEXT_SIZE`
+  regex but feeds it only to `micro-type-floor`, which fails sizes *below* 10px,
+  which is why it ran green over all 1,425 arbitrary values for as long as they
+  existed. That is proof by construction, not a prediction. The guard file is
+  outside this task's owned paths and had a live writer in the same run, so the
+  rule was filed rather than taken.
 
 ## Design-system contributions verified
 
