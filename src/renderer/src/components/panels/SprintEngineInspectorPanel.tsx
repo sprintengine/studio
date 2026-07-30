@@ -2327,7 +2327,12 @@ function ActivitySparkline({ bars, label }: { bars: ActivitySparkBar[]; label: s
           className={`flex-1 rounded-[1px] bg-[color:var(--accent-primary)] ${
             bar.recent ? '' : 'opacity-25'
           }`}
-          style={{ height: `${Math.round(bar.height * 100)}%` }}
+          // A quiet bucket still paints its baseline. A bucket of literally no
+          // height leaves a gap, and a task whose activity clustered early in a
+          // long window is mostly gaps — which renders as two stray rectangles
+          // rather than as a chart. 1px is the axis, and stays unmistakably
+          // under the 0.18 floor any bucket with activity carries.
+          style={bar.height > 0 ? { height: `${Math.round(bar.height * 100)}%` } : { height: '1px' }}
         />
       ))}
     </div>
