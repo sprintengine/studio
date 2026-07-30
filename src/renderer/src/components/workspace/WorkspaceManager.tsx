@@ -802,6 +802,26 @@ export default function WorkspaceManager() {
     surfaceTrigger.leave(closeGlobalSurface)
   }, [surfaceTrigger, closeGlobalSurface])
 
+  // A door has to hold the keyboard to have a keyboard exit at all.
+  //
+  // `ContextRailColumn` takes focus when it replaces the sidebar, so a door WITH
+  // a rail was fine. A door without one — Backlog always, Sprints and Automations
+  // while empty, Horizon before its first horizon — left focus on the sidebar row
+  // that opened it, which belongs to neither the door's canvas nor its rail, so
+  // Escape below never claimed the keystroke and the door had no keyboard exit.
+  // The page region takes the keyboard instead. It is also what makes a click on
+  // the door's own empty canvas land INSIDE the door (a click on a non-focusable
+  // node focuses its nearest focusable ancestor) rather than dropping focus to
+  // `<body>`, which used to disarm Escape for the rest of the visit.
+  //
+  // Keyed on the surface and on whether the rail took over, exactly as the rail
+  // column is, so it can never pull focus out of a control mid-surface.
+  useEffect(() => {
+    if (!surfaceRegionEl || contextRailActive) return
+    if (surfaceRegionEl.contains(document.activeElement)) return
+    surfaceRegionEl.focus()
+  }, [surfaceRegionEl, contextRailActive, activeGlobalSurface])
+
   // Escape leaves the door, now that back is a rail row rather than a bar
   // chevron: the two affordances have to agree, and a full-page surface with no
   // keyboard exit is the one thing worse than a bar chevron. Deliberately NOT a
@@ -3309,7 +3329,15 @@ export default function WorkspaceManager() {
             the neutral surface ground — the themed canvas (sage in the green
             themes) stays the sidebar/chrome's identity only. */}
         {activeGlobalSurfaceEntry ? (
-          <div ref={setSurfaceRegionEl} className="absolute inset-0 z-20 bg-[color:var(--bg-surface)]">
+          <div
+            ref={setSurfaceRegionEl}
+            // Focusable, ring-less: the door's keyboard home when its rail did not
+            // replace the sidebar (see the focus effect above). `tabindex=-1` also
+            // makes a click on the door's own empty canvas land here instead of on
+            // `<body>`, which is what keeps Escape armed for the whole visit.
+            tabIndex={-1}
+            className="absolute inset-0 z-20 bg-[color:var(--bg-surface)] outline-none"
+          >
             <GlobalSurfaceBarSlotContext.Provider value={surfaceBarSlot}>
               {/* The rail lifts into the app sidebar's column; the surface just
                   declares a rail and does not know which column it landed in. */}

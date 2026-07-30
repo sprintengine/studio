@@ -939,7 +939,13 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   return (
     <GlobalSurfaceShell
       ariaLabel="Horizon"
-      bar={bar}
+      // With nothing selected there is no horizon to describe, but the door still
+      // needs its name and its way out: the bar is where the back chevron lives
+      // for a door whose rail did not replace the sidebar, and `bar` being
+      // undefined here left the first-run Horizon as the one door on the
+      // substrate with no back affordance of its own at all (every sibling door
+      // shows one in exactly this state).
+      bar={bar ?? { title: 'Horizon' }}
       rail={hasRoadmaps || error ? rail : undefined}
       onBack={back.onBack}
       canGoBack={back.canGoBack}

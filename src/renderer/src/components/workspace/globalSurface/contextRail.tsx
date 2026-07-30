@@ -117,6 +117,24 @@ export function ContextRailColumn({
     node.focus()
   }, [surfaceKey, active])
 
+  // Door → door keeps this column mounted — same element, same CSS animation —
+  // and a CSS animation only starts when the element or the animation is new. So
+  // the swap that plays on the first open would NOT play again when one drilled-in
+  // surface replaces another: the incoming rail would just be different content
+  // in the same box. Restarting the animation the stylesheet already declared is
+  // the whole fix, and it needs no reduced-motion branch: under
+  // `prefers-reduced-motion: reduce` the media query leaves nothing to restart.
+  useEffect(() => {
+    const node = columnRef.current
+    if (!node || !active) return
+    // jsdom has no Web Animations API; the swap is a browser-only concern.
+    if (typeof node.getAnimations !== 'function') return
+    for (const animation of node.getAnimations()) {
+      animation.currentTime = 0
+      void animation.play()
+    }
+  }, [surfaceKey, active])
+
   return (
     <div
       ref={columnRef}
