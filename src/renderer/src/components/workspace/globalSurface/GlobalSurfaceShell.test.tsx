@@ -13,18 +13,17 @@ function run(name: string, body: () => void): void {
   }
 }
 
-// The mockup §1/§2 anatomy: a labelled surface region → surface bar (title ·
-// status chip · context sub · actions) → optional attention strip → body of an
+// The mockup §1/§2 anatomy: a labelled surface region → surface bar (the door's
+// NAME and its actions, nothing else) → optional attention strip → body of an
 // optional internal rail beside the canvas. Each slot is proven present when
-// supplied and absent when omitted.
+// supplied and absent when omitted. The bar carries no status chip and no counts
+// line: state belongs to the thing that has it, not to the title of the room.
 run('renders the full anatomy when every slot is supplied', () => {
   const html = renderToStaticMarkup(
     <GlobalSurfaceShell
       ariaLabel="Roadmap"
       bar={{
         title: 'summer26',
-        statusChip: <span data-testid="chip">Active</span>,
-        contextSub: '2 tracks · 7 steps',
         actions: <button type="button">Edit plan</button>,
       }}
       attention={<div data-testid="wait">Approve &amp; merge</div>}
@@ -39,9 +38,8 @@ run('renders the full anatomy when every slot is supplied', () => {
   assert.doesNotMatch(html, /role="dialog"|aria-modal/, 'the surface is a page, never a dialog')
   // Surface bar: heading + every optional bit.
   assert.match(html, /<h2[^>]*>summer26<\/h2>/, 'the bar renders the title as the region heading')
-  assert.match(html, /data-testid="chip"/, 'the status chip slot renders')
-  assert.match(html, /2 tracks · 7 steps/, 'the context sub renders')
   assert.match(html, /Edit plan/, 'the actions slot renders')
+  assert.doesNotMatch(html, /Active|2 tracks/, 'the bar carries no status chip and no counts line')
   // Attention strip, rail (a labelled list aside), and canvas.
   assert.match(html, /data-testid="wait"/, 'the attention strip renders')
   assert.match(html, /<aside aria-label="Roadmap list"/, 'the rail is a labelled list aside owned by the surface')

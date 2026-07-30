@@ -8,12 +8,14 @@ import { Drawer } from '../../../ui/Drawer'
 import { GhostButton, PrimaryButton } from '../../../ui/Buttons'
 import { KbdChord } from '../../../ui/KbdChord'
 import { SegmentedControl, type SegmentedControlItem } from '../../../ui/SegmentedControl'
+import { Spinner } from '../../../ui/Spinner'
 import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 import {
   resolveAvailableAgentCli,
   selectAgentCliCatalog,
   type AgentCliCatalogOption,
 } from '../../newWorkspace/cliRuntimeOptions'
+import { RUN_PHASE_LABEL } from '../../../panels/review/ReviewCanvas'
 import type { ReviewSession } from '../../../panels/review/useReviewSession'
 import { StopGuideRunButton } from './ReviewGuideStop'
 import type { GuideTerminalLink } from './useGuideTerminal'
@@ -131,6 +133,13 @@ export function ReviewGuideActions({
   if (session.run.running) {
     return (
       <span className="flex shrink-0 items-center gap-2">
+        {/* What the guide is doing right now. It rode the canvas's status band
+            before that band went; the phase belongs beside the controls that act
+            on the run, which is here. */}
+        <span className="flex shrink-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
+          <Spinner />
+          {RUN_PHASE_LABEL[session.run.phase ?? 'reading'] ?? RUN_PHASE_LABEL.grouping}
+        </span>
         {terminal.terminal ? (
           <GhostButton onClick={() => void terminal.open()} className="shrink-0">
             Open the guide’s terminal
@@ -142,32 +151,39 @@ export function ReviewGuideActions({
   }
   const failed = Boolean(session.run.error)
   return (
-    <span className="flex shrink-0 flex-col gap-1">
-      <span className="flex items-center gap-2">
-        <SegmentedControl
-          ariaLabel="Walkthrough depth"
-          ariaDescribedBy={depthHintId}
-          items={DEPTH_SEGMENTS}
-          value={runtime.depth}
-          onChange={runtime.setDepth}
-          size="sm"
-        />
-        <CliModelPickerButton
-          ariaLabel="Guide agent"
-          options={runtime.catalog}
-          cli={runtime.cli}
-          effectiveModelFor={(candidate) => (candidate === runtime.cli ? runtime.model : undefined)}
-          onSelectCli={runtime.setCli}
-          onSelectModel={(nextCli, nextModel) => {
-            if (nextCli !== runtime.cli) runtime.setCli(nextCli)
-            runtime.setModel(nextCli, nextModel)
-          }}
-        />
-        <PrimaryButton onClick={session.startRun} className="shrink-0">
-          {failed ? 'Try again' : 'Prepare walkthrough'}
-        </PrimaryButton>
-      </span>
-      <span id={depthHintId} className="text-micro leading-4 text-[color:var(--text-subtle)]">
+    <span className="flex shrink-0 items-center gap-2">
+      <SegmentedControl
+        ariaLabel="Walkthrough depth"
+        ariaDescribedBy={depthHintId}
+        items={DEPTH_SEGMENTS}
+        value={runtime.depth}
+        onChange={runtime.setDepth}
+        size="sm"
+      />
+      {/* One control for the runtime, not two: the context-window and effort axes
+          ride the picker's own trailing row, exactly as the agent composer's
+          engine flyout has them. A second pill beside the model read as an
+          unrelated setting nobody could name. */}
+      <CliModelPickerButton
+        ariaLabel="Guide agent"
+        options={runtime.catalog}
+        cli={runtime.cli}
+        effectiveModelFor={(candidate) => (candidate === runtime.cli ? runtime.model : undefined)}
+        reasoningPlacement="in-popover"
+        onSelectCli={runtime.setCli}
+        onSelectModel={(nextCli, nextModel) => {
+          if (nextCli !== runtime.cli) runtime.setCli(nextCli)
+          runtime.setModel(nextCli, nextModel)
+        }}
+      />
+      <PrimaryButton onClick={session.startRun} className="shrink-0">
+        {failed ? 'Try again' : 'Prepare walkthrough'}
+      </PrimaryButton>
+      {/* The depth one-liner is the control's accessible description only. On
+          screen the three segment labels are the difference; a caption spelling
+          out what "Standard" adds was a sentence explaining a control that is
+          right there, and it forced the whole cluster into two rows. */}
+      <span id={depthHintId} className="sr-only">
         {DEPTH_HINT[runtime.depth]}
       </span>
     </span>

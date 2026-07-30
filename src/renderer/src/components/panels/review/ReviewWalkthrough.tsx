@@ -229,6 +229,7 @@ export function ReviewWalkthrough({
                   fileByPath={fileByPath}
                   readFiles={readFiles}
                   diffView={diffView}
+                  onSetDiffView={onSetDiffView}
                   monacoTheme={monacoTheme}
                   onToggleRead={onToggleRead}
                   onRequestComment={onRequestComment}

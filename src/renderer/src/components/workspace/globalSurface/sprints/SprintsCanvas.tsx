@@ -249,14 +249,11 @@ export function SprintsCanvas({ model }: { model: SprintRunCanvasModel }): JSX.E
   }
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* The main panel belongs to the run (MC-1838): one summary sentence, then
-          the board's single tab row — Inbox, Agents, Tasks, Repositories. The
-          repositories strip that used to occupy the top 46% of the page is the
-          Repositories tab now; the rollup grid collapses into this line. */}
-      <p className="shrink-0 border-b border-[color:var(--border-subtle)] px-5 py-2.5 text-meta text-[color:var(--text-muted)]">
-        <span className="font-medium text-[color:var(--text-default)]">{runSummarySentence(model)}</span>
-        {runSummaryDetail(model) ? <> · {runSummaryDetail(model)}</> : null}
-      </p>
+      {/* The run's board and nothing above it (owner, 2026-07-30). The summary
+          sentence that used to sit here was a third band of chrome under the app
+          strip and the door bar — and every fact in it (what is waiting, who is
+          working, what has merged) is a column of the board one tab away. One
+          chrome row per region: the tab row is that row. */}
       <div className="min-h-0 flex-1">
         <React.Suspense fallback={<SuspenseFallback label="Loading the board" />}>
           <SprintRunBoard
@@ -287,50 +284,6 @@ export function SprintsCanvas({ model }: { model: SprintRunCanvasModel }): JSX.E
       </div>
     </div>
   )
-}
-
-// The one-line summary above the tabs: the run's most pressing fact first, in
-// plain words — never "0 of 0 merged".
-function runSummarySentence(model: SprintRunCanvasModel): string {
-  if (model.canceled) return 'This sprint was canceled.'
-  const waiting = model.humanInputTasks.length
-  if (waiting > 0) {
-    return waiting === 1
-      ? '1 task is waiting on your answer.'
-      : `${waiting} tasks are waiting on your answer.`
-  }
-  if (model.landed) return 'Every branch has merged.'
-  if (model.completed) {
-    const left = model.rollup?.unmerged ?? 0
-    if (left > 0) return `The work is done — ${left === 1 ? '1 branch' : `${left} branches`} left to merge.`
-    return 'The work is done.'
-  }
-  const tasks = model.state?.tasks ?? []
-  const done = tasks.filter((task) => task.status === 'done').length
-  if (tasks.length === 0) return 'No tasks planned yet.'
-  return `${done} of ${tasks.length} tasks done.`
-}
-
-// The quieter clause after the sentence: who is on it, and whether anything has
-// merged yet — skipped when it would repeat the sentence.
-function runSummaryDetail(model: SprintRunCanvasModel): string {
-  const parts: string[] = []
-  const roster = buildSprintEngineAgentRosterForState(model.state)
-  const working = roster.filter((member) => {
-    const worker = model.state?.workers?.[member.id] ?? model.state?.sprintEngineAgents?.[member.id]
-    return worker?.status === 'running'
-  }).length
-  if (roster.length > 0) {
-    parts.push(working > 0 ? `${working} of ${roster.length} agents working` : 'agents idle')
-  }
-  if (!model.landed && !model.canceled && model.rollup && model.rollup.total > 0) {
-    parts.push(
-      model.rollup.merged > 0
-        ? `${model.rollup.merged} of ${model.rollup.total} branches merged`
-        : 'nothing merged yet',
-    )
-  }
-  return parts.join(' · ')
 }
 
 // The run rollup (mockup §2 "Run"): the four facts that answer "where is this

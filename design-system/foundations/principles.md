@@ -262,6 +262,25 @@ same content shares a row: status on the left, controls on the right. Reaching
 for a second band means asking which band the new control belongs in, not where
 to put the new band.
 
+**The door surface** — a full-page surface that takes over the content region
+(Backlog, Sprints, Reviews, Horizon, Automations, Extensions) — has an anatomy
+too, and it has exactly one band of chrome:
+
+1. **The app's top strip is the door's title bar.** The door's name and its
+   controls ride the strip that is already there. A door that draws its own
+   title row puts two title bars on one screen, with the first one empty.
+2. **The name sits on the content gutter (20px).** The title, the leading edge
+   of the tab row under it, and the canvas body share one vertical line. A title
+   inset to the window chrome's 6px hangs off the left edge of its own page.
+3. **The bar is the name and the controls, nothing else.** No status chip, no
+   counts line: the page under the bar already shows its own state, and the rail
+   row that opened the door already carries its glyph.
+4. **Nothing stacks between the bar and the content.** A status sentence or a
+   tools row under the strip is the second band this anatomy exists to prevent —
+   the controls belong in the strip, and a status belongs to the thing that has
+   it. A notice about the content (a stale change, a failed run) is not chrome
+   and keeps its own band.
+
 **A heading must separate something from something else.** Do not label an
 ungrouped list ("Horizons" over a field that already reads "Search horizons…"),
 and do not render a group heading when there is only one group — "Recent"

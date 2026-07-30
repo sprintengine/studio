@@ -455,7 +455,14 @@ async function main(): Promise<void> {
   // canvas — its own projection, not the index row.
   const selected = container.querySelector('li button[aria-current="true"]')
   assert.ok(selected?.textContent?.includes('relay-traffic'), 'rail marks the auto-selection')
-  assert.ok(container.textContent?.includes('Waiting on you'), 'bar status chip')
+  // The bar is the run's NAME and its controls: the run's state is the rail
+  // group it sits in and the canvas's own status line, never a chip in the app's
+  // top strip repeating both.
+  const surfaceBar = container.querySelector('section[aria-label="Sprints"] > div')
+  assert.ok(
+    !surfaceBar?.textContent?.includes('Waiting on you'),
+    'no state chip in the surface bar',
+  )
   console.log('ok - runs load, needs-input leads, and the canvas opens on the selected run')
 
 
@@ -655,9 +662,11 @@ async function main(): Promise<void> {
   assert.ok(cards[2]?.textContent?.includes('PR #61 · Open'), 'the last leg is still out')
   assert.ok(container.textContent?.includes('merge order enforced'), 'the strip names the rule')
   // Completed, but not landed: the rollup, not the flat PR state, decides (D10).
+  // The claim lives on the canvas that can substantiate it — the surface bar
+  // carries the run's name and its controls, and no state word at all.
   const bar = container.querySelector('h2')?.parentElement
-  assert.ok(bar?.textContent?.includes('Completed'), 'the run reads Completed')
-  assert.ok(!bar?.textContent?.includes('Landed'), 'and never Landed while a branch is out')
+  assert.ok(!bar?.textContent?.includes('Landed'), 'the bar never claims Landed while a branch is out')
+  assert.ok(!bar?.textContent?.includes('Completed'), 'and states no run state of its own')
   assert.ok(container.textContent?.includes('1 leg open'), 'the rollup names the open leg')
   assert.ok(
     container.textContent?.includes('Lands when multicode-mobile merges'),

@@ -90,7 +90,7 @@ import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { SidebarChrome } from './SidebarChrome'
 import { WorkspaceHeader } from './WorkspaceHeader'
-import { GlobalSurfaceBarSlotContext } from './globalSurface/GlobalSurfaceShell'
+import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
 import { GlobalSurfaceErrorBoundary } from './globalSurface/surfaceSubstrate'
 import {
   ContextRailColumn,
@@ -3164,6 +3164,7 @@ export default function WorkspaceManager() {
             activeWorkspace={activeWorkspace}
             activeWorkspaceId={windowActiveWorkspaceId}
             workspaceActionsEnabled={workspaceActionsEnabled}
+            globalSurfaceActive={activeGlobalSurfaceEntry !== null}
             sessionsRef={sessionsRef}
             viewMenuRef={viewMenuRef}
             notificationsRef={notificationsRef}

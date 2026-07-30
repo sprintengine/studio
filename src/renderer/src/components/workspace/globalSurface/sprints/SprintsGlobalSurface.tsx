@@ -1,18 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
 import { normalizeStatePathKey } from '../../../../store/sprintRunStoreSlice'
 import { PrimaryButton } from '../../../ui'
 import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
-import { BarStatusChip, SurfaceCanvasState } from '../surfaceSubstrate'
+import { SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import {
   buildSprintRailRows,
   sprintRunMatchesSearch,
-  sprintRunProjectPhrase,
-  sprintRunShortDate,
-  sprintRunStatusLabel,
-  sprintRunTone,
   RUN_INDEX_ERROR_HINT,
   RUN_INDEX_ERROR_TITLE,
   type SprintSort,
@@ -147,29 +142,14 @@ export default function SprintsGlobalSurface(): JSX.Element {
     reload()
   }, [reload])
 
+  // The run's name and its controls. The state chip and the "project · N tasks ·
+  // started <date>" line both moved out: the canvas under this bar opens with the
+  // run's own status line and its task counts, and the rail row for this run
+  // carries its state glyph — the bar was the third place to read the same thing.
   const bar = useMemo(() => {
     if (!selectedRun) return { title: 'Sprints' }
-    // The canvas reads the run's LIVE projection; the index summary is a cached
-    // snapshot that only refreshes on a runs-changed event. When they disagree
-    // (a cancel/completion the index has not heard about yet), the projection
-    // wins — the chip must never keep pulsing "Running" on a canceled run.
-    const runtimeState = canvas?.canceled
-      ? 'canceled'
-      : canvas?.completed
-        ? 'completed'
-        : selectedRun.runtimeState
     return {
       title: selectedRun.teamName,
-      statusChip: (
-        <BarStatusChip
-          tone={canvas?.landed ? 'merged' : sprintRunTone(runtimeState)}
-          // Landed is the multi-repo truth (D10): a completed run whose branches
-          // have not all merged still reads "Completed", never "Landed".
-          label={canvas?.landed ? 'Landed' : sprintRunStatusLabel(runtimeState)}
-          pulse={runtimeState === 'running'}
-        />
-      ),
-      contextSub: runContextLine(selectedRun),
       actions: canvas ? <SprintsBarActions model={canvas} onRunDeleted={handleRunDeleted} /> : undefined,
     }
   }, [selectedRun, canvas, handleRunDeleted])
@@ -275,19 +255,6 @@ function SurfaceBody({
         : 'Select a sprint to see where it stands.'}
     </div>
   )
-}
-
-// The bar's context line: which project(s), how much work, and when it started.
-// The repo span reuses the rail's phrase, so bar and rail never describe the same
-// run's span differently.
-function runContextLine(run: SprintRunSummary): string {
-  const parts: string[] = [sprintRunProjectPhrase(run)]
-  if (run.taskCounts.total > 0) {
-    parts.push(`${run.taskCounts.total} ${run.taskCounts.total === 1 ? 'task' : 'tasks'}`)
-  }
-  const started = sprintRunShortDate(run.startedAt)
-  if (started) parts.push(`started ${started}`)
-  return parts.join(' · ')
 }
 
 // The Sprints glyph — the four-pane board mark from the mockup's sidebar row, in

@@ -382,6 +382,15 @@ export type WorkspaceActionsProps = {
   activeWorkspace: Workspace | null
   activeWorkspaceId: string | null
   workspaceActionsEnabled: boolean | null
+  /**
+   * A door surface owns the content region. Spawning an agent is a thing you do
+   * to a WORKSPACE — the agent lands in its layout — so the spawn split-button
+   * drops out while a door is open (owner, 2026-07-30) rather than offering to
+   * launch a specialist into a page that has no terminals. Sessions,
+   * notifications, dictation, and the attention cue all stay: they are
+   * cross-workspace, and they are useful from anywhere.
+   */
+  globalSurfaceActive?: boolean
 
   sessionsRef: React.RefObject<HTMLDivElement>
   viewMenuRef: React.RefObject<HTMLDivElement>
@@ -479,6 +488,7 @@ export function WorkspaceActions({
   activeWorkspace,
   activeWorkspaceId,
   workspaceActionsEnabled,
+  globalSurfaceActive = false,
   sessionsRef,
   viewMenuRef,
   notificationsRef,
@@ -792,7 +802,7 @@ export function WorkspaceActions({
         ) : null}
 
         {/* top-bar-group: agent-spawn */}
-        {workspaceActionsEnabled ? (() => {
+        {workspaceActionsEnabled && !globalSurfaceActive ? (() => {
           // Constrain a remembered CLI to one that is actually installed. When
           // the catalog is empty (registry still loading or no agent plugins)
           // this preserves the passed id rather than throwing on an empty list.

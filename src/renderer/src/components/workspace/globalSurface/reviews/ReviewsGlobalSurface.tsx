@@ -228,7 +228,15 @@ export default function ReviewsGlobalSurface(): JSX.Element {
 
   const onCancelCreate = useCallback(() => setCreating(false), [])
 
-  const bar = buildBar({ creating, hasSelection: selected !== null, selectedEntry, session })
+  const bar = buildBar({
+    creating,
+    hasSelection: selected !== null,
+    selectedEntry,
+    session,
+    // Whichever the review is asking for right now: the preparation choices while
+    // there is no walkthrough, the walkthrough's own tools once there is one.
+    guideControls: session.isDegraded || session.run.running ? guideActions : <ReviewCanvasTools session={session} />,
+  })
   // The rail is DECLARED, not derived from what the door happens to hold (T19):
   // present in every load state, so opening the door replaces the projects rail
   // immediately. It used to withhold the rail on the pristine first load, which
@@ -279,16 +287,18 @@ function buildBar({
   hasSelection,
   selectedEntry,
   session,
+  guideControls,
 }: {
   creating: boolean
   hasSelection: boolean
   selectedEntry: ReviewIndexEntry | null
   session: ReturnType<typeof useReviewSession>
+  guideControls: ReactNode
 }): GlobalSurfaceBar {
   if (creating) return { title: 'Review a change' }
   // A selected review drives the bar off its session, even before a just-created
   // one is re-scanned into the index (selectedEntry may still be null then).
-  if (hasSelection) return buildReviewsSurfaceBar(selectedEntry, session)
+  if (hasSelection) return buildReviewsSurfaceBar(selectedEntry, session, guideControls)
   return { title: 'Reviews' }
 }
 
@@ -318,11 +328,12 @@ function renderCanvas({
   if (creating) {
     return <ReviewChangeForm projectRoots={roots} onCreated={onCreated} onCancel={onCancelCreate} />
   }
-  // A selected review renders as soon as it is chosen — the session loads it by id,
-  // so it does not wait for the index re-scan to list a just-created one. The
-  // walkthrough tools ride the canvas as a slim toolbar, not the door bar.
+  // A selected review renders as soon as it is chosen — the session loads it by
+  // id, so it does not wait for the index re-scan to list a just-created one.
+  // Both the guide's controls and the walkthrough's tools ride the door bar in
+  // the app strip; the canvas is the change and nothing else.
   if (hasSelection) {
-    return <ReviewCanvas session={session} guideActions={guideActions} toolbar={<ReviewCanvasTools session={session} />} />
+    return <ReviewCanvas session={session} guideActions={guideActions} />
   }
   if (index.phase === 'loading') {
     return <SurfaceCanvasState kind="loading" label="Loading reviews…" />

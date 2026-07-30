@@ -546,10 +546,15 @@ async function main(): Promise<void> {
     allRows.every((text) => !text.includes('MA-112')),
     'the unreadable project contributes no rows',
   )
-  // Rows from different projects share one page, so each says which backlog it
-  // came from — the ids alone are not a promise (two projects can share a key).
-  assert.ok(allRows.some((text) => text.includes('multicode-mobile')), 'rows carry their project tag')
-  console.log('ok - the Backlog door lists every project’s items with their own keys and tags')
+  // Rows from different projects share one page, and which backlog a row came
+  // from rides its hover card — not a column of the same word repeated down the
+  // list, which crowded every title to answer a question nobody was asking on
+  // most rows.
+  assert.ok(
+    allRows.every((text) => !text.includes('multicode-mobile')),
+    'no project tag is painted into the rows themselves',
+  )
+  console.log('ok - the Backlog door lists every project’s items with their own keys')
 
   // A failed project names itself and offers a retry, while the rest of the page
   // stays a working backlog — never an all-or-nothing blank.
@@ -582,11 +587,9 @@ async function main(): Promise<void> {
     filtered.every((text) => !/\b(MC|MA)-\d+/.test(text)),
     'a single-project view carries no other project’s ids',
   )
-  // Narrowed to one project, the page IS that project's backlog — so the tag
-  // that only exists to disambiguate an aggregate drops away.
   assert.ok(
     filtered.every((text) => !text.includes('multicode-mobile')),
-    'and drops the project tag it no longer needs',
+    'and the row itself still names no project',
   )
   console.log('ok - filtering to one project reproduces that project’s list')
 
@@ -856,10 +859,11 @@ async function main(): Promise<void> {
     ]) {
       assert.ok(railText.includes(label), `the rail carries "${label}"`)
     }
-    // Honest counts, pinned to the element that claims them: 1 launchable
-    // connector on the bar chip AND the Featured row; catalog(1) + mcp/skills
-    // plugin(1) in the connector marketplace; each kind row carries its own
-    // real count (a zeroed count on one row can't hide behind another's).
+    // Honest counts, pinned to the element that claims them: the RAIL row is
+    // where a count lives now — the bar is the door's name and nothing else, so
+    // the counts it used to repeat can no longer drift from these. Each kind row
+    // carries its own real count (a zeroed count on one row can't hide behind
+    // another's).
     const railRow = (label: string): string => {
       const row = Array.from(container.querySelectorAll('button')).find((button) =>
         (button.textContent ?? '').includes(label),
@@ -868,8 +872,7 @@ async function main(): Promise<void> {
       return row.textContent ?? ''
     }
     const barText = container.querySelector('section > div')?.textContent ?? ''
-    assert.ok(barText.includes('1 ready to launch'), 'the bar chip counts launchables')
-    assert.ok(barText.includes('2 in marketplace'), 'the bar counts the connector marketplace')
+    assert.ok(!barText.includes('in marketplace'), 'the bar carries no counts line')
     assert.ok(railRow('Featured').includes('1 ready to launch'), 'the Featured row counts launchables')
     assert.ok(railRow('MCP servers').includes('2 available'), 'the MCP servers row counts the grid')
     assert.ok(railRow('Skills').includes('1 source'), 'the Skills row counts its sources')

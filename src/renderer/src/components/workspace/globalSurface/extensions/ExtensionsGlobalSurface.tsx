@@ -27,7 +27,7 @@ import {
 } from '../../../panels/ConnectorsPanel/connectorsFacets'
 import { useConnectorSources } from '../../../panels/ConnectorsPanel/useConnectorSources'
 import { GlobalSurfaceShell, type GlobalSurfaceBar } from '../GlobalSurfaceShell'
-import { BarStatusChip, SurfaceRail, type SurfaceRailGroup } from '../surfaceSubstrate'
+import { SurfaceRail, type SurfaceRailGroup } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import { getExtensionsSurfaceHost } from './extensionsSurfaceHost'
 import { SkillsSurface } from './skills/SkillsSurface'
@@ -148,20 +148,10 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   )
 
   // ── Bar ────────────────────────────────────────────────────────────────────
-  const bar: GlobalSurfaceBar = {
-    title: 'Extensions',
-    // Status is earned: the chip appears only when something is launchable.
-    statusChip:
-      catalogSettled && readyCount > 0 ? (
-        <BarStatusChip tone="good" label={`${readyCount} ready to launch`} />
-      ) : undefined,
-    // Counts only once a source has really answered — a failed marketplace must
-    // never read as "0 in marketplace".
-    contextSub:
-      catalogReady || registryReady
-        ? `${marketplaceCount} in marketplace · ${installedCount} installed`
-        : undefined,
-  }
+  // The name, and nothing else. The counts it used to carry are each already on
+  // the rail row that owns them ("MCP servers · 318 available", "Installed · 1
+  // active MCP server"), so in the bar they were the same numbers a second time.
+  const bar: GlobalSurfaceBar = { title: 'Extensions' }
 
   // ── Rail ───────────────────────────────────────────────────────────────────
   const marketplaceStateLine = marketplaceLoading

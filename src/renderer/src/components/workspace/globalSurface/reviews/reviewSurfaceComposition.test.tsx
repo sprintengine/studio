@@ -111,11 +111,13 @@ run('degraded: the bar keeps the post CTA, the canvas tools keep the diff toggle
   const session = stubSession({ status: 'degraded', isDegraded: true, brief: degradedBrief, isPullRequest: true, pendingComments: 2, comments: [pendingComment, pendingComment] })
   const bar = buildReviewsSurfaceBar(entry, session)
   assert.ok(bar.actions, 'a degraded change still carries the review CTA')
-  const barHtml = renderToStaticMarkup(<>{bar.statusChip}{bar.actions}</>)
+  const barHtml = renderToStaticMarkup(<>{bar.actions}</>)
   assert.match(barHtml, /Post review/, 'post-to-PR stays with no brief')
-  assert.doesNotMatch(barHtml, /Side by side/, 'the diff toggle is canvas chrome, never title-bar chrome')
+  // The diff-view switch is not chrome at all any more: it rides the step pane,
+  // beside the diffs it switches (owner, 2026-07-30).
+  assert.doesNotMatch(barHtml, /Side by side/, 'the diff toggle is not title-bar chrome')
   const tools = renderToStaticMarkup(<ReviewCanvasTools session={session} />)
-  assert.match(tools, /Side by side/, 'the diff-view toggle stays so both diff modes are reachable')
+  assert.doesNotMatch(tools, /Side by side/, 'nor a tool in the bar cluster')
   assert.doesNotMatch(tools, /Ask the guide/, 'no guide to ask in degraded mode')
   assert.doesNotMatch(tools, /Re-run/, 'nothing to re-run without a guide walkthrough')
 })
@@ -123,20 +125,18 @@ run('degraded: the bar keeps the post CTA, the canvas tools keep the diff toggle
 run('a ready pull-request review with pending comments shows the Post review CTA', () => {
   const session = stubSession({ isPullRequest: true, pendingComments: 3, comments: [pendingComment, pendingComment, pendingComment] })
   const bar = buildReviewsSurfaceBar(entry, session)
-  const html = renderToStaticMarkup(<>{bar.statusChip}{bar.actions}</>)
+  const html = renderToStaticMarkup(<>{bar.actions}</>)
   assert.match(html, /Post review/, 'the primary CTA is Post review')
   assert.match(html, /3 comments/, 'the CTA carries the pending count')
-  assert.match(html, /In progress/, 'an unposted review reads as In progress')
   const tools = renderToStaticMarkup(<ReviewCanvasTools session={session} />)
-  assert.match(tools, /Ask the guide/, 'Ask the guide rides the canvas toolbar')
+  assert.match(tools, /Ask the guide/, 'Ask the guide rides the door bar')
   assert.match(tools, /Re-run/, 'so does Re-run')
-  assert.match(tools, /Side by side/, 'with the diff-view toggle')
+  assert.doesNotMatch(tools, /Side by side/, 'the diff-view switch stays with the diffs')
 })
 
-run('a review with all comments posted reads as Posted, no Post CTA', () => {
+run('a review with all comments posted keeps Your review and drops the Post CTA', () => {
   const bar = buildReviewsSurfaceBar(entry, stubSession({ isPullRequest: true, pendingComments: 0, comments: [postedComment] }))
-  const html = renderToStaticMarkup(<>{bar.statusChip}{bar.actions}</>)
-  assert.match(html, /Posted/, 'the chip reads Posted once the batch resolves')
+  const html = renderToStaticMarkup(<>{bar.actions}</>)
   assert.doesNotMatch(html, /Post review ·/, 'no Post CTA when nothing is pending')
   assert.match(html, /Your review/, 'the review is still reachable via Your review')
 })
@@ -165,11 +165,18 @@ run('the canvas surfaces the no-change and degraded states honestly', () => {
       guideActions={guideActions}
     />,
   )
-  assert.match(degraded, /viewing the raw change/, 'the banner frames the change as guide-less')
-  assert.match(degraded, /Prepare walkthrough/, 'and offers to prepare the guide walkthrough')
-  assert.match(degraded, /Claude Code/, 'the agent that will run the guide is pickable on the banner')
+  // No narration: the canvas opens on the change. "You're viewing the raw
+  // change" described a screen the reviewer is looking at, and the controls that
+  // offer a walkthrough live in the door bar now, not in a band over the diff.
+  assert.doesNotMatch(degraded, /viewing the raw change/, 'the canvas does not narrate itself')
+  assert.doesNotMatch(degraded, /Prepare walkthrough/, 'the guide controls ride the door bar')
   assert.match(degraded, /prisma\/schema\.prisma/, 'every changed file still renders with no guide')
   assert.doesNotMatch(degraded, /Ask the guide/, 'the guide ask entry is hidden in degraded mode')
+  // The bar is where those controls actually are, for this same session.
+  const degradedBar = renderToStaticMarkup(
+    <>{buildReviewsSurfaceBar(entry, stubSession({ status: 'degraded', isDegraded: true, brief: degradedBrief }), <button type="button">Prepare walkthrough</button>).actions}</>,
+  )
+  assert.match(degradedBar, /Prepare walkthrough/, 'the door bar offers to prepare the walkthrough')
 })
 
 // A guide that is working says so, and the one action beside it is the way into
@@ -188,8 +195,8 @@ run('a working guide reads as working, with its terminal as the action', () => {
       guideActions={<button type="button">Open the guide’s terminal</button>}
     />,
   )
-  assert.match(working, /The guide is working on the walkthrough/, 'the running state names what is happening')
-  assert.match(working, /Open the guide’s terminal/, 'and offers the terminal it is happening in')
+  // The working state — phase, terminal, Stop — is a bar cluster now; the canvas
+  // keeps showing the change while the guide works.
   assert.doesNotMatch(working, /Prepare walkthrough/, 'no second start while a guide is already working')
   assert.match(working, /prisma\/schema\.prisma/, 'the change stays reviewable while the guide works')
 })
@@ -212,7 +219,6 @@ run('the degraded canvas surfaces a failed guide run without blocking the change
   assert.match(failed, /The guide couldn’t finish/, 'the failure is named')
   assert.match(failed, /Claude Code is not installed\./, 'with the underlying reason')
   assert.match(failed, /keep reviewing without it/, 'and reassures the change is still reviewable')
-  assert.match(failed, /Try again/, 'the retry affordance is present')
   assert.match(failed, /prisma\/schema\.prisma/, 'the change still renders under the failure banner')
 })
 

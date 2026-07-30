@@ -582,6 +582,7 @@ export function CliModelPickerButton({
   effectiveReasoningFor,
   onSelectReasoning,
   disabled,
+  reasoningPlacement = 'beside',
   quiet,
   maxWidthClassName = 'max-w-[220px]',
   onSelectCli,
@@ -600,6 +601,14 @@ export function CliModelPickerButton({
   effectiveReasoningFor?: (cli: AgentCli) => string | undefined
   onSelectReasoning?: (cli: AgentCli, reasoning: string | null) => void
   disabled?: boolean
+  /**
+   * Where the reasoning/context-window axes live. `beside` (default) puts them
+   * in their own trigger next to the model's, for rows with the width for two.
+   * `in-popover` folds them into the picker's trailing row — the shape the agent
+   * composer uses — so the host spends ONE control on the runtime instead of two
+   * pills that read as unrelated settings.
+   */
+  reasoningPlacement?: 'beside' | 'in-popover'
   /**
    * Opt-in low-emphasis trigger for in-place property editing (the Sprint
    * Engine roster's role bands): renders as plain muted text until hover or
@@ -692,6 +701,7 @@ export function CliModelPickerButton({
           effectiveModelFor={effectiveModelFor}
           effectiveReasoningFor={effectiveReasoningFor}
           onSelectReasoning={onSelectReasoning}
+          showReasoning={reasoningPlacement === 'in-popover'}
           onSelectCli={(nextCli) => {
             onSelectCli(nextCli)
             setOpen(false)
@@ -702,6 +712,7 @@ export function CliModelPickerButton({
           }}
         />
       </Popover>
+      {reasoningPlacement === 'in-popover' ? null : (
       <ReasoningSelector
         ariaLabel={`Reasoning for ${ariaLabel}`}
         reasoningSelection={selected.reasoningSelection}
@@ -713,6 +724,7 @@ export function CliModelPickerButton({
         disabled={disabled}
         quiet={quiet}
       />
+      )}
     </span>
   )
 }

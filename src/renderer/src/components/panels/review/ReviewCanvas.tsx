@@ -26,7 +26,7 @@ import type { ReviewRunProgress, ReviewSession } from './useReviewSession'
 // stays store-free. `toolbar` is the slim tools row (diff view, Re-run, Ask the
 // guide) rendered over the walkthrough — it only appears once there is a
 // walkthrough for those tools to act on.
-export function ReviewCanvas({ session, guideActions, toolbar }: { session: ReviewSession; guideActions: ReactNode; toolbar?: ReactNode }): JSX.Element {
+export function ReviewCanvas({ session, guideActions }: { session: ReviewSession; guideActions: ReactNode }): JSX.Element {
   const { status, changeset, run } = session
 
   // No review is selected — an explicit resting state, not a spinner that would
@@ -107,23 +107,29 @@ export function ReviewCanvas({ session, guideActions, toolbar }: { session: Revi
     )
   }
 
-  // ONE chrome row above the walkthrough, not two. The guide's status line and
-  // the tools that act on the walkthrough are both chrome for the same content,
-  // so they share a row: status on the left, tools on the right. Stacking a tools
-  // bar on a status bar spent a second band of vertical space to say nothing the
-  // first band could not hold. A freshness banner is a different animal — it is a
-  // notice about the change itself, with its own action — so it keeps its own
-  // band above the row.
+  // NO chrome row above the walkthrough (owner, 2026-07-30). The guide's
+  // controls and the walkthrough's tools moved into the door's own bar in the
+  // app strip, so this canvas opens on the change itself. What the row used to
+  // say on the left went with it: "No guide walkthrough yet — you're viewing the
+  // raw change" narrated a screen the reviewer is looking at. A freshness banner
+  // is a different animal — a notice about the change, with its own action — so
+  // it keeps its band.
   const bannerSlot = (
     <>
       {!session.isDegraded && session.bannerModel ? (
         <FreshnessBanner model={session.bannerModel} refreshing={run.running} refreshPhase={run.phase} onRefresh={session.refresh} />
       ) : null}
-      <ChromeRow
-        message={session.isDegraded ? <DegradedMessage run={run} /> : null}
-        actions={session.isDegraded ? guideActions : null}
-        tools={toolbar}
-      />
+      {/* A failed guide run still has to be visible, and a failure is a notice
+          about the change — not chrome — so it keeps its own band with the
+          reason and the reassurance that the change below is reviewable without
+          it. The retry lives with the other guide controls, in the door bar. */}
+      {run.error ? (
+        <div className="shrink-0 px-5 pt-3">
+          <InlineNotice tone="error">
+            <span className="font-medium">The guide couldn’t finish.</span> {run.error} You can keep reviewing without it.
+          </InlineNotice>
+        </div>
+      ) : null}
     </>
   )
 
@@ -165,7 +171,7 @@ const NOOP = (): void => {}
 
 function CenteredState({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full w-full items-center justify-center bg-[color:var(--bg-surface)] px-6 text-body text-[color:var(--text-muted)]">
+    <div className="flex h-full w-full items-center justify-center bg-[color:var(--bg-surface)] px-5 text-body text-[color:var(--text-muted)]">
       {children}
     </div>
   )
@@ -175,7 +181,7 @@ function CenteredState({ children }: { children: ReactNode }) {
 // always knows what they are about to walk, even before a brief exists.
 function PrepareShell({ changeset, children }: { changeset: ReviewChangeSet; children: ReactNode }) {
   return (
-    <div className="flex h-full w-full flex-col overflow-y-auto bg-[color:var(--bg-surface)] px-6 py-6">
+    <div className="flex h-full w-full flex-col overflow-y-auto bg-[color:var(--bg-surface)] px-5 py-6">
       <header className="mb-5">
         <h2 className="text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
           {changeset.title}
@@ -192,45 +198,6 @@ function PrepareShell({ changeset, children }: { changeset: ReviewChangeSet; chi
   )
 }
 
-// The single chrome band above the walkthrough. Left: whatever the guide has to
-// say right now (nothing, once a walkthrough exists). Right: the tools that act
-// on the walkthrough, and — while a guide is working or has failed — the actions
-// that resolve that state. One row, whatever the combination.
-function ChromeRow({ message, actions, tools }: { message: ReactNode; actions: ReactNode; tools: ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-6 py-2">
-      <span className="min-w-0 flex-1 text-meta leading-5 text-[color:var(--text-muted)]">{message}</span>
-      {actions}
-      {tools}
-    </div>
-  )
-}
-
-// What the guide has to say while there is no walkthrough: a resting invite, a
-// "the guide is working" line (the guide runs in its own terminal, so the action
-// beside it is the way into that terminal), or a run failure ("keep reviewing
-// without it") — so a failed guide run is never a dead end over a reviewable
-// change.
-function DegradedMessage({ run }: { run: ReviewRunProgress }) {
-  if (run.error) {
-    return (
-      <>
-        <span className="font-medium text-[color:var(--tone-error)]">The guide couldn’t finish.</span> {run.error} You
-        can keep reviewing without it.
-      </>
-    )
-  }
-  if (run.running) {
-    return (
-      <span className="inline-flex items-center gap-2">
-        <Spinner />
-        {RUN_PHASE_LABEL[run.phase ?? 'reading'] ?? RUN_PHASE_LABEL.grouping}
-      </span>
-    )
-  }
-  return <>No guide walkthrough yet — you’re viewing the raw change.</>
-}
-
 function RunLine({ run }: { run: ReviewRunProgress }) {
   if (run.error) {
     return <p className="mt-3 max-w-2xl text-meta leading-5 text-[color:var(--tone-error)]">{run.error}</p>
@@ -244,11 +211,13 @@ function RunLine({ run }: { run: ReviewRunProgress }) {
   )
 }
 
-// Phase copy for the terminal guide (MC-1783). `reading` now covers getting the
+// Phase copy for the terminal guide (MC-1783). Exported: the guide's controls
+// ride the door bar now, so the phase label renders beside them there.
+// `reading` now covers getting the
 // guide's terminal up with the run prompt, and `grouping` is the guide itself
 // working in that terminal — the labels say so rather than describing a
 // generation step this process no longer performs.
-const RUN_PHASE_LABEL: Record<string, string> = {
+export const RUN_PHASE_LABEL: Record<string, string> = {
   reading: 'Starting the guide…',
   grouping: 'The guide is working on the walkthrough…',
   annotating: 'Checking the walkthrough…',

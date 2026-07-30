@@ -34,7 +34,6 @@ import {
   Popover,
   PrimaryButton,
   SegmentedControl,
-  Spinner,
   Tooltip,
   useConfirmDialog,
 } from '../../ui'
@@ -43,7 +42,7 @@ import { normalizeRelativePath } from '../../../utils/backlog'
 import { basename, samePath } from '../../../utils/paths'
 import { revealNavRailComponent } from '../../../utils/modelRegistry'
 import { dispatchBacklogReveal } from '../../../utils/backlogReveal'
-import { BarStatusChip, SurfaceCanvasState } from './surfaceSubstrate'
+import { SurfaceCanvasState } from './surfaceSubstrate'
 import { useSurfaceBackNav } from './surfaceBackNav'
 import {
   ACTIVE_ROADMAP_STATUSES,
@@ -1150,36 +1149,14 @@ function buildBar(
   },
 ): GlobalSurfaceBar {
   const active = isActive && activeRoadmap ? activeRoadmap : null
-  const progress = active ? roadmapProgress(active.lanes) : null
-  // ONE progress readout per surface: the bar owns it. The row's trailing count
-  // owns step size and the detail's own bar owns an epic's children, so the old
-  // "N tracks · M steps · K running" head count is gone.
-  const contextSubText = progress
-    ? progress.total > 0
-      ? `Step ${progress.step} of ${progress.total}`
-      : 'Nothing planned yet'
-    : file.totalSteps > 0
-      ? `${file.totalSteps} ${file.totalSteps === 1 ? 'step' : 'steps'}`
-      : 'Nothing planned yet'
-  const contextSub = (
-    <span className="inline-flex items-center gap-2">
-      <span className="tabular-nums">{contextSubText}</span>
-      {handlers.refreshing ? (
-        <span className="inline-flex items-center gap-1 text-[color:var(--text-subtle)]">
-          <Spinner size={10} />
-          Refreshing
-        </span>
-      ) : null}
-    </span>
-  )
+  // The bar is the horizon's name and its controls. Draft-vs-Active is already
+  // the difference between a "Make active" button and a running board, and the
+  // step progress is on the plan under it — neither earns a second telling in
+  // the app's one top strip.
   const allPaused = active !== null && active.lanes.length > 0 && active.lanes.every((lane) => Boolean(lane.parked))
   const anyPausable = active !== null && active.lanes.some((lane) => !lane.parked)
   return {
     title: file.title,
-    statusChip: (
-      <BarStatusChip tone={isActive ? 'accent' : 'neutral'} label={isActive ? 'Active' : 'Draft'} />
-    ),
-    contextSub,
     actions: (
       <>
         <SavedIndicator state={handlers.saveState} onRetry={handlers.onRetrySave} />

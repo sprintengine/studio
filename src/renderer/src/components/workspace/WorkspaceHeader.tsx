@@ -154,9 +154,14 @@ export function WorkspaceHeader<MenuItem extends string>({
             panel switches nor the identity chips have a live workspace to act on
             there. The surface portals its bar into the slot div below. */}
         {globalSurfaceActive ? (
+          // `pl-5` is the door gutter, not a nudge: the door's name sits on the
+          // same 20px left edge as the content under it (the tab row, the canvas
+          // body), so the title and the page it names share one vertical line.
+          // At the panel-switch inset (6px) it read as hanging off the left edge
+          // of its own page.
           <div
             ref={surfaceBarSlotRef}
-            className="app-no-drag flex min-w-0 flex-1 items-center gap-2.5 pl-1.5 pr-2"
+            className="app-no-drag flex min-w-0 flex-1 items-center gap-2.5 pl-5 pr-2"
           />
         ) : (
           <>

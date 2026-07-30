@@ -493,10 +493,9 @@ export default function BacklogGlobalSurface(): JSX.Element {
   // No "New item" in the bar: creating is the rail's New-at-top row, the same
   // affordance in the same place as on every other door. Two of them on one
   // screen would be two answers to one question.
-  const bar: GlobalSurfaceBar = {
-    title: 'Backlog',
-    contextSub: describeScope(projects, filter, list.total, door.view),
-  }
+  // The name alone: the rail below counts what is listed, and the project lens
+  // that the scope line described is a control in the rail's filter menu.
+  const bar: GlobalSurfaceBar = { title: 'Backlog' }
 
   // The rail: New at top, then search beside the one narrowing glyph (the shared
   // SurfaceRailHeader), then the work list. The list stays this door's own
@@ -929,6 +928,11 @@ function BacklogDoorList({
                   runGlyph={runGlyph}
                   epicProgress={epicProgress}
                   dependencyState={dependencyState}
+                  // Which backlog this row lives in. It rides the hover card
+                  // rather than the row: on an all-projects list the name
+                  // repeats down every row, and a column of the same word
+                  // crowds the title without telling anyone anything.
+                  projectName={showProjectTag ? project.name : undefined}
                 />
               }
               placement="top"
@@ -936,29 +940,17 @@ function BacklogDoorList({
               wrapperClassName="block"
               wrapperRole="presentation"
             >
-              <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1">
-                  <BacklogRowContent
-                    item={item}
-                    now={now}
-                    runGlyph={runGlyph}
-                    dependencyState={dependencyState}
-                    epicBlocked={item.isEpic ? feed.derived.epicBlockedBySlug.get(epicSlug(item)) : undefined}
-                    epicMeta={indented ? undefined : epicMeta}
-                    epicProgress={epicProgress}
-                    plainTitle
-                    selected={selected}
-                  />
-                </div>
-                {/* The project tag: which backlog this row actually lives in.
-                    Plain mono text, never a tinted pill — the row already has
-                    exactly one status idiom (the lifecycle glyph). */}
-                {showProjectTag ? (
-                  <span className="max-w-[12ch] shrink-0 truncate pl-1 font-mono text-micro text-[color:var(--text-subtle)]">
-                    {project.name}
-                  </span>
-                ) : null}
-              </div>
+              <BacklogRowContent
+                item={item}
+                now={now}
+                runGlyph={runGlyph}
+                dependencyState={dependencyState}
+                epicBlocked={item.isEpic ? feed.derived.epicBlockedBySlug.get(epicSlug(item)) : undefined}
+                epicMeta={indented ? undefined : epicMeta}
+                epicProgress={epicProgress}
+                plainTitle
+                selected={selected}
+              />
             </Tooltip>
           </li>
         )
@@ -996,21 +988,3 @@ function uniqueItemFileName(baseName: string, existingRelativeLower: ReadonlySet
   return candidate
 }
 
-// "3 projects · 214 active items" (mockup §4 bar sub-line). The scope names what
-// is ACTUALLY listed: with one project filtered it names that project, so the bar
-// can never claim "3 projects" beside a count that covers only one of them (the
-// filter's own option shows the same number for that project).
-function describeScope(
-  projects: ReadonlyArray<BacklogProjectFeed>,
-  filter: string,
-  itemCount: number,
-  view: BacklogView,
-): string {
-  const scope = view === 'active' ? 'active ' : ''
-  const items = `${itemCount} ${scope}${itemCount === 1 ? 'item' : 'items'}`
-  if (filter !== ALL_PROJECTS) {
-    const named = projects.find((feed) => feed.rootKey === filter)
-    if (named) return `${named.projectName} · ${items}`
-  }
-  return `${projects.length} ${projects.length === 1 ? 'project' : 'projects'} · ${items}`
-}

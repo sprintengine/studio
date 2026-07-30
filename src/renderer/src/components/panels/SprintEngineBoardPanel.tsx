@@ -2507,7 +2507,7 @@ export function SprintRunBoard({
  value={effectiveView}
  onChange={activateView}
  idPrefix="sprintengine-view"
- className="px-3"
+ className="px-2"
  borderless
  />
  ) : (

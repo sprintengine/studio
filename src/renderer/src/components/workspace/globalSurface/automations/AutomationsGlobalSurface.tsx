@@ -14,13 +14,9 @@ import { extractReportPaths } from '../../../automations/reportPaths'
 import { automationsDoorTarget } from '../../../automations/runTarget'
 import { AutomationEditor } from '../../../panels/AutomationsPanel/AutomationEditor'
 import { useAutomationsController } from '../../../panels/AutomationsPanel/useAutomationsController'
-import {
-  cadenceSummary,
-  isEngineUnreachable,
-  type EditorState,
-} from '../../../panels/AutomationsPanel/automationsFormat'
+import { isEngineUnreachable, type EditorState } from '../../../panels/AutomationsPanel/automationsFormat'
 import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
-import { BarStatusChip, SurfaceCanvasState } from '../surfaceSubstrate'
+import { SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import { AutomationsRail } from './AutomationsRail'
 import { AutomationSurfaceCanvas } from './AutomationSurfaceCanvas'
@@ -258,10 +254,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   // ── Surface bar ────────────────────────────────────────────────────────────
   const bar = useMemo(() => {
     if (editorTarget) {
-      return {
-        title: editorTarget.editor.mode === 'create' ? 'New automation' : 'Edit automation',
-        contextSub: projectLabel(editorTarget.workspaceRoot),
-      }
+      return { title: editorTarget.editor.mode === 'create' ? 'New automation' : 'Edit automation' }
     }
     if (selectedEntry) {
       const def = selectedEntry.definition
@@ -276,10 +269,11 @@ export default function AutomationsGlobalSurface(): JSX.Element {
         { kind: 'separator', id: 'sep' },
         { id: 'delete', label: 'Delete', onSelect: () => void handleDelete(selectedEntry), disabled: busy, destructive: true },
       ]
+      // Name and controls only: the canvas states what this automation does, when
+      // it next runs, and whether it is paused — the bar restating it made the
+      // door two headers deep before any content.
       return {
         title: def.name,
-        statusChip: <SurfaceStatus definition={def} />,
-        contextSub: `${cadenceSummary(def.trigger)} · ${projectLabel(selectedEntry.workspaceRoot)}`,
         actions: (
           <>
             <GhostButton onClick={() => void handleRunNow(selectedEntry)} disabled={busy}>
@@ -421,17 +415,6 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       ) : null}
     </GlobalSurfaceShell>
   )
-}
-
-// The one status idiom in the bar: the shared BarStatusChip — a toned dot + label.
-function SurfaceStatus({ definition }: { definition: AutomationDefinition }): JSX.Element {
-  const [tone, label] =
-    definition.status === 'enabled'
-      ? (['good', 'On'] as const)
-      : definition.status === 'paused'
-        ? (['neutral', 'Paused'] as const)
-        : (['warn', 'Blocked'] as const)
-  return <BarStatusChip tone={tone} label={label} />
 }
 
 // The canvas body: loading / error / empty / editor / selected — the four shared
