@@ -9,10 +9,9 @@ import {
   type SpawnAgentRuntime,
 } from './spawn-agent'
 
-function compose(autonomy: 'review_only' | 'allow_changes'): string {
+function compose(): string {
   return composeSpawnAgentPrompt({
     userPrompt: '  Audit the build pipeline.  ',
-    autonomy,
     automationId: 'auto-1',
     runId: 'run-7',
   })
@@ -20,37 +19,35 @@ function compose(autonomy: 'review_only' | 'allow_changes'): string {
 
 function assertNoRunStatusFileInstruction(): void {
   // The run finalizes from the agent-state hooks; no run-status file exists for
-  // the agent to write, in either mode.
-  for (const autonomy of ['review_only', 'allow_changes'] as const) {
-    const prompt = compose(autonomy)
-    assert.ok(!prompt.includes('run-status'), `${autonomy}: prompt names no run-status file`)
-    assert.ok(
-      !prompt.includes('.multicode-automation-run-status.json'),
-      `${autonomy}: prompt carries no signal filename`,
-    )
-    assert.ok(!prompt.includes('"status"'), `${autonomy}: prompt states no signal JSON shape`)
-  }
+  // the agent to write.
+  const prompt = compose()
+  assert.ok(!prompt.includes('run-status'), 'prompt names no run-status file')
+  assert.ok(!prompt.includes('.multicode-automation-run-status.json'), 'prompt carries no signal filename')
+  assert.ok(!prompt.includes('"status"'), 'prompt states no signal JSON shape')
 }
 
-function assertNonInteractiveDirectiveInBothModes(): void {
-  for (const autonomy of ['review_only', 'allow_changes'] as const) {
-    const prompt = compose(autonomy)
-    assert.ok(prompt.includes('unattended'), `${autonomy}: prompt states the run is unattended`)
-    assert.ok(prompt.includes('Do not ask questions'), `${autonomy}: prompt forbids questions`)
-    // The directive follows the user task so it is the last thing the agent reads.
-    assert.ok(
-      prompt.indexOf('Do not ask questions') > prompt.indexOf('Audit the build pipeline.'),
-      `${autonomy}: non-interactive directive follows the user task`,
-    )
-  }
+function assertNonInteractiveDirectiveStated(): void {
+  const prompt = compose()
+  assert.ok(prompt.includes('unattended'), 'prompt states the run is unattended')
+  assert.ok(prompt.includes('Do not ask questions'), 'prompt forbids questions')
+  // The directive follows the user task so it is the last thing the agent reads.
+  assert.ok(
+    prompt.indexOf('Do not ask questions') > prompt.indexOf('Audit the build pipeline.'),
+    'non-interactive directive follows the user task',
+  )
 }
 
-function assertReviewOnlyIsStrictlyReadOnly(): void {
-  const prompt = compose('review_only')
-  assert.ok(prompt.includes('Automation execution mode: review_only.'), 'review_only mode declared')
-  assert.ok(prompt.includes('Do not edit files, create files'), 'no-write rule stated')
-  // The signal file was the only write carve-out; review_only now has none.
-  assert.ok(!prompt.includes('Exception'), 'review_only carries no write exception')
+function assertSinglePolicyBlockPermitsPublishing(): void {
+  // One unconditional policy block, and nothing in it forbids the commit and
+  // push that opening a pull request requires — the contradiction that retired
+  // the read-only execution mode.
+  const prompt = compose()
+  assert.ok(prompt.includes('You may modify files only when the requested task requires it.'), 'write policy stated')
+  assert.ok(prompt.includes('report every file and command you touch'), 'reporting duty stated')
+  assert.ok(!prompt.includes('Automation execution mode'), 'no execution mode is declared')
+  for (const forbidden of ['Do not edit files', 'commit', 'push', 'Inspect and report findings only']) {
+    assert.ok(!prompt.includes(forbidden), `prompt does not forbid "${forbidden}"`)
+  }
 }
 
 const TRIGGER_PAYLOAD = {
@@ -64,7 +61,6 @@ function assertTriggerContextOffIsByteIdentical(): void {
   // baseline prompt exactly — no existing automation's prompt or fingerprint moves.
   const baseline = composeSpawnAgentPrompt({
     userPrompt: 'Audit the build pipeline.',
-    autonomy: 'allow_changes',
     automationId: 'auto-1',
     runId: 'run-7',
   })
@@ -77,7 +73,6 @@ function assertTriggerContextOffIsByteIdentical(): void {
   for (const variant of variants) {
     const prompt = composeSpawnAgentPrompt({
       userPrompt: 'Audit the build pipeline.',
-      autonomy: 'allow_changes',
       automationId: 'auto-1',
       runId: 'run-7',
       ...variant,
@@ -90,7 +85,6 @@ function assertTriggerContextOffIsByteIdentical(): void {
 function assertTriggerContextOnEmbedsPayload(): void {
   const prompt = composeSpawnAgentPrompt({
     userPrompt: 'React to the blocked run.',
-    autonomy: 'allow_changes',
     automationId: 'auto-1',
     runId: 'run-7',
     includeTriggerContext: true,
@@ -114,7 +108,6 @@ function assertTriggerContextOnEmbedsPayload(): void {
 function assertManualRunPayloadIncludedAsIs(): void {
   const prompt = composeSpawnAgentPrompt({
     userPrompt: 'Nightly sweep.',
-    autonomy: 'review_only',
     automationId: 'auto-1',
     runId: 'run-7',
     includeTriggerContext: true,
@@ -127,7 +120,6 @@ function assertManualRunPayloadIncludedAsIs(): void {
 function assertOversizePayloadTruncated(): void {
   const prompt = composeSpawnAgentPrompt({
     userPrompt: 'React.',
-    autonomy: 'allow_changes',
     automationId: 'auto-1',
     runId: 'run-7',
     includeTriggerContext: true,
@@ -160,7 +152,6 @@ function assertPayloadFenceIsNeutralized(): void {
   const note = 'before ``` after'
   const prompt = composeSpawnAgentPrompt({
     userPrompt: 'React.',
-    autonomy: 'allow_changes',
     automationId: 'auto-1',
     runId: 'run-7',
     includeTriggerContext: true,
@@ -179,7 +170,6 @@ function assertMultibytePayloadTruncatesByBytes(): void {
   // cut must keep the fenced JSON at or under 8 KB and never split a character.
   const prompt = composeSpawnAgentPrompt({
     userPrompt: 'React.',
-    autonomy: 'allow_changes',
     automationId: 'auto-1',
     runId: 'run-7',
     includeTriggerContext: true,
@@ -195,7 +185,7 @@ function assertMultibytePayloadTruncatesByBytes(): void {
 
 function stubRuntime(triggerPayload: Record<string, unknown> | undefined, captured: { prompt: string }): SpawnAgentRuntime {
   return {
-    definition: { id: 'auto-1', name: 'Nightly', autonomyDefault: 'allow_changes' } as unknown as AutomationDefinition,
+    definition: { id: 'auto-1', name: 'Nightly' } as unknown as AutomationDefinition,
     runId: 'run-7',
     workspaceRoot: '/repo',
     triggerPayload,
@@ -235,8 +225,8 @@ async function assertRunSkillLoopPassesFlagThrough(): Promise<void> {
 
 async function main(): Promise<void> {
   assertNoRunStatusFileInstruction()
-  assertNonInteractiveDirectiveInBothModes()
-  assertReviewOnlyIsStrictlyReadOnly()
+  assertNonInteractiveDirectiveStated()
+  assertSinglePolicyBlockPermitsPublishing()
   assertTriggerContextOffIsByteIdentical()
   assertTriggerContextOnEmbedsPayload()
   assertManualRunPayloadIncludedAsIs()

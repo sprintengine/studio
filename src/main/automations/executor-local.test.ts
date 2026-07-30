@@ -94,7 +94,6 @@ function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDe
     status: 'enabled',
     trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
     action: { kind: 'spawn-agent', config: { folderPath: '/repo/a', prompt: 'Review the repo.' } },
-    autonomyDefault: 'review_only',
     nextRunAt: '2026-06-17T10:00:00.000Z',
     lastRunAt: null,
     lastRunId: null,
@@ -279,8 +278,10 @@ async function assertDefaultRunCreatesHostWorkspaceAndLaunchesOnBus(): Promise<v
 
   const launch = harness.requests[1]
   assert.equal(launch.kind, 'agent.launch')
-  assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /review_only/)
-  assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /Do not edit files/)
+  assert.match(
+    launch.kind === 'agent.launch' ? launch.prompt ?? '' : '',
+    /You may modify files only when the requested task requires it\./
+  )
   assert.equal(harness.workspaces.find((entry) => entry.id === 'ws-created')?.agents['agent-1']?.cliHasLaunched, true)
 }
 
@@ -506,7 +507,7 @@ async function assertRunWorktreeIsThreadedToLaunchAndPatch(): Promise<void> {
   })
   const result = await harness.executor({
     workspaceRoot: '/repo/a',
-    definition: definition({ autonomyDefault: 'allow_changes' }),
+    definition: definition(),
     run: run(),
     triggerPayload: { kind: 'schedule' },
   })
@@ -619,7 +620,6 @@ async function assertDirtyWorkspaceNoLongerBlocksLaunch(): Promise<void> {
   const result = await harness.executor({
     workspaceRoot: '/repo/dirty',
     definition: definition({
-      autonomyDefault: 'allow_changes',
       action: { kind: 'spawn-agent', config: { folderPath: '/repo/dirty', prompt: 'Fix this.' } },
     }),
     run: run(),
@@ -638,7 +638,6 @@ async function assertNonGitWorkspaceNoLongerBlocksLaunch(): Promise<void> {
   const result = await harness.executor({
     workspaceRoot: folderPath,
     definition: definition({
-      autonomyDefault: 'allow_changes',
       action: { kind: 'spawn-agent', config: { folderPath, prompt: 'Fix this.' } },
     }),
     run: run(),
@@ -852,7 +851,10 @@ async function assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered(): Promise
   const launch = harness.requests[0]
   assert.equal(launch.kind, 'agent.launch')
   assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /^\/loop backlog/m)
-  assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /review_only/)
+  assert.match(
+    launch.kind === 'agent.launch' ? launch.prompt ?? '' : '',
+    /You may modify files only when the requested task requires it\./
+  )
 }
 
 async function assertFirstPartyActionsInvokeFrontDoors(): Promise<void> {

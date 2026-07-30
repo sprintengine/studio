@@ -34,7 +34,6 @@ function definition(id: string, overrides: Partial<AutomationDefinition> = {}): 
       config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '02:00' }, timezone: 'UTC' },
     },
     action: { kind: 'spawn-agent', config: { prompt: 'Do the thing.' } },
-    autonomyDefault: 'review_only',
     nextRunAt: '2026-06-18T02:00:00.000Z',
     lastRunAt: null,
     lastRunId: null,

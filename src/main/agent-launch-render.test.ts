@@ -738,7 +738,6 @@ function testDebugDirectiveReachesRenderedArgvAllPaths(): void {
   const interactivePrompt = 'investigate the failing login test'
   const automationsPrompt = composeSpawnAgentPrompt({
     userPrompt: 'reproduce the timeout',
-    autonomy: 'allow_changes',
     automationId: 'auto-1',
     runId: 'run-1',
   })

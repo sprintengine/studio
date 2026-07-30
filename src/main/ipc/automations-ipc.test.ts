@@ -136,7 +136,6 @@ function definitionDraft(overrides: Partial<AutomationDefinitionDraft> = {}): Au
       kind: 'spawn-agent',
       config: { prompt: 'Review this workspace.' },
     },
-    autonomyDefault: 'review_only',
     ...overrides,
   }
 }
@@ -507,7 +506,6 @@ async function testWebhookSecretIsRedactedFromDefinitionIpcReads(): Promise<void
       kind: 'spawn-agent',
       config: { prompt: 'Handle the webhook.' },
     },
-    autonomyDefault: 'review_only',
     nextRunAt: null,
     lastRunAt: null,
     lastRunId: null,

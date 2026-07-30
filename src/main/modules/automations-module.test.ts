@@ -297,7 +297,6 @@ function automationDefinition(folderPath: string, overrides: Partial<AutomationD
     status: 'enabled',
     trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
     action: { kind: 'spawn-agent', config: { folderPath, prompt: 'Write a file named injected.txt.' } },
-    autonomyDefault: 'review_only',
     nextRunAt: '2026-06-18T00:30:00.000Z',
     lastRunAt: null,
     lastRunId: null,

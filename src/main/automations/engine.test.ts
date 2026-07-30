@@ -84,8 +84,7 @@ async function main(): Promise<void> {
   await assertStartupReconcileLeavesStillLiveRunPending()
   await assertStartupReconcileNeverForceFailsExecutionlessRun()
   await assertStopClearsArmedSettleTimers()
-  await assertReviewOnlyFinalizeWithholdsUnexpectedChanges()
-  await assertAllowChangesFinalizeStillPushesWorkingDiff()
+  await assertFinalizePublishesWorkingDiff()
 }
 
 function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
@@ -101,7 +100,6 @@ function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDe
       kind: 'spawn-agent',
       config: { prompt: 'Review the repository.' },
     },
-    autonomyDefault: 'review_only',
     nextRunAt: '2026-06-17T02:00:00.000Z',
     lastRunAt: null,
     lastRunId: null,
@@ -1630,59 +1628,23 @@ function realOpenerEngine(input: {
       branch: prInput.branch,
       title: prInput.title,
       body: prInput.body,
-      autonomy: prInput.autonomy,
     }, input.deps),
     removeRunWorktree: async () => { input.removed.count += 1 },
   })
 }
 
-async function assertReviewOnlyFinalizeWithholdsUnexpectedChanges(): Promise<void> {
+async function assertFinalizePublishesWorkingDiff(): Promise<void> {
+  // Every run may backstop-commit its diff. There is no mode that withholds one:
+  // a working diff on the run's own branch is the expected output, and the
+  // containment is the worktree, the branch, and a PR nothing merges by itself.
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
   assert.equal((await store.createDefinition(definition({
     trigger: { kind: 'schedule', config: intervalConfig(10) },
     nextRunAt: new Date(now).toISOString(),
-    autonomyDefault: 'review_only',
   }))).ok, true)
 
-  // The agent left an extra uncommitted file behind.
-  const { deps, calls } = recordingGitDeps(' M src/stray.ts\n')
-  const events: AutomationsRunEvent[] = []
-  const removed = { count: 0 }
-  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
-  const engine = realOpenerEngine({ workspaceRoot, worktreePath, now, deps, events, removed })
-
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-  await engine.noteAgentPhase(workingFrame())
-  await engine.noteAgentPhase(turnEndFrame())
-  await settle()
-
-  // The stray file is never staged, committed, or pushed, and no PR is opened.
-  const mutating = calls.filter((args) => args[0] === 'add' || args[0] === 'commit' || args[0] === 'push')
-  assert.deepEqual(mutating, [], 'review_only finalize must not stage/commit/push the working diff')
-  assert.deepEqual(calls.filter((args) => args[0] === 'gh'), [], 'review_only finalize opens no PR for unexpected changes')
-
-  // The run still finalizes (not stranded) with a clear withheld-changes reason.
-  const finalized = await store.getRun('nightly-review', 'run-agent')
-  assert.equal(finalized.ok && finalized.value.status, 'completed')
-  assert.equal(finalized.ok && finalized.value.pullRequestUrl, undefined, 'no PR linked for withheld changes')
-  assert.match(finalized.ok ? finalized.value.blockedReason ?? '' : '', /unexpected uncommitted changes/i)
-  assert.match(finalized.ok ? finalized.value.summary ?? '' : '', /No pull request linked/i)
-  assert.equal(removed.count, 1, 'worktree still torn down')
-}
-
-async function assertAllowChangesFinalizeStillPushesWorkingDiff(): Promise<void> {
-  const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const workspaceRoot = await createWorkspace()
-  const store = new AutomationsStore(workspaceRoot)
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(10) },
-    nextRunAt: new Date(now).toISOString(),
-    autonomyDefault: 'allow_changes',
-  }))).ok, true)
-
-  // Same dirty working tree, but allow_changes must keep the backstop behavior.
   const { deps, calls } = recordingGitDeps(' M src/feature.ts\n')
   const events: AutomationsRunEvent[] = []
   const removed = { count: 0 }
@@ -1695,13 +1657,14 @@ async function assertAllowChangesFinalizeStillPushesWorkingDiff(): Promise<void>
   await settle()
 
   // The diff is staged, committed, and pushed; a PR is opened.
-  assert.deepEqual(calls.filter((args) => args[0] === 'add')[0], ['add', '-A'], 'allow_changes still stages the diff')
-  assert.equal(calls.some((args) => args[0] === 'commit'), true, 'allow_changes still commits')
-  assert.equal(calls.some((args) => args[0] === 'push'), true, 'allow_changes still pushes')
+  assert.deepEqual(calls.filter((args) => args[0] === 'add')[0], ['add', '-A'], 'finalize stages the diff')
+  assert.equal(calls.some((args) => args[0] === 'commit'), true, 'finalize commits')
+  assert.equal(calls.some((args) => args[0] === 'push'), true, 'finalize pushes')
   const finalized = await store.getRun('nightly-review', 'run-agent')
   assert.equal(finalized.ok && finalized.value.status, 'completed')
-  assert.equal(finalized.ok && finalized.value.pullRequestUrl, 'https://github.com/acme/repo/pull/9', 'allow_changes links a PR')
-  assert.equal(finalized.ok && finalized.value.blockedReason, undefined, 'no withheld-changes reason for allow_changes')
+  assert.equal(finalized.ok && finalized.value.pullRequestUrl, 'https://github.com/acme/repo/pull/9', 'finalize links a PR')
+  assert.equal(finalized.ok && finalized.value.blockedReason, undefined, 'a published diff is not a blocked run')
+  assert.equal(removed.count, 1, 'worktree torn down')
 }
 
 async function assertRunEventDeliveryFailuresDoNotMutateRunTruth(): Promise<void> {
