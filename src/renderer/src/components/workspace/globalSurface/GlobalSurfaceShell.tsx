@@ -94,9 +94,11 @@ export function GlobalSurfaceShell({
   const liftRail = railSlot !== null
   const hasRail = Boolean(rail)
   const onRailPresence = railSlot?.onRailPresence
-  // Tell the host whether there is a rail to take. A surface with none replaces
-  // nothing (the host keeps its own rail) and therefore keeps its bar chevron —
-  // otherwise it would be a page with no way out at all.
+  // Tell the host whether there is a rail to take. Every door DECLARES one in
+  // every load state (T19), so this is true for the whole of a door's visit; a
+  // surface that genuinely brings none replaces nothing (the host keeps its own
+  // rail) and therefore keeps its bar chevron — otherwise it would be a page
+  // with no way out at all.
   useEffect(() => {
     if (!onRailPresence) return undefined
     onRailPresence(hasRail)

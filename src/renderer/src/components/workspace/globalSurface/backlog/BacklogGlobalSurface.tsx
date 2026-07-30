@@ -1,19 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import {
   ContextMenu,
   GhostButton,
-  InboxSearchInput,
   InlineNotice,
   MenuItem,
-  PrimaryButton,
   Tooltip,
   useConfirmDialog,
   type SelectItem,
 } from '../../../ui'
 import { GlobalSurfaceShell, type GlobalSurfaceBar } from '../GlobalSurfaceShell'
-import { SurfaceCanvasState } from '../surfaceSubstrate'
+import { SurfaceCanvasState, SurfaceRailHeader } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import {
   useAllProjectsBacklog,
@@ -82,10 +80,14 @@ import { BacklogItemDetailPane } from '../../../backlog/BacklogItemDetailPane'
 // (a project with an open panel is not scanned twice), and every mutation routes
 // back to the row's OWN project through the validated backlog IPC — see
 // `backlogDoorActions`. The per-project BacklogPanel is untouched.
-
-// Below this width the list + detail split is cramped, so the page collapses to
-// a single column (list, then a full-width detail with Back) — the panel's rule.
-const SPLIT_MIN_WIDTH = 720
+//
+// The work list is this door's RAIL (item 1993 / T19). It used to be a column
+// inside the canvas, which made Backlog the last door on the substrate to paint
+// its own list of things to choose beside the projects rail — two selectable
+// navigation columns before the preview, the exact shape
+// `design-system/patterns/context-rail` exists to forbid. The list now renders in
+// the app sidebar's own column and the item's detail takes the whole canvas, so
+// the door has one rail and one content pane like every other.
 
 // The lens / sort / grouping option lists. The *behaviour* of every lens and
 // sort is the shared pure logic in `backlogTriage` (matchesBacklogView /
@@ -173,8 +175,6 @@ export default function BacklogGlobalSurface(): JSX.Element {
   // chosen (immediately when one project is in view, else via the picker).
   const [createTarget, setCreateTarget] = useState<BacklogProjectRef | null>(null)
   const [createPicker, setCreatePicker] = useState<{ x: number; y: number } | null>(null)
-  const [showDetailInSingle, setShowDetailInSingle] = useState(false)
-  const newItemRef = useRef<HTMLButtonElement | null>(null)
 
   // A filter naming a project that has since closed falls back to All rather
   // than showing an empty list with no way to tell why.
@@ -305,10 +305,7 @@ export default function BacklogGlobalSurface(): JSX.Element {
   useEffect(() => {
     if (!selectedKey) return
     const stillPresent = renderRows.some((row) => row.kind !== 'project' && row.key === selectedKey)
-    if (!stillPresent) {
-      setSelectedKey(null)
-      setShowDetailInSingle(false)
-    }
+    if (!stillPresent) setSelectedKey(null)
   }, [renderRows, selectedKey])
 
   const selectedRow = useMemo(
@@ -337,19 +334,24 @@ export default function BacklogGlobalSurface(): JSX.Element {
     [],
   )
 
-  const openCreateFlow = useCallback(() => {
-    setActionError(null)
-    const single =
-      filter !== ALL_PROJECTS ? feedByRootKey.get(filter) : projects.length === 1 ? projects[0] : null
-    if (single) {
-      setCreateTarget(projectOfFeed(single))
-      return
-    }
-    // Several projects in view: ask which one the item belongs to rather than
-    // silently choosing — a new item in the wrong project is invisible work.
-    const rect = newItemRef.current?.getBoundingClientRect()
-    setCreatePicker({ x: rect?.left ?? 24, y: rect?.bottom ?? 64 })
-  }, [filter, feedByRootKey, projects, projectOfFeed])
+  // `anchor` is where the picker opens — the rail's "New item" row supplies its
+  // own bottom-left. A caller with no anchor (the row menu, the detail pane)
+  // falls back to the rail's top-left corner, which is where that row is.
+  const openCreateFlow = useCallback(
+    (anchor?: { x: number; y: number }) => {
+      setActionError(null)
+      const single =
+        filter !== ALL_PROJECTS ? feedByRootKey.get(filter) : projects.length === 1 ? projects[0] : null
+      if (single) {
+        setCreateTarget(projectOfFeed(single))
+        return
+      }
+      // Several projects in view: ask which one the item belongs to rather than
+      // silently choosing — a new item in the wrong project is invisible work.
+      setCreatePicker({ x: anchor?.x ?? 24, y: anchor?.y ?? 64 })
+    },
+    [filter, feedByRootKey, projects, projectOfFeed],
+  )
 
   const actions = useMemo(
     () =>
@@ -453,24 +455,6 @@ export default function BacklogGlobalSurface(): JSX.Element {
     [moduleOverrides],
   )
 
-  // Responsive split, measured from the page's own width.
-  const rootRef = useRef<HTMLDivElement | null>(null)
-  const [isSplit, setIsSplit] = useState(true)
-  useEffect(() => {
-    const node = rootRef.current
-    if (!node || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver((entries) => {
-      setIsSplit((entries[0]?.contentRect.width ?? node.clientWidth) >= SPLIT_MIN_WIDTH)
-    })
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
-
-  const selectRow = useCallback((key: string) => {
-    setSelectedKey(key)
-    setShowDetailInSingle(true)
-  }, [])
-
   // Cross-navigation from the detail pane (a prerequisite, or an item this one
   // blocks). The target may sit outside the active lens or search — a resolved
   // prerequisite under Active, an archived target, anything the query excludes —
@@ -491,9 +475,9 @@ export default function BacklogGlobalSurface(): JSX.Element {
           ...(filter !== ALL_PROJECTS && filter !== feed.rootKey ? { projectFilter: ALL_PROJECTS } : {}),
         })
       }
-      selectRow(key)
+      setSelectedKey(key)
     },
-    [itemRows, filter, setDoorView, selectRow],
+    [itemRows, filter, setDoorView],
   )
 
   const toggleGroup = useCallback((rootKey: string, group: BacklogEpicGroup) => {
@@ -506,30 +490,74 @@ export default function BacklogGlobalSurface(): JSX.Element {
     })
   }, [])
 
+  // No "New item" in the bar: creating is the rail's New-at-top row, the same
+  // affordance in the same place as on every other door. Two of them on one
+  // screen would be two answers to one question.
   const bar: GlobalSurfaceBar = {
     title: 'Backlog',
     contextSub: describeScope(projects, filter, list.total, door.view),
-    actions: (
-      <PrimaryButton ref={newItemRef} onClick={openCreateFlow} disabled={projects.length === 0}>
-        New item
-      </PrimaryButton>
-    ),
   }
 
-  const listPane = (
-    <BacklogDoorList
-      rows={renderRows}
-      now={now}
-      selectedKey={selectedKey}
-      showProjectTag={showProjectTag}
-      runGlyphByRowKey={runGlyphByRowKey}
-      onSelect={selectRow}
-      onToggleGroup={toggleGroup}
-      onContextMenu={(event, key) => {
-        event.preventDefault()
-        setRowMenu({ rowKey: key, x: event.clientX, y: event.clientY })
-      }}
-    />
+  // The rail: New at top, then search beside the one narrowing glyph (the shared
+  // SurfaceRailHeader), then the work list. The list stays this door's own
+  // listbox rather than becoming SurfaceRailRows — its rows carry epic identity
+  // paint, collapsible epic headers with a progress roll-up, and a project tag
+  // that a title + state line cannot hold.
+  //
+  // Neither the list nor this wrapper scrolls: the host column is the scrollport
+  // (the shell's inline aside, or the context-rail column), which is what lets
+  // the head above stay stuck to its top.
+  const rail = (
+    <div className="flex min-w-0 flex-col">
+      <SurfaceRailHeader
+        newAffordance={{
+          label: 'New item',
+          onActivate: (anchor) => openCreateFlow(anchor),
+          // An item belongs to a project's backlog/ folder. With no project open
+          // there is nowhere to put one, and the picker would open empty.
+          disabled: projects.length === 0,
+        }}
+        search={{
+          value: search,
+          onChange: setSearch,
+          placeholder: 'Search every project…',
+          ariaLabel: 'Search every project’s backlog',
+        }}
+        filterControl={
+          <BacklogFilterMenu
+            view={door.view}
+            sort={door.sort}
+            group={door.group}
+            viewItems={VIEW_ITEMS}
+            sortItems={SORT_ITEMS}
+            groupItems={GROUP_ITEMS}
+            onViewChange={(view) => setDoorView({ view })}
+            onSortChange={(sort) => setDoorView({ sort })}
+            onGroupChange={(group) => setDoorView({ group })}
+            project={{
+              items: projectFilterItems(projects, list.countsByProject, filter),
+              value: filter,
+              defaultValue: ALL_PROJECTS,
+              onChange: (next) => setDoorView({ projectFilter: next }),
+            }}
+            className="shrink-0"
+          />
+        }
+      />
+      <BacklogDoorList
+        rows={renderRows}
+        now={now}
+        selectedKey={selectedKey}
+        showProjectTag={showProjectTag}
+        runGlyphByRowKey={runGlyphByRowKey}
+        onSelect={setSelectedKey}
+        onToggleGroup={toggleGroup}
+        onContextMenu={(event, key) => {
+          event.preventDefault()
+          setRowMenu({ rowKey: key, x: event.clientX, y: event.clientY })
+        }}
+      />
+    </div>
   )
 
   const detailPane = selectedRow ? (
@@ -544,8 +572,11 @@ export default function BacklogGlobalSurface(): JSX.Element {
       linkProviders={linkProviders}
       epicChoices={epicChoicesFor(selectedRow.feed)}
       dependencyChoices={dependencyChoicesFor(selectedRow.feed)}
-      showBack={!isSplit}
-      onBack={() => setShowDetailInSingle(false)}
+      // The canvas carries no back affordance: the rail's pinned Back row (and
+      // Escape) is the one way out of the door, and the rail is always beside
+      // this pane rather than replaced by it.
+      showBack={false}
+      onBack={() => undefined}
       onNavigate={(itemId) => navigateWithinProject(selectedRow.feed, itemId)}
     />
   ) : (
@@ -555,38 +586,19 @@ export default function BacklogGlobalSurface(): JSX.Element {
   )
 
   return (
-    <GlobalSurfaceShell ariaLabel="Backlog" bar={bar} onBack={back.onBack} canGoBack={back.canGoBack}>
-      <div ref={rootRef} className="flex h-full min-h-0 w-full flex-col overflow-hidden">
-        {/* The search belongs to the column it narrows, not to the whole door.
-            Spanning the full width put it above the detail pane too, so it read
-            as "search this screen" while it only ever filtered the list on the
-            left. Constrained to the list column, the control and its target are
-            the same shape and the divider under it lands where the rows start. */}
-        <div className="flex shrink-0">
-          <div
-            className={
-              isSplit
-                ? 'w-[44%] max-w-[460px] border-r border-[color:var(--border-subtle)]'
-                : 'w-full'
-            }
-          >
-            <BacklogDoorToolbar
-              projects={projects}
-              filter={filter}
-              counts={list.countsByProject}
-              view={door.view}
-              sort={door.sort}
-              group={door.group}
-              search={search}
-              onFilter={(next) => setDoorView({ projectFilter: next })}
-              onSearch={setSearch}
-              onViewChange={(view) => setDoorView({ view })}
-              onSortChange={(sort) => setDoorView({ sort })}
-              onGroupChange={(group) => setDoorView({ group })}
-            />
-          </div>
-          {isSplit ? <div className="flex-1 border-b border-[color:var(--border-subtle)]" /> : null}
-        </div>
+    // The rail is DECLARED, not derived from what the door happens to hold: it is
+    // passed in every state, so the projects rail steps aside the moment the door
+    // opens rather than once there is something in it. "No projects open",
+    // loading, and "nothing matches" are the canvas's to say — with the rail's
+    // New row and lens still reachable beside them.
+    <GlobalSurfaceShell
+      ariaLabel="Backlog"
+      bar={bar}
+      rail={rail}
+      onBack={back.onBack}
+      canGoBack={back.canGoBack}
+    >
+      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
         {actionError ? (
           <div className="shrink-0 px-4 pb-2 pt-2">
             <InlineNotice
@@ -614,23 +626,17 @@ export default function BacklogGlobalSurface(): JSX.Element {
               />
             </div>
           ))}
-        {/* min-w-0 all the way down the split: the root above is
-            overflow-hidden, so a pane that keeps its min-content width does not
-            scroll, it silently loses its right edge. */}
+        {/* min-w-0: the root above is overflow-hidden, so a pane that keeps its
+            min-content width does not scroll, it silently loses its right edge. */}
         <div className="flex min-h-0 min-w-0 flex-1">
-          {renderBody({
+          {renderCanvas({
             projectCount: projects.length,
             loading,
             total: list.total,
             // True when nothing is listed BECAUSE every project in view failed to
             // scan — a failed dependency must never read as "you have no work".
             allVisibleFailed: visibleFeeds.length > 0 && visibleFeeds.every((feed) => Boolean(feed.error)),
-            isSplit,
-            showDetailInSingle,
-            hasSelection: Boolean(selectedRow),
-            listPane,
             detailPane,
-            onNewItem: openCreateFlow,
           })}
         </div>
       </div>
@@ -683,30 +689,22 @@ export default function BacklogGlobalSurface(): JSX.Element {
   )
 }
 
-// The canvas body: the shared door states for the pristine/empty cases, else the
-// list (+ detail) split. A refresh never re-enters loading.
-function renderBody({
+// The canvas: the shared door states for the pristine/empty cases, else the
+// selected item's detail. A refresh never re-enters loading. Every one of these
+// states renders INSIDE the door, beside the door's own rail — a door that fell
+// back to the projects sidebar until it had content is the gap T19 closed.
+function renderCanvas({
   projectCount,
   loading,
   total,
   allVisibleFailed,
-  isSplit,
-  showDetailInSingle,
-  hasSelection,
-  listPane,
   detailPane,
-  onNewItem,
 }: {
   projectCount: number
   loading: boolean
   total: number
   allVisibleFailed: boolean
-  isSplit: boolean
-  showDetailInSingle: boolean
-  hasSelection: boolean
-  listPane: React.ReactNode
   detailPane: React.ReactNode
-  onNewItem: () => void
 }): JSX.Element {
   if (projectCount === 0) {
     return (
@@ -733,75 +731,39 @@ function renderBody({
     )
   }
   if (total === 0) {
+    // No CTA here: the rail beside this state already carries "New item" at its
+    // top, and the lens that narrowed the list to nothing right under it.
     return (
       <SurfaceCanvasState
         kind="empty"
         glyph="≡"
         title="Nothing matches this view"
         body="No items in the selected projects match the current lens and search."
-        action={<PrimaryButton onClick={onNewItem}>New item</PrimaryButton>}
       />
     )
   }
-  if (!isSplit) {
-    return (
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {showDetailInSingle && hasSelection ? detailPane : listPane}
-      </div>
-    )
-  }
-  return (
-    <>
-      <div className="flex min-h-0 min-w-0 w-[44%] max-w-[460px] flex-col border-r border-[color:var(--border-subtle)]">
-        {listPane}
-      </div>
-      <div className="min-h-0 min-w-0 flex-1">{detailPane}</div>
-    </>
-  )
+  return <div className="min-h-0 min-w-0 flex-1">{detailPane}</div>
 }
 
-// ── toolbar ─────────────────────────────────────────────────────────────────
-// The project filter LEADS the toolbar; search and the lens controls hold the
-// right. Counts ride the options so switching projects is an informed choice,
-// not a guess. That leading position is now a cross-door contract (MC-1816):
-// the Sprints door's rail puts the same control, under the same name, in the
-// same place, so a person moving between the two doors never hunts for it.
-function BacklogDoorToolbar({
-  projects,
-  filter,
-  counts,
-  view,
-  sort,
-  group,
-  search,
-  onFilter,
-  onSearch,
-  onViewChange,
-  onSortChange,
-  onGroupChange,
-}: {
-  projects: ReadonlyArray<BacklogProjectFeed>
-  filter: string
-  counts: ReadonlyMap<string, number>
-  view: BacklogView
-  sort: BacklogSort
-  group: BacklogGroup
-  search: string
-  onFilter: (next: string) => void
-  onSearch: (next: string) => void
-  onViewChange: (next: BacklogView) => void
-  onSortChange: (next: BacklogSort) => void
-  onGroupChange: (next: BacklogGroup) => void
-}): JSX.Element {
+// ── the project lens ────────────────────────────────────────────────────────
+// One compact axis instead of a chip per project (MC-1837): the wall of chips
+// wrapped to two lines and listed zero-count projects as noise. Counts ride the
+// options so switching projects is an informed choice, not a guess. A healthy
+// project with nothing in the current lens is omitted (selecting it could only
+// show an empty list) — unless it IS the current filter, so the trigger never
+// shows an unknown value. A failed project stays listed with the warn tone:
+// unreadable must remain reachable, never invisible.
+//
+// It rides inside the rail's filter glyph, which is where the Sprints door puts
+// the same control under the same name (MC-1816), so a person moving between the
+// two doors never hunts for it.
+function projectFilterItems(
+  projects: ReadonlyArray<BacklogProjectFeed>,
+  counts: ReadonlyMap<string, number>,
+  filter: string,
+): SelectItem<string>[] {
   const total = [...counts.values()].reduce((sum, count) => sum + count, 0)
-  // One compact control instead of a chip per project (MC-1837): the wall of
-  // chips wrapped to two lines and listed zero-count projects as noise. The
-  // shared Select carries keyboard typeahead; a healthy project with nothing in
-  // the current lens is omitted (selecting it could only show an empty list) —
-  // unless it IS the current filter, so the trigger never shows an unknown
-  // value. A failed project stays listed with the warn tone: unreadable must
-  // remain reachable, never invisible.
-  const filterItems: SelectItem<string>[] = [
+  return [
     { value: ALL_PROJECTS, label: `All projects · ${total}` },
     ...projects
       .filter(
@@ -816,29 +778,6 @@ function BacklogDoorToolbar({
         tone: feed.error ? ('warn' as const) : undefined,
       })),
   ]
-  return (
-    <div className="flex shrink-0 items-center gap-1.5 border-b border-[color:var(--border-subtle)] px-3 py-2">
-      <InboxSearchInput
-        value={search}
-        onChange={onSearch}
-        ariaLabel="Search every project’s backlog"
-        placeholder="Search every project…"
-      />
-      <BacklogFilterMenu
-        view={view}
-        sort={sort}
-        group={group}
-        viewItems={VIEW_ITEMS}
-        sortItems={SORT_ITEMS}
-        groupItems={GROUP_ITEMS}
-        onViewChange={onViewChange}
-        onSortChange={onSortChange}
-        onGroupChange={onGroupChange}
-        project={{ items: filterItems, value: filter, defaultValue: ALL_PROJECTS, onChange: onFilter }}
-        className="shrink-0"
-      />
-    </div>
-  )
 }
 
 // ── list ────────────────────────────────────────────────────────────────────
@@ -903,7 +842,12 @@ function BacklogDoorList({
       tabIndex={0}
       onKeyDown={onKeyDown}
       aria-activedescendant={activeIndex >= 0 ? `backlog-door-opt-${activeIndex}` : undefined}
-      className="min-h-0 flex-1 overflow-y-auto py-1 outline-none focus-visible:focus-ring-inset"
+      // No scrollport of its own: the column hosting the rail is the scrollport,
+      // which is what keeps the rail's head stuck to its top. Full-bleed
+      // (`-mx-2.5` cancels that column's padding) because a Backlog row's 3px
+      // identity bar is an edge gutter — it reads as one only against the edge,
+      // and it is the same paint the per-project panel draws.
+      className="-mx-2.5 min-w-0 outline-none focus-visible:focus-ring-inset"
     >
       {rows.map((row) => {
         if (row.kind === 'project') {

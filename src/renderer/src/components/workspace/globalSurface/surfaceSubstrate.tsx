@@ -15,6 +15,10 @@
 //       an optional search + filter row (the Backlog toolbar idiom). The rail's
 //       CONTENT is the surface's; since item 1993 its COLUMN is the app
 //       sidebar's, which the surface's rail replaces while the door is open.
+//   • SurfaceRailHeader — that rail's pinned head on its own, for the door whose
+//       rows are too rich to be SurfaceRailRows (Backlog) but whose head is the
+//       same head. New-at-top and one narrowing glyph is a cross-door contract,
+//       so it lives in exactly one place.
 //   • BarStatusChip — the one status idiom in the surface bar: a 6 px dot + label,
 //       never a competing pill or badge.
 
@@ -224,6 +228,10 @@ export interface SurfaceRailNewAffordance {
   selected?: boolean
   /** Invoked on activate; `anchor` is the button's bottom-left, for popover hosts. */
   onActivate: (anchor: { x: number; y: number }) => void
+  /** There is nowhere to create into — the Backlog door with no project open,
+   *  whose picker would otherwise open with no projects in it. Inert and marked
+   *  as such, never a control that opens an empty menu. */
+  disabled?: boolean
 }
 
 const PLUS_ICON = (
@@ -236,6 +244,73 @@ export interface SurfaceRailGroup {
   key: string
   label: string
   rows: ReadonlyArray<SurfaceRailRow>
+}
+
+/**
+ * The rail's pinned head: the `New …` row, then search beside one filter glyph.
+ *
+ * Factored out of `SurfaceRail` for the doors whose LIST cannot be a
+ * `SurfaceRailRow[]` — the Backlog door's rail is its own listbox, because its
+ * rows carry epic identity paint, a collapsible group header with a progress
+ * roll-up, and a project tag that no title/state-line row can hold. Its head is
+ * still this head: New-at-top and one narrowing glyph beside the search is a
+ * cross-door contract (MC-1816), and copying thirty lines of it into a fourth
+ * door is precisely the drift this module was created to stop.
+ *
+ * Sticky, so creating and narrowing never scroll away: with a long list they must
+ * stay in the same place on every door. The negative offsets fold the host
+ * scrollport's padding into this head so it sits flush and paints over the rows
+ * passing beneath it — `--rail-ground` being the material of whichever column
+ * hosts the rail (the shell's inline aside, or the app sidebar's own column once
+ * the rail replaces it). ONE divider, under the search row, which is what says "a
+ * list starts here".
+ */
+export function SurfaceRailHeader({
+  newAffordance,
+  search,
+  filterControl,
+}: {
+  newAffordance: SurfaceRailNewAffordance
+  /** Search over the rows. Omit on a rail with nothing to narrow. */
+  search?: SurfaceRailSearch
+  /** The narrowing affordance beside the search field — `SurfaceRail`'s own
+   *  `FilterMenu`, or a door's equivalent glyph. Ignored without `search`. */
+  filterControl?: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className="sticky -top-2.5 z-10 -mx-2.5 -mt-2.5 mb-2 shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--rail-ground,var(--bg-surface-raised))] px-2.5 pt-2.5">
+      <button
+        type="button"
+        aria-current={newAffordance.selected ? 'true' : undefined}
+        disabled={newAffordance.disabled}
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect()
+          newAffordance.onActivate({ x: rect.left, y: rect.bottom })
+        }}
+        className={`mb-2 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-left text-[12px] transition-colors ${FOCUS_RING_CLASS} ${
+          newAffordance.disabled
+            ? 'cursor-default text-[color:var(--text-disabled)]'
+            : newAffordance.selected
+              ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
+              : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+        }`}
+      >
+        {PLUS_ICON}
+        {newAffordance.label}
+      </button>
+      {search ? (
+        <div className="flex items-center gap-1 pb-2">
+          <InboxSearchInput
+            value={search.value}
+            onChange={search.onChange}
+            ariaLabel={search.ariaLabel}
+            placeholder={search.placeholder}
+          />
+          {filterControl}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 export function SurfaceRail({
@@ -371,59 +446,25 @@ export function SurfaceRail({
     // shows one focused selection rather than none (assets/index.css,
     // "Selection tiers").
     <div className="flex min-h-0 flex-col" data-selection-pane="primary" onKeyDown={onKeyDown}>
-      {/* The "New …" affordance and the search row lead the rail and stay pinned
-          while the list scrolls: with a long list they must never hide below (or
-          above) the scroll — creating and narrowing are the rail's
-          always-reachable actions, in the same place on every door. The negative
-          offsets fold the shell aside's p-2.5 into the sticky header so it sits
-          flush with the scrollport and paints over passing rows.
-
-          ONE rule shared by every list surface: exactly one divider, drawn under
-          the search row, which is what says "a list starts here". The project
-          lens rides inside the filter glyph rather than standing as its own
-          full-width Select above the search — a second control stacked over the
-          field it narrows read as chrome for its own sake, and put the same
-          choice in two different shapes on two different doors. */}
-      {/* `--rail-ground` is the material of whichever column hosts this rail —
-          the door-panel raised tone in the shell's inline aside, the sidebar's
-          own ground when the rail replaces the app sidebar (item 1993). The
-          sticky header must paint the SAME ground it sits on, or the rows
-          passing under it show through the seam. */}
-      <div className="sticky -top-2.5 z-10 -mx-2.5 -mt-2.5 mb-2 shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--rail-ground,var(--bg-surface-raised))] px-2.5 pt-2.5">
-        <button
-          type="button"
-          aria-current={newAffordance.selected ? 'true' : undefined}
-          onClick={(event) => {
-            const rect = event.currentTarget.getBoundingClientRect()
-            newAffordance.onActivate({ x: rect.left, y: rect.bottom })
-          }}
-          className={`mb-2 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-left text-[12px] transition-colors ${FOCUS_RING_CLASS} ${
-            newAffordance.selected
-              ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
-              : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-          }`}
-        >
-          {PLUS_ICON}
-          {newAffordance.label}
-        </button>
-        {search ? (
-          <div className="flex items-center gap-1 pb-2">
-            <InboxSearchInput
-              value={search.value}
-              onChange={search.onChange}
-              ariaLabel={search.ariaLabel}
-              placeholder={search.placeholder}
+      {/* The shared rail head (SurfaceRailHeader): New-at-top, then search beside
+          ONE narrowing glyph. The project lens rides inside that glyph's menu
+          rather than standing as its own full-width Select above the search — a
+          second control stacked over the field it narrows read as chrome for its
+          own sake, and put the same choice in two different shapes on two
+          different doors. */}
+      <SurfaceRailHeader
+        newAffordance={newAffordance}
+        search={search}
+        filterControl={
+          menuGroups.length > 0 ? (
+            <FilterMenu
+              ariaLabel={filter?.ariaLabel ?? scope?.ariaLabel ?? 'Filter'}
+              groups={menuGroups}
+              className="shrink-0"
             />
-            {menuGroups.length > 0 ? (
-              <FilterMenu
-                ariaLabel={filter?.ariaLabel ?? scope?.ariaLabel ?? 'Filter'}
-                groups={menuGroups}
-                className="shrink-0"
-              />
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+          ) : null
+        }
+      />
       {/* No heading over an ungrouped list, and none over a lone group. "Horizons"
           above a field that already reads "Search horizons…" is the placeholder
           said twice, and a "Recent" header spanning every row groups nothing —

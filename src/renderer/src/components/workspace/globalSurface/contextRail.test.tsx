@@ -146,6 +146,11 @@ async function main(): Promise<void> {
     slot.remove()
   })
 
+  // Rail presence is the SURFACE's to declare, and every door on the substrate
+  // declares one in every load state (globalDoorsIntegration §8 holds them to
+  // it). This is the other half of that contract: a surface that genuinely brings
+  // none must still have a way out, or withholding a rail would be a way to build
+  // a page with no exit.
   run('a surface with no rail replaces nothing, and keeps its one way back', () => {
     const slot = document.createElement('div')
     document.body.appendChild(slot)
@@ -154,8 +159,8 @@ async function main(): Promise<void> {
       <ContextRailSlotContext.Provider
         value={{ el: slot as unknown as HTMLElement, onRailPresence: (present) => presence.push(present) }}
       >
-        <GlobalSurfaceShell ariaLabel="Backlog" bar={{ title: 'Backlog' }} onBack={() => undefined} canGoBack>
-          <div>list beside its own preview</div>
+        <GlobalSurfaceShell ariaLabel="Settings" bar={{ title: 'Settings' }} onBack={() => undefined} canGoBack>
+          <div>a canvas-only tenant</div>
         </GlobalSurfaceShell>
       </ContextRailSlotContext.Provider>,
     )

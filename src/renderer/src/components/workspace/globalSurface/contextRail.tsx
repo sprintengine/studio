@@ -8,7 +8,14 @@
 // at the column's bottom to restore what it replaced. A surface that seems to
 // need two levels of rail folds the outer level into grouped sections of the one
 // rail (Horizon: a Horizons group at the resting selection tier, a Plan group at
-// the focused one).
+// the focused one), and a surface whose canvas was a list beside a preview moves
+// that list here whole (Backlog).
+//
+// Presence is DECLARED by the surface, never derived from what it holds (T19):
+// every door hands over a rail in every load state, so the swap happens when the
+// door opens rather than when the door happens to have content. Deriving it left
+// "drilling in replaces the sidebar" true only for a door that was not empty and
+// had finished loading.
 //
 // The host owns this column, not the surface: the column exists whenever a door
 // is open — even for a door that portals no rail into it — so `Back` is never
@@ -27,12 +34,19 @@ import { FOCUS_RING_CLASS } from '../../ui/tokens'
 export type ContextRailSlot = {
   readonly el: HTMLElement | null
   /**
-   * The surface reports whether it has a rail at all. A surface that does not —
-   * the Backlog door, whose canvas is a work list beside its own preview — nests
-   * no second navigation column, so there is nothing for the swap to fix: it
-   * REPLACES NOTHING, the host keeps its own rail, and the surface keeps its bar
-   * chevron as the one way back. Emptying the column for it would trade a
-   * nesting problem it does not have for a blank rail's width of nothing.
+   * The surface reports whether it has a rail at all — and rail presence is the
+   * surface's to DECLARE, not the host's to infer from what the surface happens
+   * to hold (T19). Every door on this substrate declares one in every load
+   * state, so this is `true` for the whole of a door's visit; it was doors
+   * gating the answer on having data that left an empty or still-loading door
+   * beside the projects rail as a second navigation column.
+   *
+   * A surface that genuinely brings no rail (a canvas-only tenant, or a host
+   * that does not lift) nests no second column either, so there is nothing for
+   * the swap to fix: it REPLACES NOTHING, the host keeps its own rail, and the
+   * surface keeps its bar chevron as the one way back. Emptying the column for
+   * it would trade a nesting problem it does not have for a blank rail's width
+   * of nothing.
    */
   readonly onRailPresence?: (present: boolean) => void
 }

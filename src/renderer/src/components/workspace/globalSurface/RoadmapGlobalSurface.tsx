@@ -946,7 +946,14 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       // substrate with no back affordance of its own at all (every sibling door
       // shows one in exactly this state).
       bar={bar ?? { title: 'Horizon' }}
-      rail={hasRoadmaps || error ? rail : undefined}
+      // DECLARED, not derived from what the door happens to hold (T19): the rail
+      // is present in every load state, so opening Horizon replaces the projects
+      // rail immediately rather than once a horizon exists. Gating it on
+      // `hasRoadmaps` left the first-run and still-loading door with the projects
+      // sidebar beside its own canvas — two navigation columns, which item 1993
+      // forbids outright. The canvas below still owns the loading/empty/error
+      // words; the rail keeps "New horizon" and the search beside them.
+      rail={rail}
       onBack={back.onBack}
       canGoBack={back.canGoBack}
     >

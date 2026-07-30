@@ -195,13 +195,17 @@ export default function SprintsGlobalSurface(): JSX.Element {
       bar={bar}
       onBack={back.onBack}
       canGoBack={back.canGoBack}
-      // The rail is present whenever there is something to navigate — and always
-      // on an error, so a failed read is never a dead end (T20). Only the first
-      // load and the zero state own the canvas alone.
+      // The rail is DECLARED, not derived from what the door happens to hold
+      // (T19): it is present in every load state, so opening the door replaces
+      // the projects rail immediately rather than once there is a run in it.
+      // Gating it on `runs.length > 0` meant a first-run or still-loading Sprints
+      // door kept the projects sidebar beside its own canvas — two navigation
+      // columns, which item 1993 forbids outright. Loading, empty and error are
+      // the canvas's to say, beside a rail that still carries New and the lens.
       // No "Waiting on you" strip (MC-1838): the rail's "Needs you" group IS
       // where waiting runs surface, with honest since-dates — a stale sprint
       // never pins a permanent block above the page.
-      rail={loadState === 'error' || (loadState === 'ready' && runs.length > 0) ? rail : undefined}
+      rail={rail}
     >
       <SurfaceBody
         loadState={loadState}

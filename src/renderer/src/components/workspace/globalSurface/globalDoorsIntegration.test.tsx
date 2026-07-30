@@ -931,6 +931,94 @@ async function main(): Promise<void> {
     console.log('ok - the Extensions door: catalog rail, facet projection, deep-links, degradation')
   }
 
+  // ═══ 8. Every door replaces the projects rail — in EVERY load state ═══════
+  // Item 1993's first rule is absolute: no app state shows two navigation
+  // columns left of content. The host can only honour it for a door that hands
+  // over a rail, so this walks all six and asserts each one declares its rail
+  // both on its very first paint (still loading, nothing resolved) and once it
+  // has resolved to nothing (no project open, no runs, unstubbed IPC).
+  //
+  // This is the leg that regressed silently: three doors gated the prop on
+  // having data (`runs.length > 0`, `entries.length > 0`, `hasRoadmaps`) and one
+  // withheld it while loading, so "drilling in replaces the sidebar" held only
+  // once a door had something in it — and an empty or slow door sat beside the
+  // projects rail as a second column of things to choose. Reading the presence
+  // the surface REPORTS is what makes that provable: it is the exact signal the
+  // host derives `contextRailActive` from, so a false here is two columns on
+  // screen. Asserted per door, never rolled up, because the failure is per door.
+  {
+    const { ContextRailSlotContext } = await import('./contextRail')
+    const { default: RoadmapGlobalSurface } = await import('./RoadmapGlobalSurface')
+    const { default: AutomationsGlobalSurface } = await import('./automations/AutomationsGlobalSurface')
+    const { default: ExtensionsDoor } = await import('./extensions/ExtensionsGlobalSurface')
+
+    // The emptiest world there is: no project open, so every door resolves to
+    // nothing rather than to content. Every IPC these doors reach that is not
+    // stubbed above answers `{ ok: false }` through the proxy, which puts them in
+    // their degraded/empty states — the states that used to lose the rail.
+    useWorkspaceStore.setState({
+      workspaces: [],
+      activeWorkspaceId: null,
+      activeGlobalSurface: null,
+    } as never)
+    indexFails = false
+    api.listSprintRuns = async () => []
+
+    const doors: Array<[string, React.ComponentType]> = [
+      ['automations', AutomationsGlobalSurface],
+      ['sprints', SprintsGlobalSurface],
+      ['backlog', BacklogGlobalSurface],
+      ['extensions', ExtensionsDoor],
+      ['roadmap', RoadmapGlobalSurface],
+      ['reviews', ReviewsGlobalSurface],
+    ]
+    for (const [id, Surface] of doors) {
+      const slot = dom.window.document.createElement('div')
+      dom.window.document.body.appendChild(slot)
+      const presence: boolean[] = []
+      const host = dom.window.document.createElement('div')
+      dom.window.document.body.appendChild(host)
+      const doorRoot = createRoot(host)
+      // Sync act: effects flush, pending promises do NOT — so the first reported
+      // value is the door's answer while it is still loading.
+      act(() => {
+        doorRoot.render(
+          React.createElement(
+            ContextRailSlotContext.Provider,
+            { value: { el: slot as unknown as HTMLElement, onRailPresence: (p: boolean) => presence.push(p) } },
+            React.createElement(ConfirmDialogProvider, null, React.createElement(Surface)),
+          ),
+        )
+      })
+      assert.equal(
+        presence[0],
+        true,
+        `the ${id} door declares its rail on first paint — a loading door must not leave the projects rail up`,
+      )
+      await settle(12)
+      assert.equal(
+        presence[presence.length - 1],
+        true,
+        `the ${id} door still declares its rail with nothing in it — an empty door must not leave the projects rail up`,
+      )
+      // And the rail really is in the host's column, not a second aside of the
+      // door's own: reporting presence without portaling would read identical to
+      // the host and still paint two columns.
+      assert.ok(slot.childElementCount > 0, `the ${id} door's rail rendered into the host's column`)
+      assert.equal(
+        host.querySelector('aside'),
+        null,
+        `and the ${id} door mounts no inline aside beside it`,
+      )
+      await act(async () => {
+        doorRoot.unmount()
+      })
+      host.remove()
+      slot.remove()
+    }
+    console.log('ok - all six doors declare a rail while loading and while empty')
+  }
+
   // Drop the shared scans (and their watchers) so this process can exit.
   resetScans()
   console.log('all global-door integration checks passed')

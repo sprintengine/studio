@@ -348,12 +348,14 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       attention={attention}
       onBack={back.onBack}
       canGoBack={back.canGoBack}
-      // The rail is present whenever there is something to navigate or create —
-      // and always on an error, so a failed load is never a dead end (T20). Only
-      // the pristine first load and the zero state own the full canvas alone.
-      rail={
-        loadState === 'error' || (loadState === 'ready' && (entries.length > 0 || editorTarget)) ? rail : undefined
-      }
+      // The rail is DECLARED, not derived from what the door happens to hold
+      // (T19): it is present in every load state, so opening the door replaces
+      // the projects rail immediately rather than once there is an automation in
+      // it. Gating it on `entries.length > 0` left a first-run or still-loading
+      // Automations door with the projects sidebar beside its own canvas — two
+      // navigation columns, which item 1993 forbids outright. Loading, empty and
+      // error are the canvas's to say, beside a rail that still carries New.
+      rail={rail}
     >
       <div className="flex h-full min-h-0">
         <div className="min-h-0 min-w-0 flex-1">

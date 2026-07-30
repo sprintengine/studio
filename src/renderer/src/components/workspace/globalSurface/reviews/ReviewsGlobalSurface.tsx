@@ -229,35 +229,38 @@ export default function ReviewsGlobalSurface(): JSX.Element {
   const onCancelCreate = useCallback(() => setCreating(false), [])
 
   const bar = buildBar({ creating, hasSelection: selected !== null, selectedEntry, session })
-  // The rail is present whenever the index has resolved — including on error, so a
-  // failed scan is never a dead end: the (empty) list still carries "Review a
-  // change". Only the pristine first load owns the full canvas alone (T20).
-  const rail =
-    index.phase === 'loading' ? undefined : (
-      <div className="flex min-h-0 flex-col">
-        <ReviewsRail
-          rows={visibleRows}
-          selectedReviewId={selected?.reviewId ?? null}
-          newSelected={creating}
-          search={{
-            value: railSearch,
-            onChange: setRailSearch,
-            placeholder: 'Search reviews…',
-            ariaLabel: 'Search reviews across every project',
-          }}
-          filter={{ ariaLabel: 'Filter reviews', groups: railFilterGroups }}
-          onSelect={onSelect}
-          onNewReview={onNewReview}
-        />
-        {/* The lens is narrower than the reviews behind it. Say so, rather than
-            letting an empty rail read as "you have no reviews". */}
-        {visibleRows.length === 0 && rows.length > 0 ? (
-          <p className="px-2 pt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
-            No reviews match.
-          </p>
-        ) : null}
-      </div>
-    )
+  // The rail is DECLARED, not derived from what the door happens to hold (T19):
+  // present in every load state, so opening the door replaces the projects rail
+  // immediately. It used to withhold the rail on the pristine first load, which
+  // left that one state with the projects sidebar beside the door's own canvas —
+  // two navigation columns, which item 1993 forbids outright. The (empty) list
+  // still carries "Review a change", so a failed or still-loading scan is never a
+  // dead end either.
+  const rail = (
+    <div className="flex min-h-0 flex-col">
+      <ReviewsRail
+        rows={visibleRows}
+        selectedReviewId={selected?.reviewId ?? null}
+        newSelected={creating}
+        search={{
+          value: railSearch,
+          onChange: setRailSearch,
+          placeholder: 'Search reviews…',
+          ariaLabel: 'Search reviews across every project',
+        }}
+        filter={{ ariaLabel: 'Filter reviews', groups: railFilterGroups }}
+        onSelect={onSelect}
+        onNewReview={onNewReview}
+      />
+      {/* The lens is narrower than the reviews behind it. Say so, rather than
+          letting an empty rail read as "you have no reviews". */}
+      {visibleRows.length === 0 && rows.length > 0 ? (
+        <p className="px-2 pt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
+          No reviews match.
+        </p>
+      ) : null}
+    </div>
+  )
 
   return (
     <>
