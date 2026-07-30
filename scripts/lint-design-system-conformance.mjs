@@ -422,10 +422,13 @@ function classContext(file, index, maxSpan) {
  * ------------------------------------------------------------------ */
 
 const FOCUS_OUTLINE_NONE = /(?<![\w-])focus:outline-none(?![\w-])/g
-// Only a `:focus-visible` ring satisfies the clause. A `focus:ring-*` draws on
-// mouse click, which the same paragraph rules out ("Never on `:focus` — a
+// Only a `:focus-visible` indicator satisfies the clause. A `focus:ring-*` draws
+// on mouse click, which the same paragraph rules out ("Never on `:focus` — a
 // mouse click must not draw a ring"), so it does not discharge the outline.
-const FOCUS_RING_PRESENT = /focus-visible:(?:ring|shadow|outline|border)|FOCUS_RING_CLASS/
+// `focus-ring` is the shared utility (assets/index.css), named for markup by
+// FOCUS_RING_CLASS and its siblings in components/ui/tokens.ts.
+const FOCUS_RING_PRESENT =
+  /focus-visible:(?:focus-ring|ring|shadow|outline|border)|FOCUS_RING_(?:CLASS|INSET_CLASS|PEER_CLASS|WITHIN_INPUT_CLASS)/
 
 const SPACING_ARBITRARY =
   /(?<![\w-])-?(?:px|py|pt|pr|pb|pl|p|mx|my|mt|mr|mb|ml|m|gap-x|gap-y|gap|space-x|space-y)-\[(-?\d+(?:\.\d+)?)px\]/g
