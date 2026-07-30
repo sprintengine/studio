@@ -96,8 +96,13 @@ expectIncludes(contextMenu, 'role="menu"', 'ContextMenu surface exposes the menu
 expectIncludes(contextMenu, 'aria-label={ariaLabel}', 'ContextMenu requires an accessible surface name')
 expectMatches(
   contextMenu,
-  /role=\{checked !== undefined \? 'menuitemcheckbox' : 'menuitem'\}/,
-  'MenuItem switches to menuitemcheckbox for checkable items',
+  /role=\{checked !== undefined \? checkableRole : 'menuitem'\}/,
+  'MenuItem switches to a checkable role for checkable items',
+)
+expectMatches(
+  contextMenu,
+  /selection === 'one-of' \? 'menuitemradio' : 'menuitemcheckbox'/,
+  'MenuItem announces a mutually exclusive set as menuitemradio, not independent checkboxes',
 )
 expectIncludes(contextMenu, 'aria-checked={checked}', 'MenuItem exposes aria-checked for checkable items')
 expectIncludes(contextMenu, 'role="separator"', 'MenuDivider exposes the separator role')
@@ -436,12 +441,34 @@ expectIncludes(settingsPanel, 'await window.api.copyPathInto(target.sourcePath, 
 // over the real compiled CSS; a class name is not evidence that anything painted.
 {
   const tokens = read('src/renderer/src/components/ui/tokens.ts')
-  const focusRingUtility = "const FOCUS_RING_UTILITY = 'focus-ring'"
-  expectIncludes(tokens, focusRingUtility, 'tokens.ts names the one focus utility exactly once')
   expectMatches(
     tokens,
-    /export const FOCUS_RING_CLASS = `focus-visible:\$\{FOCUS_RING_UTILITY\}`/,
+    /export const FOCUS_RING_CLASS = 'focus-visible:focus-ring'/,
     'FOCUS_RING_CLASS is that utility on :focus-visible — never a width and a colour of its own',
+  )
+  // Every variant is written out in full rather than assembled from a shared
+  // `'focus-ring'` constant. Tailwind v4 generates a rule only for a literal it
+  // can see while scanning source and does not evaluate template literals, so an
+  // interpolated constant compiles to no CSS and its consumers render with no
+  // indicator at all. `peer-focus-visible:` and `has-[input:focus]:` shipped
+  // exactly that way and were absent from the built stylesheet (T13, 2026-07-30).
+  for (const [name, literal] of [
+    ['FOCUS_RING_CLASS', 'focus-visible:focus-ring'],
+    ['FOCUS_RING_INSET_CLASS', 'focus-visible:focus-ring-inset'],
+    ['FOCUS_RING_PEER_CLASS', 'peer-focus-visible:focus-ring'],
+    ['FOCUS_RING_WITHIN_INPUT_CLASS', 'has-[input:focus]:focus-ring'],
+  ] as const) {
+    expectIncludes(
+      tokens,
+      `export const ${name} = '${literal}'`,
+      `${name} is a literal Tailwind can see, not a template literal it cannot`,
+    )
+  }
+  // Assignments only — the comment above the constants quotes the broken form on
+  // purpose, and that is documentation, not a declaration.
+  assert.ok(
+    !/export const FOCUS_RING_[A-Z_]* ?= ?`/.test(tokens),
+    'no focus variant is assembled by interpolation — a template literal produces no CSS',
   )
 
   // The utility, and the values it applies, in assets/index.css.

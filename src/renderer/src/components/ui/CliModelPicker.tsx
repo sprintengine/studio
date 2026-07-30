@@ -4,7 +4,7 @@ import CliIcon from '../CliIcon'
 import { Popover } from './Popover'
 import { StarGlyph } from './StarGlyph'
 import { Tooltip } from './Tooltip'
-import { FOCUS_RING_CLASS } from './tokens'
+import { FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS } from './tokens'
 import { ReasoningSelector, hasReasoningAxes, reasoningTriggerLabel } from './ReasoningSelector'
 import { modelFavouriteKey, toggleModelFavourite, useModelFavourites } from './modelFavourites'
 import {
@@ -330,7 +330,15 @@ export function CliModelPopoverSurface({
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
+        {/* The search row is a composite: the input is the tab stop, the row is
+            the box a user sees, so the row draws the indicator — the same
+            treatment InboxSearchInput uses. It matters more here than in an
+            ordinary field, because this input takes focus the moment the
+            popover opens: without it the surface opens with a focused element
+            and nothing marking it. */}
+        <div
+          className={`flex items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2 ${FOCUS_RING_WITHIN_INPUT_CLASS}`}
+        >
           <SearchGlyph />
           <input
             ref={searchRef}

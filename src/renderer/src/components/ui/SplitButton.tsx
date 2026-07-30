@@ -192,6 +192,9 @@ export function SplitButton({
           icon={item.icon}
           shortcut={item.shortcut}
           checked={item.checked ?? false}
+          // Exactly one target is the primary, and choosing another moves the
+          // check rather than adding one — a one-of set, not a row of toggles.
+          selection="one-of"
           trailing={
             item.checked ? (
               <span className="text-[color:var(--accent-primary)]">

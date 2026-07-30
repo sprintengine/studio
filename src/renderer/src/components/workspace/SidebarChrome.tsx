@@ -1,22 +1,27 @@
 // The sidebar's own top chrome — the left half of the split top chrome. It runs
 // to the very top of the window (the full-height sidebar desktop editors use), so the
 // window's leftmost controls live here rather than in a full-width title bar.
-// Two rows, and the split is by owner rather than by taste: the first row
-// belongs to the WINDOW, the second to the PRODUCT.
 //
-//   window : [native traffic lights | app-menu hamburger] ····· back/forward
-//   brand  : sprintengine ································ search · collapse
+// ONE 36px row (owner, 2026-07-30: one chrome row per content region). Window
+// affordances and product affordances share it rather than stacking into two
+// bands — the two-row version read as the mark sitting *below* the top bar
+// instead of in it:
 //
-// Both rows are `app-drag` regions; every interactive control opts back out with
-// `app-no-drag`. On macOS the window row's leftmost slice is reserved for the
-// native traffic lights inset by the hiddenInset frame (window-factory.ts); the
-// reserve collapses in fullscreen where the lights are hidden. The right-side
-// window controls (min/max/close) are NOT here on win/linux — they pin to the
-// window's top-right corner over the content, since the aside can own that
-// corner.
+//   [traffic-light reserve | app-menu] sprintengine ··· back forward search collapse
 //
-// The brand row is chrome, not rail content (item 1991): WorkspaceSidebar mounts
-// this above both the workspaces rail and a door's context rail, and outside the
+// The row is an `app-drag` region; every interactive control opts back out with
+// `app-no-drag`. On macOS its leftmost slice is reserved for the native traffic
+// lights inset by the hiddenInset frame (window-factory.ts); the reserve
+// collapses in fullscreen where the lights are hidden. The right-side window
+// controls (min/max/close) are NOT here on win/linux — they pin to the window's
+// top-right corner over the content, since the aside can own that corner.
+//
+// Because one row has to hold both, width is contended: below the width that
+// fits the mark it is the mark that drops (a `@container` query on the row, see
+// `wordmarkVisibility`), never one of the four controls.
+//
+// This row is chrome, not rail content (item 1991): WorkspaceSidebar mounts it
+// above both the workspaces rail and a door's context rail, and outside the
 // tree's scroll container — so a drill-in that swaps the rail underneath leaves
 // the row untouched, and the row never scrolls away. Collapsed, the whole
 // sidebar is hidden and the expand control moves to WorkspaceHeader's launcher;
@@ -60,9 +65,11 @@ type SidebarChromeProps<MenuItem extends string> = {
 }
 
 // Sidebar toggle. Mirrors the Sprints aside toggle: white (text-strong) while its
-// panel — the sidebar — is open. This button only renders in the expanded brand
+// panel — the sidebar — is open. This button only renders in the expanded chrome
 // row, so it's always the open state here; the collapsed-state open button lives
-// in WorkspaceHeader's launcher and stays muted.
+// in WorkspaceHeader's launcher and stays muted. That is why it is the one glyph
+// in the row brighter than its neighbours: the pair is a state contrast read
+// across the two states, not decoration.
 function CollapseButton({ onToggle }: { onToggle: () => void }) {
   return (
     <Tooltip content="Collapse sidebar" placement="bottom">

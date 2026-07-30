@@ -63,23 +63,35 @@ export const TOOL_COLOR_VAR: Record<ToolIdentity, string> = {
 // No `outline-none` companion: the outline replaces the UA one, and pairing it
 // with an equal-specificity `focus:outline-none` would make which wins a matter
 // of stylesheet order.
-const FOCUS_RING_UTILITY = 'focus-ring'
+// WRITTEN OUT IN FULL, NEVER ASSEMBLED FROM `'focus-ring'` + a variant prefix.
+// Tailwind v4 generates a rule only for a class candidate it can SEE as literal
+// text while scanning source, and it does not evaluate template literals: a
+// constant built as `` `peer-focus-visible:${FOCUS_RING_UTILITY}` `` produces no
+// CSS at all, so every consumer of it silently renders with no focus indicator.
+// That is not hypothetical — it is how the two variants below shipped inert
+// (T13 review, 2026-07-30): `focus-visible:focus-ring` survived only because
+// eight components happen to write it literally in their own className strings,
+// while `peer-focus-visible:` and `has-[input:focus]:` were written nowhere else
+// and so were absent from the built stylesheet entirely.
+//
+// So: one literal per constant, and grep for the literal — not for the constant
+// name — when checking whether a variant reaches the CSS.
 
 /** Focus on the element itself. The default — use this unless one of the below applies. */
-export const FOCUS_RING_CLASS = `focus-visible:${FOCUS_RING_UTILITY}`
+export const FOCUS_RING_CLASS = 'focus-visible:focus-ring'
 
 /**
  * Inward, for an element that clips its own overflow or sits at the edge of a
  * scrolling region: a focusable scroll container, a joined split-button half.
  * An outward gap is cut off there.
  */
-export const FOCUS_RING_INSET_CLASS = `focus-visible:${FOCUS_RING_UTILITY}-inset`
+export const FOCUS_RING_INSET_CLASS = 'focus-visible:focus-ring-inset'
 
 /**
  * For a decorative box drawn next to the real control — a styled checkbox whose
  * `<input class="peer">` is the tab stop and carries the semantics.
  */
-export const FOCUS_RING_PEER_CLASS = `peer-focus-visible:${FOCUS_RING_UTILITY}`
+export const FOCUS_RING_PEER_CLASS = 'peer-focus-visible:focus-ring'
 
 /**
  * For a wrapper that owns the visible border box while an `<input>` inside it is
@@ -89,4 +101,4 @@ export const FOCUS_RING_PEER_CLASS = `peer-focus-visible:${FOCUS_RING_UTILITY}`
  * putting two indicators on one stop. `:focus` not `:focus-visible` because
  * Chromium treats text inputs as focus-visible on click anyway.
  */
-export const FOCUS_RING_WITHIN_INPUT_CLASS = `has-[input:focus]:${FOCUS_RING_UTILITY}`
+export const FOCUS_RING_WITHIN_INPUT_CLASS = 'has-[input:focus]:focus-ring'

@@ -185,11 +185,17 @@ type MenuItemProps = {
   shortcut?: string
   variant?: 'danger'
   disabled?: boolean
-  /** When set, the item is a menuitemcheckbox and exposes this checked state.
+  /** When set, the item is checkable and exposes this checked state.
    *  The VISIBLE marker stays with the caller — pass it as `icon` (leading) or
    *  `trailing`, so a row whose leading slot already carries a target glyph can
    *  still show its check. */
   checked?: boolean
+  /** How the checkable items in this menu relate to each other. `single` — the
+   *  default — is a set of independent toggles. Pass `'one-of'` when the menu
+   *  picks exactly one of a mutually exclusive set (a target, a mode): the row
+   *  then announces as `menuitemradio`, so a screen reader says "1 of 3"
+   *  instead of offering to uncheck a choice that cannot be unchecked. */
+  selection?: 'single' | 'one-of'
   /** Trailing node, after the shortcut. For a check mark on a row whose leading
    *  slot is taken. */
   trailing?: React.ReactNode
@@ -209,13 +215,15 @@ export function MenuItem({
   variant,
   disabled,
   checked,
+  selection = 'single',
   trailing,
   onKeyDown,
 }: MenuItemProps) {
+  const checkableRole = selection === 'one-of' ? 'menuitemradio' : 'menuitemcheckbox'
   return (
     <button
       type="button"
-      role={checked !== undefined ? 'menuitemcheckbox' : 'menuitem'}
+      role={checked !== undefined ? checkableRole : 'menuitem'}
       aria-checked={checked}
       data-menu-item="true"
       tabIndex={-1}
