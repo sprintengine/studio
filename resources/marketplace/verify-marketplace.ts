@@ -306,13 +306,16 @@ function assertNoOrphanPluginPayloads(
  *   install gates that refuse an unsigned code-bearing bundle;
  * - its component digests must match the committed bytes, so the payload cannot
  *   drift from what the manifest declares;
- * - an automation payload must be a valid definition draft.
+ * - an automation payload must be a valid definition draft, and an MCP
+ *   component must parse — the same per-kind content checks the signed path
+ *   runs, so the two lanes differ only in how identity is proven.
  *
  * What a signature would additionally prove — that the bundle came from the
  * named publisher — is why an unsigned entry may not claim
  * `publisher.verified`; that rule is enforced on the entry, above.
  */
 function validateUnsignedPluginPayload(
+  root: string,
   pluginRoot: string,
   entry: MarketplacePluginEntry,
   index: number,
@@ -346,6 +349,8 @@ function validateUnsignedPluginPayload(
     `plugins/${entry.id}/plugin.json`,
     marketplaceAutomationPayloadIssuesSync(pluginRoot, manifest.components)
   ))
+  const mcpPath = manifest.components.mcp?.path
+  if (mcpPath) validateMcpComponent(root, pluginRoot, entry.id, mcpPath, issues)
   assertEntryMatchesManifest(entry, index, manifest, issues)
 }
 
@@ -477,7 +482,7 @@ async function validateMarketplace(root: string, cliBundle: string): Promise<Ver
       }
       if (hasCommittedPayload) {
         claimedPayloadIds.add(entry.id)
-        validateUnsignedPluginPayload(pluginRoot, entry, index, issues)
+        validateUnsignedPluginPayload(root, pluginRoot, entry, index, issues)
       }
       continue
     }
