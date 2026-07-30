@@ -195,7 +195,7 @@ token duration called out as the tell that a fourth crept in.
 | Check | Result |
 |---|---|
 | `npm run typecheck` | pass |
-| `npm run build` | pass (exit 0) |
+| `npm run build` | bundles cleanly, then **fails** `check-bundle-budget.mjs` — pre-existing |
 | `npm run lint` | 0 violations, including the design-system conformance guard over 611 files |
 | `node design-system/scripts/lint.mjs` | 0 violations, 120 tokens, 19 files |
 | Renderer test suite | 213 / 219 pass; 5 fail, **all 5 also fail at clean HEAD** |
@@ -233,6 +233,19 @@ identically at clean HEAD, verified in a detached worktree rather than assumed,
 and 4 of them test modules this sweep never touched. So the sweep introduces no
 regression — but the suite does not pass today, and that sentence should not be
 reported as satisfied.
+
+**"The app builds."** `electron-vite build` succeeds; the `npm run build` script
+then runs `scripts/check-bundle-budget.mjs`, which fails because the eager chunk
+is 2075 KB against a 2048 KB ceiling. This is pre-existing and this sweep moves
+it the right way: the conversion is a near 1:1 line replacement (1,457
+insertions / 1,451 deletions) in which every replacement is *shorter* than what
+it replaced — `text-[12px]` → `text-meta` — and the renderer source is 2,058
+bytes smaller at this commit than at `6445fafb`. A change that only shortens
+string literals cannot push a bundle over a ceiling it was already over.
+
+Worth recording because it nearly went unnoticed: piping a build or a test loop
+into `tail` makes the shell report `tail`'s exit code, so both read as passing.
+The budget has been failing the whole time. Check exit codes before the pipe.
 
 ## Honest limits
 
