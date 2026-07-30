@@ -660,6 +660,52 @@ def worker_has_active_lease(state: Dict[str, Any], worker_id: str, *, excluding_
     )
 
 
+def active_module_conflict(state: Dict[str, Any], task: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """The in-flight task whose modules overlap `task`'s, or None when it is free.
+
+    Coarse ownership makes concurrency load-bearing (backlog item 2019). A task's
+    commit stages EVERYTHING dirty inside its owned modules, so two tasks sharing
+    a module would sweep each other's half-finished work into one commit — a
+    correctness bug, not a missed optimisation. The resolution is cheap because
+    sprints run for hours: tasks whose modules overlap never hold active leases
+    at the same time, tasks whose modules are disjoint still run concurrently.
+
+    Overlap is symmetric containment (either side may be the wider module) and
+    deliberately repo-agnostic: the commit sweep commits a task's in-scope
+    changes in EVERY declared tree it worked (MC-1752), so the same relative
+    module in a sibling project is swept by the same commit — the repo binding is
+    routing, not a cage. Ownership is read the same way orphan detection reads
+    it, for the same reason.
+
+    Returns `{taskId, taskTitle, module, workerId}` describing the holder, so the
+    caller can say WHY a ready task is not running.
+    """
+    from sprintengine_core.tool.shell import paths_overlap
+
+    candidate_modules = [str(path) for path in (task.get("ownedPaths") or [])]
+    if not candidate_modules:
+        return None
+    task_id = str(task.get("id") or "").strip()
+    for other in state.get("tasks", []) or []:
+        if not isinstance(other, dict) or str(other.get("id") or "").strip() == task_id:
+            continue
+        holder = active_lease_worker(other)
+        if not holder:
+            continue
+        for owned in other.get("ownedPaths") or []:
+            overlapping = next(
+                (module for module in candidate_modules if paths_overlap(str(owned), module)), None
+            )
+            if overlapping is not None:
+                return {
+                    "taskId": str(other.get("id") or ""),
+                    "taskTitle": str(other.get("title") or ""),
+                    "module": str(owned),
+                    "workerId": holder,
+                }
+    return None
+
+
 def worker_active_lease_role(state: Dict[str, Any], worker_id: str) -> str:
     """The role recorded on any active lease `worker_id` holds, or ''."""
     for task in worker_active_lease_tasks(state, worker_id):

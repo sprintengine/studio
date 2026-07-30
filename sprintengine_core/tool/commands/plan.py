@@ -26,6 +26,7 @@ from sprintengine_core.tool.state import (
 from sprintengine_core.tool.tasks import (
     add_unique_values,
     assert_backlog_ref_unclaimed,
+    assert_owned_paths_are_modules,
     assert_phases_within_run_ceiling,
     backlog_ref_from_args,
     build_task_from_args,
@@ -45,6 +46,7 @@ def cmd_plan_add_task(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ensure_role_in_roster(state, args.role)
         task = build_task_from_args(args, state)
+        assert_owned_paths_are_modules(state, Path(args.state), task)
         apply_plan_gate_dependency(task, state, Path(args.state))
         from sprintengine_core.tool.integration import stale_integration_review_warning
         from sprintengine_core.tool.state import repo_binding_lint_warning
@@ -173,6 +175,8 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
         if args.clear_paths:
             task["ownedPaths"] = []
         set_unique_list(task, "ownedPaths", args.path)
+        if args.path:
+            assert_owned_paths_are_modules(state, Path(args.state), task)
 
         if args.clear_acceptance:
             task["acceptanceCriteria"] = []

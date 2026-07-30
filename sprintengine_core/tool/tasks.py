@@ -387,6 +387,36 @@ def ensure_evidence(task: Dict[str, Any]) -> Dict[str, Any]:
             ev[key] = coerce_evidence_values(ev[key])
     return ev
 
+def assert_owned_paths_are_modules(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> None:
+    """Refuse an `ownedPaths` entry that names a file instead of a module.
+
+    A task owns the modules — directories — it works in, never individual files
+    (backlog item 2019). `ownedPaths` is also the task's commit pathspec, so a
+    file whitelist means a file the agent legitimately creates inside its own
+    module is committed by nobody; it also pushes agents to grow an existing
+    owned file rather than add a sibling.
+
+    Only an entry that resolves to an EXISTING regular file is refused. A path
+    that does not exist yet is a module the task is about to create, and file
+    extensions are not sniffed — that misjudges extensionless files and
+    not-yet-created paths alike. Enforced on new plan-time writes only: run
+    stores written before this contract keep their file entries and their exact
+    behaviour.
+    """
+    root = task_diff_capture_cwd(state, state_path, task)
+    task_id = str(task.get("id") or "task")
+    for entry in task.get("ownedPaths") or []:
+        value = str(entry or "").strip()
+        if not value or not (root / value).is_file():
+            continue
+        parent = value.rsplit("/", 1)[0] if "/" in value else ""
+        module = f"`{parent}`" if parent else "the directory that contains it"
+        raise SystemExit(
+            f"Task {task_id} ownedPaths entry `{value}` is a file. Tasks own modules, not files: "
+            f"declare {module} instead, so files the task adds inside it are committed by it."
+        )
+
+
 def task_diff_capture_cwd(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> Path:
     """The checkout a task's diff evidence is read from: the tree its paths live in.
 

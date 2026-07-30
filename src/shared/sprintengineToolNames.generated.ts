@@ -749,7 +749,11 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "type": "array"
         },
         "path": {
-          "type": "array"
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The modules this task owns: project-root-relative DIRECTORY paths, relative to the task's repo root. A task owns the directories it works in, never individual files \u2014 an entry naming an existing file is rejected. These paths are also the task's commit pathspec, so anything the task adds, splits, or moves inside them is committed by it. Tasks whose modules overlap never run at the same time, so give concurrent tasks disjoint modules."
         },
         "acceptance": {
           "type": "array"
@@ -944,7 +948,11 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "description": "Id of the project this task works in, from the ones the run declares. Omit for the run's main project. Owned paths stay relative to that project's root."
         },
         "path": {
-          "type": "array"
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The modules this task owns: project-root-relative DIRECTORY paths, relative to the task's repo root. A task owns the directories it works in, never individual files \u2014 an entry naming an existing file is rejected. These paths are also the task's commit pathspec, so anything the task adds, splits, or moves inside them is committed by it. Tasks whose modules overlap never run at the same time, so give concurrent tasks disjoint modules."
         },
         "acceptance": {
           "type": "array"
