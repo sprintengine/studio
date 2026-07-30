@@ -17,6 +17,25 @@ Use this checklist for every preview or stable desktop release.
 Removals an installed profile cannot be migrated through. State each in the notes
 of the first release that ships it, then delete the line.
 
+- Automation review-only mode (item 2032): `autonomyDefault: 'review_only' |
+  'allow_changes'` is retired. An existing automation on disk still loads — the
+  key is dropped on read and never written back — and one whose author chose
+  `review_only` keeps that intent: it is carried into the composed prompt as a
+  write-up-only instruction, so nothing silently becomes a fixer. Two behaviour
+  changes ride with it. The `withheldChanges` pull-request safeguard, which
+  refused to stage or push an unexpected working diff, is gone with the field;
+  every automation run may now backstop-commit its diff, contained by its own
+  worktree, its own branch, and a pull request nothing merges automatically.
+  And an automation with no explicit permission preset now launches its agent on
+  `bypass_all` (item 2033) rather than stopping for an approval nobody is awake
+  to give. An agent still cannot grant itself bypass through the MCP tools.
+- Automation autonomy field on the module SDK (item 2032): `autonomyDefault` is
+  removed from `AutomationDefinition`, `AutomationDefinitionDraft` and the patch
+  type in `@multicode/module-sdk`. This is a **breaking type change** for a
+  module that sets the field — the property no longer exists, so the compile
+  fails rather than the value being ignored. Delete the assignment; there is no
+  replacement, and reviewer-versus-fixer intent belongs in the prompt.
+
 - Sprint Engines panel shortcut (item 1813): the Sprint Engines panel became the
   Sprints door, and the `panel.sprint-engines.toggle` command went with it. A
   custom shortcut saved for that command stopped firing when the panel was
