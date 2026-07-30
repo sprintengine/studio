@@ -97,7 +97,7 @@ export function TriggerFields({
   if (loaded && !isAuthorableTrigger(loaded)) {
     return (
       <fieldset className="flex flex-col gap-3">
-        <legend className="text-micro font-medium text-[color:var(--text-muted)]">Trigger</legend>
+        <legend className="text-meta font-medium text-[color:var(--text-default)]">When it runs</legend>
         <div className="flex flex-col gap-1">
           <span className="text-meta text-[color:var(--text-default)]">{cadenceSummary(loaded)}</span>
           <span className="text-micro text-[color:var(--text-subtle)]">
@@ -120,16 +120,18 @@ export function TriggerFields({
 
   return (
     <fieldset className="flex flex-col gap-3">
-      <legend className="text-micro font-medium text-[color:var(--text-muted)]">Trigger</legend>
+      {/* The group's name IS the first control's label — "Trigger" above "When
+          it runs" above a Select reading "Schedule" was the same fact in three
+          type tiers, and it put a second label tier in a field row that pairs
+          with single-labelled controls. */}
+      <legend className="text-meta font-medium text-[color:var(--text-default)]">When it runs</legend>
 
-      <Field label="When it runs" htmlFor="automation-trigger-family">
-        <Select
-          ariaLabel="Trigger family"
-          value={value.triggerKind}
-          onChange={(kind) => onChange({ triggerKind: kind })}
-          items={familyItems}
-        />
-      </Field>
+      <Select
+        ariaLabel="Trigger family"
+        value={value.triggerKind}
+        onChange={(kind) => onChange({ triggerKind: kind })}
+        items={familyItems}
+      />
 
       {selectedReason ? <InlineNotice tone="warn">{selectedReason}</InlineNotice> : null}
 

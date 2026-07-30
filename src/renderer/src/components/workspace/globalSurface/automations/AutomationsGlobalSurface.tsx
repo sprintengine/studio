@@ -5,7 +5,6 @@ import { revealAutomationAgent } from '../../../../hooks/useAutomationRequests'
 import { publishDiagnosticSync } from '../../../../utils/diagnostics'
 import { listAutomationProjectFolders } from '../../../../utils/automationsEntry'
 import type { AutomationDefinition, AutomationRun, AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
-import type { RunTargetRef } from '../../../automations/runTarget'
 import { GhostButton, InlineNotice, OverflowMenu, PointerPopover, PrimaryButton, SidePane, useConfirmDialog } from '../../../ui'
 import type { FilterMenuGroup, OverflowMenuItem } from '../../../ui'
 import { FOCUS_RING_CLASS } from '../../../ui/tokens'
@@ -24,6 +23,7 @@ import { SCHEDULER_OFF_NOTICE, automationRailState, enumerationProblemsNotice, p
 import {
   consumePendingAutomationSurfaceTarget,
   subscribeAutomationSurfaceTarget,
+  type AutomationSurfaceTarget,
 } from './automationSurfaceTarget'
 
 // The Automations tenant of the door-routed full-page surface (global-surfaces
@@ -62,11 +62,16 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   const [viewerRun, setViewerRun] = useState<{ run: AutomationRun; workspaceRoot: string } | null>(null)
   // The New-automation target-project chooser popover, anchored to the button.
   const [chooser, setChooser] = useState<{ x: number; y: number } | null>(null)
+  // The bar's action slot while the editor is open. The editor keeps its own save
+  // state and portals its buttons here, so the door bar carries the CTA (mockup
+  // §.canvas-bar) without the surface holding a second copy of the form's state.
+  const [editorActionsEl, setEditorActionsEl] = useState<HTMLElement | null>(null)
   const [now, setNow] = useState(() => Date.now())
-  // A deep-link (run notification "Open") latches the automation AND run to
-  // select; it applies once that automation has loaded into the index, then the
-  // run is scrolled into view in the canvas.
-  const [pendingTarget, setPendingTarget] = useState<RunTargetRef | null>(null)
+  // A deep-link latches the automation to select and what to show of it: a run
+  // notification's "Open" names a run to scroll into view, the Extensions shelf
+  // asks for the editor (MC-2035). Either applies once that automation has
+  // loaded into the index.
+  const [pendingTarget, setPendingTarget] = useState<AutomationSurfaceTarget | null>(null)
   const [focusRunId, setFocusRunId] = useState<string | null>(null)
   // Bumped each time a target is applied so re-opening the same run's
   // notification re-triggers the scroll even though the run id is unchanged.
@@ -180,16 +185,6 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     })
   }, [])
 
-  useEffect(() => {
-    if (!pendingTarget) return
-    if (!entries.some((entry) => entry.definition.id === pendingTarget.automationId)) return
-    setEditorTarget(null)
-    setSelectedId(pendingTarget.automationId)
-    setFocusRunId(pendingTarget.runId)
-    setFocusNonce((n) => n + 1)
-    setPendingTarget(null)
-  }, [pendingTarget, entries])
-
   const openChooser = useCallback((anchor: { x: number; y: number }) => {
     clearActionError()
     setChooser(anchor)
@@ -206,6 +201,27 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     setSelectedId(entry.definition.id)
     setEditorTarget({ editor: { mode: 'edit', definition: entry.definition }, workspaceRoot })
   }, [rootForDefinition])
+
+  // Apply a latched deep-link once its automation is in the loaded index. The
+  // `editor` view is the shelf's hand-off (MC-2035): the automation it just added
+  // arrives selected AND open in the editor, so Get is one navigation rather than
+  // "it was added somewhere, go and find it". It routes through the SAME
+  // `startEdit` a rail Edit uses — there is one editor and one save path.
+  useEffect(() => {
+    if (!pendingTarget) return
+    const entry = entries.find((candidate) => candidate.definition.id === pendingTarget.ref.automationId)
+    if (!entry) return
+    if (pendingTarget.view === 'editor') {
+      setFocusRunId(null)
+      startEdit(entry)
+    } else {
+      setEditorTarget(null)
+      setSelectedId(entry.definition.id)
+      setFocusRunId(pendingTarget.ref.runId)
+      setFocusNonce((n) => n + 1)
+    }
+    setPendingTarget(null)
+  }, [pendingTarget, entries, startEdit])
 
   const handleEditorSaved = useCallback((saved: AutomationDefinition) => {
     applySaved(saved, editorTarget?.workspaceRoot)
@@ -254,7 +270,20 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   // ── Surface bar ────────────────────────────────────────────────────────────
   const bar = useMemo(() => {
     if (editorTarget) {
-      return { title: editorTarget.editor.mode === 'create' ? 'New automation' : 'Edit automation' }
+      // Editing: the bar is info plus ONE call to action (mockup
+      // 2026-07-30-automation-starter-editor §.canvas-bar). The info is where the
+      // save lands — the project and its automations store — because the editor
+      // body already carries the automation's own name and publisher, and the
+      // CTA is the editor's own Save, portaled into `editorActionsEl` so there
+      // is exactly one save affordance and one save path.
+      return {
+        title: (
+          <span className="truncate font-mono text-meta font-normal text-[color:var(--text-subtle)]">
+            {`${projectLabel(editorTarget.workspaceRoot)} · .multi-code/automations`}
+          </span>
+        ),
+        actions: <span ref={setEditorActionsEl} className="flex items-center gap-1.5" />,
+      }
     }
     if (selectedEntry) {
       const def = selectedEntry.definition
@@ -366,6 +395,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
             onRetry={() => void load()}
             hasEntries={entries.length > 0}
             editorTarget={editorTarget}
+            editorActionsSlot={{ el: editorActionsEl }}
             providers={providers}
             onEditorCancel={() => setEditorTarget(null)}
             onEditorSaved={handleEditorSaved}
@@ -421,7 +451,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
 // states (SurfaceCanvasState) plus the editor. Split out so the surface's return
 // stays readable.
 function SurfaceBody({
-  loadState, loadError, onRetry, hasEntries, editorTarget, providers, onEditorCancel, onEditorSaved,
+  loadState, loadError, onRetry, hasEntries, editorTarget, editorActionsSlot, providers, onEditorCancel, onEditorSaved,
   selectedEntry, now, focusRunId, focusNonce, onOpenAgent, onViewReport, onCreate,
 }: {
   loadState: string
@@ -429,6 +459,7 @@ function SurfaceBody({
   onRetry: () => void
   hasEntries: boolean
   editorTarget: { editor: EditorState; workspaceRoot: string } | null
+  editorActionsSlot: Parameters<typeof AutomationEditor>[0]['actionsSlot']
   providers: Parameters<typeof AutomationEditor>[0]['providers']
   onEditorCancel: () => void
   onEditorSaved: (saved: AutomationDefinition) => void
@@ -448,6 +479,7 @@ function SurfaceBody({
           editor={editorTarget.editor}
           providers={providers}
           workspaceRoot={editorTarget.workspaceRoot}
+          actionsSlot={editorActionsSlot}
           onCancel={onEditorCancel}
           onSaved={onEditorSaved}
         />
