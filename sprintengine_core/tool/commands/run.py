@@ -578,7 +578,15 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 "In worktree-mode runs, edit the copies of the backlog files in their own project's worktree so design updates ride that project's run branch and pull request.",
                 "Do not copy valid design prose into plan.md; the manifest only references the design documents and records verification, decisions, risks, and the task graph summary.",
                 "Additional relevant documents (design systems, mockups, Knowledge Graph notes) may be added to the manifest as project-root-relative references.",
-                "The final review scheduling task must set each child item's frontmatter `status: completed` when the sprint completes (in worktree mode, editing the copies in their own project's worktree so the flips ride that project's pull request).",
+                # No child-status note. Child item status is app-owned and propagates
+                # one way, from the run: `in_progress` when a child's OWN task claims,
+                # `completed` only once the sprint has LANDED (MC-2017,
+                # resolveSprintEngineChildRunLink). This branch used to tell the
+                # planner to mint a task that writes `status: completed` when the
+                # sprint COMPLETES, which is a second writer racing the first and
+                # wrong on both timing and reversibility: it stamps `completed` onto
+                # a branch that has not merged, and once an item reads `completed`
+                # neither the landing pass nor the cancel restore will touch it again.
                 *source_bundle_reference_notes(state, state_path),
             ]
             apply_source_context_to_task(plan_task, state, state_path)
