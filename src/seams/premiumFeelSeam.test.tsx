@@ -147,6 +147,13 @@ function resolveChain(
   what: string,
   hops: string[] = [],
 ): Chain {
+  // A self- or mutually-referential alias would recurse until the stack blew,
+  // which reads as a crashed suite rather than as the broken chain it is. No
+  // real chain here is more than four hops deep.
+  assert.ok(
+    hops.length < 12,
+    `${what}: the alias chain does not terminate — ${hops.join(' → ')}`,
+  )
   const reference = /var\((--[\w-]+)(?:\s*,\s*([^)]+))?\)/.exec(expression)
   if (!reference) return { pixels: evaluateLength(expression, what), hops }
   const [, name, fallback] = reference
@@ -199,6 +206,14 @@ async function main(): Promise<void> {
 
   const indexCss = readFileSync(INDEX_CSS, 'utf8')
   const tokensCss = readFileSync(TOKENS_CSS, 'utf8')
+  // ONE `@theme` block is the seam invariant the plan states for this file. A
+  // second one would silently win for whichever names it repeats, so the
+  // resolver below would be reading a block the browser overrides.
+  assert.equal(
+    (indexCss.match(/@theme\s*\{/g) ?? []).length,
+    1,
+    'index.css must carry exactly one @theme block',
+  )
   const themeBlock = extractBlock(indexCss, '@theme')
 
   // The renderer's whole custom-property universe, in cascade order: the bundle
@@ -1280,8 +1295,11 @@ async function main(): Promise<void> {
     }
   })
 
-  if (failures > 0) {
-    console.error(`premiumFeelSeam: ${failures} failing`)
+  // `process.exitCode` covers the handler above: a rejection outside every
+  // `check` leaves `failures` at 0, and printing "ok" beside a non-zero exit is
+  // exactly the kind of half-green report this suite exists to prevent.
+  if (failures > 0 || process.exitCode) {
+    console.error(`premiumFeelSeam: ${failures} failing check(s)${process.exitCode ? ' + an unhandled rejection' : ''}`)
     process.exitCode = 1
     return
   }
