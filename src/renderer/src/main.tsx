@@ -77,6 +77,24 @@ async function bootThirdPartyRendererModules(): Promise<void> {
   }
 }
 
+// Tell main the app is actually on screen, which is what closes the splash and
+// reveals this window. Two nested rAFs: the first runs after React has committed
+// the tree, the second after the browser has painted it — so the plate is not
+// pulled away before there is something behind it. `ready-to-show` would have
+// been too early, which is why main waits for this instead. Main also holds a
+// hard timeout, so failing to get here delays the reveal rather than losing it.
+let bootCompleteSignalled = false
+function signalBootComplete(): void {
+  if (bootCompleteSignalled) return
+  bootCompleteSignalled = true
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (typeof window.api?.notifyBootComplete !== 'function') return
+      window.api.notifyBootComplete()
+    })
+  })
+}
+
 // The diagnostics window loads the same renderer bundle with `?view=diagnostics`
 // and mounts only the standalone panel — no workspace shell, no third-party
 // module boot (it needs none, and skipping it makes the monitor window snappy).
@@ -107,6 +125,11 @@ if (isDiagnosticsWindow) {
         <WorkspaceManager />
       </ConfirmDialogProvider>
     )
+    // Only the primary workspace window reveals itself. The diagnostics and aux
+    // branches above share this bundle but are opened by user action long after
+    // boot — a boot-complete from one of them would be answering for a window
+    // the splash was never covering.
+    signalBootComplete()
     // One-time MC-1587 migration: install the un-shipped specialist pack for
     // profiles that had it enabled before it stopped being bundled. Guarded by a
     // persisted flag and scoped to the main workspace window (never the

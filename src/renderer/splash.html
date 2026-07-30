@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <title>sprintengine</title>
+    <!--
+      The launch plate. A SECOND renderer entry, deliberately standalone: no
+      module script, no index.css, no import of anything under src/renderer/src.
+      The gap this window covers IS the app bundle's load, so loading that bundle
+      would make the splash arrive exactly as late as the thing it is hiding.
+      Everything below is inline for the same reason.
+
+      Built to prototype variant A (owner ruling, 2026-07-30): the quiet plate.
+      It does NOT itemise what boot discovery found — variant B's ledger was
+      rejected — so the status line is the only read-out.
+
+      Always dark, whatever theme the profile resolves to: there is one plate
+      asset and it is a dark botanical. index.html's theme pre-paint is
+      deliberately NOT ported here.
+    -->
+    <style>
+      /* Mirrors design-system/foundations/tokens.css, dark mode. Copied rather
+         than imported — see above. */
+      :root {
+        --bg-app: #08080c;
+        --text-strong: #ececec;
+        --text-muted: #9c9ca4;
+        --accent-primary: #4daf7d;
+        /* Inter is a Google Fonts import in index.css, which this document
+           deliberately does not load — so in practice the splash sets in the
+           next entry ('SF Pro Text' on macOS, 'Segoe UI' on Windows). That is
+           the right trade: adding a webfont here would make the brand moment
+           wait on the network, and would show nothing at all offline. The app's
+           own first frame uses the same fallback until the font arrives. */
+        --ui: Inter, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        /* Matches the window's backgroundColor so there is no seam between the
+           frame the OS paints and the frame this document paints. */
+        background: var(--bg-app);
+        color: var(--text-muted);
+        font-family: var(--ui);
+        font-size: 13px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        /* The whole window is the plate; nothing here is draggable or
+           selectable, and there is no control to click. */
+        -webkit-user-select: none;
+        user-select: none;
+        cursor: default;
+      }
+
+      .plate {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      /* A pool of --bg-app so the wordmark keeps its contrast wherever the
+         backdrop crops. No backdrop-filter anywhere — house ruling, it drops the
+         window to ~10fps. */
+      .scrim {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          120% 100% at 50% 45%,
+          rgba(8, 8, 12, 0.3) 0%,
+          rgba(8, 8, 12, 0.78) 70%,
+          rgba(8, 8, 12, 0.94) 100%
+        );
+      }
+
+      .body {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+
+      /* The wordmark, set the way SprintEngineWordmark.tsx sets it: Inter
+         semibold, -0.011em tracking, "engine" in the accent as ink and never a
+         fill. Larger here than the sidebar's 14px because this is the brand
+         moment rather than chrome. */
+      .wordmark {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.011em;
+        line-height: 1;
+        color: var(--text-strong);
+      }
+
+      .wordmark i {
+        font-style: normal;
+        color: var(--accent-primary);
+      }
+
+      .status {
+        margin-top: 20px;
+        font-size: 12px;
+        min-height: 18px;
+        color: var(--text-muted);
+        transition: opacity 120ms var(--ease);
+      }
+
+      /* One hairline, pinned to the very bottom edge of the window. It advances
+         on leg COMPLETION, so it is a count of finished work rather than an
+         invented estimate. */
+      .rail {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2px;
+        background: rgba(252, 252, 252, 0.07);
+      }
+
+      .rail-fill {
+        height: 100%;
+        width: 0%;
+        background: var(--accent-primary);
+        transition: width 420ms var(--ease);
+      }
+    </style>
+  </head>
+  <body>
+    <img class="plate" src="./src/assets/backdrops/backdrop-herbarium-dark-chat.jpg" alt="" />
+    <div class="scrim"></div>
+    <div class="body">
+      <div class="wordmark">sprint<i>engine</i></div>
+      <!-- The static default covers the few frames before the first progress
+           push; boot discovery replaces it with the leg actually in flight. -->
+      <div class="status" id="status">Starting…</div>
+    </div>
+    <div class="rail"><div class="rail-fill" id="rail-fill"></div></div>
+    <script>
+      // Inline and tiny on purpose. `window.api` comes from the preload, which
+      // is a main-process-side script and not the app bundle.
+      ;(function () {
+        var status = document.getElementById('status')
+        var fill = document.getElementById('rail-fill')
+        var api = window.api
+        if (!api || typeof api.onSplashProgress !== 'function') return
+        api.onSplashProgress(function (update) {
+          if (typeof update.status === 'string') status.textContent = update.status
+          if (typeof update.progress === 'number') {
+            var clamped = Math.max(0, Math.min(1, update.progress))
+            fill.style.width = clamped * 100 + '%'
+          }
+        })
+      })()
+    </script>
+  </body>
+</html>

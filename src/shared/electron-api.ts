@@ -1709,6 +1709,18 @@ export type WindowPlacement = {
   displayId: number | null
 }
 
+// One push from the boot-discovery pass to the splash window. `status` is a
+// plain sentence naming the leg still in flight ("Finding your agents…"), never
+// a percentage: the legs run concurrently and resolve out of order, so a
+// percentage would be a promise the boot cannot keep. `progress` is 0..1 and
+// drives only the hairline pinned to the splash's bottom edge, which advances on
+// leg COMPLETION. Declared here rather than in src/main because the splash
+// renderer and the preload both read it, and src/shared cannot import src/main.
+export type SplashProgress = {
+  status: string
+  progress: number
+}
+
 export type CreateWorkspaceWindowInput = {
   windowId: string
   workspaceId?: string | null
@@ -2806,6 +2818,13 @@ export type ElectronApi = {
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
   onWindowCloseRequested: (cb: () => void) => () => void
+  // Splash boot handshake. `onSplashProgress` is consumed only by the standalone
+  // splash renderer; `notifyBootComplete` is sent once by the primary workspace
+  // window when its first frame is on screen, and is what closes the splash and
+  // reveals the main window (main also holds a hard timeout, so a renderer that
+  // never gets there cannot strand a hidden main window).
+  onSplashProgress: (cb: (update: SplashProgress) => void) => () => void
+  notifyBootComplete: () => void
   workspaceSyncDispatch: (command: WorkspaceSyncCommand) => Promise<WorkspaceSyncCommandResult>
   workspaceSyncGetSnapshot: () => Promise<WorkspaceSyncSnapshot>
   workspaceSyncGetEventsAfter: (sequence: number) => Promise<WorkspaceSyncEvent[]>
