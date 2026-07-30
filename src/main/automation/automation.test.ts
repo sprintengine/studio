@@ -1328,6 +1328,9 @@ async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void>
         // No MCP tool edits a definition (create + run only), so an update here
         // would mean the surface grew: refuse rather than fake a success.
         updateDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool updates definitions.' }),
+        // Nor does any MCP tool install a marketplace automation — that is the
+        // marketplace install path's door, reached from the app, not from a tool.
+        installCatalogueDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool installs catalogue automations.' }),
         runNow: async (input) => {
           ran.push(input)
           return { ok: true, value: { definition: { id: 'auto-1' }, run: { runId: 'run-1' } } as never }
@@ -1398,6 +1401,9 @@ async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> 
           return { ok: true, value: { id: 'auto-1', name: 'Nightly' } as never }
         },
         updateDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool updates definitions.' }),
+        // Nor does any MCP tool install a marketplace automation — that is the
+        // marketplace install path's door, reached from the app, not from a tool.
+        installCatalogueDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool installs catalogue automations.' }),
         runNow: async () => ({ ok: false, code: 'not_stubbed', message: 'Not exercised here.' }),
       }),
     })
@@ -1499,6 +1505,9 @@ async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise
       getAutomationsFrontDoor: () => ({
         createDefinition: async () => ({ ok: false, code: 'workspace_root_untrusted', message: 'Folder is not an open workspace.' }),
         updateDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool updates definitions.' }),
+        // Nor does any MCP tool install a marketplace automation — that is the
+        // marketplace install path's door, reached from the app, not from a tool.
+        installCatalogueDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool installs catalogue automations.' }),
         runNow: async () => ({ ok: false, code: 'unsupported_trigger', message: 'Run now needs a schedule trigger.' }),
       }),
     })

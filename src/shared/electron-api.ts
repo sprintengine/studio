@@ -517,6 +517,11 @@ export type MarketplacePluginInstallInput = {
   mcpSettings?: McpSettings
   mcpClients?: McpClientTarget[]
   skillHarnesses?: SkillHarness[]
+  // The CLI an agent-backed automation falls back to when its own config names
+  // none (`appSettings.lastSelectedCli`, which only the renderer holds). An
+  // automation component that would need it and does not get it refuses to
+  // install, rather than creating a scheduled job that cannot launch.
+  automationDefaultCli?: string
 }
 
 // Both bundle and inline-MCP registry installs use this shape: a bundle entry
