@@ -62,9 +62,9 @@ export type SprintEngineEpicBacklog = {
   loading: boolean
   /** The scan failed outright for this project. */
   error: string | null
-  /** The last mutation error, for the detail pane's edits. */
+  /** The last mutation error, for the detail pane's edits. Cleared by the next
+   *  mutation, which is the only thing that can resolve it. */
   actionError: string | null
-  clearActionError: () => void
   project: BacklogProjectRef
   feed: BacklogProjectFeed
   actions: BacklogActions
@@ -236,7 +236,6 @@ export function useSprintEngineEpicBacklog(input: {
     loading,
     error: feed.error ?? null,
     actionError,
-    clearActionError: () => setActionError(null),
     project,
     feed,
     actions,

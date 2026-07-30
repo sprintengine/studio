@@ -76,6 +76,12 @@ export function SprintEngineEpicView({
     [rows],
   )
   const selectedRow = optionRows.find((row) => row.key === selectedKey) ?? null
+  // Option ordinals for `aria-activedescendant`, resolved once per scan rather
+  // than by scanning the list again for every row it renders.
+  const optionIndexByKey = useMemo(
+    () => new Map(optionRows.map((row, index) => [row.key, index])),
+    [optionRows],
+  )
 
   // Never auto-select: a scan landing (or a child leaving the epic) must not
   // silently swap what the aside is showing.
@@ -112,6 +118,7 @@ export function SprintEngineEpicView({
       if (event.key === 'Escape' && selectedKey) {
         event.preventDefault()
         setSelectedKey(null)
+        setNotice(null)
       }
     },
     [optionRows, selectedKey, selectChild],
@@ -181,7 +188,7 @@ export function SprintEngineEpicView({
             tabIndex={0}
             onKeyDown={onKeyDown}
             aria-activedescendant={
-              selectedKey ? `sprintengine-epic-opt-${optionRows.findIndex((row) => row.key === selectedKey)}` : undefined
+              selectedKey ? `sprintengine-epic-opt-${optionIndexByKey.get(selectedKey)}` : undefined
             }
             // Fills the canvas rather than hugging its rows: the keyboard focus
             // ring then outlines the PANE, the way every other list in the
@@ -193,7 +200,7 @@ export function SprintEngineEpicView({
               row.kind === 'item' ? (
                 <li
                   key={row.key}
-                  id={`sprintengine-epic-opt-${optionRows.findIndex((option) => option.key === row.key)}`}
+                  id={`sprintengine-epic-opt-${optionIndexByKey.get(row.key)}`}
                   role="option"
                   aria-selected={row.key === selectedKey}
                   onClick={() => selectChild(row.key)}
