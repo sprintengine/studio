@@ -95,14 +95,12 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
 
   const folderPath = parsed.folderPath ?? runtime.workspaceRoot
   const target = await runtime.resolveSpawnAgentTarget({ workspaceId: parsed.workspaceId, folderPath })
-  const autonomy = runtime.definition.autonomyDefault
   // Agent-backed runs execute in their own per-run worktree, so a dirty main
   // checkout no longer blocks a launch — the worktree gives a clean baseline and
   // keeps the run's diff (and PR) isolated from the user's uncommitted work.
 
   const prompt = composeSpawnAgentPrompt({
     userPrompt: parsed.prompt,
-    autonomy,
     automationId: runtime.definition.id,
     runId: runtime.runId,
     includeTriggerContext: parsed.includeTriggerContext,
@@ -133,7 +131,7 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
     worktreePath: launched.worktreePath,
     branch: launched.branch,
     promptFingerprint: fingerprintPrompt(prompt),
-    summary: `Launched ${autonomy === 'allow_changes' ? 'allow-changes' : 'review-only'} agent ${launched.agentId}${isolation}; working…`,
+    summary: `Launched agent ${launched.agentId}${isolation}; working…`,
   }
 }
 
@@ -185,7 +183,6 @@ const TRIGGER_CONTEXT_MAX_BYTES = 8192
 
 export function composeSpawnAgentPrompt(input: {
   userPrompt: string
-  autonomy: AutomationDefinition['autonomyDefault']
   automationId: string
   runId: string
   // Opt-in (default off): when true and a non-empty payload exists, the launch
@@ -194,17 +191,14 @@ export function composeSpawnAgentPrompt(input: {
   includeTriggerContext?: boolean
   triggerPayload?: Record<string, unknown>
 }): string {
-  const policy = input.autonomy === 'allow_changes'
-    ? [
-        'Automation execution mode: allow_changes.',
-        'You may modify files only when the requested task requires it.',
-        'Keep changes scoped to the automation request, preserve user work, and report every file and command you touch.',
-      ]
-    : [
-        'Automation execution mode: review_only.',
-        'Do not edit files, create files, delete files, stage changes, commit, push, install packages, or run commands that mutate the workspace.',
-        'Inspect and report findings only. If a fix is needed, describe it instead of applying it.',
-      ]
+  // One unconditional policy block. A run that must not refactor says so in its
+  // own task prompt ("open a pull request containing the write-up only"), which
+  // is precise where a read-only mode was self-contradictory: it forbade the
+  // commit and push that opening a pull request requires.
+  const policy = [
+    'You may modify files only when the requested task requires it.',
+    'Keep changes scoped to the automation request, preserve user work, and report every file and command you touch.',
+  ]
 
   // The run finalizes when this agent ends its turn, so a turn ended to ask a
   // question reads as "the work is finished" and finalizes a half-done run. There

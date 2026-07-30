@@ -81,9 +81,6 @@ export type AutomationRunPullRequestOpener = (input: {
   branch: string
   title: string
   body: string
-  // Gates the backstop commit/push: a review_only run refuses to publish an
-  // unexpected working diff (see openAutomationRunPullRequest).
-  autonomy: AutomationDefinition['autonomyDefault']
 }) => Promise<AutomationPullRequestResult>
 
 export type AutomationRunWorktreeRemover = (input: {
@@ -774,13 +771,8 @@ export class AutomationsEngine {
 
     const definitionResult = await store.getDefinition(input.automationId)
     const definitionName = definitionResult.ok ? definitionResult.value.name : input.automationId
-    // When the definition is unreadable we cannot prove review_only, so default to
-    // allow_changes (preserve existing behavior); configured review_only runs have
-    // a readable definition at finalize, which is what the safeguard targets.
-    const autonomy = definitionResult.ok ? definitionResult.value.autonomyDefault : 'allow_changes'
 
     let pullRequestUrl: string | undefined
-    let withheldChangesReason: string | undefined
     const summaryParts: string[] = []
     if (input.summary?.trim()) summaryParts.push(input.summary.trim())
 
@@ -791,16 +783,12 @@ export class AutomationsEngine {
         branch: run.branch,
         title: `Automation: ${definitionName}`,
         body: `Opened by the "${definitionName}" automation (run ${run.id}).`,
-        autonomy,
       })
       if (pr.ok) {
         pullRequestUrl = pr.url
         summaryParts.push(pr.created ? `Opened pull request ${pr.url}.` : `Linked existing pull request ${pr.url}.`)
       } else {
         summaryParts.push(`No pull request linked: ${pr.reason}`)
-        // Surface a withheld review_only diff as a blocked reason so the finalize
-        // is visibly not a clean success (no silent push, no silent success).
-        if (pr.withheldChanges) withheldChangesReason = pr.reason
       }
     }
 
@@ -832,7 +820,6 @@ export class AutomationsEngine {
       status: input.outcome,
       completedAt: new Date(this.now()).toISOString(),
       pullRequestUrl,
-      blockedReason: withheldChangesReason ?? run.blockedReason,
       summary: summaryParts.length > 0 ? summaryParts.join(' ') : run.summary,
     }
     const recorded = await store.recordRun(finalRun)

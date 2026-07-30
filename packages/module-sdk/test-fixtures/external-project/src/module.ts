@@ -105,7 +105,6 @@ export const registerMain: RegisterMain = (host) => {
         status: 'paused',
         trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'UTC' } },
         action: { kind: 'weather-deck.refresh-forecast', config: { city: 'Dublin' } },
-        autonomyDefault: 'review_only',
       },
     })
     if (!created.ok) throw new Error(`${created.code}: ${created.message}`)

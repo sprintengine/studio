@@ -347,7 +347,9 @@ export class AutomationsStore {
   private async readDefinitionFile(path: string): Promise<AutomationStoreReadResult<AutomationDefinition>> {
     const parsed = await this.readJson(path)
     if (!parsed.ok) return parsed
-    return this.validateDefinition(parsed.value, path)
+    const validated = this.validateDefinition(parsed.value, path)
+    if (!validated.ok) return validated
+    return { ok: true, value: withoutRetiredAutonomy(validated.value) }
   }
 
   private async readRunFile(path: string): Promise<AutomationStoreReadResult<AutomationRun>> {
@@ -517,6 +519,16 @@ function aggregateProblems(errors: AutomationStoreProblem[]): AutomationStorePro
   }
 }
 
+// Definitions written before autonomy was retired still carry `autonomyDefault`
+// on disk. The read drops it so a load → edit → save round trip cannot write it
+// back; files are rewritten by their owner's next save, never migrated eagerly.
+function withoutRetiredAutonomy(definition: AutomationDefinition): AutomationDefinition {
+  if (!Object.hasOwn(definition, 'autonomyDefault')) return definition
+  const next: Record<string, unknown> = { ...definition }
+  delete next.autonomyDefault
+  return next as AutomationDefinition
+}
+
 function isAutomationDefinition(value: unknown): value is AutomationDefinition {
   if (!isRecord(value)) return false
   return (
@@ -526,7 +538,6 @@ function isAutomationDefinition(value: unknown): value is AutomationDefinition {
     && isKindConfig(value.trigger)
     && (value.condition === undefined || isKindConfig(value.condition))
     && isKindConfig(value.action)
-    && (value.autonomyDefault === 'review_only' || value.autonomyDefault === 'allow_changes')
     && isOptionalString(value.ownerModuleId)
     && isNullableString(value.nextRunAt)
     && isNullableString(value.lastRunAt)

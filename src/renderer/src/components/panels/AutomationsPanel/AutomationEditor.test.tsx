@@ -44,7 +44,6 @@ function definition(trigger: AutomationDefinition['trigger']): AutomationDefinit
     status: 'enabled',
     trigger,
     action: { kind: 'spawn-agent', config: { prompt: 'Review the repo' } },
-    autonomyDefault: 'review_only',
     nextRunAt: null,
     lastRunAt: null,
     lastRunId: null,

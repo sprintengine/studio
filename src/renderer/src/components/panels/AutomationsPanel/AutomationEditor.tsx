@@ -57,7 +57,6 @@ import type { SprintEngineRoster } from '../../../types/workspace'
 type EditorFormState = ScheduleCadenceForm & {
   name: string
   enabled: boolean
-  autonomy: AutomationDefinition['autonomyDefault']
   // Whether an agent-backed run executes in its own per-run worktree (isolation
   // from the user's checkout, and the prerequisite for opening a PR).
   runInWorktree: boolean
@@ -155,7 +154,7 @@ type ConnectorLoad =
   | { status: 'ready'; connectors: McpCatalogServer[] }
 
 const EMPTY_FORM: EditorFormState = {
-  name: '', enabled: true, autonomy: 'review_only', runInWorktree: true, disableAfterRun: false, actionKind: '', triggerKind: 'schedule',
+  name: '', enabled: true, runInWorktree: true, disableAfterRun: false, actionKind: '', triggerKind: 'schedule',
   cadenceType: 'interval', everyMinutes: 30, timeLocal: '09:00', daysOfWeek: [1, 2, 3, 4, 5], atDatetime: '',
   repoEvent: { ...EMPTY_REPO_EVENT_FORM }, webhook: { ...EMPTY_WEBHOOK_FORM },
   sprintLanded: { ...EMPTY_SPRINT_LANDED_FORM }, config: {},
@@ -182,7 +181,6 @@ function initialFormState(editor: EditorState, providers: AutomationsProviders):
   return {
     name: def.name,
     enabled: def.status !== 'paused',
-    autonomy: def.autonomyDefault,
     // Absent on existing definitions ⇒ true (they were always worktree runs).
     runInWorktree: def.runInWorktree ?? true,
     disableAfterRun: def.disableAfterRun ?? false,
@@ -513,7 +511,6 @@ export function AutomationEditor({
     const draft: AutomationDefinitionDraft = {
       name: form.name.trim(),
       status: form.enabled ? 'enabled' : 'paused',
-      autonomyDefault: form.autonomy,
       runInWorktree: form.runInWorktree,
       disableAfterRun: form.disableAfterRun,
       // Built from the active family (a read-only cron schedule round-trips verbatim).
@@ -528,7 +525,6 @@ export function AutomationEditor({
         const patch: AutomationDefinitionPatch = {
           name: draft.name,
           status: draft.status,
-          autonomyDefault: draft.autonomyDefault,
           runInWorktree: draft.runInWorktree,
           disableAfterRun: draft.disableAfterRun,
           action: draft.action,
@@ -867,16 +863,6 @@ export function AutomationEditor({
         {/* Run-config toggles grouped together on the left; lifecycle (Enabled) on
             the right. Keeps related controls adjacent instead of spread edge-to-edge. */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-          <label htmlFor="automation-autonomy" className="flex items-center gap-2 text-meta text-[color:var(--text-default)]">
-            <Switch
-              id="automation-autonomy"
-              checked={form.autonomy === 'allow_changes'}
-              onChange={(next) => update('autonomy', next ? 'allow_changes' : 'review_only')}
-              ariaLabel="Allow the agent to change files"
-            />
-            Allow changes
-            <span className="text-micro text-[color:var(--text-subtle)]">{form.autonomy === 'allow_changes' ? '(agent may edit files)' : '(review only)'}</span>
-          </label>
           <label htmlFor="automation-worktree" className="flex items-center gap-2 text-meta text-[color:var(--text-default)]">
             <Switch
               id="automation-worktree"

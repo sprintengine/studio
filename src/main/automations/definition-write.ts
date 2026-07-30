@@ -29,11 +29,10 @@ import { AutomationsStore, type AutomationStoreProblem } from './store'
 
 export type ParsedDefinitionPatch = Partial<Pick<
   AutomationDefinition,
-  'name' | 'status' | 'trigger' | 'condition' | 'action' | 'autonomyDefault' | 'runInWorktree' | 'disableAfterRun'
+  'name' | 'status' | 'trigger' | 'condition' | 'action' | 'runInWorktree' | 'disableAfterRun'
 >>
 
 const AUTOMATION_STATUSES = new Set(['enabled', 'paused', 'blocked'])
-const AUTONOMY_DEFAULTS = new Set(['review_only', 'allow_changes'])
 
 export type DefinitionWriteDeps = {
   createStore: (workspaceRoot: string) => AutomationsStore
@@ -228,7 +227,6 @@ export function buildDefinitionForCreate(
     trigger: draft.trigger,
     condition: draft.condition,
     action: draft.action,
-    autonomyDefault: draft.autonomyDefault,
     ...(draft.runInWorktree === undefined ? {} : { runInWorktree: draft.runInWorktree }),
     ...(draft.disableAfterRun === undefined ? {} : { disableAfterRun: draft.disableAfterRun }),
     ...(draft.ownerModuleId === undefined ? {} : { ownerModuleId: draft.ownerModuleId }),
@@ -337,9 +335,9 @@ export function parseDefinitionDraft(input: unknown): AutomationsResult<Automati
   if (!condition.ok) return condition
   const action = parseKindConfig(input.action, 'action')
   if (!action.ok) return action
-  if (!isAutonomyDefault(input.autonomyDefault)) {
-    return fail('invalid_input', 'Automation definition autonomyDefault is invalid.')
-  }
+  // A caller still sending the retired `autonomyDefault` is ignored, not
+  // rejected: the field no longer means anything, and failing on it would break
+  // agent scripts and module code written against the old draft shape.
   if (input.runInWorktree !== undefined && typeof input.runInWorktree !== 'boolean') {
     return fail('invalid_input', 'Automation definition runInWorktree must be a boolean.')
   }
@@ -367,7 +365,6 @@ export function parseDefinitionDraft(input: unknown): AutomationsResult<Automati
     trigger: trigger.value,
     ...(condition.value ? { condition: condition.value } : {}),
     action: action.value,
-    autonomyDefault: input.autonomyDefault,
     // ownerModuleId is deliberately not read from the input: ownership is
     // stamped by the host (module service) or absent (user records) — a
     // caller-supplied owner is ignored, never trusted.
@@ -406,12 +403,8 @@ export function parseDefinitionPatch(input: unknown): AutomationsResult<ParsedDe
     if (!action.ok) return action
     patch.action = action.value
   }
-  if (input.autonomyDefault !== undefined) {
-    if (!isAutonomyDefault(input.autonomyDefault)) {
-      return fail('invalid_input', 'Automation definition autonomyDefault is invalid.')
-    }
-    patch.autonomyDefault = input.autonomyDefault
-  }
+  // `autonomyDefault` on a patch is ignored for the same reason it is ignored on
+  // a draft: the field is retired, and rejecting it would break existing callers.
   if (input.runInWorktree !== undefined) {
     if (typeof input.runInWorktree !== 'boolean') {
       return fail('invalid_input', 'Automation definition runInWorktree must be a boolean.')
@@ -454,10 +447,6 @@ function trimmedString(value: unknown): string | undefined {
 
 function isAutomationStatus(value: unknown): value is AutomationDefinition['status'] {
   return typeof value === 'string' && AUTOMATION_STATUSES.has(value)
-}
-
-function isAutonomyDefault(value: unknown): value is AutomationDefinition['autonomyDefault'] {
-  return typeof value === 'string' && AUTONOMY_DEFAULTS.has(value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

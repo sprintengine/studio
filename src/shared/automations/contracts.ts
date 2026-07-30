@@ -206,7 +206,6 @@ export type AutomationDefinition = {
   trigger: { kind: TriggerKind; config: unknown }
   condition?: { kind: string; config: unknown }
   action: { kind: ActionKind; config: unknown }
-  autonomyDefault: 'review_only' | 'allow_changes'
   /**
    * The capability module that created this automation through the SDK's
    * scoped Automations service; absent ⇒ user-owned. Stamped server-side from
@@ -281,7 +280,6 @@ export type AutomationDefinitionDraft = {
   trigger: { kind: TriggerKind; config: unknown }
   condition?: { kind: string; config: unknown }
   action: { kind: ActionKind; config: unknown }
-  autonomyDefault: AutomationDefinition['autonomyDefault']
   runInWorktree?: boolean
   disableAfterRun?: boolean
   /**

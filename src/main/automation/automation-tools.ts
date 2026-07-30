@@ -1062,7 +1062,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     description:
       'Create an Automation definition through the same validated pipeline the UI uses (provider/permission '
       + 'checks, schedule validation, workspace-root trust). The definition object carries name, trigger '
-      + '{kind, config}, action {kind, config}, and optional status/autonomyDefault. Agent-backed actions with '
+      + '{kind, config}, action {kind, config}, and an optional status. Agent-backed actions with '
       + 'permissionPreset "bypass_all" are refused on this surface — that preset can only be set by a person in '
       + 'the app.',
     inputSchema: {
@@ -1073,7 +1073,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'object',
           description:
             'Automation definition draft: { name, trigger: { kind, config }, action: { kind, config }, '
-            + 'status?, autonomyDefault? }. See automation.list output for the shape of existing definitions.',
+            + 'status? }. See automation.list output for the shape of existing definitions.',
         },
       },
       required: ['workspaceId', 'definition'],
