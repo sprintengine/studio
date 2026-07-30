@@ -143,7 +143,7 @@ export async function regenerateBundleDerivedFiles(
 /**
  * Find design-system bundles under a root: the root itself when it carries a
  * manifest, otherwise its direct child directories that do. This covers both
- * an explicit bundle dir (release/attach callers) and a designer workspace
+ * an explicit bundle dir (the attach caller) and a designer workspace
  * whose bundle lives one level down.
  */
 export async function discoverBundleDirs(rootDir: string): Promise<string[]> {

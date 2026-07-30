@@ -15,7 +15,6 @@ import {
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
-import { CheckIcon, WarningIcon } from '../../AppIcons'
 import { CloseIconButton, LifecycleGlyph, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
 import { parentPath } from '../../../utils/paths'
 import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
@@ -37,30 +36,9 @@ import {
   applyDesignArtifactSelection,
   designSystemBundleFileCount,
   findDesignArtifact,
-  DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME,
   type DesignArtifactEntry,
   type DesignArtifactIndex,
 } from './designArtifacts'
-import {
-  canRelease,
-  displayLibraryPath,
-  initialReleaseVersion,
-  isReleaseInFlight,
-  isValidReleaseVersion,
-  lintFixRequestMessage,
-  lintIssueCountLabel,
-  parseLintFindings,
-  releaseButtonLabel,
-  releaseDestinationDisplay,
-  releasePhaseAfterLint,
-  releasePhaseAfterRelease,
-  releaseStatusLine,
-  type DesignSystemReleasePhase,
-} from './designSystemRelease'
-import {
-  DESIGN_SYSTEM_MANIFEST_FILENAME,
-  parseDesignSystemManifest,
-} from '../../../../../shared/design-system/manifest'
 import { useArchitectSession } from './useArchitectSession'
 import {
   useDesignerSession,
@@ -367,12 +345,6 @@ export function GuidedBriefFlow({
   const [startBuildError, setStartBuildError] = useState<string | null>(null)
   const [skippingPlanning, setSkippingPlanning] = useState(false)
   const [skipError, setSkipError] = useState<string | null>(null)
-  // Design-system release action ("Save as design system"). The phase is
-  // derived from observed IPC results only — see designSystemRelease.ts.
-  // `releaseVersionDraft` is null until the user types, so the input follows
-  // the last released version (prefill-to-bump) without an effect.
-  const [releasePhase, setReleasePhase] = useState<DesignSystemReleasePhase>({ kind: 'idle' })
-  const [releaseVersionDraft, setReleaseVersionDraft] = useState<string | null>(null)
   const automationMode: SprintEngineAutomationMode = runtimeState.buildAutoApproveArtifacts
     ? 'run_agents_and_approve_artifacts'
     : runtimeState.buildStartRunner
@@ -385,8 +357,11 @@ export function GuidedBriefFlow({
   // path to the runtime state via the existing onChange path; HTML pages
   // mirror to activeMockupPath so the existing mockup preview stays in sync.
   // The design-system preset shares the same three-pane shell but authors the
-  // portable bundle: no Sprint Engine build tail (its release action is a
-  // separate epic task), so the footer drops the build-flow controls.
+  // portable bundle in place: there is no Sprint Engine build tail, so the
+  // footer drops the build-flow controls. The bundle it writes into the
+  // workspace's design-system/ folder IS the deliverable — the app-local
+  // "save to library" release card was removed 2026-07-30 (a design system is
+  // versioned in its own Git repo, not here).
   const isDesignSystemPreset = runtimeState.preset === 'design-system'
   const isDesignPreset = runtimeState.preset === 'frontend-design' || isDesignSystemPreset
   const handleSelectDesignArtifact = (entry: DesignArtifactEntry) => {
@@ -663,123 +638,6 @@ export function GuidedBriefFlow({
     }
   }
 
-  // The design-system studio has no build tail: authoring continues in place
-  // and the release card floating over the canvas is the completion surface
-  // (the approved "release card → canvas overlay" placement, MC-1505 §4).
-  // Version prefill: last released version (bump to re-release), or 1.0.0 for
-  // a first release.
-  const releaseVersion =
-    releaseVersionDraft ?? initialReleaseVersion(runtimeState.designSystemLastRelease ?? null)
-  const releaseArmed = canRelease({
-    phase: releasePhase,
-    designerReady: designer.readiness.isReady,
-    version: releaseVersion,
-  })
-
-  // Destination line identity: the bundle manifest's real name, read when the
-  // stage reaches ready (readiness itself proved the manifest parses — see
-  // useDesignerSession's design-system contract). Unknown name → the card
-  // omits the destination rather than invent one.
-  const designSystemReady = isDesignSystemPreset && designer.readiness.isReady
-  const [bundleName, setBundleName] = useState<string | null>(null)
-  useEffect(() => {
-    if (!designSystemReady) return
-    let cancelled = false
-    const manifestPath = joinWorkspacePath(
-      workspaceRoot,
-      `${DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME}/${DESIGN_SYSTEM_MANIFEST_FILENAME}`,
-    )
-    void window.api
-      .readfile(manifestPath)
-      .then((content) => {
-        if (cancelled) return
-        try {
-          setBundleName(parseDesignSystemManifest(content).name)
-        } catch {
-          setBundleName(null)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setBundleName(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [designSystemReady, workspaceRoot])
-
-  // Blocked-card primary action: the lint findings go to the designer as one
-  // message (the user never hand-fixes bundle files). Sending hands the queue
-  // to the designer, so the card returns to idle for the next attempt; a
-  // delivery failure surfaces as an explicit error phase.
-  const askDesignerToFixLint = () => {
-    if (releasePhase.kind !== 'lint-failed') return
-    const session = designer.session
-    if (!session) return
-    const message = lintFixRequestMessage(releasePhase.findings, session.transport)
-    if (session.transport === 'conversation') {
-      void window.api
-        .conversationSessionSendTurn({ sessionId: session.sessionId, message })
-        .then((result) => {
-          if (!result.ok) {
-            setReleasePhase({
-              kind: 'error',
-              message: `Could not send the lint findings to the designer. ${result.message}`,
-            })
-          }
-        })
-        .catch(() => {
-          setReleasePhase({
-            kind: 'error',
-            message: 'Could not send the lint findings to the designer.',
-          })
-        })
-    } else {
-      window.api.terminalWriteFast(session.sessionId, `${message}\r`)
-    }
-    setReleasePhase({ kind: 'idle' })
-  }
-
-  const releaseDesignSystem = async () => {
-    if (!releaseArmed) return
-    const bundleDir = joinWorkspacePath(workspaceRoot, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)
-    setReleasePhase({ kind: 'validating' })
-    try {
-      const afterLint = releasePhaseAfterLint(await window.api.lintDesignSystemBundle(bundleDir))
-      setReleasePhase(afterLint)
-      if (afterLint.kind !== 'releasing') return
-      const after = releasePhaseAfterRelease(
-        await window.api.releaseDesignSystemBundle(bundleDir, releaseVersion.trim()),
-      )
-      setReleasePhase(after)
-      if (after.kind === 'released') {
-        updateRuntimeState((prev) => ({ ...prev, designSystemLastRelease: after.release }))
-        // Follow the new last release again so the next prefill is bump-ready.
-        setReleaseVersionDraft(null)
-      }
-    } catch (error) {
-      setReleasePhase({
-        kind: 'error',
-        message: error instanceof Error ? error.message : 'Could not release the design system.',
-      })
-    }
-  }
-
-  // The design-system release action lives on the canvas (release card), not
-  // in the footer — only in the ready state, per the approved mockup: before
-  // that there is nothing lint-clean to save, and the footer hint says so.
-  const releaseCard = designSystemReady ? (
-    <DesignSystemReleaseCard
-      phase={releasePhase}
-      version={releaseVersion}
-      armed={releaseArmed}
-      bundleName={bundleName}
-      designerSessionLive={designer.session !== null}
-      onChangeVersion={(value) => setReleaseVersionDraft(value)}
-      onRelease={() => void releaseDesignSystem()}
-      onAskDesigner={askDesignerToFixLint}
-    />
-  ) : null
-
   const primaryAction = isDesignSystemPreset
     ? null
     : renderPrimaryAction({
@@ -948,7 +806,6 @@ export function GuidedBriefFlow({
             designArtifacts={designer.designArtifacts}
             activeDesignArtifactPath={runtimeState.activeDesignArtifactPath ?? null}
             onSelectDesignArtifact={handleSelectDesignArtifact}
-            releaseCard={releaseCard}
           />
         ) : (
           <HandoffBody
@@ -1163,244 +1020,6 @@ function ReviewBody({
         emptyReason={`The accepted snapshot ${artifact.path} is empty.`}
       />
     </div>
-  )
-}
-
-// The design-system studio's completion surface (MC-1505 §4, approved T4
-// mockup): a card floating over the canvas, replacing the old footer
-// version-input row. Rendered only in the ready state — readiness itself
-// proved the manifest parses and the bundle lint is clean (useDesignerSession's
-// design-system contract), so the idle card's "Lint clean" chip surfaces that
-// computation instead of re-running the lint. Phase lifecycle and copy come
-// from designSystemRelease.ts; every state is explicit: a lint failure shows
-// the report's own rows and routes them to the designer as one message, and a
-// pipeline error names itself with a retry — never a silent fallback.
-// Disabled reasons stay reachable without hover (a disabled button is
-// unfocusable): the reason rides an always-present aria-label on the button,
-// and the version format hint is tied to the input via aria-describedby and
-// becomes visible text while the version is invalid.
-const RELEASE_VERSION_HINT_ID = 'design-system-release-version-hint'
-
-function DesignSystemReleaseCard({
-  phase,
-  version,
-  armed,
-  bundleName,
-  designerSessionLive,
-  onChangeVersion,
-  onRelease,
-  onAskDesigner,
-}: {
-  phase: DesignSystemReleasePhase
-  version: string
-  armed: boolean
-  bundleName: string | null
-  designerSessionLive: boolean
-  onChangeVersion: (value: string) => void
-  onRelease: () => void
-  onAskDesigner: () => void
-}) {
-  const inFlight = isReleaseInFlight(phase)
-  const versionValid = isValidReleaseVersion(version)
-  const destination =
-    phase.kind === 'released'
-      ? displayLibraryPath(phase.release.path)
-      : releaseDestinationDisplay(bundleName, version)
-  // Reasons for the version row only — the lint-failed state renders its own
-  // action pair (ask-designer primary + disabled save) instead of this row.
-  const saveDisabledReason = inFlight ? null : !versionValid ? 'Enter a semver version like 1.0.0.' : null
-  const buttonLabel = releaseButtonLabel(phase)
-
-  const versionRow = (
-    <div className="mt-3 flex items-center gap-2">
-      <input
-        value={version}
-        onChange={(event) => onChangeVersion(event.target.value)}
-        disabled={inFlight}
-        aria-label="Release version"
-        aria-invalid={!versionValid}
-        aria-describedby={RELEASE_VERSION_HINT_ID}
-        placeholder="1.0.0"
-        spellCheck={false}
-        className={`
-          h-8 w-24 rounded-md border bg-[color:var(--bg-surface)] px-2.5 text-center font-mono text-meta tabular-nums
-          text-[color:var(--text-strong)] outline-none transition-colors
-          placeholder:text-[color:var(--text-disabled)]
-          disabled:cursor-not-allowed disabled:text-[color:var(--text-disabled)]
-          focus:border-[color:var(--text-strong)]
-          ${versionValid ? 'border-[color:var(--border-default)]' : 'border-[color:var(--tone-error)]'}
-        `}
-      />
-      <PrimaryButton
-        onClick={onRelease}
-        disabled={!armed}
-        aria-label={saveDisabledReason ? `${buttonLabel} — ${saveDisabledReason}` : undefined}
-      >
-        {buttonLabel}
-      </PrimaryButton>
-    </div>
-  )
-  // The format hint doubles as the visible inline error while invalid; it
-  // stays in the DOM (sr-only) otherwise so aria-describedby always resolves.
-  const versionHint = (
-    <span
-      id={RELEASE_VERSION_HINT_ID}
-      className={versionValid ? 'sr-only' : 'mt-1.5 block text-micro text-[color:var(--tone-error)]'}
-    >
-      Version must be semver, like 1.0.0.
-    </span>
-  )
-
-  return (
-    <section
-      aria-label="Save to your design system library"
-      className="absolute bottom-5 left-5 z-20 w-[400px] max-w-[calc(100%-2.5rem)] rounded-[14px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] p-4 shadow-[var(--shadow-drawer)]"
-    >
-      {phase.kind === 'released' ? (
-        <>
-          <p role="status" className="flex items-center gap-2 text-meta font-semibold text-[color:var(--text-strong)]">
-            <CheckIcon className="icon-xs shrink-0 text-[color:var(--tone-good)]" />
-            Saved{' '}
-            <code className="font-mono text-micro font-normal">
-              {phase.release.name}@{phase.release.version}
-            </code>{' '}
-            to your library
-          </p>
-          <button
-            type="button"
-            onClick={() => void window.api.showItemInFolder(phase.release.path)}
-            aria-label={`Show ${phase.release.name}@${phase.release.version} in your file manager`}
-            className="mt-2 block max-w-full truncate font-mono text-micro text-[color:var(--text-subtle)] underline decoration-[color:var(--border-default)] underline-offset-2 transition-colors hover:text-[color:var(--text-default)] focus-visible:focus-ring"
-          >
-            {destination}
-          </button>
-          <p className="mt-2 text-micro leading-4 text-[color:var(--text-subtle)]">
-            This version is immutable. Attach it from Settings → Design systems in any workspace so
-            agents build with it — or keep iterating here and save the next version.
-          </p>
-          {versionRow}
-          {versionHint}
-        </>
-      ) : (
-        <>
-          <div className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-meta font-semibold text-[color:var(--text-strong)]">
-              Save to your design system library
-            </span>
-            {phase.kind === 'idle' ? (
-              <span className="inline-flex shrink-0 items-center gap-1 text-micro text-[color:var(--tone-good)]">
-                <CheckIcon className="icon-xs shrink-0" />
-                Lint clean · 0 issues
-              </span>
-            ) : phase.kind === 'validating' ? (
-              <span role="status" className="shrink-0 text-micro text-[color:var(--text-subtle)]">
-                Validating…
-              </span>
-            ) : phase.kind === 'releasing' ? (
-              <span className="inline-flex shrink-0 items-center gap-1 text-micro text-[color:var(--tone-good)]">
-                <CheckIcon className="icon-xs shrink-0" />
-                Lint clean
-              </span>
-            ) : phase.kind === 'lint-failed' ? (
-              <span className="shrink-0 text-micro text-[color:var(--tone-error)]">
-                {lintIssueCountLabel(parseLintFindings(phase.findings))}
-              </span>
-            ) : null}
-          </div>
-
-          {phase.kind === 'validating' || phase.kind === 'releasing' ? (
-            <p role="status" className="mt-2 text-micro text-[color:var(--text-muted)]">
-              {releaseStatusLine(phase)}
-            </p>
-          ) : null}
-          {phase.kind === 'error' ? (
-            <p role="status" className="mt-2 text-meta leading-4 text-[color:var(--tone-error)]">
-              {phase.message}
-            </p>
-          ) : null}
-
-          {phase.kind === 'lint-failed' ? (
-            <LintFindingsList findings={phase.findings} />
-          ) : destination ? (
-            <p className="mt-2 truncate font-mono text-micro text-[color:var(--text-subtle)]">{destination}</p>
-          ) : null}
-
-          {phase.kind === 'lint-failed' ? (
-            <div className="mt-3 flex items-center gap-2">
-              <PrimaryButton
-                onClick={onAskDesigner}
-                disabled={!designerSessionLive}
-                aria-label={
-                  designerSessionLive
-                    ? undefined
-                    : 'Ask the designer to fix these — the designer session is not connected.'
-                }
-              >
-                Ask the designer to fix these
-              </PrimaryButton>
-              <SecondaryButton onClick={onRelease} disabled>
-                {buttonLabel}
-              </SecondaryButton>
-            </div>
-          ) : (
-            <>
-              {versionRow}
-              {versionHint}
-            </>
-          )}
-
-          {phase.kind === 'idle' ? (
-            <p className="mt-2 text-micro leading-4 text-[color:var(--text-subtle)]">
-              Saved versions are immutable. Attach this system in any workspace so agents build with it.
-            </p>
-          ) : null}
-          {phase.kind === 'lint-failed' ? (
-            <p className="mt-2 text-micro leading-4 text-[color:var(--text-subtle)]">
-              Saving is blocked until the bundle passes lint — the issues above go to the designer as
-              one message.
-            </p>
-          ) : null}
-        </>
-      )}
-    </section>
-  )
-}
-
-// The lint report rendered as rows (file + the report's own finding text).
-// Parsing is presentation-only (parseLintFindings); a report the parser does
-// not recognize falls back to the raw text verbatim, never an invented row.
-function LintFindingsList({ findings }: { findings: string }) {
-  const parsed = parseLintFindings(findings)
-  if (parsed.issues.length === 0) {
-    return (
-      <pre
-        tabIndex={0}
-        aria-label="Lint report"
-        className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-micro leading-4 text-[color:var(--text-default)] focus-visible:focus-ring"
-      >
-        {findings}
-      </pre>
-    )
-  }
-  return (
-    <ul
-      tabIndex={0}
-      aria-label="Lint findings"
-      className="mt-2 max-h-40 overflow-auto focus-visible:focus-ring"
-    >
-      {parsed.issues.map((issue, index) => (
-        <li
-          key={`${issue.file}:${issue.detail}:${index}`}
-          className="flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-1.5 text-micro leading-4 text-[color:var(--text-default)] last:border-b-0"
-        >
-          <WarningIcon className="icon-xs mt-px shrink-0 text-[color:var(--tone-error)]" />
-          <span className="min-w-0">
-            {issue.detail}{' '}
-            <code className="font-mono text-micro text-[color:var(--text-subtle)]">{issue.file}</code>
-          </span>
-        </li>
-      ))}
-    </ul>
   )
 }
 
@@ -1918,7 +1537,6 @@ function DesignStudioBody({
   designArtifacts,
   activeDesignArtifactPath,
   onSelectDesignArtifact,
-  releaseCard = null,
 }: {
   session: ReturnType<typeof useDesignerSession>['session']
   starting: boolean
@@ -1934,9 +1552,6 @@ function DesignStudioBody({
   designArtifacts: DesignArtifactIndex
   activeDesignArtifactPath: string | null
   onSelectDesignArtifact: (entry: DesignArtifactEntry) => void
-  /** Design-system completion surface, floated over the canvas (MC-1505 §4).
-   * Sits between the canvas content and the agent bubble in tab order. */
-  releaseCard?: React.ReactNode
 }) {
   const selectedEntry = findDesignArtifact(designArtifacts, activeDesignArtifactPath)
   // The design-system preset opens in the live component gallery (MC-1509);
@@ -2058,7 +1673,6 @@ function DesignStudioBody({
           annotateSubmitLabel="Send to designer"
         />
       )}
-      {releaseCard}
     </CanvasStudio>
   )
 }

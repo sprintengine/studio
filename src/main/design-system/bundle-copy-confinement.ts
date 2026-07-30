@@ -3,10 +3,9 @@ import { isAbsolute, join, relative, sep } from 'path'
 
 // Bundle sources are user-browsable folders, so a hostile bundle can ship
 // symlinks pointing at secrets outside itself (foundations/tokens.css ->
-// ~/.aws/credentials). Attach and library release copy the tree verbatim
-// (fs.cp keeps links, dereference:false), so both refuse — fail closed,
-// nothing materialized — any bundle whose tree contains a symlink that is
-// not provably confined:
+// ~/.aws/credentials). Attach copies the tree verbatim (fs.cp keeps links,
+// dereference:false), so it refuses — fail closed, nothing materialized —
+// any bundle whose tree contains a symlink that is not provably confined:
 //
 // - an absolute link target escapes the copy even when it points inside the
 //   source bundle (the copied link would still resolve to the source), so

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -11,21 +11,23 @@ import { regenerateBundleDerivedFiles, type BundleScriptFork } from './derived-f
 import {
   listDesignSystemLibrary,
   readDesignSystemLibraryEntry,
-  releaseDesignSystemBundle,
+  registerDesignSystemFolder,
+  type LibraryPaths,
 } from './library-registry'
 
 // Layer 1 of the Design Wizard verification harness (MC-1506): the whole
 // design-system pipeline a real designer run rides, minus the agent. It scaffolds
 // the bundle skeleton from the shipped templates, overlays the known-good example
 // bundle's authored sources as if an agent had written them, then walks
-// lint -> derived-file regeneration -> release -> read-back -> immutability against
-// the real production functions. Runs offline with no agent CLI: a green run proves
-// scaffold, schema, lint, derived files, release, and library confinement still
-// compose end to end.
+// lint -> derived-file regeneration -> register -> library read-back against the
+// real production functions. Runs offline with no agent CLI: a green run proves
+// scaffold, schema, lint, derived files, and the library still compose end to
+// end. The app-local release pipeline this used to walk was removed 2026-07-30;
+// the library is a registry of paths, so the bundle is pointed at where it is.
 //
 // Deliberately NOT here (see backlog/2026-07-07-wizard-verification-harness.md):
 // driving a live agent (nondeterministic, needs subscription auth on runners).
-// Layer 2 is the stage-signal contract net; layer 3 the manual release checklist.
+// Layer 2 is the stage-signal contract net; layer 3 the manual review checklist.
 
 // The production fork binding is Electron utilityProcess; the harness runs the
 // bundle's real lint + generator scripts under a plain child_process fork (same
@@ -90,7 +92,7 @@ async function scaffoldBundle(prefix: string, name: string): Promise<{ workspace
   return { workspace, bundleDir: result.bundleDir }
 }
 
-run('round-trip: scaffold -> overlay -> lint -> derive -> release -> read-back -> immutability', async () => {
+run('round-trip: scaffold -> overlay -> lint -> derive -> register -> read back', async () => {
   const { workspace, bundleDir } = await scaffoldBundle('ds-rt-happy-', 'wizard-roundtrip')
   const root = mkdtempSync(join(tmpdir(), 'ds-rt-lib-'))
   try {
@@ -117,8 +119,8 @@ run('round-trip: scaffold -> overlay -> lint -> derive -> release -> read-back -
       assert.ok(!existsSync(join(bundleDir, derived)), `overlay must not carry derived ${derived}`)
     }
 
-    // Lint gate over the authored bundle — the same gate the studio and the
-    // release pipeline both run.
+    // Lint gate over the authored bundle — the author's contribution gate, and
+    // the same script the studio's validating preview forks.
     const lint = await runDesignSystemBundleLint(bundleDir, nodeFork)
     assert.equal(lint.ok, true, JSON.stringify(lint))
 
@@ -132,47 +134,28 @@ run('round-trip: scaffold -> overlay -> lint -> derive -> release -> read-back -
     const catalog = readFileSync(join(bundleDir, 'catalog', 'index.html'), 'utf8')
     assert.ok(catalog.includes('ds-embed-component-button'), 'catalog embeds the overlaid button component')
 
-    // Release into the library: lint gate, version + provenance stamp, force
-    // regeneration from the stamped manifest, immutable copy.
-    const released = await releaseDesignSystemBundle(bundleDir, '1.0.0', root, nodeFork)
-    assert.equal(released.ok, true, released.ok ? '' : released.message)
-    if (!released.ok) return
-    assert.equal(released.name, 'wizard-roundtrip')
-    assert.equal(released.version, '1.0.0')
-    assert.equal(released.path, join(root, 'wizard-roundtrip', '1.0.0'))
+    // Point the library at the finished bundle WHERE IT IS — the library is a
+    // registry of paths now (item 2004), so nothing is copied — and read it back
+    // through the production reader.
+    const libraryPaths: LibraryPaths = {
+      registryPath: join(root, 'design-systems.json'),
+      legacyRoot: join(root, 'design-systems'),
+    }
+    const registered = await registerDesignSystemFolder(libraryPaths, bundleDir)
+    assert.equal(registered.ok, true, registered.ok ? '' : registered.message)
+    if (!registered.ok) return
+    assert.equal(registered.entry.path, bundleDir, 'registered in place, not copied')
 
-    // Read the released manifest back and assert the release stamped it.
-    const readBack = await readDesignSystemLibraryEntry(root, 'wizard-roundtrip', '1.0.0')
+    const readBack = await readDesignSystemLibraryEntry(libraryPaths, registered.entry.id)
     assert.equal(readBack.ok, true, readBack.ok ? '' : readBack.message)
     if (readBack.ok) {
-      assert.equal(readBack.manifest.version, '1.0.0')
-      assert.equal(readBack.manifest.provenance.sourceLibraryId, 'wizard-roundtrip')
-      assert.equal(readBack.manifest.provenance.sourceLibraryVersion, '1.0.0')
-      assert.equal(readBack.manifest.provenance.releasedAt, released.releasedAt)
+      assert.equal(readBack.manifest.name, 'wizard-roundtrip')
     }
-    const releasedCatalog = readFileSync(join(root, 'wizard-roundtrip', '1.0.0', 'catalog', 'index.html'), 'utf8')
-    assert.ok(releasedCatalog.includes('v1.0.0'), 'released catalog was regenerated from the stamped version')
-
-    // Immutability: a second release of the same version is refused and leaves
-    // the existing copy byte-for-byte untouched; a bumped version is a sibling.
-    const releasedManifestBytes = readFileSync(join(root, 'wizard-roundtrip', '1.0.0', 'design-system.json'), 'utf8')
-    const again = await releaseDesignSystemBundle(bundleDir, '1.0.0', root, nodeFork)
-    assert.equal(again.ok, false, 'a second release of the same version must be refused')
-    if (!again.ok) assert.equal(again.stage, 'conflict')
-    assert.equal(
-      readFileSync(join(root, 'wizard-roundtrip', '1.0.0', 'design-system.json'), 'utf8'),
-      releasedManifestBytes,
-      'a refused re-release must not touch the existing immutable copy',
-    )
-
-    const bumped = await releaseDesignSystemBundle(bundleDir, '1.0.1', root, nodeFork)
-    assert.equal(bumped.ok, true, bumped.ok ? '' : bumped.message)
-    const listed = await listDesignSystemLibrary(root)
-    assert.deepEqual(listed.rejected, [])
+    const listed = await listDesignSystemLibrary(libraryPaths)
     assert.deepEqual(
-      listed.entries.map((entry) => entry.version),
-      ['1.0.1', '1.0.0'],
-      'library lists the immutable siblings newest version first',
+      listed.entries.map((entry) => entry.path),
+      [bundleDir],
+      'the library lists the bundle where the author left it',
     )
   } finally {
     rmSync(workspace, { recursive: true, force: true })
@@ -180,7 +163,7 @@ run('round-trip: scaffold -> overlay -> lint -> derive -> release -> read-back -
   }
 })
 
-run('gate bites: a corrupted token in the overlay fails at lint and blocks the release', async () => {
+run('gate bites: a corrupted token in the overlay fails at lint with findings', async () => {
   const { workspace, bundleDir } = await scaffoldBundle('ds-rt-gate-', 'wizard-gate')
   const root = mkdtempSync(join(tmpdir(), 'ds-rt-lib-'))
   try {
@@ -205,12 +188,9 @@ run('gate bites: a corrupted token in the overlay fails at lint and blocks the r
       }
     }
 
-    // The release refuses at the lint stage with nothing copied — a broken
-    // bundle can never reach the library.
-    const released = await releaseDesignSystemBundle(bundleDir, '1.0.0', root, nodeFork)
-    assert.equal(released.ok, false)
-    if (!released.ok) assert.equal(released.stage, 'lint')
-    assert.ok(!existsSync(join(root, 'wizard-gate')), 'a lint failure must copy nothing into the library')
+    // The lint is the author's contribution gate: it reports, and the author
+    // fixes. Nothing in the app copies a bundle anywhere on the strength of it.
+    assert.ok(!existsSync(join(root, 'wizard-gate')), 'nothing is written into the library root')
   } finally {
     rmSync(workspace, { recursive: true, force: true })
     rmSync(root, { recursive: true, force: true })

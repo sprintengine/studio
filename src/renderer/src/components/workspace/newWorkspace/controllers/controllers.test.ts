@@ -1455,9 +1455,9 @@ async function testGuidedBriefStartBuildValidation(): Promise<void> {
     'missing-ui-direction-or-mockups (UI required but no direction/mockups)',
   )
 
-  // A design-system studio completes with "Save as design system" (T6 release
-  // pipeline), never a Sprint Engine build — reaching start-build is a caller
-  // bug and must refuse loudly rather than write a handoff.
+  // A design-system studio completes by authoring its bundle in place, never
+  // with a Sprint Engine build — reaching start-build is a caller bug and must
+  // refuse loudly rather than write a handoff.
   const designSystemRuntime: GuidedBriefRuntimeState = {
     ...baseRuntime,
     preset: 'design-system',

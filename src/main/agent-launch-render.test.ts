@@ -567,7 +567,7 @@ function testBuildAgentShellCommandClaudeCode(): void {
   })
   assert.equal(
     out,
-    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Multicode Settings.'; else claude --permission-mode bypassPermissions --session-id sid_42 'hello there'; fi`
+    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.'; else claude --permission-mode bypassPermissions --session-id sid_42 'hello there'; fi`
   )
 
   const resumeOut = buildAgentShellCommand({
@@ -577,14 +577,14 @@ function testBuildAgentShellCommandClaudeCode(): void {
   })
   assert.equal(
     resumeOut,
-    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Multicode Settings.'; else claude --resume sid_42; fi`
+    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.'; else claude --resume sid_42; fi`
   )
 
   // The level survives quoting into the shell command every posix/WSL launch
   // runs — the layer between the rendered argv and the spawned process.
   assert.equal(
     buildAgentShellCommand({ cli: 'claude-code', sessionId: 'sid_43', cliReasoning: 'xhigh' }),
-    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Multicode Settings.'; else claude --effort xhigh --session-id sid_43; fi`
+    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.'; else claude --effort xhigh --session-id sid_43; fi`
   )
   assert.equal(
     buildAgentShellCommand({ cli: 'claude-code', sessionId: 'sid_43', resume: true, cliReasoning: 'xhigh' }),
@@ -631,7 +631,7 @@ function testBuildAgentShellCommandCodex(): void {
   })
   assert.equal(
     out,
-    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Multicode Settings.'; else codex --ask-for-approval never --sandbox workspace-write 'fix it'; fi`
+    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.'; else codex --ask-for-approval never --sandbox workspace-write 'fix it'; fi`
   )
 
   const resumeOut = buildAgentShellCommand({
@@ -641,7 +641,7 @@ function testBuildAgentShellCommandCodex(): void {
   })
   assert.equal(
     resumeOut,
-    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Multicode Settings.'; else codex resume sid_y; fi`
+    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.'; else codex resume sid_y; fi`
   )
 }
 

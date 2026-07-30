@@ -52,7 +52,6 @@ export function buildInitialGuidedBriefRuntimeState(
     ...input,
     guidedRoleModelOverrides: input.guidedRoleModelOverrides ?? {},
     designSystemSeedSource: input.designSystemSeedSource ?? null,
-    designSystemLastRelease: null,
     acceptedProductBrief: null,
     acceptedArchitecturePlan: null,
     acceptedUiDirection: null,
