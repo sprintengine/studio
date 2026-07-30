@@ -72,6 +72,21 @@ export const SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND = 'sprint-engine.run-landed'
 export const SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND = 'sprint-engine.run-needs-input'
 export const SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND = 'sprint-engine.run-completed'
 
+export const SPAWN_AGENT_ACTION_KIND = 'spawn-agent'
+export const RUN_SKILL_LOOP_ACTION_KIND = 'run-skill-loop'
+
+/**
+ * The built-in actions that launch a CLI agent. An agent-backed action whose
+ * config names no `cli` falls back to the app's last-selected CLI at launch
+ * time, so an install that leaves the field unset must first confirm that
+ * fallback exists — see marketplace install in
+ * src/main/modules/plugin-bundle-installer.ts.
+ */
+export const AGENT_BACKED_ACTION_KINDS: readonly ActionKind[] = [
+  SPAWN_AGENT_ACTION_KIND,
+  RUN_SKILL_LOOP_ACTION_KIND,
+]
+
 export type TriggerKind = string
 
 export type ScheduleTriggerConfig = {
@@ -241,6 +256,17 @@ export type AutomationDefinition = {
    * natural exhaustion.
    */
   disableAfterRun?: boolean
+  /**
+   * The marketplace catalogue entry this automation was added from, and that
+   * entry's publisher. Provenance only: stamped once by the marketplace install
+   * path and immutable thereafter (patches cannot carry either field), so the
+   * shelf can answer "is this already added" for a project and open the record
+   * the entry produced. Distinct from `ownerModuleId`, which is module identity
+   * and governs who may write the record — a catalogue automation is the user's
+   * the moment it lands, and survives uninstalling the plugin that shipped it.
+   */
+  sourceCatalogueId?: string
+  sourcePublisher?: string
   nextRunAt: string | null
   lastRunAt: string | null
   lastRunId: string | null
@@ -299,9 +325,18 @@ export type AutomationDefinitionDraft = {
    * host. The user-facing IPC create path ignores it entirely.
    */
   ownerModuleId?: string
+  /**
+   * Catalogue provenance for drafts created by the marketplace install path.
+   * Stamped by the host from the bundle being installed — like `ownerModuleId`,
+   * never read off a caller-supplied payload.
+   */
+  sourceCatalogueId?: string
+  sourcePublisher?: string
 }
 
-export type AutomationDefinitionPatch = Partial<Omit<AutomationDefinitionDraft, 'id' | 'ownerModuleId'>>
+export type AutomationDefinitionPatch = Partial<
+  Omit<AutomationDefinitionDraft, 'id' | 'ownerModuleId' | 'sourceCatalogueId' | 'sourcePublisher'>
+>
 
 // ── Scoped Automations service for capability modules ────────────────────────
 // A module's entry.main consumes this via the SDK's `getAutomationsService`

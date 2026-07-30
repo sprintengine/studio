@@ -1433,6 +1433,63 @@ async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> 
     assert.match(error.message, /person can set that preset/, `${surface} says who can set it instead`)
   }
   assert.deepEqual(created, [], 'a refused draft never reaches the create pipeline')
+
+  // Refusing the literal string is not the boundary — the boundary is the preset
+  // the run ACTUALLY gets. Omitting the key resolves to the unattended default on
+  // an agent-backed action, and the renderer fills an omitted launch preset from
+  // the user's last spawn choice (which ships as bypass_all), so both surfaces
+  // must resolve rather than read.
+  const omittedCreate = await tool(tools, 'automation.create').handler({
+    workspaceId: 'ws-1',
+    definition: {
+      name: 'Nightly',
+      trigger: { kind: 'schedule', config: { cadence: 'daily' } },
+      action: { kind: 'spawn-agent', config: { prompt: 'do it' } },
+    },
+  })
+  assert.equal(omittedCreate.isError, true, 'an agent-backed draft that names no preset is refused')
+  assert.equal(
+    (omittedCreate.structuredContent as { error: { code: string } }).error.code,
+    'permission_preset_not_allowed',
+    'omission is refused as a preset problem, not a validation problem',
+  )
+  assert.deepEqual(created, [], 'the preset-less draft never reaches the create pipeline either')
+
+  // A non-agent action has no preset to resolve and must stay creatable.
+  const webhookCreate = await tool(tools, 'automation.create').handler({
+    workspaceId: 'ws-1',
+    definition: {
+      name: 'Ping',
+      trigger: { kind: 'schedule', config: { cadence: 'daily' } },
+      action: { kind: 'http-post', config: { url: 'https://example.invalid/hook' } },
+    },
+  })
+  assert.equal(webhookCreate.isError, undefined, 'a non-agent action is unaffected by the preset gate')
+  assert.equal(created.length, 1, 'the non-agent draft reaches the create pipeline')
+
+  // An explicitly-named allowed preset still passes through verbatim.
+  for (const preset of ['default', 'auto_workspace'] as const) {
+    const allowed = await tool(tools, 'automation.create').handler({
+      workspaceId: 'ws-1',
+      definition: {
+        name: 'Nightly',
+        trigger: { kind: 'schedule', config: { cadence: 'daily' } },
+        action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: preset } },
+      },
+    })
+    assert.equal(allowed.isError, undefined, `an explicit "${preset}" automation is created`)
+  }
+
+  // agent.launch never forwards an absent preset to the renderer's own default.
+  const omittedLaunch = launchHarness()
+  const launched = await tool(omittedLaunch.tools, 'agent.launch').handler({ workspaceId: 'ws-1', prompt: 'go' })
+  assert.equal(launched.isError, undefined, JSON.stringify(launched.structuredContent))
+  const launchRequest = omittedLaunch.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  assert.equal(
+    launchRequest.permissionPreset,
+    'default',
+    'an omitted launch preset is pinned to the most restrictive allowed value, not left for the renderer to fill',
+  )
 }
 
 async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise<void> {
@@ -1448,7 +1505,13 @@ async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise
   )
   const created = await tool(tools, 'automation.create').handler({
     workspaceId: 'ws-1',
-    definition: { name: 'X', trigger: { kind: 'schedule', config: {} }, action: { kind: 'spawn-agent', config: {} } },
+    // An explicit allowed preset, so the draft clears the preset gate and the
+    // pipeline's own failure is what surfaces.
+    definition: {
+      name: 'X',
+      trigger: { kind: 'schedule', config: {} },
+      action: { kind: 'spawn-agent', config: { permissionPreset: 'auto_workspace' } },
+    },
   })
   assert.equal((created.structuredContent as { error: { code: string } }).error.code, 'workspace_root_untrusted')
 

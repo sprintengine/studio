@@ -20,6 +20,7 @@ import type { AutomationPullRequestResult } from './pull-request'
 import { computeNextRun, scheduleCadenceCanExhaust, validateScheduleTriggerConfig } from './schedule'
 import { evaluatePollingTriggerDefinition } from './polling-trigger-runner'
 import { readTranscriptSummary } from './transcript-summary'
+import { completeAutomationRun as completeRun } from './run-record'
 import { enqueueTriggerEventRun, type TriggerEventRunResult } from './trigger-event-runner'
 
 export type AutomationsProjectFolder = {
@@ -1408,30 +1409,6 @@ export function projectFoldersFromWorkspaceSyncSnapshot(snapshot: WorkspaceSyncS
   )
 }
 
-function completeRun(run: AutomationRun, patch: Partial<AutomationRun>, completedAt: string): AutomationRun {
-  const status = patch.status ?? 'completed'
-  // An agent-backed run returns `running`: the action launched a long-lived
-  // agent and the run stays in-progress (linked to its terminal) until
-  // finalizeRun records the real outcome. Non-terminal runs carry no
-  // completedAt and emit no terminal run-event.
-  return {
-    ...run,
-    status,
-    completedAt: isTerminalRunStatus(status) ? completedAt : null,
-    blockedReason: patch.blockedReason,
-    workspaceId: patch.workspaceId,
-    agentId: patch.agentId,
-    executionId: patch.executionId,
-    promptFingerprint: patch.promptFingerprint,
-    touchedFiles: patch.touchedFiles,
-    commandsRan: patch.commandsRan,
-    summary: patch.summary,
-    worktreePath: patch.worktreePath,
-    branch: patch.branch,
-    pullRequestUrl: patch.pullRequestUrl,
-  }
-}
-
 // The max-run limit as a person would say it, for the sweep's run summary. Read
 // from the configured cap rather than hardcoded, so the number a user is told is
 // always the number that was actually applied.
@@ -1443,10 +1420,6 @@ function formatRunLimit(ms: number): string {
   }
   const minutes = Math.max(1, Math.round(ms / 60_000))
   return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
-}
-
-function isTerminalRunStatus(status: AutomationRunStatus): boolean {
-  return status === 'completed' || status === 'failed' || status === 'blocked' || status === 'skipped'
 }
 
 function nextRunIso(config: ScheduleTriggerConfig, after: number): string | null {
