@@ -25,9 +25,12 @@ from sprintengine_core.tool.state import (
 )
 from sprintengine_core.tool.tasks import (
     add_unique_values,
+    assert_backlog_ref_unclaimed,
     assert_phases_within_run_ceiling,
+    backlog_ref_from_args,
     build_task_from_args,
     ensure_task_can_be_replanned,
+    normalize_task_backlog_ref,
     parse_phases_arg,
     recompute_phase,
     remove_values,
@@ -97,6 +100,8 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
                 args.note,
                 getattr(args, "clear_source_docs", False),
                 getattr(args, "source_doc", None),
+                getattr(args, "backlog_ref", None),
+                getattr(args, "clear_backlog_ref", False),
                 args.clear_task_notes,
                 args.task_note,
                 args.product_facing,
@@ -179,6 +184,15 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
         if getattr(args, "clear_source_docs", False):
             task.pop("sourceDocs", None)
         set_unique_list(task, "sourceDocs", getattr(args, "source_doc", None))
+
+        if getattr(args, "clear_backlog_ref", False):
+            task.pop("backlogRef", None)
+        requested_backlog_ref = backlog_ref_from_args(args)
+        if requested_backlog_ref is not None:
+            edited_task_id = str(task.get("id") or args.task_id)
+            backlog_ref = normalize_task_backlog_ref(requested_backlog_ref, edited_task_id)
+            assert_backlog_ref_unclaimed(state, backlog_ref, edited_task_id)
+            task["backlogRef"] = backlog_ref
 
         if args.clear_task_notes:
             task["notes"] = []

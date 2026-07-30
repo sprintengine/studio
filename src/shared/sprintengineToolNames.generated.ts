@@ -761,6 +761,23 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "type": "array",
           "description": "Project-root-relative canonical source documents this task implements (e.g. the backlog item on a reference-sourced run). Workers are directed to read each in full on claim; keep the task card the delta, never a restatement."
         },
+        "backlogRef": {
+          "type": "object",
+          "required": [
+            "projectRelativePath"
+          ],
+          "properties": {
+            "projectRelativePath": {
+              "type": "string",
+              "description": "Project-root-relative path to the backlog item file, e.g. backlog/2026-07-30-example.md."
+            },
+            "displayKey": {
+              "type": "string",
+              "description": "Human key of that item when known, e.g. MC-1843."
+            }
+          },
+          "description": "The backlog item this task delivers, as a project-root-relative path to the item file. One item per task: a second task pointing at the same item is rejected, naming the task that already holds it."
+        },
         "taskNote": {
           "type": "array"
         },
@@ -940,6 +957,26 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "description": "Replace the task's canonical source documents with this list of project-root-relative paths."
         },
         "clearSourceDocs": {
+          "type": "boolean"
+        },
+        "backlogRef": {
+          "type": "object",
+          "required": [
+            "projectRelativePath"
+          ],
+          "properties": {
+            "projectRelativePath": {
+              "type": "string",
+              "description": "Project-root-relative path to the backlog item file, e.g. backlog/2026-07-30-example.md."
+            },
+            "displayKey": {
+              "type": "string",
+              "description": "Human key of that item when known, e.g. MC-1843."
+            }
+          },
+          "description": "The backlog item this task delivers, as a project-root-relative path to the item file. One item per task: a second task pointing at the same item is rejected, naming the task that already holds it."
+        },
+        "clearBacklogRef": {
           "type": "boolean"
         },
         "taskNote": {

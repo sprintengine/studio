@@ -505,6 +505,80 @@ def normalize_task_source(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
 
     return source
 
+def normalize_task_backlog_ref(raw: Any, task_id: str) -> Optional[Dict[str, str]]:
+    """The one backlog item this task delivers, or None when it delivers none.
+
+    Single-valued and optional by design (backlog item 2020). Neither existing
+    field can carry "this task IS MC-1843": `sourceDocs` is a reading list, and
+    `task.source` models bidirectional tracker sync down to a four-state
+    `syncStatus` this epic explicitly does not want. Absent is the normal case
+    and is never defaulted, so a run store written before the field existed
+    reads unchanged.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise SystemExit(f"Task {task_id} backlogRef must be an object.")
+    path = optional_non_empty_string(raw, "projectRelativePath")
+    if path is None:
+        raise SystemExit(f"Task {task_id} backlogRef.projectRelativePath cannot be empty.")
+    # Separators are folded to POSIX BEFORE validation, not after: on a POSIX host
+    # `Path("..\\escape")` is one opaque part, so a Windows-authored escape would
+    # slip past the traversal check. Folding first also makes the stored value the
+    # single spelling the uniqueness comparison below can trust.
+    posix_path = path.replace("\\", "/")
+    try:
+        normalized_path = folder_store.validate_project_relative_path(
+            posix_path, field=f"Task {task_id} backlogRef.projectRelativePath"
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    backlog_ref = {"projectRelativePath": normalized_path}
+    display_key = optional_non_empty_string(raw, "displayKey")
+    if display_key is not None:
+        backlog_ref["displayKey"] = display_key
+    return backlog_ref
+
+
+def assert_backlog_ref_unclaimed(
+    state: Dict[str, Any], backlog_ref: Optional[Dict[str, str]], task_id: str
+) -> None:
+    """One task per backlog item — two tasks on one item is a planning error.
+
+    The Epic tab's mapping column resolves an item to exactly one task, so the
+    invariant is enforced where tasks are written rather than reconciled where
+    they are read.
+    """
+    if not backlog_ref:
+        return
+    path = backlog_ref.get("projectRelativePath")
+    for candidate in state.get("tasks", []):
+        if not isinstance(candidate, dict):
+            continue
+        candidate_id = str(candidate.get("id") or "")
+        if candidate_id == task_id:
+            continue
+        existing = candidate.get("backlogRef")
+        if not isinstance(existing, dict):
+            continue
+        if str(existing.get("projectRelativePath") or "") == path:
+            raise SystemExit(
+                f"Backlog item {path} is already delivered by task {candidate_id}. "
+                "One task per backlog item: retarget that task, or point this one at another item."
+            )
+
+
+def backlog_ref_from_args(args: argparse.Namespace) -> Optional[Dict[str, str]]:
+    """Read the CLI's two flat backlog arguments into the field's object shape."""
+    path = str(getattr(args, "backlog_ref", "") or "").strip()
+    display_key = str(getattr(args, "backlog_key", "") or "").strip()
+    if display_key and not path:
+        raise SystemExit("--backlog-key needs --backlog-ref: a display key with no item path names nothing.")
+    if not path:
+        return None
+    return {"projectRelativePath": path, **({"displayKey": display_key} if display_key else {})}
+
+
 def normalize_needs_input_kind(kind: Optional[str]) -> Optional[str]:
     """Resolve a needs_input kind alias to its canonical wire value.
 
@@ -727,6 +801,9 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     reject_absolute_path_values(source_docs, f"Task {task_id} sourceDocs")
     if source_docs:
         task["sourceDocs"] = source_docs
+    backlog_ref = normalize_task_backlog_ref(raw.get("backlogRef"), task_id)
+    if backlog_ref is not None:
+        task["backlogRef"] = backlog_ref
     needs_input = normalize_task_needs_input(raw.get("needsInput"), task_id)
     if needs_input is not None:
         task["needsInput"] = needs_input
@@ -887,6 +964,9 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         raw["productFacing"] = False
     if getattr(args, "produces_implementation", False):
         raw["producesImplementation"] = True
+    backlog_ref = backlog_ref_from_args(args)
+    if backlog_ref is not None:
+        raw["backlogRef"] = backlog_ref
     if getattr(args, "kind", None):
         raw["kind"] = getattr(args, "kind")
     if getattr(args, "needs_triage", False):
@@ -912,6 +992,7 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
     existing_ids = {str(t.get("id")) for t in state.get("tasks", []) if isinstance(t, dict)}
     if task["id"] in existing_ids:
         raise SystemExit(f"Task id already exists: {task['id']}")
+    assert_backlog_ref_unclaimed(state, task.get("backlogRef"), task["id"])
     missing = [dep for dep in task["dependsOn"] if dep not in existing_ids]
     if missing:
         raise SystemExit(f"Unknown dependency for {task['id']}: {', '.join(missing)}")

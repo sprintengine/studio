@@ -135,32 +135,6 @@ export function formatTaskSourceLabel(task: SprintEngineTask): string {
   return task.source.type.charAt(0).toUpperCase() + task.source.type.slice(1)
 }
 
-export function formatTaskSyncStatusLabel(task: SprintEngineTask): string | null {
-  switch (task.source?.syncStatus) {
-    case 'local_changed':
-      return 'Local edits'
-    case 'remote_changed':
-      return 'Remote changed'
-    case 'conflict':
-      return 'Sync conflict'
-    default:
-      return null
-  }
-}
-
-export function formatTaskSyncStatusDescription(task: SprintEngineTask): string {
-  switch (task.source?.syncStatus) {
-    case 'local_changed':
-      return 'Local execution details differ from the last synced GitHub issue.'
-    case 'remote_changed':
-      return 'GitHub changed since the previous sync; this task was refreshed because local details were unchanged.'
-    case 'conflict':
-      return 'GitHub and local execution details both changed. Review the issue before starting work.'
-    default:
-      return ''
-  }
-}
-
 export function formatArtifactSummary(artifacts: SprintEngineArtifact[]): string {
   const pendingCount = artifacts.filter((artifact) =>
     artifact.status !== 'approved'

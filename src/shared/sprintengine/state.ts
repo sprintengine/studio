@@ -47,6 +47,7 @@ import type {
   SprintEngineTask,
   SprintEngineTaskActivityEntry,
   SprintEngineTaskActivityType,
+  SprintEngineTaskBacklogRef,
   SprintEngineTaskBoardColumn,
   SprintEngineTaskComment,
   SprintEngineTaskCommentType,
@@ -1332,6 +1333,24 @@ function normalizeSprintEngineTaskSource(value: unknown): SprintEngineTaskSource
   }
 }
 
+// The backlog item a task delivers, tolerated when absent and never defaulted —
+// most tasks deliver no item, and a run store written before the field existed
+// carries none. A record with no usable path reads as absent rather than as a
+// pointer at nothing.
+function normalizeSprintEngineTaskBacklogRef(value: unknown): SprintEngineTaskBacklogRef | undefined {
+  if (!value || typeof value !== 'object') return undefined
+
+  const record = value as Record<string, unknown>
+  const projectRelativePath = optionalTrimmedString(record.projectRelativePath)
+  if (!projectRelativePath) return undefined
+  const displayKey = optionalTrimmedString(record.displayKey)
+
+  return {
+    projectRelativePath,
+    ...(displayKey ? { displayKey } : {}),
+  }
+}
+
 function normalizeSprintEngineTaskNeedsInput(value: unknown): SprintEngineTaskNeedsInput | undefined {
   if (!value || typeof value !== 'object') return undefined
 
@@ -2273,6 +2292,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     const triage = normalizeSprintEngineTaskTriage(task.triage)
     const source = normalizeSprintEngineTaskSource(task.source)
     const sourceDocs = stringArray(task.sourceDocs)
+    const backlogRef = normalizeSprintEngineTaskBacklogRef(task.backlogRef)
     const needsInput = normalizeSprintEngineTaskNeedsInput(task.needsInput)
     const activity = normalizeSprintEngineTaskActivity(task.activity)
     // A pre-MC-1542 store carrying a retired status never reaches here: the
@@ -2320,6 +2340,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       acceptanceCriteria: stringArray(task.acceptanceCriteria),
       implementationNotes: stringArray(task.implementationNotes),
       ...(sourceDocs.length > 0 ? { sourceDocs } : {}),
+      ...(backlogRef ? { backlogRef } : {}),
       evidence: normalizeSprintEngineTaskEvidence(task.evidence),
       ...(feedback ? { feedback } : {}),
       ...(feedbackAssessments.length > 0 ? { feedbackAssessments } : {}),

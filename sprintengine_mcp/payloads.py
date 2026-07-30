@@ -125,6 +125,7 @@ def command_payload_to_namespace(
             acceptance=_string_list(payload.get("acceptance")),
             note=_string_list(payload.get("note")),
             source_doc=_string_list(payload.get("sourceDocs")),
+            **_backlog_ref_fields(payload.get("backlogRef")),
             task_note=_string_list(payload.get("taskNote")),
             produces_implementation=bool(payload.get("producesImplementation", False)),
             kind=payload.get("kind"),
@@ -153,6 +154,8 @@ def command_payload_to_namespace(
             clear_notes=bool(payload.get("clearNotes", False)),
             source_doc=payload.get("sourceDocs"),
             clear_source_docs=bool(payload.get("clearSourceDocs", False)),
+            **_backlog_ref_fields(payload.get("backlogRef")),
+            clear_backlog_ref=bool(payload.get("clearBacklogRef", False)),
             task_note=payload.get("taskNote"),
             clear_task_notes=bool(payload.get("clearTaskNotes", False)),
             produces_implementation=bool(payload.get("producesImplementation", False)),
@@ -235,6 +238,16 @@ def add_reviewer_difficulty_defaults(target: dict[str, Any], payload: dict[str, 
     target["reviewed_difficulty_pct"] = payload.get("reviewed_difficulty_pct", payload.get("reviewedDifficultyPct"))
     target["reviewed_difficulty_dimension"] = payload.get("reviewedDifficultyDimension", payload.get("reviewed_difficulty_dimension", ""))
     target["reviewed_difficulty_reason"] = payload.get("reviewedDifficultyReason", payload.get("reviewed_difficulty_reason", ""))
+
+
+def _backlog_ref_fields(raw: Any) -> dict[str, Any]:
+    """`backlogRef: {projectRelativePath, displayKey}` -> the CLI's two flat arguments."""
+    if not isinstance(raw, dict):
+        return {"backlog_ref": None, "backlog_key": None}
+    return {
+        "backlog_ref": raw.get("projectRelativePath"),
+        "backlog_key": raw.get("displayKey"),
+    }
 
 
 def _from_finding_fields(raw: Any) -> dict[str, Any]:

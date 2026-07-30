@@ -86,8 +86,6 @@ import {
   formatArtifactSummary,
   formatMobileArtifactDecision,
   formatTaskSourceLabel,
-  formatTaskSyncStatusDescription,
-  formatTaskSyncStatusLabel,
   formatTimestamp,
   getMobileArtifactDecision,
   sprintEngineInboxRowSupporting,
@@ -2906,11 +2904,6 @@ function SprintEngineTaskBody({
               {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
               {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
             </span>
-            {formatTaskSyncStatusLabel(selectedTask) ? (
-              <div className="mt-1 text-micro text-[color:var(--tone-warn)]">
-                {formatTaskSyncStatusDescription(selectedTask)}
-              </div>
-            ) : null}
             {selectedTask.source.externalUrl ? (
               <button
                 type="button"
