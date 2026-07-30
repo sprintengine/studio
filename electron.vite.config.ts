@@ -23,6 +23,18 @@ export default defineConfig({
       port: rendererDevPort(),
       strictPort: process.env['MULTICODE_RENDERER_STRICT_PORT'] === '1',
     },
+    build: {
+      rollupOptions: {
+        // Two HTML entries. `index` is the app; `splash` is the standalone
+        // launch plate, which loads no bundle at all — without naming it here
+        // the packaged build simply would not emit it, since electron-vite
+        // otherwise infers the single implicit `src/renderer/index.html`.
+        input: {
+          index: resolve('src/renderer/index.html'),
+          splash: resolve('src/renderer/splash.html'),
+        },
+      },
+    },
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src'),
