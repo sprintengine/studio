@@ -1488,9 +1488,12 @@ export default function WorkspaceSidebar({
        * focus back to it, and the tree's folds/reveals belong to the operator,
        * not to whether they visited a door in between.
        *
-       * A surface that brought no rail leaves this inactive: it nests no second
-       * navigation column, so it has nothing to replace, and emptying the column
-       * for it would trade a problem it does not have for a blank rail. */}
+       * Every door declares a rail in every load state (T19), so this column is
+       * active for the whole of a door's visit rather than only once the door has
+       * content in it. A surface that brought no rail leaves this inactive: it
+       * nests no second navigation column, so it has nothing to replace, and
+       * emptying the column for it would trade a problem it does not have for a
+       * blank rail. */}
       {contextRail}
       <div className={`mx-2 mt-1 flex flex-col gap-1.5 ${contextRailActive ? 'hidden' : ''}`}>
         {/* Instance-level top-nav cluster. Every door carries an explicit `order`

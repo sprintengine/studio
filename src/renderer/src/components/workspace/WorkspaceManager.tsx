@@ -776,9 +776,11 @@ export default function WorkspaceManager() {
   // Whether the open surface actually HAS a rail. The column has to be mounted
   // before the surface can portal into it, so the answer arrives one commit
   // after the question; until then (and for a surface with no rail at all) the
-  // workspaces rail stays exactly where it is. A door that mounts no rail —
-  // Backlog, whose canvas is a work list beside its own preview — nests no
-  // second navigation column, so it has nothing to replace.
+  // workspaces rail stays exactly where it is. Every door on the substrate
+  // DECLARES a rail in every load state (T19), so in the product this settles
+  // true for the whole visit; the false branch is the one-commit settle and any
+  // future canvas-only tenant, which nests no second navigation column and so
+  // has nothing to replace.
   const [surfaceHasRail, setSurfaceHasRail] = useState(false)
   const surfaceRailSlot = useMemo(
     () => ({ el: surfaceRailEl, onRailPresence: setSurfaceHasRail }),
@@ -805,10 +807,11 @@ export default function WorkspaceManager() {
   // A door has to hold the keyboard to have a keyboard exit at all.
   //
   // `ContextRailColumn` takes focus when it replaces the sidebar, so a door WITH
-  // a rail was fine. A door without one — Backlog always, Sprints and Automations
-  // while empty, Horizon before its first horizon — left focus on the sidebar row
-  // that opened it, which belongs to neither the door's canvas nor its rail, so
-  // Escape below never claimed the keystroke and the door had no keyboard exit.
+  // a rail is fine. A door without one left focus on the sidebar row that opened
+  // it, which belongs to neither the door's canvas nor its rail, so Escape below
+  // never claimed the keystroke and the door had no keyboard exit. Every door now
+  // declares a rail in every state (T19), so this covers the one-commit settle
+  // before the surface has answered, plus any future canvas-only tenant.
   // The page region takes the keyboard instead. It is also what makes a click on
   // the door's own empty canvas land INSIDE the door (a click on a non-focusable
   // node focuses its nearest focusable ancestor) rather than dropping focus to
