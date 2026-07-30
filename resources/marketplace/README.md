@@ -19,20 +19,37 @@ the same relative paths.
 
 ## Seed Plugins
 
-Each seed wraps one MCP server already present in `resources/mcps/catalog.json`.
-The plugin manifests are signed with ed25519 detached signatures over the
-normalized `plugin.json`, including per-component file digests. The private
-signing key is not stored in this repository.
+Two populations ship a committed `plugins/<id>/` bundle.
+
+**Signed MCP seeds.** Each wraps one MCP server already present in
+`resources/mcps/catalog.json`. The plugin manifests are signed with ed25519
+detached signatures over the normalized `plugin.json`, including per-component
+file digests. The private signing key is not stored in this repository.
 
 - `browser-automation-mcp` wraps the `playwright` MCP server.
 - `repository-workflows-mcp` wraps the `github` MCP server.
 - `current-docs-mcp` wraps the `context7` MCP server.
 - `api-reference-mcp` wraps the `openai-docs` MCP server.
 
-All marketplace entries use `publisher.verified: true` for `Multicode Labs`.
-First-party verification is represented by the publisher fingerprint in
+These use `publisher.verified: true` for `Multicode Labs`. First-party
+verification is represented by the publisher fingerprint in
 `trusted-publishers.json`; the app trust path classifies the signed manifests as
 trusted when that fingerprint is accepted.
+
+**Unsigned automation starters** (`*-automation`). Each is a definition — a
+schedule trigger, a `spawn-agent` action and a prompt — interpreted by the app's
+automation engine, never loaded as code, so it ships unsigned like every other
+non-code-bearing bundle. A signature is what would let an entry claim
+`publisher.verified`, so these declare `false`; integrity of the committed bytes
+comes from the component file digests instead, which the verifier requires.
+Their marks are committed at `icons/<id>.svg` for review and inlined into
+`marketplace.json` as `data:` URIs so they render without resolving against the
+remote registry.
+
+Unlike everything else in `marketplace.json` these entries are hand-authored,
+not projected from the catalogue snapshot;
+`scripts/generate-connector-catalogue.mjs` carries them through a regenerate and
+logs that it did.
 
 ## Source policy and widened schema
 
@@ -52,10 +69,11 @@ is no longer the *only* source the app will consume:
   inline-MCP entry shape (`mcp.servers`, no bundle `source`) in place of a signed
   bundle. Existing signed-bundle entries (this seed) stay valid unchanged.
 - **Trust is by signature + component kind, not by listing**: code-bearing
-  bundles (`module`/`cli`) keep the hard signature gate; unsigned MCP/skills-only
-  and inline-MCP entries install only through the community trust prompt. Every
-  seed entry here remains signed and verified via the trusted-publisher
-  fingerprint.
+  bundles (`module`/`cli`) keep the hard signature gate; unsigned
+  MCP/skills/automation and inline-MCP entries install only through the community
+  trust prompt. The four MCP seeds remain signed and verified via the
+  trusted-publisher fingerprint; the automation starters do not, and say so by
+  declaring `publisher.verified: false`.
 - **Registry read is config-swappable**: `MULTICODE_MARKETPLACE_REGISTRY_URL`
   can point the read at the HotStack catalogue `GET /v1/registry`; this seed
   stays the offline/packaged fallback either way.
@@ -78,13 +96,21 @@ npm run verify:marketplace-registry -- --root ../marketplace
 ```
 
 The verifier uses the shared marketplace schema validator for `marketplace.json`
-and delegates every plugin bundle to `multicode-module plugin verify`, the same
-authoring CLI path used before publish. It also checks signed component file
+and delegates every *signed* plugin bundle to `multicode-module plugin verify`,
+the same authoring CLI path used before publish. It also checks component file
 digests, allowlisted HTTPS source URLs (the host allowlist above, replacing the
 former canonical `plugins/<id>` pin), verified publisher signatures
-against `trusted-publishers.json`, registry entries against their signed
+against `trusted-publishers.json`, registry entries against their
 `plugin.json`, icons, MCP component parseability, and absence of committed key
 material.
+
+An unsigned entry that ships a committed bundle gets an equivalent gate rather
+than the CLI one: its manifest must parse, it must carry no `module`/`cli`
+component, its component digests must match the committed bytes, and an
+`automation` payload must be a valid definition draft. Two rules apply to every
+entry regardless of shape — an entry with no signature may not set
+`publisher.verified`, and every committed `plugins/<id>/` payload must be
+claimed by an entry the verifier actually checked.
 
 The published registry workflow checks out the Multicode app validation tooling
 and runs:
