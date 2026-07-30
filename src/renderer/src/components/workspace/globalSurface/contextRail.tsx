@@ -131,7 +131,7 @@ export function ContextRailColumn({
     if (typeof node.getAnimations !== 'function') return
     for (const animation of node.getAnimations()) {
       animation.currentTime = 0
-      void animation.play()
+      animation.play()
     }
   }, [surfaceKey, active])
 

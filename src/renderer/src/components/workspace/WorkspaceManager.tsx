@@ -819,6 +819,13 @@ export default function WorkspaceManager() {
   useEffect(() => {
     if (!surfaceRegionEl || contextRailActive) return
     if (surfaceRegionEl.contains(document.activeElement)) return
+    // An overlay ON the door keeps the keyboard. A door's rail can appear or
+    // vanish mid-surface (a door declares no rail until it has content), and that
+    // is exactly when a confirm or prompt is likely to be open — deleting the last
+    // horizon both empties the rail and holds a dialog. Taking focus to the region
+    // behind it would leave that dialog un-dismissable from the keyboard.
+    const active = document.activeElement
+    if (active instanceof HTMLElement && active.closest('[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]')) return
     surfaceRegionEl.focus()
   }, [surfaceRegionEl, contextRailActive, activeGlobalSurface])
 
