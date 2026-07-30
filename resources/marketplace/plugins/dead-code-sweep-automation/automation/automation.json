@@ -1,0 +1,21 @@
+{
+  "name": "Dead code sweep",
+  "status": "enabled",
+  "trigger": {
+    "kind": "schedule",
+    "config": {
+      "kind": "schedule",
+      "timezone": "UTC",
+      "cadence": {
+        "type": "daily",
+        "timeLocal": "02:00"
+      }
+    }
+  },
+  "action": {
+    "kind": "spawn-agent",
+    "config": {
+      "prompt": "Find code in this repository that nothing reaches: unexported symbols with no references, files no import path leads to, feature flags whose branches are both dead, and dependencies nothing imports.\n\nVerify each candidate is genuinely unreachable before touching it — check dynamic imports, string-keyed lookups, reflection, and anything a build or test config names directly. Delete only what you can prove is dead.\n\nOpen a pull request listing each removal and the evidence for it.\n\nA symbol nothing outside its file imports is not dead if the file itself uses it — that is a redundant `export`, and the most it earns is dropping the keyword. Deleting one breaks the build, and this is the mistake a search for unreferenced exports will hand you dozens of, so do not treat that search as a list of dead code.\n\nThe pull request is built from what you leave in the working tree, so the listing has to be a file: write it to reports/dead-code-sweep-<today's date, YYYY-MM-DD>.md, one entry per removal naming the symbol or file, where it lived, and the evidence that proved it unreachable. Delete nothing you could not prove; if that is everything, write the file saying so and leave the code alone."
+    }
+  }
+}

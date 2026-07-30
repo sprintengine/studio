@@ -1,0 +1,22 @@
+{
+  "id": "duplication-review-automation",
+  "displayName": "Duplication review",
+  "version": 1,
+  "defaultEnabled": false,
+  "source": "third-party",
+  "permissions": [],
+  "publisher": "Multicode Labs",
+  "category": "Code Quality",
+  "summary": "Writes up duplication worth abstracting and the case against it, and never refactors. One agent run nightly at 02:30 UTC, opening a pull request.",
+  "components": {
+    "automation": {
+      "path": "automation/automation.json",
+      "files": [
+        {
+          "path": "automation/automation.json",
+          "sha256": "ff7e152179b301795d216035061a8b5161876e49868562cece25e9f3b2fae008"
+        }
+      ]
+    }
+  }
+}

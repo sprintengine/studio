@@ -1,0 +1,22 @@
+{
+  "id": "ui-ux-review-automation",
+  "displayName": "UI & UX review",
+  "version": 1,
+  "defaultEnabled": false,
+  "source": "third-party",
+  "permissions": [],
+  "publisher": "Multicode Labs",
+  "category": "Design",
+  "summary": "Reviews the interface against the design system from source only — it does not render the app. One agent run nightly at 03:30 UTC, opening a pull request.",
+  "components": {
+    "automation": {
+      "path": "automation/automation.json",
+      "files": [
+        {
+          "path": "automation/automation.json",
+          "sha256": "e0be184d406b9f91d5a15696123756cef5689d8b279bd221ba962f6d4bd83e2d"
+        }
+      ]
+    }
+  }
+}
