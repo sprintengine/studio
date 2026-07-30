@@ -97,8 +97,13 @@ def test_the_project_root_is_a_module_that_contains_everything() -> None:
         assert module_contains_path(spelling, "src/panel/Panel.tsx") is True
         assert module_contains_path(spelling, "README.md") is True
     assert paths_overlap(".", "src/panel") is True
-    # Only the root is special: a blank entry is unusable, never everything.
+    # Only the PROJECT root is special. A blank entry is unusable, and an absolute
+    # root owns nothing — absolute entries are dropped from every commit pathspec,
+    # and the dispatch guard does not filter them, so promoting `/` to the project
+    # root would silently make it overlap every module in the run.
     assert module_contains_path("", "src/panel/Panel.tsx") is False
+    assert module_contains_path("/", "src/panel/Panel.tsx") is False
+    assert paths_overlap("/", "src/panel") is False
     assert module_contains_path("src/panel", ".") is False
 
 

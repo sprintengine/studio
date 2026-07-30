@@ -354,14 +354,17 @@ ROOT_MODULE = "."
 def normalize_owned_path(value: Any) -> str:
     """One project-relative owned path in comparable form, or '' when unusable.
 
-    The project root normalizes to :data:`ROOT_MODULE` — ``.``, ``./`` and ``.``
-    with a trailing slash are all the same owner — so "the whole tree" has one
-    spelling the predicate below can recognize.
+    Every spelling of the project root — ``.``, ``./``, ``.//`` — folds to
+    :data:`ROOT_MODULE`, so "the whole tree" has one form the predicate below
+    recognizes. An ABSOLUTE root (``/``) deliberately does not: it normalizes to
+    ``''`` and so owns nothing, matching how absolute entries are dropped from
+    every commit pathspec. Promoting it to the project root would make it overlap
+    every module in the dispatch guard, which does not filter absolute entries.
     """
     raw = str(value or "").strip()
     if not raw:
         return ""
-    return Path(raw).as_posix().rstrip("/") or ROOT_MODULE
+    return Path(raw).as_posix().rstrip("/")
 
 
 def module_contains_path(owner: str, candidate: str) -> bool:
