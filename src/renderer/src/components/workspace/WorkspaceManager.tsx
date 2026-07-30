@@ -1269,16 +1269,6 @@ export default function WorkspaceManager() {
   // the operator into the workspace it resides in. The claim lives with the door
   // seam; it is taken after the wizard opens (opening releases whatever claim came
   // before) and released again by every route back out of it (item 1811).
-  useEffect(
-    () =>
-      subscribeNewSprintRequests(() => {
-        closeGlobalSurface()
-        openNewWorkspacePanelWithMode('sprintengine')
-        claimSprintCreationForDoor()
-      }),
-    [closeGlobalSurface, openNewWorkspacePanelWithMode],
-  )
-
   const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
     openSettingsOverlay({ initialTab: targetTab, checkForUpdates })
     dismissNewWorkspacePanel()
@@ -1300,6 +1290,21 @@ export default function WorkspaceManager() {
       futurePlanSource: source,
     })
   }, [presentNewWorkspacePanel])
+
+  useEffect(
+    () =>
+      subscribeNewSprintRequests((source) => {
+        closeGlobalSurface()
+        // A request carrying a plan (a "Run a Sprint" from a Backlog door row)
+        // opens the wizard seeded from that item, exactly as the per-project
+        // panel's own action does; the rail's bare "New sprint" opens on the
+        // mode with nothing chosen.
+        if (source) openFuturePlanWorkspace(source)
+        else openNewWorkspacePanelWithMode('sprintengine')
+        claimSprintCreationForDoor()
+      }),
+    [closeGlobalSurface, openFuturePlanWorkspace, openNewWorkspacePanelWithMode],
+  )
 
   // The empty-workspace launcher's Sprint Engine path: open the New Workspace
   // panel pre-set to the team-setup flow (no source plan — "start a new team").

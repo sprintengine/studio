@@ -1,3 +1,5 @@
+import type { FuturePlanWorkspaceSource } from '../../../../types/workspace'
+
 // The Sprints door ↔ shell seam.
 //
 // A door-routed global surface is zero-prop by contract, so there is no prop path
@@ -17,12 +19,27 @@
 
 export const NEW_SPRINT_REQUEST_EVENT = 'multicode:new-sprint'
 
-export function requestNewSprint(): void {
-  window.dispatchEvent(new CustomEvent(NEW_SPRINT_REQUEST_EVENT))
+type NewSprintRequestDetail = {
+  /**
+   * The plan to seed the wizard from, when the request came from a backlog item
+   * rather than the rail's own "New sprint". Without it the wizard opens on the
+   * Sprint mode with nothing chosen, which is what the rail asks for.
+   */
+  source?: FuturePlanWorkspaceSource
 }
 
-export function subscribeNewSprintRequests(onRequest: () => void): () => void {
-  const handler = (): void => onRequest()
+export function requestNewSprint(source?: FuturePlanWorkspaceSource): void {
+  const detail: NewSprintRequestDetail = source ? { source } : {}
+  window.dispatchEvent(new CustomEvent(NEW_SPRINT_REQUEST_EVENT, { detail }))
+}
+
+export function subscribeNewSprintRequests(
+  onRequest: (source: FuturePlanWorkspaceSource | null) => void,
+): () => void {
+  const handler = (event: Event): void => {
+    const detail = (event as CustomEvent<NewSprintRequestDetail>).detail
+    onRequest(detail?.source ?? null)
+  }
   window.addEventListener(NEW_SPRINT_REQUEST_EVENT, handler)
   return () => window.removeEventListener(NEW_SPRINT_REQUEST_EVENT, handler)
 }

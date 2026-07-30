@@ -631,6 +631,32 @@ async function main(): Promise<void> {
   )
   console.log('ok - the door detail is the workspace BacklogDetail: crumb and children link both ways')
 
+  // A row you cannot act on is a list, not a backlog. The door handed its row
+  // menu an empty action list, so every module-contributed action — "Run a
+  // Sprint" above all — was missing from the door while the per-project panel
+  // offered them. The context is built per row against THAT row's project.
+  {
+    const target = rowFor('Door quality epic')
+    await act(async () => {
+      target.dispatchEvent(
+        new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }),
+      )
+    })
+    await settle()
+    const menu = dom.window.document.querySelector('[role="menu"]')
+    assert.ok(menu, 'right-clicking a door row opens its context menu')
+    assert.match(
+      menu?.textContent ?? '',
+      /Run a Sprint/,
+      'the door offers the module-contributed sprint action, like the panel does',
+    )
+    await act(async () => {
+      dom.window.document.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }))
+    })
+    await settle()
+    console.log('ok - a Backlog door row carries the module actions, so a sprint can start from it')
+  }
+
   await act(async () => {
     backlogRoot.unmount()
   })

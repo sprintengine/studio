@@ -165,7 +165,7 @@ export default function SprintsGlobalSurface(): JSX.Element {
       onFilter={filter}
       onSearch={setSearch}
       onSort={setSort}
-      onCreate={requestNewSprint}
+      onCreate={() => requestNewSprint()}
     />
   )
 
@@ -241,7 +241,7 @@ function SurfaceBody({
         glyph={<SprintsGlyph />}
         title="Run your first sprint"
         body="A sprint puts a team of agents on a goal — planning it, working it in a branch, and reviewing the result. Runs from every project list here."
-        action={<PrimaryButton onClick={requestNewSprint}>New sprint</PrimaryButton>}
+        action={<PrimaryButton onClick={() => requestNewSprint()}>New sprint</PrimaryButton>}
       />
     )
   }

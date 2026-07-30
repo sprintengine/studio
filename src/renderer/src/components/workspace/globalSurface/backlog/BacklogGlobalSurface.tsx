@@ -19,6 +19,8 @@ import {
   type BacklogProjectRef,
 } from '../../../../hooks/useAllProjectsBacklog'
 import { refreshSharedBacklogScan } from '../../../../hooks/useSharedBacklogScan'
+import { workspaceFolderKey } from '../../../../store/slices/workspacesSlice'
+import { requestNewSprint } from '../sprints/sprintDoorRequests'
 import { useRelativeNow } from '../../../../hooks/useRelativeNow'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { useBacklogDoorViewStore } from '../../../../store/backlogViewStore'
@@ -48,7 +50,7 @@ import { deriveSprintEngineRunGlyph } from '../../../../utils/sprintengine'
 import { basename } from '../../../../utils/paths'
 import { focusOrAddFileTab } from '../../../../utils/modelRegistry'
 import { getRendererHost, selectModuleEnabled } from '../../../../modules'
-import type { BacklogLinkProvider } from '../../../../modules/renderer-host'
+import type { BacklogItemActionContext, BacklogLinkProvider } from '../../../../modules/renderer-host'
 import { BacklogFilterMenu } from '../../../backlog/BacklogFilterMenu'
 import { backlogRowPaintClass } from '../../../backlog/backlogRowPaint'
 import {
@@ -154,6 +156,9 @@ export default function BacklogGlobalSurface(): JSX.Element {
   const door = useBacklogDoorViewStore(useShallow((state) => state.door))
   const setDoorView = useBacklogDoorViewStore((state) => state.setDoorView)
   const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
+  // Every project feed comes from an open workspace; the row's action context
+  // needs that workspace's id, so the rows resolve it by folder key.
+  const workspaces = useWorkspaceStore((state) => state.workspaces)
   const openFile = useWorkspaceStore((state) => state.openFile)
   // Only the Sprint Engine workspaces, narrowed + shallow-compared, so an
   // unrelated workspace change never re-renders the whole list (the panel's
@@ -450,6 +455,85 @@ export default function BacklogGlobalSurface(): JSX.Element {
     [],
   )
 
+  // Module-contributed item actions — "Run a Sprint" above all, which is why
+  // this exists: the door listed every project's work and then offered no way to
+  // act on it, because it handed the row menu an empty action list. The context
+  // is built per ROW, against that row's own project (its root, and the open
+  // workspace sitting on that root), so a sprint started from an `MA-…` row is
+  // seeded from multiauth's file and not from whichever project was last active.
+  const backlogActionContext = useCallback(
+    (item: BacklogItem, project: BacklogProjectRef): BacklogItemActionContext | null => {
+      // Every feed comes FROM an open workspace, so this resolves in practice;
+      // returning null rather than inventing an id keeps a a stale row from
+      // launching against a workspace that is no longer there.
+      const workspace = workspaces.find(
+        (candidate) => candidate.folderPath && workspaceFolderKey(candidate.folderPath) === project.rootKey,
+      )
+      if (!workspace) return null
+      const refresh = async (): Promise<void> => {
+        await refreshSharedBacklogScan(project.root)
+      }
+      const assertOk = (result: { ok: boolean; message?: string }): void => {
+        if (!result.ok) throw new Error(result.message || 'That change could not be saved.')
+      }
+      return {
+        workspaceId: workspace.id,
+        workspaceRoot: project.root,
+        item,
+        readSource: () => window.api.readfile(item.path),
+        updateStatus: async (status) => {
+          assertOk(await window.api.updateBacklogStatus({
+            workspaceRoot: project.root,
+            relativePath: item.relativePath,
+            status,
+          }))
+          await refresh()
+        },
+        addLink: async (link) => {
+          assertOk(await window.api.addOrUpdateBacklogLink({
+            workspaceRoot: project.root,
+            relativePath: item.relativePath,
+            link,
+          }))
+          await refresh()
+        },
+        updateModuleMetadata: async (moduleId, value) => {
+          assertOk(await window.api.updateBacklogModuleMetadata({
+            workspaceRoot: project.root,
+            relativePath: item.relativePath,
+            moduleId,
+            value,
+          }))
+          await refresh()
+        },
+        // The wizard is shell chrome, so the door asks for it through the same
+        // seam the rail's "New sprint" uses — now carrying the plan to seed from.
+        startSourcePlan: (source) => requestNewSprint(source),
+      }
+    },
+    [workspaces],
+  )
+
+  const menuItemActions = useMemo(() => {
+    if (!menuRow) return []
+    const context = backlogActionContext(menuRow.item, menuRow.project)
+    if (!context) return []
+    return getRendererHost()
+      .getBacklogItemActions()
+      .filter((action) => selectModuleEnabled(moduleOverrides, action.moduleId))
+      .filter((action) => (action.isVisible ? action.isVisible(context) : true))
+      .map((action) => ({
+        id: action.id,
+        label: action.label,
+        disabled: action.getState?.(context) === 'disabled',
+        run: () => {
+          void Promise.resolve(action.run(context)).catch((error: unknown) => {
+            setActionError(error instanceof Error ? error.message : String(error))
+          })
+        },
+      }))
+  }, [backlogActionContext, menuRow, moduleOverrides])
+
   const linkProviders = useMemo<BacklogLinkProvider[]>(
     () => getRendererHost().getBacklogLinkProviders((moduleId) => selectModuleEnabled(moduleOverrides, moduleId)),
     [moduleOverrides],
@@ -676,7 +760,7 @@ export default function BacklogGlobalSurface(): JSX.Element {
           actions={actions}
           epicChoices={epicChoicesFor(menuRow.feed)}
           dependencyChoices={dependencyChoicesFor(menuRow.feed)}
-          itemActions={[]}
+          itemActions={menuItemActions}
           agentTargets={[]}
           agentSessions={null}
           onFlyoutOpen={() => {}}
