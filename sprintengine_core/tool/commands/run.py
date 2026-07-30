@@ -20,6 +20,7 @@ from sprintengine_core.tool.plans import (
     apply_source_context_to_task,
     EPIC_CHILD_KEY,
     EPIC_CHILD_SOURCE_LABEL,
+    epic_child_source_paths,
     handover_path_for_state,
     import_source_to_team_file,
     parse_source_bundle_arg,
@@ -562,7 +563,13 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 "The plan artifact is marked ready for user approval after review.",
             ]
             plan_task["implementationNotes"] = [
-                f"This task's incoming source context lists every seeded child item as `{EPIC_CHILD_SOURCE_LABEL}`; mint exactly one task per entry so labelled. Entries with any other label are reading material, not work.",
+                # Only when the launch actually marked children. A run store
+                # seeded before the marker existed has an unlabelled bundle, and
+                # pointing at a list that is not there would read as "there are
+                # no children" — the live grep below is what carries those runs.
+                *([
+                    f"This task's incoming source context lists every seeded child item as `{EPIC_CHILD_SOURCE_LABEL}`; mint exactly one task per entry so labelled. Entries with any other label are reading material, not work."
+                ] if epic_child_source_paths(state) else []),
                 "Re-check live membership before you finish — nothing about the epic is frozen at launch: `grep -l \"^epic: <slug>$\" backlog/*.md`, where <slug> is the epic file stem. A child added since launch is minted like any other.",
                 "Take each task's title from its item. Leave the description and acceptance criteria empty: --source-doc injects the item into the worker's claim prompt as read-in-full context, so restating it in the card only creates a second version to drift.",
                 "Cross-task contracts, decisions, and risks belong in the plan.md manifest, not in the minted cards.",

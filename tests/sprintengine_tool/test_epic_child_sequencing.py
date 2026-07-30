@@ -178,6 +178,29 @@ def test_the_plan_gate_directs_one_task_per_child_and_an_empty_card(tmp_path) ->
     assert "Split a child" not in notes
 
 
+def test_an_unmarked_bundle_gets_the_live_grep_and_no_phantom_list(tmp_path) -> None:
+    """A run store seeded before the marker existed has an unlabelled bundle.
+    Pointing the planner at a labelled list that is not there would read as "no
+    children"; the live membership check is what carries those runs."""
+    root, _epic, _child_a, _child_b, _mockup, state_path = _epic_workspace(tmp_path)
+    cli = SwarmCli(state_path, cwd=root)
+    init_payload = cli.run(
+        "init",
+        "--name", "auth-revamp",
+        "--goal", "Revamp authentication",
+        "--source-json", json.dumps({
+            "kind": "markdown", "origin": "reference",
+            "path": "backlog/epics/auth-revamp.md", "planKind": "epic",
+        }),
+        "--source-bundle-json", json.dumps([
+            {"kind": "generic_context", "origin": "reference", "path": CHILD_A},
+        ]),
+    )
+    notes = " ".join(init_payload["planTask"]["implementationNotes"])
+    assert "Epic child item" not in notes
+    assert "grep -l \"^epic: <slug>$\" backlog/*.md" in notes
+
+
 def test_the_source_context_labels_children_and_leaves_reading_material_alone(tmp_path) -> None:
     root, _epic, _child_a, _child_b, _mockup, state_path = _epic_workspace(tmp_path)
     cli = SwarmCli(state_path, cwd=root)
