@@ -11,9 +11,10 @@
 // code), and the only action is Get. Nothing about how an automation runs is
 // configured on this shelf; that is the Automations door's job.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { AGENT_BACKED_ACTION_KINDS, type AutomationDefinition } from '../../../../../shared/automations/contracts'
+import type { MarketplacePluginInstalledComponent } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import {
   CloseIconButton,
@@ -243,15 +244,28 @@ function permissionLabel(definition: AutomationDefinition): string {
 // so no verified/unsigned/community vocabulary appears here or anywhere else on
 // this surface. The action is earned by the state, because an automation already
 // in this project cannot be added to it again.
+//
+// Until the project's store has been read the answer is genuinely unknown, and
+// the row says so rather than defaulting to "Not added": a definitive negative
+// offering a Get, shown while the read is still in flight or after it failed,
+// is the surface lying about the one state it exists to carry.
 export function automationShelfRowState(
   entry: ConnectorEntry,
   added: AutomationDefinition | null,
-): { health: StatusTone; stateLine: string; action: 'get' | 'open' } {
+  projectKnown: boolean,
+): { health: StatusTone; stateLine: string; action: 'get' | 'open' | 'none' } {
   if (added) {
     return {
       health: 'good',
       stateLine: `${added.status === 'enabled' ? 'Added' : `Added, ${added.status}`} — ${cadenceSummary(added.trigger)}`,
       action: 'open',
+    }
+  }
+  if (!projectKnown) {
+    return {
+      health: 'neutral',
+      stateLine: `Checking this project — published by ${entry.plugin?.publisher.name ?? 'an unnamed publisher'}`,
+      action: 'none',
     }
   }
   return {
@@ -265,8 +279,10 @@ function AutomationRegistryRow({
   entry,
   registryUrl,
   added,
+  projectKnown,
   selected,
   installing,
+  busy,
   onSelect,
   onGet,
   onOpen,
@@ -274,14 +290,18 @@ function AutomationRegistryRow({
   entry: ConnectorEntry
   registryUrl: string | null
   added: AutomationDefinition | null
+  projectKnown: boolean
   selected: boolean
   installing: boolean
+  /** Any install is in flight. Adds write to one per-project store, so the shelf
+   *  runs one at a time rather than racing two writers on the same file. */
+  busy: boolean
   onSelect: () => void
   onGet: () => void
   onOpen: () => void
 }): JSX.Element {
   const plugin = entry.plugin
-  const state = automationShelfRowState(entry, added)
+  const state = automationShelfRowState(entry, added, projectKnown)
   return (
     <ProviderRow
       icon={
@@ -310,17 +330,19 @@ function AutomationRegistryRow({
           >
             Open
           </GhostButton>
-        ) : (
+        ) : state.action === 'get' ? (
           <GhostButton
             size="xs"
             onClick={onGet}
-            disabled={installing}
+            disabled={busy}
             className="border border-[color:var(--border-default)]"
             aria-label={`Get ${entry.name}`}
           >
             {installing ? <Spinner size={12} /> : 'Get'}
           </GhostButton>
-        )
+        ) : // Nothing to offer until the project's store has answered: a Get here
+        // would act on a state the surface does not yet know.
+        null
       }
     />
   )
@@ -343,6 +365,7 @@ function AutomationDetailPanel({
   plugin,
   registryUrl,
   added,
+  projectKnown,
   workspaceRoot,
   installing,
   onGet,
@@ -352,12 +375,32 @@ function AutomationDetailPanel({
   plugin: MarketplacePluginEntry
   registryUrl: string | null
   added: AutomationDefinition | null
+  projectKnown: boolean
   workspaceRoot: string | null
   installing: boolean
   onGet: () => void
   onOpen: () => void
   onClose: () => void
 }): JSX.Element {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  // Selecting a row opens this pane, so focus follows the selection into it and
+  // Escape gives it back — the same contract PluginDetailPanel keeps for the
+  // other kinds, so a keyboard user is not stranded on a list beside a pane they
+  // cannot reach.
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [plugin.id])
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   const prompt = added ? actionField(added, 'prompt') : null
   const facts = added
     ? [
@@ -397,7 +440,14 @@ function AutomationDetailPanel({
         <div className="flex min-w-0 items-center gap-3">
           <PluginIcon iconUrl={resolveIconUrl(registryUrl, plugin.icon)} name={plugin.name} size={32} />
           <div className="min-w-0">
-            <h5 className="truncate text-title font-semibold text-[color:var(--text-strong)]">{plugin.name}</h5>
+            <h5
+              ref={headingRef}
+              tabIndex={-1}
+              // design-system-allow: heading is a programmatic focus target only (tabIndex -1, moved to on selection) — it never receives keyboard focus
+              className="truncate text-title font-semibold text-[color:var(--text-strong)] focus:outline-none"
+            >
+              {plugin.name}
+            </h5>
             <div className="mt-0.5 truncate text-meta text-[color:var(--text-muted)]">{plugin.publisher.name}</div>
           </div>
         </div>
@@ -423,7 +473,9 @@ function AutomationDetailPanel({
           <PrimaryButton
             size="md"
             className="h-control-md w-full"
-            disabled={!workspaceRoot || installing}
+            // Until the project's store has answered, adding could act on an
+            // automation that is already there — so it waits rather than guessing.
+            disabled={!workspaceRoot || !projectKnown || installing}
             onClick={onGet}
           >
             {installing ? 'Adding…' : 'Add to Automations'}
@@ -499,6 +551,20 @@ type ShelfInstallState =
 // one refuses it rather than granting trust on the user's behalf.
 function codeBearing(plugin: MarketplacePluginEntry): boolean {
   return plugin.provides.some((kind) => kind === 'module' || kind === 'cli')
+}
+
+// What a successful add says. The installer's own component message is the
+// authority on WHAT happened — it distinguishes a fresh add from an entry that
+// was already there, which is also a success (idempotence, not a second copy) —
+// and the shelf adds the one thing only it knows: WHICH project it landed in,
+// since an add into the wrong project is otherwise invisible.
+function addedMessage(
+  installed: MarketplacePluginInstalledComponent[],
+  fallbackName: string,
+  workspaceRoot: string,
+): string {
+  const outcome = installed.find((entry) => entry.kind === 'automation')?.message ?? `Added ${fallbackName}.`
+  return `${outcome} (${projectName(workspaceRoot)})`
 }
 
 export function ExtensionKindCanvas({
@@ -581,11 +647,7 @@ export function ExtensionKindCanvas({
           })
           return
         }
-        const component = result.installed.find((installed) => installed.kind === 'automation')
-        setInstall({
-          status: 'done',
-          message: `${component?.message ?? `Added ${plugin.name}.`} In ${projectName(workspaceRoot)}.`,
-        })
+        setInstall({ status: 'done', message: addedMessage(result.installed, plugin.name, workspaceRoot) })
         // Re-read this project's automations, not the whole registry: the row
         // flips because the store changed, and the marketplace did not.
         await projectReload()
@@ -626,11 +688,7 @@ export function ExtensionKindCanvas({
         })
         return
       }
-      const component = result.installed.find((installed) => installed.kind === 'automation')
-      setInstall({
-        status: 'done',
-        message: `${component?.message ?? `Added ${result.displayName}.`} In ${projectName(workspaceRoot)}.`,
-      })
+      setInstall({ status: 'done', message: addedMessage(result.installed, result.displayName, workspaceRoot) })
       await projectReload()
     } catch (error) {
       setInstall({
@@ -680,6 +738,10 @@ export function ExtensionKindCanvas({
 
   const selectedEntry = matched.find((entry) => entry.key === selectedKey) ?? null
   const detailOpen = Boolean(selectedEntry?.plugin)
+  // Added-or-not is only answerable once the project's store has been read. A
+  // loading or failed read is `false` here, and the row says "Checking" rather
+  // than the definitive negative it would otherwise imply.
+  const projectKnown = project.state.status === 'ready'
   const addedFor = (entry: ConnectorEntry): AutomationDefinition | null =>
     project.state.status === 'ready' ? (project.state.byCatalogueId.get(entry.id) ?? null) : null
   const openAutomation = (definition: AutomationDefinition): void => onOpenAutomation?.(definition)
@@ -765,8 +827,10 @@ export function ExtensionKindCanvas({
                     entry={entry}
                     registryUrl={sources.registryUrl}
                     added={addedFor(entry)}
+                    projectKnown={projectKnown}
                     selected={selectedKey === entry.key}
                     installing={install.status === 'installing' && install.key === entry.key}
+                    busy={install.status === 'installing' || folderPending}
                     onSelect={() => setSelectedKey(entry.key)}
                     onGet={() => {
                       if (entry.plugin) void installAutomation(entry.plugin, entry.key)
@@ -800,6 +864,7 @@ export function ExtensionKindCanvas({
                 plugin={selectedEntry.plugin}
                 registryUrl={sources.registryUrl}
                 added={addedFor(selectedEntry)}
+                projectKnown={projectKnown}
                 workspaceRoot={workspaceRoot}
                 installing={install.status === 'installing' && install.key === selectedEntry.key}
                 onGet={() => {
