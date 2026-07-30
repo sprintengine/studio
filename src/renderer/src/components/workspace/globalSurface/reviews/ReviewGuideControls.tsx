@@ -160,16 +160,11 @@ export function ReviewGuideActions({
         onChange={runtime.setDepth}
         size="sm"
       />
-      {/* One control for the runtime, not two: the context-window and effort axes
-          ride the picker's own trailing row, exactly as the agent composer's
-          engine flyout has them. A second pill beside the model read as an
-          unrelated setting nobody could name. */}
       <CliModelPickerButton
         ariaLabel="Guide agent"
         options={runtime.catalog}
         cli={runtime.cli}
         effectiveModelFor={(candidate) => (candidate === runtime.cli ? runtime.model : undefined)}
-        reasoningPlacement="in-popover"
         onSelectCli={runtime.setCli}
         onSelectModel={(nextCli, nextModel) => {
           if (nextCli !== runtime.cli) runtime.setCli(nextCli)

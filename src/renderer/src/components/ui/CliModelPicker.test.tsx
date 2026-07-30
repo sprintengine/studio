@@ -597,7 +597,7 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
-  // ---- The two controls as a host embeds them ------------------------------
+  // ---- The one control as a host embeds it ---------------------------------
 
   await run('the model trigger shows the provider glyph and the model name', async () => {
     __resetModelFavouritesForTest()
@@ -622,8 +622,14 @@ async function main(): Promise<void> {
       'the accessible name still carries the whole runtime',
     )
 
-    const reasoning = view.container.querySelector<HTMLButtonElement>('[data-reasoning-trigger="true"]')
-    assert.equal(reasoning?.textContent, 'High · 1M', 'the second control is its own trigger beside it')
+    // A runtime is ONE control: the axes are inside the picker, not a second
+    // pill beside it. The trigger's accessible name still carries them, which is
+    // what keeps them findable without opening the surface.
+    assert.equal(
+      view.container.querySelector('[data-reasoning-trigger="true"]'),
+      null,
+      'no reasoning trigger sits beside the model trigger',
+    )
     view.unmount()
   })
 

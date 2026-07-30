@@ -25,9 +25,15 @@ export { meaningfulModelId } from './cliRuntimeCatalog'
 // provider axis, a row only has to say which model it is.
 //
 // Each row is one model, not one catalog id: context-window variants of the
-// same model collapse into a family (see cliRuntimeCatalog) and the window is
-// picked on the ReasoningSelector beside the trigger. Selecting a row selects
-// the CLI and the model together, in one action.
+// same model collapse into a family (see cliRuntimeCatalog). Selecting a row
+// selects the CLI and the model together, in one action.
+//
+// A runtime is ONE control, everywhere (owner, 2026-07-30). Reasoning level and
+// context window ride this surface's trailing row — they are properties of the
+// model you just picked, and as a second pill beside the trigger they read as an
+// unrelated setting: a lone "Standard ⌄" next to "Opus 5 ⌄" that nobody could
+// name. Hosts get the same picker with the same axes in the same place, whether
+// they open it from a composer row, a wizard step, a roster band, or a door bar.
 
 const MODEL_ROW_SELECTOR = '[data-model-row="true"]'
 const QUICK_SELECT_LIMIT = 9
@@ -135,6 +141,7 @@ export function CliModelPopoverSurface({
   onSelectCli,
   onSelectModel,
   showReasoning = false,
+  reasoningAriaLabel,
 }: {
   ariaLabel: string
   options: ReadonlyArray<CliRuntimeOption>
@@ -146,11 +153,18 @@ export function CliModelPopoverSurface({
   onSelectCli: (cli: AgentCli) => void
   onSelectModel: (cli: AgentCli, model: string | null) => void
   /**
-   * Render the reasoning selector as a trailing row of this surface. For hosts
-   * with no trigger row to put it beside — a context menu, a roster row's
-   * flyout — where the two controls stack instead of sitting side by side.
+   * Render the reasoning selector as a trailing row of this surface. This is
+   * where the axes live for every host that opens the picker from a trigger;
+   * hosts that ARE the trigger (a context menu, a roster row's flyout) pass it
+   * too, so the surface reads the same wherever it opens.
    */
   showReasoning?: boolean
+  /**
+   * Accessible name for that trailing control. Hosts with a trigger name it for
+   * the runtime it belongs to ("Reasoning for Agent runtime"), so a screen
+   * reader hears which agent the level applies to rather than a bare axis name.
+   */
+  reasoningAriaLabel?: string
 }): JSX.Element {
   const favourites = useModelFavourites()
   const favouriteSet = React.useMemo(() => new Set(favourites), [favourites])
@@ -386,7 +400,7 @@ export function CliModelPopoverSurface({
         {showReasoning && hasReasoningAxes(reasoningAxes) ? (
           <div className="flex items-center justify-end border-t border-[color:var(--border-subtle)] px-1.5 py-1">
             <ReasoningSelector
-              ariaLabel="Reasoning and context window"
+              ariaLabel={reasoningAriaLabel ?? 'Reasoning and context window'}
               reasoningSelection={currentOption?.reasoningSelection}
               reasoning={effectiveReasoningFor?.(currentCli)}
               onSelectReasoning={
@@ -582,7 +596,6 @@ export function CliModelPickerButton({
   effectiveReasoningFor,
   onSelectReasoning,
   disabled,
-  reasoningPlacement = 'beside',
   quiet,
   maxWidthClassName = 'max-w-[220px]',
   onSelectCli,
@@ -601,14 +614,6 @@ export function CliModelPickerButton({
   effectiveReasoningFor?: (cli: AgentCli) => string | undefined
   onSelectReasoning?: (cli: AgentCli, reasoning: string | null) => void
   disabled?: boolean
-  /**
-   * Where the reasoning/context-window axes live. `beside` (default) puts them
-   * in their own trigger next to the model's, for rows with the width for two.
-   * `in-popover` folds them into the picker's trailing row — the shape the agent
-   * composer uses — so the host spends ONE control on the runtime instead of two
-   * pills that read as unrelated settings.
-   */
-  reasoningPlacement?: 'beside' | 'in-popover'
   /**
    * Opt-in low-emphasis trigger for in-place property editing (the Sprint
    * Engine roster's role bands): renders as plain muted text until hover or
@@ -701,7 +706,8 @@ export function CliModelPickerButton({
           effectiveModelFor={effectiveModelFor}
           effectiveReasoningFor={effectiveReasoningFor}
           onSelectReasoning={onSelectReasoning}
-          showReasoning={reasoningPlacement === 'in-popover'}
+          showReasoning
+          reasoningAriaLabel={`Reasoning for ${ariaLabel}`}
           onSelectCli={(nextCli) => {
             onSelectCli(nextCli)
             setOpen(false)
@@ -712,19 +718,6 @@ export function CliModelPickerButton({
           }}
         />
       </Popover>
-      {reasoningPlacement === 'in-popover' ? null : (
-      <ReasoningSelector
-        ariaLabel={`Reasoning for ${ariaLabel}`}
-        reasoningSelection={selected.reasoningSelection}
-        reasoning={reasoning}
-        onSelectReasoning={reasoningWired ? (next) => onSelectReasoning!(cli, next) : undefined}
-        family={family}
-        model={model}
-        onSelectModel={(next) => onSelectModel(cli, next)}
-        disabled={disabled}
-        quiet={quiet}
-      />
-      )}
     </span>
   )
 }
