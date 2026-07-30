@@ -541,16 +541,24 @@ def normalize_task_backlog_ref(raw: Any, task_id: str) -> Optional[Dict[str, str
 
 
 def assert_backlog_ref_unclaimed(
-    state: Dict[str, Any], backlog_ref: Optional[Dict[str, str]], task_id: str
+    state: Dict[str, Any], backlog_ref: Optional[Dict[str, str]], task: Dict[str, Any]
 ) -> None:
     """One task per backlog item — two tasks on one item is a planning error.
 
     The Epic tab's mapping column resolves an item to exactly one task, so the
     invariant is enforced where tasks are written rather than reconciled where
     they are read.
+
+    Identity is (repo, path), not path alone: the reference is relative to the
+    task's OWN project root, so on a multi-repo run `backlog/x.md` under two
+    declared projects names two different files and refusing the second would
+    block legal work. On a single-repo run every task reads `primary`, so this
+    is the plain path comparison.
     """
     if not backlog_ref:
         return
+    task_id = str(task.get("id") or "")
+    repo = folder_store.task_repo(task)
     path = backlog_ref.get("projectRelativePath")
     for candidate in state.get("tasks", []):
         if not isinstance(candidate, dict):
@@ -561,11 +569,14 @@ def assert_backlog_ref_unclaimed(
         existing = candidate.get("backlogRef")
         if not isinstance(existing, dict):
             continue
-        if str(existing.get("projectRelativePath") or "") == path:
-            raise SystemExit(
-                f"Backlog item {path} is already delivered by task {candidate_id}. "
-                "One task per backlog item: retarget that task, or point this one at another item."
-            )
+        if str(existing.get("projectRelativePath") or "") != path:
+            continue
+        if folder_store.task_repo(candidate) != repo:
+            continue
+        raise SystemExit(
+            f"Backlog item {path} is already delivered by task {candidate_id}. "
+            "One task per backlog item: retarget that task, or point this one at another item."
+        )
 
 
 def backlog_ref_from_args(args: argparse.Namespace) -> Optional[Dict[str, str]]:
@@ -992,7 +1003,7 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
     existing_ids = {str(t.get("id")) for t in state.get("tasks", []) if isinstance(t, dict)}
     if task["id"] in existing_ids:
         raise SystemExit(f"Task id already exists: {task['id']}")
-    assert_backlog_ref_unclaimed(state, task.get("backlogRef"), task["id"])
+    assert_backlog_ref_unclaimed(state, task.get("backlogRef"), task)
     missing = [dep for dep in task["dependsOn"] if dep not in existing_ids]
     if missing:
         raise SystemExit(f"Unknown dependency for {task['id']}: {', '.join(missing)}")

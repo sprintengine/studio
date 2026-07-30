@@ -37,6 +37,19 @@ def test_add_task_round_trips_backlog_ref(tmp_path: Path) -> None:
     assert persisted["backlogRef"] == {"projectRelativePath": ITEM, "displayKey": "MC-2020"}
 
 
+def test_projection_carries_backlog_ref_so_the_renderer_never_parses_run_internals(tmp_path: Path) -> None:
+    from sprintengine_core import store as folder_store
+
+    fixture = rostered_team(tmp_path, "backlogref-projection")
+    fixture.cli.run(
+        "plan", "add-task", "--title", "Deliver the item", "--role", "developer",
+        "--backlog-ref", ITEM, "--backlog-key", "MC-2020",
+    )
+    projection = folder_store.build_projection(fixture.state_path.parent, state_path=fixture.state_path)
+    projected = next(task for task in projection["tasks"] if task["title"] == "Deliver the item")
+    assert projected["backlogRef"] == {"projectRelativePath": ITEM, "displayKey": "MC-2020"}
+
+
 def test_add_task_accepts_backlog_ref_without_display_key(tmp_path: Path) -> None:
     fixture = rostered_team(tmp_path, "backlogref-nokey")
     payload = fixture.cli.run(
@@ -102,6 +115,41 @@ def test_second_task_on_the_same_item_is_rejected_naming_the_holder(tmp_path: Pa
     assert ITEM in output
     assert holder in output
     assert len(read_state(fixture.state_path)["tasks"]) == 1
+
+
+def test_the_same_path_under_two_declared_projects_is_two_items(tmp_path: Path) -> None:
+    """The pointer is relative to the task's OWN project root, so identity is
+    (repo, path). Keying on the path alone would refuse a legal multi-repo plan."""
+    fixture = rostered_team(tmp_path, "backlogref-multirepo")
+    state = read_state(fixture.state_path)
+    state.setdefault("sprintengine", {})["vcs"] = {
+        "mode": "run_worktree",
+        "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+        "branchName": "sprintengine/alpha",
+        "baseRef": "main",
+        "status": "ready",
+        "repos": [
+            {"id": "primary", "root": ".", "worktreePath": ".multi-code/sprintengine/alpha/worktree", "branchName": "sprintengine/alpha", "baseRef": "main", "status": "ready"},
+            {"id": "mobile", "root": "../mobile", "worktreePath": ".multi-code/sprintengine/alpha/worktree-mobile", "branchName": "sprintengine/alpha", "baseRef": "main", "status": "ready"},
+        ],
+    }
+    write_state(fixture.state_path, state)
+
+    fixture.cli.run(
+        "plan", "add-task", "--title", "Deliver it here", "--role", "developer",
+        "--repo", "primary", "--backlog-ref", ITEM,
+    )
+    sibling = fixture.cli.run(
+        "plan", "add-task", "--title", "Deliver the mobile one", "--role", "developer",
+        "--repo", "mobile", "--backlog-ref", ITEM,
+    )
+    assert sibling["task"]["backlogRef"] == {"projectRelativePath": ITEM}
+
+    completed = fixture.cli.run_failure(
+        "plan", "add-task", "--title", "Deliver it here twice", "--role", "developer",
+        "--repo", "primary", "--backlog-ref", ITEM,
+    )
+    assert ITEM in (completed.stderr + completed.stdout)
 
 
 def test_update_task_sets_replaces_and_clears_backlog_ref(tmp_path: Path) -> None:
