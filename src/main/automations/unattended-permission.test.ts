@@ -94,9 +94,13 @@ function harness(root: string, options: { triggerKind?: string } = {}) {
     delegateToRenderer,
     getWorkspaceSyncSnapshot: () => snapshot(workspaces),
     sleep: async () => undefined,
-    // Hermetic: no real `git worktree` subprocess, and the run falls back to the
-    // workspace checkout exactly as it does for a non-Git folder.
-    createRunWorktree: async () => null,
+    // Hermetic: no real `git worktree` subprocess. The run still gets the
+    // isolation it asks for — a run that cannot get a worktree is blocked, and
+    // would never reach the launch this file reads the preset off.
+    createRunWorktree: async (input) => ({
+      worktreePath: join(root, '.multi-code/automations/worktrees', input.runId),
+      branch: `automations/${input.runId}`,
+    }),
   })
 
   const engine = new AutomationsEngine({

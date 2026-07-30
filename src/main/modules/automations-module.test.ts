@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, realpath, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,6 +21,7 @@ import type {
 } from '../../shared/automations/contracts'
 import type { AutomationsEngine, AutomationsEngineEvaluationResult, AutomationsEngineOptions } from '../automations/engine'
 import { AutomationsStore } from '../automations/store'
+import { runGitCommand } from '../git-utils'
 import type { AutomationProviderPermissionChecker } from '../automations/provider-registry'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { IpcInvokeHandler } from '../module-host/main-host'
@@ -672,11 +673,12 @@ async function testAgentExitListenerRoutesExitsAndWiresLiveExecutions(): Promise
 
 async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<void> {
   // The dirty-tree gate was removed: agent-backed runs execute in a per-run
-  // worktree, so a non-git / dirty checkout must not block before launch. The
-  // module executor should delegate the launch (here the fake delegate refuses,
-  // so the run fails at launch — but the point is it reached the launch, proving
-  // there is no pre-launch dirty/non-git block).
-  const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-non-git-'))
+  // worktree, so uncommitted work in the checkout must not block before launch.
+  // The module executor should delegate the launch (here the fake delegate
+  // refuses, so the run fails at launch — but the point is it reached the launch,
+  // proving there is no pre-launch dirty-tree block). Real repository, because
+  // the module wires the real `defaultCreateRunWorktree`.
+  const folderPath = await initDirtyTestRepo('multicode-automations-module-dirty-')
   const launchRequests: AutomationRendererRequest[] = []
   let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
     null as AutomationsEngineOptions['runAutomation'] | null
@@ -711,11 +713,71 @@ async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<v
     triggerPayload: { kind: 'schedule' },
   })
 
-  assert.notEqual(result.status, 'blocked', 'a non-git checkout no longer blocks before launch')
+  assert.notEqual(result.status, 'blocked', 'a dirty checkout no longer blocks before launch')
   assert.ok(
     launchRequests.some((request) => request.kind === 'agent.launch'),
     'the run delegates an agent launch instead of gating on the dirty tree',
   )
+}
+
+// The other half of the same wiring: a folder that is not a repository cannot
+// give the run the worktree it asked for, and the run is blocked instead of
+// being launched — unattended, with permissions bypassed — into that folder.
+// Real module wiring, so this covers the production `defaultCreateRunWorktree`.
+async function testModuleExecutorBlocksWhenTheRunCannotGetAWorktree(): Promise<void> {
+  const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-non-git-'))
+  const launchRequests: AutomationRendererRequest[] = []
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
+    null as AutomationsEngineOptions['runAutomation'] | null
+
+  loadMainModules({
+    ipcMain: createFakeIpcMain().ipcMain,
+    modules: [
+      fakeAgentRuntimeModule({
+        workspaceSnapshot: workspaceSnapshot(folderPath, 'automations-host'),
+        delegateRequest: async (request) => {
+          launchRequests.push(request)
+          return { ok: false, code: 'should_not_launch', message: 'should not launch' }
+        },
+      }),
+      createAutomationsModule({
+        createEngine: (options) => {
+          capturedRunAutomation = options.runAutomation
+          return createFakeAutomationsEngine() as unknown as AutomationsEngine
+        },
+      }),
+    ],
+  })
+
+  assert.ok(capturedRunAutomation)
+  const result = await capturedRunAutomation({
+    workspaceRoot: folderPath,
+    definition: automationDefinition(folderPath),
+    run: automationRun(),
+    triggerPayload: { kind: 'schedule' },
+  })
+
+  assert.equal(result.status, 'blocked', 'a run that cannot get its worktree fails closed')
+  assert.match(result.blockedReason ?? '', /is not a git repository/)
+  assert.deepEqual(launchRequests, [], 'no agent is launched into the folder')
+}
+
+async function initDirtyTestRepo(prefix: string): Promise<string> {
+  const repoRoot = await realpath(await mkdtemp(join(tmpdir(), prefix)))
+  for (const args of [
+    ['init', '-q'],
+    ['config', 'user.email', 'test@example.com'],
+    ['config', 'user.name', 'Test'],
+    ['config', 'commit.gpgsign', 'false'],
+  ]) {
+    assert.ok((await runGitCommand(repoRoot, args)).ok, `git ${args.join(' ')}`)
+  }
+  await writeFile(join(repoRoot, 'seed.txt'), 'seed\n', 'utf8')
+  assert.ok((await runGitCommand(repoRoot, ['add', 'seed.txt'])).ok)
+  assert.ok((await runGitCommand(repoRoot, ['commit', '-qm', 'seed'])).ok)
+  // Uncommitted work in the checkout: the state the removed gate used to refuse.
+  await writeFile(join(repoRoot, 'seed.txt'), 'dirty\n', 'utf8')
+  return repoRoot
 }
 
 async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
@@ -1015,6 +1077,7 @@ async function main(): Promise<void> {
   await testLiveEnablementToggleStopsUnregistersAndRestarts()
   await testAgentExitListenerRoutesExitsAndWiresLiveExecutions()
   await testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch()
+  await testModuleExecutorBlocksWhenTheRunCannotGetAWorktree()
   await testModuleRegistersFirstPartyActionProviders()
   await testThirdPartyAutomationProviderRegistrationUsesLiveRegistry()
   await testThirdPartyAutomationProviderTrustGateBlocksListingAndExecution()

@@ -31,6 +31,7 @@ export function completeAutomationRun(
     touchedFiles: patch.touchedFiles,
     commandsRan: patch.commandsRan,
     summary: patch.summary,
+    isolation: patch.isolation,
     worktreePath: patch.worktreePath,
     branch: patch.branch,
     pullRequestUrl: patch.pullRequestUrl,

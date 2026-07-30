@@ -8,6 +8,7 @@ import type {
   AutomationRunStatus,
   AutomationStatus,
 } from '../../shared/automations/contracts'
+import { translateRetiredAutonomy, withoutWriteUpOnlyMarker } from '../../shared/automations/contracts'
 
 export const AUTOMATIONS_STORE_DIRECTORY = '.multi-code/automations'
 export const AUTOMATION_RUN_HISTORY_LIMIT = 50
@@ -317,13 +318,17 @@ export class AutomationsStore {
     }
   }
 
+  // The one place a definition reaches disk, and so the one place the read-time
+  // legacy marker is stripped — including from the value handed back, because
+  // once the record is rewritten the legacy key is gone from the file too.
   private async writeDefinition(
     definition: AutomationDefinition,
     path: string
   ): Promise<AutomationStoreWriteResult<AutomationDefinition>> {
-    const written = await this.writeJson(path, definition)
+    const persisted = withoutWriteUpOnlyMarker(definition)
+    const written = await this.writeJson(path, persisted)
     if (!written.ok) return written
-    return { ok: true, value: definition }
+    return { ok: true, value: persisted }
   }
 
   private async writeRun(run: AutomationRun, path: string): Promise<AutomationStoreWriteResult<AutomationRun>> {
@@ -349,7 +354,7 @@ export class AutomationsStore {
     if (!parsed.ok) return parsed
     const validated = this.validateDefinition(parsed.value, path)
     if (!validated.ok) return validated
-    return { ok: true, value: withoutRetiredAutonomy(validated.value) }
+    return { ok: true, value: translateRetiredAutonomy(validated.value) }
   }
 
   private async readRunFile(path: string): Promise<AutomationStoreReadResult<AutomationRun>> {
@@ -517,16 +522,6 @@ function aggregateProblems(errors: AutomationStoreProblem[]): AutomationStorePro
     path: AUTOMATIONS_STORE_DIRECTORY,
     message: `${errors.length} automations store files are malformed or unreadable.`,
   }
-}
-
-// Definitions written before autonomy was retired still carry `autonomyDefault`
-// on disk. The read drops it so a load → edit → save round trip cannot write it
-// back; files are rewritten by their owner's next save, never migrated eagerly.
-function withoutRetiredAutonomy(definition: AutomationDefinition): AutomationDefinition {
-  if (!Object.hasOwn(definition, 'autonomyDefault')) return definition
-  const next: Record<string, unknown> = { ...definition }
-  delete next.autonomyDefault
-  return next as AutomationDefinition
 }
 
 function isAutomationDefinition(value: unknown): value is AutomationDefinition {

@@ -6,6 +6,7 @@ import type {
   AutomationCliPermissionPreset,
   AutomationDefinition,
   AutomationRun,
+  AutomationRunIsolation,
 } from '../../../shared/automations/contracts'
 
 const PERMISSION_PRESETS: readonly AutomationCliPermissionPreset[] = ['default', 'auto_workspace', 'bypass_all']
@@ -107,6 +108,7 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
     runId: runtime.runId,
     includeTriggerContext: parsed.includeTriggerContext,
     triggerPayload: runtime.triggerPayload,
+    writeUpOnly: runtime.definition.legacyWriteUpOnly === true,
   })
   const launched = await runtime.spawnAgent({
     workspaceId: target.workspaceId,
@@ -122,7 +124,14 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
     spawnSkillId: parsed.spawnSkillId,
   })
 
-  const isolation = launched.worktreePath ? ' in an isolated worktree' : ''
+  // A run without a worktree is here only because its definition opted out: the
+  // executor blocks a run that wanted isolation and could not get it. Record
+  // which of the two shapes this run is, so a reader of the run alone can tell a
+  // contained run from one that wrote into the user's checkout.
+  const isolation: AutomationRunIsolation = launched.worktreePath ? 'worktree' : 'workspace-checkout'
+  const where = launched.worktreePath
+    ? 'in an isolated worktree'
+    : 'in the workspace checkout (no branch, no pull request)'
   // The run stays in-progress: the agent is now working. finalizeRun records the
   // terminal outcome (and links a PR) when the agent finishes.
   return {
@@ -130,10 +139,11 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
     workspaceId: launched.workspaceId,
     agentId: launched.agentId,
     executionId: launched.executionId,
+    isolation,
     worktreePath: launched.worktreePath,
     branch: launched.branch,
     promptFingerprint: fingerprintPrompt(prompt),
-    summary: `Launched agent ${launched.agentId}${isolation}; working…`,
+    summary: `Launched agent ${launched.agentId} ${where}; working…`,
   }
 }
 
@@ -183,6 +193,11 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
 // (taskId/question/…) while still bounding a pathological producer.
 const TRIGGER_CONTEXT_MAX_BYTES = 8192
 
+// The substitution the owner named when retiring `autonomyDefault`, verbatim, so
+// a definition whose author asked for a reviewer still gets one.
+export const WRITE_UP_ONLY_INSTRUCTION =
+  'Open a pull request containing the write-up only; do not refactor.'
+
 export function composeSpawnAgentPrompt(input: {
   userPrompt: string
   automationId: string
@@ -192,6 +207,12 @@ export function composeSpawnAgentPrompt(input: {
   // which task/question woke it. Absent flag ⇒ byte-identical prompt as before.
   includeTriggerContext?: boolean
   triggerPayload?: Record<string, unknown>
+  // Set for a definition stored before `autonomyDefault` was retired whose author
+  // chose `review_only` (AutomationDefinition.legacyWriteUpOnly). Their intent
+  // was "report, do not fix", and it now lives here — in the prompt — because
+  // that is where the owner put reviewer-vs-fixer intent when the field was
+  // retired. Nothing sets it for a definition written since.
+  writeUpOnly?: boolean
 }): string {
   // One unconditional policy block. A run that must not refactor says so in its
   // own task prompt ("open a pull request containing the write-up only"), which
@@ -200,6 +221,7 @@ export function composeSpawnAgentPrompt(input: {
   const policy = [
     'You may modify files only when the requested task requires it.',
     'Keep changes scoped to the automation request, preserve user work, and report every file and command you touch.',
+    ...(input.writeUpOnly === true ? [WRITE_UP_ONLY_INSTRUCTION] : []),
   ]
 
   // The run finalizes when this agent ends its turn, so a turn ended to ask a
