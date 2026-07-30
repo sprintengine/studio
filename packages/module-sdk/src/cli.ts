@@ -38,6 +38,7 @@ import {
 } from './plugin-manifest.js'
 import {
   computeMarketplacePluginComponentsWithDigestsSync,
+  marketplaceAutomationPayloadIssuesSync,
   marketplaceComponentDigestMismatchIssuesSync,
 } from './plugin-component-digests.js'
 import { generateModuleSigningKeyPair, signManifest, verifyModuleSignature } from './signing.js'
@@ -70,8 +71,8 @@ Multicode app: exit 0 with the signer fingerprint when valid, exit 1 when
 unsigned, tampered, or invalid.
 
 plugin scaffold creates plugin.json plus component placeholders for mcp, skills,
-module, and cli by default. Pass --component repeatedly to scaffold only the
-kinds you want.
+module, cli, and automation by default. Pass --component repeatedly to scaffold
+only the kinds you want.
 
 plugin sign writes component file digests into the normalized plugin.json bundle
 manifest before signing it. plugin pack validates plugin.json through the
@@ -164,6 +165,9 @@ function pluginComponentsFromKinds(kinds: MarketplaceComponentKind[], id: string
       case 'cli':
         components.cli = { path: 'cli' }
         break
+      case 'automation':
+        components.automation = { path: 'automation/automation.json' }
+        break
     }
   }
   return components
@@ -190,6 +194,11 @@ function assertPluginComponentDigestsMatch(pluginDir: string, manifest: Marketpl
     blockedFileMessage: (path) => `component file "${path}" cannot be signed or packed.`,
   })
   if (issues.length > 0) fail(`Plugin component digests do not match ${pluginDir}:`, issues)
+}
+
+function assertPluginAutomationPayload(pluginDir: string, components: MarketplacePluginComponents): void {
+  const issues = marketplaceAutomationPayloadIssuesSync(pluginDir, components)
+  if (issues.length > 0) fail(`Plugin automation payload is not a valid automation definition in ${pluginDir}:`, issues)
 }
 
 function uniqueSiblingPath(parent: string, name: string): string {
@@ -434,6 +443,21 @@ function pluginScaffold(args: string[]): void {
     })
     writeFileSync(join(cliDir, 'index.js'), 'console.log("Replace this placeholder with your CLI integration.")\n')
   }
+  if (components.automation) {
+    writeJson(join(outDir, components.automation.path), {
+      name: `${displayName} nightly`,
+      status: 'paused',
+      trigger: {
+        kind: 'schedule',
+        config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' },
+      },
+      action: {
+        kind: 'spawn-agent',
+        config: { prompt: 'Replace this placeholder with the work the automation should do each run.' },
+      },
+      autonomyDefault: 'bypass_all',
+    })
+  }
 
   console.log(`Scaffolded marketplace plugin ${id} at ${outDir}`)
   console.log('Run `multicode-module keygen`, then `multicode-module plugin sign`, then `multicode-module plugin verify`.')
@@ -454,6 +478,7 @@ function pluginPack(args: string[]): void {
     fail(`${manifest.id} has an INVALID signature. Re-sign the plugin before packing it.`)
   }
   assertPluginComponentDigestsMatch(sourceDir, manifest)
+  assertPluginAutomationPayload(sourceDir, manifest.components)
 
   const outDir = resolve(values.out ?? join('packed', manifest.id))
   if (existsSync(outDir) && !values.force) {
@@ -506,6 +531,7 @@ function pluginSign(args: string[]): void {
 
   const pluginRoot = resolve(pluginDir)
   const { manifestPath, manifest } = readPluginAuthoringManifest(pluginRoot)
+  assertPluginAutomationPayload(pluginRoot, manifest.components)
   const { signature: _prior, ...unsigned } = manifest
   const componentsWithDigests = computeMarketplacePluginComponentsWithDigestsSync(pluginRoot, unsigned.components, {
     blockedFileMessage: (path) => `component file "${path}" cannot be signed or packed.`,
@@ -549,6 +575,7 @@ function pluginVerify(args: string[]): void {
     )
   }
   assertPluginComponentDigestsMatch(sourceDir, manifest)
+  assertPluginAutomationPayload(sourceDir, manifest.components)
   console.log(`${manifest.id}: plugin signature valid`)
   console.log(`Signer fingerprint: ${fingerprint}`)
 }

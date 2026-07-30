@@ -24,7 +24,10 @@ import {
   resolveOptionallySignedManifest,
 } from '../../shared/marketplace'
 import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
-import { marketplaceComponentDigestMismatchIssuesSync } from '../../../packages/module-sdk/src/plugin-component-digests'
+import {
+  marketplaceAutomationPayloadIssuesSync,
+  marketplaceComponentDigestMismatchIssuesSync,
+} from '../../../packages/module-sdk/src/plugin-component-digests'
 import { installPluginFolder as installCliPluginFolder } from '../plugin-install'
 import { validateManifestSource } from '../plugin-registry'
 import { getPluginRegistryUserRoot, reloadPluginRegistry } from '../plugin-registry-instance'
@@ -144,6 +147,16 @@ async function buildInstallPlan(
   })
   if (digestMismatch.length > 0) {
     return failure('Plugin bundle component digests do not match its signed manifest.', undefined, digestMismatch, {
+      trust: trust.status,
+      loadEligible: isLoadEligible(trust.status),
+    })
+  }
+
+  // Mirror the download gate: an automation component must carry a definition
+  // payload, checked before any component is prepared or written.
+  const automationIssues = marketplaceAutomationPayloadIssuesSync(bundleRoot.path, manifest.components)
+  if (automationIssues.length > 0) {
+    return failure('Plugin bundle automation payload is not a valid automation definition.', 'automation', automationIssues, {
       trust: trust.status,
       loadEligible: isLoadEligible(trust.status),
     })
@@ -352,6 +365,11 @@ async function prepareComponent(
       return prepareModuleComponent(path, trustContext)
     case 'cli':
       return prepareCliComponent(path)
+    case 'automation':
+      // The kind exists and its payload is validated above, but nothing installs
+      // an automation definition yet. Refuse explicitly rather than install a
+      // bundle while silently dropping the component it declared.
+      return { ok: false, message: 'Automation components cannot be installed from a plugin bundle yet.' }
   }
 }
 

@@ -21,7 +21,15 @@ type BundleComponents = {
   skills?: { path: string }
   module?: { path: string }
   cli?: { path: string }
+  automation?: { path: string; source?: string }
 }
+
+const AUTOMATION_PAYLOAD = `${JSON.stringify({
+  name: 'Nightly dependency sweep',
+  status: 'paused',
+  trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' } },
+  action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
+}, null, 2)}\n`
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'mc-marketplace-install-'))
@@ -225,6 +233,9 @@ async function createBundle(
         mcpServers: false,
       },
     }, null, 2)}\n`)
+  }
+  if (components.automation) {
+    files.set(components.automation.path, components.automation.source ?? AUTOMATION_PAYLOAD)
   }
   const manifest = options.signed === false
     ? unsignedBundleManifest(components, files)
@@ -537,11 +548,54 @@ async function testRejectsUnsignedCliBundleBeforeWrites(): Promise<void> {
   })
 }
 
+async function testRejectsAutomationPayloadThatIsNotADefinition(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const components: BundleComponents = {
+      mcp: { path: 'mcp.json' },
+      automation: { path: 'automation/automation.json', source: `${JSON.stringify({ name: 'No trigger' })}\n` },
+    }
+    const bundle = await createBundle(temp, components, { signed: false })
+    const { input, services, workspaceRoot } = await installInput(temp, bundle)
+
+    const result = await installMarketplacePlugin(input, services)
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.component, 'automation')
+    assert.deepEqual(
+      result.issues?.map((issue) => issue.path),
+      ['components.automation.trigger', 'components.automation.action']
+    )
+    assert.equal(existsSync(join(workspaceRoot, '.codex', 'config.toml')), false, 'preflight refuses before any component is written')
+  })
+}
+
+async function testAutomationComponentRefusedRatherThanSilentlyDropped(): Promise<void> {
+  await withTempDir(async (temp) => {
+    // The kind stages and validates, but nothing installs an automation
+    // definition yet; the bundle must fail rather than install its other
+    // components and quietly drop the automation it declared.
+    const components: BundleComponents = { mcp: { path: 'mcp.json' }, automation: { path: 'automation/automation.json' } }
+    const bundle = await createBundle(temp, components, { signed: false })
+    const { input, services, workspaceRoot } = await installInput(temp, bundle)
+
+    const result = await installMarketplacePlugin(input, services)
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.component, 'automation')
+    assert.match(result.message, /cannot be installed from a plugin bundle yet/)
+    assert.equal(existsSync(join(workspaceRoot, '.codex', 'config.toml')), false)
+  })
+}
+
 async function main(): Promise<void> {
   await testInstallsEveryComponentThroughRealPaths()
   await testInstallsUnsignedMcpSkillsBundle()
   await testRejectsUnsignedModuleBundleBeforeWrites()
   await testRejectsUnsignedCliBundleBeforeWrites()
+  await testRejectsAutomationPayloadThatIsNotADefinition()
+  await testAutomationComponentRefusedRatherThanSilentlyDropped()
   await testMcpFanOutWarningDoesNotReportCleanSuccess()
   await testLocalInstallRejectsSignedComponentDigestMismatchBeforeWrites()
   await testMcpSkillBundleIsVisibleAndLaunchesTerminalWithInstalledMcp()

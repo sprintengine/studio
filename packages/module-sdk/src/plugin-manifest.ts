@@ -13,9 +13,9 @@ import {
   type ThirdPartyManifestIssue,
 } from './manifest-validate.js'
 
-export type MarketplaceComponentKind = 'mcp' | 'skills' | 'module' | 'cli'
+export type MarketplaceComponentKind = 'mcp' | 'skills' | 'module' | 'cli' | 'automation'
 
-export const MARKETPLACE_COMPONENT_KINDS: readonly MarketplaceComponentKind[] = ['mcp', 'skills', 'module', 'cli']
+export const MARKETPLACE_COMPONENT_KINDS: readonly MarketplaceComponentKind[] = ['mcp', 'skills', 'module', 'cli', 'automation']
 
 export type MarketplaceComponentFileDigest = {
   path: string
@@ -181,6 +181,50 @@ function validateComponents(
     return undefined
   }
   return components
+}
+
+const AUTOMATION_ISSUE_PATH = 'components.automation'
+
+// Structural check on the bytes an `automation` component points at. An
+// automation payload is a JSON automation definition draft (name + trigger +
+// action); this tier proves only that shape, because the authoritative parse —
+// trigger and action kinds, cadence, per-action config schemas — lives in the
+// app's single automation write path, which this package cannot import. The
+// bundle gates run this so a mis-authored bundle is refused at pack, stage, and
+// install-preflight time; the installer still runs the authoritative parse
+// before anything is written.
+export function marketplaceAutomationPayloadIssues(source: string): MarketplaceManifestIssue[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(source)
+  } catch (error) {
+    return [{
+      path: AUTOMATION_ISSUE_PATH,
+      message: `automation payload must be valid JSON: ${error instanceof Error ? error.message : 'parse error'}.`,
+    }]
+  }
+  if (!isObject(parsed)) {
+    return [{ path: AUTOMATION_ISSUE_PATH, message: 'automation payload must be a JSON object.' }]
+  }
+
+  const issues: MarketplaceManifestIssue[] = []
+  if (typeof parsed.name !== 'string' || parsed.name.trim().length === 0) {
+    issues.push({ path: `${AUTOMATION_ISSUE_PATH}.name`, message: 'automation payload name is required and must be a non-empty string.' })
+  }
+  for (const field of ['trigger', 'action'] as const) {
+    const value = parsed[field]
+    if (!isObject(value)) {
+      issues.push({ path: `${AUTOMATION_ISSUE_PATH}.${field}`, message: `automation payload ${field} is required and must be an object.` })
+      continue
+    }
+    if (typeof value.kind !== 'string' || value.kind.trim().length === 0) {
+      issues.push({
+        path: `${AUTOMATION_ISSUE_PATH}.${field}.kind`,
+        message: `automation payload ${field}.kind is required and must be a non-empty string.`,
+      })
+    }
+  }
+  return issues
 }
 
 function validateMarketplacePluginManifestBase(
