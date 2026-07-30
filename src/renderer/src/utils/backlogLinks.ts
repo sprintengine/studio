@@ -99,7 +99,10 @@ type StatusDrivingLink = Pick<BacklogItemLink, 'type' | 'status'>
 //    symmetric partner of the run START, which fans in_progress DOWN to the
 //    children (recordSprintEngineExecutionLink).
 //
-// `archived` is never demoted, and an unknown link status never drives a change.
+// `archived` is never demoted, and neither an unknown nor a `pending` link status
+// ever drives a change — a `pending` execution link is work that is recorded but
+// has not started (an epic child whose task has not claimed, MC-2017), and it
+// falls through to `currentStatus` below exactly like an unknown one.
 export function nextBacklogItemStatusFromLinks(
   currentStatus: BacklogItemStatus,
   links: ReadonlyArray<StatusDrivingLink>,
@@ -134,6 +137,7 @@ export function linkStatusChanged(link: BacklogItemLink, resolved: BacklogResolv
 // Visible, non-color-only status word for a resolved Backlog link. The detail
 // pane shows this beside every link so status never depends on color alone.
 export const BACKLOG_LINK_STATUS_TEXT: Record<BacklogItemLinkStatus, string> = {
+  pending: 'Not started',
   active: 'Active',
   completed: 'Completed',
   canceled: 'Canceled',
@@ -178,6 +182,11 @@ function toStoredBacklogLink(resolved: BacklogResolvedLink): BacklogItemLink {
     label: resolved.label,
     target: resolved.target,
     status: resolved.status,
+    // Carried, not dropped: `addOrUpdateBacklogLink` replaces the stored link
+    // wholesale, so omitting this would silently strip an epic child's restore
+    // target the first time someone opened the Backlog surface mid-sprint, and a
+    // later cancel would have nothing to put the child back to (MC-2017).
+    ...(resolved.priorStatus ? { priorStatus: resolved.priorStatus } : {}),
     updatedAt: resolved.updatedAt,
   }
 }

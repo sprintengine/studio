@@ -8,6 +8,12 @@
 // opening one — stay in src/renderer/src/utils/sprintengineBacklogLinks.ts,
 // which re-exports everything here so there is exactly one implementation.
 
+// Type-only, so this module stays node-free: the Backlog lifecycle vocabulary a
+// child link remembers in `priorStatus`. Imported rather than re-spelled because
+// a third copy of the status union would drift from the two that already mirror
+// each other.
+import type { BacklogItemStatusPayload } from '../electron-api'
+
 export const SPRINT_ENGINE_MODULE_ID = 'sprint-engine'
 export const SPRINT_ENGINE_RUN_TARGET_KIND = 'sprintengine.run'
 export const SPRINT_ENGINE_PR_TARGET_KIND = 'sprintengine.pullRequest'
@@ -42,8 +48,9 @@ export type SprintEngineRunBacklogLink = {
   moduleId: string
   type: 'execution'
   label: string
-  target: { kind: string; id: string; path: string }
-  status: 'active'
+  target: { kind: string; id: string; path: string; taskId?: string }
+  status: 'active' | 'pending'
+  priorStatus?: BacklogItemStatusPayload
 }
 
 export type SprintEnginePullRequestBacklogLink = {
@@ -66,9 +73,21 @@ export function sprintEngineRunLinkId(teamSlug: string): string {
 // `target.path` must be the project-relative run.yaml — `addOrUpdateBacklogLink`
 // rejects an absolute one, and every reader resolves it back through
 // `safeProjectRelativeRunPath`.
+//
+// An epic launch records the same link on each child item (MC-2017), with three
+// differences that make it a CHILD link rather than the launching item's own:
+//  - `status: 'pending'` — recorded, not started. Only `active` drives an item to
+//    `in_progress`, so a child does not read as working until its own task claims.
+//  - `priorStatus` — the status the child held before the sprint, so cancelling
+//    puts it back instead of stranding it `in_progress`.
+//  - `target.taskId` — bound later, by the projection tick, once the planner has
+//    minted the task whose `backlogRef` names this child.
 export function buildSprintEngineRunLink(input: {
   teamSlug: string
   runRelativePath: string
+  status?: 'active' | 'pending'
+  priorStatus?: BacklogItemStatusPayload
+  taskId?: string
 }): SprintEngineRunBacklogLink {
   return {
     id: sprintEngineRunLinkId(input.teamSlug),
@@ -79,8 +98,10 @@ export function buildSprintEngineRunLink(input: {
       kind: SPRINT_ENGINE_RUN_TARGET_KIND,
       id: input.teamSlug,
       path: input.runRelativePath,
+      ...(input.taskId ? { taskId: input.taskId } : {}),
     },
-    status: 'active',
+    status: input.status ?? 'active',
+    ...(input.priorStatus ? { priorStatus: input.priorStatus } : {}),
   }
 }
 
@@ -164,7 +185,21 @@ type StoredLink = {
   id: string
   moduleId: string
   type: string
-  target: { kind: string; id: string; path?: string; url?: string }
+  target: { kind: string; id: string; path?: string; url?: string; taskId?: string }
+  status?: string
+}
+
+// Whether this run link is one of the epic-child fan-out links (MC-2017) rather
+// than the launching item's own. A child link is born `pending` and gains a
+// `target.taskId` when the planner mints its task, so either marker identifies
+// one for the rest of its life. The distinction matters because the two are
+// driven by different things: a child link tracks ITS TASK, the launching item's
+// link tracks the whole run. Nothing promotes a launching item's link into a
+// child link, so a single-item launch — whose one task may well carry a
+// `backlogRef` back to it — keeps reading as the run-level link it has always
+// been.
+export function isSprintEngineChildRunLink<Link extends StoredLink>(link: Link): boolean {
+  return link.status === 'pending' || typeof link.target.taskId === 'string'
 }
 
 // The item's Sprint Engine execution link, if any. This is the only backlog -> run
