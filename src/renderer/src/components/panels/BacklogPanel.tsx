@@ -1340,13 +1340,17 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     </Tooltip>
   )
 
+  // A bare plus, beside the refresh glyph. The word is redundant next to a
+  // panel that already says Backlog, and at panel widths it was the thing that
+  // squeezed the title into an ellipsis.
   const newPlanButton = (
-    <GhostButton onClick={openCreate} disabled={!folderPath} aria-label="New backlog item">
-      <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-        <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-      New item
-    </GhostButton>
+    <Tooltip content="New item" placement="bottom">
+      <IconButton aria-label="New backlog item" onClick={openCreate} disabled={!folderPath}>
+        <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+          <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </IconButton>
+    </Tooltip>
   )
 
   const actions: BacklogActions = {

@@ -80,7 +80,11 @@ export function PanelHeader({
           <span className="tabular-nums text-meta text-[color:var(--text-muted)]">{count}</span>
         ) : null}
         {subtitle ? (
-          <span className="truncate text-meta text-[color:var(--text-muted)]">
+          // Shrinks far ahead of the title: a narrow panel that clips its own
+          // name to "Bac…" while the scope word beside it stays whole has the
+          // priority backwards. The scope gives up its space first, and the
+          // title only starts truncating once the subtitle is gone.
+          <span className="shrink-[100] truncate text-meta text-[color:var(--text-muted)]">
             <span aria-hidden="true" className="mx-1.5 text-[color:var(--text-disabled)]">
               ·
             </span>

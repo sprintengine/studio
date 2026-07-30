@@ -280,6 +280,18 @@ run('the row hover card carries the full title, status word, id, and path', () =
   assert.match(markup, /backlog\/checkout\.md/, 'the path (the old native title) survives on the card')
 })
 
+// On a cross-project list the project rides HERE — the rows themselves stay a
+// title and its meta, with no column of the same project name repeated down the
+// page. Inside one project's panel the card is handed no project at all: the
+// panel is the answer.
+run('the hover card names the project when rows come from several backlogs', () => {
+  const item = { ...itemWith(), displayId: 'MC-1500' }
+  const mixed = renderToStaticMarkup(<BacklogRowHoverCard item={item} projectName="multicode" />)
+  assert.match(mixed, /MC-1500 · multicode/, 'the project follows the id on the card')
+  const single = renderToStaticMarkup(<BacklogRowHoverCard item={item} />)
+  assert.doesNotMatch(single, /multicode/, 'with no project passed the card names none')
+})
+
 run('an epic hover card adds its true completion fraction', () => {
   const markup = renderToStaticMarkup(
     <BacklogRowHoverCard item={epicItem('in_progress')} epicProgress={{ done: 9, total: 12 }} />,

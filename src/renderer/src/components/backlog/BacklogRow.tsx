@@ -125,7 +125,8 @@ function titleInkClass(selected: boolean): string {
 }
 
 // Hover card for a backlog list row: the full (unclipped) title, the status
-// word with the id (and an epic's completion), and the file path. The Backlog
+// word with the id (an epic's completion, and on a cross-project list the
+// project the item belongs to), and the file path. The Backlog
 // panel wraps each row in a Tooltip carrying this card, replacing the native
 // `title` path tooltip; since the card always shows the full title, the host
 // also sets `plainTitle` on the row content so the clipped-title tooltip
@@ -135,6 +136,7 @@ export function BacklogRowHoverCard({
   runGlyph,
   epicProgress,
   dependencyState,
+  projectName,
 }: {
   item: BacklogItem
   runGlyph?: BacklogRunGlyph
@@ -142,6 +144,10 @@ export function BacklogRowHoverCard({
   /** Derived dependency marker (see backlogDependencies): 'blocked' replaces
    *  the status word so the card never claims Ready for a gated item. */
   dependencyState?: BacklogDependencyState | null
+  /** Which project's backlog this item lives in. Set only where rows from
+   *  several projects are mixed (the Backlog door on All projects) — inside one
+   *  project's panel the answer is the panel itself. */
+  projectName?: string
 }): JSX.Element {
   const statusLabel =
     runGlyph?.label
@@ -155,6 +161,7 @@ export function BacklogRowHoverCard({
         {statusLabel}
         {item.displayId ? ` · ${item.displayId}` : ''}
         {item.isEpic && epicProgress ? ` · ${epicProgress.done}/${epicProgress.total} complete` : ''}
+        {projectName ? ` · ${projectName}` : ''}
       </span>
       <span className="whitespace-normal break-all font-mono text-micro text-[color:var(--text-subtle)]">
         {item.relativePath}
