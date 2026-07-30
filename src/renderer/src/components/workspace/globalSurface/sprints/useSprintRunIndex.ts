@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { listAutomationProjectFolders } from '../../../../utils/automationsEntry'
-import { dropDeletedSprintRunDebris } from './sprintRunTombstones'
+import {
+  getSprintRunIndexSnapshot,
+  refreshSprintRunIndex,
+  setSprintRunIndexRoots,
+  subscribeSprintRunIndex,
+  type SprintRunIndexLoadState,
+  type SprintRunIndexSnapshot,
+} from './sprintRunIndexStore'
 
 // The Sprints door's data source (item 1763): every run across every known
 // project, from the run index (T1). Shared by the surface (its rail and canvas)
@@ -17,8 +24,13 @@ import { dropDeletedSprintRunDebris } from './sprintRunTombstones'
 // from the run index's per-run directory watch for the writes the Python engine
 // makes on its own (MC-1801) — so this refetches on the event rather than
 // polling.
+//
+// The fetching itself lives in `sprintRunIndexStore`: one subscription and one
+// coalesced scan for the whole window, however many components read the index.
+// This hook is the React view of that store — see the store's header for why
+// per-consumer fetching was worth removing.
 
-export type SprintRunIndexLoadState = 'loading' | 'ready' | 'error'
+export type { SprintRunIndexLoadState }
 
 export type SprintRunIndex = {
   runs: SprintRunSummary[]
@@ -27,6 +39,10 @@ export type SprintRunIndex = {
   error: string | null
   reload: () => void
 }
+
+// What a consumer reports before its own read has landed. Stable by identity so
+// it never itself causes a re-render.
+const PENDING: SprintRunIndexSnapshot = { runs: [], loadState: 'loading', error: null }
 
 export function useSprintRunIndex(): SprintRunIndex {
   const workspaces = useWorkspaceStore((state) => state.workspaces)
@@ -38,36 +54,46 @@ export function useSprintRunIndex(): SprintRunIndex {
     () => JSON.stringify(listAutomationProjectFolders(workspaces).map((folder) => folder.folderPath)),
     [workspaces],
   )
-  const roots = useMemo(() => JSON.parse(rootsKey) as string[], [rootsKey])
 
-  const [runs, setRuns] = useState<SprintRunSummary[]>([])
-  const [loadState, setLoadState] = useState<SprintRunIndexLoadState>('loading')
-  const [error, setError] = useState<string | null>(null)
+  const stored = useSyncExternalStore(
+    subscribeSprintRunIndex,
+    getSprintRunIndexSnapshot,
+    getSprintRunIndexSnapshot,
+  )
 
-  const load = useCallback(async () => {
-    try {
-      const listed = await window.api.listSprintRuns(roots)
-      // A run the operator deleted can be recreated on disk by a writer that
-      // outlived it; that folder is debris, not a run (item 1812).
-      setRuns(dropDeletedSprintRunDebris(listed))
-      setError(null)
-      setLoadState('ready')
-    } catch (cause) {
-      // An unreadable index is an error state with a retry, never an empty rail
-      // pretending there are no sprints.
-      setError(cause instanceof Error ? cause.message : String(cause))
-      setLoadState('error')
-    }
-  }, [roots])
+  // The store outlives any single mount, so a consumer can mount onto rows that
+  // were read for an earlier one. Those rows are shared DATA, but they are not
+  // this consumer's READ: reporting them as `ready` tells the surface a decision
+  // is safe to make when it is not. `SprintsGlobalSurface` opens on `rows[0]` the
+  // moment it sees `ready`, so a door opened from a Backlog "Open Sprint" link
+  // would resolve the handed-over path against the previous mount's rows, miss,
+  // and select the wrong run — item 1803's bug, reintroduced by warm state.
+  //
+  // So each consumer reports `loading` until a publish lands after IT mounted.
+  // Mounting always requests a read and every read publishes, so this always
+  // resolves — and it is exactly what a per-consumer fetch used to give. The
+  // sharing that matters (one subscription, one coalesced scan per burst) is
+  // unaffected; only the first frame differs.
+  const mountSnapshot = useRef<SprintRunIndexSnapshot | null>(null)
+  if (mountSnapshot.current === null) mountSnapshot.current = stored
+  const snapshot = stored === mountSnapshot.current ? PENDING : stored
 
   useEffect(() => {
-    void load()
-  }, [load])
+    // Point the shared index at this window's roots (a no-op when unchanged),
+    // then read: the index is re-read on mount so a run created moments ago is
+    // already listed by the time the rows resolve. Neither call waits out the
+    // coalescing window — that is for bursts — and both collapse against an
+    // in-flight scan, so mounting the sidebar entry and the surface together
+    // still costs one scan.
+    setSprintRunIndexRoots(rootsKey)
+    refreshSprintRunIndex()
+  }, [rootsKey])
 
-  // Refetch when any run's projection changes. A refresh never returns the
-  // surface to `loading` — populated content must not blink back to a spinner.
-  useEffect(() => window.api.onSprintRunsChanged(() => void load()), [load])
-
-  const reload = useCallback(() => void load(), [load])
-  return { runs, loadState, error, reload }
+  return {
+    runs: snapshot.runs,
+    loadState: snapshot.loadState,
+    error: snapshot.error,
+    // The explicit retry reads now — see the store.
+    reload: refreshSprintRunIndex,
+  }
 }
