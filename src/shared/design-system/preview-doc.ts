@@ -98,9 +98,14 @@ export function composePreviewSrcDoc(input: ComposePreviewInput): string {
     .filter(Boolean)
     .map(stripCssImports)
     .join('\n')
+  // `safe center` is the whole trick for tiles: a stage SHORTER than the frame
+  // is centred, and one TALLER is anchored to the top instead of being centred
+  // into a middle slice. Plain `center` clipped both ends, so a tall demo
+  // document rendered as a band cut through the middle of two controls — real
+  // content, drawn in a way that reads as broken.
   const frame =
     layout === 'center'
-      ? `html,body{height:100%}body{display:flex;align-items:center;justify-content:center;overflow:hidden}`
+      ? `html,body{height:100%}body{display:flex;align-items:safe center;justify-content:safe center;overflow:hidden}`
       : `body{overflow-x:hidden}`
   return `<!doctype html>
 <html lang="en" data-mode="${mode}">
