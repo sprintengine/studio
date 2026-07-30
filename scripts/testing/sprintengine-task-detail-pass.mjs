@@ -335,6 +335,10 @@ const MEASURE = `(() => {
         label: m.getAttribute('aria-label'),
         bars: m.children.length,
         height: Math.round(box(m).height),
+        // Painted height of every bucket. A bucket of literally no height leaves
+        // a gap, and a task whose activity clustered early in a long window is
+        // mostly gaps — which reads as stray rectangles, not a chart (T8 F4).
+        barHeights: Array.from(m.children).map((bar) => Math.round(box(bar).height * 100) / 100),
       })),
     }
   }
@@ -597,6 +601,16 @@ async function main() {
       'Elapsed renders with a sparkline',
       Boolean(m.elapsed) && m.elapsed.marks.some((mark) => /activity/i.test(mark.label || '') && mark.bars > 1),
       JSON.stringify(m.elapsed),
+    )
+    // A quiet bucket must still paint its baseline: the fixture's activity all
+    // lands early in an elapsed window that runs to now, so most buckets are
+    // empty, and empty buckets that paint nothing leave the readout reading as
+    // two floating rectangles rather than a chart.
+    const sparkBars = m.elapsed?.marks.find((mark) => /activity/i.test(mark.label || ''))?.barHeights ?? []
+    check(
+      'every sparkline bucket paints at least a baseline',
+      sparkBars.length > 1 && sparkBars.every((height) => height > 0),
+      JSON.stringify(sparkBars),
     )
     check(
       'Diff renders +adds −dels with an add/delete ratio bar',
