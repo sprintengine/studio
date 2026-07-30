@@ -20,7 +20,7 @@
 // AutomationsStore on a real temp directory, real provider registry.
 
 import assert from 'node:assert/strict'
-import { readFile, mkdtemp, rm } from 'node:fs/promises'
+import { readFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -28,6 +28,7 @@ import {
   MARKETPLACE_COMPONENT_KINDS,
   marketplaceAutomationPayloadIssues,
   parseMarketplacePluginAuthoringManifest,
+  type MarketplacePluginAuthoringManifest,
 } from '../../packages/module-sdk/src/plugin-manifest'
 import {
   marketplaceAutomationPayloadIssuesSync,
@@ -96,9 +97,7 @@ async function withProjectRoot<T>(fn: (root: string) => Promise<T>): Promise<T> 
 type StarterBundle = {
   id: string
   bundleRoot: string
-  manifest: ReturnType<typeof parseMarketplacePluginAuthoringManifest> extends { ok: true; manifest: infer M }
-    ? M
-    : never
+  manifest: MarketplacePluginAuthoringManifest
   payload: unknown
 }
 
@@ -142,7 +141,7 @@ async function readStarterThroughBundleGates(id: string): Promise<StarterBundle>
   )
 
   const payload = JSON.parse(await readFile(join(bundleRoot, automation.path), 'utf8'))
-  return { id, bundleRoot, manifest, payload } as StarterBundle
+  return { id, bundleRoot, manifest, payload }
 }
 
 // ── T1 → T5 → T2 → T3: one starter, the whole chain ──────────────────────────
@@ -322,7 +321,6 @@ async function assertShelfHandsAddedAutomationToTheEditor(): Promise<void> {
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {
-  const { writeFile } = await import('node:fs/promises')
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 }
 
