@@ -400,8 +400,11 @@ def assert_owned_paths_are_modules(state: Dict[str, Any], state_path: Path, task
     that does not exist yet is a module the task is about to create, and file
     extensions are not sniffed — that misjudges extensionless files and
     not-yet-created paths alike. Enforced on new plan-time writes only: run
-    stores written before this contract keep their file entries and their exact
-    behaviour.
+    stores written before this contract keep their file entries, and keep their
+    exact COMMIT scope — a file entry contains only itself. Their dispatch does
+    change: the module guard is unconditional, so two legacy tasks listing the
+    same file now serialize. That is intended, and is this item's own argument
+    applied to a file rather than a directory.
     """
     root = task_diff_capture_cwd(state, state_path, task)
     task_id = str(task.get("id") or "task")

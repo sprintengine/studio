@@ -88,6 +88,20 @@ def test_overlap_is_symmetric_containment() -> None:
     assert paths_overlap("src/panel", "src/panel-v2") is False
 
 
+def test_the_project_root_is_a_module_that_contains_everything() -> None:
+    # `.` is a directory, so the plan-time rule accepts it, and telling architects
+    # to declare directories makes it the natural spelling for "the whole tree".
+    # Segment comparison alone answers False for every candidate, which would make
+    # such a task own nothing and commit nothing — silently.
+    for spelling in (".", "./", "  .  "):
+        assert module_contains_path(spelling, "src/panel/Panel.tsx") is True
+        assert module_contains_path(spelling, "README.md") is True
+    assert paths_overlap(".", "src/panel") is True
+    # Only the root is special: a blank entry is unusable, never everything.
+    assert module_contains_path("", "src/panel/Panel.tsx") is False
+    assert module_contains_path("src/panel", ".") is False
+
+
 # --- plan-time contract -------------------------------------------------------
 
 
@@ -191,6 +205,85 @@ def test_files_created_inside_an_owned_module_are_committed_and_never_orphaned(t
     )
     assert published["ok"] is True
     assert _git(worktree, "status", "--porcelain").stdout.strip() == ""
+
+
+def test_a_root_module_owns_and_commits_the_whole_tree(tmp_path) -> None:
+    fixture = _worktree_run(tmp_path, "module-root")
+    fixture.cli.run("plan", "add-task", "--title", "Whole", "--role", "developer", "--task-id", "T1", "--path", ".")
+    _close_plan_gate(fixture)
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+
+    worktree = _worktree_dir(fixture)
+    _write(worktree, "src/alpha/a.ts", "export const a = 1\n")
+    _write(worktree, "docs/note.md", "note\n")
+
+    committed = fixture.cli.run("vcs", "commit", "--task-id", "T1", "--id", "developer-1")
+
+    assert committed["committed"] is True
+    assert committed["orphanedUncommittedPaths"] == []
+    assert sorted(_git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split()) == [
+        "docs/note.md",
+        "src/alpha/a.ts",
+    ]
+
+
+def test_a_live_siblings_module_is_never_swept_in_by_a_declared_path(tmp_path) -> None:
+    """The dispatch guard reads ownedPaths; the commit pathspec is wider than that.
+
+    It also carries evidence-declared touched files and explicit `--path`, so two
+    tasks with DISJOINT modules — which correctly run concurrently — could still
+    have one commit stage the other's half-finished work through that channel.
+    """
+    fixture = _worktree_run(tmp_path, "module-foreign")
+    fixture.cli.run("plan", "add-task", "--title", "Alpha", "--role", "developer", "--task-id", "T1", "--path", "src/alpha")
+    fixture.cli.run("plan", "add-task", "--title", "Beta", "--role", "developer", "--task-id", "T2", "--path", "src/beta")
+    _close_plan_gate(fixture)
+    assert fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")["claimed"] is True
+    assert fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")["claimed"] is True
+
+    worktree = _worktree_dir(fixture)
+    _write(worktree, "src/alpha/a.ts", "export const a = 1\n")
+    _write(worktree, "src/beta/b.ts", "export const b = 'T2 is mid-edit'\n")
+    _write(worktree, "src/beta/nested/c.ts", "export const c = 'T2 is mid-edit'\n")
+
+    # T1 declares a touched file in T2's module, and passes T2's whole module as an
+    # explicit path — the vocabulary coarse ownership hands every agent.
+    fixture.cli.run(
+        "task", "log", "--task-id", "T1", "--id", "developer-1",
+        "--summary", "Needed a beta hook.", "--file", "src/beta/b.ts",
+    )
+    fixture.cli.run("vcs", "commit", "--task-id", "T1", "--id", "developer-1", "--path", "src/beta")
+
+    assert _git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split() == ["src/alpha/a.ts"]
+    # T2's work is untouched and still its own to commit.
+    status = _git(worktree, "status", "--porcelain", "--untracked-files=all").stdout
+    assert "src/beta/b.ts" in status and "src/beta/nested/c.ts" in status
+
+
+def test_a_declared_path_outside_every_live_module_still_commits(tmp_path) -> None:
+    # The exclusion is scoped to LIVE siblings: an ordinary scope expansion into a
+    # module nobody is working still rides the task's own commit.
+    fixture = _worktree_run(tmp_path, "module-expansion")
+    fixture.cli.run("plan", "add-task", "--title", "Alpha", "--role", "developer", "--task-id", "T1", "--path", "src/alpha")
+    fixture.cli.run("plan", "add-task", "--title", "Beta", "--role", "developer", "--task-id", "T2", "--path", "src/beta")
+    _close_plan_gate(fixture)
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+
+    worktree = _worktree_dir(fixture)
+    _write(worktree, "src/alpha/a.ts", "export const a = 1\n")
+    _write(worktree, "src/beta/b.ts", "export const b = 1\n")
+    fixture.cli.run(
+        "task", "log", "--task-id", "T1", "--id", "developer-1",
+        "--summary", "Needed a beta hook.", "--file", "src/beta/b.ts",
+    )
+
+    fixture.cli.run("vcs", "commit", "--task-id", "T1", "--id", "developer-1")
+
+    # T2 is ready, not live, so nothing of its module is half-finished to protect.
+    assert sorted(_git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split()) == [
+        "src/alpha/a.ts",
+        "src/beta/b.ts",
+    ]
 
 
 def test_a_lookalike_sibling_module_is_not_swept_into_the_commit(tmp_path) -> None:
@@ -322,3 +415,31 @@ def test_a_run_store_with_file_level_owned_paths_dispatches_and_commits_unchange
     assert committed["committed"] is True
     assert _git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split() == ["src/alpha.ts"]
     assert "src/beta.ts" in _git(worktree, "status", "--porcelain").stdout
+
+
+def test_legacy_tasks_sharing_one_file_now_serialize(tmp_path) -> None:
+    """The half of migration that is NOT unchanged, and is not meant to be.
+
+    Commit scope on a pre-change store is identical — a file entry contains only
+    itself. Dispatch is not: the guard is unconditional, so two legacy tasks both
+    listing `src/shared.ts` serialize where they used to run concurrently. That is
+    the item's own argument applied to a file: both tasks commit that file, so
+    whoever commits first takes the other's in-progress edits to it.
+    """
+    fixture = _worktree_run(
+        tmp_path,
+        "legacy-shared-file",
+        [
+            task("T1", "Alpha", "developer", owned_paths=["src/shared.ts", "src/alpha.ts"]),
+            task("T2", "Beta", "developer", owned_paths=["src/shared.ts", "src/beta.ts"]),
+        ],
+    )
+
+    first = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    second = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")
+
+    assert first["claimed"] is True and first["task"]["id"] == "T1"
+    assert second["claimed"] is False
+    assert second["reason"] == "module_held_by_active_task"
+    assert second["blocker"]["module"] == "src/shared.ts"
+    assert second["blocker"]["taskId"] == "T1"

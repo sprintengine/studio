@@ -348,12 +348,20 @@ def _normalize_commit_pathspec(worktree: Path, raw_paths: List[str]) -> List[str
     return pathspec
 
 
+ROOT_MODULE = "."
+
+
 def normalize_owned_path(value: Any) -> str:
-    """One project-relative owned path in comparable form, or '' when unusable."""
+    """One project-relative owned path in comparable form, or '' when unusable.
+
+    The project root normalizes to :data:`ROOT_MODULE` — ``.``, ``./`` and ``.``
+    with a trailing slash are all the same owner — so "the whole tree" has one
+    spelling the predicate below can recognize.
+    """
     raw = str(value or "").strip()
     if not raw:
         return ""
-    return Path(raw).as_posix().rstrip("/")
+    return Path(raw).as_posix().rstrip("/") or ROOT_MODULE
 
 
 def module_contains_path(owner: str, candidate: str) -> bool:
@@ -368,6 +376,12 @@ def module_contains_path(owner: str, candidate: str) -> bool:
     ``payments-api/webhooks-v2/anything``, which a ``startswith`` on the bare owner
     would wrongly claim.
 
+    ``.`` is the project root, and contains every project-relative path. Coarse
+    ownership makes that spelling reachable — an architect told to declare
+    directories writes the one that means "all of them" — and segment comparison
+    alone would answer False for every candidate, so the task would own nothing,
+    commit nothing, and orphan its whole diff silently.
+
     A file entry contains only itself, so a run store written before ownership
     moved to modules keeps the exact scope it always had.
     """
@@ -375,6 +389,8 @@ def module_contains_path(owner: str, candidate: str) -> bool:
     candidate_value = normalize_owned_path(candidate)
     if not owner_value or not candidate_value:
         return False
+    if owner_value == ROOT_MODULE:
+        return True
     return candidate_value == owner_value or candidate_value.startswith(owner_value + "/")
 
 
@@ -385,6 +401,29 @@ def paths_overlap(left: str, right: str) -> bool:
 
 def path_in_owned_scope(path: str, pathspec: List[str]) -> bool:
     return any(module_contains_path(entry, path) for entry in pathspec)
+
+
+def modules_held_by_other_active_tasks(state: Dict[str, Any], task: Dict[str, Any]) -> List[str]:
+    """The `ownedPaths` of every OTHER task whose lease is currently active.
+
+    "Active" is `active_lease_worker`, the SAME notion the dispatch guard uses:
+    the two answer one question — who is live in this module right now — and a
+    second definition would let one of them protect what the other releases.
+    Repo-agnostic for the same reason the guard is: the commit sweep stages a
+    task's pathspec in every declared tree it worked (MC-1752), so the same
+    relative module in a sibling project is the same claim.
+    """
+    from sprintengine_core.tool.state import active_lease_worker
+
+    task_id = str(task.get("id") or "").strip()
+    held: List[str] = []
+    for other in state.get("tasks", []) or []:
+        if not isinstance(other, dict) or str(other.get("id") or "").strip() == task_id:
+            continue
+        if not active_lease_worker(other):
+            continue
+        held.extend(str(path) for path in (other.get("ownedPaths") or []))
+    return held
 
 
 def _parse_porcelain_z(output: str) -> List[Dict[str, str]]:
@@ -454,6 +493,25 @@ def _commit_task_paths_in_repo(
         if not pathspec:
             return None
         in_scope = sorted({record["path"] for record in dirty if path_in_owned_scope(record["path"], pathspec)})
+        # The pathspec is WIDER than this task's modules: it also carries the paths
+        # the task declared touching (evidence, the latest implementation comment)
+        # and any explicitly passed `--path`. The dispatch guard reads ownedPaths
+        # only, so those extra entries are the one channel left through which a
+        # commit can still sweep another live task's half-finished work — and an
+        # agent told it owns DIRECTORIES passes a directory here, which takes the
+        # whole module including files it never touched. Stage a path only when it
+        # is inside THIS task's modules, or inside no other live task's.
+        # `owned` wins on overlap so a task always commits its own module: the
+        # dispatch guard normally keeps overlapping tasks from being live at once,
+        # but a repair transition or a hand-edited store can still produce one.
+        foreign = _normalize_commit_pathspec(worktree, modules_held_by_other_active_tasks(state, task))
+        if foreign:
+            own_modules = _normalize_commit_pathspec(worktree, owned)
+            in_scope = [
+                path
+                for path in in_scope
+                if path_in_owned_scope(path, own_modules) or not path_in_owned_scope(path, foreign)
+            ]
         if not in_scope:
             return None
         run_git_checked(worktree, ["add", "--", *in_scope])
