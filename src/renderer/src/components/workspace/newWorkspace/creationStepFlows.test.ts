@@ -51,6 +51,13 @@ assert.deepEqual(STEPS_BY_MODE.sprintengine, [
 ])
 assert.deepEqual(STEPS_BY_MODE['guided-brief'], ['workspace', 'guided-idea'])
 
+// Creating a standard workspace is folder -> Create, full stop. The layout step
+// asked the user to confirm a selection the panel had already made (Solo Dev),
+// so it was removed; a different layout comes from the Command Palette after the
+// workspace exists. Re-adding a step here puts a page back in front of the
+// shortest path into the product.
+assert.deepEqual(STEPS_BY_MODE.standard, ['workspace'], 'standard creation has no config steps')
+
 // The footer's "Skip the rest and create" is only honest if every step AFTER a
 // flow's required-intent step is defaulted — skipping must never silently accept
 // a blank the user was actually meant to fill in. The intent steps are the only
@@ -58,7 +65,6 @@ assert.deepEqual(STEPS_BY_MODE['guided-brief'], ['workspace', 'guided-idea'])
 // after an intent step unless it is a known-defaulted refinement step.
 const INTENT_STEPS = ['guided-idea', 'sprintengine-team'] as const
 const DEFAULTED_REFINEMENT_STEPS = [
-  'standard-layout',
   'sprintengine-roster',
   'sprintengine-tools',
   'sprintengine-start',
@@ -75,8 +81,9 @@ for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
 }
 
 // Zero-config quick flows are exactly the shared fields — the hub shows no
-// Advanced setup disclosure for them (it renders only when a flow has real
-// config steps; see NewWorkspacePanel's showAdvancedSetup).
+// Advanced setup disclosure for them; they defer that configuration to Settings
+// (see NewWorkspacePanel's showAdvancedSetup, which lists 'standard' explicitly
+// because it is zero-config too but keeps the disclosure it always had).
 assert.deepEqual(STEPS_BY_MODE.switchboard, ['workspace'])
 assert.deepEqual(STEPS_BY_MODE.automations, ['workspace'])
 
