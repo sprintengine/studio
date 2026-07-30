@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 
+import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../../shared/automations/contracts'
 import type {
   AutomationActionProvider,
   AutomationCliPermissionPreset,
@@ -14,7 +15,8 @@ export type SpawnAgentConfig = {
   workspaceId?: string
   cli?: string
   cliModel?: string
-  permissionPreset?: AutomationCliPermissionPreset
+  // Always resolved — an omitted preset becomes AUTOMATION_DEFAULT_PERMISSION_PRESET.
+  permissionPreset: AutomationCliPermissionPreset
   specialistId?: string
   name?: string
   prompt: string
@@ -163,7 +165,7 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
     workspaceId: optionalString(config.workspaceId),
     cli: optionalString(config.cli),
     cliModel: optionalString(config.cliModel),
-    permissionPreset: permissionPreset as AutomationCliPermissionPreset | undefined,
+    permissionPreset: (permissionPreset as AutomationCliPermissionPreset | undefined) ?? AUTOMATION_DEFAULT_PERMISSION_PRESET,
     specialistId: optionalString(config.specialistId),
     name: optionalString(config.name),
     prompt,

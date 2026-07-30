@@ -7,6 +7,16 @@ export type JsonSchema = Record<string, unknown>
 // contract stays self-contained; kept in sync as a closed union.
 export type AutomationCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
 
+// The preset an agent-backed automation runs on when its definition names none.
+// An automation agent runs with nobody at its terminal, so `default` would stop
+// at the first approval prompt and hang the run until the idle reaper fails it.
+// Resolved in parseSpawnAgentConfig (src/main/automations/actions/spawn-agent.ts)
+// so every start path lands on the same answer, and read by the editor so the
+// control shows what an unset automation will actually run on. A definition that
+// names a preset keeps exactly that, and the automation MCP surface still refuses
+// `bypass_all` from an external caller (src/main/automation/automation-tools.ts).
+export const AUTOMATION_DEFAULT_PERMISSION_PRESET: AutomationCliPermissionPreset = 'bypass_all'
+
 export const AUTOMATIONS_LIST_CHANNEL = 'automations:list'
 export const AUTOMATIONS_GET_CHANNEL = 'automations:get'
 export const AUTOMATIONS_CREATE_CHANNEL = 'automations:create'

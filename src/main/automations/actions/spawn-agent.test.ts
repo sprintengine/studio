@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 
-import type { AutomationDefinition } from '../../../shared/automations/contracts'
+import { AUTOMATION_DEFAULT_PERMISSION_PRESET, type AutomationDefinition } from '../../../shared/automations/contracts'
 import { runSkillLoopAction } from './run-skill-loop'
 import {
   composeSpawnAgentPrompt,
   fingerprintPrompt,
+  parseSpawnAgentConfig,
   runSpawnAgentAction,
   type SpawnAgentRuntime,
 } from './spawn-agent'
@@ -183,7 +184,12 @@ function assertMultibytePayloadTruncatesByBytes(): void {
   assert.ok(!jsonPart.includes('�'), 'the byte cut never splits a multibyte character')
 }
 
-function stubRuntime(triggerPayload: Record<string, unknown> | undefined, captured: { prompt: string }): SpawnAgentRuntime {
+type CapturedLaunch = { prompt: string; permissionPreset?: string }
+
+function stubRuntime(
+  triggerPayload: Record<string, unknown> | undefined,
+  captured: CapturedLaunch
+): SpawnAgentRuntime {
   return {
     definition: { id: 'auto-1', name: 'Nightly' } as unknown as AutomationDefinition,
     runId: 'run-7',
@@ -192,10 +198,52 @@ function stubRuntime(triggerPayload: Record<string, unknown> | undefined, captur
     resolveSpawnAgentTarget: async () => ({ folderPath: '/repo' }),
     spawnAgent: async (input) => {
       captured.prompt = input.prompt
+      captured.permissionPreset = input.permissionPreset
       return { workspaceId: 'ws-1', agentId: 'agent-1' }
     },
     requireIntegration: () => {},
   }
+}
+
+// The unattended default is resolved in the config parse, so it reaches the
+// launch whichever start path built the run — and a definition that names a
+// preset keeps exactly that.
+async function assertUnspecifiedPresetResolvesToBypass(): Promise<void> {
+  assert.equal(AUTOMATION_DEFAULT_PERMISSION_PRESET, 'bypass_all', 'the automation default is bypass_all')
+  assert.equal(
+    parseSpawnAgentConfig({ prompt: 'Sweep.' }).permissionPreset,
+    'bypass_all',
+    'a config with no preset parses to the unattended default',
+  )
+
+  const unset: CapturedLaunch = { prompt: '' }
+  await runSpawnAgentAction({ prompt: 'Sweep the repo.' }, stubRuntime(undefined, unset))
+  assert.equal(unset.permissionPreset, 'bypass_all', 'an automation with no preset launches unattended')
+
+  for (const preset of ['default', 'auto_workspace', 'bypass_all'] as const) {
+    const explicit: CapturedLaunch = { prompt: '' }
+    await runSpawnAgentAction({ prompt: 'Sweep the repo.', permissionPreset: preset }, stubRuntime(undefined, explicit))
+    assert.equal(explicit.permissionPreset, preset, `an explicit "${preset}" is honored verbatim`)
+  }
+
+  // The skill-loop wrapper re-parses its config through the same parse, so it
+  // cannot drift to a different answer.
+  const loop: CapturedLaunch = { prompt: '' }
+  await runSkillLoopAction({ prompt: 'Work an item.', skill: 'backlog' }, stubRuntime(undefined, loop))
+  assert.equal(loop.permissionPreset, 'bypass_all', 'run-skill-loop takes the same default')
+  const loopExplicit: CapturedLaunch = { prompt: '' }
+  await runSkillLoopAction(
+    { prompt: 'Work an item.', skill: 'backlog', permissionPreset: 'auto_workspace' },
+    stubRuntime(undefined, loopExplicit),
+  )
+  assert.equal(loopExplicit.permissionPreset, 'auto_workspace', 'run-skill-loop honors an explicit preset')
+
+  // An out-of-vocabulary preset is still a hard parse failure — the default
+  // never launders a bad value into bypass.
+  assert.throws(
+    () => parseSpawnAgentConfig({ prompt: 'Sweep.', permissionPreset: 'root' }),
+    /permissionPreset must be one of/,
+  )
 }
 
 async function assertExecutorThreadsPayloadWhenOptedIn(): Promise<void> {
@@ -235,6 +283,7 @@ async function main(): Promise<void> {
   assertMultibytePayloadTruncatesByBytes()
   await assertExecutorThreadsPayloadWhenOptedIn()
   await assertRunSkillLoopPassesFlagThrough()
+  await assertUnspecifiedPresetResolvesToBypass()
   console.log('automations spawn-agent prompt tests passed')
 }
 

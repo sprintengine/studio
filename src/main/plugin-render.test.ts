@@ -32,6 +32,7 @@ async function main(): Promise<void> {
   testLiteralSubstitution()
   testContextOverridesBinary()
   testPermissionArgsSpread()
+  testUndeclaredPresetDegradesToTheMostPermissiveDeclared()
   testValueIfPresentAndAbsent()
   testEnvSubstitution()
   testVariableDefaults()
@@ -80,6 +81,45 @@ function testPermissionArgsSpread(): void {
 
   const withDefault = renderPluginLaunch(manifest, { sessionId: 'exec_2' })
   assert.deepEqual(withDefault.argv, ['test', '--session-id', 'exec_2'])
+}
+
+// Automations launch on `bypass_all`, and not every CLI declares it. An unknown
+// CLI flag is fatal, so an undeclared preset degrades DOWN to the most permissive
+// preset the manifest actually declares — never up, and never passed through.
+function testUndeclaredPresetDegradesToTheMostPermissiveDeclared(): void {
+  const argv = ['{{binary}}', { spreadIf: 'permissionArgs' }] as PluginManifest['launch']['argv']
+  const presets = {
+    default: { label: 'Default', args: [] },
+    auto_workspace: { label: 'Auto', args: ['--ask-for-approval', 'never', '--sandbox', 'workspace-write'] },
+  }
+
+  const noBypass = baseManifest({ permissionPresets: presets, launch: { argv } })
+  assert.deepEqual(
+    renderPluginLaunch(noBypass, { permissionPreset: 'bypass_all' }).argv,
+    ['test', '--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
+    'a CLI with no bypass_all launches on its most permissive declared preset',
+  )
+  assert.deepEqual(
+    renderPluginLaunch(noBypass, { permissionPreset: 'auto_workspace' }).argv,
+    ['test', '--ask-for-approval', 'never', '--sandbox', 'workspace-write'],
+    'a declared preset is used verbatim',
+  )
+
+  // Nothing between bypass and default ⇒ default. Degrading never escalates:
+  // asking for `default` on a CLI that declares only bypass renders no args.
+  const onlyDefault = baseManifest({ permissionPresets: { default: { label: 'Default', args: [] } }, launch: { argv } })
+  assert.deepEqual(renderPluginLaunch(onlyDefault, { permissionPreset: 'bypass_all' }).argv, ['test'])
+
+  const onlyBypass = baseManifest({
+    permissionPresets: { bypass_all: { label: 'Bypass', args: ['--yolo'] } },
+    launch: { argv },
+  })
+  assert.deepEqual(
+    renderPluginLaunch(onlyBypass, { permissionPreset: 'default' }).argv,
+    ['test'],
+    'a narrower request never degrades UP into a more permissive preset',
+  )
+  assert.deepEqual(renderPluginLaunch(onlyBypass, { permissionPreset: 'bypass_all' }).argv, ['test', '--yolo'])
 }
 
 function testValueIfPresentAndAbsent(): void {

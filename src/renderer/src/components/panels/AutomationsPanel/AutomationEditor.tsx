@@ -9,10 +9,10 @@ import { orderSpecialistActions } from '../../../specialists/specialistActions'
 import { listSpecialistPacks, resolveEnabledSpecialists } from '../../../specialists/specialistPacks'
 import AgentComposerPopover from '../../workspace/agentComposer/AgentComposerPopover'
 import type { AgentComposerSelection } from '../../workspace/agentComposer/AgentComposer'
-import { PermissionPresetChips } from '../../workspace/agentComposer/agentSpawnShared'
 import { SpecialistActionIcon } from '../../AppIcons'
 import type { AgentCli, McpCatalogServer, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import { launchableConnectors } from '../ConnectorsPanel/connectorsFacets'
+import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../../../../shared/automations/contracts'
 import type {
   AutomationDefinition,
   AutomationDefinitionDraft,
@@ -96,6 +96,16 @@ const CONFIG_FIELD_LABEL: Record<string, string> = {
   sprintName: 'Sprint name',
   team: 'Team',
 }
+
+// The permission field's options. Each label states the preset and what it means
+// for a run nobody is watching — the control text is the state, so an automation
+// on the unattended default reads "Bypass all — runs unattended" without a
+// caption explaining it. Bypass carries the warn tone, as it does everywhere else.
+const PERMISSION_PRESET_ITEMS: SelectItem<SprintEngineCliPermissionPreset>[] = [
+  { value: 'default', label: 'Default — asks before acting' },
+  { value: 'auto_workspace', label: 'Auto in workspace — fewer prompts' },
+  { value: 'bypass_all', label: 'Bypass all — runs unattended', tone: 'warn' },
+]
 
 // Stable empty fallback so the saved-teams selector doesn't churn refs per render.
 const EMPTY_SAVED_TEAMS: SprintEngineRoster[] = []
@@ -261,6 +271,11 @@ export function AutomationEditor({
   const selectedCli = (form.config.cli || cliCatalog[0]?.value || 'claude-code') as AgentCli
   const selectedCliLabel = cliCatalog.find((option) => option.value === selectedCli)?.label ?? selectedCli
   const showAgentPicker = !actionUnavailableReason && configKeys.includes('cli')
+  // An automation with no stored preset runs on the unattended default, so the
+  // control shows that rather than "Default" — the editor must not read back a
+  // preset the run will not use.
+  const selectedPermissionPreset =
+    (form.config.permissionPreset as SprintEngineCliPermissionPreset) || AUTOMATION_DEFAULT_PERMISSION_PRESET
 
   // Connector target — a spawn-agent run can be pinned to a connector (its
   // isolated worktree + MCP, plus the driving skill when the catalog pairs one).
@@ -665,14 +680,12 @@ export function AutomationEditor({
                           setForm((prev) => ({ ...prev, config: { ...prev.config, specialistId: id, cli, cliModel: model ?? '' } })),
                         onSelectGeneral: (cli, model) =>
                           setForm((prev) => ({ ...prev, config: { ...prev.config, specialistId: '', cli, cliModel: model ?? '' } })),
-                        permissionPreset: (form.config.permissionPreset as SprintEngineCliPermissionPreset) || 'default',
+                        permissionPreset: selectedPermissionPreset,
                         onChangePermissionPreset: (preset) => update('config', { ...form.config, permissionPreset: preset }),
                       }}
                       onClose={() => setAgentPickerOpen(false)}
                     />
                   </Popover>
-                  {/* flex-wrap: in a narrow pane the permissions group drops to
-                      its own line instead of the Bypass chip clipping invisibly. */}
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-[color:var(--border-subtle)] px-2.5 py-2">
                     <span className="text-micro text-[color:var(--text-subtle)]">Runtime</span>
                     <CliModelPickerButton
@@ -683,18 +696,24 @@ export function AutomationEditor({
                       onSelectCli={(cli) => update('config', { ...form.config, cli, cliModel: '' })}
                       onSelectModel={(cli, model) => update('config', { ...form.config, cli, cliModel: model ?? '' })}
                     />
-                    {/* Inline preset chips (not a read-only summary): permissions
-                        must be settable without diving into the picker popover. */}
-                    <div className="ml-auto flex items-center gap-1">
-                      <span className="text-micro text-[color:var(--text-subtle)]">Permissions</span>
-                      <PermissionPresetChips
-                        value={(form.config.permissionPreset as SprintEngineCliPermissionPreset) || 'default'}
-                        onChange={(preset) => update('config', { ...form.config, permissionPreset: preset })}
-                      />
-                    </div>
                   </div>
                 </div>
                 <span className="text-micro text-[color:var(--text-subtle)]">Same team, runtimes, and permission presets as the spawn menu.</span>
+              </div>
+            ) : null}
+
+            {/* Permission — its own field rather than a chip row, because the
+                option text IS the state: an unset automation reads "Bypass all
+                — runs unattended", which is what it will actually run on. */}
+            {showAgentPicker ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-meta font-medium text-[color:var(--text-default)]">Permission</span>
+                <Select
+                  ariaLabel="Permission"
+                  value={selectedPermissionPreset}
+                  onChange={(preset) => update('config', { ...form.config, permissionPreset: preset })}
+                  items={PERMISSION_PRESET_ITEMS}
+                />
               </div>
             ) : null}
 

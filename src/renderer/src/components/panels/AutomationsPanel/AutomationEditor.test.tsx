@@ -353,13 +353,20 @@ assert.match(agentBlockMarkup, /General agent/, 'the agent block defaults to Gen
 assert.match(agentBlockMarkup, /No persona/, 'the General trigger row carries its description')
 assert.match(agentBlockMarkup, /Runtime/, 'the runtime row reuses CliModelPickerButton')
 assert.match(agentBlockMarkup, /Same team, runtimes, and permission presets/, 'help text names the reused picker')
-// The runtime row carries the interactive Default/Auto/Bypass chip group (the
-// shared PermissionPresetChips), not a read-only summary — permissions must be
-// settable without opening the picker popover.
-assert.match(agentBlockMarkup, /Permissions/, 'the runtime row labels the permission chip group')
-for (const chip of ['>Default<', '>Auto<', '>Bypass<']) {
-  assert.ok(agentBlockMarkup.includes(chip), `the runtime row renders the ${chip} permission chip`)
-}
+// Permission is its own field, and its option text IS the state: an automation
+// with no stored preset runs unattended, so the control must read that rather
+// than "Default" — the editor may not show a preset the run will not use.
+assert.match(agentBlockMarkup, /Permission/, 'the editor labels the permission field')
+assert.match(
+  agentBlockMarkup,
+  /Bypass all — runs unattended/,
+  'an unset automation reads as the unattended default',
+)
+assert.doesNotMatch(
+  agentBlockMarkup,
+  /Default — asks before acting<\/span>\s*<svg/,
+  'the trigger does not read "Default" for an automation that will run on bypass',
+)
 assert.doesNotMatch(agentBlockMarkup, /Run as a specialist agent, or a general agent\./, 'the retired flat Specialist select is gone')
 assert.doesNotMatch(agentBlockMarkup, /Model passed at launch/, 'the retired flat Model select is gone')
 

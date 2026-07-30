@@ -1382,6 +1382,59 @@ async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void>
   }
 }
 
+// Automations spawn their agents in bypass by default (an unattended run cannot
+// answer a permission prompt), and that default is resolved in the spawn-agent
+// action. It changes nothing here: an EXTERNAL caller still gets exactly two
+// presets and cannot grant itself bypass. This pins the boundary so the default
+// is never read as permission to widen it.
+async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> {
+  const created: unknown[] = []
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      getAutomationsFrontDoor: () => ({
+        createDefinition: async (input) => {
+          created.push(input)
+          return { ok: true, value: { id: 'auto-1', name: 'Nightly' } as never }
+        },
+        updateDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool updates definitions.' }),
+        runNow: async () => ({ ok: false, code: 'not_stubbed', message: 'Not exercised here.' }),
+      }),
+    })
+  )
+
+  // The advertised vocabulary is the boundary: two members, bypass_all absent,
+  // on every tool that launches an agent.
+  for (const name of ['agent.launch', 'backlog.work'] as const) {
+    const properties = tool(tools, name).inputSchema.properties as Record<string, { enum?: unknown }>
+    assert.deepEqual(
+      properties.permissionPreset?.enum,
+      ['default', 'auto_workspace'],
+      `${name} advertises exactly the two allowed presets`,
+    )
+  }
+
+  // And the refusals say what was refused and who can set it — a caller can act
+  // on the message without reading the code.
+  const launchRefusal = await tool(tools, 'agent.launch').handler({ workspaceId: 'ws-1', permissionPreset: 'bypass_all' })
+  const createRefusal = await tool(tools, 'automation.create').handler({
+    workspaceId: 'ws-1',
+    definition: {
+      name: 'Nightly',
+      trigger: { kind: 'schedule', config: { cadence: 'daily' } },
+      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass_all' } },
+    },
+  })
+  for (const [surface, refusal] of [['agent.launch', launchRefusal], ['automation.create', createRefusal]] as const) {
+    const error = (refusal.structuredContent as { error: { code: string; message: string } }).error
+    assert.equal(refusal.isError, true, `${surface} refuses bypass_all`)
+    assert.equal(error.code, 'permission_preset_not_allowed', `${surface} refuses with its own code`)
+    assert.match(error.message, /bypass_all/, `${surface} names the refused preset`)
+    assert.match(error.message, /person can set that preset/, `${surface} says who can set it instead`)
+  }
+  assert.deepEqual(created, [], 'a refused draft never reaches the create pipeline')
+}
+
 async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise<void> {
   const tools = createAutomationTools(
     backendsOf({
@@ -2601,6 +2654,7 @@ const tests = [
   testRoadmapToolsReadPlanAndSteer,
   testHorizonCreateAndConfigure,
   testAutomationMutationToolsGateOnPresetAndModule,
+  testBypassStaysRefusedAtTheExternalToolBoundary,
   testAutomationMutationToolsPassPipelineFailuresThrough,
   testSprintReadToolsAnswerFromDisk,
   testSprintCreateDelegatesAndConfirms,

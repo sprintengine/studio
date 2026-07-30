@@ -1,6 +1,7 @@
 import type {
   PluginArgvToken,
   PluginManifest,
+  PluginPermissionPreset,
   PluginRenderContext,
   PluginRenderedCommand,
 } from '../shared/plugin-manifest'
@@ -76,6 +77,29 @@ function renderArgvSpec(
   return { argv, cwd, env }
 }
 
+// The presets the app can ask for, least → most permissive. A manifest need not
+// declare all three, and an undeclared one must not be passed through as an
+// unknown flag — that is fatal to the CLI. It degrades DOWN this ladder instead,
+// to the most permissive preset the CLI actually declares, which can never grant
+// more than was requested. A name outside the ladder has no ordering to walk, so
+// it keeps the previous behaviour and falls back to `default`.
+const PERMISSION_PRESET_LADDER = ['default', 'auto_workspace', 'bypass_all'] as const
+
+function resolvePermissionPreset(
+  manifest: PluginManifest,
+  requested: string | undefined
+): PluginPermissionPreset | undefined {
+  const name = requested ?? 'default'
+  const declared = manifest.permissionPresets[name]
+  if (declared) return declared
+  const rung = PERMISSION_PRESET_LADDER.indexOf(name as (typeof PERMISSION_PRESET_LADDER)[number])
+  for (let below = rung - 1; below > 0; below -= 1) {
+    const candidate = manifest.permissionPresets[PERMISSION_PRESET_LADDER[below]]
+    if (candidate) return candidate
+  }
+  return manifest.permissionPresets.default
+}
+
 function buildVariableScope(
   manifest: PluginManifest,
   context: PluginRenderContext
@@ -100,13 +124,8 @@ function buildVariableScope(
   if (context.workspaceRoot !== undefined) scope.set('workspaceRoot', context.workspaceRoot)
   if (context.files !== undefined) scope.set('files', context.files)
 
-  const presetName = context.permissionPreset ?? 'default'
-  const preset = manifest.permissionPresets[presetName] ?? manifest.permissionPresets.default
-  if (preset) {
-    scope.set('permissionArgs', preset.args)
-  } else {
-    scope.set('permissionArgs', [])
-  }
+  const preset = resolvePermissionPreset(manifest, context.permissionPreset)
+  scope.set('permissionArgs', preset?.args ?? [])
 
   // `modelArgs` mirrors `permissionArgs`: a spreadable token list manifests
   // opt into via { spreadIf: "modelArgs" }. Rendered only when a model was
