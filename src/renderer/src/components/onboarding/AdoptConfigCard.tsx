@@ -107,7 +107,7 @@ export function AdoptConfigCard() {
   if (detecting) {
     return (
       <section aria-label="Existing agent configuration" className="border-t border-[color:var(--border-subtle)] py-3">
-        <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+        <div className="flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
           <Spinner className="icon-sm shrink-0" />
           Checking for an existing Claude Code or Codex setup…
         </div>
@@ -121,8 +121,8 @@ export function AdoptConfigCard() {
         <div className="flex items-start gap-2">
           <LifecycleGlyph state="failed" label="Could not read existing setup" live={false} className="mt-0.5 shrink-0" />
           <div className="min-w-0">
-            <p className="text-[12px] text-[color:var(--text-default)]">Couldn’t read your existing setup.</p>
-            <p className="mt-0.5 text-[11px] leading-5 text-[color:var(--text-muted)]">{error}</p>
+            <p className="text-meta text-[color:var(--text-default)]">Couldn’t read your existing setup.</p>
+            <p className="mt-0.5 text-micro leading-5 text-[color:var(--text-muted)]">{error}</p>
           </div>
         </div>
       </section>
@@ -134,7 +134,7 @@ export function AdoptConfigCard() {
     // Honest absent state — nothing found, nothing fabricated.
     return (
       <section aria-label="Existing agent configuration" className="border-t border-[color:var(--border-subtle)] py-3">
-        <p className="text-[12px] text-[color:var(--text-muted)]">
+        <p className="text-meta text-[color:var(--text-muted)]">
           No existing Claude Code or Codex setup found to bring over.
         </p>
       </section>
@@ -146,10 +146,10 @@ export function AdoptConfigCard() {
       <div className="flex items-start gap-2">
         <LifecycleGlyph state="done" label="Existing setup found" live={false} className="mt-0.5 shrink-0" />
         <div className="min-w-0">
-          <h3 id="adopt-config-heading" className="text-[13px] font-semibold text-[color:var(--text-strong)]">
+          <h3 id="adopt-config-heading" className="text-body font-semibold text-[color:var(--text-strong)]">
             Bring over your existing setup
           </h3>
-          <p className="mt-0.5 text-[11px] leading-5 text-[color:var(--text-muted)]">
+          <p className="mt-0.5 text-micro leading-5 text-[color:var(--text-muted)]">
             Found {describeCount(mcpServers.length, 'MCP server')} and {describeCount(skills.length, 'skill')} in your
             current tools. Pick what to add to your first workspace.
           </p>
@@ -213,12 +213,12 @@ function AdoptRow({
         className="h-3.5 w-3.5 shrink-0 rounded border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--accent-primary)] focus-visible:focus-ring"
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] text-[color:var(--text-default)]">{name}</span>
+        <span className="block truncate text-meta text-[color:var(--text-default)]">{name}</span>
         {disabledNote ? (
-          <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-subtle)]">{disabledNote}</span>
+          <span className="mt-0.5 block text-micro leading-4 text-[color:var(--text-subtle)]">{disabledNote}</span>
         ) : null}
       </span>
-      <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+      <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
         {kindLabel} · {sourceLabel}
       </span>
     </label>

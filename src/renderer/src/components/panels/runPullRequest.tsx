@@ -118,7 +118,7 @@ export function useRunPullRequestAction(input: { workspaceId: string; statePath:
 }
 
 const CHIP_CLASS =
-  'interactive flex h-6 shrink-0 items-center rounded-[5px] px-1.5 text-[11px] font-medium hover:bg-[color:var(--bg-hover)]'
+  'interactive flex h-6 shrink-0 items-center rounded-[5px] px-1.5 text-micro font-medium hover:bg-[color:var(--bg-hover)]'
 
 // Merge state of a run branch, shared by every Run-PR source (SprintEngine,
 // automations, and any future workspace type that opens a PR from a run branch).
@@ -216,7 +216,7 @@ export function RunPullRequestActionButton({
         {busy ? busyLabel : error ? retryLabel : createLabel}
       </PrimaryButton>
       {error ? (
-        <span className="max-w-[260px] text-right text-[11px] text-[color:var(--tone-warn)] [overflow-wrap:anywhere]">
+        <span className="max-w-[260px] text-right text-micro text-[color:var(--tone-warn)] [overflow-wrap:anywhere]">
           {error}
         </span>
       ) : null}

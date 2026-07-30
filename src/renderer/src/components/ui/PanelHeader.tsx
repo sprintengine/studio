@@ -74,13 +74,13 @@ export function PanelHeader({
           as="h2"
           id={titleId}
           text={title}
-          className="text-[13px] font-semibold text-[color:var(--text-strong)]"
+          className="text-body font-semibold text-[color:var(--text-strong)]"
         />
         {count !== undefined ? (
-          <span className="tabular-nums text-[12px] text-[color:var(--text-muted)]">{count}</span>
+          <span className="tabular-nums text-meta text-[color:var(--text-muted)]">{count}</span>
         ) : null}
         {subtitle ? (
-          <span className="truncate text-[12px] text-[color:var(--text-muted)]">
+          <span className="truncate text-meta text-[color:var(--text-muted)]">
             <span aria-hidden="true" className="mx-1.5 text-[color:var(--text-disabled)]">
               ·
             </span>

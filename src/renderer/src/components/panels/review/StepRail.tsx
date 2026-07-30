@@ -32,7 +32,7 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
   return (
     <div className="flex h-full flex-col border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] py-4">
       <div className="px-4 pb-2.5">
-        <span className="text-[11px] font-medium text-[color:var(--text-subtle)]">Walkthrough</span>
+        <span className="text-micro font-medium text-[color:var(--text-subtle)]">Walkthrough</span>
         <div
           className="mt-2 h-[3px] overflow-hidden rounded-full bg-[color:var(--bg-active)]"
           role="progressbar"
@@ -59,7 +59,7 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
         }`}
       >
         <span
-          className={`relative mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border bg-[color:var(--bg-surface)] text-[11px] ${
+          className={`relative mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border bg-[color:var(--bg-surface)] text-micro ${
             activePaneId === OVERVIEW_PANE_ID
               ? 'border-[color:var(--accent-primary)] text-[color:var(--accent-primary)]'
               : 'border-[color:var(--border-strong)] text-[color:var(--text-muted)]'
@@ -69,8 +69,8 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
           ◈
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[13px] font-medium leading-tight text-[color:var(--text-strong)]">Overview</span>
-          <span className="mt-0.5 block text-[11px] text-[color:var(--text-subtle)]">What this change is · blast radius</span>
+          <span className="block text-body font-medium leading-tight text-[color:var(--text-strong)]">Overview</span>
+          <span className="mt-0.5 block text-micro text-[color:var(--text-subtle)]">What this change is · blast radius</span>
         </span>
       </button>
 
@@ -94,10 +94,10 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
             >
               <StepRing view={view} />
               <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-medium leading-tight text-[color:var(--text-strong)]">
+                <span className="block text-body font-medium leading-tight text-[color:var(--text-strong)]">
                   {view.step.title}
                 </span>
-                <span className="mt-0.5 block text-[11px] tabular-nums text-[color:var(--text-subtle)]">{view.metaLabel}</span>
+                <span className="mt-0.5 block text-micro tabular-nums text-[color:var(--text-subtle)]">{view.metaLabel}</span>
               </span>
             </button>
           )
@@ -105,13 +105,13 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
       </div>
 
       <div className="mt-auto border-t border-[color:var(--border-subtle)] px-4 pt-3.5">
-        <div className="mb-2.5 text-[11px] tabular-nums text-[color:var(--text-subtle)]">{rail.progressLabel}</div>
+        <div className="mb-2.5 text-micro tabular-nums text-[color:var(--text-subtle)]">{rail.progressLabel}</div>
         {rail.continueStepId && rail.continueLabel ? (
           <PrimaryButton className="w-full justify-center" onClick={() => onSelectPane(rail.continueStepId as string)}>
             {rail.continueLabel}
           </PrimaryButton>
         ) : (
-          <div className="text-[11px] text-[color:var(--text-muted)]">All files read.</div>
+          <div className="text-micro text-[color:var(--text-muted)]">All files read.</div>
         )}
       </div>
     </div>

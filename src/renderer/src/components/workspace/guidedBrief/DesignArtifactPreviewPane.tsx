@@ -55,7 +55,7 @@ function PreviewHeader({
         <TruncatedText
           as="span"
           text={title}
-          className="min-w-0 text-[12px] font-semibold text-[color:var(--text-strong)]"
+          className="min-w-0 text-meta font-semibold text-[color:var(--text-strong)]"
         />
         <TruncatedText
           as="span"
@@ -64,13 +64,13 @@ function PreviewHeader({
         />
       </span>
       <span className="ml-auto flex shrink-0 items-center gap-2">
-        <span className="text-[11px] text-[color:var(--text-muted)]">{typeLabel}</span>
+        <span className="text-micro text-[color:var(--text-muted)]">{typeLabel}</span>
         {onReload ? (
           <button
             type="button"
             onClick={onReload}
             className="
-              inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
+              inline-flex h-6 items-center rounded-sm px-1.5 text-micro text-[color:var(--text-muted)]
               transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
               focus-visible:focus-ring
             "
@@ -83,7 +83,7 @@ function PreviewHeader({
             type="button"
             onClick={() => void copyPath()}
             className="
-              inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
+              inline-flex h-6 items-center rounded-sm px-1.5 text-micro text-[color:var(--text-muted)]
               transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
               focus-visible:focus-ring
             "
@@ -271,7 +271,7 @@ function SourceArtifactView({ entry }: { entry: DesignArtifactEntry }) {
       />
       <div className="min-h-0 flex-1 overflow-auto bg-[color:var(--bg-app)]">
         {state.kind === 'ready' ? (
-          <pre className="m-0 whitespace-pre p-3 font-mono text-[11px] leading-5 text-[color:var(--text-default)]">
+          <pre className="m-0 whitespace-pre p-3 font-mono text-micro leading-5 text-[color:var(--text-default)]">
             {state.content}
           </pre>
         ) : state.kind === 'loading' ? (

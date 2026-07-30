@@ -74,8 +74,8 @@ export function DetailPane({
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[color:var(--border-default)] px-5 py-4">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
-            <span className="font-mono tabular-nums text-[12px] text-[color:var(--text-default)]">
+          <div className="flex items-center gap-2 text-micro text-[color:var(--text-muted)]">
+            <span className="font-mono tabular-nums text-meta text-[color:var(--text-default)]">
               {shortIdentifier(record)}
             </span>
             <span aria-hidden="true">·</span>
@@ -87,10 +87,10 @@ export function DetailPane({
             <input
               value={editForm.title}
               onChange={(event) => onEditFormChange({ ...editForm, title: event.target.value })}
-              className="mt-2 block w-full bg-transparent text-[15px] font-semibold text-[color:var(--text-strong)] outline-none focus:border-b focus:border-[color:var(--border-strong)]"
+              className="mt-2 block w-full bg-transparent text-title font-semibold text-[color:var(--text-strong)] outline-none focus:border-b focus:border-[color:var(--border-strong)]"
             />
           ) : (
-            <h3 className="mt-2 text-[15px] font-semibold leading-5 text-[color:var(--text-strong)]">
+            <h3 className="mt-2 text-title font-semibold leading-5 text-[color:var(--text-strong)]">
               {task.title}
             </h3>
           )}
@@ -140,7 +140,7 @@ export function DetailPane({
       </header>
 
       {record.warnings.length > 0 ? (
-        <div className="border-b border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-5 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
+        <div className="border-b border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-5 py-2 text-meta leading-5 text-[color:var(--tone-warn)]">
           {record.warnings.map((warning, idx) => (
             <div key={idx}>{warning}</div>
           ))}
@@ -157,7 +157,7 @@ export function DetailPane({
                 <input
                   value={editForm.identifier}
                   onChange={(event) => onEditFormChange({ ...editForm, identifier: event.target.value })}
-                  className="block w-48 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1 font-mono tabular-nums text-[12px] text-[color:var(--text-strong)]"
+                  className="block w-48 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1 font-mono tabular-nums text-meta text-[color:var(--text-strong)]"
                 />
               ) : (
                 <span className="font-mono tabular-nums">{task.identifier}</span>
@@ -192,7 +192,7 @@ export function DetailPane({
                   value={editForm.labels}
                   onChange={(event) => onEditFormChange({ ...editForm, labels: event.target.value })}
                   placeholder="bug, auth"
-                  className="block w-full max-w-md rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1 text-[12px] text-[color:var(--text-strong)]"
+                  className="block w-full max-w-md rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1 text-meta text-[color:var(--text-strong)]"
                 />
               ) : task.labels.length > 0 ? (
                 <span className="flex flex-wrap gap-1.5">{task.labels.join(' · ')}</span>
@@ -220,41 +220,41 @@ export function DetailPane({
         {triageComment ? (
           <div className="mt-4 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--text-strong)]">
+              <span className="inline-flex items-center gap-1.5 text-meta font-semibold text-[color:var(--text-strong)]">
                 <SpecialistActionIcon icon="architecture" className="h-3.5 w-3.5 text-[color:var(--text-muted)]" />
                 Architect triage
               </span>
-              <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+              <span className="inline-flex items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
                 <StatusDot tone={triageTone} />
                 {triageImportance ?? 'Triaged'}
               </span>
               {typeof triageComment.confidencePct === 'number' ? (
                 <ConfidenceChip value={triageComment.confidencePct} compact title="Triage confidence" />
               ) : null}
-              <span className="ml-auto text-[11px] tabular-nums text-[color:var(--text-muted)]">
+              <span className="ml-auto text-micro tabular-nums text-[color:var(--text-muted)]">
                 {formatRelativeTime(triageComment.createdAt)}
               </span>
             </div>
-            <div className="mt-2 whitespace-pre-wrap text-[13px] leading-6 text-[color:var(--text-default)]">
+            <div className="mt-2 whitespace-pre-wrap text-body leading-6 text-[color:var(--text-default)]">
               {triageComment.body}
             </div>
           </div>
         ) : null}
 
         <div className="mt-4 border-t border-[color:var(--border-default)] pt-4">
-          <div className="mb-2 text-[12px] font-semibold text-[color:var(--text-strong)]">Description</div>
+          <div className="mb-2 text-meta font-semibold text-[color:var(--text-strong)]">Description</div>
           {editing ? (
             <textarea
               value={editForm.description}
               onChange={(event) => onEditFormChange({ ...editForm, description: event.target.value })}
-              className="min-h-[140px] w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-[13px] leading-6 text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-strong)]"
+              className="min-h-[140px] w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-body leading-6 text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-strong)]"
             />
           ) : task.description.trim() ? (
-            <div className="whitespace-pre-wrap text-[13px] leading-6 text-[color:var(--text-default)]">
+            <div className="whitespace-pre-wrap text-body leading-6 text-[color:var(--text-default)]">
               {task.description}
             </div>
           ) : (
-            <div className="text-[12px] text-[color:var(--text-muted)]">No description provided.</div>
+            <div className="text-meta text-[color:var(--text-muted)]">No description provided.</div>
           )}
         </div>
 
@@ -263,7 +263,7 @@ export function DetailPane({
 
       <footer className="border-t border-[color:var(--border-default)] px-5 py-3">
         <div className="flex items-center justify-between gap-2">
-          <label htmlFor="watchtower-comment-input" className="block text-[12px] font-semibold text-[color:var(--text-strong)]">
+          <label htmlFor="watchtower-comment-input" className="block text-meta font-semibold text-[color:var(--text-strong)]">
             Add comment
           </label>
           {commentStatus ? (
@@ -280,7 +280,7 @@ export function DetailPane({
             onChange={(event) => onCommentChange(event.target.value)}
             placeholder="Note for triage, link a finding, or capture context..."
             rows={2}
-            className="min-h-[44px] flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-[13px] leading-6 text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-strong)]"
+            className="min-h-[44px] flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-body leading-6 text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-strong)]"
           />
           <PrimaryButton
             onClick={onAddComment}
@@ -300,7 +300,7 @@ function ConfidenceChip({ value, compact = false, title }: { value: number; comp
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1 rounded-[5px] border px-1.5 py-0.5 font-medium tabular-nums ${confidenceToneClass(value)} ${
-        compact ? 'text-micro' : 'text-[11px]'
+        compact ? 'text-micro' : 'text-micro'
       }`}
       title={title ? `${title}: ${label}` : label}
       aria-label={title ? `${title}: ${label}` : label}
@@ -317,16 +317,16 @@ function CommentsSection({ record }: { record: SwitchboardTaskRecord }) {
   return (
     <div className="mt-4 border-t border-[color:var(--border-default)] pt-4">
       <div className="mb-2 flex items-baseline gap-1.5">
-        <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">Activity</span>
-        <span className="tabular-nums text-[11px] text-[color:var(--text-muted)]">{comments.length}</span>
+        <span className="text-meta font-semibold text-[color:var(--text-strong)]">Activity</span>
+        <span className="tabular-nums text-micro text-[color:var(--text-muted)]">{comments.length}</span>
       </div>
       {comments.length === 0 ? (
-        <div className="text-[12px] text-[color:var(--text-muted)]">No comments yet.</div>
+        <div className="text-meta text-[color:var(--text-muted)]">No comments yet.</div>
       ) : (
         <ul className="space-y-3">
           {comments.map((comment) => (
             <li key={comment.id} className="border-l border-[color:var(--border-default)] pl-3">
-              <div className="flex items-baseline gap-2 text-[11px] text-[color:var(--text-muted)]">
+              <div className="flex items-baseline gap-2 text-micro text-[color:var(--text-muted)]">
                 <span className="font-medium text-[color:var(--text-default)]">
                   {comment.author.name ?? comment.author.type}
                 </span>
@@ -344,7 +344,7 @@ function CommentsSection({ record }: { record: SwitchboardTaskRecord }) {
                   <CommentIcon className="ml-1 h-3 w-3 shrink-0 text-[color:var(--text-muted)]" />
                 ) : null}
               </div>
-              <div className="mt-1 whitespace-pre-wrap text-[13px] leading-6 text-[color:var(--text-default)]">
+              <div className="mt-1 whitespace-pre-wrap text-body leading-6 text-[color:var(--text-default)]">
                 {comment.body}
               </div>
             </li>

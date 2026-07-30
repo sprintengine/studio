@@ -67,7 +67,7 @@ export function Toast({
         // disabled inside the global `prefers-reduced-motion: reduce` rule.
         'toast-enter flex items-start gap-2 rounded-[7px] border px-3 py-2',
         'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]',
-        'text-[12px] text-[color:var(--text-default)]',
+        'text-meta text-[color:var(--text-default)]',
         className ?? '',
       ].join(' ')}
     >
@@ -80,7 +80,7 @@ export function Toast({
       <div className="min-w-0 flex-1">
         <div className="font-medium leading-tight text-[color:var(--text-strong)]">{title}</div>
         {description ? (
-          <div className="mt-0.5 break-words text-[11px] leading-snug text-[color:var(--text-muted)]">
+          <div className="mt-0.5 break-words text-micro leading-snug text-[color:var(--text-muted)]">
             {description}
           </div>
         ) : null}

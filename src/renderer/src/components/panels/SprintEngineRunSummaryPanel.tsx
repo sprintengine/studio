@@ -256,7 +256,7 @@ export default function SprintEngineRunSummaryPanel({
   if (!sprintEngineState || !report) {
     return (
       <PanelShell titleId={TITLE_ID} subtitle="Sprint state is not available for this workspace." onClose={onClose} embedded={embedded}>
-        <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[13px] leading-6 text-[color:var(--text-muted)]">
+        <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-body leading-6 text-[color:var(--text-muted)]">
           Open a Sprint Engine workspace to see its run summary.
         </div>
       </PanelShell>
@@ -314,10 +314,10 @@ export default function SprintEngineRunSummaryPanel({
           {runGlyph ? (
             <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={`Run: ${runGlyph.label}`} />
           ) : null}
-          <span className="text-[16px] font-semibold text-[color:var(--text-strong)]">{phaseLabel}</span>
+          <span className="text-title font-semibold text-[color:var(--text-strong)]">{phaseLabel}</span>
         </span>
         {report.totalTasks > 0 ? (
-          <span className="flex flex-wrap items-baseline gap-x-2 text-[12px] tabular-nums text-[color:var(--text-muted)]">
+          <span className="flex flex-wrap items-baseline gap-x-2 text-meta tabular-nums text-[color:var(--text-muted)]">
             <Crumb>{`${report.doneTasks} / ${report.totalTasks} tasks done`}</Crumb>
             {report.needsInput.length > 0 ? (
               <Crumb>{`${report.needsInput.length} need input`}</Crumb>
@@ -336,7 +336,7 @@ export default function SprintEngineRunSummaryPanel({
       </div>
 
       {report.totalTasks === 0 ? (
-        <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[13px] leading-6 text-[color:var(--text-muted)]">
+        <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-body leading-6 text-[color:var(--text-muted)]">
           This run has no tasks yet. Configure a roster and dispatch work to populate the summary.
         </div>
       ) : (
@@ -446,7 +446,7 @@ const tableWidthFor = (numCols: number) => AGENT_COL_W + numCols * NUM_COL_W
 const tableStyleFor = (numCols: number) => ({ width: tableWidthFor(numCols) })
 // `table-fixed` makes the browser take column widths from the `<colgroup>` rather
 // than auto-sizing to content, so all three tables share the same column tracks.
-const TABLE_CLASS = 'table-fixed border-collapse text-[12px]'
+const TABLE_CLASS = 'table-fixed border-collapse text-meta'
 
 // One `<colgroup>` shape for all three tables: the agent column, then `numCols`
 // equal numeric columns. This is what pins the columns to the same x across tables.
@@ -481,7 +481,7 @@ function ColumnHint({ label, hint }: { label: string; hint: string }) {
       <button
         type="button"
         aria-label={`What does "${label}" mean?`}
-        className={`ml-1 inline-flex h-[16px] w-[16px] translate-y-[3px] items-center justify-center rounded-full border border-[color:var(--border-strong)] text-micro font-normal leading-none text-[color:var(--text-disabled)] hover:border-[color:var(--text-muted)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
+        className={`ml-1 inline-flex size-icon-sm translate-y-[3px] items-center justify-center rounded-full border border-[color:var(--border-strong)] text-micro font-normal leading-none text-[color:var(--text-disabled)] hover:border-[color:var(--text-muted)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
       >
         ?
       </button>
@@ -538,7 +538,7 @@ const PLAN_QUALITY_HINTS: Record<string, string> = {
 // data cells' px-3 so header and number right-edges line up. The agent header is
 // left-aligned and single-line (kept distinct so text-right/text-left never collide).
 const HEADER_BASE =
-  'border-b border-[color:var(--border-subtle)] pb-1.5 align-bottom text-[11px] font-medium leading-tight text-[color:var(--text-muted)]'
+  'border-b border-[color:var(--border-subtle)] pb-1.5 align-bottom text-micro font-medium leading-tight text-[color:var(--text-muted)]'
 const NUM_HEADER = `${HEADER_BASE} px-3 text-right`
 const AGENT_HEADER = `${HEADER_BASE} pr-3 text-left whitespace-nowrap`
 const COL_SEP = 'border-l border-[color:var(--border-subtle)]'
@@ -547,8 +547,8 @@ function AgentName({ role, agentId, idle }: { role: SprintEngineRoleId; agentId:
   return (
     <span className="inline-flex items-baseline gap-2 whitespace-nowrap pl-[20px]">
       <RoleGlyph role={role} size="sm" className="translate-y-[2px]" />
-      <span className="font-mono text-[12px] text-[color:var(--text-strong)]">{agentId}</span>
-      {idle ? <span className="text-[11px] text-[color:var(--text-disabled)]">idle</span> : null}
+      <span className="font-mono text-meta text-[color:var(--text-strong)]">{agentId}</span>
+      {idle ? <span className="text-micro text-[color:var(--text-disabled)]">idle</span> : null}
     </span>
   )
 }
@@ -584,12 +584,12 @@ function AgentBreakdownSection({
     <SectionDivider>
       <Section title="Per-agent breakdown" count={activeRows.length} level={3}>
         {analysisStatus === 'error' ? (
-          <div className="mb-2 border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+          <div className="mb-2 border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]">
             Couldn't load agent metrics{analysisError ? `: ${analysisError}` : '.'} Roster and task
             counts below are from the run state.
           </div>
         ) : analysisStatus === 'unavailable' ? (
-          <div className="mb-2 border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <div className="mb-2 border-l-2 border-[color:var(--border-strong)] pl-3 text-meta leading-5 text-[color:var(--text-muted)]">
             Agent metrics are unavailable for this run.
           </div>
         ) : null}
@@ -618,9 +618,9 @@ function AgentBreakdownSection({
               type="button"
               onClick={() => setShowIdle((value) => !value)}
               aria-expanded={showIdle}
-              className={`inline-flex items-baseline gap-1.5 rounded-sm text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              className={`inline-flex items-baseline gap-1.5 rounded-sm text-meta text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
-              <span aria-hidden="true" className="text-[11px] text-[color:var(--text-disabled)]">
+              <span aria-hidden="true" className="text-micro text-[color:var(--text-disabled)]">
                 {showIdle ? '▾' : '▸'}
               </span>
               {showIdle
@@ -722,7 +722,7 @@ function ImplementationTable({
         </table>
       </div>
       {anySelfReported ? (
-        <p className="mt-1.5 text-[11px] text-[color:var(--text-disabled)]">
+        <p className="mt-1.5 text-micro text-[color:var(--text-disabled)]">
           ° Self-reported — found by the agent reviewing its own work; no independent review.
         </p>
       ) : null}
@@ -876,9 +876,9 @@ function PlanningTable({
 
       {planQuality.length > 0 ? (
         <div className="mt-4">
-          <div className="mb-1.5 flex items-baseline gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+          <div className="mb-1.5 flex items-baseline gap-1.5 text-meta text-[color:var(--text-muted)]">
             Plan quality
-            <span className="text-[11px] text-[color:var(--text-disabled)]">
+            <span className="text-micro text-[color:var(--text-disabled)]">
               self-reported on {qualitySamples} of {totalTasks} task{totalTasks === 1 ? '' : 's'}
             </span>
           </div>
@@ -888,13 +888,13 @@ function PlanningTable({
                 key={stat.key}
                 className="flex items-baseline justify-between gap-3 border-b border-[color:var(--border-subtle)] py-1.5"
               >
-                <span className="text-[12px] text-[color:var(--text-muted)]">
+                <span className="text-meta text-[color:var(--text-muted)]">
                   {stat.label}
                   {PLAN_QUALITY_HINTS[stat.key] ? (
                     <ColumnHint label={stat.label} hint={PLAN_QUALITY_HINTS[stat.key]} />
                   ) : null}
                 </span>
-                <span className="text-[12px] tabular-nums text-[color:var(--text-default)]">
+                <span className="text-meta tabular-nums text-[color:var(--text-default)]">
                   {stat.averagePct}%
                 </span>
               </div>
@@ -908,7 +908,7 @@ function PlanningTable({
 
 function WorkTypeHeading({ label, count }: { label: string; count?: number }) {
   return (
-    <div className="mb-1.5 flex items-baseline gap-1.5 text-[12px] font-medium text-[color:var(--text-muted)]">
+    <div className="mb-1.5 flex items-baseline gap-1.5 text-meta font-medium text-[color:var(--text-muted)]">
       {label}
       {count !== undefined ? (
         <span className="tabular-nums text-[color:var(--text-disabled)]">{count}</span>
@@ -966,7 +966,7 @@ function AgentRow({
   const chevron = (
     <span
       aria-hidden="true"
-      className={`inline-block w-3 text-[11px] leading-none transition-colors ${
+      className={`inline-block w-3 text-micro leading-none transition-colors ${
         expanded
           ? 'text-[color:var(--accent-primary)]'
           : 'text-[color:var(--text-disabled)] group-hover:text-[color:var(--text-muted)]'
@@ -979,8 +979,8 @@ function AgentRow({
     <>
       {chevron}
       <RoleGlyph role={row.role} size="sm" className="translate-y-[2px]" />
-      <span className="font-mono text-[12px] text-[color:var(--text-strong)]">{row.agentId}</span>
-      {idle ? <span className="text-[11px] text-[color:var(--text-disabled)]">idle</span> : null}
+      <span className="font-mono text-meta text-[color:var(--text-strong)]">{row.agentId}</span>
+      {idle ? <span className="text-micro text-[color:var(--text-disabled)]">idle</span> : null}
     </>
   )
 
@@ -1086,29 +1086,29 @@ function AgentDetailRow({
                       aria-label={`Open task ${task.id}`}
                       className={`group inline-flex min-w-0 items-baseline gap-2 rounded-sm text-left ${FOCUS_RING_CLASS}`}
                     >
-                      <span className="font-mono text-[11px] text-[color:var(--text-muted)] group-hover:text-[color:var(--accent-primary)]">
+                      <span className="font-mono text-micro text-[color:var(--text-muted)] group-hover:text-[color:var(--accent-primary)]">
                         {task.id}
                       </span>
-                      <span className="text-[13px] text-[color:var(--text-default)] underline-offset-2 [overflow-wrap:anywhere] group-hover:text-[color:var(--text-strong)] group-hover:underline">
+                      <span className="text-body text-[color:var(--text-default)] underline-offset-2 [overflow-wrap:anywhere] group-hover:text-[color:var(--text-strong)] group-hover:underline">
                         {task.title}
                       </span>
                     </button>
                   ) : (
                     <>
-                      <span className="font-mono text-[11px] text-[color:var(--text-muted)]">
+                      <span className="font-mono text-micro text-[color:var(--text-muted)]">
                         {task.id}
                       </span>
-                      <span className="text-[13px] text-[color:var(--text-default)] [overflow-wrap:anywhere]">
+                      <span className="text-body text-[color:var(--text-default)] [overflow-wrap:anywhere]">
                         {task.title}
                       </span>
                     </>
                   )}
-                  <span className="text-[11px] text-[color:var(--text-disabled)]">
+                  <span className="text-micro text-[color:var(--text-disabled)]">
                     {STATUS_LABEL[task.status]}
                   </span>
                 </div>
                 {task.defects.length > 0 ? (
-                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-[color:var(--text-muted)]">
+                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-meta text-[color:var(--text-muted)]">
                     {task.defects.map((defect) => (
                       <span key={defect.key} className="whitespace-nowrap">
                         <span className="tabular-nums text-[color:var(--text-default)]">
@@ -1132,7 +1132,7 @@ function AgentDetailRow({
                   </ul>
                 ) : null}
                 {task.defects.length === 0 && task.findings.length === 0 ? (
-                  <div className="mt-0.5 text-[12px] text-[color:var(--text-disabled)]">
+                  <div className="mt-0.5 text-meta text-[color:var(--text-disabled)]">
                     {task.reviewCount > 0
                       ? 'Reviewed — no issues recorded.'
                       : task.selfReviewCount > 0
@@ -1162,7 +1162,7 @@ function FindingItem({
   const [open, setOpen] = useState(false)
   const hasDetail = Boolean(finding.detail || finding.recommendation || finding.file)
   const meta = (
-    <span className="mt-0.5 block text-[12px] text-[color:var(--text-muted)]">
+    <span className="mt-0.5 block text-meta text-[color:var(--text-muted)]">
       {feedbackFindingKindLabels[finding.kind]} · {feedbackFindingAreaLabels[finding.area]}
       {finding.status === 'fixed' ? ' · fixed' : ''}
     </span>
@@ -1173,7 +1173,7 @@ function FindingItem({
       {hideTaskId ? (
         <span />
       ) : (
-        <span className="font-mono text-[11px] text-[color:var(--text-muted)]">
+        <span className="font-mono text-micro text-[color:var(--text-muted)]">
           {finding.taskId}
         </span>
       )}
@@ -1185,21 +1185,21 @@ function FindingItem({
             aria-expanded={open}
             className={`rounded-sm text-left ${FOCUS_RING_CLASS}`}
           >
-            <span className="text-[13px] text-[color:var(--text-default)] [overflow-wrap:anywhere]">
+            <span className="text-body text-[color:var(--text-default)] [overflow-wrap:anywhere]">
               {finding.title}
             </span>
-            <span aria-hidden="true" className="ml-1 text-[11px] text-[color:var(--text-disabled)]">
+            <span aria-hidden="true" className="ml-1 text-micro text-[color:var(--text-disabled)]">
               {open ? '▾' : '▸'}
             </span>
           </button>
         ) : (
-          <span className="text-[13px] text-[color:var(--text-default)] [overflow-wrap:anywhere]">
+          <span className="text-body text-[color:var(--text-default)] [overflow-wrap:anywhere]">
             {finding.title}
           </span>
         )}
         {meta}
         {open && hasDetail ? (
-          <div className="mt-1 border-l-2 border-[color:var(--border-strong)] pl-2.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <div className="mt-1 border-l-2 border-[color:var(--border-strong)] pl-2.5 text-meta leading-5 text-[color:var(--text-muted)]">
             {finding.detail ? <p className="[overflow-wrap:anywhere]">{finding.detail}</p> : null}
             {finding.recommendation ? (
               <p className="mt-1 [overflow-wrap:anywhere]">
@@ -1208,7 +1208,7 @@ function FindingItem({
               </p>
             ) : null}
             {finding.file ? (
-              <p className="mt-1 font-mono text-[11px] text-[color:var(--text-disabled)] [overflow-wrap:anywhere]">
+              <p className="mt-1 font-mono text-micro text-[color:var(--text-disabled)] [overflow-wrap:anywhere]">
                 {finding.file}
               </p>
             ) : null}
@@ -1230,7 +1230,7 @@ function IssuesCaughtSection({
         title="Issues caught in review"
         count={issueTotals.total > 0 ? issueTotals.total : undefined}
         action={
-          <span className="text-[12px] text-[color:var(--text-disabled)]">
+          <span className="text-meta text-[color:var(--text-disabled)]">
             {issueTotals.includesSelfReported
               ? issueTotals.hasMeasured
                 ? 'flagged by reviewers and self-review during the run'
@@ -1243,7 +1243,7 @@ function IssuesCaughtSection({
         {issueTotals.hasMeasured || issueTotals.includesSelfReported ? (
           <IssueBars items={issueTotals.items} />
         ) : (
-          <p className="text-[12px] text-[color:var(--text-disabled)]">
+          <p className="text-meta text-[color:var(--text-disabled)]">
             No issues were flagged by reviewers this run.
           </p>
         )}
@@ -1301,7 +1301,7 @@ function WhatsLeftSection({
             <SubHead label="Still open" count={report.remaining.length} />
             <div className="flex flex-wrap gap-x-5 gap-y-1.5 pb-2 pt-0.5">
               {(Object.keys(remainingStatusCounts) as SprintEngineTaskStatus[]).map((status) => (
-                <span key={status} className="inline-flex items-center gap-1.5 text-[12px]">
+                <span key={status} className="inline-flex items-center gap-1.5 text-meta">
                   <LifecycleGlyph state={STATUS_LIFECYCLE[status]} live={false} />
                   <span className="text-[color:var(--text-default)]">{STATUS_LABEL[status]}</span>
                   <span className="tabular-nums text-[color:var(--text-muted)]">
@@ -1337,7 +1337,7 @@ function WhatsLeftSection({
 
 function SubHead({ label, count }: { label: string; count: number }) {
   return (
-    <div className="mb-1 mt-3 flex items-baseline gap-1.5 text-[12px] text-[color:var(--text-muted)] first:mt-0">
+    <div className="mb-1 mt-3 flex items-baseline gap-1.5 text-meta text-[color:var(--text-muted)] first:mt-0">
       {label}
       <span className="tabular-nums text-[color:var(--text-disabled)]">{count}</span>
     </div>
@@ -1362,13 +1362,13 @@ function LeftRow({
   return (
     <li className="grid grid-cols-[auto_auto_minmax(0,1fr)] items-baseline gap-2 border-t border-[color:var(--border-subtle)] py-1.5 first:border-t-0">
       {leading ?? <StatusDot tone={tone ?? 'neutral'} className="translate-y-[5px]" />}
-      <span className="font-mono text-[11px] text-[color:var(--text-muted)]">{id}</span>
+      <span className="font-mono text-micro text-[color:var(--text-muted)]">{id}</span>
       <span className="min-w-0">
-        <span className="text-[13px] text-[color:var(--text-default)] [overflow-wrap:anywhere]">
+        <span className="text-body text-[color:var(--text-default)] [overflow-wrap:anywhere]">
           {title}
         </span>
         {meta ? (
-          <span className="mt-0.5 block text-[12px] text-[color:var(--text-muted)]">{meta}</span>
+          <span className="mt-0.5 block text-meta text-[color:var(--text-muted)]">{meta}</span>
         ) : null}
       </span>
     </li>
@@ -1385,7 +1385,7 @@ function StatStrip({ cells, columns }: { cells: StatCell[]; columns: string }) {
           key={cell.label}
           className={`py-0.5 ${index === 0 ? 'pl-0 pr-4' : 'border-l border-[color:var(--border-subtle)] px-4'}`}
         >
-          <div className="text-[12px] text-[color:var(--text-muted)]">
+          <div className="text-meta text-[color:var(--text-muted)]">
             {cell.label}
             {cell.inverse ? <span className="text-[color:var(--text-disabled)]"> ↓</span> : null}
             {cell.hint ? <ColumnHint label={cell.label} hint={cell.hint} /> : null}
@@ -1462,7 +1462,7 @@ function TokenUsageSection({ report }: { report: SprintEngineTokenUsageReport | 
     return (
       <SectionDivider>
         <Section title="Token usage" level={3}>
-          <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[13px] leading-6 text-[color:var(--text-muted)]">
+          <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-body leading-6 text-[color:var(--text-muted)]">
             {coverageNote}
           </div>
         </Section>
@@ -1495,7 +1495,7 @@ function TokenUsageSection({ report }: { report: SprintEngineTokenUsageReport | 
     <SectionDivider>
       <Section title="Token usage" level={3}>
         {coverageNote ? (
-          <div className="mb-3 text-[12px] leading-5 text-[color:var(--text-muted)]">{coverageNote}</div>
+          <div className="mb-3 text-meta leading-5 text-[color:var(--text-muted)]">{coverageNote}</div>
         ) : null}
         <StatStrip cells={cells} columns="md:grid-cols-4" />
         {run.perModel.length > 0 ? (
@@ -1512,7 +1512,7 @@ function TokenUsageSection({ report }: { report: SprintEngineTokenUsageReport | 
 
 function ModelTokenRow({ row }: { row: SprintEngineModelTokenUsage }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[12px] leading-5">
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-meta leading-5">
       <span className="min-w-[10rem] font-medium text-[color:var(--text-default)]">{row.model}</span>
       <span className="tabular-nums text-[color:var(--text-strong)]">{formatTokenCount(row.total)}</span>
       <span className="tabular-nums text-[color:var(--text-muted)]">
@@ -1533,7 +1533,7 @@ function AgentTypeSummarySection({ summary }: { summary: SprintEngineAgentTypeSu
   return (
     <SectionDivider>
       <Section title="Delivery Score" count={summary.roles.length} level={3}>
-        <div className="mb-3 flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <div className="mb-3 flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-meta leading-5 text-[color:var(--text-muted)]">
           {comparison ? (
             <span>
               <CliInline cli={comparison.better.key} /> agents scored{' '}
@@ -1584,7 +1584,7 @@ function TypeStatCell({ stat }: { stat: SprintEngineTypeStat }) {
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-1.5 truncate text-[12px] text-[color:var(--text-default)]">
+        <span className="inline-flex items-center gap-1.5 truncate text-meta text-[color:var(--text-default)]">
           <RoleGlyph role={stat.key as SprintEngineRoleId} size="sm" />
           <TruncatedText as="span" text={getSprintEngineRoleLabel(stat.key)} />
         </span>
@@ -1603,14 +1603,14 @@ function TypeStatCell({ stat }: { stat: SprintEngineTypeStat }) {
       <div className="mt-1.5 text-[20px] font-semibold tabular-nums text-[color:var(--text-strong)]">
         {stat.deliveryScore === null ? '—' : stat.deliveryScore}
       </div>
-      <div className="text-[11px] text-[color:var(--text-muted)]">Delivery score</div>
-      <div className="mt-0.5 text-[11px] tabular-nums text-[color:var(--text-disabled)]">
+      <div className="text-micro text-[color:var(--text-muted)]">Delivery score</div>
+      <div className="mt-0.5 text-micro tabular-nums text-[color:var(--text-disabled)]">
         {stat.issueLoadPerTask === null ? '—' : `${stat.issueLoadPerTask} load/task`} · {issues} · {tasks}
       </div>
       <TruncatedText
         as="div"
         text={mix}
-        className="mt-0.5 text-[11px] text-[color:var(--text-disabled)]"
+        className="mt-0.5 text-micro text-[color:var(--text-disabled)]"
       />
     </div>
   )
@@ -1632,11 +1632,11 @@ function ProjectionStatusBanner({ state }: { state: SprintEngineState }) {
   const tone: Tone = hasError ? 'error' : 'warn'
 
   return (
-    <div className="mb-4 border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-default)]">
+    <div className="mb-4 border-l-2 border-[color:var(--border-strong)] pl-3 text-meta leading-5 text-[color:var(--text-default)]">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="inline-flex items-center gap-1.5">
           <StatusDot tone={tone} />
-          <span className="font-mono text-[11px] text-[color:var(--text-muted)]">Projection</span>
+          <span className="font-mono text-micro text-[color:var(--text-muted)]">Projection</span>
         </span>
         <span className="text-[color:var(--text-default)]">{projectionSourceLabel[source]}</span>
         {projection?.errorMessage ? (
@@ -1649,7 +1649,7 @@ function ProjectionStatusBanner({ state }: { state: SprintEngineState }) {
         <ul className="mt-1 space-y-0.5 text-[color:var(--tone-warn)]">
           {lockWarnings.map((warning) => (
             <li key={warning.name} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">
-              <span className="font-mono text-[11px]">{warning.name}</span>
+              <span className="font-mono text-micro">{warning.name}</span>
               <span className="[overflow-wrap:anywhere]">
                 {warning.message} ({formatSprintEngineLockAge(warning.ageSeconds)})
               </span>

@@ -94,7 +94,7 @@ export function WizardProgress({
                 onClick={() => onStepSelect(idx)}
                 aria-label={`Go back to step ${idx + 1}: ${label}`}
                 className="
-                  inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] font-medium text-[color:var(--text-muted)]
+                  inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-micro font-medium text-[color:var(--text-muted)]
                   transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
                   focus-visible:focus-ring
                 "
@@ -107,7 +107,7 @@ export function WizardProgress({
             <span
               key={idx}
               aria-current={isCurrent ? 'step' : undefined}
-              className={`inline-flex items-center gap-1.5 px-1 py-0.5 text-[11px] font-medium ${
+              className={`inline-flex items-center gap-1.5 px-1 py-0.5 text-micro font-medium ${
                 isCurrent
                   ? 'text-[color:var(--text-strong)]'
                   : isDone

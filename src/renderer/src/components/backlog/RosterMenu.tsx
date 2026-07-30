@@ -17,7 +17,7 @@ import type { SprintEngineRoster } from '../../types/workspace'
 import { NO_ROLES_ROSTER_NAME, isNoRolesRosterRef } from '../workspace/newWorkspace/savedRosters'
 
 export const POLICY_ROSTER_TRIGGER_CLASS =
-  'interactive inline-flex h-[30px] items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring'
+  'interactive inline-flex h-control-sm items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring'
 
 const ROW_ROSTER_TRIGGER_BASE =
   'interactive inline-flex max-w-[9rem] shrink-0 items-center gap-1 rounded-sm px-1.5 text-micro leading-[17px] focus-visible:focus-ring'
@@ -72,7 +72,7 @@ export function RosterMenu({
       ? 'inherited'
       : 'override'
   const itemClass =
-    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
 
   const pick = (name: string | undefined): void => {
     onSelect(name)
@@ -136,7 +136,7 @@ export function RosterMenu({
           >
             <span className="min-w-0 flex-1 truncate">Use the horizon&apos;s roster</span>
             {inherit.selected ? <CheckIcon className="icon-xs shrink-0" /> : null}
-            <span className="shrink-0 max-w-[7.5rem] truncate text-[11px] text-[color:var(--text-subtle)]">
+            <span className="shrink-0 max-w-[7.5rem] truncate text-micro text-[color:var(--text-subtle)]">
               {inherit.resolvedLabel}
             </span>
           </button>
@@ -165,7 +165,7 @@ export function RosterMenu({
       >
         <span className="min-w-0 flex-1 truncate">{NO_ROLES_ROSTER_NAME}</span>
         {noRolesSelected ? <CheckIcon className="icon-xs shrink-0" /> : null}
-        <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">default</span>
+        <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">default</span>
       </button>
       <div className="my-1 border-t border-[color:var(--border-subtle)]" />
       {rosters.map((roster) => {
@@ -187,7 +187,7 @@ export function RosterMenu({
                 the truncating label so a long roster name cannot clip it. */}
             {checked ? <CheckIcon className="icon-xs shrink-0" /> : null}
             {/* A name alone is not enough to choose between rosters. */}
-            <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+            <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
               {staffed} role{staffed === 1 ? '' : 's'}
             </span>
           </button>

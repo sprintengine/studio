@@ -139,7 +139,7 @@ export function Tabs<T extends string = string>({
               if (!item.disabled) onChange(item.id)
             }}
             className={[
-              'relative -mb-px inline-flex h-8 items-center gap-1.5 px-3 text-[12px]',
+              'relative -mb-px inline-flex h-8 items-center gap-1.5 px-3 text-meta',
               'transition-colors disabled:cursor-not-allowed disabled:opacity-45',
               selected
                 ? 'text-[color:var(--text-strong)]'
@@ -150,7 +150,7 @@ export function Tabs<T extends string = string>({
             {iconNode ? <span aria-hidden="true" className="inline-flex">{iconNode}</span> : null}
             <span>{item.label}</span>
             {item.count !== undefined ? (
-              <span className="tabular-nums text-[11px] text-[color:var(--text-muted)]">
+              <span className="tabular-nums text-micro text-[color:var(--text-muted)]">
                 {item.count}
               </span>
             ) : null}

@@ -28,7 +28,7 @@ export function ChangeMapView({ changeMap, orderedStepIds, onNavigate }: ChangeM
 
   return (
     <section className="mb-5 mt-0.5 max-w-[680px]">
-      <span className="mb-2 block text-[11px] font-medium text-[color:var(--text-subtle)]">Change map</span>
+      <span className="mb-2 block text-micro font-medium text-[color:var(--text-subtle)]">Change map</span>
       <div className="overflow-x-auto">
         <svg
           viewBox={`0 0 ${layout.width} ${layout.height}`}
@@ -81,7 +81,7 @@ export function ChangeMapView({ changeMap, orderedStepIds, onNavigate }: ChangeM
       </div>
 
       {changeMap.deployNote ? (
-        <p className="mt-2 max-w-[66ch] text-[12px] leading-5 text-[color:var(--text-subtle)]">
+        <p className="mt-2 max-w-[66ch] text-meta leading-5 text-[color:var(--text-subtle)]">
           <span className="font-medium text-[color:var(--text-muted)]">Deploy order:</span> {changeMap.deployNote}
         </p>
       ) : null}

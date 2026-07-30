@@ -865,11 +865,11 @@ export function GuidedBriefFlow({
         <div className="flex min-w-0 shrink-0 items-center gap-2">
           <h2
             id="guided-brief-title"
-            className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]"
+            className="truncate text-body font-semibold text-[color:var(--text-strong)]"
           >
             {workspaceName}
           </h2>
-          <span className="text-[12px] text-[color:var(--text-muted)]">
+          <span className="text-meta text-[color:var(--text-muted)]">
             · {isDesignSystemPreset
               ? 'Design system'
               : isDesignPreset
@@ -964,7 +964,7 @@ export function GuidedBriefFlow({
       <footer className="flex shrink-0 items-center gap-3 border-t border-[color:var(--bg-surface-raised)] px-5 py-3">
         {reviewing && reviewingStage ? (
           <>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-subtle)]">
+            <span className="min-w-0 flex-1 truncate text-meta text-[color:var(--text-subtle)]">
               Reviewing an accepted artifact. The current step keeps running.
             </span>
             <SecondaryButton onClick={() => setReviewingStage(null)} disabled={false}>
@@ -981,20 +981,20 @@ export function GuidedBriefFlow({
                 />
               ) : null}
               {acceptError ? (
-                <TruncatedText as="span" text={acceptError} className="text-[12px] text-[color:var(--tone-error)]" />
+                <TruncatedText as="span" text={acceptError} className="text-meta text-[color:var(--tone-error)]" />
               ) : null}
               {startBuildError ? (
-                <TruncatedText as="span" text={startBuildError} className="text-[12px] text-[color:var(--tone-error)]" />
+                <TruncatedText as="span" text={startBuildError} className="text-meta text-[color:var(--tone-error)]" />
               ) : null}
               {skipError ? (
-                <TruncatedText as="span" text={skipError} className="text-[12px] text-[color:var(--tone-error)]" />
+                <TruncatedText as="span" text={skipError} className="text-meta text-[color:var(--tone-error)]" />
               ) : null}
             </span>
             <button
               type="button"
               onClick={onBackToIdea}
               className="
-                inline-flex h-9 items-center rounded-md px-3 text-[12px] font-medium text-[color:var(--text-default)]
+                inline-flex h-9 items-center rounded-md px-3 text-meta font-medium text-[color:var(--text-default)]
                 transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
                 focus-visible:focus-ring
               "
@@ -1094,7 +1094,7 @@ function StepRail({
               disabled={!reviewable}
               aria-current={step.state === 'active' ? 'step' : undefined}
               onClick={() => onReview(step.stage)}
-              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors focus-visible:focus-ring ${
+              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-meta transition-colors focus-visible:focus-ring ${
                 step.state === 'active'
                   ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
                   : isReviewing
@@ -1223,7 +1223,7 @@ function DesignSystemReleaseCard({
         placeholder="1.0.0"
         spellCheck={false}
         className={`
-          h-8 w-24 rounded-md border bg-[color:var(--bg-surface)] px-2.5 text-center font-mono text-[12px] tabular-nums
+          h-8 w-24 rounded-md border bg-[color:var(--bg-surface)] px-2.5 text-center font-mono text-meta tabular-nums
           text-[color:var(--text-strong)] outline-none transition-colors
           placeholder:text-[color:var(--text-disabled)]
           disabled:cursor-not-allowed disabled:text-[color:var(--text-disabled)]
@@ -1245,7 +1245,7 @@ function DesignSystemReleaseCard({
   const versionHint = (
     <span
       id={RELEASE_VERSION_HINT_ID}
-      className={versionValid ? 'sr-only' : 'mt-1.5 block text-[11px] text-[color:var(--tone-error)]'}
+      className={versionValid ? 'sr-only' : 'mt-1.5 block text-micro text-[color:var(--tone-error)]'}
     >
       Version must be semver, like 1.0.0.
     </span>
@@ -1258,10 +1258,10 @@ function DesignSystemReleaseCard({
     >
       {phase.kind === 'released' ? (
         <>
-          <p role="status" className="flex items-center gap-2 text-[12px] font-semibold text-[color:var(--text-strong)]">
+          <p role="status" className="flex items-center gap-2 text-meta font-semibold text-[color:var(--text-strong)]">
             <CheckIcon className="icon-xs shrink-0 text-[color:var(--tone-good)]" />
             Saved{' '}
-            <code className="font-mono text-[11px] font-normal">
+            <code className="font-mono text-micro font-normal">
               {phase.release.name}@{phase.release.version}
             </code>{' '}
             to your library
@@ -1270,11 +1270,11 @@ function DesignSystemReleaseCard({
             type="button"
             onClick={() => void window.api.showItemInFolder(phase.release.path)}
             aria-label={`Show ${phase.release.name}@${phase.release.version} in your file manager`}
-            className="mt-2 block max-w-full truncate font-mono text-[11px] text-[color:var(--text-subtle)] underline decoration-[color:var(--border-default)] underline-offset-2 transition-colors hover:text-[color:var(--text-default)] focus-visible:focus-ring"
+            className="mt-2 block max-w-full truncate font-mono text-micro text-[color:var(--text-subtle)] underline decoration-[color:var(--border-default)] underline-offset-2 transition-colors hover:text-[color:var(--text-default)] focus-visible:focus-ring"
           >
             {destination}
           </button>
-          <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+          <p className="mt-2 text-micro leading-4 text-[color:var(--text-subtle)]">
             This version is immutable. Attach it from Settings → Design systems in any workspace so
             agents build with it — or keep iterating here and save the next version.
           </p>
@@ -1284,37 +1284,37 @@ function DesignSystemReleaseCard({
       ) : (
         <>
           <div className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
+            <span className="min-w-0 flex-1 truncate text-meta font-semibold text-[color:var(--text-strong)]">
               Save to your design system library
             </span>
             {phase.kind === 'idle' ? (
-              <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-[color:var(--tone-good)]">
+              <span className="inline-flex shrink-0 items-center gap-1 text-micro text-[color:var(--tone-good)]">
                 <CheckIcon className="icon-xs shrink-0" />
                 Lint clean · 0 issues
               </span>
             ) : phase.kind === 'validating' ? (
-              <span role="status" className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">
+              <span role="status" className="shrink-0 text-micro text-[color:var(--text-subtle)]">
                 Validating…
               </span>
             ) : phase.kind === 'releasing' ? (
-              <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-[color:var(--tone-good)]">
+              <span className="inline-flex shrink-0 items-center gap-1 text-micro text-[color:var(--tone-good)]">
                 <CheckIcon className="icon-xs shrink-0" />
                 Lint clean
               </span>
             ) : phase.kind === 'lint-failed' ? (
-              <span className="shrink-0 text-[11px] text-[color:var(--tone-error)]">
+              <span className="shrink-0 text-micro text-[color:var(--tone-error)]">
                 {lintIssueCountLabel(parseLintFindings(phase.findings))}
               </span>
             ) : null}
           </div>
 
           {phase.kind === 'validating' || phase.kind === 'releasing' ? (
-            <p role="status" className="mt-2 text-[11px] text-[color:var(--text-muted)]">
+            <p role="status" className="mt-2 text-micro text-[color:var(--text-muted)]">
               {releaseStatusLine(phase)}
             </p>
           ) : null}
           {phase.kind === 'error' ? (
-            <p role="status" className="mt-2 text-[12px] leading-4 text-[color:var(--tone-error)]">
+            <p role="status" className="mt-2 text-meta leading-4 text-[color:var(--tone-error)]">
               {phase.message}
             </p>
           ) : null}
@@ -1322,7 +1322,7 @@ function DesignSystemReleaseCard({
           {phase.kind === 'lint-failed' ? (
             <LintFindingsList findings={phase.findings} />
           ) : destination ? (
-            <p className="mt-2 truncate font-mono text-[11px] text-[color:var(--text-subtle)]">{destination}</p>
+            <p className="mt-2 truncate font-mono text-micro text-[color:var(--text-subtle)]">{destination}</p>
           ) : null}
 
           {phase.kind === 'lint-failed' ? (
@@ -1350,12 +1350,12 @@ function DesignSystemReleaseCard({
           )}
 
           {phase.kind === 'idle' ? (
-            <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+            <p className="mt-2 text-micro leading-4 text-[color:var(--text-subtle)]">
               Saved versions are immutable. Attach this system in any workspace so agents build with it.
             </p>
           ) : null}
           {phase.kind === 'lint-failed' ? (
-            <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+            <p className="mt-2 text-micro leading-4 text-[color:var(--text-subtle)]">
               Saving is blocked until the bundle passes lint — the issues above go to the designer as
               one message.
             </p>
@@ -1376,7 +1376,7 @@ function LintFindingsList({ findings }: { findings: string }) {
       <pre
         tabIndex={0}
         aria-label="Lint report"
-        className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-4 text-[color:var(--text-default)] focus-visible:focus-ring"
+        className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-micro leading-4 text-[color:var(--text-default)] focus-visible:focus-ring"
       >
         {findings}
       </pre>
@@ -1391,7 +1391,7 @@ function LintFindingsList({ findings }: { findings: string }) {
       {parsed.issues.map((issue, index) => (
         <li
           key={`${issue.file}:${issue.detail}:${index}`}
-          className="flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-1.5 text-[11px] leading-4 text-[color:var(--text-default)] last:border-b-0"
+          className="flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-1.5 text-micro leading-4 text-[color:var(--text-default)] last:border-b-0"
         >
           <WarningIcon className="icon-xs mt-px shrink-0 text-[color:var(--tone-error)]" />
           <span className="min-w-0">
@@ -1483,7 +1483,7 @@ function renderPrimaryAction({
         aria-label={waitingReason}
         className="
           inline-flex h-9 cursor-not-allowed items-center rounded-md bg-[color:var(--bg-surface-raised)] px-4
-          text-[13px] font-semibold text-[color:var(--text-disabled)]
+          text-body font-semibold text-[color:var(--text-disabled)]
         "
       >
         Continue
@@ -1506,7 +1506,7 @@ function DesignerReadinessHint({
     // so a lint that never passes reads as "fix the lint", never as an
     // eternal "waiting for files" — see designSystemReadinessHint.
     return (
-      <span className="shrink-0 truncate text-[12px] text-[color:var(--text-subtle)]">
+      <span className="shrink-0 truncate text-meta text-[color:var(--text-subtle)]">
         {designSystemReadinessHint(readiness.isReady, readiness.designSystemValidation)}
       </span>
     )
@@ -1516,7 +1516,7 @@ function DesignerReadinessHint({
   if (!readiness.uiDirectionReady) waitingFor.push('the UI direction')
   if (waitingFor.length === 0) return null
   return (
-    <span className="shrink-0 truncate text-[12px] text-[color:var(--text-subtle)]">
+    <span className="shrink-0 truncate text-meta text-[color:var(--text-subtle)]">
       Waiting for {waitingFor.join(' and ')}.
     </span>
   )
@@ -1537,7 +1537,7 @@ function SecondaryButton({
       onClick={onClick}
       disabled={disabled}
       className="
-        inline-flex h-9 items-center rounded-md border border-[color:var(--border-default)] px-3 text-[12px] font-medium text-[color:var(--text-default)]
+        inline-flex h-9 items-center rounded-md border border-[color:var(--border-default)] px-3 text-meta font-medium text-[color:var(--text-default)]
         transition-colors hover:border-[color:var(--accent-primary)] hover:text-[color:var(--text-strong)]
         disabled:cursor-not-allowed disabled:border-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
         focus-visible:focus-ring
@@ -1574,7 +1574,7 @@ function PrimaryButton({
       disabled={disabled}
       {...rest}
       className="
-        inline-flex h-9 items-center rounded-md bg-[color:var(--accent-primary)] px-4 text-[13px] font-semibold text-[color:var(--bg-app)]
+        inline-flex h-9 items-center rounded-md bg-[color:var(--accent-primary)] px-4 text-body font-semibold text-[color:var(--bg-app)]
         transition-colors hover:bg-[color:var(--accent-primary-hover)]
         disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
         focus-visible:focus-ring
@@ -2197,14 +2197,14 @@ function HandoffBody({
           <h3 className="text-[22px] font-semibold leading-7 tracking-tight text-[color:var(--text-strong)]">
             Ready to build
           </h3>
-          <p className="text-[13px] leading-5 text-[color:var(--text-muted)]">
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">
             The generated handoff becomes the plan source for the new sprint roster.
           </p>
         </header>
 
         <div className="flex flex-col gap-5">
           <div className="flex flex-col gap-2">
-            <span className="text-[12px] font-medium text-[color:var(--text-default)]">Build handoff</span>
+            <span className="text-meta font-medium text-[color:var(--text-default)]">Build handoff</span>
             <div className="flex flex-col gap-2">
               {checklist.map((item) => (
                 <div
@@ -2212,11 +2212,11 @@ function HandoffBody({
                   className="flex min-w-0 items-start justify-between gap-3 rounded-md border border-[color:var(--border-default)] px-3 py-2"
                 >
                   <div className="flex min-w-0 flex-col gap-1">
-                    <span className="text-[12px] font-medium text-[color:var(--text-default)]">{item.label}</span>
-                    <TruncatedText as="span" text={item.path} className="font-mono text-[11px] text-[color:var(--text-muted)]" />
+                    <span className="text-meta font-medium text-[color:var(--text-default)]">{item.label}</span>
+                    <TruncatedText as="span" text={item.path} className="font-mono text-micro text-[color:var(--text-muted)]" />
                   </div>
                   {item.hash ? (
-                    <span className="shrink-0 font-mono text-[11px] text-[color:var(--text-subtle)]">
+                    <span className="shrink-0 font-mono text-micro text-[color:var(--text-subtle)]">
                       {item.hash.slice(0, 10)}
                     </span>
                   ) : null}
@@ -2243,11 +2243,11 @@ function HandoffBody({
           />
 
           {handoffStatus === 'missing' ? (
-            <span className="text-[12px] text-[color:var(--tone-error)]">
+            <span className="text-meta text-[color:var(--tone-error)]">
               Could not read {guidedBriefBuildHandoffRelativePath()}.
             </span>
           ) : (
-            <span className="text-[12px] text-[color:var(--text-subtle)]">
+            <span className="text-meta text-[color:var(--text-subtle)]">
               {handoffStatus === 'loading' ? 'Reading build handoff…' : 'Build handoff is ready.'}
             </span>
           )}

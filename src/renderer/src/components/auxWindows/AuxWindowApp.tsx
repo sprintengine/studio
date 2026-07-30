@@ -11,7 +11,7 @@ const ExternalEditorWindow = lazy(() => import('./ExternalEditorWindow'))
 
 function AuxLoading() {
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-[color:var(--bg-app)] text-[13px] text-[color:var(--text-disabled)]">
+    <div className="flex h-screen w-screen items-center justify-center bg-[color:var(--bg-app)] text-body text-[color:var(--text-disabled)]">
       Loading…
     </div>
   )
@@ -66,7 +66,7 @@ export default function AuxWindowApp() {
 
   if (!descriptor) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[color:var(--bg-app)] text-[13px] text-[color:var(--tone-error)]">
+      <div className="flex h-screen w-screen items-center justify-center bg-[color:var(--bg-app)] text-body text-[color:var(--tone-error)]">
         Unknown auxiliary window.
       </div>
     )
@@ -76,7 +76,7 @@ export default function AuxWindowApp() {
     const focusKind = params.scope === 'staged' ? 'staged' : params.scope === 'unstaged' ? 'unstaged' : null
     if (!params.repoRoot) {
       return (
-        <div className="flex h-screen w-screen items-center justify-center bg-[color:var(--bg-app)] text-[13px] text-[color:var(--tone-error)]">
+        <div className="flex h-screen w-screen items-center justify-center bg-[color:var(--bg-app)] text-body text-[color:var(--tone-error)]">
           Missing repository for diff viewer.
         </div>
       )

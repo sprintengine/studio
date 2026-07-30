@@ -211,18 +211,18 @@ function SessionsPopover({
   return (
     <div className="w-[420px] overflow-hidden p-1">
       <div className="flex h-9 items-center justify-between border-b border-[color:var(--border-default)] px-2.5">
-        <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">
+        <span className="text-meta font-semibold text-[color:var(--text-strong)]">
           Sessions
         </span>
         {items.length > 0 ? (
-          <span className="rounded bg-[color:var(--bg-hover)] px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-muted)]">
+          <span className="rounded bg-[color:var(--bg-hover)] px-1.5 py-0.5 text-micro font-semibold text-[color:var(--text-muted)]">
             {items.length}
           </span>
         ) : null}
       </div>
 
       {groups.length === 0 ? (
-        <div className="px-2.5 py-3 text-[13px] text-[color:var(--text-disabled)]">No sessions</div>
+        <div className="px-2.5 py-3 text-body text-[color:var(--text-disabled)]">No sessions</div>
       ) : (
         <div className="max-h-[420px] overflow-y-auto py-1">
           {groups.map((group) => {
@@ -243,7 +243,7 @@ function SessionsPopover({
                   />
                 ) : null}
                 <div
-                  className="flex items-center gap-2 px-2.5 py-1.5 text-[12px] font-semibold"
+                  className="flex items-center gap-2 px-2.5 py-1.5 text-meta font-semibold"
                   style={{ color: headerColor }}
                 >
                   {workspace ? (
@@ -261,7 +261,7 @@ function SessionsPopover({
                     <button
                       type="button"
                       onClick={() => void onStopGroup(group.group, group.items)}
-                      className="ml-auto flex h-6 shrink-0 items-center gap-1 rounded border border-transparent px-1.5 text-[11px] font-medium text-[color:var(--text-subtle)] transition-colors hover:border-[color:var(--tone-error-soft)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]"
+                      className="ml-auto flex h-6 shrink-0 items-center gap-1 rounded border border-transparent px-1.5 text-micro font-medium text-[color:var(--text-subtle)] transition-colors hover:border-[color:var(--tone-error-soft)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]"
                       aria-label={`Stop all ${group.items.length} sessions in ${group.group.label}`}
                     >
                       <StopIcon className="icon-xs" />
@@ -290,14 +290,14 @@ function SessionsPopover({
                     return (
                       <div
                         key={`${item.group.id}:${item.agentId ?? item.terminalId ?? item.sessionId}`}
-                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-2.5 py-2 text-[13px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)]"
+                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-2.5 py-2 text-body text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)]"
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <span
                             className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]"
                             style={chipStyle}
                           >
-                            <SessionAgentIcon item={item} className="h-[17px] w-[17px]" />
+                            <SessionAgentIcon item={item} className="size-icon-md" />
                           </span>
                           <span className="min-w-0">
                             <span className="flex min-w-0 items-center gap-1.5">
@@ -313,7 +313,7 @@ function SessionsPopover({
                             <TruncatedText
                               as="span"
                               text={subline}
-                              className="mt-0.5 block text-[11px] text-[color:var(--text-subtle)]"
+                              className="mt-0.5 block text-micro text-[color:var(--text-subtle)]"
                             />
                           </span>
                         </div>
@@ -327,7 +327,7 @@ function SessionsPopover({
                           <button
                             type="button"
                             onClick={() => void onOpen(item)}
-                            className="h-7 rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-2.5 text-[12px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)]"
+                            className="h-7 rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)]"
                           >
                             Open
                           </button>
@@ -590,7 +590,7 @@ export function WorkspaceActions({
                     {...triggerProps}
                   >
                     <ChangePulse value={sessions.length} mode="increase" tint={`var(--tone-${sessionsTone})`} className="inline-flex">
-                      <SessionsIcon className="h-[18px] w-[18px]" />
+                      <SessionsIcon className="size-icon-md" />
                     </ChangePulse>
                     {sessions.length > 0 ? (
                       <span
@@ -654,12 +654,12 @@ export function WorkspaceActions({
                     aria-label="Toggle workspace panels"
                     {...triggerProps}
                   >
-                    <svg className="h-[14px] w-[14px] shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <svg className="size-icon-xs shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                       <rect x="2" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.4" />
                       <rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
                       <rect x="9" y="10" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4" />
                     </svg>
-                    <span className="hidden text-[12px] font-semibold min-[1000px]:inline">{activeWorkspaceViews?.label ?? 'View'}</span>
+                    <span className="hidden text-meta font-semibold min-[1000px]:inline">{activeWorkspaceViews?.label ?? 'View'}</span>
                     <svg className={`hidden icon-xs transition-transform min-[1000px]:block ${viewMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
                       <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
@@ -668,7 +668,7 @@ export function WorkspaceActions({
               )}
             >
               <div className="w-60 overflow-hidden p-1">
-                <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium text-[color:var(--text-muted)]">
+                <div className="px-2.5 pb-1 pt-1 text-micro font-medium text-[color:var(--text-muted)]">
                   {activeWorkspaceViews?.label ?? 'View'} panels
                 </div>
                 {(activeWorkspaceViews?.views ?? []).map((view) => {
@@ -684,7 +684,7 @@ export function WorkspaceActions({
                         toggleComponentTab(activeWorkspace.id, view.component, view.name)
                         setViewMenuTick((tick) => tick + 1)
                       }}
-                      className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-[13px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                      className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-body text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                     >
                       <span
                         className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
@@ -736,7 +736,7 @@ export function WorkspaceActions({
                   {...triggerProps}
                 >
                   <ChangePulse value={unreadErrorCount} mode="increase" tint="var(--tone-error)" className="inline-flex">
-                    <NotificationBellIcon className="h-[18px] w-[18px]" />
+                    <NotificationBellIcon className="size-icon-md" />
                   </ChangePulse>
                   {unreadErrorCount > 0 ? (
                     <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-error)] px-1 text-micro font-bold leading-none tabular-nums text-[color:var(--bg-app)]">
@@ -781,7 +781,7 @@ export function WorkspaceActions({
                   : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
               }`}
             >
-              <MicIcon className="h-[18px] w-[18px]" />
+              <MicIcon className="size-icon-md" />
               {voiceRecording ? (
                 <span className="absolute -right-1 -top-1">
                   <StatusDot tone="error" pulse label="Recording" />
@@ -848,11 +848,11 @@ export function WorkspaceActions({
                   {standardSpawnIsGeneral ? (
                     // The General agent has no specialist glyph; mirror the
                     // composer's General row, which wears its bound CLI icon.
-                    <CliIcon cli={triggerCli} className="h-[18px] w-[18px]" />
+                    <CliIcon cli={triggerCli} className="size-icon-md" />
                   ) : (
                     <SpecialistActionIcon
                       icon={selectedSpecialistAction.icon}
-                      className="h-[18px] w-[18px]"
+                      className="size-icon-md"
                     />
                   )}
                 </button>

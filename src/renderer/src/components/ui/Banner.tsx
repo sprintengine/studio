@@ -20,7 +20,7 @@ export function Banner({ tone, message, onRetry }: BannerProps) {
   const softVar = tone === 'error' ? 'var(--tone-error-soft)' : 'var(--tone-warn-soft)'
   return (
     <div
-      className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] px-3 py-2 text-[12px] text-[color:var(--text-strong)]"
+      className="flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] px-3 py-2 text-meta text-[color:var(--text-strong)]"
       style={{ backgroundColor: softVar }}
       role={tone === 'error' ? 'alert' : 'status'}
     >

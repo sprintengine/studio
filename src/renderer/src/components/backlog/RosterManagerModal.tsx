@@ -77,8 +77,8 @@ export function RosterManagerModal({
         className="flex max-h-[80vh] w-[720px] max-w-full flex-col overflow-hidden rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)]"
       >
         <header className="shrink-0 border-b border-[color:var(--border-default)] px-4 py-3">
-          <h2 className="text-[14px] font-semibold text-[color:var(--text-strong)]">Rosters</h2>
-          <p className="mt-1 text-[12px] text-[color:var(--text-muted)]">
+          <h2 className="text-heading font-semibold text-[color:var(--text-strong)]">Rosters</h2>
+          <p className="mt-1 text-meta text-[color:var(--text-muted)]">
             Rosters are shared. Editing one here changes it everywhere it is used — in the
             sprint wizard and in every horizon.
           </p>
@@ -88,7 +88,7 @@ export function RosterManagerModal({
           <div className="flex w-[220px] shrink-0 flex-col border-r border-[color:var(--border-default)]">
             <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
               {roster.rosters.length === 0 ? (
-                <p className="px-2 py-3 text-[12px] text-[color:var(--text-subtle)]">
+                <p className="px-2 py-3 text-meta text-[color:var(--text-subtle)]">
                   No saved rosters yet.
                 </p>
               ) : (
@@ -99,14 +99,14 @@ export function RosterManagerModal({
                       key={entry.id}
                       type="button"
                       onClick={() => roster.onSelectRoster(entry.id)}
-                      className={`interactive flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] ${
+                      className={`interactive flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta ${
                         entry.id === roster.selectedRosterId
                           ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
                           : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
                       }`}
                     >
                       <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                      <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+                      <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
                         {staffed}
                       </span>
                     </button>
@@ -121,10 +121,10 @@ export function RosterManagerModal({
                 value={newName}
                 onChange={(event) => setNewName(event.target.value)}
                 placeholder="New roster name"
-                className="w-full rounded border border-[color:var(--border-default)] bg-transparent px-2 py-1 text-[12px] text-[color:var(--text-default)] outline-none placeholder:text-[color:var(--text-disabled)] focus-visible:focus-ring"
+                className="w-full rounded border border-[color:var(--border-default)] bg-transparent px-2 py-1 text-meta text-[color:var(--text-default)] outline-none placeholder:text-[color:var(--text-disabled)] focus-visible:focus-ring"
               />
               {nameCollides ? (
-                <p className="mt-1 px-0.5 text-[11px] text-[color:var(--tone-error)]">
+                <p className="mt-1 px-0.5 text-micro text-[color:var(--tone-error)]">
                   {trimmedNewName.toLowerCase() === NO_ROLES_ROSTER_NAME.toLowerCase()
                     ? `“${NO_ROLES_ROSTER_NAME}” is the built-in default and cannot be reused.`
                     : `A roster named “${trimmedNewName}” already exists.`}

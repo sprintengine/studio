@@ -286,6 +286,14 @@ title, none above the buttons. See *Hairlines carry the structure*.
 
 - One easing curve (`motion.ease.standard`) and three durations. Hover and
   focus at `fast`, popovers at `normal`, drawers at `deliberate`.
+- **Three eased motions, and that is the whole set:** the switch thumb as it
+  crosses its track, the hover/press response every interactive surface shares,
+  and a popover's entrance. A surface picks one of the three; it does not
+  declare its own transition. A fourth is a system change, argued here first —
+  and a per-component `transition` restating a duration the tokens already name
+  is the tell that one was added by accident. An entrance a *pattern* owns (a
+  rail swapping its contents) is not a fourth motion: it composes the same
+  duration and easing pair rather than introducing a curve of its own.
 - At most one thing animates at a time, and it means one of exactly two things:
   *alive right now* (a streaming or running pulse) or *just changed* (a
   reorder, a just-moved flash). Ambient decoration is not motion, it is noise.

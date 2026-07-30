@@ -45,7 +45,7 @@ function familyLabel(kind: TriggerKind): string {
 // (h-7, 5px radius, --border-default on --bg-surface-raised) so every input and
 // Select trigger in the editor reads as one family.
 const CONTROL_BASE =
-  'h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-[12px] text-[color:var(--text-default)] outline-none transition-colors hover:border-[color:var(--border-strong)] focus-visible:border-[color:var(--accent-primary)]'
+  'h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta text-[color:var(--text-default)] outline-none transition-colors hover:border-[color:var(--border-strong)] focus-visible:border-[color:var(--accent-primary)]'
 const INPUT_CLASS = `w-full ${CONTROL_BASE}`
 const NARROW_CONTROL = `w-32 tabular-nums ${CONTROL_BASE}`
 
@@ -97,10 +97,10 @@ export function TriggerFields({
   if (loaded && !isAuthorableTrigger(loaded)) {
     return (
       <fieldset className="flex flex-col gap-3">
-        <legend className="text-[11px] font-medium text-[color:var(--text-muted)]">Trigger</legend>
+        <legend className="text-micro font-medium text-[color:var(--text-muted)]">Trigger</legend>
         <div className="flex flex-col gap-1">
-          <span className="text-[12px] text-[color:var(--text-default)]">{cadenceSummary(loaded)}</span>
-          <span className="text-[11px] text-[color:var(--text-subtle)]">
+          <span className="text-meta text-[color:var(--text-default)]">{cadenceSummary(loaded)}</span>
+          <span className="text-micro text-[color:var(--text-subtle)]">
             Editing this trigger type isn’t supported yet. Saving keeps the current trigger unchanged.
           </span>
         </div>
@@ -120,7 +120,7 @@ export function TriggerFields({
 
   return (
     <fieldset className="flex flex-col gap-3">
-      <legend className="text-[11px] font-medium text-[color:var(--text-muted)]">Trigger</legend>
+      <legend className="text-micro font-medium text-[color:var(--text-muted)]">Trigger</legend>
 
       <Field label="When it runs" htmlFor="automation-trigger-family">
         <Select
@@ -266,7 +266,7 @@ function ScheduleFields({
       )}
       {value.cadenceType === 'weekly' ? (
         <fieldset>
-          <legend className="mb-1 text-[11px] text-[color:var(--text-subtle)]">Days</legend>
+          <legend className="mb-1 text-micro text-[color:var(--text-subtle)]">Days</legend>
           <div className="flex flex-wrap gap-1">
             {WEEKDAY_SHORT.map((label, day) => {
               const checked = value.daysOfWeek.includes(day)
@@ -386,14 +386,14 @@ function WebhookFields({
 
   return (
     <>
-      <label className="flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">
+      <label className="flex items-center gap-2 text-meta text-[color:var(--text-default)]">
         <Switch
           checked={value.enabled}
           onChange={(enabled) => onChange({ ...value, enabled })}
           ariaLabel="Enable inbound webhook delivery"
         />
         Listen for deliveries
-        <span className="text-[11px] text-[color:var(--text-subtle)]">{value.enabled ? '(receiver active)' : '(paused)'}</span>
+        <span className="text-micro text-[color:var(--text-subtle)]">{value.enabled ? '(receiver active)' : '(paused)'}</span>
       </label>
       <Field label="Port" htmlFor="automation-webhook-port" help="Local port the receiver listens on.">
         <input
@@ -416,7 +416,7 @@ function WebhookFields({
           className={INPUT_CLASS}
         />
       </Field>
-      <div className="text-[11px] text-[color:var(--text-subtle)]">
+      <div className="text-micro text-[color:var(--text-subtle)]">
         Delivery URL{' '}
         <code className="font-mono text-[color:var(--text-muted)]">{WEBHOOK_ROUTE_PREFIX}{deliveryPath || '<path>'}</code>
       </div>
@@ -432,27 +432,27 @@ function WebhookFields({
                 value={value.secret}
                 className={`${INPUT_CLASS} font-mono`}
               />
-              <GhostButton type="button" onClick={() => void copySecret()} className="h-7 shrink-0 px-2 text-[11px]">
+              <GhostButton type="button" onClick={() => void copySecret()} className="h-7 shrink-0 px-2 text-micro">
                 {copied ? 'Copied' : 'Copy'}
               </GhostButton>
             </div>
-            <span className="text-[11px] text-[color:var(--tone-warn)]">
+            <span className="text-micro text-[color:var(--tone-warn)]">
               Copy this now — it won’t be shown again after you save.
             </span>
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <GhostButton type="button" onClick={regenerate} className="h-7 px-2 text-[11px]">
+            <GhostButton type="button" onClick={regenerate} className="h-7 px-2 text-micro">
               {value.hasSecret ? 'Regenerate secret' : 'Generate secret'}
             </GhostButton>
-            <span className="text-[11px] text-[color:var(--text-subtle)]">
+            <span className="text-micro text-[color:var(--text-subtle)]">
               {value.hasSecret ? 'A secret is set. Regenerate to replace it.' : 'No secret yet.'}
             </span>
           </div>
         )}
       </Field>
 
-      <p className="text-[11px] leading-5 text-[color:var(--text-subtle)]">
+      <p className="text-micro leading-5 text-[color:var(--text-subtle)]">
         Sign the raw request body with HMAC-SHA256 using the secret and send it in the{' '}
         <code className="font-mono text-[color:var(--text-muted)]">{WEBHOOK_SIGNATURE_HEADER}</code> header as{' '}
         <code className="font-mono text-[color:var(--text-muted)]">sha256=&lt;hex&gt;</code>.
@@ -463,7 +463,7 @@ function WebhookFields({
 
 function chipClass(active: boolean): string {
   return [
-    'h-7 min-w-9 rounded-[5px] border px-2 text-[11px] outline-none transition-colors focus-visible:focus-ring',
+    'h-7 min-w-9 rounded-[5px] border px-2 text-micro outline-none transition-colors focus-visible:focus-ring',
     active
       ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
       : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]',

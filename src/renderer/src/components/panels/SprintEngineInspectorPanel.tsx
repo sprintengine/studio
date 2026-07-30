@@ -114,7 +114,7 @@ function SectionList({
 }) {
   return (
     <div>
-      <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-muted)]">{title}</div>
+      <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">{title}</div>
       {items.length > 0 ? (
         <ul className="space-y-1.5 text-[color:var(--text-default)]">
           {items.map((item) => (
@@ -125,7 +125,7 @@ function SectionList({
           ))}
         </ul>
       ) : (
-        <div className="text-[12px] text-[color:var(--text-disabled)]">{emptyLabel}</div>
+        <div className="text-meta text-[color:var(--text-disabled)]">{emptyLabel}</div>
       )}
     </div>
   )
@@ -202,11 +202,11 @@ function TaskCommentRow({ comment }: { comment: SprintEngineTaskComment }) {
   const [expanded, setExpanded] = useState(false)
   return (
     <div>
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px]">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-micro">
         {/* The comment type is a word, not an identifier: it leaves mono to the
             agent id beside it and separates by weight and ink instead of case. */}
-        <span className="text-[11px] font-medium tracking-normal text-[color:var(--text-default)]">{label}</span>
-        <span className="font-mono text-[11px] text-[color:var(--text-muted)]">{authorLabel}</span>
+        <span className="text-micro font-medium tracking-normal text-[color:var(--text-default)]">{label}</span>
+        <span className="font-mono text-micro text-[color:var(--text-muted)]">{authorLabel}</span>
         {comment.authorRole ? (
           <span className="text-[color:var(--text-disabled)]">{getSprintEngineRoleLabel(comment.authorRole)}</span>
         ) : null}
@@ -221,12 +221,12 @@ function TaskCommentRow({ comment }: { comment: SprintEngineTaskComment }) {
         message={comment.body}
         expanded={expanded}
         onToggle={() => setExpanded((prev) => !prev)}
-        className="mt-1 text-[12px] leading-5 text-[color:var(--text-default)] [overflow-wrap:anywhere]"
+        className="mt-1 text-meta leading-5 text-[color:var(--text-default)] [overflow-wrap:anywhere]"
       />
       {comment.paths && comment.paths.length > 0 ? (
         <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
           {comment.paths.map((path) => (
-            <span key={path} className="font-mono text-[11px] text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
+            <span key={path} className="font-mono text-micro text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
               {path}
             </span>
           ))}
@@ -316,7 +316,7 @@ export function SprintEngineInboxRow({
   const relativeTimestamp = timestamp ? formatRelativeTime(timestamp) : '—'
   const title = (
     <>
-      <span className="mr-2 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+      <span className="mr-2 font-mono tabular-nums text-micro text-[color:var(--text-muted)]">
         {artifact.id}
       </span>
       {artifact.title}
@@ -351,7 +351,7 @@ export function SprintEngineBlockedByRow({
 }) {
   const title = (
     <>
-      <span className="mr-2 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+      <span className="mr-2 font-mono tabular-nums text-micro text-[color:var(--text-muted)]">
         {task.id}
       </span>
       {task.title}
@@ -443,7 +443,7 @@ function SprintEngineArtifactInspector({
   items.push({
     term: 'File',
     description: artifact.path ? (
-      <span className="break-all font-mono text-[12px] text-[color:var(--text-strong)]">{artifact.path}</span>
+      <span className="break-all font-mono text-meta text-[color:var(--text-strong)]">{artifact.path}</span>
     ) : (
       <span className="text-[color:var(--text-disabled)]">No file path recorded.</span>
     ),
@@ -465,7 +465,7 @@ function SprintEngineArtifactInspector({
       <header className="border-b border-[color:var(--border-default)] px-5 py-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
+            <div className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">
               <LifecycleGlyph state={lifecycle} live={false} />
               <span>{statusLabel}</span>
               <span>·</span>
@@ -474,7 +474,7 @@ function SprintEngineArtifactInspector({
             <TruncatedText
               as="h3"
               text={artifact.title}
-              className="mt-2 text-[18px] font-semibold leading-7 text-[color:var(--text-strong)]"
+              className="mt-2 text-title font-semibold leading-7 text-[color:var(--text-strong)]"
             />
           </div>
           <InspectorChromeActions
@@ -501,20 +501,20 @@ function SprintEngineArtifactInspector({
             </>
           ) : null}
           {!canOpenArtifact && !readyForReview ? (
-            <span className="text-[12px] text-[color:var(--text-muted)]">
+            <span className="text-meta text-[color:var(--text-muted)]">
               No actions available for this artifact yet.
             </span>
           ) : null}
         </div>
       </header>
 
-      <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
+      <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-body leading-6 text-[color:var(--text-default)]">
         <DefinitionList items={items} />
 
         {mobileDecision ? (
           <div>
             <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Mobile decision</div>
-            <div className="text-[12px] leading-5 text-[color:var(--text-default)]">
+            <div className="text-meta leading-5 text-[color:var(--text-default)]">
               {formatMobileArtifactDecision(mobileDecision)}
             </div>
           </div>
@@ -523,7 +523,7 @@ function SprintEngineArtifactInspector({
         {artifact.status === 'approved' && artifact.approvalMode === 'policy' ? (
           <div>
             <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Approval</div>
-            <div className="text-[12px] leading-5 text-[color:var(--text-default)]">
+            <div className="text-meta leading-5 text-[color:var(--text-default)]">
               Approved automatically by run policy · on your behalf
               {artifact.approvedAt ? ` · ${formatRelativeTime(artifact.approvedAt)}` : ''}
             </div>
@@ -534,7 +534,7 @@ function SprintEngineArtifactInspector({
           <div>
             <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Auto-approval</div>
             <div
-              className={`text-[12px] leading-5 ${
+              className={`text-meta leading-5 ${
                 autoApproval.eligible
                   ? 'text-[color:var(--accent-primary)]'
                   : 'text-[color:var(--tone-warn)]'
@@ -549,7 +549,7 @@ function SprintEngineArtifactInspector({
           <div>
             <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Last action</div>
             <div
-              className={`text-[12px] leading-5 ${
+              className={`text-meta leading-5 ${
                 actionState.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-good)]'
               }`}
             >
@@ -589,9 +589,9 @@ export function SprintEngineArtifactList({
     <div>
       {hideHeader ? null : (
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">{title}</div>
+          <div className="text-micro font-semibold text-[color:var(--text-muted)]">{title}</div>
           {artifacts.length > 0 ? (
-            <span className="text-[11px] text-[color:var(--text-disabled)]">
+            <span className="text-micro text-[color:var(--text-disabled)]">
               {formatArtifactSummary(artifacts)}
             </span>
           ) : null}
@@ -618,8 +618,8 @@ export function SprintEngineArtifactList({
               <li key={artifact.id} className="grid gap-3 px-3 py-2.5 @[520px]:grid-cols-[minmax(0,1fr)_auto] @[520px]:items-center">
                 <div className="min-w-0 space-y-0.5">
                   <div className="flex min-w-0 items-baseline gap-2">
-                    <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">{artifact.id}</span>
-                    <TruncatedText as="span" text={artifact.title} className="min-w-0 flex-1 text-[13px] font-medium text-[color:var(--text-strong)]" />
+                    <span className="shrink-0 font-mono tabular-nums text-micro text-[color:var(--text-muted)]">{artifact.id}</span>
+                    <TruncatedText as="span" text={artifact.title} className="min-w-0 flex-1 text-body font-medium text-[color:var(--text-strong)]" />
                     {confidencePct !== null ? (
                       <ConfidenceDial value={confidencePct} label="Agent confidence" />
                     ) : null}
@@ -627,7 +627,7 @@ export function SprintEngineArtifactList({
                       {isSourceHandoff ? 'Source' : sprintEngineArtifactStatusLabels[artifact.status]}
                     </span>
                   </div>
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[color:var(--text-subtle)]">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-micro text-[color:var(--text-subtle)]">
                     {isSourceHandoff ? null : (
                       <>
                         <span>{sprintEngineArtifactKindLabel(artifact.kind)}</span>
@@ -655,7 +655,7 @@ export function SprintEngineArtifactList({
                     ) : null}
                   </div>
                   {action && action.status !== 'pending' ? (
-                    <div className={`text-[11px] ${action.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-good)]'}`}>
+                    <div className={`text-micro ${action.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-good)]'}`}>
                       {action.message}
                     </div>
                   ) : null}
@@ -682,7 +682,7 @@ export function SprintEngineArtifactList({
           })}
         </ol>
       ) : (
-        <div className="text-[12px] text-[color:var(--text-disabled)]">{emptyLabel}</div>
+        <div className="text-meta text-[color:var(--text-disabled)]">{emptyLabel}</div>
       )}
     </div>
   )
@@ -696,8 +696,8 @@ function ArtifactBlockerList({
   if (blockers.length === 0) return null
   return (
     <div className="border-l border-[color:var(--tone-warn-soft)] pl-3 text-sm text-[color:var(--tone-warn)]">
-      <div className="text-[11px] font-semibold text-[color:var(--tone-warn)]">Blocked by review</div>
-      <div className="mt-2 space-y-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
+      <div className="text-micro font-semibold text-[color:var(--tone-warn)]">Blocked by review</div>
+      <div className="mt-2 space-y-2 text-meta leading-5 text-[color:var(--tone-warn)]">
         {blockers.map((blocker) => (
           <div key={blocker.taskId} className="space-y-1">
             <div>
@@ -788,7 +788,7 @@ function TaskImplementerRow({
     </>
   )
   return (
-    <li className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+    <li className="flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
       <button
         type="button"
         onClick={() => onOpenAgentTerminal(entry.agentId)}
@@ -835,7 +835,7 @@ function TaskImplementerTimeline({
   if (entries.length === 0) {
     const label = task.status === 'done' ? getSprintEngineRoleLabel(task.role) : 'No active worker'
     return (
-      <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+      <div className="flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
         <RoleAvatar role={task.role} size="sm" ariaLabel="" />
         <span>{label}</span>
       </div>
@@ -868,10 +868,10 @@ function TaskCallout({
   const toneColor = tone === 'error' ? 'var(--tone-error)' : 'var(--tone-warn)'
   return (
     <div
-      className="border-l pl-3 text-[12px] leading-5"
+      className="border-l pl-3 text-meta leading-5"
       style={{ borderColor: toneColor, color: toneColor }}
     >
-      <div className="text-[11px] font-semibold" style={{ color: toneColor }}>
+      <div className="text-micro font-semibold" style={{ color: toneColor }}>
         {label}
       </div>
       <div className="mt-1 text-[color:var(--text-default)]">{children}</div>
@@ -888,7 +888,7 @@ function TaskScoresLine({ task }: { task: SprintEngineTask }) {
 
   const captured = feedback.capturedAt ? formatRelativeTime(feedback.capturedAt) : null
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[color:var(--text-muted)]">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-[color:var(--text-muted)]">
       {typeof confidence === 'number' ? (
         <span>
           Confidence{' '}
@@ -991,21 +991,21 @@ function TaskReviewPrompt({
 
   return (
     <div className="border-l border-[color:var(--tone-warn)] pl-3.5">
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[color:var(--tone-warn)]">
+      <div className="flex items-center gap-1.5 text-micro font-semibold text-[color:var(--tone-warn)]">
         <LifecycleGlyph state="needs_input" className="-translate-y-px" />
         {readyForReview ? 'Ready for your review' : 'Awaiting review'}
       </div>
-      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[13px] text-[color:var(--text-strong)]">
-        <span className="font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">{artifact.id}</span>
+      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-body text-[color:var(--text-strong)]">
+        <span className="font-mono tabular-nums text-micro text-[color:var(--text-muted)]">{artifact.id}</span>
         <span>{kindLabel}</span>
         {canOpenArtifact ? (
-          <span className="font-mono text-[11px] text-[color:var(--text-subtle)] [overflow-wrap:anywhere]">
+          <span className="font-mono text-micro text-[color:var(--text-subtle)] [overflow-wrap:anywhere]">
             {artifact.path}
           </span>
         ) : null}
       </div>
       {reviewer ? (
-        <div className="mt-1 text-[11.5px] text-[color:var(--text-muted)]">
+        <div className="mt-1 text-meta text-[color:var(--text-muted)]">
           <span className="font-mono">{reviewer}</span>
           {relative ? <span> · {relative}</span> : null}
         </div>
@@ -1029,7 +1029,7 @@ function TaskReviewPrompt({
       </div>
       {action && action.status !== 'pending' ? (
         <div
-          className={`mt-2 text-[12px] leading-5 ${
+          className={`mt-2 text-meta leading-5 ${
             action.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-good)]'
           }`}
         >
@@ -1098,18 +1098,18 @@ function TaskInputResponsePrompt({
 
   return (
     <div className="border-l border-[color:var(--tone-warn)] pl-3.5">
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[color:var(--tone-warn)]">
+      <div className="flex items-center gap-1.5 text-micro font-semibold text-[color:var(--tone-warn)]">
         <LifecycleGlyph state="needs_input" className="-translate-y-px" />
         {headline}
         {reasonLabel ? (
           <span className="font-normal text-[color:var(--text-muted)]">· {reasonLabel}</span>
         ) : null}
       </div>
-      <div className="mt-1.5 whitespace-pre-line text-[13px] leading-6 text-[color:var(--text-default)] [overflow-wrap:anywhere]">
+      <div className="mt-1.5 whitespace-pre-line text-body leading-6 text-[color:var(--text-default)] [overflow-wrap:anywhere]">
         {question || fallback}
       </div>
       {reportedBy ? (
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-[color:var(--text-muted)]">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-[color:var(--text-muted)]">
           {reporterRole ? <RoleAvatar role={reporterRole} size="sm" ariaLabel="" /> : null}
           <span className="font-mono text-[color:var(--text-default)]">{reportedBy}</span>
           {reportedAtLabel ? <span>· {reportedAtLabel}</span> : null}
@@ -1127,7 +1127,7 @@ function TaskInputResponsePrompt({
           disabled={pending}
           rows={3}
           placeholder="Reply to the agent… (Enter to send, Shift+Enter for a new line)"
-          className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+          className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-body leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-60"
         />
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1139,7 +1139,7 @@ function TaskInputResponsePrompt({
         </GhostButton>
       </div>
       {action ? (
-        <div className={`mt-2 text-[12px] leading-5 ${messageToneClass}`}>{action.message}</div>
+        <div className={`mt-2 text-meta leading-5 ${messageToneClass}`}>{action.message}</div>
       ) : null}
     </div>
   )
@@ -1251,15 +1251,15 @@ function TaskOpenFindings({
   return (
     <div>
       <div className="mb-2 flex items-baseline gap-2">
-        <span className="text-[11px] font-semibold text-[color:var(--tone-warn)]">
+        <span className="text-micro font-semibold text-[color:var(--tone-warn)]">
           Open findings
         </span>
-        <span className="tabular-nums text-[11px] text-[color:var(--text-disabled)]">{total}</span>
+        <span className="tabular-nums text-micro text-[color:var(--text-disabled)]">{total}</span>
       </div>
       <ul className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
         {findings.map((finding) => (
-          <li key={finding.id} className="py-2 text-[12px] leading-5 text-[color:var(--text-default)]">
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-muted)]">
+          <li key={finding.id} className="py-2 text-meta leading-5 text-[color:var(--text-default)]">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
               <span className="text-[color:var(--tone-warn)]">
                 {feedbackFindingSeverityLabels[finding.severity]}
               </span>
@@ -1292,8 +1292,8 @@ function TaskOpenFindings({
           </li>
         ))}
         {issues.map((issue) => (
-          <li key={issue.id} className="py-2 text-[12px] leading-5 text-[color:var(--text-default)]">
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-muted)]">
+          <li key={issue.id} className="py-2 text-meta leading-5 text-[color:var(--text-default)]">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
               <span className="text-[color:var(--tone-warn)]">
                 {feedbackIssueSeverityLabels[issue.severity]}
               </span>
@@ -1426,7 +1426,7 @@ function CollapsibleMessage({
         onClick={onToggle}
         aria-expanded={expanded}
         className={
-          'interactive text-[11px] text-[color:var(--text-muted)] underline-offset-2 ' +
+          'interactive text-micro text-[color:var(--text-muted)] underline-offset-2 ' +
           'hover:text-[color:var(--text-strong)] hover:underline ' +
           FOCUS_RING_CLASS
         }
@@ -1567,7 +1567,7 @@ function FeedbackDetail({
   const hallucination = feedback.scores.hallucinationRiskPct
   const roleFit = feedback.scores.roleFitPct
   return (
-    <div className="mt-2 space-y-2 border-l border-[color:var(--border-subtle)] pl-3 text-[12px] leading-5">
+    <div className="mt-2 space-y-2 border-l border-[color:var(--border-subtle)] pl-3 text-meta leading-5">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-disabled)]">
         <span>{sourceLabel}</span>
         <span>·</span>
@@ -1578,7 +1578,7 @@ function FeedbackDetail({
       {(typeof confidence === 'number'
         || typeof hallucination === 'number'
         || typeof roleFit === 'number') ? (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[color:var(--text-muted)]">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-[color:var(--text-muted)]">
           {typeof confidence === 'number' ? (
             <span>
               Confidence{' '}
@@ -1616,18 +1616,18 @@ function FeedbackDetail({
       ) : null}
       {feedback.topFriction ? (
         <div>
-          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Top friction</div>
+          <div className="text-micro font-semibold text-[color:var(--text-muted)]">Top friction</div>
           <div className="text-[color:var(--text-default)] [overflow-wrap:anywhere]">{feedback.topFriction}</div>
         </div>
       ) : null}
       {feedback.suggestedImprovement ? (
         <div>
-          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Suggested improvement</div>
+          <div className="text-micro font-semibold text-[color:var(--text-muted)]">Suggested improvement</div>
           <div className="text-[color:var(--text-default)] [overflow-wrap:anywhere]">{feedback.suggestedImprovement}</div>
         </div>
       ) : null}
       {(issuesCount + findingsCount) > 0 ? (
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
+        <div className="flex flex-wrap items-center gap-2 text-micro text-[color:var(--text-muted)]">
           <span>
             <span className="tabular-nums font-mono text-[color:var(--text-default)]">{findingsCount}</span> findings
             {issuesCount > 0 ? (
@@ -1642,7 +1642,7 @@ function FeedbackDetail({
               type="button"
               onClick={onJumpToFindings}
               className={
-                'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-[11px] '
+                'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-micro '
                 + 'text-[color:var(--accent-primary)] underline-offset-2 '
                 + 'hover:text-[color:var(--accent-primary-hover)] hover:underline '
                 + FOCUS_RING_CLASS
@@ -1667,7 +1667,7 @@ function ArtifactDetail({
   const kindLabel = sprintEngineArtifactKindLabel(artifact.kind)
   const statusLabel = sprintEngineArtifactStatusLabels[artifact.status] ?? artifact.status
   return (
-    <div className="mt-2 space-y-1.5 border-l border-[color:var(--border-subtle)] pl-3 text-[12px] leading-5">
+    <div className="mt-2 space-y-1.5 border-l border-[color:var(--border-subtle)] pl-3 text-meta leading-5">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-disabled)]">
         <span>{kindLabel}</span>
         <span>·</span>
@@ -1679,7 +1679,7 @@ function ArtifactDetail({
           type="button"
           onClick={onOpen}
           className={
-            'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-[11px] '
+            'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-micro '
             + 'text-[color:var(--accent-primary)] underline-offset-2 '
             + 'hover:text-[color:var(--accent-primary-hover)] hover:underline '
             + FOCUS_RING_CLASS
@@ -1706,14 +1706,14 @@ function EvidenceDetail({
   const diffCount = evidence.diffs?.length ?? 0
 
   return (
-    <div className="mt-2 space-y-2 border-l border-[color:var(--border-subtle)] pl-3 text-[12px] leading-5">
+    <div className="mt-2 space-y-2 border-l border-[color:var(--border-subtle)] pl-3 text-meta leading-5">
       <div className="text-micro text-[color:var(--text-disabled)]">Recorded evidence (latest snapshot)</div>
       {summary ? (
         <div className="text-[color:var(--text-default)] [overflow-wrap:anywhere]">{summary}</div>
       ) : (
         <div className="text-[color:var(--text-disabled)]">No summary recorded.</div>
       )}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[color:var(--text-muted)]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-micro text-[color:var(--text-muted)]">
         <span>
           <span className="tabular-nums font-mono text-[color:var(--text-default)]">{fileCount}</span> files
         </span>
@@ -1734,7 +1734,7 @@ function EvidenceDetail({
           type="button"
           onClick={onViewDiff}
           className={
-            'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-[11px] '
+            'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-micro '
             + 'text-[color:var(--accent-primary)] underline-offset-2 '
             + 'hover:text-[color:var(--accent-primary-hover)] hover:underline '
             + FOCUS_RING_CLASS
@@ -1786,7 +1786,7 @@ function TaskActivityFeed({
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Activity</div>
+        <div className="text-micro font-semibold text-[color:var(--text-muted)]">Activity</div>
         <div className="flex gap-0.5" role="group" aria-label="Filter activity">
           {ACTIVITY_FILTERS.map((option) => {
             const active = filter === option.key
@@ -1796,7 +1796,7 @@ function TaskActivityFeed({
                 type="button"
                 aria-pressed={active}
                 onClick={() => setFilter(option.key)}
-                className={`interactive rounded px-2 py-1 text-[11px] ${
+                className={`interactive rounded px-2 py-1 text-micro ${
                   active
                     ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
@@ -1810,7 +1810,7 @@ function TaskActivityFeed({
       </div>
 
       {groups.length === 0 ? (
-        <div className="text-[12px] text-[color:var(--text-disabled)]">
+        <div className="text-meta text-[color:var(--text-disabled)]">
           {entries.length === 0 ? emptyLabel : 'No entries match this filter.'}
         </div>
       ) : (
@@ -1827,7 +1827,7 @@ function TaskActivityFeed({
             const matchedArtifact = entry.type === 'artifact' ? findArtifactForEntry(entry, artifacts) : null
             const verbContent = (
               <>
-                <span className="font-mono text-[11px] text-[color:var(--text-default)]">
+                <span className="font-mono text-micro text-[color:var(--text-default)]">
                   {entry.actor}
                 </span>
                 <span>{activityVerb(entry)}</span>
@@ -1852,7 +1852,7 @@ function TaskActivityFeed({
             return (
               <li
                 key={group.key}
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-2 py-2.5 text-[12px] leading-5 text-[color:var(--text-default)]"
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-2 py-2.5 text-meta leading-5 text-[color:var(--text-default)]"
               >
                 <div className="min-w-0">
                   {hasDetail ? (
@@ -1862,7 +1862,7 @@ function TaskActivityFeed({
                       aria-expanded={isExpanded}
                       className={
                         'interactive -mx-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded px-1 py-0.5 '
-                        + 'text-left text-[11px] text-[color:var(--text-muted)] '
+                        + 'text-left text-micro text-[color:var(--text-muted)] '
                         + 'hover:text-[color:var(--text-strong)] '
                         + FOCUS_RING_CLASS
                       }
@@ -1870,7 +1870,7 @@ function TaskActivityFeed({
                       {verbContent}
                     </button>
                   ) : (
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-muted)]">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
                       {verbContent}
                     </div>
                   )}
@@ -1918,7 +1918,7 @@ function TaskOpenFeedbackComments({ comments }: { comments: SprintEngineTaskComm
   if (comments.length === 0) return null
   return (
     <div>
-      <div className="mb-2 text-[11px] font-semibold text-[color:var(--tone-warn)]">
+      <div className="mb-2 text-micro font-semibold text-[color:var(--tone-warn)]">
         Open feedback ({comments.length})
       </div>
       <div className="space-y-3">
@@ -1985,7 +1985,7 @@ function TaskCommentComposer({
 
   return (
     <div>
-      <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-muted)]">Add comment</div>
+      <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">Add comment</div>
       <label htmlFor={fieldId} className="sr-only">
         Add a comment for the agent
       </label>
@@ -1997,7 +1997,7 @@ function TaskCommentComposer({
         disabled={pending}
         rows={3}
         placeholder="Add a comment for the agent… (⌘/Ctrl+Enter to comment)"
-        className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+        className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-body leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-60"
       />
       <div className="mt-2 flex flex-wrap gap-1.5">
         <PrimaryButton onClick={() => void submit(false)} disabled={!canSubmit}>
@@ -2010,7 +2010,7 @@ function TaskCommentComposer({
         ) : null}
       </div>
       {action ? (
-        <div className={`mt-2 text-[12px] leading-5 ${messageToneClass}`}>{action.message}</div>
+        <div className={`mt-2 text-meta leading-5 ${messageToneClass}`}>{action.message}</div>
       ) : null}
     </div>
   )
@@ -2038,7 +2038,7 @@ function AgentWorkedOnTasksList({
               onClick={() => onSelectTask(task.id)}
               className="block w-full px-1 py-2.5 text-left interactive hover:bg-[color:var(--bg-surface-raised)]"
             >
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-muted)]">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
                 <span className="font-mono text-[color:var(--tone-warn)]">{task.id}</span>
                 <span>{statusLabel}</span>
                 {relative ? (
@@ -2097,7 +2097,7 @@ function AgentActivityFeed({
                 type="button"
                 aria-pressed={active}
                 onClick={() => setFilter(option.key)}
-                className={`interactive rounded px-2 py-1 text-[11px] ${
+                className={`interactive rounded px-2 py-1 text-micro ${
                   active
                     ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
@@ -2111,7 +2111,7 @@ function AgentActivityFeed({
       </div>
 
       {filtered.length === 0 ? (
-        <div className="text-[12px] text-[color:var(--text-disabled)]">
+        <div className="text-meta text-[color:var(--text-disabled)]">
           {entries.length === 0 ? emptyLabel : 'No entries match this filter.'}
         </div>
       ) : (
@@ -2125,10 +2125,10 @@ function AgentActivityFeed({
             return (
               <li
                 key={key}
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-2 py-2.5 text-[12px] leading-5 text-[color:var(--text-default)]"
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-2 py-2.5 text-meta leading-5 text-[color:var(--text-default)]"
               >
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-muted)]">
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
                     <button
                       type="button"
                       onClick={() => onSelectTask(taskId)}
@@ -2214,7 +2214,7 @@ function formatDiffMeta(diff: SprintEngineTaskDiff): string {
 
 function DiffLineRow({ line }: { line: SprintEngineTaskDiffLine }) {
   return (
-    <div className={`grid min-w-max grid-cols-[3.25rem_3.25rem_1.5rem_minmax(24rem,1fr)] gap-2 px-3 py-0.5 font-mono text-[11px] leading-5 tabular-nums ${diffLineToneClass(line)}`}>
+    <div className={`grid min-w-max grid-cols-[3.25rem_3.25rem_1.5rem_minmax(24rem,1fr)] gap-2 px-3 py-0.5 font-mono text-micro leading-5 tabular-nums ${diffLineToneClass(line)}`}>
       <span className="select-none text-right text-[color:var(--text-disabled)]">{line.oldLine ?? ''}</span>
       <span className="select-none text-right text-[color:var(--text-disabled)]">{line.newLine ?? ''}</span>
       <span className="select-none text-center">{diffLinePrefix(line)}</span>
@@ -2226,7 +2226,7 @@ function DiffLineRow({ line }: { line: SprintEngineTaskDiffLine }) {
 function ChangedFileDiff({ diff }: { diff: SprintEngineTaskDiff }) {
   if (diff.hunks.length === 0) {
     return (
-      <div className="border-t border-[color:var(--border-subtle)] px-3 py-2 text-[12px] text-[color:var(--text-disabled)]">
+      <div className="border-t border-[color:var(--border-subtle)] px-3 py-2 text-meta text-[color:var(--text-disabled)]">
         No hunks captured for this file.
       </div>
     )
@@ -2236,7 +2236,7 @@ function ChangedFileDiff({ diff }: { diff: SprintEngineTaskDiff }) {
     <div className="max-h-[28rem] overflow-auto border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
       {diff.hunks.map((hunk, index) => (
         <div key={`${diff.path}:${index}`} className="border-b border-[color:var(--border-subtle)] last:border-b-0">
-          <div className="min-w-max px-3 py-1.5 font-mono text-[11px] text-[color:var(--text-muted)]">
+          <div className="min-w-max px-3 py-1.5 font-mono text-micro text-[color:var(--text-muted)]">
             @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
             {hunk.section ? <span className="ml-2">{hunk.section}</span> : null}
           </div>
@@ -2258,7 +2258,7 @@ function ChangedFilesSection({ task }: { task: SprintEngineTask }) {
 
   if (diffs.length === 0) {
     return (
-      <div className="text-[12px] text-[color:var(--text-disabled)]">
+      <div className="text-meta text-[color:var(--text-disabled)]">
         Diff capture unavailable. Republish the task or check the worker log.
       </div>
     )
@@ -2282,14 +2282,14 @@ function ChangedFilesSection({ task }: { task: SprintEngineTask }) {
           const rowContent = (
             <>
               <span className="min-w-0">
-                <span className="block font-mono text-[12px] text-[color:var(--text-strong)] [overflow-wrap:anywhere]">
+                <span className="block font-mono text-meta text-[color:var(--text-strong)] [overflow-wrap:anywhere]">
                   {diff.path}
                 </span>
-                <span className="mt-0.5 block text-[11px] text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
+                <span className="mt-0.5 block text-micro text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
                   {formatDiffMeta(diff)}
                 </span>
               </span>
-              <span className="flex shrink-0 items-center gap-3 font-mono text-[11px] tabular-nums">
+              <span className="flex shrink-0 items-center gap-3 font-mono text-micro tabular-nums">
                 <span className="text-[color:var(--diff-added)]">+{diff.additions}</span>
                 <span className="text-[color:var(--diff-removed)]">-{diff.deletions}</span>
                 <span
@@ -2459,7 +2459,7 @@ export function SprintEngineInspectorPanel({
     return (
       <FilePreviewPane
         title={
-          <span className="text-[13px] font-semibold text-[color:var(--text-strong)]">
+          <span className="text-body font-semibold text-[color:var(--text-strong)]">
             {selection.artifact.name}
           </span>
         }
@@ -2518,7 +2518,7 @@ export function SprintEngineInspectorPanel({
         <header className="border-b border-[color:var(--border-default)] px-5 py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
+              <div className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">
                 <RoleAvatar role={agent.role} size="sm" ariaLabel="" />
                 <span>{getSprintEngineRoleLabel(agent.role)}</span>
                 <span>·</span>
@@ -2530,9 +2530,9 @@ export function SprintEngineInspectorPanel({
               <TruncatedText
                 as="h3"
                 text={displayName}
-                className="mt-2 text-[18px] font-semibold leading-7 text-[color:var(--text-strong)]"
+                className="mt-2 text-title font-semibold leading-7 text-[color:var(--text-strong)]"
               />
-              <div className="mt-1 font-mono text-[11px] text-[color:var(--text-disabled)]">
+              <div className="mt-1 font-mono text-micro text-[color:var(--text-disabled)]">
                 {agent.id}
               </div>
             </div>
@@ -2554,7 +2554,7 @@ export function SprintEngineInspectorPanel({
                     ? `Open Terminal — unavailable: ${terminalActionsUnavailable}`
                     : undefined
                 }
-                className="h-7 rounded border border-[color:var(--border-strong)] px-2.5 text-[11px] font-medium text-[color:var(--text-default)] interactive hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-45"
+                className="h-7 rounded border border-[color:var(--border-strong)] px-2.5 text-micro font-medium text-[color:var(--text-default)] interactive hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-45"
               >
                 Open Terminal
               </button>
@@ -2568,7 +2568,7 @@ export function SprintEngineInspectorPanel({
                     ? `Spawn — unavailable: ${terminalActionsUnavailable}`
                     : undefined
                 }
-                className="h-7 rounded border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-2.5 text-[11px] font-semibold text-[color:var(--accent-primary)] interactive hover:bg-[color:var(--accent-primary-soft-strong)] disabled:cursor-not-allowed disabled:opacity-45"
+                className="h-7 rounded border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-2.5 text-micro font-semibold text-[color:var(--accent-primary)] interactive hover:bg-[color:var(--accent-primary-soft-strong)] disabled:cursor-not-allowed disabled:opacity-45"
               >
                 Spawn
               </button>
@@ -2576,7 +2576,7 @@ export function SprintEngineInspectorPanel({
           </div>
         </header>
 
-        <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
+        <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-body leading-6 text-[color:var(--text-default)]">
           <div>
             <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Currently Working On</div>
             {currentTask ? (
@@ -2585,7 +2585,7 @@ export function SprintEngineInspectorPanel({
                 onClick={() => onSelectTask(currentTask.id)}
                 className="block w-full rounded-md border border-[color:var(--border-default)] px-3 py-2 text-left interactive hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]"
               >
-                <div className="font-mono text-[11px] text-[color:var(--tone-warn)]">{currentTask.id}</div>
+                <div className="font-mono text-micro text-[color:var(--tone-warn)]">{currentTask.id}</div>
                 <TruncatedText as="div" text={currentTask.title} className="mt-1 text-sm font-semibold text-[color:var(--text-strong)]" />
               </button>
             ) : (
@@ -2627,7 +2627,7 @@ export function SprintEngineInspectorPanel({
       <header className="border-b border-[color:var(--border-default)] px-5 py-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
+            <div className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">
               <LifecycleGlyph state={lifecycle} live={lifecycleLive} />
               <span>{LIFECYCLE_LABEL[lifecycle]}</span>
               <span>·</span>
@@ -2635,7 +2635,7 @@ export function SprintEngineInspectorPanel({
                 {selectedTask.id}
               </span>
             </div>
-            <h3 className="mt-2 text-[18px] font-semibold leading-7 text-[color:var(--text-strong)]">
+            <h3 className="mt-2 text-title font-semibold leading-7 text-[color:var(--text-strong)]">
               {selectedTask.title}
             </h3>
           </div>
@@ -2757,7 +2757,7 @@ function SprintEngineTaskBody({
   )
 
   return (
-    <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
+    <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-body leading-6 text-[color:var(--text-default)]">
       <TaskImplementerTimeline
         task={selectedTask}
         runtimeAgents={runtimeAgents}
@@ -2805,10 +2805,10 @@ function SprintEngineTaskBody({
       </div>
 
       <div>
-        <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-muted)]">
+        <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">
           Description
         </div>
-        <div className="text-[13px] leading-6 text-[color:var(--text-default)]">
+        <div className="text-body leading-6 text-[color:var(--text-default)]">
           {selectedTask.description || (
             <span className="text-[color:var(--text-disabled)]">No description recorded.</span>
           )}
@@ -2817,10 +2817,10 @@ function SprintEngineTaskBody({
 
       {selectedTask.acceptanceCriteria.length > 0 ? (
         <div>
-          <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-muted)]">
+          <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">
             Acceptance criteria
           </div>
-          <ul className="space-y-1.5 text-[12.5px] text-[color:var(--text-default)]">
+          <ul className="space-y-1.5 text-body text-[color:var(--text-default)]">
             {selectedTask.acceptanceCriteria.map((criterion) => (
               <li
                 key={criterion}
@@ -2900,14 +2900,14 @@ function SprintEngineTaskBody({
         />
 
         {selectedTask.source?.type === 'github' ? (
-          <div className="mt-3 text-[12px] leading-5 text-[color:var(--text-default)]">
+          <div className="mt-3 text-meta leading-5 text-[color:var(--text-default)]">
             <span className="text-[color:var(--text-muted)]">GitHub issue · </span>
             <span>
               {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
               {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
             </span>
             {formatTaskSyncStatusLabel(selectedTask) ? (
-              <div className="mt-1 text-[11px] text-[color:var(--tone-warn)]">
+              <div className="mt-1 text-micro text-[color:var(--tone-warn)]">
                 {formatTaskSyncStatusDescription(selectedTask)}
               </div>
             ) : null}
@@ -2917,7 +2917,7 @@ function SprintEngineTaskBody({
                 onClick={() => {
                   window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
                 }}
-                className="mt-1 text-[11px] text-[color:var(--accent-primary)] interactive hover:text-[color:var(--accent-primary-hover)]"
+                className="mt-1 text-micro text-[color:var(--accent-primary)] interactive hover:text-[color:var(--accent-primary-hover)]"
               >
                 Open issue →
               </button>
@@ -2926,8 +2926,8 @@ function SprintEngineTaskBody({
         ) : null}
 
         {selectedTask.triage ? (
-          <div className="mt-3 border-l border-[color:var(--tone-warn-soft)] pl-3 text-[12px] leading-5 text-[color:var(--text-default)]">
-            <div className="text-[11px] font-semibold text-[color:var(--tone-warn)]">
+          <div className="mt-3 border-l border-[color:var(--tone-warn-soft)] pl-3 text-meta leading-5 text-[color:var(--text-default)]">
+            <div className="text-micro font-semibold text-[color:var(--tone-warn)]">
               Architect triage
             </div>
             <div className="mt-1">{selectedTask.triage.summary}</div>
@@ -2937,7 +2937,7 @@ function SprintEngineTaskBody({
         {/* Additional reference sections collapsed to keep the surface
             quiet. Open on demand. */}
         <details className="group mt-4">
-          <summary className="cursor-pointer list-none text-[11px] font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]">
+          <summary className="cursor-pointer list-none text-micro font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]">
             <span className="mr-1 inline-block transition-transform group-open:rotate-90" aria-hidden="true">›</span>
             More
           </summary>
@@ -2953,7 +2953,7 @@ function SprintEngineTaskBody({
             ) : null}
 
             <div>
-              <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-muted)]">
+              <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">
                 Evidence summary
               </div>
               <div>{selectedTask.evidence.summary || 'No completion summary recorded yet.'}</div>

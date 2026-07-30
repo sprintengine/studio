@@ -225,7 +225,7 @@ export function SkillsPanel({ workspaceId }: Props) {
           one stack and space already separates them; a rule here would be
           decoration on a pane whose only job is the list. */}
       <div className="flex shrink-0 items-baseline gap-2 px-3 pb-1 pt-3">
-        <h2 className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+        <h2 className="truncate text-body font-semibold text-[color:var(--text-strong)]">
           Skills and MCPs
         </h2>
       </div>

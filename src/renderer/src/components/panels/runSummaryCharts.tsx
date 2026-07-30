@@ -89,7 +89,7 @@ export function RunBurnupChart({
 
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 flex items-baseline justify-between text-[11px] text-[color:var(--text-muted)]">
+      <div className="mb-1.5 flex items-baseline justify-between text-micro text-[color:var(--text-muted)]">
         <span>Tasks completed over the run</span>
         <span style={TABULAR}>{`0 → ${ceiling}`}</span>
       </div>
@@ -118,7 +118,7 @@ export function RunBurnupChart({
           <circle cx={end[0]} cy={end[1]} r={3.5} fill="var(--accent-primary)" />
         </svg>
       </div>
-      <div className="mt-1.5 flex items-baseline justify-between text-[11px] text-[color:var(--text-disabled)]">
+      <div className="mt-1.5 flex items-baseline justify-between text-micro text-[color:var(--text-disabled)]">
         <span>start</span>
         {durationLabel ? <span style={TABULAR}>{durationLabel}</span> : null}
       </div>
@@ -169,7 +169,7 @@ export function ProgressRing({
           {sublabel}
         </text>
       </svg>
-      <span className="text-[11px] text-[color:var(--text-muted)]">{caption}</span>
+      <span className="text-micro text-[color:var(--text-muted)]">{caption}</span>
     </div>
   )
 }
@@ -183,7 +183,7 @@ export function IssueBars({ items }: { items: SprintEngineIssueTotal[] }) {
     <div className="flex flex-col gap-2">
       {sorted.map((item) => (
         <div key={item.key} className="grid grid-cols-[140px_1fr_auto] items-center gap-3">
-          <span className="text-[12px] text-[color:var(--text-muted)]">{item.label}</span>
+          <span className="text-meta text-[color:var(--text-muted)]">{item.label}</span>
           <span className="h-2 overflow-hidden rounded-[3px] bg-[color:var(--border-subtle)]">
             <span
               className="block h-full rounded-[3px] bg-[color:var(--text-muted)]"
@@ -191,7 +191,7 @@ export function IssueBars({ items }: { items: SprintEngineIssueTotal[] }) {
             />
           </span>
           <span
-            className="text-right text-[13px] font-semibold tabular-nums text-[color:var(--text-strong)]"
+            className="text-right text-body font-semibold tabular-nums text-[color:var(--text-strong)]"
             style={{ minWidth: '2.5ch' }}
           >
             {item.total}
@@ -222,7 +222,7 @@ export function AgentActivityTimeline({
 
   return (
     <div className="min-w-0">
-      <div className="mb-2 flex items-baseline justify-between text-[11px] text-[color:var(--text-muted)]">
+      <div className="mb-2 flex items-baseline justify-between text-micro text-[color:var(--text-muted)]">
         <span>Time each agent spent on tasks</span>
         <span style={TABULAR}>{`${timeline.rows.length} agent${timeline.rows.length === 1 ? '' : 's'}`}</span>
       </div>
@@ -247,7 +247,7 @@ export function AgentActivityTimeline({
                 className={`group inline-flex min-w-0 items-baseline gap-2 rounded-sm text-left ${FOCUS_RING_CLASS}`}
               >
                 <RoleGlyph role={row.role} size="sm" className="translate-y-[2px]" />
-                <span className="truncate font-mono text-[12px] text-[color:var(--text-strong)]">{row.agentId}</span>
+                <span className="truncate font-mono text-meta text-[color:var(--text-strong)]">{row.agentId}</span>
               </button>
               <div className="relative h-4">
                 <span className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[color:var(--border-subtle)]" />
@@ -272,7 +272,7 @@ export function AgentActivityTimeline({
       </div>
 
       {/* Time axis, aligned to the lane tracks via the shared grid. */}
-      <div className={`mt-2 ${LANE_GRID} text-[11px] text-[color:var(--text-disabled)]`}>
+      <div className={`mt-2 ${LANE_GRID} text-micro text-[color:var(--text-disabled)]`}>
         <span aria-hidden="true" />
         <div className="flex items-baseline justify-between">
           <span>start</span>
@@ -280,7 +280,7 @@ export function AgentActivityTimeline({
         </div>
       </div>
 
-      <div className="mt-2 text-[11px] text-[color:var(--text-disabled)]">
+      <div className="mt-2 text-micro text-[color:var(--text-disabled)]">
         Each bar is time a task was assigned to that agent · click an agent to solo
       </div>
     </div>

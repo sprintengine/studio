@@ -40,7 +40,7 @@ export function StopGuideRunButton({ session }: { session: ReviewSession }): JSX
   return (
     <>
       {error ? (
-        <span className="text-[11px] leading-4 text-[color:var(--tone-error)]">
+        <span className="text-micro leading-4 text-[color:var(--tone-error)]">
           The guide couldn’t be stopped: {error}
         </span>
       ) : null}

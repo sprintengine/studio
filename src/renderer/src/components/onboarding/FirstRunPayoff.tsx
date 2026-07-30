@@ -54,7 +54,7 @@ export function FirstRunPayoff({
     <>
       <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
         <AgentConfigAdoptionStatus adoption={adoption} />
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="text-meta leading-5 text-[color:var(--text-muted)]">
           {hasConfiguredCli
             ? 'Your agent is ready. Open a chat in this project and hand it a first task — or just open your workspace.'
             : 'No agent CLI is set up yet. Open the command palette to explore what you can do, or add a CLI in Settings → Agents.'}

@@ -97,7 +97,7 @@ export function SprintEngineProjectPanel({
           triggerMinWidthClassName="min-w-0"
         />
         {primaryFolderPath ? (
-          <span className="truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
+          <span className="truncate font-mono text-micro leading-4 text-[color:var(--text-subtle)]">
             {primaryFolderPath}
           </span>
         ) : null}
@@ -136,7 +136,7 @@ export function SprintEngineProjectPanel({
               disabled={!primaryFolderPath}
               className={`
                 h-[24px] rounded-full border border-dashed border-[color:var(--border-default)] px-2.5
-                text-[11.5px] text-[color:var(--text-muted)] transition-colors
+                text-meta text-[color:var(--text-muted)] transition-colors
                 hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
                 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent
                 ${FOCUS_RING_CLASS}
@@ -150,7 +150,7 @@ export function SprintEngineProjectPanel({
           <span
             id={hintId}
             role="status"
-            className={`text-[11px] leading-4 ${
+            className={`text-micro leading-4 ${
               repoError ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-muted)]'
             }`}
           >
@@ -181,7 +181,7 @@ function ProjectRepoChip({
       aria-pressed={selected}
       disabled={disabled}
       onClick={onToggle}
-      className={`inline-flex h-[24px] max-w-full items-center gap-1 rounded-full px-2.5 text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING_CLASS} ${
+      className={`inline-flex h-[24px] max-w-full items-center gap-1 rounded-full px-2.5 text-meta transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING_CLASS} ${
         selected
           ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
           : 'border border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'

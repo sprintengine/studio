@@ -157,7 +157,7 @@ export function SprintEngineRosterPanel({
             value={rosterMode}
             onChange={onChangeRosterMode}
           />
-          <p id={formationHelpId} className="mt-2 min-h-[18px] text-[12px] leading-4 text-[color:var(--text-subtle)]">
+          <p id={formationHelpId} className="mt-2 min-h-[18px] text-meta leading-4 text-[color:var(--text-subtle)]">
             {ROSTER_MODE_HELP[rosterMode]}
           </p>
         </>
@@ -186,7 +186,7 @@ export function SprintEngineRosterPanel({
         <>
           <div className="mt-4 flex items-center gap-2.5">
             <RoleGlyphStack roles={onRoles} registry={registry} />
-            <span className="text-[12px] tabular-nums text-[color:var(--text-muted)]">
+            <span className="text-meta tabular-nums text-[color:var(--text-muted)]">
               {registryStatus === 'loading'
                 ? 'Loading roles'
                 : `${onRoles.length} role${onRoles.length === 1 ? '' : 's'}`}
@@ -241,7 +241,7 @@ function RoleGlyphStack({
   registry: SprintEngineRoleRegistry | null
 }) {
   if (roles.length === 0) {
-    return <span className="text-[12px] text-[color:var(--text-disabled)]">No roles on</span>
+    return <span className="text-meta text-[color:var(--text-disabled)]">No roles on</span>
   }
   return (
     <span className="flex pl-1.5" aria-hidden="true">
@@ -299,7 +299,7 @@ function RosterRoleRow({
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span
-            className={`text-[12.5px] ${
+            className={`text-body ${
               isOn ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'
             }`}
           >
@@ -312,7 +312,7 @@ function RosterRoleRow({
           ) : null}
         </span>
         <span
-          className={`mt-0.5 block text-[11px] leading-4 ${
+          className={`mt-0.5 block text-micro leading-4 ${
             isOn ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-disabled)]'
           }`}
         >
@@ -397,7 +397,7 @@ function SavedRostersMenu({
     setName('')
   }
   const itemClass =
-    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
 
   const trimmed = name.trim()
   const collides = sprintEngineRosterNameTaken(
@@ -432,7 +432,7 @@ function SavedRostersMenu({
           type="button"
           onClick={togglePopover}
           className="
-            inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-[color:var(--text-muted)]
+            inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-meta font-medium text-[color:var(--text-muted)]
             transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
             focus-visible:focus-ring
           "
@@ -462,14 +462,14 @@ function SavedRostersMenu({
                 close()
               }
             }}
-            className={`h-7 w-full rounded-[5px] border bg-[color:var(--bg-surface-raised)] px-2 text-[12px] text-[color:var(--text-default)] outline-none ${
+            className={`h-7 w-full rounded-[5px] border bg-[color:var(--bg-surface-raised)] px-2 text-meta text-[color:var(--text-default)] outline-none ${
               collides
                 ? 'border-[color:var(--tone-error)]'
                 : 'border-[color:var(--border-default)] focus:border-[color:var(--accent-primary)]'
             }`}
           />
           {collides ? (
-            <span className="px-0.5 text-[11px] text-[color:var(--tone-error)]">
+            <span className="px-0.5 text-micro text-[color:var(--tone-error)]">
               A roster named “{trimmed}” already exists.
             </span>
           ) : null}
@@ -498,7 +498,7 @@ function SavedRostersMenu({
             <span className="min-w-0 flex-1 truncate">{NO_ROLES_ROSTER_NAME}</span>
             {/* aria-checked on the radio already announces the choice. */}
             {noRolesSelected ? <CheckIcon className="icon-xs shrink-0" /> : null}
-            <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">default</span>
+            <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">default</span>
           </button>
           <div className="my-1 border-t border-[color:var(--border-subtle)]" />
           {rosters.length > 0 ? (
@@ -534,7 +534,7 @@ function SavedRostersMenu({
                         <span className="sr-only">Selected</span>
                       </>
                     ) : null}
-                    <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+                    <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
                       {total} role{total === 1 ? '' : 's'}
                     </span>
                   </button>
@@ -626,8 +626,8 @@ function PlainAgentsPanel({
       <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
         <div className="flex items-start justify-between gap-3 px-3.5 py-3">
           <span className="min-w-0">
-            <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">How many agents</span>
-            <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+            <span className="block text-body font-semibold text-[color:var(--text-strong)]">How many agents</span>
+            <span className="mt-0.5 block text-micro leading-4 text-[color:var(--text-muted)]">
               They share one task graph — each plans, builds, reviews, and tests its own work. More agents run at once and finish faster.
             </span>
           </span>
@@ -638,7 +638,7 @@ function PlainAgentsPanel({
               disabled={!onChangeAgentCount || agentCount <= 1}
               onClick={() => setCount(agentCount - 1)}
             />
-            <span className="w-7 text-center text-[13px] font-semibold tabular-nums text-[color:var(--text-strong)]">
+            <span className="w-7 text-center text-body font-semibold tabular-nums text-[color:var(--text-strong)]">
               {agentCount}
             </span>
             <AgentCountStepButton
@@ -651,8 +651,8 @@ function PlainAgentsPanel({
         </div>
         <div className="flex items-start justify-between gap-3 border-t border-[color:var(--border-default)] px-3.5 py-3">
           <span className="min-w-0">
-            <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Agent</span>
-            <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+            <span className="block text-body font-semibold text-[color:var(--text-strong)]">Agent</span>
+            <span className="mt-0.5 block text-micro leading-4 text-[color:var(--text-muted)]">
               The CLI and model every agent runs.
             </span>
           </span>
@@ -709,7 +709,7 @@ function AgentCountStepButton({
       onClick={onClick}
       className="
         inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--color-5)]
-        bg-[color:var(--bg-surface-raised)] text-[14px] leading-none text-[color:var(--text-default)] transition-colors
+        bg-[color:var(--bg-surface-raised)] text-heading leading-none text-[color:var(--text-default)] transition-colors
         hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
         focus-visible:focus-ring
         disabled:cursor-not-allowed disabled:opacity-45

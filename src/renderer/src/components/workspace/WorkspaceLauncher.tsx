@@ -25,7 +25,7 @@ const MODE_ROW =
   'group flex w-full items-center gap-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-3 text-left transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring'
 
 const ROW_ICON =
-  'h-[18px] w-[18px] shrink-0 text-[color:var(--text-muted)] transition-colors group-hover:text-[color:var(--text-default)]'
+  'size-icon-md shrink-0 text-[color:var(--text-muted)] transition-colors group-hover:text-[color:var(--text-default)]'
 
 function ChevronRightIcon({ className }: { className?: string }) {
   return (
@@ -65,10 +65,10 @@ export default function WorkspaceLauncher({
     <div className="absolute inset-0 z-10 isolate flex items-start justify-center overflow-auto bg-[color:var(--bg-app)]">
       <CreationBackdrop surface="workspace" />
       <div className="w-full max-w-[520px] px-6 pb-16 pt-[14vh]">
-        <h1 className="text-[18px] font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
+        <h1 className="text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
           Start something here
         </h1>
-        <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
+        <p className="mt-1 text-body text-[color:var(--text-muted)]">
           This workspace is empty. Launch an agent to begin.
         </p>
 
@@ -82,14 +82,14 @@ export default function WorkspaceLauncher({
                 className="group flex h-[46px] items-center gap-2.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 text-left transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
               >
                 <CliIcon cli={option.value} className={ROW_ICON} />
-                <span className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">
+                <span className="truncate text-body font-medium text-[color:var(--text-strong)]">
                   {option.label}
                 </span>
               </button>
             ))}
           </div>
         ) : (
-          <p className="mt-5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-3 text-[12px] text-[color:var(--text-muted)]">
+          <p className="mt-5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-3 text-meta text-[color:var(--text-muted)]">
             No agent CLI is configured yet. Add one in settings to launch an agent.
           </p>
         )}
@@ -106,10 +106,10 @@ export default function WorkspaceLauncher({
                 <button ref={ref} type="button" onClick={togglePopover} className={MODE_ROW} {...triggerProps}>
                   <SpecialistRosterIcon className={ROW_ICON} />
                   <span className="min-w-0">
-                    <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">
+                    <span className="block text-body font-semibold text-[color:var(--text-strong)]">
                       Specialist agent
                     </span>
-                    <span className="mt-0.5 block truncate text-[12px] text-[color:var(--text-muted)]">
+                    <span className="mt-0.5 block truncate text-meta text-[color:var(--text-muted)]">
                       A role-shaped agent — architect, security, code review, and more.
                     </span>
                   </span>
@@ -124,10 +124,10 @@ export default function WorkspaceLauncher({
           <button type="button" onClick={onStartSprintEngine} className={MODE_ROW}>
             <SprintEngineWorkspaceTypeIcon className={ROW_ICON} />
             <span className="min-w-0">
-              <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">
+              <span className="block text-body font-semibold text-[color:var(--text-strong)]">
                 Sprint Engine
               </span>
-              <span className="mt-0.5 block truncate text-[12px] text-[color:var(--text-muted)]">
+              <span className="mt-0.5 block truncate text-meta text-[color:var(--text-muted)]">
                 Launch a coordinated multi-agent team from a goal or backlog item.
               </span>
             </span>
@@ -136,7 +136,7 @@ export default function WorkspaceLauncher({
         </div>
 
         {hasFooter ? (
-          <div className="mt-6 flex items-center gap-3 text-[12px]">
+          <div className="mt-6 flex items-center gap-3 text-meta">
             {onNewWorkspace ? (
               <button
                 type="button"

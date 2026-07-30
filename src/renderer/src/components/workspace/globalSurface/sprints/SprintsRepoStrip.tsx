@@ -49,7 +49,7 @@ export function SprintsRepoStrip({
 
   return (
     <section className="flex flex-col gap-2" aria-label="Repositories">
-      <h3 className="text-[11px] font-semibold text-[color:var(--text-subtle)]">
+      <h3 className="text-micro font-semibold text-[color:var(--text-subtle)]">
         Repositories
         {multiRepo ? (
           <span className="font-normal text-[color:var(--text-subtle)]"> · merge order enforced</span>
@@ -101,7 +101,7 @@ function RepoCard({
   return (
     <div className="flex h-full flex-col gap-1.5 rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]" title={name}>
+        <span className="min-w-0 flex-1 truncate text-meta font-medium text-[color:var(--text-strong)]" title={name}>
           {name}
         </span>
         {/* Entry zero is the repo that holds the run and its plan. A plain word,
@@ -119,13 +119,13 @@ function RepoCard({
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <StatusDot tone={REPO_PR_STATE_TONE[state]} className="shrink-0" />
-        <span className="text-[11px] text-[color:var(--text-muted)]">{pullRequestLine(repo, state)}</span>
+        <span className="text-micro text-[color:var(--text-muted)]">{pullRequestLine(repo, state)}</span>
         {repo.pullRequestUrl ? (
           <a
             href={repo.pullRequestUrl}
             target="_blank"
             rel="noreferrer"
-            className="interactive shrink-0 text-[11px] text-[color:var(--accent-primary)] hover:underline"
+            className="interactive shrink-0 text-micro text-[color:var(--accent-primary)] hover:underline"
           >
             View
           </a>
@@ -162,7 +162,7 @@ function pullRequestLine(repo: SprintEngineVcsRepo, state: RepoPullRequestState)
 
 function BranchGlyph(): JSX.Element {
   return (
-    <svg viewBox="0 0 16 16" fill="none" className="h-[11px] w-[11px] shrink-0 text-[color:var(--text-disabled)]" aria-hidden="true">
+    <svg viewBox="0 0 16 16" fill="none" className="size-icon-xs shrink-0 text-[color:var(--text-disabled)]" aria-hidden="true">
       <path
         d="M5 3v7a3 3 0 0 0 3 3h3M5 3 3 5m2-2 2 2M11 13l2-2m-2 2-2-2"
         stroke="currentColor"

@@ -15,9 +15,9 @@ interface AnnotationsPanelProps {
 export function AnnotationsPanel({ annotations, onJumpTo, onAskGuide }: AnnotationsPanelProps) {
   return (
     <div className="h-full overflow-y-auto border-l border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-4 py-4">
-      <span className="mb-2.5 block text-[11px] font-medium text-[color:var(--text-subtle)]">In this step</span>
+      <span className="mb-2.5 block text-micro font-medium text-[color:var(--text-subtle)]">In this step</span>
       {annotations.length === 0 ? (
-        <p className="text-[12px] leading-5 text-[color:var(--text-subtle)]">
+        <p className="text-meta leading-5 text-[color:var(--text-subtle)]">
           No guide notes in this step — the files here read straight through.
         </p>
       ) : (
@@ -27,14 +27,14 @@ export function AnnotationsPanel({ annotations, onJumpTo, onAskGuide }: Annotati
             className="mb-2.5 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5"
           >
             <div className="mb-1 flex items-baseline gap-2">
-              <span className="min-w-0 flex-1 text-[13px] font-medium leading-tight text-[color:var(--text-strong)]">
+              <span className="min-w-0 flex-1 text-body font-medium leading-tight text-[color:var(--text-strong)]">
                 {annotation.title}
               </span>
               <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
                 {anchorRangeLabel(annotation.anchor)}
               </span>
             </div>
-            <p className="text-[11.5px] leading-5 text-[color:var(--text-muted)]">{annotation.summary}</p>
+            <p className="text-meta leading-5 text-[color:var(--text-muted)]">{annotation.summary}</p>
             <div className="mt-2 flex gap-2">
               <GhostButton onClick={() => onJumpTo(annotation)}>Jump to lines</GhostButton>
               <GhostButton onClick={() => onAskGuide(annotation)}>Ask</GhostButton>

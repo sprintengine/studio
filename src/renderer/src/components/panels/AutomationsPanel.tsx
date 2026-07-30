@@ -189,16 +189,16 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
             docks beside the list/detail rather than stacking below it. */}
         <div className="flex min-h-0 flex-1 overflow-hidden">
         {loadState === 'loading' || loadState === 'idle' ? (
-          <div className="flex flex-1 items-center justify-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+          <div className="flex flex-1 items-center justify-center gap-2 text-meta text-[color:var(--text-muted)]">
             <Spinner size={14} label="Loading automations" />
             Loading automations…
           </div>
         ) : loadState === 'error' ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-            <p className="max-w-sm text-[12px] leading-5 text-[color:var(--text-muted)]">
+            <p className="max-w-sm text-meta leading-5 text-[color:var(--text-muted)]">
               Automations are unavailable for this project.
             </p>
-            <p className="max-w-sm text-[11px] leading-5 text-[color:var(--tone-error)]">{loadError}</p>
+            <p className="max-w-sm text-micro leading-5 text-[color:var(--tone-error)]">{loadError}</p>
             <GhostButton onClick={() => void load()}>Retry</GhostButton>
           </div>
         ) : (

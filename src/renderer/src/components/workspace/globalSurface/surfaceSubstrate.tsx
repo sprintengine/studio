@@ -67,7 +67,7 @@ export type SurfaceCanvasStateProps =
 export function SurfaceCanvasState(props: SurfaceCanvasStateProps): JSX.Element {
   if (props.kind === 'loading') {
     return (
-      <div className="flex h-full w-full items-center justify-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+      <div className="flex h-full w-full items-center justify-center gap-2 text-meta text-[color:var(--text-muted)]">
         <Spinner size={14} />
         {props.label}
       </div>
@@ -76,12 +76,12 @@ export function SurfaceCanvasState(props: SurfaceCanvasStateProps): JSX.Element 
   if (props.kind === 'empty') {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-6 py-12 text-center">
-        <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--accent-primary-soft)] text-[18px] text-[color:var(--accent-primary)]">
+        <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--accent-primary-soft)] text-title text-[color:var(--accent-primary)]">
           {props.glyph}
         </div>
-        <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">{props.title}</h3>
+        <h3 className="text-title font-semibold text-[color:var(--text-strong)]">{props.title}</h3>
         {props.body ? (
-          <p className="max-w-[46ch] text-[12px] leading-5 text-[color:var(--text-muted)]">{props.body}</p>
+          <p className="max-w-[46ch] text-meta leading-5 text-[color:var(--text-muted)]">{props.body}</p>
         ) : null}
         {props.action ? <div className="mt-2 flex items-center gap-2">{props.action}</div> : null}
       </div>
@@ -287,7 +287,7 @@ export function SurfaceRailHeader({
           const rect = event.currentTarget.getBoundingClientRect()
           newAffordance.onActivate({ x: rect.left, y: rect.bottom })
         }}
-        className={`mb-2 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-left text-[12px] transition-colors ${FOCUS_RING_CLASS} ${
+        className={`mb-2 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-left text-meta transition-colors ${FOCUS_RING_CLASS} ${
           newAffordance.disabled
             ? 'cursor-default text-[color:var(--text-disabled)]'
             : newAffordance.selected
@@ -415,7 +415,7 @@ export function SurfaceRail({
                 selection, so an unselected title has to sit a step below it —
                 and in a resting rail the lift drops back out with the fill. */}
             <span
-              className={`truncate text-[12px] font-medium ${
+              className={`truncate text-meta font-medium ${
                 selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
               }`}
             >
@@ -478,7 +478,7 @@ export function SurfaceRail({
                 groups.length > 1 ? '' : 'hidden'
               }`}
             >
-              <span className="text-[11px] font-semibold text-[color:var(--text-subtle)]">{group.label}</span>
+              <span className="text-micro font-semibold text-[color:var(--text-subtle)]">{group.label}</span>
               <span className="font-mono text-micro tabular-nums text-[color:var(--text-disabled)]">
                 {group.rows.length}
               </span>
@@ -513,7 +513,7 @@ export function BarStatusChip({
   pulse?: boolean
 }): JSX.Element {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[color:var(--text-muted)]">
+    <span className="inline-flex items-center gap-1.5 text-micro font-medium text-[color:var(--text-muted)]">
       <StatusDot tone={tone} pulse={pulse} />
       {label}
     </span>

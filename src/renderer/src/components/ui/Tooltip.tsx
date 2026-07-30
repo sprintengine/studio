@@ -250,7 +250,7 @@ export function Tooltip({
                 'popover-enter pointer-events-none z-50',
                 'whitespace-nowrap rounded-[5px] border border-[color:var(--border-strong)]',
                 'bg-[color:var(--bg-surface-raised)] px-2 py-1',
-                'text-[11px] leading-snug text-[color:var(--text-strong)]',
+                'text-micro leading-snug text-[color:var(--text-strong)]',
                 className ?? '',
               ].join(' ')}
             >

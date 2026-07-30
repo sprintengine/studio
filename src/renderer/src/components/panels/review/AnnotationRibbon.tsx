@@ -58,7 +58,7 @@ export function AnnotationRibbon({ annotation, onAskGuide, onMeasured }: Annotat
           onClick={() => expandable && setOpen((value) => !value)}
           aria-expanded={expandable ? open : undefined}
           disabled={!expandable}
-          className={`block w-full text-left text-[13px] leading-5 text-[color:var(--text-default)] ${expandable ? 'cursor-pointer' : 'cursor-default'}`}
+          className={`block w-full text-left text-body leading-5 text-[color:var(--text-default)] ${expandable ? 'cursor-pointer' : 'cursor-default'}`}
         >
           {expandable ? (
             <svg
@@ -78,7 +78,7 @@ export function AnnotationRibbon({ annotation, onAskGuide, onMeasured }: Annotat
           </span>
         </button>
         {open && annotation.detail ? (
-          <p className="mt-1.5 max-w-[72ch] text-[13px] leading-5 text-[color:var(--text-muted)]">{annotation.detail}</p>
+          <p className="mt-1.5 max-w-[72ch] text-body leading-5 text-[color:var(--text-muted)]">{annotation.detail}</p>
         ) : null}
         {open ? (
           <div className="mt-2">

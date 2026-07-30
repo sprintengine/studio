@@ -26,10 +26,10 @@ const REVIEW_DEPTHS: Array<{ id: 'brief' | 'standard' | 'thorough'; label: strin
   { id: 'thorough', label: 'Thorough' },
 ]
 
-const reviewFieldLabelClass = 'text-[12px] font-medium text-[color:var(--text-strong)]'
-const reviewHelpClass = 'text-[11.5px] leading-4 text-[color:var(--text-subtle)]'
+const reviewFieldLabelClass = 'text-meta font-medium text-[color:var(--text-strong)]'
+const reviewHelpClass = 'text-meta leading-4 text-[color:var(--text-subtle)]'
 const reviewInputClass =
-  'w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12.5px] text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)] focus-visible:focus-ring'
+  'w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-body text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)] focus-visible:focus-ring'
 
 export function ReviewSourceStep({
   sourceKind,
@@ -94,7 +94,7 @@ export function ReviewSourceStep({
 
   return (
     <div className="flex flex-col gap-6">
-      <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">
+      <p className="text-body leading-5 text-[color:var(--text-muted)]">
         Your guide reads this change set and the project’s knowledge graph, then prepares a walkthrough before you start.
       </p>
 
@@ -112,7 +112,7 @@ export function ReviewSourceStep({
               role="tab"
               aria-selected={selected}
               onClick={() => onChangeSourceKind(segment.kind)}
-              className={`flex-1 rounded-[5px] px-2 py-1.5 text-[12px] font-medium transition-colors focus-visible:focus-ring ${
+              className={`flex-1 rounded-[5px] px-2 py-1.5 text-meta font-medium transition-colors focus-visible:focus-ring ${
                 selected
                   ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
                   : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
@@ -158,7 +158,7 @@ export function ReviewSourceStep({
           <label className="flex flex-col gap-1.5">
             <span className={reviewFieldLabelClass}>Patch text</span>
             <textarea
-              className={`${reviewInputClass} min-h-[120px] resize-y font-mono text-[11.5px] leading-4`}
+              className={`${reviewInputClass} min-h-[120px] resize-y font-mono text-meta leading-4`}
               value={patchText}
               placeholder="diff --git a/… b/…"
               spellCheck={false}
@@ -181,12 +181,12 @@ export function ReviewSourceStep({
       <ReviewDetectionCard probe={probe} reachabilityChip={reachabilityChip} successLabel={successDotLabel} />
 
       <div className="flex flex-col gap-2.5 border-t border-[color:var(--border-subtle)] pt-4">
-        <span className="text-[11px] font-medium text-[color:var(--text-subtle)]">Walkthrough context</span>
+        <span className="text-micro font-medium text-[color:var(--text-subtle)]">Walkthrough context</span>
 
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0">
-            <span className="block text-[12px] font-medium text-[color:var(--text-strong)]">Knowledge graph</span>
-            <span className="mt-0.5 block font-mono text-[11px] leading-4 text-[color:var(--text-muted)]">
+            <span className="block text-meta font-medium text-[color:var(--text-strong)]">Knowledge graph</span>
+            <span className="mt-0.5 block font-mono text-micro leading-4 text-[color:var(--text-muted)]">
               {knowledgeRoot ? knowledgeRoot : 'None configured — the guide reads code only.'}
             </span>
           </span>
@@ -201,8 +201,8 @@ export function ReviewSourceStep({
 
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0">
-            <span className="block text-[12px] font-medium text-[color:var(--text-strong)]">Guide</span>
-            <span className="mt-0.5 block text-[11.5px] leading-4 text-[color:var(--text-muted)]">
+            <span className="block text-meta font-medium text-[color:var(--text-strong)]">Guide</span>
+            <span className="mt-0.5 block text-meta leading-4 text-[color:var(--text-muted)]">
               Runs in the background like any workspace agent.
             </span>
           </span>
@@ -218,8 +218,8 @@ export function ReviewSourceStep({
 
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0">
-            <span className="block text-[12px] font-medium text-[color:var(--text-strong)]">Explanation depth</span>
-            <span className="mt-0.5 block text-[11.5px] leading-4 text-[color:var(--text-muted)]">
+            <span className="block text-meta font-medium text-[color:var(--text-strong)]">Explanation depth</span>
+            <span className="mt-0.5 block text-meta leading-4 text-[color:var(--text-muted)]">
               How much the guide explains before you start reading.
             </span>
           </span>
@@ -237,7 +237,7 @@ export function ReviewSourceStep({
                   role="tab"
                   aria-selected={selected}
                   onClick={() => onChangeDepth(option.id)}
-                  className={`rounded-[5px] px-2 py-1 text-[11.5px] font-medium transition-colors focus-visible:focus-ring ${
+                  className={`rounded-[5px] px-2 py-1 text-meta font-medium transition-colors focus-visible:focus-ring ${
                     selected
                       ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
                       : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
@@ -252,7 +252,7 @@ export function ReviewSourceStep({
       </div>
 
       {createError ? (
-        <p className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+        <p className="border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]">
           {createError}
         </p>
       ) : null}
@@ -308,7 +308,7 @@ function ReviewDetectionCard({
   if (probe.status === 'idle') return null
   if (probe.status === 'probing') {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-[12px] text-[color:var(--text-muted)]">
+      <div className="flex items-center gap-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-meta text-[color:var(--text-muted)]">
         <StatusDot tone="neutral" pulse />
         Reading the changes…
       </div>
@@ -318,7 +318,7 @@ function ReviewDetectionCard({
     // An error must read as an error, not as neutral field help: error-tone text
     // and a matching status dot instead of muted body copy.
     return (
-      <div className="flex items-start gap-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-[12px] leading-4 text-[color:var(--tone-error)]">
+      <div className="flex items-start gap-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-meta leading-4 text-[color:var(--tone-error)]">
         <StatusDot tone="error" className="mt-1" />
         <span>{probe.message}</span>
       </div>
@@ -329,11 +329,11 @@ function ReviewDetectionCard({
     <div className="flex items-center gap-2.5 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5">
       <StatusDot tone="accent" label={successLabel} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] font-medium text-[color:var(--text-strong)]">
+        <span className="block truncate text-meta font-medium text-[color:var(--text-strong)]">
           {probe.probe.title ?? 'Ready to review'}
         </span>
         {stats ? (
-          <span className="mt-0.5 block font-mono text-[11px] tabular-nums text-[color:var(--text-muted)]">
+          <span className="mt-0.5 block font-mono text-micro tabular-nums text-[color:var(--text-muted)]">
             {stats.files} files · +{stats.additions} −{stats.deletions}
           </span>
         ) : null}

@@ -570,7 +570,7 @@ export function SprintEngineTaskGraphView({
  as="p"
  multiline
  text={task.description || 'No description recorded.'}
- className="mt-3 line-clamp-2 pl-2 text-[12px] leading-5 text-[color:var(--text-muted)]"
+ className="mt-3 line-clamp-2 pl-2 text-meta leading-5 text-[color:var(--text-muted)]"
  />
 
  <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 pl-2 text-micro text-[color:var(--text-disabled)]">
@@ -734,7 +734,7 @@ export function SprintEngineTaskGraphView({
  <h3 className="text-micro font-bold text-[color:var(--text-muted)]">
  Task Graph
  </h3>
- <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[color:var(--text-subtle)]">
+ <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-meta text-[color:var(--text-subtle)]">
  <span>
  <span className="font-semibold text-[color:var(--text-default)]">{taskCount}</span> task{taskCount === 1 ? '' : 's'}
  </span>
@@ -767,7 +767,7 @@ export function SprintEngineTaskGraphView({
  {hasWarning ? (
  <span
  role="alert"
- className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[color:var(--tone-warn)]"
+ className="inline-flex items-center gap-1.5 text-micro font-medium text-[color:var(--tone-warn)]"
  >
  <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
  <path d="M8 1.75L14.75 13.5H1.25L8 1.75Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
@@ -791,7 +791,7 @@ export function SprintEngineTaskGraphView({
  </button>
  </Tooltip>
  <div
- className="min-w-[2.75rem] px-1 text-center text-[11px] font-semibold tabular-nums text-[color:var(--text-default)]"
+ className="min-w-[2.75rem] px-1 text-center text-micro font-semibold tabular-nums text-[color:var(--text-default)]"
  aria-live="polite"
  >
  {zoomPercent}%
@@ -916,7 +916,7 @@ export function SprintEngineTaskGraphView({
  // Inline disclosure under the legend toggle: flow-positioned, no outside-click,
  // no Escape close. Not a popover semantically — kept as a graph-overlay
  // disclosure card so it doesn't fight canvas pan/zoom interactions.
- <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3 text-[11px] shadow-[var(--shadow-drawer)]">
+ <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3 text-micro shadow-[var(--shadow-drawer)]">
  <div className="text-micro font-bold text-[color:var(--text-disabled)]">
  Status
  </div>

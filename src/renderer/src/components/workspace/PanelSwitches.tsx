@@ -165,7 +165,7 @@ export function PanelSwitches({
           aria-label={label}
           className={buttonClass}
         >
-          <Icon className="h-[16px] w-[16px]" />
+          <Icon className="size-icon-sm" />
         </button>
       </Tooltip>
     )

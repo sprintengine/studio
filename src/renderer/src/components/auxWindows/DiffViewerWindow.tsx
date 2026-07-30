@@ -123,7 +123,7 @@ function ChevronButton({
 function CenteredMessage({ children, tone = 'muted' }: { children: React.ReactNode; tone?: 'muted' | 'error' }) {
   return (
     <div
-      className={`flex h-full items-center justify-center px-6 text-center text-[13px] font-mono ${
+      className={`flex h-full items-center justify-center px-6 text-center text-body font-mono ${
         tone === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-disabled)]'
       }`}
     >
@@ -334,20 +334,20 @@ export default function DiffViewerWindow({ repoRoot, focusPath, focusKind }: Pro
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span
-            className="truncate text-[12px] font-medium text-[color:var(--text-default)]"
+            className="truncate text-meta font-medium text-[color:var(--text-default)]"
             title={currentItem?.relativePath}
           >
             {currentItem?.relativePath ?? 'Git Diff'}
           </span>
           {currentItem ? (
-            <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">
+            <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">
               {STATUS_LABEL[currentItem.status]}
               {currentItem.kind === 'staged' ? ' · staged' : ' · unstaged'}
             </span>
           ) : null}
         </div>
         <span
-          className="app-no-drag shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]"
+          className="app-no-drag shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
           aria-live="polite"
         >
           {positionLabel}

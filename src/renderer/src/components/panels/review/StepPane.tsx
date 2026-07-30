@@ -48,8 +48,8 @@ export function StepPane({
 }: StepPaneProps) {
   return (
     <div>
-      <h4 className="mb-1.5 text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]">{step.title}</h4>
-      <p className="mb-4 max-w-[80ch] text-[13px] leading-[1.55] text-[color:var(--text-muted)]">{step.narrative}</p>
+      <h4 className="mb-1.5 text-title font-semibold tracking-tight text-[color:var(--text-strong)]">{step.title}</h4>
+      <p className="mb-4 max-w-[80ch] text-body leading-[1.55] text-[color:var(--text-muted)]">{step.narrative}</p>
       {step.files.map((entry) => {
         const file = fileByPath.get(entry.path)
         if (!file) return null

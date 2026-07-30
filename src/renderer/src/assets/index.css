@@ -2502,7 +2502,7 @@ body:has([data-selection-pane]:focus-within)
   --color-5: var(--scrollbar-thumb-hover);
   --color-6: var(--border-strong);
 
-  --font-size: 12px;
+  --font-size: var(--text-size-xs);
   --font-family: Inter, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
 
   --color-overflow: var(--text-muted);
@@ -2587,12 +2587,12 @@ body:has([data-selection-pane]:focus-within)
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-size-xs);
   border: none;
   border-radius: 0;
   background: transparent;
   background-image: none !important;
-  transition: color 120ms ease;
+  transition: color var(--motion-fast) var(--motion-ease);
 }
 
 /* Active tab: ink change + the same 2px inset underline the panel switches
@@ -2795,7 +2795,7 @@ body:has([data-selection-pane]:focus-within)
 }
 
 .flexlayout__tab_button_content {
-  font-size: 12px;
+  font-size: var(--text-size-xs);
 }
 
 .flexlayout__tab_button_trailing {
@@ -2911,7 +2911,7 @@ body:has([data-selection-pane]:focus-within)
 
 .flexlayout__splitter {
   background: var(--bg-app);
-  transition: background-color 120ms ease;
+  transition: background-color var(--motion-fast) var(--motion-ease);
 }
 
 .flexlayout__splitter:hover,

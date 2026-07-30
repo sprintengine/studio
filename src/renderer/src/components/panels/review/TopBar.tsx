@@ -45,14 +45,14 @@ export function TopBar({
 }: TopBarProps) {
   return (
     <div className="flex h-[46px] shrink-0 items-center gap-2.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-4">
-      <span className="shrink-0 text-[14px] font-semibold text-[color:var(--text-strong)]">{title}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-[color:var(--text-subtle)]">{source}</span>
-      <span className="shrink-0 rounded-[5px] border border-[color:var(--border-default)] px-2 py-0.5 font-mono text-[11px] tabular-nums text-[color:var(--text-muted)]">
+      <span className="shrink-0 text-heading font-semibold text-[color:var(--text-strong)]">{title}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-meta text-[color:var(--text-subtle)]">{source}</span>
+      <span className="shrink-0 rounded-[5px] border border-[color:var(--border-default)] px-2 py-0.5 font-mono text-micro tabular-nums text-[color:var(--text-muted)]">
         {stats.files} {stats.files === 1 ? 'file' : 'files'} · <span className="text-[color:var(--tone-good)]">+{stats.additions}</span>{' '}
         <span className="text-[color:var(--tone-error)]">−{stats.deletions}</span>
       </span>
       {complexity ? (
-        <span className="shrink-0 text-[11.5px] text-[color:var(--text-subtle)]">
+        <span className="shrink-0 text-meta text-[color:var(--text-subtle)]">
           Complexity <span className="text-[color:var(--text-muted)]">{complexity}</span>
         </span>
       ) : null}

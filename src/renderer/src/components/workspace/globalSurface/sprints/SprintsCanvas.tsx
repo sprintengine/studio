@@ -253,7 +253,7 @@ export function SprintsCanvas({ model }: { model: SprintRunCanvasModel }): JSX.E
           the board's single tab row — Inbox, Agents, Tasks, Repositories. The
           repositories strip that used to occupy the top 46% of the page is the
           Repositories tab now; the rollup grid collapses into this line. */}
-      <p className="shrink-0 border-b border-[color:var(--border-subtle)] px-5 py-2.5 text-[12px] text-[color:var(--text-muted)]">
+      <p className="shrink-0 border-b border-[color:var(--border-subtle)] px-5 py-2.5 text-meta text-[color:var(--text-muted)]">
         <span className="font-medium text-[color:var(--text-default)]">{runSummarySentence(model)}</span>
         {runSummaryDetail(model) ? <> · {runSummaryDetail(model)}</> : null}
       </p>
@@ -274,7 +274,7 @@ export function SprintsCanvas({ model }: { model: SprintRunCanvasModel }): JSX.E
                       merge={model.merge}
                     />
                   ) : (
-                    <p className="text-[12px] text-[color:var(--text-muted)]">
+                    <p className="text-meta text-[color:var(--text-muted)]">
                       This sprint works in the project directly — no separate branches to track.
                     </p>
                   )}
@@ -399,8 +399,8 @@ function RollupRow({
 }): JSX.Element {
   return (
     <div className="flex items-baseline gap-3 border-b border-[color:var(--border-subtle)] py-1.5 last:border-b-0">
-      <span className="w-[92px] shrink-0 text-[11px] text-[color:var(--text-subtle)]">{label}</span>
-      <span className="min-w-0 flex-1 text-[12px] text-[color:var(--text-default)]">{value}</span>
+      <span className="w-[92px] shrink-0 text-micro text-[color:var(--text-subtle)]">{label}</span>
+      <span className="min-w-0 flex-1 text-meta text-[color:var(--text-default)]">{value}</span>
       {chip ? <span className="shrink-0">{chip}</span> : null}
     </div>
   )
@@ -669,7 +669,7 @@ function SprintRunDisposalMenu({
       {busy ? (
         <span
           role="status"
-          className="flex shrink-0 items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]"
+          className="flex shrink-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]"
         >
           <Spinner />
           Deleting…
@@ -711,31 +711,31 @@ function TokenUsageAction({ model }: { model: SprintRunCanvasModel }): JSX.Eleme
       )}
     >
       {!report ? (
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">Reading this sprint’s token usage…</p>
+        <p className="text-meta leading-5 text-[color:var(--text-muted)]">Reading this sprint’s token usage…</p>
       ) : !measured ? (
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="text-meta leading-5 text-[color:var(--text-muted)]">
           No token usage recorded for this sprint yet.
         </p>
       ) : (
         <div className="flex flex-col gap-2">
           <div className="flex items-baseline justify-between gap-3">
-            <span className="text-[11px] text-[color:var(--text-subtle)]">Total tokens</span>
-            <span className="tabular-nums text-[13px] font-semibold text-[color:var(--text-strong)]">
+            <span className="text-micro text-[color:var(--text-subtle)]">Total tokens</span>
+            <span className="tabular-nums text-body font-semibold text-[color:var(--text-strong)]">
               {formatTokenCount(report.run.total.total)}
             </span>
           </div>
           {report.run.perModel.map((row) => (
             <div key={row.model} className="flex items-baseline justify-between gap-3">
-              <span className="min-w-0 truncate text-[11px] text-[color:var(--text-muted)]" title={row.model}>
+              <span className="min-w-0 truncate text-micro text-[color:var(--text-muted)]" title={row.model}>
                 {row.model}
               </span>
-              <span className="tabular-nums text-[11px] text-[color:var(--text-default)]">
+              <span className="tabular-nums text-micro text-[color:var(--text-default)]">
                 {formatTokenCount(row.total)}
               </span>
             </div>
           ))}
           {describeTokenCoverage(report.run.coverage) ? (
-            <p className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
+            <p className="text-micro leading-4 text-[color:var(--text-subtle)]">
               {describeTokenCoverage(report.run.coverage)}
             </p>
           ) : null}

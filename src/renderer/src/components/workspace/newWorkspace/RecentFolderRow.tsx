@@ -63,13 +63,13 @@ export function RecentFolderRow({ path, active, hints, onSelect }: RecentFolderR
       </span>
       <span className="min-w-0 flex-1">
         <span
-          className={`block truncate text-[13px] font-medium ${
+          className={`block truncate text-body font-medium ${
             active ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
           }`}
         >
           {label}
         </span>
-        <span className="block truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
+        <span className="block truncate font-mono text-micro leading-4 text-[color:var(--text-subtle)]">
           {path}
         </span>
       </span>

@@ -69,18 +69,18 @@ export function InboxRow({
             focus, the selection-tier rules in assets/index.css rebind
             --text-strong on this row and the lift drops back out. */}
         <div
-          className={`truncate text-[12px] font-medium ${
+          className={`truncate text-meta font-medium ${
             selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
           }`}
         >
           {title}
         </div>
         {supporting ? (
-          <div className="truncate text-[12px] text-[color:var(--text-muted)]">{supporting}</div>
+          <div className="truncate text-meta text-[color:var(--text-muted)]">{supporting}</div>
         ) : null}
       </div>
       {trailing ? (
-        <div className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">{trailing}</div>
+        <div className="shrink-0 tabular-nums text-micro text-[color:var(--text-muted)]">{trailing}</div>
       ) : null}
     </>
   )

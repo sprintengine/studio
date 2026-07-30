@@ -128,7 +128,7 @@ export function RoadmapRail({
         }}
       />
       {visible.length === 0 && rows.length > 0 ? (
-        <p className="px-2 pt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
+        <p className="px-2 pt-2 text-micro leading-4 text-[color:var(--text-muted)]">
           No horizons match.
         </p>
       ) : null}

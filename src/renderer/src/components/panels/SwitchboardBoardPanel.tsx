@@ -469,7 +469,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
 
   if (!workspace) {
     return (
-      <div className="h-full bg-[color:var(--bg-app)] p-4 text-[12px] text-[color:var(--text-muted)]">
+      <div className="h-full bg-[color:var(--bg-app)] p-4 text-meta text-[color:var(--text-muted)]">
         Workspace not found.
       </div>
     )
@@ -477,7 +477,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
 
   if (!folderPath) {
     return (
-      <div className="h-full bg-[color:var(--bg-app)] p-6 text-[12px] text-[color:var(--text-muted)]">
+      <div className="h-full bg-[color:var(--bg-app)] p-6 text-meta text-[color:var(--text-muted)]">
         Choose a workspace folder to use the Switchboard board.
       </div>
     )
@@ -540,7 +540,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
             onClick={() => setRunningOpen(true)}
             aria-label="Open running agents"
             aria-pressed={runningOpen}
-            className="interactive flex items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-left text-[12px] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
+            className="interactive flex items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-left text-meta hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
           >
             <StatusDot tone="accent" pulse label="Agents running" />
             <span className="font-medium text-[color:var(--text-strong)]">
@@ -784,7 +784,7 @@ function SwitchboardLane({
       {records.length === 0 ? (
         <>
           {dropIndex === 0 ? <BoardLaneDropIndicator /> : null}
-          <li className="m-1 rounded-[5px] px-2 py-3 text-[11px] leading-5 text-[color:var(--text-disabled)]">
+          <li className="m-1 rounded-[5px] px-2 py-3 text-micro leading-5 text-[color:var(--text-disabled)]">
             {emptyColumnLabel(status)}
           </li>
         </>
@@ -960,17 +960,17 @@ function SwitchboardRunningAgentsAside({
                   </span>
                 )}
                 <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
-                  <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+                  <span className="shrink-0 font-mono tabular-nums text-micro text-[color:var(--text-muted)]">
                     {identifier}
                   </span>
                   <TruncatedText
                     as="span"
-                    className="min-w-0 flex-1 text-[13px] font-medium text-[color:var(--text-strong)]"
+                    className="min-w-0 flex-1 text-body font-medium text-[color:var(--text-strong)]"
                     text={title}
                   />
                 </div>
                 <StatusDot tone="accent" pulse label="Running" />
-                <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-muted)]">
+                <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-muted)]">
                   {formatRelativeTime(entry.execution.startedAt)}
                 </span>
               </button>
@@ -993,7 +993,7 @@ function SwitchboardRunningAgentsAside({
 
 function ExecutionStatusInline({ status, title }: { status: SwitchboardExecutionStatus; title?: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-default)]" title={title}>
+    <span className="inline-flex items-center gap-1.5 text-meta text-[color:var(--text-default)]" title={title}>
       <StatusDot tone={EXECUTION_TONES[status]} />
       <span>{EXECUTION_LABELS[status]}</span>
     </span>
@@ -1013,7 +1013,7 @@ function AttentionStrip({
   return (
     <div
       role="status"
-      className="flex items-center gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-5 py-2 text-[12px] leading-5 text-[color:var(--text-strong)]"
+      className="flex items-center gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-5 py-2 text-meta leading-5 text-[color:var(--text-strong)]"
     >
       <StatusDot tone="warn" label="Needs your input" />
       <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -1071,14 +1071,14 @@ function AttemptRow({
         <div className="flex min-w-0 items-baseline justify-between gap-2">
           <TruncatedText
             as="span"
-            className="min-w-0 font-mono text-[12px] text-[color:var(--text-default)]"
+            className="min-w-0 font-mono text-meta text-[color:var(--text-default)]"
             text={attempt.agentId ?? attempt.id}
           />
-          <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
+          <span className="shrink-0 text-micro text-[color:var(--text-muted)]">
             {EXECUTION_LABELS[status]}
           </span>
         </div>
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] tabular-nums text-[color:var(--text-muted)]">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro tabular-nums text-[color:var(--text-muted)]">
           <span>started {formatRelativeTime(attempt.startedAt)}</span>
           {attempt.completedAt ? (
             <>
@@ -1088,7 +1088,7 @@ function AttemptRow({
           ) : null}
         </div>
         {attempt.worktreeBranch || attempt.worktreeState ? (
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-subtle)]">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-subtle)]">
             {attempt.worktreeBranch ? (
               <span className="font-mono text-[color:var(--text-muted)]">{attempt.worktreeBranch}</span>
             ) : null}
@@ -1097,7 +1097,7 @@ function AttemptRow({
           </div>
         ) : null}
         {attempt.summary ? (
-          <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">{attempt.summary}</div>
+          <div className="text-meta leading-5 text-[color:var(--text-muted)]">{attempt.summary}</div>
         ) : null}
       </div>
     </li>
@@ -1173,7 +1173,7 @@ function BoardDetailPane({
     items.push({
       term: 'Identifier',
       description: (
-        <span className="font-mono text-[12px] text-[color:var(--text-strong)]">{task.identifier}</span>
+        <span className="font-mono text-meta text-[color:var(--text-strong)]">{task.identifier}</span>
       ),
     })
     items.push({
@@ -1257,7 +1257,7 @@ function BoardDetailPane({
       items.push({
         term: 'Worktree',
         description: (
-          <span className="block font-mono text-[12px] text-[color:var(--text-strong)]">{task.execution.worktreePath}</span>
+          <span className="block font-mono text-meta text-[color:var(--text-strong)]">{task.execution.worktreePath}</span>
         ),
       })
     }
@@ -1265,7 +1265,7 @@ function BoardDetailPane({
       items.push({
         term: 'Branch',
         description: (
-          <span className="font-mono text-[12px] text-[color:var(--text-strong)]">{task.execution.worktreeBranch}</span>
+          <span className="font-mono text-meta text-[color:var(--text-strong)]">{task.execution.worktreeBranch}</span>
         ),
       })
     }
@@ -1289,8 +1289,8 @@ function BoardDetailPane({
       <header className="border-b border-[color:var(--border-default)] px-5 py-4">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
-              <span className="font-mono tabular-nums text-[12px] text-[color:var(--text-default)]">
+            <div className="flex items-center gap-2 text-micro text-[color:var(--text-muted)]">
+              <span className="font-mono tabular-nums text-meta text-[color:var(--text-default)]">
                 {shortIdentifier(record)}
               </span>
               <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
@@ -1306,7 +1306,7 @@ function BoardDetailPane({
                 className="ml-auto"
               />
             </div>
-            <h3 className="mt-2 text-[15px] font-semibold leading-6 text-[color:var(--text-strong)]">{task.title}</h3>
+            <h3 className="mt-2 text-title font-semibold leading-6 text-[color:var(--text-strong)]">{task.title}</h3>
           </div>
           <CloseIconButton onClick={onClose} aria-label="Close task detail" />
         </div>
@@ -1345,7 +1345,7 @@ function BoardDetailPane({
       </header>
 
       {record.warnings.length > 0 ? (
-        <div className="border-b border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-5 py-2 text-[12px] leading-5 text-[color:var(--text-strong)]">
+        <div className="border-b border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-5 py-2 text-meta leading-5 text-[color:var(--text-strong)]">
           {record.warnings.map((warning, idx) => (
             <div key={idx}>{warning}</div>
           ))}
@@ -1387,9 +1387,9 @@ function BoardDetailPane({
 
         <Section title="Description">
           {task.description.trim() ? (
-            <div className="whitespace-pre-wrap text-[13px] leading-6 text-[color:var(--text-default)]">{task.description}</div>
+            <div className="whitespace-pre-wrap text-body leading-6 text-[color:var(--text-default)]">{task.description}</div>
           ) : (
-            <div className="text-[12px] text-[color:var(--text-subtle)]">No description.</div>
+            <div className="text-meta text-[color:var(--text-subtle)]">No description.</div>
           )}
         </Section>
 
@@ -1422,12 +1422,12 @@ function BoardDetailPane({
 
         <Section title="Activity" count={task.comments.length}>
           {task.comments.length === 0 ? (
-            <div className="text-[12px] text-[color:var(--text-subtle)]">No comments yet.</div>
+            <div className="text-meta text-[color:var(--text-subtle)]">No comments yet.</div>
           ) : (
             <ul className="space-y-3">
               {task.comments.map((comment) => (
                 <li key={comment.id} className="border-l border-[color:var(--border-default)] pl-3">
-                  <div className="flex items-baseline gap-2 text-[12px] text-[color:var(--text-muted)]">
+                  <div className="flex items-baseline gap-2 text-meta text-[color:var(--text-muted)]">
                     <span className="font-medium text-[color:var(--text-strong)]">
                       {comment.author.name ?? comment.author.type}
                     </span>
@@ -1442,7 +1442,7 @@ function BoardDetailPane({
                     <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
                     <span className="tabular-nums">{formatRelativeTime(comment.createdAt)}</span>
                   </div>
-                  <div className="mt-1 whitespace-pre-wrap text-[13px] leading-6 text-[color:var(--text-default)]">{comment.body}</div>
+                  <div className="mt-1 whitespace-pre-wrap text-body leading-6 text-[color:var(--text-default)]">{comment.body}</div>
                 </li>
               ))}
             </ul>
@@ -1454,7 +1454,7 @@ function BoardDetailPane({
         <div className="flex items-center justify-between gap-2">
           <label
             htmlFor="switchboard-comment-input"
-            className="block text-[11px] font-medium text-[color:var(--text-muted)]"
+            className="block text-micro font-medium text-[color:var(--text-muted)]"
           >
             Add comment
           </label>
@@ -1470,7 +1470,7 @@ function BoardDetailPane({
             onChange={(event) => onCommentChange(event.target.value)}
             placeholder="Plan, ask, or note an enrichment for the next claimer..."
             rows={2}
-            className="min-h-[44px] flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-[13px] leading-6 text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-focus)]"
+            className="min-h-[44px] flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-body leading-6 text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-focus)]"
           />
           <PrimaryButton
             size="md"
@@ -1491,7 +1491,7 @@ function EvidenceItems({ items, mono = false }: { items: string[]; mono?: boolea
     return <span className="text-[color:var(--text-subtle)]">—</span>
   }
   return (
-    <ul className={`space-y-0.5 ${mono ? 'font-mono text-[11.5px]' : 'text-[12px]'} text-[color:var(--text-strong)]`}>
+    <ul className={`space-y-0.5 ${mono ? 'font-mono text-meta' : 'text-meta'} text-[color:var(--text-strong)]`}>
       {items.map((item, idx) => (
         <li key={`${item}-${idx}`} className="truncate">{item}</li>
       ))}
@@ -1504,7 +1504,7 @@ function ConfidenceInline({ value, compact = false }: { value: number; compact?:
   const label = confidenceLabel(value)
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1.5 ${compact ? 'text-[11px]' : 'text-[12px]'} text-[color:var(--text-default)]`}
+      className={`inline-flex shrink-0 items-center gap-1.5 ${compact ? 'text-micro' : 'text-meta'} text-[color:var(--text-default)]`}
       aria-label={`Legitimacy confidence: ${label}`}
     >
       <StatusDot tone={tone} />
@@ -1527,7 +1527,7 @@ function CreateTaskDialog({
   busy: boolean
 }) {
   const inputClass =
-    'block w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[13px] text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-focus)]'
+    'block w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-body text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-focus)]'
   return (
     <Modal open onClose={onClose} contained labelledBy="switchboard-create-title" width={540}>
       <ModalHeader title="New Switchboard task" titleId="switchboard-create-title" onClose={onClose} />
@@ -1789,7 +1789,7 @@ function RunnerDrawer({
         <Section title="Configuration">
           <RunnerSettingsFields draft={draft} onChange={setDraft} canEdit={canEdit} />
           {!canEdit ? (
-            <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
+            <p className="mt-2 text-micro leading-4 text-[color:var(--text-muted)]">
               Runner is {isStarted ? 'started' : 'unavailable'}; configuration is read-only until stopped.
             </p>
           ) : null}
@@ -1797,7 +1797,7 @@ function RunnerDrawer({
 
         {runner.error ? (
           <Section title="Last error">
-            <div className="rounded-[5px] border border-[color:var(--tone-error-soft)] bg-[color:var(--tone-error-soft)] px-3 py-2 text-[12px] text-[color:var(--text-strong)]">
+            <div className="rounded-[5px] border border-[color:var(--tone-error-soft)] bg-[color:var(--tone-error-soft)] px-3 py-2 text-meta text-[color:var(--text-strong)]">
               {runner.error}
             </div>
           </Section>
@@ -1834,11 +1834,11 @@ function RunnerSettingsFields({
   canEdit: boolean
 }) {
   const selectClass =
-    'h-7 w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-1.5 text-[12px] text-[color:var(--text-strong)] disabled:opacity-50'
+    'h-7 w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-1.5 text-meta text-[color:var(--text-strong)] disabled:opacity-50'
   return (
     <div className="space-y-3">
       <div>
-        <div className="text-[11px] text-[color:var(--text-muted)]">Queues</div>
+        <div className="text-micro text-[color:var(--text-muted)]">Queues</div>
         <div className="mt-1.5 flex flex-wrap gap-1">
           {RUNNER_QUEUES.map((queue) => {
             const active = draft.queues.includes(queue)
@@ -1854,7 +1854,7 @@ function RunnerSettingsFields({
                     : [...draft.queues, queue]
                   onChange({ ...draft, queues: next })
                 }}
-                className={`interactive h-6 rounded-[5px] border px-2 text-[11px] font-medium focus-visible:focus-ring ${
+                className={`interactive h-6 rounded-[5px] border px-2 text-micro font-medium focus-visible:focus-ring ${
                   active
                     ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
@@ -1868,7 +1868,7 @@ function RunnerSettingsFields({
       </div>
       <div className="grid grid-cols-2 gap-2">
         <label className="block">
-          <span className="text-[11px] text-[color:var(--text-muted)]">Concurrency</span>
+          <span className="text-micro text-[color:var(--text-muted)]">Concurrency</span>
           <input
             type="number"
             min={1}
@@ -1884,7 +1884,7 @@ function RunnerSettingsFields({
           />
         </label>
         <label className="block">
-          <span className="text-[11px] text-[color:var(--text-muted)]">CLI</span>
+          <span className="text-micro text-[color:var(--text-muted)]">CLI</span>
           <div className="mt-1">
             <Select<'codex' | 'claude-code'>
               ariaLabel="Runner CLI"
@@ -1900,7 +1900,7 @@ function RunnerSettingsFields({
         </label>
       </div>
       <label className="block">
-        <span className="text-[11px] text-[color:var(--text-muted)]">Provider</span>
+        <span className="text-micro text-[color:var(--text-muted)]">Provider</span>
         <div className="mt-1">
           <Select<SwitchboardExecutionProviderKind>
             ariaLabel="Execution provider"
@@ -1931,9 +1931,9 @@ function ExecutionsList({
       {executions.map((execution) => (
         <li
           key={execution.executionId}
-          className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-[12px]"
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-meta"
         >
-          <span className="font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+          <span className="font-mono tabular-nums text-micro text-[color:var(--text-muted)]">
             {executionSubjectLabel(execution)}
           </span>
           <span className="text-[color:var(--text-strong)]">{execution.role || 'unknown role'}</span>
@@ -1941,7 +1941,7 @@ function ExecutionsList({
           <span className="text-[color:var(--text-subtle)]">{providerLabel(execution.provider)}</span>
           <span className="tabular-nums text-[color:var(--text-subtle)]">started {formatRelativeTime(execution.startedAt)}</span>
           {tone === 'inactive' && execution.status ? (
-            <span className="text-[11px] text-[color:var(--text-muted)]">{execution.status}</span>
+            <span className="text-micro text-[color:var(--text-muted)]">{execution.status}</span>
           ) : null}
           {tone === 'active' && onStopExecution ? (
             <GhostButton

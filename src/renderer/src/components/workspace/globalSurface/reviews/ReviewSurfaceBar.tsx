@@ -107,7 +107,7 @@ export function ReviewCanvasTools({ session }: { session: ReviewSession }): JSX.
       />
       {!guideActions ? null : running ? (
         <>
-          <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+          <span className="flex shrink-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
             <Spinner />
             Re-running…
           </span>

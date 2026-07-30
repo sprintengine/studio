@@ -326,8 +326,8 @@ export function SprintEngineRosterView({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--bg-surface)]">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-4">
-        <h3 className="text-[12.5px] font-semibold text-[color:var(--text-strong)]">Agents</h3>
-        <span className="text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+        <h3 className="text-body font-semibold text-[color:var(--text-strong)]">Agents</h3>
+        <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">
           {workingCount} working · {configuredRoleCount} configured{' '}
           {configuredRoleCount === 1 ? 'role' : 'roles'}
         </span>
@@ -343,7 +343,7 @@ export function SprintEngineRosterView({
             ariaLabel="Add a role"
             popupRole="menu"
             placement="bottom-end"
-            surfaceClassName="w-[240px] p-1 text-[12px]"
+            surfaceClassName="w-[240px] p-1 text-meta"
             renderTrigger={({ ref, triggerProps, togglePopover }) => (
               <OutlineButton ref={ref} size="xs" onClick={togglePopover} {...triggerProps}>
                 <span aria-hidden="true">＋</span> Add a role
@@ -380,7 +380,7 @@ export function SprintEngineRosterView({
             ariaLabel="Add an agent"
             popupRole="menu"
             placement="bottom-end"
-            surfaceClassName="w-[240px] p-1 text-[12px]"
+            surfaceClassName="w-[240px] p-1 text-meta"
             renderTrigger={({ ref, triggerProps, togglePopover }) => (
               <OutlineButton ref={ref} size="xs" onClick={togglePopover} {...triggerProps}>
                 <span aria-hidden="true">＋</span> Add an agent
@@ -409,7 +409,7 @@ export function SprintEngineRosterView({
 
       <div className="min-h-0 flex-1 overflow-auto">
         {roleOrder.length === 0 ? (
-          <div className="px-4 py-6 text-[12px] leading-5 text-[color:var(--text-subtle)]">
+          <div className="px-4 py-6 text-meta leading-5 text-[color:var(--text-subtle)]">
             No roles configured yet. Add a role to staff this run.
           </div>
         ) : (
@@ -426,7 +426,7 @@ export function SprintEngineRosterView({
                 {/* Role band: the role-level facts, with the model editable in
                     place — the property you see is the control that edits it. */}
                 <div className="flex h-[34px] items-center gap-2 border-b border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-4 first:border-t-0">
-                  <span className="text-[11.5px] font-semibold text-[color:var(--text-default)]">
+                  <span className="text-meta font-semibold text-[color:var(--text-default)]">
                     {roleLabel}
                   </span>
                   <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">{census}</span>
@@ -443,7 +443,7 @@ export function SprintEngineRosterView({
                 </div>
 
                 {entries.length === 0 ? (
-                  <p className="px-4 py-2 text-[11px] text-[color:var(--text-subtle)]">
+                  <p className="px-4 py-2 text-micro text-[color:var(--text-subtle)]">
                     No agents yet — one starts when this role has work.
                   </p>
                 ) : (
@@ -585,14 +585,14 @@ export function SprintEngineRosterView({
               />
             )}
           </span>
-          <span className="w-[148px] shrink-0 truncate text-[12.5px] font-medium text-[color:var(--text-default)]">
+          <span className="w-[148px] shrink-0 truncate text-body font-medium text-[color:var(--text-default)]">
             {displayName}
           </span>
           <span className="sr-only">{statusLabel}</span>
           <TruncatedText
             as="span"
             text={activity}
-            className="min-w-0 flex-1 text-[11.5px] text-[color:var(--text-subtle)]"
+            className="min-w-0 flex-1 text-meta text-[color:var(--text-subtle)]"
           />
           <span className="flex shrink-0 items-center gap-2">
             {divergedFrom ? (

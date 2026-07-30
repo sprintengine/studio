@@ -40,10 +40,10 @@ export function SprintEngineTasksKanbanView({
         {sprintEngineState.tasks.length === 0 ? (
           <div className="flex h-full min-h-[320px] w-full items-center justify-center p-6 text-center">
             <div className="max-w-xl">
-              <div className="text-[13px] font-semibold text-[color:var(--text-strong)]">
+              <div className="text-body font-semibold text-[color:var(--text-strong)]">
                 Waiting for the architect plan
               </div>
-              <p className="mt-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
+              <p className="mt-2 text-meta leading-5 text-[color:var(--text-muted)]">
                 The board will populate as the architect adds tasks through the Sprint Engine tool.
               </p>
             </div>
@@ -159,7 +159,7 @@ export function SprintEngineTasksKanbanView({
               })}
 
               {column.cards.length === 0 ? (
-                <li className="m-1 rounded-[5px] px-2 py-3 text-[11px] leading-5 text-[color:var(--text-disabled)]">
+                <li className="m-1 rounded-[5px] px-2 py-3 text-micro leading-5 text-[color:var(--text-disabled)]">
                   {getSprintEngineKanbanEmptyMessage(column.key)}
                 </li>
               ) : null}

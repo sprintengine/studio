@@ -64,18 +64,18 @@ export function SprintEngineToolsPanel({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex h-[30px] items-center gap-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5">
-        <span aria-hidden="true" className="text-[12px] text-[color:var(--text-subtle)]">⌕</span>
+        <span aria-hidden="true" className="text-meta text-[color:var(--text-subtle)]">⌕</span>
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search tools"
           aria-label="Search tools"
-          className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-subtle)]"
+          className="h-full min-w-0 flex-1 bg-transparent text-meta text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-subtle)]"
         />
       </div>
 
       {mcpCatalog.length === 0 ? (
-        <p className="mt-3 text-[11px] text-[color:var(--text-subtle)]">Loading tools…</p>
+        <p className="mt-3 text-micro text-[color:var(--text-subtle)]">Loading tools…</p>
       ) : (
         <>
           {selectedServers.length > 0 ? (
@@ -87,7 +87,7 @@ export function SprintEngineToolsPanel({
           ) : null}
           <ToolGroup label="Available">
             {visibleAvailable.length === 0 ? (
-              <p className="py-2 text-[11px] text-[color:var(--text-subtle)]">
+              <p className="py-2 text-micro text-[color:var(--text-subtle)]">
                 {q ? 'No tools match the search.' : 'Every catalog tool is selected.'}
               </p>
             ) : (
@@ -99,7 +99,7 @@ export function SprintEngineToolsPanel({
               <button
                 type="button"
                 onClick={() => setShowAllTools(true)}
-                className="self-start py-2 text-[12px] font-medium text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
+                className="self-start py-2 text-meta font-medium text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
               >
                 Show all {mcpCatalog.length} tools
               </button>
@@ -108,7 +108,7 @@ export function SprintEngineToolsPanel({
         </>
       )}
 
-      {message ? <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">{message}</p> : null}
+      {message ? <p className="mt-2 text-micro leading-4 text-[color:var(--text-muted)]">{message}</p> : null}
 
       {knowledgeProjectRoot ? (
         <ToolGroup label="Knowledge graph">
@@ -192,10 +192,10 @@ function McpToolRow({
       "
     >
       <RowCheck checked={enabled} />
-      <span className="min-w-[150px] shrink-0 text-[12px] font-medium text-[color:var(--text-strong)]">
+      <span className="min-w-[150px] shrink-0 text-meta font-medium text-[color:var(--text-strong)]">
         {displayName}
       </span>
-      <span className="min-w-0 flex-1 truncate text-[11px] text-[color:var(--text-subtle)]">{purpose}</span>
+      <span className="min-w-0 flex-1 truncate text-micro text-[color:var(--text-subtle)]">{purpose}</span>
       <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">
         {server.transport}
         {server.category ? ` · ${server.category.toLowerCase()}` : ''}

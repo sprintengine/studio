@@ -99,9 +99,9 @@ function ConnectorRow({
     >
       <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={22} />
       <span className="min-w-0 flex-1">
-        <TruncatedText as="span" text={server.name} className="block text-[12.5px] font-medium text-[color:var(--text-strong)]" />
+        <TruncatedText as="span" text={server.name} className="block text-body font-medium text-[color:var(--text-strong)]" />
         {server.description ? (
-          <TruncatedText as="span" text={server.description} className="block text-[11.5px] text-[color:var(--text-muted)]" />
+          <TruncatedText as="span" text={server.description} className="block text-meta text-[color:var(--text-muted)]" />
         ) : null}
       </span>
     </button>
@@ -182,20 +182,20 @@ export function ConnectorPickerPopover({
             onKeyDown={onSearchKeyDown}
             placeholder="Search connectors…"
             aria-label="Search connectors"
-            className={`min-w-0 flex-1 bg-transparent px-1 py-1 text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+            className={`min-w-0 flex-1 bg-transparent px-1 py-1 text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
           />
         </div>
         {inventory.loading && matched.length === 0 ? (
-          <div className="flex items-center gap-2 px-2.5 py-3 text-[12px] text-[color:var(--text-muted)]" role="status">
+          <div className="flex items-center gap-2 px-2.5 py-3 text-meta text-[color:var(--text-muted)]" role="status">
             <Spinner />
             Loading connectors…
           </div>
         ) : inventory.error ? (
-          <div className="px-2.5 py-3 text-[12px] text-[color:var(--tone-error)]" role="status">
+          <div className="px-2.5 py-3 text-meta text-[color:var(--tone-error)]" role="status">
             {inventory.error}
           </div>
         ) : matched.length === 0 ? (
-          <div className="px-2.5 py-3 text-[12px] text-[color:var(--text-muted)]" role="status">
+          <div className="px-2.5 py-3 text-meta text-[color:var(--text-muted)]" role="status">
             {query.trim() ? `No connectors match “${query.trim()}”` : 'No launchable connectors yet'}
           </div>
         ) : (
@@ -212,7 +212,7 @@ export function ConnectorPickerPopover({
           </div>
         )}
         <div className="flex items-center border-t border-[color:var(--border-subtle)] px-2.5 py-1.5">
-          <span className="text-[11px] text-[color:var(--text-subtle)]">
+          <span className="text-micro text-[color:var(--text-subtle)]">
             ↑↓ choose · ⏎ attach · runs in an isolated worktree
           </span>
         </div>

@@ -287,7 +287,7 @@ export function BacklogTrackerPicker({
             triggerMinWidthClassName="min-w-[160px]"
           />
         ) : connection ? (
-          <span className="inline-flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">
+          <span className="inline-flex items-center gap-2 text-meta text-[color:var(--text-default)]">
             <Monogram provider={connection.provider} />
             {connection.label}
           </span>
@@ -307,7 +307,7 @@ export function BacklogTrackerPicker({
       {/* Results. */}
       <div className="min-h-0 flex-1 overflow-auto">
         {search.phase === 'loading' ? (
-          <p className="px-3 py-6 text-[12px] text-[color:var(--text-subtle)]">Searching {connection?.label ?? 'tracker'}…</p>
+          <p className="px-3 py-6 text-meta text-[color:var(--text-subtle)]">Searching {connection?.label ?? 'tracker'}…</p>
         ) : search.phase === 'error' ? (
           <div className="px-3 py-3">
             <InlineNotice
@@ -316,7 +316,7 @@ export function BacklogTrackerPicker({
                 <button
                   type="button"
                   onClick={() => void runSearch(connectionId, query.trim())}
-                  className="interactive text-[12px] font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]"
+                  className="interactive text-meta font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]"
                 >
                   Try again
                 </button>
@@ -326,7 +326,7 @@ export function BacklogTrackerPicker({
             </InlineNotice>
           </div>
         ) : search.phase === 'ready' && search.issues.length === 0 ? (
-          <p className="px-3 py-6 text-[12px] text-[color:var(--text-subtle)]">
+          <p className="px-3 py-6 text-meta text-[color:var(--text-subtle)]">
             {query.trim() ? 'No issues match your search.' : 'No open issues found.'}
           </p>
         ) : (
@@ -373,7 +373,7 @@ export function BacklogTrackerPicker({
         <span
           role="status"
           aria-live="polite"
-          className={`min-w-0 flex-1 text-[12px] leading-[1.4] ${
+          className={`min-w-0 flex-1 text-meta leading-[1.4] ${
             reportIsError ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
           }`}
         >
@@ -399,7 +399,7 @@ function Monogram({ provider }: { provider: RedactedTrackerConnection['provider'
   return (
     <span
       aria-hidden="true"
-      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-[11px] font-semibold text-[color:var(--text-muted)]"
+      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-micro font-semibold text-[color:var(--text-muted)]"
     >
       {trackerProviderMonogram(provider)}
     </span>
@@ -468,20 +468,20 @@ function IssueRow({
               </svg>
             ) : null}
           </span>
-          <span className="w-[76px] shrink-0 truncate font-mono text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+          <span className="w-[76px] shrink-0 truncate font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
             {issue.nativeKey}
           </span>
-          <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-default)]">{issue.title}</span>
-          <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+          <span className="min-w-0 flex-1 truncate text-meta text-[color:var(--text-default)]">{issue.title}</span>
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
             <StatusDot tone={chip.tone} />
             {chip.label}
           </span>
-          <span className="w-[112px] shrink-0 text-right text-[11px] text-[color:var(--text-disabled)]">
+          <span className="w-[112px] shrink-0 text-right text-micro text-[color:var(--text-disabled)]">
             {locked ? lockedLabel : updatedAgo ? `updated ${updatedAgo}` : ''}
           </span>
         </button>
         {sprint === 'running' ? (
-          <span className="flex shrink-0 items-center gap-1.5 self-center pl-2 pr-3 text-[11px] text-[color:var(--text-muted)]">
+          <span className="flex shrink-0 items-center gap-1.5 self-center pl-2 pr-3 text-micro text-[color:var(--text-muted)]">
             <StatusDot tone="accent" pulse />
             Sprint running
           </span>
@@ -491,7 +491,7 @@ function IssueRow({
             onClick={onStartSprint}
             disabled={sprint === 'starting'}
             aria-label={`Start a sprint from ${issue.nativeKey}`}
-            className={`interactive shrink-0 self-center rounded px-2 py-1 text-[11px] font-medium text-[color:var(--text-muted)] transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:focus-ring ${
+            className={`interactive shrink-0 self-center rounded px-2 py-1 text-micro font-medium text-[color:var(--text-muted)] transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:focus-ring ${
               sprint === 'starting'
                 ? 'opacity-100'
                 : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'

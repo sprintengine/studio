@@ -113,10 +113,10 @@ export function GlobalSurfaceShell({
       {bar && !liftBar ? (
         <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-5 py-3">
           {showBack && onBack ? <BarBackChevron onBack={onBack} /> : null}
-          <h2 className="text-[14px] font-semibold text-[color:var(--text-strong)]">{bar.title}</h2>
+          <h2 className="text-heading font-semibold text-[color:var(--text-strong)]">{bar.title}</h2>
           {bar.statusChip}
           {bar.contextSub ? (
-            <span className="text-[12px] text-[color:var(--text-subtle)]">{bar.contextSub}</span>
+            <span className="text-meta text-[color:var(--text-subtle)]">{bar.contextSub}</span>
           ) : null}
           {bar.actions ? <div className="ml-auto flex items-center gap-1.5">{bar.actions}</div> : null}
         </div>
@@ -131,12 +131,12 @@ export function GlobalSurfaceShell({
             <>
               {showBack && onBack ? <BarBackChevron onBack={onBack} /> : null}
               <div className="flex min-w-0 items-center gap-2.5">
-                <h2 className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+                <h2 className="truncate text-body font-semibold text-[color:var(--text-strong)]">
                   {bar.title}
                 </h2>
                 {bar.statusChip}
                 {bar.contextSub ? (
-                  <span className="truncate text-[12px] text-[color:var(--text-subtle)]">
+                  <span className="truncate text-meta text-[color:var(--text-subtle)]">
                     {bar.contextSub}
                   </span>
                 ) : null}

@@ -580,7 +580,7 @@ export default function BacklogGlobalSurface(): JSX.Element {
       onNavigate={(itemId) => navigateWithinProject(selectedRow.feed, itemId)}
     />
   ) : (
-    <div className="flex h-full items-center justify-center px-6 text-[12px] text-[color:var(--text-muted)]">
+    <div className="flex h-full items-center justify-center px-6 text-meta text-[color:var(--text-muted)]">
       Select an item to preview.
     </div>
   )
@@ -855,7 +855,7 @@ function BacklogDoorList({
             <li
               key={row.key}
               role="presentation"
-              className="px-3 pb-1 pt-2.5 text-[11px] font-semibold text-[color:var(--text-subtle)]"
+              className="px-3 pb-1 pt-2.5 text-micro font-semibold text-[color:var(--text-subtle)]"
             >
               {row.project.name}
               <span className="pl-1.5 font-normal tabular-nums text-[color:var(--text-disabled)]">{row.count}</span>

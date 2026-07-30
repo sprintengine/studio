@@ -147,13 +147,13 @@ export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Pr
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[1040px] px-5 py-5">
           {status === 'loading' ? (
-            <div className="text-[13px] text-[color:var(--text-muted)]">Loading plan…</div>
+            <div className="text-body text-[color:var(--text-muted)]">Loading plan…</div>
           ) : null}
           {status === 'error' ? (
             <InlineNotice tone="error">{error ?? 'Failed to load plan.'}</InlineNotice>
           ) : null}
           {status === 'ready' && mode === 'preview' ? (
-            <div className="mx-auto max-w-4xl text-[13px] leading-6 text-[color:var(--text-default)]">
+            <div className="mx-auto max-w-4xl text-body leading-6 text-[color:var(--text-default)]">
               {content ? (
                 renderMarkdown(content)
               ) : (
@@ -164,7 +164,7 @@ export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Pr
             </div>
           ) : null}
           {status === 'ready' && mode === 'source' ? (
-            <pre className="min-h-[420px] overflow-x-auto rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-4 text-[13px] leading-6 text-[color:var(--text-default)]">
+            <pre className="min-h-[420px] overflow-x-auto rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-4 text-body leading-6 text-[color:var(--text-default)]">
               <code>{content}</code>
             </pre>
           ) : null}

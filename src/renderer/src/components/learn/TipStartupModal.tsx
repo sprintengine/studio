@@ -120,17 +120,17 @@ export function TipStartupModal({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <StatusDot tone="accent" label="Tip" />
-            <span className="text-[11px] font-medium text-[color:var(--accent-primary)]">
+            <span className="text-micro font-medium text-[color:var(--accent-primary)]">
               Tip
             </span>
             <span aria-hidden="true" className="text-[color:var(--border-default)]">·</span>
-            <span className="text-[11px] font-medium text-[color:var(--text-muted)]">
+            <span className="text-micro font-medium text-[color:var(--text-muted)]">
               {categoryLabel}
             </span>
           </div>
           <h2
             id="tip-startup-title"
-            className="mt-2 text-[16px] font-semibold leading-snug tracking-tight text-[color:var(--text-strong)]"
+            className="mt-2 text-title font-semibold leading-snug tracking-tight text-[color:var(--text-strong)]"
           >
             {currentTip.title}
           </h2>
@@ -139,14 +139,14 @@ export function TipStartupModal({
       </div>
 
       <div className="px-5 pb-5 space-y-2.5">
-        <p className="text-[13px] leading-[1.55] text-[color:var(--text-default)]">{currentTip.summary}</p>
+        <p className="text-body leading-[1.55] text-[color:var(--text-default)]">{currentTip.summary}</p>
         {currentTip.body ? (
-          <p className="text-[12px] leading-[1.6] text-[color:var(--text-muted)]">{currentTip.body}</p>
+          <p className="text-meta leading-[1.6] text-[color:var(--text-muted)]">{currentTip.body}</p>
         ) : null}
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-5 py-3">
-        <label className="flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)] hover:text-[color:var(--text-muted)] transition-colors">
+        <label className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)] hover:text-[color:var(--text-muted)] transition-colors">
           <input
             type="checkbox"
             checked={showTipsOnStartup}
@@ -164,7 +164,7 @@ export function TipStartupModal({
                 onClick={handlePrevious}
                 label="Previous tip"
               />
-              <span className="min-w-[34px] text-center text-[11px] tabular-nums text-[color:var(--text-muted)]">
+              <span className="min-w-[34px] text-center text-micro tabular-nums text-[color:var(--text-muted)]">
                 {position + 1}<span className="mx-0.5 text-[color:var(--border-strong)]">/</span>{rotation.length}
               </span>
               <TipPagerButton

@@ -129,11 +129,11 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
       ariaLabel={ariaLabel}
       popupRole="menu"
       placement={align === 'end' ? 'bottom-end' : 'bottom-start'}
-      // text-[12px] matches the flat items' own explicit size, so nested
+      // text-meta matches the flat items' own explicit size, so nested
       // primitives without one (MenuFlyoutItem triggers, MenuSwatchRow) inherit
       // it instead of the app default — inside a ContextMenu they inherit from
       // MENU_SURFACE_CLASS, but this Popover surface must set its own.
-      surfaceClassName="min-w-[200px] py-1 text-[12px]"
+      surfaceClassName="min-w-[200px] py-1 text-meta"
       onOpenAutoFocus={focusFirstItem}
       renderTrigger={({ ref, openPopover, open: opened, togglePopover, triggerProps }) => {
         const button = (
@@ -200,7 +200,7 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
                   // The nested surface's own base class is the 13px right-click
                   // idiom; pin it to this menu's 12px so the choices match their
                   // trigger.
-                  surfaceClassName={`text-[12px] ${item.surfaceClassName ?? ''}`}
+                  surfaceClassName={`text-meta ${item.surfaceClassName ?? ''}`}
                   onItemKeyDown={onItemKey}
                   onOpenChange={item.onOpenChange}
                 >
@@ -224,7 +224,7 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
                   setOpen(false)
                 }}
                 className={[
-                  'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px]',
+                  'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-meta',
                   'disabled:cursor-not-allowed disabled:opacity-45',
                   'hover:bg-[color:var(--bg-hover)]',
                   item.destructive
@@ -236,7 +236,7 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
                 {item.icon ? <span className="shrink-0">{item.icon}</span> : null}
                 <TruncatedText as="span" text={item.label} className="min-w-0 flex-1" />
                 {item.shortcut ? (
-                  <span className="font-mono text-[11px] text-[color:var(--text-disabled)]">
+                  <span className="font-mono text-micro text-[color:var(--text-disabled)]">
                     {item.shortcut}
                   </span>
                 ) : null}

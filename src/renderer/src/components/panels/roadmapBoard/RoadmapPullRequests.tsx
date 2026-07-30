@@ -43,7 +43,7 @@ export function RoadmapPullRequests({
 
   if (repos.length === 0) {
     return (
-      <p className="px-3 py-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
+      <p className="px-3 py-2 text-meta leading-5 text-[color:var(--text-muted)]">
         No pull requests yet. They appear here once this sprint opens one per project.
       </p>
     )
@@ -70,7 +70,7 @@ export function RoadmapPullRequests({
           )
         })}
       </ul>
-      <p className="px-3 pb-2 pt-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+      <p className="px-3 pb-2 pt-1.5 text-micro leading-4 text-[color:var(--text-subtle)]">
         Each project delivers on its own <span className="font-mono">sprintengine/…</span> branch from
         its own worktree. The working copy is removed after its pull request merges.
       </p>
@@ -100,12 +100,12 @@ function RoadmapPullRequestRow({
     <div className="flex flex-col gap-1 px-3 py-2">
       <div className="flex min-w-0 items-center gap-2">
         <StatusDot tone={REPO_PR_STATE_TONE[state]} className="shrink-0" />
-        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
+        <span className="min-w-0 flex-1 truncate text-meta font-medium text-[color:var(--text-strong)]">
           {name}
         </span>
-        <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">{REPO_PR_STATE_LABEL[state]}</span>
+        <span className="shrink-0 text-micro text-[color:var(--text-muted)]">{REPO_PR_STATE_LABEL[state]}</span>
         {state === 'merged' ? (
-          <span className="shrink-0 text-[11px] font-medium text-[color:var(--tone-merged)]">Merged</span>
+          <span className="shrink-0 text-micro font-medium text-[color:var(--tone-merged)]">Merged</span>
         ) : (
           <RepoMergeButton
             repo={repo}
@@ -116,7 +116,7 @@ function RoadmapPullRequestRow({
           />
         )}
       </div>
-      <div className="flex min-w-0 items-center gap-1 pl-3.5 text-[11px] text-[color:var(--text-subtle)]">
+      <div className="flex min-w-0 items-center gap-1 pl-3.5 text-micro text-[color:var(--text-subtle)]">
         <span className="truncate font-mono" title={repo.branchName}>
           {repo.branchName}
         </span>
@@ -136,7 +136,7 @@ function RoadmapPullRequestRow({
         ) : null}
       </div>
       {blocked ? (
-        <p className="pl-3.5 text-[11px] leading-4 text-[color:var(--text-muted)]">
+        <p className="pl-3.5 text-micro leading-4 text-[color:var(--text-muted)]">
           Merges after {formatProjectList(blockedByNames)}.
         </p>
       ) : null}

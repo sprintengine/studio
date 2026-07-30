@@ -201,7 +201,7 @@ function FilterRootMenu({
   onPickCreated: () => void
 }) {
   return (
-    <ul role="none" className="text-[12px]">
+    <ul role="none" className="text-meta">
       <li role="none">
         <button
           type="button"
@@ -248,7 +248,7 @@ function SectorPicker({
 }) {
   const selectedSet = useMemo(() => new Set(selected), [selected])
   return (
-    <div className="min-w-[220px] py-1 text-[12px]">
+    <div className="min-w-[220px] py-1 text-meta">
       {onBack ? <PickerHeader title="Review type" onBack={onBack} /> : null}
       <ul role="menu" className="max-h-[260px] overflow-y-auto">
         {sectors.map(({ sector, count }) => {
@@ -264,7 +264,7 @@ function SectorPicker({
               >
                 <CheckboxGlyph checked={checked} />
                 <span className="min-w-0 flex-1 truncate">{sector.label}</span>
-                <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">{count}</span>
+                <span className="shrink-0 tabular-nums text-micro text-[color:var(--text-muted)]">{count}</span>
               </button>
             </li>
           )
@@ -297,7 +297,7 @@ function CreatedPicker({
   onClear: () => void
 }) {
   return (
-    <div className="min-w-[180px] py-1 text-[12px]">
+    <div className="min-w-[180px] py-1 text-meta">
       {onBack ? <PickerHeader title="Created" onBack={onBack} /> : null}
       <ul role="menu">
         {INBOX_CREATED_RANGES.map((range) => {
@@ -344,7 +344,7 @@ function PickerHeader({ title, onBack }: { title: string; onBack: () => void }) 
       >
         <BackGlyph />
       </button>
-      <span className="text-[12px] font-medium text-[color:var(--text-strong)]">{title}</span>
+      <span className="text-meta font-medium text-[color:var(--text-strong)]">{title}</span>
     </div>
   )
 }
@@ -367,7 +367,7 @@ function FilterChip({
   children: ReactNode
 }) {
   return (
-    <span className="inline-flex h-7 items-center rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[12px]">
+    <span className="inline-flex h-7 items-center rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-meta">
       <Popover
         open={open}
         onOpenChange={onOpenChange}

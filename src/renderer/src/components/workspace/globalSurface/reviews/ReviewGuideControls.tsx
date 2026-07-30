@@ -167,7 +167,7 @@ export function ReviewGuideActions({
           {failed ? 'Try again' : 'Prepare walkthrough'}
         </PrimaryButton>
       </span>
-      <span id={depthHintId} className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
+      <span id={depthHintId} className="text-micro leading-4 text-[color:var(--text-subtle)]">
         {DEPTH_HINT[runtime.depth]}
       </span>
     </span>
@@ -236,7 +236,7 @@ export function AskGuideDrawer({
       width={380}
     >
       <Drawer.Body className="flex flex-col">
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="text-meta leading-5 text-[color:var(--text-muted)]">
           Your question goes to the guide’s terminal, and it answers there. Sending opens that terminal.
         </p>
         <textarea
@@ -252,13 +252,13 @@ export function AskGuideDrawer({
           aria-label="Your question for the guide"
           placeholder="Ask about any line, step, or decision…"
           rows={6}
-          className={`mt-3 min-h-[120px] flex-1 resize-none rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12.5px] leading-5 text-[color:var(--text-strong)] focus:border-[color:var(--border-focus)] ${FOCUS_RING_CLASS}`}
+          className={`mt-3 min-h-[120px] flex-1 resize-none rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-body leading-5 text-[color:var(--text-strong)] focus:border-[color:var(--border-focus)] ${FOCUS_RING_CLASS}`}
         />
         {error ? (
-          <p className="mt-2 text-[11px] leading-4 text-[color:var(--tone-error)]">The guide couldn’t be reached: {error}</p>
+          <p className="mt-2 text-micro leading-4 text-[color:var(--tone-error)]">The guide couldn’t be reached: {error}</p>
         ) : null}
         <div className="mt-3 flex items-center justify-between gap-2">
-          <span className="flex items-center gap-1 text-[11px] text-[color:var(--text-subtle)]">
+          <span className="flex items-center gap-1 text-micro text-[color:var(--text-subtle)]">
             <KbdChord keys={[PRIMARY_KEY, 'Enter']} /> send
           </span>
           <PrimaryButton onClick={() => void send()} disabled={!draft.trim() || sending} className="shrink-0">

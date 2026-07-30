@@ -110,7 +110,7 @@ function ArrowRightGlyph() {
 
 function SectionHead({ label, count }: { label: string; count: number }) {
   return (
-    <div className="flex items-baseline gap-2 px-3 pb-1 pt-4 text-[11px] text-[color:var(--text-subtle)]">
+    <div className="flex items-baseline gap-2 px-3 pb-1 pt-4 text-micro text-[color:var(--text-subtle)]">
       <span>{label}</span>
       <span className="ml-auto tabular-nums">{count}</span>
     </div>
@@ -161,11 +161,11 @@ function Row({
       {/* The title claims the width it needs and the supporting clause takes
           what is left, so a long description truncates long before the skill's
           own name does. */}
-      <span className="min-w-0 shrink-0 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
+      <span className="min-w-0 shrink-0 truncate text-meta font-medium text-[color:var(--text-strong)]">
         {title}
       </span>
       {supporting ? (
-        <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-muted)]">
+        <span className="min-w-0 flex-1 truncate text-meta text-[color:var(--text-muted)]">
           {supporting}
         </span>
       ) : (
@@ -211,7 +211,7 @@ function Row({
 function DetailShell({ children }: { children: React.ReactNode }) {
   // Continues the selected row's fill rather than drawing a card, so the row and
   // its disclosure read as one opened thing.
-  return <div className={`px-3 pb-3 pl-9 text-[12px] ${SELECTED_TIERS}`}>{children}</div>
+  return <div className={`px-3 pb-3 pl-9 text-meta ${SELECTED_TIERS}`}>{children}</div>
 }
 
 function SkillRow({
@@ -304,7 +304,7 @@ function SkillRow({
           ) : (
             <p className="mb-2 text-[color:var(--text-muted)]">This skill declares no description.</p>
           )}
-          <p className="mb-3 text-[11px] text-[color:var(--text-muted)]">
+          <p className="mb-3 text-micro text-[color:var(--text-muted)]">
             {row.installed ? row.sourceLabel : 'Not in this workspace yet'}
             {row.installed && row.pluginIds.length > 0
               ? ` · Read by ${row.pluginIds.join(', ')}`
@@ -359,7 +359,7 @@ function ServerRow({
         // renders no count at all rather than a zero it did not earn.
         trailing={
           row.toolCount === null ? undefined : (
-            <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
+            <span className="shrink-0 tabular-nums text-micro text-[color:var(--text-subtle)]">
               {row.toolCount}
             </span>
           )
@@ -372,7 +372,7 @@ function ServerRow({
       />
       {open ? (
         <DetailShell>
-          <p className="mb-3 text-[11px] text-[color:var(--text-muted)]">
+          <p className="mb-3 text-micro text-[color:var(--text-muted)]">
             {row.scope === 'workspace' ? 'This workspace' : 'Your user config'}
             {' · '}
             <span className="font-mono text-[color:var(--text-subtle)]">{row.configPath}</span>
@@ -395,7 +395,7 @@ function ServerRow({
 function QuietNotice({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="mx-3 mt-3 rounded-[5px] border border-[color:var(--border-subtle)] px-3 py-2 text-[11px] text-[color:var(--text-default)]"
+      className="mx-3 mt-3 rounded-[5px] border border-[color:var(--border-subtle)] px-3 py-2 text-micro text-[color:var(--text-default)]"
       role="status"
     >
       {children}
@@ -572,7 +572,7 @@ export function SkillsPaneBody({
         // One animation at a time: a single spinner, not a field of skeletons.
         return (
           <div
-            className="flex items-center gap-2 px-3 py-4 text-[12px] text-[color:var(--text-muted)]"
+            className="flex items-center gap-2 px-3 py-4 text-meta text-[color:var(--text-muted)]"
             role="status"
           >
             <Spinner />
@@ -581,13 +581,13 @@ export function SkillsPaneBody({
         )
       case 'no-agent':
         return (
-          <p className="px-3 py-4 text-[12px] text-[color:var(--text-muted)]">
+          <p className="px-3 py-4 text-meta text-[color:var(--text-muted)]">
             No agent tab is focused.
           </p>
         )
       case 'unavailable':
         return (
-          <p className="px-3 py-4 text-[12px] text-[color:var(--text-muted)]">{body.message}</p>
+          <p className="px-3 py-4 text-meta text-[color:var(--text-muted)]">{body.message}</p>
         )
       case 'fault':
         // Named above by its own banner, with the path and the retry. Repeating
@@ -595,13 +595,13 @@ export function SkillsPaneBody({
         return null
       case 'empty':
         return (
-          <p className="px-3 py-4 text-[12px] text-[color:var(--text-muted)]">
+          <p className="px-3 py-4 text-meta text-[color:var(--text-muted)]">
             No skills or MCP servers for this agent.
           </p>
         )
       case 'no-matches':
         return (
-          <div className="px-3 py-6 text-center text-[12px] text-[color:var(--text-muted)]">
+          <div className="px-3 py-6 text-center text-meta text-[color:var(--text-muted)]">
             <p>No skill or server matches “{body.query}”.</p>
             <div className="mt-2 flex justify-center">
               <GhostButton size="xs" onClick={onOpenExtensions}>
@@ -656,7 +656,7 @@ export function SkillsPaneBody({
               </>
             ) : null}
             {body.catalogueRemaining > 0 ? (
-              <p className="px-3 pt-4 text-[11px] text-[color:var(--text-subtle)]">
+              <p className="px-3 pt-4 text-micro text-[color:var(--text-subtle)]">
                 {body.catalogueRemaining} more in your sources.
               </p>
             ) : null}

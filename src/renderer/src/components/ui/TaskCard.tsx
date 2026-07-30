@@ -24,8 +24,8 @@ import { FOCUS_RING_CLASS, type Tone } from './tokens'
  * Family-resemblance contract — documented in
  * `knowledge/brand/panel-patterns.md`:
  *   - StatusDot leading at 6 px.
- *   - Identifier: `font-mono tabular-nums text-[11px] text-[color:var(--text-subtle)]`.
- *   - Title: `text-[12px] font-medium`.
+ *   - Identifier: `font-mono tabular-nums text-micro text-[color:var(--text-subtle)]`.
+ *   - Title: `text-meta font-medium`.
  *   - Selected state: neutral `--bg-selected` fill + title ink at
  *     `--text-strong`. No left bar, no border box, no accent.
  *   - Hover: `--bg-hover` only — no shadow, no scale, no glow.
@@ -159,34 +159,34 @@ export function TaskCard({
       <div className="min-w-0 flex-1">
         {isCard ? (
           <>
-            <div className="font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+            <div className="font-mono tabular-nums text-micro text-[color:var(--text-muted)]">
               {identifier}
             </div>
             <div
-              className={`mt-0.5 text-[12px] font-medium leading-[1.35] text-[color:var(--text-strong)] ${
+              className={`mt-0.5 text-meta font-medium leading-[1.35] text-[color:var(--text-strong)] ${
                 clampTitle ? 'line-clamp-2' : 'break-words [overflow-wrap:anywhere]'
               }`}
             >
               {title}
             </div>
             {supporting ? (
-              <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
+              <div className="mt-1 line-clamp-2 text-micro leading-4 text-[color:var(--text-muted)]">
                 {supporting}
               </div>
             ) : null}
           </>
         ) : (
           <div className="flex items-baseline gap-2">
-            <span className="font-mono tabular-nums text-[11px] text-[color:var(--text-subtle)]">
+            <span className="font-mono tabular-nums text-micro text-[color:var(--text-subtle)]">
               {identifier}
             </span>
-            <span className="min-w-0 flex-1 truncate text-[12px] font-medium leading-[1.4]">
+            <span className="min-w-0 flex-1 truncate text-meta font-medium leading-[1.4]">
               {title}
             </span>
           </div>
         )}
         {!isCard && supporting ? (
-          <div className="mt-0.5 truncate text-[11px] leading-4 text-[color:var(--text-muted)]">
+          <div className="mt-0.5 truncate text-micro leading-4 text-[color:var(--text-muted)]">
             {supporting}
           </div>
         ) : null}

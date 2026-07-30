@@ -1481,7 +1481,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         />
       ) : null}
       {folderBlocked && folderMissing ? (
-        <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--text-muted)]">
+        <div className="flex h-full items-center justify-center px-4 text-center text-meta text-[color:var(--text-muted)]">
           {folderStatusMessage ?? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'}
         </div>
       ) : null}

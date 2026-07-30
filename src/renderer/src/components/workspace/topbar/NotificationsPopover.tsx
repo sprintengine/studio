@@ -174,7 +174,7 @@ export function NotificationsPopover({
   return (
     <div className="w-[480px] overflow-hidden">
       <div className="flex h-10 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3">
-        <span className="shrink-0 text-[12px] font-semibold text-[color:var(--text-strong)]">Notifications</span>
+        <span className="shrink-0 text-meta font-semibold text-[color:var(--text-strong)]">Notifications</span>
         <div className="flex shrink-0 items-center gap-1">
           {notifications.length > 0 ? (
             <>
@@ -188,7 +188,7 @@ export function NotificationsPopover({
                     aria-pressed={active}
                     aria-label={active ? `Showing only ${LEVEL_NOUN[level]} notifications` : `Show only ${LEVEL_NOUN[level]} notifications`}
                     onClick={() => toggleLevel(level)}
-                    className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-semibold transition-colors ${
+                    className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-micro font-semibold transition-colors ${
                       active
                         ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                         : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
@@ -205,7 +205,7 @@ export function NotificationsPopover({
           <button
             type="button"
             onClick={onOpenLogs}
-            className="rounded px-2 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className="rounded px-2 py-1 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
           >
             Logs
           </button>
@@ -214,14 +214,14 @@ export function NotificationsPopover({
               <button
                 type="button"
                 onClick={onMarkAllRead}
-                className="rounded px-2 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className="rounded px-2 py-1 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
               >
                 Mark read
               </button>
               <button
                 type="button"
                 onClick={onClear}
-                className="rounded px-2 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className="rounded px-2 py-1 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
               >
                 Clear
               </button>
@@ -231,7 +231,7 @@ export function NotificationsPopover({
       </div>
 
       {visibleNotifications.length === 0 ? (
-        <div className="px-3 py-4 text-[13px] text-[color:var(--text-disabled)]">{emptyMessage}</div>
+        <div className="px-3 py-4 text-body text-[color:var(--text-disabled)]">{emptyMessage}</div>
       ) : (
         <div className="max-h-[440px] overflow-y-auto p-1">
           {groups.map((group) => (
@@ -240,7 +240,7 @@ export function NotificationsPopover({
             <div key={group.bucket} role="group" aria-label={DAY_BUCKET_LABEL[group.bucket]}>
               <div
                 aria-hidden="true"
-                className="px-2.5 pb-1 pt-2 text-[11px] font-medium text-[color:var(--text-muted)]"
+                className="px-2.5 pb-1 pt-2 text-micro font-medium text-[color:var(--text-muted)]"
               >
                 {DAY_BUCKET_LABEL[group.bucket]}
               </div>
@@ -260,12 +260,12 @@ export function NotificationsPopover({
                     <NotificationSeverityGlyph level={notification.level} />
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center justify-between gap-3">
-                        <TruncatedText as="div" text={notification.title} className="text-[13px] font-semibold text-[color:var(--text-strong)]" />
-                        <div className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-disabled)]">
+                        <TruncatedText as="div" text={notification.title} className="text-body font-semibold text-[color:var(--text-strong)]" />
+                        <div className="shrink-0 tabular-nums text-micro text-[color:var(--text-disabled)]">
                           {formatNotificationTime(notification.timestamp)}
                         </div>
                       </div>
-                      <div className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                      <div className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">
                         {notification.message}
                       </div>
                       {notification.workspaceName || notification.agentId || notification.sessionId ? (
@@ -274,7 +274,7 @@ export function NotificationsPopover({
                           text={[notification.workspaceName, notification.agentId, notification.sessionId]
                             .filter(Boolean)
                             .join(' / ')}
-                          className="mt-1 font-mono text-[11px] text-[color:var(--text-disabled)]"
+                          className="mt-1 font-mono text-micro text-[color:var(--text-disabled)]"
                         />
                       ) : null}
                       <div className="mt-2 flex items-center gap-1.5">
@@ -286,7 +286,7 @@ export function NotificationsPopover({
                               onMarkRead(notification.id)
                               void action.run()
                             }}
-                            className="rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                            className="rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-micro font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                           >
                             {action.label}
                           </button>
@@ -294,7 +294,7 @@ export function NotificationsPopover({
                         <button
                           type="button"
                           onClick={() => void copyNotification(notification)}
-                          className="rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                          className="rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                         >
                           Copy
                         </button>
@@ -302,7 +302,7 @@ export function NotificationsPopover({
                           <span
                             role="status"
                             aria-live="polite"
-                            className="text-[11px] font-semibold text-[color:var(--tone-error)]"
+                            className="text-micro font-semibold text-[color:var(--tone-error)]"
                           >
                             Could not copy
                           </span>
@@ -311,7 +311,7 @@ export function NotificationsPopover({
                           <button
                             type="button"
                             onClick={() => openLogsForNotification(notification)}
-                            className="rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                            className="rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                           >
                             Open logs
                           </button>

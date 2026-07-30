@@ -38,8 +38,14 @@ type MarkdownNode = Element | undefined
 type MarkdownComponentProps<TagName extends keyof JSX.IntrinsicElements> =
   React.ComponentPropsWithoutRef<TagName> & ExtraProps
 
-const baseTextClass = 'text-[15px] leading-7 text-[color:var(--text-default)]'
-const compactTextClass = 'text-[12px] leading-[1.65] text-[color:var(--text-default)]'
+// Prose, so it takes the ramp step *below* the 15px it used to hard-code, not
+// the one above: `text-title` would put document body text at the same size as
+// the titles over it and spend a third font size the "3 per view" ceiling has
+// no room for. At `text-heading` the document scale's h6 (`text-sm`) matches it
+// in size and separates on weight, which is the hierarchy this scale already
+// declares it carries.
+const baseTextClass = 'text-heading leading-7 text-[color:var(--text-default)]'
+const compactTextClass = 'text-meta leading-[1.65] text-[color:var(--text-default)]'
 const SAFE_MARKDOWN_URL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 const LINK_CLASS =
   'text-[color:var(--accent-primary)] underline underline-offset-2 hover:text-[color:var(--accent-primary-hover)]'
@@ -75,35 +81,35 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     h6: 'mt-5 first:mt-0 mb-2 text-sm font-semibold leading-snug tracking-tight text-[color:var(--text-strong)]',
     p: `${baseTextClass} mb-4`,
     list: `mb-4 ml-6 space-y-2 ${baseTextClass}`,
-    pre: 'my-4 overflow-x-auto rounded-lg border border-[color:var(--border-default)] bg-[color:var(--terminal-bg)] p-4 text-[13px] leading-6 text-[color:var(--terminal-fg)]',
+    pre: 'my-4 overflow-x-auto rounded-lg border border-[color:var(--border-default)] bg-[color:var(--terminal-bg)] p-4 text-body leading-6 text-[color:var(--terminal-fg)]',
     // A long path wraps instead of pushing the line box wider than the column;
     // `break-words` keeps a short token whole and moves it down instead.
     code: 'rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[color:var(--tone-warn)] break-words',
     blockquote:
       'my-4 border-l-2 border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
     hr: 'my-6 border-0 border-t border-[color:var(--border-default)]',
-    table: 'w-full border-collapse text-left text-[13px] text-[color:var(--text-default)]',
+    table: 'w-full border-collapse text-left text-body text-[color:var(--text-default)]',
   },
   compact: {
-    h1: 'mt-6 first:mt-0 mb-3.5 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-[color:var(--text-strong)]',
-    h2: 'mt-[30px] first:mt-0 mb-2.5 text-[13px] font-semibold leading-tight text-[color:var(--text-strong)]',
-    h3: 'mt-[22px] first:mt-0 mb-2 text-[12px] font-semibold leading-snug text-[color:var(--text-strong)]',
-    h4: 'mt-[18px] first:mt-0 mb-1.5 text-[12px] font-semibold leading-snug text-[color:var(--text-default)]',
-    h5: 'mt-[18px] first:mt-0 mb-1.5 text-[12px] font-medium leading-snug text-[color:var(--text-default)]',
+    h1: 'mt-6 first:mt-0 mb-3.5 text-title font-semibold leading-tight tracking-[-0.01em] text-[color:var(--text-strong)]',
+    h2: 'mt-[30px] first:mt-0 mb-2.5 text-body font-semibold leading-tight text-[color:var(--text-strong)]',
+    h3: 'mt-[22px] first:mt-0 mb-2 text-meta font-semibold leading-snug text-[color:var(--text-strong)]',
+    h4: 'mt-[18px] first:mt-0 mb-1.5 text-meta font-semibold leading-snug text-[color:var(--text-default)]',
+    h5: 'mt-[18px] first:mt-0 mb-1.5 text-meta font-medium leading-snug text-[color:var(--text-default)]',
     // The last rung of the compact ladder: 11px is under the 13px floor for
     // `tracking.tight`, so it holds normal tracking and takes its step down
     // from ink, not from a transform.
-    h6: 'mt-[18px] first:mt-0 mb-1.5 text-[11px] font-semibold leading-snug tracking-normal text-[color:var(--text-muted)]',
+    h6: 'mt-[18px] first:mt-0 mb-1.5 text-micro font-semibold leading-snug tracking-normal text-[color:var(--text-muted)]',
     p: `${compactTextClass} mb-3`,
     list: `mb-3 ml-[18px] space-y-1.5 ${compactTextClass}`,
-    pre: 'my-3.5 overflow-x-auto rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3 text-[11px] leading-[1.7] text-[color:var(--text-default)]',
+    pre: 'my-3.5 overflow-x-auto rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3 text-micro leading-[1.7] text-[color:var(--text-default)]',
     // Inline code sits inside running text, so it matches that text's size;
     // inside a fence it takes the fence's, which is already set on the <pre>.
     code: 'rounded-[3px] bg-[color:var(--bg-active)] px-[0.34em] py-[0.1em] text-[0.92em] text-[color:var(--text-default)] break-words [pre_&]:text-[1em]',
     blockquote:
       'my-3 border-l border-[color:var(--border-strong)] py-0.5 pl-3.5 text-[color:var(--text-muted)]',
     hr: 'my-[22px] border-0 border-t border-[color:var(--border-subtle)]',
-    table: 'w-full border-collapse text-left text-[11px] text-[color:var(--text-default)]',
+    table: 'w-full border-collapse text-left text-micro text-[color:var(--text-default)]',
   },
 }
 

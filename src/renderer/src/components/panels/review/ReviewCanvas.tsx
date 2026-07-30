@@ -35,8 +35,8 @@ export function ReviewCanvas({ session, guideActions, toolbar }: { session: Revi
     return (
       <CenteredState>
         <div className="max-w-md text-center">
-          <h3 className="mb-1.5 text-[15px] font-semibold text-[color:var(--text-strong)]">No review selected</h3>
-          <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">
+          <h3 className="mb-1.5 text-title font-semibold text-[color:var(--text-strong)]">No review selected</h3>
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">
             Choose a review from the list to open its walkthrough.
           </p>
         </div>
@@ -56,8 +56,8 @@ export function ReviewCanvas({ session, guideActions, toolbar }: { session: Revi
     return (
       <CenteredState>
         <div className="max-w-md">
-          <h3 className="mb-1.5 text-[15px] font-semibold text-[color:var(--text-strong)]">Couldn’t open this review</h3>
-          <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">
+          <h3 className="mb-1.5 text-title font-semibold text-[color:var(--text-strong)]">Couldn’t open this review</h3>
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">
             {session.errorMessage ?? 'The change set could not be read.'}
           </p>
         </div>
@@ -69,8 +69,8 @@ export function ReviewCanvas({ session, guideActions, toolbar }: { session: Revi
     return (
       <CenteredState>
         <div className="max-w-md">
-          <h3 className="mb-1.5 text-[15px] font-semibold text-[color:var(--text-strong)]">No change to review yet</h3>
-          <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">
+          <h3 className="mb-1.5 text-title font-semibold text-[color:var(--text-strong)]">No change to review yet</h3>
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">
             This review has no change loaded. Start a new one from a pull request, branch, or patch.
           </p>
         </div>
@@ -83,7 +83,7 @@ export function ReviewCanvas({ session, guideActions, toolbar }: { session: Revi
       <PrepareShell changeset={changeset}>
         <InlineNotice tone="error" className="max-w-2xl">
           <span className="font-medium">The walkthrough didn’t pass its checks.</span>
-          <pre className="mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11.5px] leading-5">
+          <pre className="mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-meta leading-5">
             {session.invalidErrors}
           </pre>
         </InlineNotice>
@@ -165,7 +165,7 @@ const NOOP = (): void => {}
 
 function CenteredState({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full w-full items-center justify-center bg-[color:var(--bg-surface)] px-6 text-[13px] text-[color:var(--text-muted)]">
+    <div className="flex h-full w-full items-center justify-center bg-[color:var(--bg-surface)] px-6 text-body text-[color:var(--text-muted)]">
       {children}
     </div>
   )
@@ -177,10 +177,10 @@ function PrepareShell({ changeset, children }: { changeset: ReviewChangeSet; chi
   return (
     <div className="flex h-full w-full flex-col overflow-y-auto bg-[color:var(--bg-surface)] px-6 py-6">
       <header className="mb-5">
-        <h2 className="text-[17px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
+        <h2 className="text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
           {changeset.title}
         </h2>
-        <p className="mt-1 font-mono text-[12px] text-[color:var(--text-subtle)]">
+        <p className="mt-1 font-mono text-meta text-[color:var(--text-subtle)]">
           {sourceIdentity(changeset)} · <span className="tabular-nums">{changeset.stats.files}</span>{' '}
           {changeset.stats.files === 1 ? 'file' : 'files'} ·{' '}
           <span className="tabular-nums text-[color:var(--tone-good)]">+{changeset.stats.additions}</span>{' '}
@@ -199,7 +199,7 @@ function PrepareShell({ changeset, children }: { changeset: ReviewChangeSet; chi
 function ChromeRow({ message, actions, tools }: { message: ReactNode; actions: ReactNode; tools: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-6 py-2">
-      <span className="min-w-0 flex-1 text-[12px] leading-5 text-[color:var(--text-muted)]">{message}</span>
+      <span className="min-w-0 flex-1 text-meta leading-5 text-[color:var(--text-muted)]">{message}</span>
       {actions}
       {tools}
     </div>
@@ -233,11 +233,11 @@ function DegradedMessage({ run }: { run: ReviewRunProgress }) {
 
 function RunLine({ run }: { run: ReviewRunProgress }) {
   if (run.error) {
-    return <p className="mt-3 max-w-2xl text-[12px] leading-5 text-[color:var(--tone-error)]">{run.error}</p>
+    return <p className="mt-3 max-w-2xl text-meta leading-5 text-[color:var(--tone-error)]">{run.error}</p>
   }
   if (!run.running || !run.phase) return null
   return (
-    <p className="mt-3 flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+    <p className="mt-3 flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
       <Spinner />
       {RUN_PHASE_LABEL[run.phase]}
     </p>

@@ -68,23 +68,23 @@ export function AutomationSurfaceCanvas({
             swapping between automations never jumps the layout the way the
             variable-height run list would. What happened comes after. */}
         <div>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 py-1 text-[12px]">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 py-1 text-meta">
             <WhatRow label="Trigger" value={cadenceSummary(definition.trigger)} />
             <WhatRow label="Project" value={projectLabel(workspaceRoot)} />
             <WhatRow label="What runs" value={`${actionLabel(definition.action.kind)} · ${autonomy}`} />
           </dl>
           {prompt ? (
             <div className="flex flex-col gap-1 pt-1.5">
-              <span className="text-[12px] text-[color:var(--text-subtle)]">Prompt</span>
-              <p className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[12px] leading-5 text-[color:var(--text-default)]">
+              <span className="text-meta text-[color:var(--text-subtle)]">Prompt</span>
+              <p className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-meta leading-5 text-[color:var(--text-default)]">
                 {prompt}
               </p>
             </div>
           ) : null}
           {command ? (
             <div className="flex flex-col gap-1 pt-1.5">
-              <span className="text-[12px] text-[color:var(--text-subtle)]">Command</span>
-              <p className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2 font-mono text-[11.5px] leading-5 text-[color:var(--text-default)]">
+              <span className="text-meta text-[color:var(--text-subtle)]">Command</span>
+              <p className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2 font-mono text-meta leading-5 text-[color:var(--text-default)]">
                 {command}
               </p>
             </div>
@@ -93,10 +93,10 @@ export function AutomationSurfaceCanvas({
         <Section
           title="Recent runs"
           count={state === 'ready' ? runs.length : undefined}
-          action={<GhostButton onClick={() => void reload()} className="h-6 px-2 text-[11px]">Refresh</GhostButton>}
+          action={<GhostButton onClick={() => void reload()} className="h-6 px-2 text-micro">Refresh</GhostButton>}
         >
           {state === 'loading' || state === 'idle' ? (
-            <div className="flex items-center gap-2 py-3 text-[11px] text-[color:var(--text-muted)]">
+            <div className="flex items-center gap-2 py-3 text-micro text-[color:var(--text-muted)]">
               <Spinner size={12} label="Loading runs" /> Loading runs…
             </div>
           ) : state === 'error' ? (
@@ -104,7 +104,7 @@ export function AutomationSurfaceCanvas({
               {error}
             </InlineNotice>
           ) : runs.length === 0 ? (
-            <p className="py-3 text-[11px] leading-5 text-[color:var(--text-muted)]">
+            <p className="py-3 text-micro leading-5 text-[color:var(--text-muted)]">
               {definition.status === 'enabled'
                 ? 'No runs yet. The first one appears here when the schedule fires or you run it now.'
                 : 'No runs yet. Turn the automation on to schedule runs, or run it now.'}
@@ -170,7 +170,7 @@ function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, 
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[12px] font-medium text-[color:var(--text-strong)]">{RUN_STATUS_LABEL[run.status]}</span>
+          <span className="text-meta font-medium text-[color:var(--text-strong)]">{RUN_STATUS_LABEL[run.status]}</span>
           {stamp !== null ? (
             <span className="shrink-0 tabular-nums text-micro text-[color:var(--text-subtle)]" title={absoluteTime(stamp)}>
               {relativeFromNow(stamp, now)}
@@ -182,11 +182,11 @@ function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, 
             as="p"
             multiline
             text={run.summary}
-            className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-[color:var(--text-muted)]"
+            className="mt-0.5 line-clamp-2 text-micro leading-4 text-[color:var(--text-muted)]"
           />
         ) : null}
         {run.blockedReason ? (
-          <p className="mt-0.5 text-[11px] leading-4 text-[color:var(--tone-warn)]">{run.blockedReason}</p>
+          <p className="mt-0.5 text-micro leading-4 text-[color:var(--tone-warn)]">{run.blockedReason}</p>
         ) : null}
         <AutomationRunActions run={run} onOpenAgent={onOpenAgent} onViewReport={onViewReport} onFinalize={onFinalize} finalizing={finalizing} />
       </div>

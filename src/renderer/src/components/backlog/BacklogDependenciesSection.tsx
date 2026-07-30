@@ -130,7 +130,7 @@ export function BacklogDependenciesSection({
         ) : null}
 
         {prerequisites.length === 0 && blocks.length === 0 && !inCycle ? (
-          <p className="py-0.5 text-[12px] text-[color:var(--text-disabled)]">
+          <p className="py-0.5 text-meta text-[color:var(--text-disabled)]">
             No prerequisites. Use “Depends on…” to add one.
           </p>
         ) : null}
@@ -140,12 +140,12 @@ export function BacklogDependenciesSection({
 }
 
 function SubsectionLabel({ children }: { children: React.ReactNode }): JSX.Element {
-  return <span className="text-[11px] text-[color:var(--text-muted)]">{children}</span>
+  return <span className="text-micro text-[color:var(--text-muted)]">{children}</span>
 }
 
 function StatusWord({ children }: { children: React.ReactNode }): JSX.Element {
   return (
-    <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">{children}</span>
+    <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">{children}</span>
   )
 }
 
@@ -185,7 +185,7 @@ function PrerequisiteRow({
             tabIndex={0}
             role="note"
             aria-label={`${prerequisite.slug}: unknown prerequisite, no matching item`}
-            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 font-mono text-[12px] text-[color:var(--text-disabled)] outline-none focus-visible:focus-ring"
+            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 font-mono text-meta text-[color:var(--text-disabled)] outline-none focus-visible:focus-ring"
           >
             {prerequisite.slug}
           </span>
@@ -216,10 +216,10 @@ function NavigateButton({
     <button
       type="button"
       onClick={onNavigate}
-      className="interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+      className="interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
     >
       {displayId ? (
-        <span className="shrink-0 font-mono text-[11px] tabular-nums text-[color:var(--text-muted)]">
+        <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-muted)]">
           {displayId}
         </span>
       ) : null}
@@ -278,7 +278,7 @@ function DependsOnEditor({
           aria-expanded={triggerProps['aria-expanded']}
           aria-controls={triggerProps['aria-controls']}
           onClick={togglePopover}
-          className={`interactive inline-flex min-h-6 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${
+          className={`interactive inline-flex min-h-6 items-center gap-1 rounded px-1.5 py-0.5 text-micro font-medium hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${
             opened ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
           }`}
         >

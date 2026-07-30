@@ -48,7 +48,7 @@ export function GuidedBriefCloseConfirmation({ open, stage, onCancel, onConfirm 
         onClose={onCancel}
       />
       <ModalBody>
-        <p className="text-[13px] leading-6 text-[color:var(--text-default)]">
+        <p className="text-body leading-6 text-[color:var(--text-default)]">
           {bodyCopyForStage(stage)}
         </p>
       </ModalBody>

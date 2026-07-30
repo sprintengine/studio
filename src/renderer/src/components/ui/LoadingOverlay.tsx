@@ -20,7 +20,7 @@ export function LoadingOverlay({ label, className }: LoadingOverlayProps) {
       aria-live="polite"
       className={`flex h-full w-full items-center justify-center ${className ?? ''}`}
     >
-      <div className="flex items-center gap-3 text-[12px] text-[color:var(--text-muted)]">
+      <div className="flex items-center gap-3 text-meta text-[color:var(--text-muted)]">
         <StatusDot tone="good" pulse size={8} />
         <span>{label}</span>
       </div>

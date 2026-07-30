@@ -270,9 +270,9 @@ export function SidePaneHeader({ title, count, onClose, closeLabel, titleId }: S
         as="h3"
         id={titleId}
         text={title}
-        className="text-[13px] font-semibold tracking-tight text-[color:var(--text-strong)]"
+        className="text-body font-semibold tracking-tight text-[color:var(--text-strong)]"
       />
-      <div className="flex shrink-0 items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
+      <div className="flex shrink-0 items-center gap-2 text-micro text-[color:var(--text-muted)]">
         {count !== undefined && count !== null ? (
           <span className="tabular-nums">{count}</span>
         ) : null}

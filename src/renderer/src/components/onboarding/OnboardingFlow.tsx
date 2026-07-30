@@ -182,10 +182,10 @@ function WelcomeStep({ titleId, onContinue }: { titleId: string; onContinue: () 
     // names the product — first-run is one of the places copy may.
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-8 py-14 text-center">
       <div className="space-y-1.5">
-        <h2 id={titleId} className="text-[15px] font-semibold text-[color:var(--text-strong)]">
+        <h2 id={titleId} className="text-title font-semibold text-[color:var(--text-strong)]">
           Welcome to Sprint Engine Studio
         </h2>
-        <p className="mx-auto max-w-[400px] text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="mx-auto max-w-[400px] text-meta leading-5 text-[color:var(--text-muted)]">
           A command surface for running coding agents. Pick the tools you want, then open your first
           workspace. Everything is configurable later in Settings.
         </p>
@@ -208,10 +208,10 @@ function ThemeStep({ titleId, onContinue }: { titleId: string; onContinue: () =>
   return (
     <>
       <div className="border-b border-[color:var(--border-subtle)] px-6 py-5">
-        <h2 id={titleId} className="text-[15px] font-semibold text-[color:var(--text-strong)]">
+        <h2 id={titleId} className="text-title font-semibold text-[color:var(--text-strong)]">
           Pick a theme
         </h2>
-        <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">
           Choose how it looks. This applies right away, and you can change it anytime in
           Settings → Appearance.
         </p>
@@ -264,10 +264,10 @@ function EssentialsStep({ titleId, onContinue }: { titleId: string; onContinue: 
   return (
     <>
       <div className="border-b border-[color:var(--border-subtle)] px-6 py-5">
-        <h2 id={titleId} className="text-[15px] font-semibold text-[color:var(--text-strong)]">
+        <h2 id={titleId} className="text-title font-semibold text-[color:var(--text-strong)]">
           Set up an agent CLI
         </h2>
-        <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">
           Coding agents run through a CLI like Claude or Codex. Install one now, or skip and
           configure your own command later in Settings.
         </p>
@@ -277,7 +277,7 @@ function EssentialsStep({ titleId, onContinue }: { titleId: string; onContinue: 
         {/* Section: agent CLIs. T3 (adopt existing config) and T4 (extensions
             teaser) add their own sibling sections within this body region. */}
         {rows.length === 0 ? (
-          <p className="py-6 text-center text-[12px] text-[color:var(--text-muted)]">
+          <p className="py-6 text-center text-meta text-[color:var(--text-muted)]">
             No agent CLIs are available to install.
           </p>
         ) : (
@@ -379,7 +379,7 @@ function EssentialsStep({ titleId, onContinue }: { titleId: string; onContinue: 
       <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-6 py-4">
         <span
           title="You can change this anytime in Settings → Agents."
-          className="min-w-0 truncate text-[11px] text-[color:var(--text-subtle)]"
+          className="min-w-0 truncate text-micro text-[color:var(--text-subtle)]"
         >
           You can change this anytime in Settings → Agents.
         </span>
@@ -414,10 +414,10 @@ function ModulesStep({
   return (
     <>
       <div className="border-b border-[color:var(--border-subtle)] px-6 py-5">
-        <h2 id={titleId} className="text-[15px] font-semibold text-[color:var(--text-strong)]">
+        <h2 id={titleId} className="text-title font-semibold text-[color:var(--text-strong)]">
           What’s included
         </h2>
-        <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">
           Everything’s switched on to start. Turn off anything you don’t need, or just continue —
           you can change this anytime in Settings.
         </p>
@@ -459,10 +459,10 @@ function FirstRunStep({
   return (
     <>
       <div className="border-b border-[color:var(--border-subtle)] px-6 py-5">
-        <h2 id={titleId} className="text-[15px] font-semibold text-[color:var(--text-strong)]">
+        <h2 id={titleId} className="text-title font-semibold text-[color:var(--text-strong)]">
           Your workspace is ready
         </h2>
-        <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">
           That’s the setup done. Start your first agent, or just open your workspace.
         </p>
       </div>

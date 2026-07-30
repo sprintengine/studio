@@ -28,7 +28,7 @@ export function InboxSearchInput({
     <div
       className={[
         'flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)]',
-        'bg-[color:var(--bg-surface-raised)] px-2 text-[12px]',
+        'bg-[color:var(--bg-surface-raised)] px-2 text-meta',
         // The field is a composite: the input is the tab stop, but the border
         // box a user sees is this wrapper, so the wrapper draws the indicator.
         // Same treatment as every other control, different trigger — the

@@ -173,7 +173,7 @@ function BacklogLinkControl({
           <button
             type="button"
             onClick={() => onOpen(link)}
-            className={`interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            className={`interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           >
             <span className="min-w-0 truncate">{model.label}</span>
             <OpenLinkGlyph />
@@ -185,13 +185,13 @@ function BacklogLinkControl({
             tabIndex={0}
             role="note"
             aria-label={`${model.label}: ${model.statusText}. ${model.detail}`}
-            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-[12px] text-[color:var(--text-disabled)] outline-none focus-visible:focus-ring"
+            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-meta text-[color:var(--text-disabled)] outline-none focus-visible:focus-ring"
           >
             {model.label}
           </span>
         </Tooltip>
       )}
-      <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">{model.statusText}</span>
+      <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">{model.statusText}</span>
       <Tooltip content={`Unlink ${model.label}`} placement="top">
         <button
           type="button"

@@ -2042,7 +2042,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
           ) : (
             // Model providers are a plain chat — no tool contract to explain.
             <div className="flex h-full items-center justify-center">
-              <p className="max-w-[280px] text-center text-[12px] leading-5 text-[color:var(--text-muted)]">
+              <p className="max-w-[280px] text-center text-meta leading-5 text-[color:var(--text-muted)]">
                 No messages yet. Send a prompt to start the conversation.
               </p>
             </div>
@@ -2072,7 +2072,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
           <button
             type="button"
             onClick={jumpToLatest}
-            className="absolute -top-10 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-1 text-[11.5px] font-medium text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)]"
+            className="absolute -top-10 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-1 text-meta font-medium text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)]"
           >
             {newReplies > 0 ? `↓ ${newReplies} new ${newReplies === 1 ? 'reply' : 'replies'}` : '↓ Jump to latest'}
           </button>
@@ -2094,7 +2094,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
          */}
         {composerError ? (
           <div className="mb-2 flex items-center justify-between gap-3">
-            <TruncatedText as="span" text={composerError} className="min-w-0 text-[12px] leading-5 text-[color:var(--tone-error)]" />
+            <TruncatedText as="span" text={composerError} className="min-w-0 text-meta leading-5 text-[color:var(--tone-error)]" />
             <GhostButton
               size="sm"
               onClick={retry}
@@ -2112,7 +2112,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
          * shows the new preset, and this says when it starts applying.
          */}
         {permissionNotice ? (
-          <p role="status" className="mb-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <p role="status" className="mb-2 text-meta leading-5 text-[color:var(--text-muted)]">
             {permissionNotice}
           </p>
         ) : null}
@@ -2126,11 +2126,11 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         {queuedTurn ? (
           <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
             <div className="flex min-w-0 items-baseline gap-2">
-              <span className="shrink-0 text-[12px] font-medium leading-5 text-[color:var(--text-default)]">Queued</span>
+              <span className="shrink-0 text-meta font-medium leading-5 text-[color:var(--text-default)]">Queued</span>
               <TruncatedText
                 as="span"
                 text={queuedTurnLabel(queuedTurn.text, queuedTurn.attachments.length)}
-                className="min-w-0 text-[12px] leading-5 text-[color:var(--text-muted)]"
+                className="min-w-0 text-meta leading-5 text-[color:var(--text-muted)]"
               />
             </div>
             <GhostButton
@@ -2189,7 +2189,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
           {dropActive && imagesEnabled ? (
             // Opaque, not a scrim: the field's own text ghosting through the
             // drop state reads as a rendering artifact rather than a state.
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-[color:var(--bg-surface)] text-[12px] font-medium text-[color:var(--accent-primary)]">
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-[color:var(--bg-surface)] text-meta font-medium text-[color:var(--accent-primary)]">
               Drop to attach
             </div>
           ) : null}
@@ -2382,7 +2382,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 // or model in a header is the duplication we're avoiding.
 function ChatShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative isolate flex h-full flex-col bg-[color:var(--agent-surface)] text-[12px] text-[color:var(--text-default)]">
+    <div className="relative isolate flex h-full flex-col bg-[color:var(--agent-surface)] text-meta text-[color:var(--text-default)]">
       {children}
     </div>
   )
@@ -2398,7 +2398,7 @@ function ContextMeter({ used, total }: { used: number; total: number }) {
   const nearFull = fraction >= 0.9
   return (
     <Tooltip content={`Context used: ${used.toLocaleString()} / ${total.toLocaleString()} tokens`} placement="top">
-      <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] tabular-nums text-[color:var(--text-muted)]">
+      <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-micro tabular-nums text-[color:var(--text-muted)]">
         <svg className="icon-sm -rotate-90" viewBox="0 0 16 16" aria-hidden="true">
           <circle cx="8" cy="8" r={radius} fill="none" stroke="var(--border-strong)" strokeWidth="2" />
           <circle
@@ -2585,7 +2585,7 @@ export function PermissionPresetPill({
             ref={ref}
             type="button"
             onClick={togglePopover}
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[11.5px] font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-meta font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${
               preset === 'bypass_all' ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
             }`}
             {...triggerProps}
@@ -2603,7 +2603,7 @@ export function PermissionPresetPill({
         <div className="flex items-center gap-1">
           <PermissionPresetChips value={preset} onChange={onChange} disabled={changing} />
         </div>
-        <p className="px-1 pt-1.5 text-[11px] leading-4 text-[color:var(--text-muted)]">
+        <p className="px-1 pt-1.5 text-micro leading-4 text-[color:var(--text-muted)]">
           {permissionChangeScopeLabel(live)}
         </p>
       </div>
@@ -2646,7 +2646,7 @@ function ModelPickerPill({
   if (locked) {
     return (
       <Tooltip content="Model is fixed once the conversation starts" placement="top">
-        <span className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] text-[color:var(--text-muted)]">
+        <span className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-meta text-[color:var(--text-muted)]">
           <ChatGlyph className="icon-sm text-[color:var(--text-subtle)]" />
           <span className="max-w-[200px] truncate">{label}</span>
         </span>
@@ -2680,7 +2680,7 @@ function ModelPickerPill({
           ref={ref}
           type="button"
           onClick={togglePopover}
-          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
           {...triggerProps}
         >
           <ChatGlyph className="icon-sm text-[color:var(--text-muted)]" />
@@ -2705,7 +2705,7 @@ function ModelPickerPill({
               onChange={(event) => setQuery(event.currentTarget.value)}
               placeholder="Search models…"
               aria-label="Search models"
-              className={`min-w-0 flex-1 bg-transparent px-1 py-1 text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+              className={`min-w-0 flex-1 bg-transparent px-1 py-1 text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
             />
             {groups.length > 1 ? (
               <FilterMenu
@@ -2737,14 +2737,14 @@ function ModelPickerPill({
         ) : null}
         <div className="min-h-0 flex-1 overflow-y-auto p-1">
           {filtered.length === 0 ? (
-            <div className="px-2.5 py-2 text-[12px] text-[color:var(--text-muted)]" role="status">
+            <div className="px-2.5 py-2 text-meta text-[color:var(--text-muted)]" role="status">
               {normalized ? `No models match “${query.trim()}”` : 'No providers available'}
             </div>
           ) : (
             filtered.map((group) => (
               <div key={group.providerId} className="py-0.5">
                 <div className="flex items-baseline gap-1.5 px-2.5 pb-0.5 pt-1.5">
-                  <span className="text-[11px] font-semibold text-[color:var(--text-default)]">{group.providerLabel}</span>
+                  <span className="text-micro font-semibold text-[color:var(--text-default)]">{group.providerLabel}</span>
                   <span className="text-micro text-[color:var(--text-subtle)]">
                     {group.unavailable
                       ? 'not available'
@@ -2756,26 +2756,26 @@ function ModelPickerPill({
                   </span>
                 </div>
                 {group.unavailable ? (
-                  <p className="px-2.5 pb-1 text-[11px] leading-4 text-[color:var(--text-muted)]">{group.unavailable}</p>
+                  <p className="px-2.5 pb-1 text-micro leading-4 text-[color:var(--text-muted)]">{group.unavailable}</p>
                 ) : group.models.length === 0 ? (
                   // A key-configured provider with an empty catalog stays visible
                   // with an explicit state instead of vanishing or showing a
                   // stale seed. Missing key offers a direct route to add one.
                   group.emptyState === 'add-key' ? (
                     <div className="px-2.5 pb-1.5 pt-0.5">
-                      <p className="pb-1 text-[11px] leading-4 text-[color:var(--text-muted)]">
+                      <p className="pb-1 text-micro leading-4 text-[color:var(--text-muted)]">
                         Add an API key to browse this provider’s models.
                       </p>
                       <button
                         type="button"
                         onClick={() => onAddKey(group.providerId)}
-                        className="rounded px-2 py-1 text-[12px] font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)]"
+                        className="rounded px-2 py-1 text-meta font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)]"
                       >
                         Add key in Settings
                       </button>
                     </div>
                   ) : (
-                    <p className="px-2.5 pb-1.5 pt-0.5 text-[11px] leading-4 text-[color:var(--text-muted)]" role="status">
+                    <p className="px-2.5 pb-1.5 pt-0.5 text-micro leading-4 text-[color:var(--text-muted)]" role="status">
                       No models returned for this provider.
                     </p>
                   )
@@ -2790,7 +2790,7 @@ function ModelPickerPill({
                       aria-checked={isCurrent}
                       disabled={Boolean(group.unavailable)}
                       onClick={() => onSelect(group.providerId, model.id)}
-                      className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[13px] transition-colors disabled:cursor-default disabled:opacity-45 ${
+                      className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-body transition-colors disabled:cursor-default disabled:opacity-45 ${
                         isCurrent
                           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                           : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-default)]'
@@ -2975,7 +2975,7 @@ export function ComposerAttachmentStrip({
         </li>
       ))}
       {reading > 0 ? (
-        <li className="text-[11.5px] leading-5 text-[color:var(--text-muted)]">
+        <li className="text-meta leading-5 text-[color:var(--text-muted)]">
           Reading {attachmentCountLabel(reading)}…
         </li>
       ) : null}
@@ -3042,7 +3042,7 @@ const NOTICE_TONE: Record<'neutral' | 'warn' | 'error', { border: string; text: 
 
 function ChatNotice({ tone, children }: { tone: 'neutral' | 'warn' | 'error'; children: React.ReactNode }) {
   const style = NOTICE_TONE[tone]
-  return <div className={`mx-3 my-2 border-l-2 pl-3 text-[12px] leading-5 ${style.border} ${style.text}`}>{children}</div>
+  return <div className={`mx-3 my-2 border-l-2 pl-3 text-meta leading-5 ${style.border} ${style.text}`}>{children}</div>
 }
 
 // The shared card shell docked above the composer: eyebrow row with an earned
@@ -3081,13 +3081,13 @@ function DockShell({
         {/* Decorative: the eyebrow beside it is the same string, so a labelled
             dot would announce the state twice. */}
         <StatusDot tone={dotTone} />
-        <span className="text-[11px] font-medium tracking-normal text-[color:var(--text-subtle)]">
+        <span className="text-micro font-medium tracking-normal text-[color:var(--text-subtle)]">
           {eyebrow}
         </span>
       </div>
       {children}
       <div className="flex items-center gap-2.5 px-3.5 pb-3 pt-2">
-        {hints ? <span className="flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">{hints}</span> : null}
+        {hints ? <span className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">{hints}</span> : null}
         <div className="ml-auto flex shrink-0 gap-2">{actions}</div>
       </div>
     </div>
@@ -3220,17 +3220,17 @@ function ConversationPermissionCard({
       }
     >
       {command ? (
-        <div className="mx-3.5 mt-2 overflow-x-auto rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] px-3 py-2.5 font-mono text-[12px] text-[color:var(--terminal-fg)]">
+        <div className="mx-3.5 mt-2 overflow-x-auto rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] px-3 py-2.5 font-mono text-meta text-[color:var(--terminal-fg)]">
           <span className="select-none text-[color:var(--accent-primary)]">$ </span>
           {command}
         </div>
       ) : (
-        <p className="px-3.5 pt-1.5 text-[15px] font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
+        <p className="px-3.5 pt-1.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
           {entry.summary}
         </p>
       )}
       {workspaceName ? (
-        <div className="flex items-center gap-1.5 px-3.5 pt-1.5 text-[11.5px] text-[color:var(--text-subtle)]">
+        <div className="flex items-center gap-1.5 px-3.5 pt-1.5 text-meta text-[color:var(--text-subtle)]">
           <FolderGlyph className="icon-xs" />
           in {workspaceName}
         </div>
@@ -3292,11 +3292,11 @@ function ConversationPlanCard({
       }
     >
       {entry.plan?.trim() ? (
-        <div className="mx-3.5 mt-2 max-h-64 overflow-y-auto rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3 py-2.5 text-[12px] leading-5">
+        <div className="mx-3.5 mt-2 max-h-64 overflow-y-auto rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3 py-2.5 text-meta leading-5">
           {renderMarkdown(entry.plan)}
         </div>
       ) : (
-        <p className="px-3.5 pt-1.5 text-[12.5px] leading-5 text-[color:var(--text-default)]">{entry.summary}</p>
+        <p className="px-3.5 pt-1.5 text-body leading-5 text-[color:var(--text-default)]">{entry.summary}</p>
       )}
     </DockShell>
   )
@@ -3432,7 +3432,7 @@ function ConversationQuestionCard({
         </>
       }
     >
-      <p className="px-3.5 pt-1.5 text-[15px] font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
+      <p className="px-3.5 pt-1.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
         {question.question}
       </p>
       <div
@@ -3470,16 +3470,16 @@ function ConversationQuestionCard({
                 </span>
               ) : null}
               <span className="min-w-0">
-                <span className="block text-[13px] font-semibold leading-5 text-[color:var(--text-strong)]">
+                <span className="block text-body font-semibold leading-5 text-[color:var(--text-strong)]">
                   {parsed.text}
                   {parsed.recommended ? (
-                    <span className="ml-2 text-[11px] font-medium tracking-normal text-[color:var(--text-muted)]">
+                    <span className="ml-2 text-micro font-medium tracking-normal text-[color:var(--text-muted)]">
                       Recommended
                     </span>
                   ) : null}
                 </span>
                 {option.description ? (
-                  <span className="mt-px block text-[12px] leading-[1.45] text-[color:var(--text-muted)]">
+                  <span className="mt-px block text-meta leading-[1.45] text-[color:var(--text-muted)]">
                     {option.description}
                   </span>
                 ) : null}
@@ -3511,7 +3511,7 @@ function ConversationQuestionCard({
             placeholder="Something else…"
             disabled={busy}
             aria-label={`Other answer for: ${question.question}`}
-            className={`w-full rounded-lg border border-[color:var(--border-subtle)] bg-transparent px-2.5 py-2 text-[12.5px] text-[color:var(--text-default)] placeholder:text-[color:var(--text-subtle)] focus:border-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}
+            className={`w-full rounded-lg border border-[color:var(--border-subtle)] bg-transparent px-2.5 py-2 text-body text-[color:var(--text-default)] placeholder:text-[color:var(--text-subtle)] focus:border-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}
           />
         </div>
       ) : null}
@@ -3553,7 +3553,7 @@ export function UserTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { k
           </div>
         ) : null}
         {entry.text ? (
-          <p className="whitespace-pre-wrap text-[13px] leading-normal text-[color:var(--text-strong)]">{entry.text}</p>
+          <p className="whitespace-pre-wrap text-body leading-normal text-[color:var(--text-strong)]">{entry.text}</p>
         ) : null}
       </div>
     </div>
@@ -3589,7 +3589,7 @@ function AssistantTurnBlock({
       <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
         {/* The name truncates too: on a non-harness provider `assistantName` IS
             the model label, which can be a long `vendor/model-id`. */}
-        <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] font-semibold text-[color:var(--text-strong)]">
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-meta font-semibold text-[color:var(--text-strong)]">
           <SparkleGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
           <TruncatedText as="span" text={chrome.assistantName} className="max-w-[220px]" />
         </span>
@@ -3597,7 +3597,7 @@ function AssistantTurnBlock({
           // Mirrors the composer's locked `ModelPickerPill`: same glyph, same
           // muted label, no affordance — the model for a finished turn is fixed
           // exactly like the pill is once a conversation starts.
-          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[11.5px] text-[color:var(--text-muted)]">
+          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-meta text-[color:var(--text-muted)]">
             <ChatGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
             <TruncatedText as="span" text={turnModelLabel} className="max-w-[180px]" />
           </span>
@@ -3606,7 +3606,7 @@ function AssistantTurnBlock({
           // `--text-muted`, not `--text-subtle`: at 11px the subtle token only
           // reaches ~4.1:1 on the dark chat surface (~3.9:1 on Conifer), short
           // of AA. Muted clears 4.5:1 in every theme.
-          <span className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-[color:var(--text-muted)]">
+          <span className="shrink-0 whitespace-nowrap text-micro tabular-nums text-[color:var(--text-muted)]">
             {formatClockTime(entry.startedAt)}
           </span>
         ) : null}
@@ -3618,7 +3618,7 @@ function AssistantTurnBlock({
       <ResolvedDecisions rows={decisions} className={entry.text.trim() ? 'mb-3' : undefined} />
       {entry.text.trim() ? <div className="max-w-[68ch]">{renderMarkdown(entry.text)}</div> : null}
       {entry.status === 'interrupted' ? (
-        <span className="text-[11px] text-[color:var(--text-subtle)]">Interrupted</span>
+        <span className="text-micro text-[color:var(--text-subtle)]">Interrupted</span>
       ) : null}
       {entry.status === 'failed' ? <TurnErrorBlock entry={entry} chrome={chrome} /> : null}
     </div>
@@ -3634,13 +3634,13 @@ function ThoughtRow({ reasoning, durationMs }: { reasoning: string; durationMs?:
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
-        className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-1 pr-2 text-[11.5px] text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
+        className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-1 pr-2 text-meta text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
       >
         <ChevronRightGlyph className={`icon-xs transition-transform ${expanded ? 'rotate-90' : ''}`} />
         {durationMs !== undefined ? `Thought for ${formatStepDuration(durationMs)}` : 'Thought'}
       </button>
       {expanded ? (
-        <p className="mb-1 mt-1 max-w-[68ch] whitespace-pre-wrap pl-1 text-[12.5px] italic leading-5 text-[color:var(--text-muted)]">
+        <p className="mb-1 mt-1 max-w-[68ch] whitespace-pre-wrap pl-1 text-body italic leading-5 text-[color:var(--text-muted)]">
           {reasoning}
         </p>
       ) : null}
@@ -3677,7 +3677,7 @@ export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; li
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-1 pr-2 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+        className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-1 pr-2 text-meta font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
       >
         <ChevronRightGlyph className={`icon-xs text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`} />
         {working ? (
@@ -3697,7 +3697,7 @@ export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; li
             <button
               type="button"
               onClick={() => setShowAllSteps(true)}
-              className="self-start rounded-md px-2 py-1 text-left text-[11.5px] text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
+              className="self-start rounded-md px-2 py-1 text-left text-meta text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
             >
               Show {hiddenSteps} earlier {hiddenSteps === 1 ? 'step' : 'steps'}
             </button>
@@ -3742,7 +3742,7 @@ function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   // Steps only appear once the agent reports its first tool call, so a lane
   // with none yet is a plain row rather than an expander onto nothing.
   const expandable = children.length > 0
-  const headerClass = `relative flex w-full items-baseline gap-2 rounded-md px-2 py-1 text-left text-[12px] ${
+  const headerClass = `relative flex w-full items-baseline gap-2 rounded-md px-2 py-1 text-left text-meta ${
     running ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
   }`
   const header = (
@@ -3758,10 +3758,10 @@ function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
         <TruncatedText
           as="span"
           text={running ? `${object}…` : object}
-          className="min-w-0 text-[11.5px] text-[color:var(--text-muted)]"
+          className="min-w-0 text-meta text-[color:var(--text-muted)]"
         />
       ) : null}
-      <span className="ml-auto shrink-0 pl-2 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+      <span className="ml-auto shrink-0 pl-2 text-micro tabular-nums text-[color:var(--text-subtle)]">
         {running ? (
           tool.startedAt !== undefined ? <LiveElapsed startedAt={tool.startedAt} /> : 'running'
         ) : durationMs !== undefined ? (
@@ -3791,7 +3791,7 @@ function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
             <button
               type="button"
               onClick={() => setShowAllSteps(true)}
-              className="self-start rounded-md px-2 py-1 text-left text-[11.5px] text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
+              className="self-start rounded-md px-2 py-1 text-left text-meta text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
             >
               Show {hiddenSteps} earlier {hiddenSteps === 1 ? 'step' : 'steps'}
             </button>
@@ -3816,7 +3816,7 @@ function WorkStep({ tool }: { tool: TranscriptToolEntry }) {
   return (
     <>
       <div
-        className={`relative flex items-baseline gap-2 rounded-md px-2 py-1 text-[12px] ${
+        className={`relative flex items-baseline gap-2 rounded-md px-2 py-1 text-meta ${
           running ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
         }`}
       >
@@ -3830,21 +3830,21 @@ function WorkStep({ tool }: { tool: TranscriptToolEntry }) {
           <TruncatedText
             as="span"
             text={running ? `${object}…` : object}
-            className="min-w-0 font-mono text-[11.5px] text-[color:var(--text-muted)]"
+            className="min-w-0 font-mono text-meta text-[color:var(--text-muted)]"
           />
         ) : null}
         {typeof tool.addedLines === 'number' && tool.addedLines > 0 ? (
-          <span className="shrink-0 text-[11px] font-medium tabular-nums text-[color:var(--diff-added)]">
+          <span className="shrink-0 text-micro font-medium tabular-nums text-[color:var(--diff-added)]">
             +{tool.addedLines}
           </span>
         ) : null}
         {typeof tool.removedLines === 'number' && tool.removedLines > 0 ? (
-          <span className="shrink-0 text-[11px] font-medium tabular-nums text-[color:var(--diff-removed)]">
+          <span className="shrink-0 text-micro font-medium tabular-nums text-[color:var(--diff-removed)]">
             −{tool.removedLines}
           </span>
         ) : null}
         {!running && durationMs !== undefined ? (
-          <span className="ml-auto shrink-0 pl-2 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+          <span className="ml-auto shrink-0 pl-2 text-micro tabular-nums text-[color:var(--text-subtle)]">
             {formatStepDuration(durationMs)}
           </span>
         ) : null}
@@ -3866,7 +3866,7 @@ function StepOutput({ output }: { output: string }) {
   const visible = collapsed ? lines.slice(0, STEP_OUTPUT_COLLAPSED_LINES) : lines
   return (
     <div className="mb-1.5 ml-2 mt-0.5 overflow-hidden rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)]">
-      <pre className="overflow-x-auto px-3 py-2 font-mono text-[11.5px] leading-[1.6] text-[color:var(--terminal-fg)]">
+      <pre className="overflow-x-auto px-3 py-2 font-mono text-meta leading-[1.6] text-[color:var(--terminal-fg)]">
         {/* Matches a tick the test runner already printed into its own output:
             agent-authored text this pane only tones, never a glyph the product
             draws. design-system-allow: matcher for agent-authored output */}
@@ -3880,7 +3880,7 @@ function StepOutput({ output }: { output: string }) {
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className="block w-full border-t border-[color:var(--border-subtle)] px-3 py-1 text-left text-[11px] text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-muted)]"
+          className="block w-full border-t border-[color:var(--border-subtle)] px-3 py-1 text-left text-micro text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-muted)]"
         >
           {collapsed ? `Show ${lines.length - STEP_OUTPUT_COLLAPSED_LINES} more lines` : 'Show less'}
         </button>
@@ -3907,11 +3907,11 @@ function TurnErrorBlock({
     : 'Something went wrong while responding. Your message is kept; retrying resumes the same conversation.'
   return (
     <div className="mt-1 max-w-[68ch] rounded-[10px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-4 py-3">
-      <div className="flex items-center gap-2 text-[13px] font-semibold text-[color:var(--text-strong)]">
+      <div className="flex items-center gap-2 text-body font-semibold text-[color:var(--text-strong)]">
         <StatusDot tone="error" label="Turn failed" />
         {chrome.assistantName} couldn’t finish this turn
       </div>
-      <p className="mb-2.5 mt-1 text-[12.5px] leading-[1.55] text-[color:var(--text-muted)]">{message}</p>
+      <p className="mb-2.5 mt-1 text-body leading-[1.55] text-[color:var(--text-muted)]">{message}</p>
       <div className="flex items-center gap-2">
         {chrome.retryTurnId === entry.turnId ? (
           <PrimaryButton size="sm" onClick={chrome.onRetry} disabled={chrome.retryDisabled}>
@@ -3923,14 +3923,14 @@ function TurnErrorBlock({
             type="button"
             aria-expanded={showDetails}
             onClick={() => setShowDetails((value) => !value)}
-            className="ml-auto text-[11.5px] text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-muted)]"
+            className="ml-auto text-meta text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-muted)]"
           >
             {showDetails ? 'Hide details' : 'Show details'}
           </button>
         ) : null}
       </div>
       {showDetails && detail ? (
-        <pre className="mt-2.5 overflow-x-auto whitespace-pre-wrap rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] px-3 py-2 font-mono text-[11px] leading-[1.6] text-[color:var(--text-subtle)]">
+        <pre className="mt-2.5 overflow-x-auto whitespace-pre-wrap rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)] px-3 py-2 font-mono text-micro leading-[1.6] text-[color:var(--text-subtle)]">
           {detail}
         </pre>
       ) : null}
@@ -3965,7 +3965,7 @@ function ResolvedDecisionGroupRow({ row }: { row: Extract<ConversationDecisionRo
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
-        className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-1 pr-2 text-[13px] font-medium text-[color:var(--text-strong)] transition-colors hover:bg-[color:var(--bg-hover)]"
+        className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-1 pr-2 text-body font-medium text-[color:var(--text-strong)] transition-colors hover:bg-[color:var(--bg-hover)]"
       >
         <ChevronRightGlyph
           className={`icon-xs text-[color:var(--text-subtle)] transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -3982,14 +3982,14 @@ function ResolvedDecisionGroupRow({ row }: { row: Extract<ConversationDecisionRo
           {row.entries.map((entry) => {
             const object = toolObject({ name: entry.action ?? '', summary: entry.summary })
             return (
-              <li key={entry.requestId} className="flex items-baseline gap-2 text-[12px] leading-5">
+              <li key={entry.requestId} className="flex items-baseline gap-2 text-meta leading-5">
                 {entry.action ? (
                   <span className="shrink-0 font-medium text-[color:var(--text-default)]">{entry.action}</span>
                 ) : null}
                 <TruncatedText
                   as="span"
                   text={object || entry.summary}
-                  className="min-w-0 font-mono text-[11.5px] text-[color:var(--text-muted)]"
+                  className="min-w-0 font-mono text-meta text-[color:var(--text-muted)]"
                 />
               </li>
             )
@@ -4004,7 +4004,7 @@ function ResolvedDecisionGroupRow({ row }: { row: Extract<ConversationDecisionRo
 // the question muted, the chosen answer strong with an accent check.
 function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'approval' }> }) {
   const answerLine = (text: string, good: boolean): React.ReactNode => (
-    <div className="mt-0.5 flex items-center gap-1.5 text-[13px] font-medium text-[color:var(--text-strong)]">
+    <div className="mt-0.5 flex items-center gap-1.5 text-body font-medium text-[color:var(--text-strong)]">
       {good ? (
         <CheckGlyph className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
       ) : (
@@ -4021,12 +4021,12 @@ function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry, { kind
             const answer = entry.answers?.[question.question]
             return (
               <div key={question.question}>
-                <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">{question.question}</div>
+                <div className="text-meta leading-5 text-[color:var(--text-muted)]">{question.question}</div>
                 {entry.status === 'approved' && answer
                   ? answerLine(answer, true)
                   : entry.status === 'denied'
                     ? (
-                        <div className="mt-0.5 text-[12px] italic text-[color:var(--text-subtle)]">
+                        <div className="mt-0.5 text-meta italic text-[color:var(--text-subtle)]">
                           Dismissed without answering
                         </div>
                       )
@@ -4037,7 +4037,7 @@ function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry, { kind
         </div>
       ) : (
         <div>
-          <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <div className="text-meta leading-5 text-[color:var(--text-muted)]">
             {entry.requestKind === 'plan' ? 'Proposed a plan' : entry.summary}
           </div>
           {entry.status === 'approved'
@@ -4045,7 +4045,7 @@ function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry, { kind
             : entry.status === 'denied'
               ? answerLine(entry.requestKind === 'plan' ? 'Sent back for more planning' : 'Denied', false)
               : (
-                  <div className="mt-0.5 text-[12px] italic text-[color:var(--text-subtle)]">
+                  <div className="mt-0.5 text-meta italic text-[color:var(--text-subtle)]">
                     Cancelled with the turn
                   </div>
                 )}
@@ -4060,7 +4060,7 @@ function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry, { kind
 function WorkingTimelineRow({ row }: { row: Extract<ConversationTimelineRow, { kind: 'working' }> }) {
   return (
     <div className="pb-2 pl-0.5">
-      <span className="chat-shimmer text-[12px] font-medium text-[color:var(--text-muted)]">{row.label}</span>
+      <span className="chat-shimmer text-meta font-medium text-[color:var(--text-muted)]">{row.label}</span>
     </div>
   )
 }
@@ -4082,10 +4082,10 @@ function EmptyChatState({
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 text-center">
       <ChatGlyph className="mb-3.5 h-[30px] w-[30px] text-[color:var(--text-subtle)]" />
-      <h2 className="mb-1 text-[15px] font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
+      <h2 className="mb-1 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
         Ask {assistantName} about this workspace
       </h2>
-      <p className="mb-5 max-w-[44ch] text-[12.5px] leading-[1.55] text-[color:var(--text-muted)]">
+      <p className="mb-5 max-w-[44ch] text-body leading-[1.55] text-[color:var(--text-muted)]">
         It reads your code, runs tools with your approval, and remembers the conversation across restarts.
       </p>
       <div className="flex w-full max-w-[420px] flex-col gap-1.5 text-left">
@@ -4094,17 +4094,17 @@ function EmptyChatState({
             key={suggestion.text}
             type="button"
             onClick={() => onSuggestion(suggestion.text)}
-            className="group flex items-center gap-2.5 rounded-[9px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-left text-[12.5px] text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)]"
+            className="group flex items-center gap-2.5 rounded-[9px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)]"
           >
             {suggestion.glyph}
             <span className="min-w-0 flex-1">{suggestion.text}</span>
-            <span aria-hidden="true" className="text-[11px] text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
+            <span aria-hidden="true" className="text-micro text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
               ⏎
             </span>
           </button>
         ))}
       </div>
-      <p className="mt-5 text-[11px] text-[color:var(--text-subtle)]">
+      <p className="mt-5 text-micro text-[color:var(--text-subtle)]">
         Runs on your Claude subscription · asks before using tools
       </p>
     </div>
@@ -4125,7 +4125,7 @@ function ReadinessState({
   if (readiness.kind === 'loading') {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-[12px] text-[color:var(--text-muted)]">Checking provider…</p>
+        <p className="text-meta text-[color:var(--text-muted)]">Checking provider…</p>
       </div>
     )
   }
@@ -4145,8 +4145,8 @@ function ReadinessState({
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 text-center">
       <ChatGlyph className="mb-3.5 h-[30px] w-[30px] text-[color:var(--text-subtle)]" />
-      <h2 className="mb-1 text-[15px] font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">{title}</h2>
-      <p className="mb-5 max-w-[44ch] text-[12.5px] leading-[1.55] text-[color:var(--text-muted)]">
+      <h2 className="mb-1 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">{title}</h2>
+      <p className="mb-5 max-w-[44ch] text-body leading-[1.55] text-[color:var(--text-muted)]">
         {readinessLabel(readiness)}
       </p>
       {offerSwitch ? (

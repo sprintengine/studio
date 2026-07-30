@@ -106,7 +106,7 @@ const EMPTY_SAVED_TEAMS: SprintEngineRoster[] = []
 // dropdowns read as one family instead of two. See TriggerFields.INPUT_CLASS,
 // kept in sync.
 const CONTROL_BASE =
-  'w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[12px] text-[color:var(--text-default)] outline-none transition-colors hover:border-[color:var(--border-strong)] focus-visible:border-[color:var(--accent-primary)]'
+  'w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-meta text-[color:var(--text-default)] outline-none transition-colors hover:border-[color:var(--border-strong)] focus-visible:border-[color:var(--accent-primary)]'
 const CONTROL_INPUT = `${CONTROL_BASE} h-7 px-2.5`
 // Auto-grows with its content (field-sizing: content) from the rows={4} floor up
 // to a cap, then scrolls internally — no native drag handle. The `rows` attribute
@@ -561,10 +561,10 @@ export function AutomationEditor({
       onSubmit={(e) => { e.preventDefault(); void handleSubmit() }}
     >
       <div className="flex items-center justify-between">
-        <h3 className="text-[13px] font-semibold text-[color:var(--text-strong)]">
+        <h3 className="text-body font-semibold text-[color:var(--text-strong)]">
           {editor.mode === 'create' ? 'New automation' : 'Edit automation'}
         </h3>
-        <GhostButton type="button" onClick={onCancel} className="h-6 px-2 text-[11px]">Cancel</GhostButton>
+        <GhostButton type="button" onClick={onCancel} className="h-6 px-2 text-micro">Cancel</GhostButton>
       </div>
 
       <Field label="Name" htmlFor="automation-name" required>
@@ -578,7 +578,7 @@ export function AutomationEditor({
         />
       </Field>
       {scheduleReadback ? (
-        <p className="-mt-1 text-[11px] text-[color:var(--text-subtle)]">{scheduleReadback}</p>
+        <p className="-mt-1 text-micro text-[color:var(--text-subtle)]">{scheduleReadback}</p>
       ) : null}
 
       <TriggerFields
@@ -591,7 +591,7 @@ export function AutomationEditor({
 
       {/* Action — schema-driven from providers:list. */}
       <fieldset className="flex flex-col gap-3">
-        <legend className="text-[11px] font-medium text-[color:var(--text-muted)]">Action</legend>
+        <legend className="text-micro font-medium text-[color:var(--text-muted)]">Action</legend>
         <Field label="Action" htmlFor="automation-action">
           <Select
             ariaLabel="Action"
@@ -612,7 +612,7 @@ export function AutomationEditor({
                 from the top-bar spawn menu instead of bespoke flat dropdowns. */}
             {showAgentPicker ? (
               <div className="flex flex-col gap-1.5">
-                <span className="text-[12px] font-medium text-[color:var(--text-default)]">Agent</span>
+                <span className="text-meta font-medium text-[color:var(--text-default)]">Agent</span>
                 <div className="overflow-hidden rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
                   <Popover
                     open={agentPickerOpen}
@@ -640,10 +640,10 @@ export function AutomationEditor({
                           )}
                         </span>
                         <span className="min-w-0">
-                          <span className="block truncate text-[13px] font-medium text-[color:var(--text-strong)]">
+                          <span className="block truncate text-body font-medium text-[color:var(--text-strong)]">
                             {selectedSpecialist ? selectedSpecialist.shortLabel : 'General agent'}
                           </span>
-                          <span className="block truncate text-[11px] text-[color:var(--text-subtle)]">
+                          <span className="block truncate text-micro text-[color:var(--text-subtle)]">
                             {selectedSpecialist ? selectedSpecialist.description : 'No persona — runs the prompt as written'}
                           </span>
                         </span>
@@ -678,7 +678,7 @@ export function AutomationEditor({
                   {/* flex-wrap: in a narrow pane the permissions group drops to
                       its own line instead of the Bypass chip clipping invisibly. */}
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-[color:var(--border-subtle)] px-2.5 py-2">
-                    <span className="text-[11px] text-[color:var(--text-subtle)]">Runtime</span>
+                    <span className="text-micro text-[color:var(--text-subtle)]">Runtime</span>
                     <CliModelPickerButton
                       ariaLabel="Agent runtime"
                       options={cliCatalog}
@@ -690,7 +690,7 @@ export function AutomationEditor({
                     {/* Inline preset chips (not a read-only summary): permissions
                         must be settable without diving into the picker popover. */}
                     <div className="ml-auto flex items-center gap-1">
-                      <span className="text-[11px] text-[color:var(--text-subtle)]">Permissions</span>
+                      <span className="text-micro text-[color:var(--text-subtle)]">Permissions</span>
                       <PermissionPresetChips
                         value={(form.config.permissionPreset as SprintEngineCliPermissionPreset) || 'default'}
                         onChange={(preset) => update('config', { ...form.config, permissionPreset: preset })}
@@ -698,7 +698,7 @@ export function AutomationEditor({
                     </div>
                   </div>
                 </div>
-                <span className="text-[11px] text-[color:var(--text-subtle)]">Same team, runtimes, and permission presets as the spawn menu.</span>
+                <span className="text-micro text-[color:var(--text-subtle)]">Same team, runtimes, and permission presets as the spawn menu.</span>
               </div>
             ) : null}
 
@@ -709,7 +709,7 @@ export function AutomationEditor({
                 carries the accessible name. */}
             {showConnectorPicker ? (
               <div className="flex flex-col gap-1.5">
-                <span className="text-[12px] font-medium text-[color:var(--text-default)]">Connector</span>
+                <span className="text-meta font-medium text-[color:var(--text-default)]">Connector</span>
                 <Select
                   ariaLabel="Connector"
                   value={selectedConnectorId}
@@ -721,7 +721,7 @@ export function AutomationEditor({
                 {connectorLoad.status === 'error' ? (
                   <InlineNotice tone="warn">Connectors are unavailable: {connectorLoad.message}</InlineNotice>
                 ) : (
-                  <span className="text-[11px] text-[color:var(--text-subtle)]">
+                  <span className="text-micro text-[color:var(--text-subtle)]">
                     {connectorLoad.status === 'ready' && connectorItems.length === 1
                       ? 'No connectors installed — the run uses the workspace defaults.'
                       : 'Runs the agent against this connector’s isolated worktree and MCP server.'}
@@ -736,13 +736,13 @@ export function AutomationEditor({
                 only; a cleared choice launches with no attached skill. */}
             {showSkillPicker ? (
               <div className="flex flex-col gap-1.5">
-                <span className="text-[12px] font-medium text-[color:var(--text-default)]">Skill</span>
+                <span className="text-meta font-medium text-[color:var(--text-default)]">Skill</span>
                 {selectedSkillId ? (
                   <div className="flex items-center gap-1.5">
-                    <code className="min-w-0 flex-1 truncate rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 font-mono text-[11px] text-[color:var(--text-muted)]">
+                    <code className="min-w-0 flex-1 truncate rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 font-mono text-micro text-[color:var(--text-muted)]">
                       {pickedSkillLabel ?? selectedSkillId}
                     </code>
-                    <GhostButton type="button" onClick={onClearSkill} className="h-6 shrink-0 px-2 text-[11px]">
+                    <GhostButton type="button" onClick={onClearSkill} className="h-6 shrink-0 px-2 text-micro">
                       Clear
                     </GhostButton>
                   </div>
@@ -759,7 +759,7 @@ export function AutomationEditor({
                         ref={ref}
                         type="button"
                         onClick={togglePopover}
-                        className="flex h-7 w-full items-center justify-between rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-[12px] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)]"
+                        className="flex h-7 w-full items-center justify-between rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)]"
                         {...triggerProps}
                       >
                         Attach a built-in skill…
@@ -770,7 +770,7 @@ export function AutomationEditor({
                     )}
                   />
                 )}
-                <span className="text-[11px] text-[color:var(--text-subtle)]">
+                <span className="text-micro text-[color:var(--text-subtle)]">
                   Installed into the run’s worktree at launch so the agent can invoke it (e.g. the backlog skill).
                 </span>
               </div>
@@ -789,13 +789,13 @@ export function AutomationEditor({
                   <div className="flex flex-col gap-1.5">
                     {form.config.backlogItem ? (
                       <div className="flex items-center gap-1.5">
-                        <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-[color:var(--text-muted)]">
+                        <code className="min-w-0 flex-1 truncate font-mono text-micro text-[color:var(--text-muted)]">
                           {form.config.backlogItem}
                         </code>
                         <GhostButton
                           type="button"
                           onClick={() => update('config', { ...form.config, backlogItem: '' })}
-                          className="h-6 shrink-0 px-2 text-[11px]"
+                          className="h-6 shrink-0 px-2 text-micro"
                         >
                           Clear
                         </GhostButton>
@@ -823,7 +823,7 @@ export function AutomationEditor({
                     items={sprintTeamItems}
                   />
                 </Field>
-                <p className="text-[11px] leading-relaxed text-[color:var(--text-subtle)]">
+                <p className="text-micro leading-relaxed text-[color:var(--text-subtle)]">
                   Starts a new sprint each time the watched sprint finishes and lands. Deleting
                   and recreating the watched sprint counts as a fresh landing, so it starts again.
                   To stop two chained automations from restarting each other, chains default to
@@ -867,7 +867,7 @@ export function AutomationEditor({
         {/* Run-config toggles grouped together on the left; lifecycle (Enabled) on
             the right. Keeps related controls adjacent instead of spread edge-to-edge. */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-          <label htmlFor="automation-autonomy" className="flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">
+          <label htmlFor="automation-autonomy" className="flex items-center gap-2 text-meta text-[color:var(--text-default)]">
             <Switch
               id="automation-autonomy"
               checked={form.autonomy === 'allow_changes'}
@@ -875,9 +875,9 @@ export function AutomationEditor({
               ariaLabel="Allow the agent to change files"
             />
             Allow changes
-            <span className="text-[11px] text-[color:var(--text-subtle)]">{form.autonomy === 'allow_changes' ? '(agent may edit files)' : '(review only)'}</span>
+            <span className="text-micro text-[color:var(--text-subtle)]">{form.autonomy === 'allow_changes' ? '(agent may edit files)' : '(review only)'}</span>
           </label>
-          <label htmlFor="automation-worktree" className="flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">
+          <label htmlFor="automation-worktree" className="flex items-center gap-2 text-meta text-[color:var(--text-default)]">
             <Switch
               id="automation-worktree"
               checked={form.runInWorktree}
@@ -885,9 +885,9 @@ export function AutomationEditor({
               ariaLabel="Run the agent in an isolated git worktree"
             />
             Run in worktree
-            <span className="text-[11px] text-[color:var(--text-subtle)]">{form.runInWorktree ? '(isolated branch; can open a PR)' : '(runs in the workspace checkout; no PR)'}</span>
+            <span className="text-micro text-[color:var(--text-subtle)]">{form.runInWorktree ? '(isolated branch; can open a PR)' : '(runs in the workspace checkout; no PR)'}</span>
           </label>
-          <label htmlFor="automation-run-once" className="flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">
+          <label htmlFor="automation-run-once" className="flex items-center gap-2 text-meta text-[color:var(--text-default)]">
             <Switch
               id="automation-run-once"
               checked={form.disableAfterRun}
@@ -901,11 +901,11 @@ export function AutomationEditor({
             />
             Run once, then pause
             {form.disableAfterRun ? (
-              <span className="text-[11px] text-[color:var(--text-subtle)]">(pauses after its next run; re-enable to arm again)</span>
+              <span className="text-micro text-[color:var(--text-subtle)]">(pauses after its next run; re-enable to arm again)</span>
             ) : null}
           </label>
         </div>
-        <label htmlFor="automation-enabled" className="flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">
+        <label htmlFor="automation-enabled" className="flex items-center gap-2 text-meta text-[color:var(--text-default)]">
           <Switch
             id="automation-enabled"
             checked={form.enabled}
@@ -924,7 +924,7 @@ export function AutomationEditor({
         </PrimaryButton>
         <GhostButton type="button" onClick={onCancel}>Cancel</GhostButton>
         {validationError ? (
-          <span className="text-[11px] text-[color:var(--text-subtle)]">{validationError}</span>
+          <span className="text-micro text-[color:var(--text-subtle)]">{validationError}</span>
         ) : null}
       </div>
     </form>

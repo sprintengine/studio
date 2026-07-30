@@ -62,8 +62,8 @@ const BranchGlyph = () => (
 function IdentityRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <>
-      <dt className="text-[11px] text-[color:var(--text-subtle)]">{label}</dt>
-      <dd className="min-w-0 text-[12px] text-[color:var(--text-strong)]">{children}</dd>
+      <dt className="text-micro text-[color:var(--text-subtle)]">{label}</dt>
+      <dd className="min-w-0 text-meta text-[color:var(--text-strong)]">{children}</dd>
     </>
   )
 }
@@ -88,10 +88,10 @@ export function AgentTabIdentityCard({
         {identity.cli ? (
           <CliIcon cli={identity.cli} className="icon-sm shrink-0 text-[color:var(--text-strong)]" />
         ) : null}
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+        <span className="min-w-0 flex-1 truncate text-body font-semibold text-[color:var(--text-strong)]">
           {identity.name}
         </span>
-        <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+        <span className="flex shrink-0 items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
           <StatusDot tone={identity.status.tone} pulse={identity.status.pulse} />
           {identity.status.label}
         </span>

@@ -178,10 +178,10 @@ export function BoardLane({
           <TruncatedText
             as="span"
             text={label}
-            className="text-[12px] font-semibold text-[color:var(--text-strong)]"
+            className="text-meta font-semibold text-[color:var(--text-strong)]"
           />
         </span>
-        <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]">
+        <span className="shrink-0 tabular-nums text-micro text-[color:var(--text-subtle)]">
           {count}
         </span>
       </div>

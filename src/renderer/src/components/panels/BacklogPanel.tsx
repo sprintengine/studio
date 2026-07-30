@@ -1703,7 +1703,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
               <button
                 type="button"
                 onClick={() => setActionError(null)}
-                className="interactive text-[12px] font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]"
+                className="interactive text-meta font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]"
               >
                 Dismiss
               </button>
@@ -1719,7 +1719,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           <InlineNotice tone="warn">
             {partialErrors.length} {partialErrors.length === 1 ? 'item' : 'items'} couldn’t be read and {partialErrors.length === 1 ? 'is' : 'are'} not listed
             {': '}
-            <span className="font-mono text-[12px] tabular-nums">
+            <span className="font-mono text-meta tabular-nums">
               {partialErrors.map((error) => error.relativePath).join(', ')}
             </span>
           </InlineNotice>
@@ -1731,7 +1731,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           <InlineNotice tone="warn">
             {duplicateIdWarnings.length === 1 ? 'A duplicate id' : 'Duplicate ids'} from concurrent edits — resolve by re-allocating one side:
             {duplicateIdWarnings.map((warning) => (
-              <span key={warning.label} className="mt-0.5 block font-mono text-[12px] tabular-nums">
+              <span key={warning.label} className="mt-0.5 block font-mono text-meta tabular-nums">
                 {warning.label}: {warning.paths.join(', ')}
               </span>
             ))}
@@ -1905,7 +1905,7 @@ function BacklogList({
   if (emptyHint) {
     return (
       <div className="flex flex-1 items-center justify-center p-6 text-center">
-        <p className="max-w-[32ch] text-[12px] leading-relaxed text-[color:var(--text-disabled)]">{emptyHint}</p>
+        <p className="max-w-[32ch] text-meta leading-relaxed text-[color:var(--text-disabled)]">{emptyHint}</p>
       </div>
     )
   }
@@ -2279,7 +2279,7 @@ export function BacklogDetail({
           <p className="font-medium">Couldn’t read the backlog folder.</p>
           <ul className="mt-1 space-y-0.5">
             {scan.errors.map((error) => (
-              <li key={error.relativePath} className="font-mono text-[12px] tabular-nums">
+              <li key={error.relativePath} className="font-mono text-meta tabular-nums">
                 {error.relativePath}: {error.message}
               </li>
             ))}
@@ -2380,7 +2380,7 @@ export function BacklogDetail({
             line. The status glyph sits beside the id (its tooltip names the state);
             the time carries the absolute timestamp; the path truncates with its
             own tooltip. */}
-        <div className="flex min-w-0 items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
+        <div className="flex min-w-0 items-center gap-2 text-micro text-[color:var(--text-muted)]">
           {showBack ? (
             <button
               type="button"
@@ -2447,7 +2447,7 @@ export function BacklogDetail({
           multiline
           text={selected.title}
           placement="bottom"
-          className="mt-1.5 line-clamp-2 text-[14px] font-semibold leading-snug text-[color:var(--text-strong)]"
+          className="mt-1.5 line-clamp-2 text-heading font-semibold leading-snug text-[color:var(--text-strong)]"
         />
         {/* Child → epic link: a plain link up to the parent epic (no back arrow —
             it navigates sideways to a sibling concept, not "back"). Carries the
@@ -2457,7 +2457,7 @@ export function BacklogDetail({
             type="button"
             onClick={() => onNavigate(parentEpic.id)}
             aria-label={`Open epic ${parentEpic.title}`}
-            className={`interactive mt-1.5 -ml-1.5 flex min-h-6 max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            className={`interactive mt-1.5 -ml-1.5 flex min-h-6 max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-meta font-medium text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           >
             <EpicColorDot color={parentEpicColor} size={7} />
             <TruncatedText as="span" text={parentEpic.title} className="min-w-0" />
@@ -2756,8 +2756,8 @@ function DetailState({
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
       <div className="flex flex-col items-center gap-1">
-        {heading ? <p className="text-[13px] font-medium text-[color:var(--text-default)]">{heading}</p> : null}
-        <p className="max-w-[40ch] text-[12px] leading-relaxed text-[color:var(--text-disabled)]">{body}</p>
+        {heading ? <p className="text-body font-medium text-[color:var(--text-default)]">{heading}</p> : null}
+        <p className="max-w-[40ch] text-meta leading-relaxed text-[color:var(--text-disabled)]">{body}</p>
       </div>
       {cta}
     </div>
@@ -2836,12 +2836,12 @@ function BacklogEpicChildren({
       className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3"
     >
       {total === 0 ? (
-        <p className="px-3 text-[12px] text-[color:var(--text-disabled)]">
+        <p className="px-3 text-meta text-[color:var(--text-disabled)]">
           No items in this epic yet. Assign items from their “Move to epic” menu.
         </p>
       ) : (
         <div className="px-3">
-          <div className="mb-2 flex items-center justify-between text-[11px] text-[color:var(--text-muted)]">
+          <div className="mb-2 flex items-center justify-between text-micro text-[color:var(--text-muted)]">
             <span className="tabular-nums">{done} of {total} done</span>
             {blockedRollup && blockedRollup.blocked > 0 ? (
               <span className="tabular-nums">
@@ -2891,14 +2891,14 @@ function BacklogEpicChildren({
                     />
                   </Tooltip>
                   {child.displayId ? (
-                    <span className="shrink-0 font-mono text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+                    <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
                       {child.displayId}
                     </span>
                   ) : null}
                   <TruncatedText
                     as="span"
                     text={child.title}
-                    className={`min-w-0 flex-1 text-[12px] ${
+                    className={`min-w-0 flex-1 text-meta ${
                       child.status === 'completed' ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-default)]'
                     }`}
                   />
@@ -2937,7 +2937,7 @@ function BacklogTriage({
   return (
     <Section title="Epic" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3">
       <div className="grid grid-cols-[3.5rem_minmax(0,16rem)] items-center gap-x-3 gap-y-2 px-3">
-        <span className="text-[11px] text-[color:var(--text-muted)]">Epic</span>
+        <span className="text-micro text-[color:var(--text-muted)]">Epic</span>
         <BacklogEpicSearchEditor item={item} actions={actions} epicChoices={epicChoices} />
       </div>
     </Section>
@@ -2975,7 +2975,7 @@ function BacklogEpicSearchEditor({
           aria-controls={triggerProps['aria-controls']}
           aria-label="Move to epic"
           onClick={togglePopover}
-          className="interactive inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+          className="interactive inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-meta text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
         >
           <span className="min-w-0 flex-1 truncate">{currentLabel}</span>
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className="shrink-0 text-[color:var(--text-muted)]">
@@ -3009,7 +3009,7 @@ function BacklogEpicSearchEditor({
             setOpen(false)
             actions.createEpic(item)
           }}
-          className="interactive w-full rounded px-2.5 py-1.5 text-left text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          className="interactive w-full rounded px-2.5 py-1.5 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
         >
           New epic…
         </button>
@@ -3020,7 +3020,7 @@ function BacklogEpicSearchEditor({
               setOpen(false)
               actions.setEpic(item, null)
             }}
-            className="interactive w-full rounded px-2.5 py-1.5 text-left text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className="interactive w-full rounded px-2.5 py-1.5 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
           >
             Remove from epic
           </button>
@@ -3041,7 +3041,7 @@ function BacklogPreviewBody({ item }: { item: BacklogItem }): JSX.Element {
     // title-stripped excerpt).
     const body = backlogPreviewMarkdown(item.sourceContent)
     if (!body) {
-      return <p className="text-[12px] text-[color:var(--text-disabled)]">No description beyond the title yet.</p>
+      return <p className="text-meta text-[color:var(--text-disabled)]">No description beyond the title yet.</p>
     }
     return <div className="markdown-body">{renderMarkdown(body)}</div>
   }
@@ -3063,7 +3063,7 @@ function BacklogPreviewBody({ item }: { item: BacklogItem }): JSX.Element {
   }
   // Oversized markdown renders as preformatted source.
   return (
-    <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-[color:var(--text-default)]">
+    <pre className="whitespace-pre-wrap break-words font-mono text-body leading-5 text-[color:var(--text-default)]">
       {item.sourceContent}
     </pre>
   )

@@ -92,10 +92,10 @@ export function ModalHeader({ title, subtitle, titleId, onClose }: ModalHeaderPr
           as="h2"
           id={titleId}
           text={title}
-          className="text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]"
+          className="text-title font-semibold tracking-tight text-[color:var(--text-strong)]"
         />
         {subtitle ? (
-          <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">{subtitle}</p>
+          <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{subtitle}</p>
         ) : null}
       </div>
       {onClose ? (
@@ -126,11 +126,11 @@ type FieldProps = {
 export function Field({ label, hint, children }: FieldProps) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-[11px] font-medium text-[color:var(--text-default)]">
+      <span className="mb-1.5 block text-micro font-medium text-[color:var(--text-default)]">
         {label}
       </span>
       {children}
-      {hint ? <span className="mt-1.5 block text-[11px] leading-4 text-[color:var(--text-disabled)]">{hint}</span> : null}
+      {hint ? <span className="mt-1.5 block text-micro leading-4 text-[color:var(--text-disabled)]">{hint}</span> : null}
     </label>
   )
 }
@@ -158,7 +158,7 @@ export function ModalButton({ variant = 'ghost', className, ...rest }: ModalButt
 
 export function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[11px] font-medium text-[color:var(--text-default)]">
+    <div className="text-micro font-medium text-[color:var(--text-default)]">
       {children}
     </div>
   )

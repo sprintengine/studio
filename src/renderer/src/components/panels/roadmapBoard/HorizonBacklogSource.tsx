@@ -169,7 +169,7 @@ export function HorizonBacklogSource({
             <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
-        <h3 className="text-[13px] font-semibold text-[color:var(--text-strong)]">Backlog</h3>
+        <h3 className="text-body font-semibold text-[color:var(--text-strong)]">Backlog</h3>
       </div>
       <div className="flex shrink-0 items-center gap-1.5 px-4 py-2.5">
         <InboxSearchInput
@@ -218,7 +218,7 @@ export function HorizonBacklogSource({
         ))}
       </div>
 
-      <p className="shrink-0 border-t border-[color:var(--border-subtle)] px-4 pb-2.5 pt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+      <p className="shrink-0 border-t border-[color:var(--border-subtle)] px-4 pb-2.5 pt-2 text-micro leading-4 text-[color:var(--text-subtle)]">
         Placed work is dimmed. Drag an epic in to deliver all of its items as one step.
       </p>
     </section>
@@ -277,9 +277,9 @@ function SourceProjectSection({
         <TruncatedText
           as="span"
           text={project.projectName}
-          className="min-w-0 flex-1 text-[12px] font-semibold text-[color:var(--text-strong)]"
+          className="min-w-0 flex-1 text-meta font-semibold text-[color:var(--text-strong)]"
         />
-        <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-disabled)]">{rowCount}</span>
+        <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-disabled)]">{rowCount}</span>
       </button>
       {collapsed ? null : (
         <ul className="flex flex-col py-0.5">

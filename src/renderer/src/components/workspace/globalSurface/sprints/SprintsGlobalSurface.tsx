@@ -269,7 +269,7 @@ function SurfaceBody({
   // Runs exist but none is showing. Name which of the two reasons it is, so the
   // canvas never asks for a selection the rail cannot offer.
   return (
-    <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-[color:var(--text-muted)]">
+    <div className="flex h-full items-center justify-center px-6 text-center text-meta text-[color:var(--text-muted)]">
       {filteredOut
         ? 'No sprints match. Clear the search or pick All projects to see the rest.'
         : 'Select a sprint to see where it stands.'}
@@ -294,7 +294,7 @@ function runContextLine(run: SprintRunSummary): string {
 // the icon family's 16-box round-stroke idiom.
 function SprintsGlyph(): JSX.Element {
   return (
-    <svg viewBox="0 0 16 16" fill="none" className="h-[18px] w-[18px]" aria-hidden="true">
+    <svg viewBox="0 0 16 16" fill="none" className="size-icon-md" aria-hidden="true">
       <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.3" />
       <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.3" />
       <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.3" />

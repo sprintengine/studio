@@ -16,11 +16,11 @@ export function ResolvedDecisionsList({
   if (decisions.length === 0) return null
   return (
     <div className="flex flex-col px-3.5 pt-2.5 pb-1.5">
-      <span className="pb-1 text-[11px] font-medium text-[color:var(--text-muted)]">Resolved</span>
+      <span className="pb-1 text-micro font-medium text-[color:var(--text-muted)]">Resolved</span>
       {decisions.map((decision) => (
         <div
           key={decision.id}
-          className="flex min-w-0 items-baseline gap-2 py-0.5 text-[12px] leading-5"
+          className="flex min-w-0 items-baseline gap-2 py-0.5 text-meta leading-5"
         >
           {decision.question ? (
             <span className="max-w-[45%] shrink-0 truncate text-[color:var(--text-subtle)]">
@@ -98,7 +98,7 @@ export function InterviewQuestionCard({
 
   return (
     <div className="border-t border-[color:var(--border-subtle)] px-3.5 py-3">
-      <div className="text-[13px] font-medium leading-5 text-[color:var(--text-strong)]">
+      <div className="text-body font-medium leading-5 text-[color:var(--text-strong)]">
         {question.question}
       </div>
       <div role="radiogroup" aria-label={question.question} className="mt-2.5 flex flex-col gap-1.5">
@@ -128,14 +128,14 @@ export function InterviewQuestionCard({
                 }
               `}
             >
-              <span className="flex items-baseline gap-2 text-[12px] font-medium text-[color:var(--text-strong)]">
+              <span className="flex items-baseline gap-2 text-meta font-medium text-[color:var(--text-strong)]">
                 {option.label}
                 {option.recommended ? (
                   <span className="font-normal text-[color:var(--text-muted)]">Recommended</span>
                 ) : null}
               </span>
               {option.detail ? (
-                <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+                <span className="text-meta leading-5 text-[color:var(--text-muted)]">
                   {option.detail}
                 </span>
               ) : null}
@@ -169,7 +169,7 @@ export function InterviewQuestionCard({
                 }
               }}
               className={`
-                w-full bg-transparent text-[12px] text-[color:var(--text-default)]
+                w-full bg-transparent text-meta text-[color:var(--text-default)]
                 placeholder:text-[color:var(--text-subtle)] ${FOCUS_RING_CLASS}
               `}
             />
@@ -178,7 +178,7 @@ export function InterviewQuestionCard({
       </div>
       <div className="mt-2.5 flex items-center justify-end gap-3">
         {answerPending ? (
-          <span className="text-[12px] text-[color:var(--text-subtle)]">
+          <span className="text-meta text-[color:var(--text-subtle)]">
             Answer sent. Waiting for the specialist.
           </span>
         ) : null}
@@ -188,7 +188,7 @@ export function InterviewQuestionCard({
           disabled={answerPending || (otherSelected && !otherText.trim())}
           className="
             inline-flex h-8 items-center rounded-md bg-[color:var(--accent-primary)] px-3.5
-            text-[12px] font-semibold text-[color:var(--bg-app)] transition-colors
+            text-meta font-semibold text-[color:var(--bg-app)] transition-colors
             hover:bg-[color:var(--accent-primary-hover)]
             disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
             focus-visible:focus-ring

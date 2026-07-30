@@ -109,7 +109,7 @@ export function HorizonDetailPane(props: HorizonDetailPaneProps): JSX.Element {
     // fixes. Collapsing them into one blank pane is the defect.
     if (unresolved === 'loading') {
       return (
-        <div className="flex h-full w-full items-center justify-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+        <div className="flex h-full w-full items-center justify-center gap-2 text-meta text-[color:var(--text-muted)]">
           <Spinner size={14} />
           Loading this step…
         </div>
@@ -262,7 +262,7 @@ function HorizonRunStrip({
           className="shrink-0 text-[color:var(--accent-primary)]"
         />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="truncate text-[12px] tabular-nums text-[color:var(--text-strong)]">
+          <span className="truncate text-meta tabular-nums text-[color:var(--text-strong)]">
             {facts.length > 0 ? facts.join(' · ') : 'Working…'}
           </span>
           {primaryRepo?.branchName ? (
@@ -283,7 +283,7 @@ function HorizonRunStrip({
               href={(pullRequest?.pullRequestUrl ?? vcs?.pullRequestUrl) as string}
               target="_blank"
               rel="noreferrer"
-              className={`interactive inline-flex h-6 shrink-0 items-center rounded-[5px] px-2 text-[11px] font-medium text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
+              className={`interactive inline-flex h-6 shrink-0 items-center rounded-[5px] px-2 text-micro font-medium text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
             >
               View PR
             </a>
@@ -344,8 +344,8 @@ function HorizonRunStrip({
 function DetailMessage({ title, body, detail }: { title: string; body: string; detail?: string }): JSX.Element {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-8 py-12 text-center">
-      <h3 className="text-[13px] font-semibold text-[color:var(--text-strong)]">{title}</h3>
-      <p className="max-w-[46ch] text-[12px] leading-5 text-[color:var(--text-muted)]">{body}</p>
+      <h3 className="text-body font-semibold text-[color:var(--text-strong)]">{title}</h3>
+      <p className="max-w-[46ch] text-meta leading-5 text-[color:var(--text-muted)]">{body}</p>
       {detail ? (
         <p className="max-w-[46ch] break-all font-mono text-micro text-[color:var(--text-subtle)]">{detail}</p>
       ) : null}

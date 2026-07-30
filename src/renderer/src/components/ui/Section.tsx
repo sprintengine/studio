@@ -35,12 +35,12 @@ export function Section({
           <div className="flex items-baseline gap-1.5 min-w-0">
             <Heading
               id={headingId}
-              className="truncate text-[12px] font-semibold text-[color:var(--text-strong)]"
+              className="truncate text-meta font-semibold text-[color:var(--text-strong)]"
             >
               {title}
             </Heading>
             {count !== undefined ? (
-              <span className="tabular-nums text-[12px] text-[color:var(--text-muted)]">
+              <span className="tabular-nums text-meta text-[color:var(--text-muted)]">
                 {count}
               </span>
             ) : null}

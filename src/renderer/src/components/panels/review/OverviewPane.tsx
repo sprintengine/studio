@@ -16,7 +16,7 @@ interface OverviewPaneProps {
 
 function LabeledParagraph({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <p className="mb-3.5 max-w-[80ch] text-[13px] leading-[1.55] text-[color:var(--text-muted)]">
+    <p className="mb-3.5 max-w-[80ch] text-body leading-[1.55] text-[color:var(--text-muted)]">
       <span className="font-medium text-[color:var(--text-strong)]">{label}</span> {children}
     </p>
   )
@@ -28,12 +28,12 @@ function LabeledParagraph({ label, children }: { label: string; children: ReactN
 export function OverviewPane({ overview, knowledgeRefs, unassignedPaths, changeMapSlot }: OverviewPaneProps) {
   return (
     <div>
-      <h4 className="mb-2 text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]">Overview</h4>
+      <h4 className="mb-2 text-title font-semibold tracking-tight text-[color:var(--text-strong)]">Overview</h4>
       {unassignedPaths.length > 0 ? (
         <InlineNotice tone="warn" className="mb-3.5 max-w-[80ch]">
           <span className="font-medium">Not covered by the walkthrough</span> — {unassignedPaths.length}{' '}
           {unassignedPaths.length === 1 ? 'file' : 'files'} the guide did not fold into a step:
-          <span className="mt-1 block font-mono text-[11.5px]">{unassignedPaths.join(', ')}</span>
+          <span className="mt-1 block font-mono text-meta">{unassignedPaths.join(', ')}</span>
         </InlineNotice>
       ) : null}
       <LabeledParagraph label="What this is.">{overview.intent}</LabeledParagraph>
@@ -41,7 +41,7 @@ export function OverviewPane({ overview, knowledgeRefs, unassignedPaths, changeM
       <LabeledParagraph label="How it reads.">{overview.readingGuide}</LabeledParagraph>
 
       {knowledgeRefs.length > 0 ? (
-        <p className="mb-4 max-w-[80ch] text-[12px] leading-5 text-[color:var(--text-subtle)]">
+        <p className="mb-4 max-w-[80ch] text-meta leading-5 text-[color:var(--text-subtle)]">
           <span className="font-medium text-[color:var(--text-muted)]">Grounded in </span>
           {knowledgeRefs.map((ref, index) => (
             <span key={ref.note}>

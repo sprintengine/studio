@@ -38,7 +38,7 @@ export function ReviewPresetChooser({
           />
         </Field>
         <div className="flex flex-col gap-1.5">
-          <div className="text-[11px] text-[color:var(--text-muted)]">Agents</div>
+          <div className="text-micro text-[color:var(--text-muted)]">Agents</div>
           {hasAgents ? (
             <ul className="flex flex-col gap-1">
               {presetAgents.map(([specialistId, sectors]) => {
@@ -47,7 +47,7 @@ export function ReviewPresetChooser({
                 return (
                   <li
                     key={specialistId}
-                    className="flex min-w-0 items-baseline gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1.5 text-[12px]"
+                    className="flex min-w-0 items-baseline gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1.5 text-meta"
                   >
                     <span className="shrink-0 font-medium text-[color:var(--text-strong)]">
                       {specialist.shortLabel}
@@ -62,7 +62,7 @@ export function ReviewPresetChooser({
               })}
             </ul>
           ) : (
-            <div className="text-[12px] text-[color:var(--text-muted)]">
+            <div className="text-meta text-[color:var(--text-muted)]">
               This preset has no agents. Pick another preset to start a review.
             </div>
           )}

@@ -399,7 +399,7 @@ function GitGraphCommitRow({
           event.preventDefault()
           openMenuRef.current?.()
         }}
-        className="flex min-w-0 flex-1 items-stretch gap-2 text-left text-[12px] focus-visible:focus-ring"
+        className="flex min-w-0 flex-1 items-stretch gap-2 text-left text-meta focus-visible:focus-ring"
       >
         <GitGraphGutter
           commitHash={commit.hash}
@@ -537,7 +537,7 @@ export function GitGraphView({
 
   if (state.status === 'loading') {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[color:var(--text-disabled)]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-micro text-[color:var(--text-disabled)]">
         Loading commit graph…
       </div>
     )
@@ -545,7 +545,7 @@ export function GitGraphView({
 
   if (state.status === 'error') {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[color:var(--text-muted)]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-micro text-[color:var(--text-muted)]">
         {state.message}
       </div>
     )
@@ -553,7 +553,7 @@ export function GitGraphView({
 
   if (!snapshot || snapshot.commits.length === 0) {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-[11px] text-[color:var(--text-disabled)]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-micro text-[color:var(--text-disabled)]">
         No commits yet
       </div>
     )
@@ -581,8 +581,8 @@ export function GitGraphView({
       ) : null}
 
       <div className="flex h-6 shrink-0 items-center justify-between gap-2 px-3 pt-3">
-        <div className="text-[12px] font-semibold text-[color:var(--text-strong)]">Graph</div>
-        <div className="tabular-nums text-[11px] text-[color:var(--text-muted)]">
+        <div className="text-meta font-semibold text-[color:var(--text-strong)]">Graph</div>
+        <div className="tabular-nums text-micro text-[color:var(--text-muted)]">
           {snapshot.totalCount} total · showing {snapshot.commits.length}
         </div>
       </div>
@@ -628,7 +628,7 @@ export function GitGraphView({
                 type="button"
                 onClick={onLoadMore}
                 disabled={loadingMore}
-                className="h-7 w-full rounded-md border border-[color:var(--border-subtle)] text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-40"
+                className="h-7 w-full rounded-md border border-[color:var(--border-subtle)] text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-40"
               >
                 {loadingMore ? 'Loading…' : 'Load more'}
               </button>

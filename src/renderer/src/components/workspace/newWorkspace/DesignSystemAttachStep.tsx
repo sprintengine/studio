@@ -132,7 +132,7 @@ export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: D
 
   if (existingBundle) {
     return (
-      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+      <p className="text-meta leading-5 text-[color:var(--text-muted)]">
         This folder already has a <span className="font-mono text-[color:var(--text-default)]">design-system/</span> directory.
         Attach never overwrites or merges — the existing copy stays as it is.
       </p>
@@ -144,7 +144,7 @@ export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: D
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+      <p className="text-meta leading-5 text-[color:var(--text-muted)]">
         Copies a released bundle into <span className="font-mono text-[color:var(--text-default)]">design-system/</span> when
         the workspace is created; agents launched here are told to conform to it.
       </p>
@@ -156,15 +156,15 @@ export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: D
           onSelect={() => onSelect(null)}
         />
         {library.kind === 'loading' ? (
-          <p className="px-1 text-[12px] leading-5 text-[color:var(--text-subtle)]">Reading your library…</p>
+          <p className="px-1 text-meta leading-5 text-[color:var(--text-subtle)]">Reading your library…</p>
         ) : null}
         {library.kind === 'unavailable' ? (
-          <p className="px-1 text-[12px] leading-5 text-[color:var(--tone-error)]">
+          <p className="px-1 text-meta leading-5 text-[color:var(--tone-error)]">
             The design-system library could not be read: {library.message}
           </p>
         ) : null}
         {library.kind === 'ready' && library.entries.length === 0 ? (
-          <p className="px-1 text-[12px] leading-5 text-[color:var(--text-subtle)]">
+          <p className="px-1 text-meta leading-5 text-[color:var(--text-subtle)]">
             No releases in your library yet — release one from a Design system studio, or browse to a bundle folder below.
           </p>
         ) : null}
@@ -201,7 +201,7 @@ export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: D
         />
       </div>
       {library.kind === 'ready' && library.rejectedCount > 0 ? (
-        <p className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
+        <p className="text-micro leading-4 text-[color:var(--text-subtle)]">
           {library.rejectedCount} release{library.rejectedCount === 1 ? '' : 's'} in the library could not be read and{' '}
           {library.rejectedCount === 1 ? 'is' : 'are'} not listed.
         </p>
@@ -255,14 +255,14 @@ function AttachChoiceRow({
       `}
     >
       <span
-        className={`min-w-0 max-w-full truncate text-[12px] text-[color:var(--text-strong)] ${
+        className={`min-w-0 max-w-full truncate text-meta text-[color:var(--text-strong)] ${
           titleMono ? 'font-mono font-medium' : 'font-semibold'
         }`}
       >
         {title}
       </span>
       <span
-        className={`min-w-0 max-w-full text-[12px] leading-4 text-[color:var(--text-muted)] ${
+        className={`min-w-0 max-w-full text-meta leading-4 text-[color:var(--text-muted)] ${
           detailWraps ? '' : 'truncate'
         }`}
       >

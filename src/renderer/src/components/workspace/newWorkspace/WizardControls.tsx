@@ -59,8 +59,8 @@ export function CliPermissionPresetRow({
     <div className="flex flex-col gap-2 px-3.5 py-3">
       <div className="flex items-center justify-between gap-3">
         <span className="min-w-0">
-          <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Agent permissions</span>
-          <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+          <span className="block text-body font-semibold text-[color:var(--text-strong)]">Agent permissions</span>
+          <span className="mt-0.5 block text-micro leading-4 text-[color:var(--text-muted)]">
             How spawned agents handle permission prompts.
           </span>
         </span>
@@ -73,7 +73,7 @@ export function CliPermissionPresetRow({
         />
       </div>
       <p
-        className={`text-[11px] leading-4 ${
+        className={`text-micro leading-4 ${
           isBypass ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
         }`}
       >
@@ -127,10 +127,10 @@ export function PathRadio({
         {checked ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--bg-app)]" /> : null}
       </span>
       <span className="min-w-0">
-        <span className={`block text-[13px] font-semibold ${checked ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
+        <span className={`block text-body font-semibold ${checked ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
           {label}
         </span>
-        <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">{hint}</span>
+        <span className="mt-0.5 block text-micro leading-4 text-[color:var(--text-muted)]">{hint}</span>
       </span>
     </button>
   )
@@ -189,7 +189,7 @@ export function RosterAndRunSettings({
       <div className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between">
           <Field.Label>Roster</Field.Label>
-          <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
+          <span className="text-micro tabular-nums text-[color:var(--text-muted)]">
             {rosterCountLabel ?? `${totalAgents} specialist${totalAgents === 1 ? '' : 's'}`}
           </span>
         </div>
@@ -219,8 +219,8 @@ export function RosterAndRunSettings({
           />
           <div className="flex flex-col gap-2 border-t border-[color:var(--border-default)] px-3.5 py-3">
             <div>
-              <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Automation</span>
-              <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">
+              <span className="block text-body font-semibold text-[color:var(--text-strong)]">Automation</span>
+              <span className="mt-0.5 block text-micro leading-4 text-[color:var(--text-muted)]">
                 How the sprint should continue after this workspace opens.
               </span>
             </div>

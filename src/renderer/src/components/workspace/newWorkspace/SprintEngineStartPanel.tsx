@@ -135,7 +135,7 @@ export function SprintEngineStartPanel({
   return (
     <div className="flex flex-col">
       {createError ? (
-        <div className="mb-4 border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+        <div className="mb-4 border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]">
           {createError}
         </div>
       ) : null}
@@ -144,7 +144,7 @@ export function SprintEngineStartPanel({
         <SummaryRow label="Workspace" onEdit={() => onEditStep('workspace')}>
           <span className="font-medium text-[color:var(--text-strong)]">{workspaceName || 'workspace'}</span>
           {folderPath ? (
-            <span className="font-mono text-[11px] text-[color:var(--text-subtle)]"> · {folderPath}</span>
+            <span className="font-mono text-micro text-[color:var(--text-subtle)]"> · {folderPath}</span>
           ) : null}
         </SummaryRow>
         <SummaryRow label="Objective" onEdit={() => onEditStep('sprintengine-team')}>
@@ -174,7 +174,7 @@ export function SprintEngineStartPanel({
         </SummaryRow>
       </div>
 
-      <p className="mb-1 mt-6 text-[12px] font-semibold text-[color:var(--text-strong)]">Run settings</p>
+      <p className="mb-1 mt-6 text-meta font-semibold text-[color:var(--text-strong)]">Run settings</p>
       <div className="flex flex-col">
         <RunRow label="Permissions">
           <Select<SprintEngineCliPermissionPreset>
@@ -188,7 +188,7 @@ export function SprintEngineStartPanel({
             onChange={onChangeCliPermissionPreset}
           />
           <div
-            className={`mt-1.5 text-[11px] leading-4 ${
+            className={`mt-1.5 text-micro leading-4 ${
               cliPermissionPreset === 'bypass_all'
                 ? 'text-[color:var(--tone-warn)]'
                 : 'text-[color:var(--text-subtle)]'
@@ -207,7 +207,7 @@ export function SprintEngineStartPanel({
             value={automationMode}
             onChange={onChangeAutomationMode}
           />
-          <div className="mt-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">{automationOption.hint}</div>
+          <div className="mt-1.5 text-micro leading-4 text-[color:var(--text-subtle)]">{automationOption.hint}</div>
         </RunRow>
         {showMaxParallelAgents ? (
           <RunRow label="Parallel agents">
@@ -228,11 +228,11 @@ export function SprintEngineStartPanel({
               }}
               className="
                 h-7 w-16 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)]
-                px-2 text-right text-[12px] tabular-nums text-[color:var(--text-strong)]
+                px-2 text-right text-meta tabular-nums text-[color:var(--text-strong)]
                 focus-visible:focus-ring
               "
             />
-            <div className="mt-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+            <div className="mt-1.5 text-micro leading-4 text-[color:var(--text-subtle)]">
               Cap on agent sessions running at once. Extra ready tasks queue until a slot frees up.
             </div>
           </RunRow>
@@ -245,9 +245,9 @@ export function SprintEngineStartPanel({
               disabled={worktreesDisabled}
               onChange={onChangeUseWorktrees}
             />
-            <span className="text-[12px] text-[color:var(--text-default)]">Run in an isolated git worktree</span>
+            <span className="text-meta text-[color:var(--text-default)]">Run in an isolated git worktree</span>
           </span>
-          <div className="mt-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+          <div className="mt-1.5 text-micro leading-4 text-[color:var(--text-subtle)]">
             {worktreesDisabled
               ? 'Worktree mode is fixed for an existing team and cannot be changed here.'
               : 'All agents work in one shared worktree on a dedicated branch; a pull request opens when the run completes.'}
@@ -257,7 +257,7 @@ export function SprintEngineStartPanel({
               each one gets its own worktree — so the consequence is named here
               rather than left to be discovered when the selection vanishes. */}
           {!worktreesDisabled && declaredRepoNames.length > 0 ? (
-            <div className="mt-1 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+            <div className="mt-1 text-micro leading-4 text-[color:var(--text-subtle)]">
               Also works in {declaredRepoNames.join(', ')} — one worktree, branch, and pull request each.
               Turning this off drops them.
             </div>
@@ -279,13 +279,13 @@ function SummaryRow({
 }) {
   return (
     <div className="flex items-baseline gap-3.5 border-b border-[color:var(--border-subtle)] py-3">
-      <span className="w-24 shrink-0 text-[11px] text-[color:var(--text-subtle)]">{label}</span>
-      <span className="min-w-0 flex-1 text-[12px] leading-5 text-[color:var(--text-default)]">{children}</span>
+      <span className="w-24 shrink-0 text-micro text-[color:var(--text-subtle)]">{label}</span>
+      <span className="min-w-0 flex-1 text-meta leading-5 text-[color:var(--text-default)]">{children}</span>
       <button
         type="button"
         onClick={onEdit}
         aria-label={`Edit ${label.toLowerCase()}`}
-        className="shrink-0 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--accent-primary)]"
+        className="shrink-0 text-micro font-medium text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--accent-primary)]"
       >
         Edit
       </button>
@@ -296,7 +296,7 @@ function SummaryRow({
 function RunRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-3.5 border-b border-[color:var(--border-subtle)] py-2.5">
-      <span className="w-24 shrink-0 pt-1 text-[11px] text-[color:var(--text-subtle)]">{label}</span>
+      <span className="w-24 shrink-0 pt-1 text-micro text-[color:var(--text-subtle)]">{label}</span>
       <span className="min-w-0 flex-1">{children}</span>
     </div>
   )

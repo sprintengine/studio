@@ -26,10 +26,10 @@ export function DefinitionList({ items, layout = 'two-column', className }: Defi
       <dl className={`flex flex-col gap-2 ${className ?? ''}`}>
         {items.map((item, index) => (
           <div key={item.id ?? index} className="flex flex-col gap-0.5">
-            <dt className="text-[11px] text-[color:var(--text-muted)]">{item.term}</dt>
+            <dt className="text-micro text-[color:var(--text-muted)]">{item.term}</dt>
             <dd
               id={item.id}
-              className="text-[12px] text-[color:var(--text-strong)] leading-[1.4]"
+              className="text-meta text-[color:var(--text-strong)] leading-[1.4]"
             >
               {item.description}
             </dd>
@@ -47,7 +47,7 @@ export function DefinitionList({ items, layout = 'two-column', className }: Defi
             <dt className="text-micro text-[color:var(--text-disabled)]">{item.term}</dt>
             <dd
               id={item.id}
-              className="mt-1 text-[12px] font-medium text-[color:var(--text-strong)] [overflow-wrap:anywhere]"
+              className="mt-1 text-meta font-medium text-[color:var(--text-strong)] [overflow-wrap:anywhere]"
             >
               {item.description}
             </dd>
@@ -64,10 +64,10 @@ export function DefinitionList({ items, layout = 'two-column', className }: Defi
     >
       {items.map((item, index) => (
         <React.Fragment key={item.id ?? index}>
-          <dt className="text-[11px] text-[color:var(--text-muted)] leading-[1.4]">{item.term}</dt>
+          <dt className="text-micro text-[color:var(--text-muted)] leading-[1.4]">{item.term}</dt>
           <dd
             id={item.id}
-            className="text-[12px] text-[color:var(--text-strong)] leading-[1.4] min-w-0"
+            className="text-meta text-[color:var(--text-strong)] leading-[1.4] min-w-0"
           >
             {item.description}
           </dd>

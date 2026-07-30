@@ -151,7 +151,7 @@ export function SprintEngineRosterTable({
               <RoleAvatar role={role} registry={registry} size="md" ariaLabel="" className={isAdded ? undefined : 'opacity-55'} />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2">
-                  <span className={`truncate text-[12px] font-medium ${isAdded ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
+                  <span className={`truncate text-meta font-medium ${isAdded ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
                     {label}
                   </span>
                   {PLANNER_ROLE_IDS.has(role) ? (
@@ -160,12 +160,12 @@ export function SprintEngineRosterTable({
                     </span>
                   ) : null}
                 </span>
-                <span className="mt-0.5 block truncate text-[12px] text-[color:var(--text-muted)]">{summary}</span>
+                <span className="mt-0.5 block truncate text-meta text-[color:var(--text-muted)]">{summary}</span>
               </span>
               {!isAdded ? (
                 <span
                   aria-hidden="true"
-                  className="shrink-0 pr-1 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
+                  className="shrink-0 pr-1 text-micro font-semibold text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
                 >
                   + Add
                 </span>
@@ -317,7 +317,7 @@ export function AgentCliPicker({
             onClick={togglePopover}
             className="
               interactive inline-flex h-7 min-w-[140px] items-center justify-between gap-2 rounded-md border border-[color:var(--color-5)]
-              bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)]
+              bg-[color:var(--bg-surface-raised)] px-2 text-left text-meta text-[color:var(--text-default)]
               hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
               focus-visible:focus-ring
               disabled:cursor-not-allowed disabled:opacity-45
@@ -345,7 +345,7 @@ export function AgentCliPicker({
               onChange(option.value)
               setOpen(false)
             }}
-            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
+            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta transition-colors ${
               isCurrent
                 ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                 : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'

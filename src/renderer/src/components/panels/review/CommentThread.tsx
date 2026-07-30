@@ -13,7 +13,7 @@ import { CommentComposer } from './CommentComposer'
 export function CommentSyncBadge({ comment, context }: { comment: ReviewComment; context?: string }) {
   const chip = commentSyncChip(comment)
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-subtle)]">
+    <span className="inline-flex items-center gap-1.5 text-micro text-[color:var(--text-subtle)]">
       <StatusDot tone={chip.tone} />
       <span>
         {chip.label}
@@ -55,14 +55,14 @@ export function CommentThread({ comment, onEdit, onDelete }: CommentThreadProps)
     <div className={`border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] py-2.5 ${ZONE_CONTENT_INSET} pr-3.5`}>
       <div className="mb-1 flex items-center gap-2">
         {/* No avatar: it said "You" beside a label that already says "You". */}
-        <span className="text-[11px] font-medium text-[color:var(--text-strong)]">You</span>
+        <span className="text-micro font-medium text-[color:var(--text-strong)]">You</span>
         <CommentSyncBadge comment={comment} context={comment.sync.state === 'pending' ? 'will post to PR' : undefined} />
       </div>
-      <p className="max-w-[72ch] whitespace-pre-wrap text-[13px] leading-5 text-[color:var(--text-default)]">
+      <p className="max-w-[72ch] whitespace-pre-wrap text-body leading-5 text-[color:var(--text-default)]">
         {comment.body}
       </p>
       {comment.sync.state === 'failed' ? (
-        <p className="mt-1 text-[11px] text-[color:var(--tone-error)]">{comment.sync.error}</p>
+        <p className="mt-1 text-micro text-[color:var(--tone-error)]">{comment.sync.error}</p>
       ) : null}
       {editable ? (
         <div className="mt-1.5 flex gap-1">

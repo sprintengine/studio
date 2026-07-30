@@ -188,7 +188,7 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
             return (
               <div
                 key={tab.path}
-                className={`app-no-drag group/tab flex h-[28px] min-w-0 shrink-0 items-center gap-1.5 self-center rounded-md px-2 text-[12px] transition-colors ${
+                className={`app-no-drag group/tab flex h-[28px] min-w-0 shrink-0 items-center gap-1.5 self-center rounded-md px-2 text-meta transition-colors ${
                   selected
                     ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
@@ -231,7 +231,7 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
           onClick={() => void dockActive()}
           disabled={!activeTab}
           aria-label="Dock current file back into the workspace"
-          className="app-no-drag inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-40"
+          className="app-no-drag inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-micro text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-40"
         >
           <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
             <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
@@ -291,21 +291,21 @@ function renderBody(
 ): React.ReactNode {
   if (!activeTab || !activePath) {
     return (
-      <div className="flex h-full items-center justify-center text-[13px] font-mono text-[color:var(--text-disabled)]">
+      <div className="flex h-full items-center justify-center text-body font-mono text-[color:var(--text-disabled)]">
         No file open.
       </div>
     )
   }
   if (!buffer || buffer.loading) {
     return (
-      <div className="flex h-full items-center justify-center text-[13px] font-mono text-[color:var(--text-disabled)]">
+      <div className="flex h-full items-center justify-center text-body font-mono text-[color:var(--text-disabled)]">
         Loading…
       </div>
     )
   }
   if (buffer.error) {
     return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-[13px] font-mono text-[color:var(--tone-error)]">
+      <div className="flex h-full items-center justify-center px-6 text-center text-body font-mono text-[color:var(--tone-error)]">
         {buffer.error}
       </div>
     )
@@ -313,7 +313,7 @@ function renderBody(
   if (buffer.kind === 'image') {
     if (!buffer.dataUrl) {
       return (
-        <div className="flex h-full items-center justify-center text-[13px] font-mono text-[color:var(--text-disabled)]">
+        <div className="flex h-full items-center justify-center text-body font-mono text-[color:var(--text-disabled)]">
           Loading image…
         </div>
       )

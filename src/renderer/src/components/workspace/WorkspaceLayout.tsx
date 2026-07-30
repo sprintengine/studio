@@ -114,8 +114,8 @@ const DISABLED_SURFACE = (
     aria-label="Panel unavailable"
     className="flex h-full flex-col items-center justify-center gap-1 bg-[color:var(--bg-app)] px-6 text-center"
   >
-    <p className="text-[12px] font-medium text-[color:var(--text-strong)]">Panel unavailable</p>
-    <p className="max-w-xs text-[11px] leading-5 text-[color:var(--text-muted)]">
+    <p className="text-meta font-medium text-[color:var(--text-strong)]">Panel unavailable</p>
+    <p className="max-w-xs text-micro leading-5 text-[color:var(--text-muted)]">
       This view isn’t available right now. Its feature may be disabled, or the tab may be out of date.
     </p>
   </div>
@@ -193,7 +193,7 @@ function sprintEngineTabLifecycle(
 
 function PanelLoadingFallback() {
   return (
-    <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-[12px] font-mono text-[color:var(--text-subtle)]">
+    <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-meta font-mono text-[color:var(--text-subtle)]">
       <span className="flex items-center gap-3">
         <MulticodeSpinner className="h-8 w-8" />
         <span>Loading panel...</span>

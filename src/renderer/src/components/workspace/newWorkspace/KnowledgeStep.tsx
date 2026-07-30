@@ -7,7 +7,7 @@ import { relativePathBetween } from '../../../utils/projectKnowledge'
 import { knowledgeCandidatePaths } from './knowledgeFolders'
 
 const INPUT_CLASS =
-  'h-10 w-full min-w-0 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-[13px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]'
+  'h-10 w-full min-w-0 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]'
 
 type Status = MemoryRootStatus | null
 
@@ -189,7 +189,7 @@ export function KnowledgeStep({ projectRoot, committedRelativeRoot, onCommit, au
 
       {suggestions.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <span className="text-[11px] font-medium text-[color:var(--text-subtle)]">Detected in this project</span>
+          <span className="text-micro font-medium text-[color:var(--text-subtle)]">Detected in this project</span>
           <div className="flex flex-wrap gap-2">
             {suggestions.map((suggestion) => {
               const active = draft.trim() === suggestion.name
@@ -200,7 +200,7 @@ export function KnowledgeStep({ projectRoot, committedRelativeRoot, onCommit, au
                   onClick={() => commit(suggestion.name)}
                   aria-pressed={active}
                   className={[
-                    'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-[12px] transition-colors',
+                    'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-meta transition-colors',
                     'focus-visible:focus-ring',
                     active
                       ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
@@ -219,13 +219,13 @@ export function KnowledgeStep({ projectRoot, committedRelativeRoot, onCommit, au
         <button
           type="button"
           onClick={() => commit('')}
-          className="w-fit rounded text-[12px] text-[color:var(--text-subtle)] underline-offset-2 hover:text-[color:var(--text-default)] hover:underline focus-visible:focus-ring"
+          className="w-fit rounded text-meta text-[color:var(--text-subtle)] underline-offset-2 hover:text-[color:var(--text-default)] hover:underline focus-visible:focus-ring"
         >
           Clear knowledge folder
         </button>
       ) : null}
 
-      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+      <p className="text-meta leading-5 text-[color:var(--text-muted)]">
         Agents in this project read the folder you pick here for product, architecture, and ecosystem context. It is
         stored per project, so every workspace in this folder shares it. You can change or clear it later in Settings →
         Knowledge graph.

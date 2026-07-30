@@ -521,7 +521,7 @@ export function HtmlArtifactFrame({
           <TruncatedText
             as="span"
             text={pageTitle}
-            className="min-w-0 text-[12px] font-semibold text-[color:var(--text-strong)]"
+            className="min-w-0 text-meta font-semibold text-[color:var(--text-strong)]"
           />
           <TruncatedText
             as="span"
@@ -539,7 +539,7 @@ export function HtmlArtifactFrame({
                   onClick={() => setViewMode(option.id)}
                   aria-pressed={view.mode === option.id}
                   className={`
-                    inline-flex h-6 items-center rounded-sm px-1.5 text-[11px]
+                    inline-flex h-6 items-center rounded-sm px-1.5 text-micro
                     transition-colors focus-visible:focus-ring
                     ${view.mode === option.id
                       ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
@@ -561,7 +561,7 @@ export function HtmlArtifactFrame({
                     onClick={() => setViewport(option.id)}
                     aria-pressed={viewport === option.id}
                     className={`
-                      inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] tabular-nums
+                      inline-flex h-6 items-center rounded-sm px-1.5 text-micro tabular-nums
                       transition-colors focus-visible:focus-ring
                       ${viewport === option.id
                         ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
@@ -577,7 +577,7 @@ export function HtmlArtifactFrame({
                 onClick={() => setZoom((value) => nextHtmlPreviewZoom(value))}
                 aria-label={`Zoom ${Math.round(zoom * 100)} percent`}
                 className="
-                  inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] tabular-nums text-[color:var(--text-muted)]
+                  inline-flex h-6 items-center rounded-sm px-1.5 text-micro tabular-nums text-[color:var(--text-muted)]
                   transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
                   focus-visible:focus-ring
                 "
@@ -639,7 +639,7 @@ export function HtmlArtifactFrame({
               onClick={() => setAllowScripts((value) => !value)}
               aria-pressed={allowScripts}
               className={`
-                inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-[11px]
+                inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-micro
                 transition-colors focus-visible:focus-ring
                 ${allowScripts
                   ? 'bg-[color:var(--tone-warn-soft)] text-[color:var(--tone-warn)]'
@@ -666,7 +666,7 @@ export function HtmlArtifactFrame({
             onClick={() => void onOpenInBrowser()}
             disabled={browserOpenState.kind === 'opening'}
             className="
-              inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
+              inline-flex h-6 items-center rounded-sm px-1.5 text-micro text-[color:var(--text-muted)]
               transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
               disabled:cursor-wait disabled:opacity-60
               focus-visible:focus-ring
@@ -680,14 +680,14 @@ export function HtmlArtifactFrame({
         <div
           role="alert"
           aria-live="polite"
-          className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]"
+          className="shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-meta leading-5 text-[color:var(--tone-warn)]"
         >
           {browserOpenState.reason}
         </div>
       ) : null}
       <div className="relative min-h-0 flex-1 overflow-auto bg-[color:var(--bg-app)]">
         {frameState.kind === 'ready' && view.showsSource ? (
-          <pre className="m-0 min-h-full whitespace-pre px-4 py-3 font-mono text-[11px] leading-5 text-[color:var(--text-default)]">
+          <pre className="m-0 min-h-full whitespace-pre px-4 py-3 font-mono text-micro leading-5 text-[color:var(--text-default)]">
             {frameState.content}
           </pre>
         ) : frameState.kind === 'ready' ? (
@@ -780,7 +780,7 @@ export function HtmlArtifactFrame({
       ) : annotateActive && composer.kind === 'closed' ? (
         <span
           role="status"
-          className="pointer-events-none absolute bottom-3 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-1 text-[11px] text-[color:var(--text-muted)] shadow-[var(--shadow-drawer)]"
+          className="pointer-events-none absolute bottom-3 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-1 text-micro text-[color:var(--text-muted)] shadow-[var(--shadow-drawer)]"
         >
           Click any element in the preview to pin a note
         </span>
@@ -815,7 +815,7 @@ function CommentToggle({
       aria-pressed={active}
       aria-disabled={unavailable || undefined}
       className={`
-        inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-[11px]
+        inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-micro
         transition-colors focus-visible:focus-ring
         ${unavailable ? 'cursor-not-allowed text-[color:var(--text-muted)] opacity-50' : ''}
         ${!unavailable && active ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : ''}
@@ -865,9 +865,9 @@ export function PreviewState({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
         <span className="flex flex-col items-center gap-1">
-          <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">{title}</span>
+          <span className="text-meta font-semibold text-[color:var(--text-strong)]">{title}</span>
           {body ? (
-            <span className="max-w-[360px] text-[12px] leading-5 text-[color:var(--text-muted)]">{body}</span>
+            <span className="max-w-[360px] text-meta leading-5 text-[color:var(--text-muted)]">{body}</span>
           ) : null}
         </span>
         <span className="flex w-full max-w-[280px] flex-col gap-2.5">
@@ -883,17 +883,17 @@ export function PreviewState({
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
       {glyph ? <PreviewGlyph glyph={glyph} tone={tone} /> : null}
       <span
-        className={`text-[12px] font-semibold ${
+        className={`text-meta font-semibold ${
           tone === 'warn' ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-strong)]'
         }`}
       >
         {title}
       </span>
       {path ? (
-        <span className="max-w-full truncate font-mono text-[11px] text-[color:var(--text-subtle)]">{path}</span>
+        <span className="max-w-full truncate font-mono text-micro text-[color:var(--text-subtle)]">{path}</span>
       ) : null}
       {body ? (
-        <span className="max-w-[360px] text-[12px] leading-5 text-[color:var(--text-muted)]">{body}</span>
+        <span className="max-w-[360px] text-meta leading-5 text-[color:var(--text-muted)]">{body}</span>
       ) : null}
     </div>
   )
@@ -955,10 +955,10 @@ export function MockupPreviewPane({
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <header className="flex min-w-0 flex-col leading-tight">
-        <span className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+        <span className="truncate text-body font-semibold text-[color:var(--text-strong)]">
           Your screens
         </span>
-        <span className="truncate text-[12px] text-[color:var(--text-muted)]">
+        <span className="truncate text-meta text-[color:var(--text-muted)]">
           {mockups.length} screen{mockups.length === 1 ? '' : 's'} ready
         </span>
       </header>
@@ -985,10 +985,10 @@ export function MockupPreviewPane({
         />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-6 text-center">
-          <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">
+          <span className="text-meta font-semibold text-[color:var(--text-strong)]">
             No mockups yet
           </span>
-          <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <span className="text-meta leading-5 text-[color:var(--text-muted)]">
             The designer will write screens into the workspace’s{' '}
             <span className="font-mono">mockups/</span> folder.
           </span>

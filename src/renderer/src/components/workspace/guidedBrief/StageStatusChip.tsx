@@ -78,7 +78,7 @@ export function StageStatusChip({ state, className }: { state: StageChipState; c
   return (
     <span
       role="status"
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none ${className ?? ''}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-micro font-medium leading-none ${className ?? ''}`}
       style={{ color: tone.fg, backgroundColor: tone.bg, borderColor: tone.border }}
     >
       <ChipGlyph state={state} />

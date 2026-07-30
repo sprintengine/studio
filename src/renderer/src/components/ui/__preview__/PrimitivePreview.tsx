@@ -106,10 +106,10 @@ export function PrimitivePreview() {
   return (
     <div className="flex h-full w-full flex-col gap-6 overflow-auto bg-[color:var(--bg-app)] p-6 text-[color:var(--text-default)]">
       <header className="flex flex-col gap-1">
-        <h1 className="text-[15px] font-semibold text-[color:var(--text-strong)]">
+        <h1 className="text-title font-semibold text-[color:var(--text-strong)]">
           Shared primitives — preview
         </h1>
-        <p className="text-[12px] text-[color:var(--text-muted)]">
+        <p className="text-meta text-[color:var(--text-muted)]">
           Reference surface for the shared primitive set. Tones, tool dots, panel header, inbox
           rows, sections, definition lists, buttons, overflow menu, and tabs.
         </p>
@@ -120,12 +120,12 @@ export function PrimitivePreview() {
           {TONES.map(({ tone, label }) => (
             <div key={tone} className="flex items-center gap-2">
               <StatusDot tone={tone} label={`${tone} status`} />
-              <span className="text-[12px] text-[color:var(--text-default)]">{label}</span>
+              <span className="text-meta text-[color:var(--text-default)]">{label}</span>
             </div>
           ))}
           <div className="flex items-center gap-2">
             <StatusDot tone="good" pulse label="Live good status" />
-            <span className="text-[12px] text-[color:var(--text-default)]">Pulsing — live</span>
+            <span className="text-meta text-[color:var(--text-default)]">Pulsing — live</span>
           </div>
         </div>
       </Section>
@@ -139,7 +139,7 @@ export function PrimitivePreview() {
                 className="inline-block h-1.5 w-1.5 rounded-full"
                 style={{ backgroundColor: `var(--tool-${id})` }}
               />
-              <span className="text-[12px] text-[color:var(--text-default)]">{label}</span>
+              <span className="text-meta text-[color:var(--text-default)]">{label}</span>
             </div>
           ))}
         </div>
@@ -240,19 +240,19 @@ export function PrimitivePreview() {
               onChange={setNotify}
               ariaLabel="Send completion notifications"
             />
-            <span className="text-[12px] text-[color:var(--text-default)]">
+            <span className="text-meta text-[color:var(--text-default)]">
               Send completion notifications
             </span>
           </div>
           <div className="flex items-center gap-3">
             <Switch checked={autoRun} onChange={setAutoRun} ariaLabel="Auto-run on workspace open" />
-            <span className="text-[12px] text-[color:var(--text-default)]">
+            <span className="text-meta text-[color:var(--text-default)]">
               Auto-run on workspace open
             </span>
           </div>
           <div className="flex items-center gap-3">
             <Switch checked disabled onChange={() => {}} ariaLabel="Disabled checked switch" />
-            <span className="text-[12px] text-[color:var(--text-muted)]">
+            <span className="text-meta text-[color:var(--text-muted)]">
               Disabled — managed elsewhere
             </span>
           </div>
@@ -266,7 +266,7 @@ export function PrimitivePreview() {
               type="text"
               value={workspaceName}
               onChange={(event) => setWorkspaceName(event.target.value)}
-              className="h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-[12px] text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]"
+              className="h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-meta text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]"
             />
           </Field>
           <Field
@@ -279,7 +279,7 @@ export function PrimitivePreview() {
               value={endpoint}
               onChange={(event) => setEndpoint(event.target.value)}
               placeholder="https://"
-              className="h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-[12px] text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]"
+              className="h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-meta text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]"
             />
           </Field>
           <Field
@@ -291,7 +291,7 @@ export function PrimitivePreview() {
             <input
               type="text"
               defaultValue=""
-              className="h-7 rounded-[5px] border border-[color:var(--tone-error)] bg-[color:var(--bg-surface)] px-2 text-[12px] text-[color:var(--text-strong)] outline-none"
+              className="h-7 rounded-[5px] border border-[color:var(--tone-error)] bg-[color:var(--bg-surface)] px-2 text-meta text-[color:var(--text-strong)] outline-none"
             />
           </Field>
         </div>
@@ -300,7 +300,7 @@ export function PrimitivePreview() {
       <Section title="Select">
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
-            <span className="text-[12px] text-[color:var(--text-muted)]">Worker role</span>
+            <span className="text-meta text-[color:var(--text-muted)]">Worker role</span>
             <Select
               ariaLabel="Worker role"
               items={SELECT_ROLE_ITEMS}
@@ -310,7 +310,7 @@ export function PrimitivePreview() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-[12px] text-[color:var(--text-muted)]">Theme</span>
+            <span className="text-meta text-[color:var(--text-muted)]">Theme</span>
             <Select
               ariaLabel="Theme"
               items={SELECT_THEME_ITEMS}
@@ -320,7 +320,7 @@ export function PrimitivePreview() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-[12px] text-[color:var(--text-muted)]">Disabled — managed elsewhere</span>
+            <span className="text-meta text-[color:var(--text-muted)]">Disabled — managed elsewhere</span>
             <Select
               ariaLabel="Disabled select"
               items={SELECT_THEME_ITEMS}
@@ -338,7 +338,7 @@ export function PrimitivePreview() {
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <PrimaryButton onClick={() => setDrawerOpen(true)}>Open drawer</PrimaryButton>
-            <span className="text-[12px] text-[color:var(--text-muted)]">
+            <span className="text-meta text-[color:var(--text-muted)]">
               Escape closes; focus returns to the trigger.
             </span>
           </div>
@@ -422,7 +422,7 @@ export function PrimitivePreview() {
             <GhostButton>Reset</GhostButton>
           </Tooltip>
           <Tooltip content="Sprint engine state is the source of truth">
-            <span className="text-[12px] text-[color:var(--text-muted)] underline decoration-dotted underline-offset-2">
+            <span className="text-meta text-[color:var(--text-muted)] underline decoration-dotted underline-offset-2">
               Source
             </span>
           </Tooltip>
@@ -438,7 +438,7 @@ export function PrimitivePreview() {
             onChange={setTab}
             idPrefix="preview"
           />
-          <div className="p-3 text-[12px] text-[color:var(--text-default)]">
+          <div className="p-3 text-meta text-[color:var(--text-default)]">
             <TabPanel idPrefix="preview" tabId="inbox" active={tab === 'inbox'}>
               Inbox panel content — composes InboxRow.
             </TabPanel>
@@ -457,14 +457,14 @@ export function PrimitivePreview() {
           {KBD_CHORDS.map((chord) => (
             <div key={chord.ariaLabel} className="flex items-center gap-3">
               <KbdChord keys={chord.keys} ariaLabel={chord.ariaLabel} />
-              <span className="text-[12px] text-[color:var(--text-muted)]">{chord.supporting}</span>
+              <span className="text-meta text-[color:var(--text-muted)]">{chord.supporting}</span>
             </div>
           ))}
         </div>
       </Section>
 
       <Section title="Role glyphs" count={ROLE_GLYPHS.length}>
-        <p className="mb-3 text-[12px] text-[color:var(--text-muted)]">
+        <p className="mb-3 text-meta text-[color:var(--text-muted)]">
           Documented exception to the one-accent rule. Used only on the Sprint Engine kanban card,
           task-graph nodes, and agent rows where role tone carries identity information.
         </p>
@@ -472,22 +472,22 @@ export function PrimitivePreview() {
           {ROLE_GLYPHS.map((roleId) => (
             <div key={roleId} className="flex items-center gap-2">
               <RoleGlyph role={roleId} size="md" />
-              <span className="text-[12px] text-[color:var(--text-default)]">{roleId}</span>
+              <span className="text-meta text-[color:var(--text-default)]">{roleId}</span>
             </div>
           ))}
         </div>
         <div className="mt-4 flex items-center gap-4">
           <div className="flex items-center gap-2">
             <RoleGlyph role="frontend" size="sm" />
-            <span className="text-[11px] text-[color:var(--text-muted)]">sm</span>
+            <span className="text-micro text-[color:var(--text-muted)]">sm</span>
           </div>
           <div className="flex items-center gap-2">
             <RoleGlyph role="frontend" size="md" />
-            <span className="text-[11px] text-[color:var(--text-muted)]">md</span>
+            <span className="text-micro text-[color:var(--text-muted)]">md</span>
           </div>
           <div className="flex items-center gap-2">
             <RoleGlyph role="frontend" size="lg" />
-            <span className="text-[11px] text-[color:var(--text-muted)]">lg</span>
+            <span className="text-micro text-[color:var(--text-muted)]">lg</span>
           </div>
         </div>
       </Section>

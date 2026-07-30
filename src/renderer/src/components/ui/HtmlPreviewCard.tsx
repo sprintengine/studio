@@ -134,7 +134,7 @@ export function HtmlPreviewCard({
         )}
       </span>
       <span className="flex flex-col gap-0.5 px-3 py-2">
-        <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">{title}</span>
+        <span className="text-meta font-semibold text-[color:var(--text-strong)]">{title}</span>
         <TruncatedText
           as="span"
           text={relativePath}

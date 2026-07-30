@@ -72,8 +72,8 @@ export function ScreensDrawer({ screens, activeId, onSelect, onClose }: Props) {
       className="absolute bottom-5 left-5 top-16 z-30 flex w-60 max-w-[calc(100%-2.5rem)] flex-col overflow-hidden rounded-[9px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] shadow-[var(--shadow-drawer)]"
     >
       <div className="flex shrink-0 items-baseline justify-between border-b border-[color:var(--border-subtle)] px-3.5 py-2.5">
-        <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">Screens</span>
-        <span className="text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+        <span className="text-meta font-semibold text-[color:var(--text-strong)]">Screens</span>
+        <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">
           {screens.length}
         </span>
       </div>
@@ -112,7 +112,7 @@ export function ScreensDrawer({ screens, activeId, onSelect, onClose }: Props) {
                 <TruncatedText
                   as="span"
                   text={screen.name}
-                  className="min-w-0 text-[12px] font-medium text-[color:var(--text-strong)]"
+                  className="min-w-0 text-meta font-medium text-[color:var(--text-strong)]"
                 />
                 <TruncatedText
                   as="span"

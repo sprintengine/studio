@@ -334,7 +334,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       {/* The lens is narrower than the automations behind it. Say so, rather
           than letting an empty rail read as "you have no automations". */}
       {visibleEntries.length === 0 && entries.length > 0 ? (
-        <p className="px-2 pt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
+        <p className="px-2 pt-2 text-micro leading-4 text-[color:var(--text-muted)]">
           No automations match.
         </p>
       ) : null}
@@ -399,9 +399,9 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       {chooser ? (
         <PointerPopover x={chooser.x} y={chooser.y} ariaLabel="Choose a project for the new automation" onClose={() => setChooser(null)}>
           <div className="min-w-[240px] max-w-[340px] py-1">
-            <div className="px-3 pb-1 pt-1.5 text-[11px] text-[color:var(--text-subtle)]">New automation in…</div>
+            <div className="px-3 pb-1 pt-1.5 text-micro text-[color:var(--text-subtle)]">New automation in…</div>
             {projectFolders.length === 0 ? (
-              <p className="px-3 py-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
+              <p className="px-3 py-2 text-meta leading-5 text-[color:var(--text-muted)]">
                 Open a project first — an automation runs against a project.
               </p>
             ) : (
@@ -410,7 +410,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
                   key={folder.folderPath}
                   type="button"
                   onClick={() => startCreate(folder.folderPath)}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
                 >
                   <span className="min-w-0 flex-1 truncate">{folder.displayName}</span>
                 </button>
@@ -520,7 +520,7 @@ function SurfaceBody({
   // Entries exist but none selected — a one-render gap before the auto-select
   // effect fires. A calm prompt, never a blank canvas.
   return (
-    <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-[color:var(--text-muted)]">
+    <div className="flex h-full items-center justify-center px-6 text-center text-meta text-[color:var(--text-muted)]">
       Select an automation to see its runs and setup.
     </div>
   )
@@ -528,7 +528,7 @@ function SurfaceBody({
 
 function AutomationsGlyph(): JSX.Element {
   return (
-    <svg viewBox="0 0 16 16" fill="none" className="h-[18px] w-[18px]" aria-hidden="true">
+    <svg viewBox="0 0 16 16" fill="none" className="size-icon-md" aria-hidden="true">
       <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4" />
       <path d="M8 5v3l2 1.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>

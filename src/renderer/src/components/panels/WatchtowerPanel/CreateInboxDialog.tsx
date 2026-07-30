@@ -16,7 +16,7 @@ export function CreateInboxDialog({
   busy: boolean
 }) {
   const inputClass =
-    'block w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[13px] text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-strong)]'
+    'block w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-body text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-strong)]'
   return (
     <Modal open onClose={onClose} contained labelledBy="watchtower-create-title" width={540}>
       <ModalHeader title="New inbox task" titleId="watchtower-create-title" onClose={onClose} />

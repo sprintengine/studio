@@ -2064,15 +2064,15 @@ function ExplorerTree({
   }
 
   if (loading) {
-    return <div className="px-4 py-2 text-[11px] text-[color:var(--text-disabled)]">Loading...</div>
+    return <div className="px-4 py-2 text-micro text-[color:var(--text-disabled)]">Loading...</div>
   }
 
   if (isSearching && searching) {
-    return <div className="px-4 py-2 text-[11px] text-[color:var(--text-disabled)]">Searching...</div>
+    return <div className="px-4 py-2 text-micro text-[color:var(--text-disabled)]">Searching...</div>
   }
 
   if (isSearching && activeRows.length === 0) {
-    return <div className="px-4 py-2 text-[11px] text-[color:var(--text-disabled)]">No matching files</div>
+    return <div className="px-4 py-2 text-micro text-[color:var(--text-disabled)]">No matching files</div>
   }
 
   return (
@@ -2152,7 +2152,7 @@ function ExplorerTree({
                 focusTree()
               }}
               onContextMenu={(event) => void showContextMenu(event, entry)}
-              className={`group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors ${
+              className={`group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-meta transition-colors ${
                 isDropTarget
                   ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ring-1 ring-[color:var(--accent-primary)]'
                   : isSelected
@@ -2176,7 +2176,7 @@ function ExplorerTree({
                   <FolderIcon expanded={isExpanded} />
                   {isRenaming ? (
                     renderRenameInput(
-                      'h-5 min-w-0 flex-1 rounded-[4px] border border-[color:var(--color-6)] bg-[color:var(--bg-app)] px-1.5 text-[12px] font-medium text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]'
+                      'h-5 min-w-0 flex-1 rounded-[4px] border border-[color:var(--color-6)] bg-[color:var(--bg-app)] px-1.5 text-meta font-medium text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]'
                     )
                   ) : (
                     <span className={`truncate font-medium ${nameClassName}`}>{entry.name}</span>
@@ -2191,7 +2191,7 @@ function ExplorerTree({
                   <FileIcon name={entry.name} />
                   {isRenaming ? (
                     renderRenameInput(
-                      'h-5 min-w-0 flex-1 rounded-[4px] border border-[color:var(--color-6)] bg-[color:var(--bg-app)] px-1.5 text-[12px] text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]'
+                      'h-5 min-w-0 flex-1 rounded-[4px] border border-[color:var(--color-6)] bg-[color:var(--bg-app)] px-1.5 text-meta text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]'
                     )
                   ) : (
                     <span className={`truncate ${gitAppearance.textClass}`}>{entry.name}</span>
@@ -2429,18 +2429,18 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
           <FileExplorerSkeleton />
         ) : folderMissing && folderPath ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center text-[color:var(--text-disabled)]">
-            <p className="text-[12px]">Saved folder is missing.</p>
-            <p className="max-w-full truncate font-mono text-[11px] text-[color:var(--text-muted)]">{folderPath}</p>
+            <p className="text-meta">Saved folder is missing.</p>
+            <p className="max-w-full truncate font-mono text-micro text-[color:var(--text-muted)]">{folderPath}</p>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => void recheckFolder()}
-                className="rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-[11px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)]"
+                className="rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-micro text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)]"
               >
                 Retry
               </button>
               <button
                 onClick={handleOpen}
-                className="rounded-md border border-[color:var(--accent-primary)]/45 bg-[color:var(--accent-primary-soft)] px-3 py-1.5 text-[11px] font-semibold text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--accent-primary-soft-strong)]"
+                className="rounded-md border border-[color:var(--accent-primary)]/45 bg-[color:var(--accent-primary-soft)] px-3 py-1.5 text-micro font-semibold text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--accent-primary-soft-strong)]"
               >
                 Relink
               </button>
@@ -2448,10 +2448,10 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
           </div>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-[color:var(--text-disabled)]">
-            <p className="px-4 text-center text-[12px]">No folder open</p>
+            <p className="px-4 text-center text-meta">No folder open</p>
             <button
               onClick={handleOpen}
-              className="rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-[11px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)]"
+              className="rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-micro text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)]"
             >
               Open Folder
             </button>

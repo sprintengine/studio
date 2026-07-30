@@ -342,7 +342,7 @@ export function HorizonPlanColumn({
         <TruncatedText
           as="h2"
           text={plan.headTitle}
-          className="min-w-0 flex-1 text-[11px] font-semibold text-[color:var(--text-subtle)]"
+          className="min-w-0 flex-1 text-micro font-semibold text-[color:var(--text-subtle)]"
         />
         {/* The one call to action on this group. It reads as current while the
             detail pane is showing the backlog it opens. */}
@@ -364,7 +364,7 @@ export function HorizonPlanColumn({
 
       <div className="min-w-0 pb-2">
         {plan.bands.length === 0 ? (
-          <p className="px-2 py-6 text-center text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <p className="px-2 py-6 text-center text-meta leading-5 text-[color:var(--text-muted)]">
             No tracks yet. A track is a lane of steps that run in order, one sprint at a time.
           </p>
         ) : (
@@ -564,7 +564,7 @@ function PlanBand({
         }}
       >
         {band.rows.length === 0 && band.kind !== 'now' ? (
-          <li className="list-none px-2 py-2 text-[11px] text-[color:var(--text-disabled)]">
+          <li className="list-none px-2 py-2 text-micro text-[color:var(--text-disabled)]">
             {band.kind === 'track' ? 'No steps in this track yet.' : 'Nothing queued — use “Add work”.'}
           </li>
         ) : null}
@@ -693,7 +693,7 @@ function StepRow({
           // is probably fine; telling the author to remove it would be wrong,
           // and the detail pane says the opposite 400px to the right.
           <span
-            className="min-w-0 flex-1 truncate font-mono text-[11px] text-[color:var(--text-disabled)]"
+            className="min-w-0 flex-1 truncate font-mono text-micro text-[color:var(--text-disabled)]"
             title={
               row.projectUnavailable
                 ? `${row.projectName} is not open, so this step cannot be read.`
@@ -704,7 +704,7 @@ function StepRow({
           </span>
         ) : (
           <span
-            className={`min-w-0 flex-1 truncate text-[12px] ${
+            className={`min-w-0 flex-1 truncate text-meta ${
               selected
                 ? 'font-medium text-[color:var(--text-strong)]'
                 : 'text-[color:var(--text-default)]'
@@ -774,12 +774,12 @@ function StepNotice({ row, steering }: { row: HorizonStepRow; steering: HorizonS
   return (
     <div className="mb-1.5 ml-6 mr-2 mt-0.5 flex items-start gap-2 rounded-r-[5px] border-l-2 border-[color:var(--tone-warn)] bg-[color:var(--tone-warn-soft)] px-2.5 py-1.5">
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] leading-4 text-[color:var(--text-muted)]">{notice.message}</p>
+        <p className="text-micro leading-4 text-[color:var(--text-muted)]">{notice.message}</p>
         {/* What actually failed — the project, the branch, the underlying reason.
             A pause a person cannot act on is the defect MC-1909 records; this is
             the reason itself, not added explanation of it. */}
         {notice.detail ? (
-          <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] leading-4 text-[color:var(--text-subtle)]">
+          <p className="mt-0.5 whitespace-pre-wrap break-words text-micro leading-4 text-[color:var(--text-subtle)]">
             {notice.detail}
           </p>
         ) : null}
@@ -845,7 +845,7 @@ function DeliveredFooter({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className={`flex w-full items-center gap-1.5 px-2 py-2 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+        className={`flex w-full items-center gap-1.5 px-2 py-2 text-left text-micro text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
       >
         <ChevronGlyph open={open} />
         Delivered
@@ -872,7 +872,7 @@ function DeliveredFooter({
                   <span aria-hidden="true" className="w-[11px] shrink-0" />
                   <LifecycleGlyph state="done" live={false} className="shrink-0" />
                   <span
-                    className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-muted)]"
+                    className="min-w-0 flex-1 truncate text-meta text-[color:var(--text-muted)]"
                     title={row.title}
                   >
                     {row.title}

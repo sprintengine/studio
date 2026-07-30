@@ -209,7 +209,7 @@ export function CursorErrorPopover({
           <LifecycleGlyph state="failed" label="Failed" live={false} className="mt-px" />
           <div
             className={[
-              'min-w-0 flex-1 text-[11px] leading-snug text-[color:var(--text-strong)]',
+              'min-w-0 flex-1 text-micro leading-snug text-[color:var(--text-strong)]',
               expanded ? 'whitespace-pre-wrap break-words font-mono' : 'truncate',
             ].join(' ')}
           >

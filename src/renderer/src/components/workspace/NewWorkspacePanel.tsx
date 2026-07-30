@@ -2583,10 +2583,10 @@ export default function NewWorkspacePanel({
         <div className="flex h-full max-h-[min(820px,100%)] w-full max-w-[1040px] flex-col overflow-hidden rounded-[8px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-drawer)]">
           <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-5 py-3">
             <div className="flex min-w-0 items-center gap-2">
-              <MulticodeMark className="h-[18px] w-[18px]" variant="mono" />
+              <MulticodeMark className="size-icon-md" variant="mono" />
               <h2
                 id="new-workspace-title"
-                className="text-[13px] font-semibold text-[color:var(--text-strong)]"
+                className="text-body font-semibold text-[color:var(--text-strong)]"
               >
                 New
               </h2>
@@ -2628,11 +2628,11 @@ export default function NewWorkspacePanel({
                     <h3
                       ref={headingRef}
                       tabIndex={-1}
-                      className="text-[17px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)] outline-none"
+                      className="text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)] outline-none"
                     >
                       {currentModeModel.label}
                     </h3>
-                    <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">
+                    <p className="text-body leading-5 text-[color:var(--text-muted)]">
                       {currentModeModel.description}
                     </p>
                   </header>
@@ -2681,7 +2681,7 @@ export default function NewWorkspacePanel({
                           onClick={goBack}
                           aria-label="Back"
                           className="
-                            -ml-1.5 inline-flex h-7 w-fit max-w-full items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-[color:var(--text-subtle)]
+                            -ml-1.5 inline-flex h-7 w-fit max-w-full items-center gap-1 rounded-md px-1.5 text-meta font-medium text-[color:var(--text-subtle)]
                             transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
                             focus-visible:focus-ring
                           "
@@ -2716,11 +2716,11 @@ export default function NewWorkspacePanel({
                             <h3
                               ref={headingRef}
                               tabIndex={-1}
-                              className="text-[17px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)] outline-none"
+                              className="text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)] outline-none"
                             >
                               {currentModeModel.label}
                             </h3>
-                            <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">
+                            <p className="text-body leading-5 text-[color:var(--text-muted)]">
                               {currentModeModel.description}
                             </p>
                           </header>
@@ -2933,12 +2933,12 @@ export default function NewWorkspacePanel({
             ) : (
               <>
                 {seExistingTeam != null ? (
-                  <p className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
+                  <p className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-meta leading-5 text-[color:var(--tone-warn)]">
                     Loading <span className="font-semibold">{seExistingTeam.displayName}</span> — team size is read-only; the agent for each role can still be changed before launch.
                   </p>
                 ) : null}
                 {sePlanError ? (
-                  <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+                  <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]">
                     {sePlanError}
                   </div>
                 ) : null}
@@ -3076,7 +3076,7 @@ export default function NewWorkspacePanel({
           {advancedSetupError ? (
             <div
               role="alert"
-              className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]"
+              className="border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]"
             >
               {advancedSetupError}
             </div>
@@ -3088,7 +3088,7 @@ export default function NewWorkspacePanel({
                       primary action never leaves the viewport on a tall page
                       (the sprint roster, the guided idea, the loop goal). */}
                   <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-6 py-3">
-                    <p className="min-w-0 flex-1 truncate text-[12px] leading-5 text-[color:var(--text-subtle)]">
+                    <p className="min-w-0 flex-1 truncate text-meta leading-5 text-[color:var(--text-subtle)]">
                       {blockingMessage}
                     </p>
                     <div className="flex shrink-0 items-center gap-3">
@@ -3100,7 +3100,7 @@ export default function NewWorkspacePanel({
                           onClick={handlePrimaryAction}
                           disabled={isCreating || pendingCreate}
                           className="
-                            inline-flex h-9 items-center rounded-md px-2 text-[12.5px] font-medium text-[color:var(--text-subtle)]
+                            inline-flex h-9 items-center rounded-md px-2 text-body font-medium text-[color:var(--text-subtle)]
                             transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
                             disabled:cursor-not-allowed disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent
                             focus-visible:focus-ring
@@ -3116,7 +3116,7 @@ export default function NewWorkspacePanel({
                           (isLastStep ? !createReady : !currentStepReady) || isCreating || pendingCreate
                         }
                         className="
-                          inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[color:var(--accent-primary)] px-4 text-[13px] font-semibold text-[color:var(--bg-app)]
+                          inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[color:var(--accent-primary)] px-4 text-body font-semibold text-[color:var(--bg-app)]
                           transition-colors hover:bg-[color:var(--accent-primary-hover)]
                           disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
                           focus-visible:focus-ring
@@ -3215,7 +3215,7 @@ function WorkspaceStep({
           placeholder="my-workspace"
           className="
             block h-11 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5
-            text-[14px] text-[color:var(--text-strong)] outline-none transition-colors
+            text-heading text-[color:var(--text-strong)] outline-none transition-colors
             placeholder:text-[color:var(--text-disabled)]
             hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
           "
@@ -3235,7 +3235,7 @@ function WorkspaceStep({
             aria-invalid={folderError ? true : undefined}
             className={`
               block h-11 w-full min-w-0 flex-1 rounded-md border bg-[color:var(--bg-surface)] px-3.5
-              font-mono text-[12px] text-[color:var(--text-strong)] outline-none transition-colors
+              font-mono text-meta text-[color:var(--text-strong)] outline-none transition-colors
               placeholder:text-[color:var(--text-disabled)]
               hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
               ${folderError ? 'border-[color:var(--tone-error)]' : 'border-[color:var(--border-default)]'}
@@ -3247,7 +3247,7 @@ function WorkspaceStep({
         </div>
         {status ? (
           <p
-            className={`px-0.5 text-[11px] leading-4 ${
+            className={`px-0.5 text-micro leading-4 ${
               status.tone === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-muted)]'
             }`}
           >
@@ -3262,7 +3262,7 @@ function WorkspaceStep({
         // keeps a couple of rows usable on very short windows (where the
         // pane's own scroll is the safety net).
         <div className="flex min-h-0 flex-1 flex-col gap-2">
-          <div className="px-1 text-[11px] font-medium text-[color:var(--text-muted)]">
+          <div className="px-1 text-micro font-medium text-[color:var(--text-muted)]">
             Recent
           </div>
           <div className="flex min-h-[88px] flex-1 flex-col gap-0.5 overflow-y-auto pr-1">
@@ -3308,11 +3308,11 @@ function ConfigStepSection({
         <h3
           ref={headingRef}
           tabIndex={-1}
-          className="text-[17px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)] outline-none"
+          className="text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)] outline-none"
         >
           {heading.title}
         </h3>
-        <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">{heading.subtitle}</p>
+        <p className="text-body leading-5 text-[color:var(--text-muted)]">{heading.subtitle}</p>
       </header>
       {children}
     </section>
@@ -3377,12 +3377,12 @@ function AdvancedSetupDisclosure({
         >
           <path d="M4.5 3L7.5 6L4.5 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <span className="text-[13px] font-medium text-[color:var(--text-strong)]">Advanced setup</span>
-        <span className="min-w-0 truncate text-[12px] text-[color:var(--text-subtle)]">
+        <span className="text-body font-medium text-[color:var(--text-strong)]">Advanced setup</span>
+        <span className="min-w-0 truncate text-meta text-[color:var(--text-subtle)]">
           Tool integrations and skill packs{knowledgeProjectRoot ? ', knowledge' : ''}{designSystemAttachRoot ? ', design system' : ''} — optional
         </span>
         {selectedCount > 0 ? (
-          <span className="ml-auto shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+          <span className="ml-auto shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
             {selectedCount} selected
           </span>
         ) : null}
@@ -3390,7 +3390,7 @@ function AdvancedSetupDisclosure({
       {open ? (
         <div className="flex flex-col gap-6 px-1.5 pt-4">
           <section className="flex flex-col gap-2">
-            <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Tool integrations</h4>
+            <h4 className="text-meta font-semibold text-[color:var(--text-strong)]">Tool integrations</h4>
             <McpServersStep
               mcpCatalog={mcpCatalog}
               mcpSettings={mcpSettings}
@@ -3400,7 +3400,7 @@ function AdvancedSetupDisclosure({
           </section>
           {knowledgeProjectRoot ? (
             <section className="flex flex-col gap-2">
-              <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Knowledge graph</h4>
+              <h4 className="text-meta font-semibold text-[color:var(--text-strong)]">Knowledge graph</h4>
               <KnowledgeStep
                 projectRoot={knowledgeProjectRoot}
                 committedRelativeRoot={committedKnowledgeRoot}
@@ -3411,7 +3411,7 @@ function AdvancedSetupDisclosure({
           ) : null}
           {designSystemAttachRoot ? (
             <section className="flex flex-col gap-2">
-              <h4 className="text-[12px] font-semibold text-[color:var(--text-strong)]">Design system</h4>
+              <h4 className="text-meta font-semibold text-[color:var(--text-strong)]">Design system</h4>
               <DesignSystemAttachStep
                 workspaceRoot={designSystemAttachRoot}
                 selection={designSystemAttachSelection}
@@ -3444,17 +3444,17 @@ function McpServersStep({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="text-meta leading-5 text-[color:var(--text-muted)]">
           Selected tools are added to this project when you create it. Manage them anytime in Settings.
         </p>
         {mcpCatalog.length > 0 ? (
-          <span className="shrink-0 pt-0.5 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+          <span className="shrink-0 pt-0.5 text-micro tabular-nums text-[color:var(--text-subtle)]">
             {selectedCount} selected
           </span>
         ) : null}
       </div>
       {mcpCatalog.length === 0 ? (
-        <p className="text-[11px] text-[color:var(--text-subtle)]">Loading…</p>
+        <p className="text-micro text-[color:var(--text-subtle)]">Loading…</p>
       ) : (
         <ul className="grid grid-cols-1 gap-2 min-[760px]:grid-cols-2">
           {mcpCatalog.map((server) => {
@@ -3491,7 +3491,7 @@ function McpServersStep({
                     <TruncatedText
                       as="span"
                       text={server.name}
-                      className="block text-[13px] font-semibold text-[color:var(--text-strong)]"
+                      className="block text-body font-semibold text-[color:var(--text-strong)]"
                     />
                     <span className="mt-0.5 block truncate font-mono text-micro leading-4 text-[color:var(--text-subtle)]">
                       {server.transport} · {server.category ?? 'Other'}
@@ -3509,7 +3509,7 @@ function McpServersStep({
         </ul>
       )}
       {message ? (
-        <p className="text-[11px] leading-4 text-[color:var(--text-muted)]">{message}</p>
+        <p className="text-micro leading-4 text-[color:var(--text-muted)]">{message}</p>
       ) : null}
     </div>
   )
@@ -3548,8 +3548,8 @@ function LayoutTemplateRadio({
         {active ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--bg-app)]" /> : null}
       </span>
       <span className="min-w-0">
-        <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">{template.name}</span>
-        <span className="mt-0.5 block text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <span className="block text-body font-semibold text-[color:var(--text-strong)]">{template.name}</span>
+        <span className="mt-0.5 block text-meta leading-5 text-[color:var(--text-muted)]">
           {template.description}
         </span>
       </span>
@@ -3622,7 +3622,7 @@ function StandardLayoutStep({
         ))}
         {userTemplates.length > 0 ? (
           <>
-            <div className="mt-2 text-[11px] font-medium text-[color:var(--text-subtle)] sm:col-span-2">Installed templates</div>
+            <div className="mt-2 text-micro font-medium text-[color:var(--text-subtle)] sm:col-span-2">Installed templates</div>
             {userTemplates.map((template) => (
               <LayoutTemplateRadio key={template.id} template={template} active={template.id === layoutId} onChange={onChange} />
             ))}
@@ -3634,7 +3634,7 @@ function StandardLayoutStep({
           {installing ? 'Installing' : 'Install template from folder'}
         </GhostButton>
         {installMessage ? (
-          <div className={`border-l-2 pl-3 text-[12px] leading-5 ${messageClass}`}>{installMessage.text}</div>
+          <div className={`border-l-2 pl-3 text-meta leading-5 ${messageClass}`}>{installMessage.text}</div>
         ) : null}
       </div>
     </div>
@@ -3832,7 +3832,7 @@ function GuidedIdeaStep({
             <>
               <div className="flex items-center gap-3">
                 <span
-                  className={`min-w-0 flex-1 truncate rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 font-mono text-[12px] leading-5 ${
+                  className={`min-w-0 flex-1 truncate rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 font-mono text-meta leading-5 ${
                     seedFolderPath
                       ? 'text-[color:var(--text-default)]'
                       : 'text-[color:var(--text-disabled)]'
@@ -3848,7 +3848,7 @@ function GuidedIdeaStep({
                   Choose…
                 </GhostButton>
               </div>
-              <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              <span className="text-meta leading-5 text-[color:var(--text-muted)]">
                 The designer reads this folder’s stylesheets and assets, then drafts tokens, glyphs, and components for your review — nothing lands unreviewed.
               </span>
             </>
@@ -3865,12 +3865,12 @@ function GuidedIdeaStep({
           autoFocus
           className="
             min-h-[140px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
-            text-[14px] leading-6 text-[color:var(--text-strong)] outline-none transition-colors
+            text-heading leading-6 text-[color:var(--text-strong)] outline-none transition-colors
             placeholder:text-[color:var(--text-disabled)]
             hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
           "
         />
-        <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">{copy.ideaHint}</span>
+        <span className="text-meta leading-5 text-[color:var(--text-muted)]">{copy.ideaHint}</span>
       </label>
 
       {copy.lockedDesigner ? null : (
@@ -3949,12 +3949,12 @@ function GuidedIdeaStep({
           )}
         </div>
         {copy.studioNote ? (
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{copy.studioNote}</p>
+          <p className="text-meta leading-5 text-[color:var(--text-muted)]">{copy.studioNote}</p>
         ) : null}
       </div>
 
       {folderPath ? (
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="text-meta leading-5 text-[color:var(--text-muted)]">
           {copy.folderHint.before}
           <span className="font-mono text-[color:var(--text-default)]">{copy.folderHint.path}</span>
           {copy.folderHint.after}
@@ -3962,7 +3962,7 @@ function GuidedIdeaStep({
       ) : null}
 
       {error ? (
-        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]">
           {error}
         </div>
       ) : null}
@@ -4008,8 +4008,8 @@ function GuidedRoleToggle({
       }`}
     >
       <span className="min-w-0">
-        <span className="block text-[12px] font-semibold text-[color:var(--text-strong)]">{title}</span>
-        <span className="mt-0.5 block text-[12px] leading-4 text-[color:var(--text-muted)]">{body}</span>
+        <span className="block text-meta font-semibold text-[color:var(--text-strong)]">{title}</span>
+        <span className="mt-0.5 block text-meta leading-4 text-[color:var(--text-muted)]">{body}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2">
         <CliModelPickerButton
@@ -4079,10 +4079,10 @@ function GuidedChoiceCard({
             : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
       `}
     >
-      <span className="text-[13px] font-semibold leading-4 text-[color:var(--text-strong)]">
+      <span className="text-body font-semibold leading-4 text-[color:var(--text-strong)]">
         {title}
       </span>
-      <span className="text-[12px] leading-4 text-[color:var(--text-muted)]">{body}</span>
+      <span className="text-meta leading-4 text-[color:var(--text-muted)]">{body}</span>
     </button>
   )
 }
@@ -4100,14 +4100,14 @@ function SprintEngineAccessNotice({
       role="status"
       aria-live="polite"
     >
-      <div className="text-[13px] font-semibold text-[color:var(--tone-warn)]">{access.title}</div>
-      <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">{access.body}</p>
+      <div className="text-body font-semibold text-[color:var(--tone-warn)]">{access.title}</div>
+      <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{access.body}</p>
       <button
         type="button"
         onClick={onSignIn}
         className="
           mt-3 inline-flex h-8 items-center justify-center rounded-md bg-[color:var(--text-strong)] px-3
-          text-[12px] font-semibold text-[color:var(--bg-app)] transition-colors hover:bg-[color:var(--bg-inverted-hover)]
+          text-meta font-semibold text-[color:var(--bg-app)] transition-colors hover:bg-[color:var(--bg-inverted-hover)]
           focus-visible:focus-ring
         "
       >
@@ -4122,7 +4122,7 @@ function BacklogPickerNote({ children, tone }: { children: ReactNode; tone?: 'er
     <div
       className={`
         rounded-md border border-dashed border-[color:var(--border-default)] px-3 py-4
-        text-center text-[12px] leading-5
+        text-center text-meta leading-5
         ${tone === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}
       `}
     >
@@ -4206,7 +4206,7 @@ function BacklogSourcePicker({
             >
               <BacklogRowContent item={item} now={now} selected={selected} />
               {item.status === 'in_progress' || item.status === 'needs_input' ? (
-                <div className="mt-1 truncate pl-[22px] text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                <div className="mt-1 truncate pl-[22px] text-micro leading-4 text-[color:var(--text-subtle)]">
                   {item.status === 'needs_input' ? 'In progress — awaiting input' : 'Already in progress'}
                 </div>
               ) : null}
@@ -4215,7 +4215,7 @@ function BacklogSourcePicker({
         })}
       </div>
       {scan.state === 'partial' && scan.errors.length > 0 ? (
-        <div className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
+        <div className="text-micro leading-4 text-[color:var(--text-subtle)]">
           {scan.errors.length} item{scan.errors.length === 1 ? '' : 's'} couldn’t be read.
         </div>
       ) : null}
@@ -4383,7 +4383,7 @@ function SprintEngineTeamStep(props: {
       {unreadableTeams.length > 0 ? (
         <div className="flex flex-col gap-1 rounded-[var(--radius-md)] border border-[color:var(--tone-warn)] px-3 py-2">
           {unreadableTeams.map((team) => (
-            <p key={team.slug} className="text-[11px] leading-4 text-[color:var(--text-muted)]">
+            <p key={team.slug} className="text-micro leading-4 text-[color:var(--text-muted)]">
               <span className="font-medium text-[color:var(--text-strong)]">{team.slug}</span> can’t be opened.{' '}
               {team.message}
             </p>
@@ -4416,7 +4416,7 @@ function SprintEngineTeamStep(props: {
                 type="button"
                 onClick={onBackToBacklog}
                 className="
-                  rounded-sm text-[12px] leading-5 text-[color:var(--text-muted)] underline-offset-2
+                  rounded-sm text-meta leading-5 text-[color:var(--text-muted)] underline-offset-2
                   hover:text-[color:var(--text-default)] hover:underline focus-visible:focus-ring
                 "
               >
@@ -4439,9 +4439,9 @@ function SprintEngineTeamStep(props: {
                         <TruncatedText
                           as="div"
                           text={item.sourceRelativePath}
-                          className="text-[12px] leading-5 text-[color:var(--text-default)]"
+                          className="text-meta leading-5 text-[color:var(--text-default)]"
                         />
-                        <div className="text-[11px] leading-4 text-[color:var(--text-muted)]">
+                        <div className="text-micro leading-4 text-[color:var(--text-muted)]">
                           {label}
                         </div>
                       </div>
@@ -4461,13 +4461,13 @@ function SprintEngineTeamStep(props: {
                 <TruncatedText
                   as="span"
                   text={planRelativePath || planBasename(planPath)}
-                  className="min-w-0 flex-1 font-mono text-[11px] leading-5 text-[color:var(--text-default)]"
+                  className="min-w-0 flex-1 font-mono text-micro leading-5 text-[color:var(--text-default)]"
                 />
                 <button
                   type="button"
                   onClick={onChooseFile}
                   className="
-                    shrink-0 rounded-sm text-[12px] leading-5 text-[color:var(--text-muted)] underline-offset-2
+                    shrink-0 rounded-sm text-meta leading-5 text-[color:var(--text-muted)] underline-offset-2
                     hover:text-[color:var(--text-default)] hover:underline focus-visible:focus-ring
                   "
                 >
@@ -4493,7 +4493,7 @@ function SprintEngineTeamStep(props: {
                   />
                 </div>
               ) : (
-                <div className="flex items-center gap-1.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                <div className="flex items-center gap-1.5 text-meta leading-5 text-[color:var(--text-muted)]">
                   <span>Plan type</span>
                   <span aria-hidden="true">·</span>
                   <span className="text-[color:var(--text-default)]">{planKindLabel}</span>
@@ -4522,7 +4522,7 @@ function SprintEngineTeamStep(props: {
                 type="button"
                 onClick={onChooseFile}
                 className="
-                  rounded-sm text-[12px] leading-5 text-[color:var(--text-muted)] underline-offset-2
+                  rounded-sm text-meta leading-5 text-[color:var(--text-muted)] underline-offset-2
                   hover:text-[color:var(--text-default)] hover:underline focus-visible:focus-ring
                 "
               >
@@ -4540,7 +4540,7 @@ function SprintEngineTeamStep(props: {
       ) : null}
 
       {planError ? (
-        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]">
           {planError}
         </div>
       ) : null}
@@ -4554,7 +4554,7 @@ function SprintEngineTeamStep(props: {
             placeholder="Interface Team"
             className="
               block h-11 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5
-              text-[14px] font-medium text-[color:var(--text-strong)] outline-none transition-colors
+              text-heading font-medium text-[color:var(--text-strong)] outline-none transition-colors
               placeholder:text-[color:var(--text-disabled)]
               hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
             "
@@ -4571,7 +4571,7 @@ function SprintEngineTeamStep(props: {
             placeholder="What outcome should this team deliver?"
             className="
               min-h-[120px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
-              text-[14px] leading-6 text-[color:var(--text-strong)] outline-none transition-colors
+              text-heading leading-6 text-[color:var(--text-strong)] outline-none transition-colors
               placeholder:text-[color:var(--text-disabled)]
               hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
             "

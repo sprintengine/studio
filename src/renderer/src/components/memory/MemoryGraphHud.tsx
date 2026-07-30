@@ -20,8 +20,8 @@ export function MemoryGraphLegend({ nodes }: LegendProps) {
   // Opaque surface + hairline, never a frost: the graph canvas underneath
   // repaints on every pan, and a blur over it re-runs each frame.
   return (
-    <div className="pointer-events-none absolute bottom-3 left-3 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[11px] text-[color:var(--text-default)]">
-      <div className="mb-1.5 text-[11px] font-semibold text-[color:var(--text-disabled)]">
+    <div className="pointer-events-none absolute bottom-3 left-3 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-micro text-[color:var(--text-default)]">
+      <div className="mb-1.5 text-micro font-semibold text-[color:var(--text-disabled)]">
         Types
       </div>
       <ul className="space-y-1">
@@ -56,7 +56,7 @@ export function MemoryGraphTooltip({ node, x, y }: TooltipProps) {
   const title = node.title?.trim() || node.name
   return (
     <div
-      className="pointer-events-none absolute z-10 max-w-[280px] rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[11px] text-[color:var(--text-muted)]"
+      className="pointer-events-none absolute z-10 max-w-[280px] rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-micro text-[color:var(--text-muted)]"
       style={{ left: x + 16, top: y + 16 }}
     >
       <div className="flex items-center gap-2">
@@ -65,7 +65,7 @@ export function MemoryGraphTooltip({ node, x, y }: TooltipProps) {
           style={{ background: color }}
           aria-hidden
         />
-        <span className="truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
+        <span className="truncate text-meta font-semibold text-[color:var(--text-strong)]">
           {title}
         </span>
       </div>

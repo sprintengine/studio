@@ -100,7 +100,7 @@ export default function MemoryPreviewPane({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <span
-              className="inline-flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 text-[11px] font-medium"
+              className="inline-flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 text-micro font-medium"
               style={{
                 borderColor: hexWithAlpha(color, 0.35),
                 background: hexWithAlpha(color, 0.10),
@@ -117,21 +117,21 @@ export default function MemoryPreviewPane({
             {node.tags?.slice(0, 4).map((tag) => (
               <span
                 key={tag}
-                className="rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[11px] text-[color:var(--text-muted)]"
+                className="rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-muted)]"
               >
                 {tag}
               </span>
             ))}
           </div>
-          <TruncatedText as="h2" text={title} className="mt-2 text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]" />
-          <TruncatedText as="div" text={path} className="mt-0.5 font-mono text-[11px] tabular-nums text-[color:var(--text-disabled)]" />
+          <TruncatedText as="h2" text={title} className="mt-2 text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]" />
+          <TruncatedText as="div" text={path} className="mt-0.5 font-mono text-micro tabular-nums text-[color:var(--text-disabled)]" />
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {canOpen ? (
             <button
               type="button"
               onClick={onOpenInEditor}
-              className="h-8 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 text-[12px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+              className="h-8 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 text-meta font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
             >
               Open in editor
             </button>
@@ -152,7 +152,7 @@ export default function MemoryPreviewPane({
             {renderMarkdown(preview.content)}
           </article>
         ) : preview.previewKind === 'text' ? (
-          <pre className="m-0 overflow-x-auto rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-4 font-mono text-[12px] leading-5 text-[color:var(--text-default)]">
+          <pre className="m-0 overflow-x-auto rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-4 font-mono text-meta leading-5 text-[color:var(--text-default)]">
             {preview.content}
           </pre>
         ) : preview.previewKind === 'image' ? (
@@ -171,7 +171,7 @@ export default function MemoryPreviewPane({
 
       {related.length > 0 ? (
         <footer className="shrink-0 border-t border-[color:var(--border-default)] px-5 py-4">
-          <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-disabled)]">
+          <div className="mb-2 text-micro font-semibold text-[color:var(--text-disabled)]">
             Related
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -184,7 +184,7 @@ export default function MemoryPreviewPane({
                   key={target.id}
                   type="button"
                   onClick={() => onNavigate(target)}
-                  className="group inline-flex items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+                  className="group inline-flex items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-micro text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
                 >
                   <span
                     className="h-[6px] w-[6px] rounded-full"
@@ -204,7 +204,7 @@ export default function MemoryPreviewPane({
 
 function PaneNotice({ message }: { message: string }) {
   return (
-    <div className="flex h-32 items-center justify-center text-[13px] text-[color:var(--text-muted)]">
+    <div className="flex h-32 items-center justify-center text-body text-[color:var(--text-muted)]">
       {message}
     </div>
   )

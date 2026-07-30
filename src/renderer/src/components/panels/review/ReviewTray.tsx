@@ -54,7 +54,7 @@ export function ReviewTray({ comments, changeset, onPost, postState }: ReviewTra
 
   if (comments.length === 0) {
     return (
-      <p className="px-1 py-2 text-[12px] leading-5 text-[color:var(--text-subtle)]">
+      <p className="px-1 py-2 text-meta leading-5 text-[color:var(--text-subtle)]">
         No comments yet. Hover any line in the walkthrough — added or removed — and click <span className="font-medium text-[color:var(--accent-primary)]">+</span> to leave one; they collect here as one review.
       </p>
     )
@@ -71,12 +71,12 @@ export function ReviewTray({ comments, changeset, onPost, postState }: ReviewTra
             className="min-w-0 border-b border-[color:var(--border-subtle)] py-3 last:border-b-0"
           >
             <div className="flex items-baseline justify-between gap-2">
-              <span className="truncate font-mono text-[11px] text-[color:var(--text-subtle)]">
+              <span className="truncate font-mono text-micro text-[color:var(--text-subtle)]">
                 {commentLocationLabel(comment)}
               </span>
               <CommentSyncBadge comment={comment} />
             </div>
-            <p className="mt-0.5 max-w-[76ch] whitespace-pre-wrap text-[12px] leading-5 text-[color:var(--text-default)]">
+            <p className="mt-0.5 max-w-[76ch] whitespace-pre-wrap text-meta leading-5 text-[color:var(--text-default)]">
               {comment.body}
             </p>
           </div>
@@ -84,7 +84,7 @@ export function ReviewTray({ comments, changeset, onPost, postState }: ReviewTra
       </div>
 
       <div className="mt-3 border-t border-[color:var(--border-subtle)] pt-3">
-        <p className="mb-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+        <p className="mb-2 text-micro leading-4 text-[color:var(--text-subtle)]">
           {isPr && prLabel
             ? `Posts as you · one review on ${prLabel}`
             : 'No pull request to post to — copy the comments to paste anywhere.'}
@@ -106,7 +106,7 @@ export function ReviewTray({ comments, changeset, onPost, postState }: ReviewTra
           ) : null}
         </div>
         {postError ? (
-          <p className="mt-1.5 text-[11px] leading-4 text-[color:var(--tone-error)]">{postError}</p>
+          <p className="mt-1.5 text-micro leading-4 text-[color:var(--tone-error)]">{postError}</p>
         ) : null}
       </div>
     </div>

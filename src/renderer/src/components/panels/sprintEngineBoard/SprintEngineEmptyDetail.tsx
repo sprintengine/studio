@@ -5,7 +5,7 @@
 export function SprintEngineEmptyDetail({ message }: { message: string }) {
   return (
     <section className="flex min-w-0 flex-1 items-center justify-center bg-[color:var(--bg-surface)] p-6 text-center">
-      <p className="max-w-md text-[12px] leading-5 text-[color:var(--text-muted)]">
+      <p className="max-w-md text-meta leading-5 text-[color:var(--text-muted)]">
         {message}
       </p>
     </section>

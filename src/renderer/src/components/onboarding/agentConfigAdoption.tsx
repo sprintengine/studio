@@ -50,7 +50,7 @@ export function AgentConfigAdoptionStatus({ adoption }: { adoption: AgentConfigA
 
   if (adoption.status === 'adopting') {
     return (
-      <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+      <div className="flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
         <Spinner className="icon-sm shrink-0" />
         Bringing over your existing setup…
       </div>
@@ -62,9 +62,9 @@ export function AgentConfigAdoptionStatus({ adoption }: { adoption: AgentConfigA
       <div className="flex items-start gap-2">
         <LifecycleGlyph state="failed" label="Adoption failed" live={false} className="mt-0.5 shrink-0" />
         <div className="min-w-0">
-          <p className="text-[12px] text-[color:var(--text-default)]">Couldn’t bring over your existing setup.</p>
-          <p className="mt-0.5 text-[11px] leading-5 text-[color:var(--text-muted)]">{adoption.message}</p>
-          <p className="mt-0.5 text-[11px] leading-5 text-[color:var(--text-subtle)]">
+          <p className="text-meta text-[color:var(--text-default)]">Couldn’t bring over your existing setup.</p>
+          <p className="mt-0.5 text-micro leading-5 text-[color:var(--text-muted)]">{adoption.message}</p>
+          <p className="mt-0.5 text-micro leading-5 text-[color:var(--text-subtle)]">
             You can add it later from Settings.
           </p>
         </div>
@@ -77,7 +77,7 @@ export function AgentConfigAdoptionStatus({ adoption }: { adoption: AgentConfigA
     <div className="flex items-start gap-2">
       <LifecycleGlyph state="done" label="Adopted existing setup" live={false} className="mt-0.5 shrink-0" />
       <div className="min-w-0">
-        <p className="text-[12px] text-[color:var(--text-default)]">
+        <p className="text-meta text-[color:var(--text-default)]">
           {nothingAdopted
             ? 'Nothing to bring over from your existing setup.'
             : `Brought over ${describeAdoptionCount(adoption.mcpServerCount, 'MCP server')} and ${describeAdoptionCount(
@@ -88,7 +88,7 @@ export function AgentConfigAdoptionStatus({ adoption }: { adoption: AgentConfigA
         {adoption.warnings.length > 0 ? (
           <ul className="mt-1 space-y-0.5">
             {adoption.warnings.map((warning, index) => (
-              <li key={`${index}:${warning}`} className="text-[11px] leading-5 text-[color:var(--text-muted)]">
+              <li key={`${index}:${warning}`} className="text-micro leading-5 text-[color:var(--text-muted)]">
                 {warning}
               </li>
             ))}

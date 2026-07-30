@@ -32,7 +32,7 @@ type FieldProps = {
  */
 function FieldLabel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <span className={['text-[12px] font-medium text-[color:var(--text-default)]', className ?? ''].join(' ')}>
+    <span className={['text-meta font-medium text-[color:var(--text-default)]', className ?? ''].join(' ')}>
       {children}
     </span>
   )
@@ -54,7 +54,7 @@ export function Field({ label, htmlFor, help, error, required, children, classNa
     <div className={['flex flex-col gap-1.5', className ?? ''].join(' ')}>
       <label
         htmlFor={htmlFor}
-        className="text-[12px] font-medium text-[color:var(--text-default)]"
+        className="text-meta font-medium text-[color:var(--text-default)]"
       >
         {label}
         {required ? (
@@ -65,12 +65,12 @@ export function Field({ label, htmlFor, help, error, required, children, classNa
       </label>
       {labelledChild}
       {error ? (
-        <p id={errorId} className="text-[11px] text-[color:var(--tone-error)]">
+        <p id={errorId} className="text-micro text-[color:var(--tone-error)]">
           {error}
         </p>
       ) : null}
       {help && !error ? (
-        <p id={helpId} className="text-[11px] text-[color:var(--text-subtle)]">
+        <p id={helpId} className="text-micro text-[color:var(--text-subtle)]">
           {help}
         </p>
       ) : null}

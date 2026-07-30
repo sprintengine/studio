@@ -69,7 +69,7 @@ export function AgentBubble({
     >
       <span
         aria-hidden="true"
-        className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--accent-primary-soft)] text-[11px] font-semibold text-[color:var(--accent-primary)]"
+        className="relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--accent-primary-soft)] text-micro font-semibold text-[color:var(--accent-primary)]"
       >
         {agentInitials(name)}
         <span
@@ -78,10 +78,10 @@ export function AgentBubble({
         />
       </span>
       <span className="flex min-w-0 flex-col leading-tight">
-        <span className="truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
+        <span className="truncate text-meta font-semibold text-[color:var(--text-strong)]">
           {name}
         </span>
-        <span className="truncate text-[11px] text-[color:var(--text-subtle)]">{statusLine}</span>
+        <span className="truncate text-micro text-[color:var(--text-subtle)]">{statusLine}</span>
       </span>
     </button>
   )

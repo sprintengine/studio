@@ -203,7 +203,7 @@ function NoteComposer({
         }}
         className="
           resize-none rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]
-          px-2 py-1.5 text-[12px] leading-5 text-[color:var(--text-default)]
+          px-2 py-1.5 text-meta leading-5 text-[color:var(--text-default)]
           placeholder:text-[color:var(--text-subtle)]
           focus-visible:focus-ring
         "
@@ -214,7 +214,7 @@ function NoteComposer({
             type="button"
             onClick={onRemove}
             className="
-              inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--tone-warn)]
+              inline-flex h-6 items-center rounded-sm px-1.5 text-micro text-[color:var(--tone-warn)]
               transition-colors hover:bg-[color:var(--tone-warn-soft)]
               focus-visible:focus-ring
             "
@@ -227,7 +227,7 @@ function NoteComposer({
             type="button"
             onClick={onCancel}
             className="
-              inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
+              inline-flex h-6 items-center rounded-sm px-1.5 text-micro text-[color:var(--text-muted)]
               transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]
               focus-visible:focus-ring
             "
@@ -239,7 +239,7 @@ function NoteComposer({
             onClick={onCommit}
             disabled={commitDisabled}
             className="
-              inline-flex h-6 items-center rounded-sm bg-[color:var(--accent-primary)] px-2 text-[11px] font-medium
+              inline-flex h-6 items-center rounded-sm bg-[color:var(--accent-primary)] px-2 text-micro font-medium
               text-[color:var(--text-on-accent)] transition-colors disabled:opacity-50
               enabled:hover:opacity-90
               focus-visible:focus-ring

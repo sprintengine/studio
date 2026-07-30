@@ -27,10 +27,10 @@ const SOURCE_SEGMENTS: { value: ReviewSourceInput['kind']; label: string }[] = [
   { value: 'patch', label: 'Pasted patch' },
 ]
 
-const LABEL = 'mb-1 block text-[12px] font-medium text-[color:var(--text-default)]'
-const HELP = 'mt-1 text-[11px] leading-4 text-[color:var(--text-subtle)]'
+const LABEL = 'mb-1 block text-meta font-medium text-[color:var(--text-default)]'
+const HELP = 'mt-1 text-micro leading-4 text-[color:var(--text-subtle)]'
 const INPUT =
-  'w-full rounded-[6px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12.5px] text-[color:var(--text-default)] outline-none focus:border-[color:var(--accent-primary)]'
+  'w-full rounded-[6px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-body text-[color:var(--text-default)] outline-none focus:border-[color:var(--accent-primary)]'
 
 type ProbeState =
   | { status: 'idle' }
@@ -212,8 +212,8 @@ export function ReviewChangeForm({ projectRoots, onCreated, onCancel }: ReviewCh
   return (
     <div className="flex h-full w-full flex-col overflow-y-auto bg-[color:var(--bg-surface)] px-6 py-6">
       <header className="mb-5 max-w-xl">
-        <h2 className="text-[17px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">Review a change</h2>
-        <p className="mt-1 text-[12.5px] leading-5 text-[color:var(--text-muted)]">
+        <h2 className="text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">Review a change</h2>
+        <p className="mt-1 text-body leading-5 text-[color:var(--text-muted)]">
           Point the guide at a pull request, a pair of branches, or a pasted patch. It reads the change and prepares a
           walkthrough — no workspace, no project row.
         </p>
@@ -359,7 +359,7 @@ function PrProjectField({
     // Static dot, not a pulse — the probe card below owns the one "alive" motion
     // treatment while a source is being read; two pulses at once would compete.
     return (
-      <p className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+      <p className="flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
         <StatusDot tone="neutral" />
         Finding the matching project…
       </p>
@@ -374,7 +374,7 @@ function PrProjectField({
   }
   if (control.kind === 'confirmed') {
     return (
-      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+      <p className="text-meta leading-5 text-[color:var(--text-muted)]">
         Stored in <span className="font-medium text-[color:var(--text-default)]">{projectLabel(control.root)}</span> — the open
         project that matches this pull request.
       </p>
@@ -403,7 +403,7 @@ function ProbeCard({ probe, sourceKind }: { probe: ProbeState; sourceKind: Revie
   if (probe.status === 'idle') return null
   if (probe.status === 'probing') {
     return (
-      <p className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+      <p className="flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
         <StatusDot tone="neutral" pulse label="Reading the change" />
         Reading the change…
       </p>
@@ -413,7 +413,7 @@ function ProbeCard({ probe, sourceKind }: { probe: ProbeState; sourceKind: Revie
     return (
       <div className="flex items-start gap-2 rounded-[6px] border border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] px-3 py-2">
         <StatusDot tone="error" label="Could not read this source" className="mt-1.5" />
-        <p className="text-[12px] leading-5 text-[color:var(--tone-error)]">{probe.message}</p>
+        <p className="text-meta leading-5 text-[color:var(--tone-error)]">{probe.message}</p>
       </div>
     )
   }
@@ -422,9 +422,9 @@ function ProbeCard({ probe, sourceKind }: { probe: ProbeState; sourceKind: Revie
     <div className="flex items-start gap-2 rounded-[6px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
       <StatusDot tone="accent" label={reachabilityLabel(sourceKind)} className="mt-1.5" />
       <div className="min-w-0">
-        <p className="truncate text-[12.5px] text-[color:var(--text-default)]">{title ?? 'Ready to review'}</p>
+        <p className="truncate text-body text-[color:var(--text-default)]">{title ?? 'Ready to review'}</p>
         {stats ? (
-          <p className="font-mono text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+          <p className="font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
             {stats.files} {stats.files === 1 ? 'file' : 'files'} · <span className="text-[color:var(--tone-good)]">+{stats.additions}</span>{' '}
             <span className="text-[color:var(--tone-error)]">−{stats.deletions}</span>
           </p>

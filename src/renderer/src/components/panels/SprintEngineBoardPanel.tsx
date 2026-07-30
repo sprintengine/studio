@@ -273,7 +273,7 @@ function SprintEngineModelField({
  <TruncatedText
  as="span"
  text={currentLabel}
- className={`min-w-0 flex-1 ${model && !knownLabel ? 'font-mono text-[13px]' : ''}`}
+ className={`min-w-0 flex-1 ${model && !knownLabel ? 'font-mono text-body' : ''}`}
  />
  <svg
  className={`icon-md shrink-0 text-[color:var(--text-disabled)] transition-transform ${open ? 'rotate-180' : ''}`}
@@ -322,7 +322,7 @@ function SprintEngineModelField({
  role="option"
  aria-selected
  onClick={() => setOpen(false)}
- className="flex w-full items-center gap-3 rounded-md bg-[color:var(--bg-hover)] px-3 py-2 text-left font-mono text-[13px] text-[color:var(--text-strong)]"
+ className="flex w-full items-center gap-3 rounded-md bg-[color:var(--bg-hover)] px-3 py-2 text-left font-mono text-body text-[color:var(--text-strong)]"
  >
  <TruncatedText as="span" text={model} className="min-w-0 flex-1" />
  <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -347,7 +347,7 @@ function SprintEngineModelField({
  }
  }
  }}
- className={`mt-1 w-full rounded-md border border-[color:var(--border-subtle)] bg-transparent px-3 py-2 font-mono text-[13px] text-[color:var(--text-default)] placeholder:font-sans placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}
+ className={`mt-1 w-full rounded-md border border-[color:var(--border-subtle)] bg-transparent px-3 py-2 font-mono text-body text-[color:var(--text-default)] placeholder:font-sans placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}
  />
  ) : null}
  </Popover>
@@ -478,10 +478,10 @@ export function SprintEngineSettingsPopover({
  className="interactive flex w-full items-start gap-2 rounded-[5px] px-2 py-1.5 text-left hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
  >
  <span className="min-w-0 flex-1">
- <span className={`block text-[12px] ${checked ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
+ <span className={`block text-meta ${checked ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
  {option.label}
  </span>
- <span className="mt-0.5 block text-[11px] leading-4 text-[color:var(--text-muted)]">{option.hint}</span>
+ <span className="mt-0.5 block text-micro leading-4 text-[color:var(--text-muted)]">{option.hint}</span>
  </span>
  <svg
  className={`icon-sm mt-0.5 shrink-0 text-[color:var(--accent-primary)] ${checked ? '' : 'invisible'}`}
@@ -499,7 +499,7 @@ export function SprintEngineSettingsPopover({
  <div className="mt-2 px-2">
  <div className="flex items-center gap-2">
  <LifecycleGlyph state={runtimeGlyph} />
- <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
+ <span className="min-w-0 flex-1 truncate text-meta font-medium text-[color:var(--text-strong)]">
  {sprintEngineAutomationRuntimeLabels[runtimeState]}
  </span>
  {runtimeActionLabel && onResumeAutomation ? (
@@ -514,7 +514,7 @@ export function SprintEngineSettingsPopover({
  ) : null}
  </div>
  {runtimeReasonDisplay ? (
- <p className="mt-1 text-[11px] leading-4 text-[color:var(--text-muted)]">{runtimeReasonDisplay}</p>
+ <p className="mt-1 text-micro leading-4 text-[color:var(--text-muted)]">{runtimeReasonDisplay}</p>
  ) : null}
  {runtimeTask && onOpenRuntimeTask ? (
  <button
@@ -526,13 +526,13 @@ export function SprintEngineSettingsPopover({
  aria-label={`Open task ${runtimeTask.id} ${runtimeTask.title}`}
  className="interactive -mx-1 mt-1 flex w-[calc(100%+0.5rem)] items-baseline gap-2 rounded-[5px] px-1 py-1 text-left hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
  >
- <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+ <span className="shrink-0 font-mono tabular-nums text-micro text-[color:var(--text-muted)]">
  {runtimeTask.id}
  </span>
  <TruncatedText
  as="span"
  text={runtimeTask.title}
- className="min-w-0 flex-1 text-[12px] text-[color:var(--text-strong)]"
+ className="min-w-0 flex-1 text-meta text-[color:var(--text-strong)]"
  />
  </button>
  ) : null}
@@ -548,7 +548,7 @@ export function SprintEngineSettingsPopover({
  className="w-full"
  />
  {currentPresetHint ? (
- <p className="mt-1.5 text-[11px] leading-4 text-[color:var(--text-muted)]">{currentPresetHint}</p>
+ <p className="mt-1.5 text-micro leading-4 text-[color:var(--text-muted)]">{currentPresetHint}</p>
  ) : null}
  </Section>
  </div>
@@ -1408,7 +1408,7 @@ export function SprintRunBoard({
  // its normal idle state during the brief verification rather than flashing a
  // "Checking workspace folder…" message on every refresh.
  const folderStatusBanner = folderMissing && savedFolderPath ? (
- <div className="border-b border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-4 py-2 text-[12px] text-[color:var(--text-muted)]">
+ <div className="border-b border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-4 py-2 text-meta text-[color:var(--text-muted)]">
  <div className="flex flex-wrap items-center justify-between gap-3">
  <TruncatedText
  as="span"
@@ -1418,13 +1418,13 @@ export function SprintRunBoard({
  <span className="flex shrink-0 items-center gap-2">
  <button
  onClick={() => void recheckFolder()}
- className="rounded-md px-2.5 py-1 text-[11px] font-semibold text-[color:var(--text-default)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+ className="rounded-md px-2.5 py-1 text-micro font-semibold text-[color:var(--text-default)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
  >
  Retry
  </button>
  <button
  onClick={() => void relinkFolder()}
- className="rounded-md bg-[color:var(--accent-primary-soft)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--accent-primary)] interactive hover:bg-[color:var(--accent-primary-soft)]"
+ className="rounded-md bg-[color:var(--accent-primary-soft)] px-2.5 py-1 text-micro font-semibold text-[color:var(--accent-primary)] interactive hover:bg-[color:var(--accent-primary-soft)]"
  >
  Relink
  </button>
@@ -2474,7 +2474,7 @@ export function SprintRunBoard({
  type="button"
  aria-pressed={active}
  onClick={() => setActiveTasksLayout(layout)}
- className={`interactive rounded px-2 py-0.5 text-[11px] font-medium focus-visible:focus-ring ${
+ className={`interactive rounded px-2 py-0.5 text-micro font-medium focus-visible:focus-ring ${
  active
  ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
  : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]'
@@ -2519,7 +2519,7 @@ export function SprintRunBoard({
  {runGlyph ? (
  <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={`Run: ${runGlyph.label}`} />
  ) : null}
-  <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
+  <span className="shrink-0 tabular-nums text-micro text-[color:var(--text-muted)]">
   {doneCount}/{totalTasks}
   </span>
   <RunPullRequestViewChip vcs={sprintEngineState.vcs} folderPath={folderPath} />
@@ -2538,7 +2538,7 @@ export function SprintRunBoard({
  aria-expanded={triggerProps['aria-expanded']}
  aria-controls={triggerProps['aria-controls']}
  onClick={togglePopover}
- className={`interactive flex h-6 max-w-[200px] shrink-0 items-center gap-1.5 rounded-[5px] px-1.5 text-[11px] focus-visible:focus-ring ${
+ className={`interactive flex h-6 max-w-[200px] shrink-0 items-center gap-1.5 rounded-[5px] px-1.5 text-micro focus-visible:focus-ring ${
  settingsOpen
  ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
  : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
@@ -2591,12 +2591,12 @@ export function SprintRunBoard({
  const projectionBanner = hasProjectionBanner ? (
  <div
  role="status"
- className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5"
+ className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-meta leading-5"
  >
  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
  <span className="inline-flex items-center gap-1.5">
  <StatusDot tone={projectionUnavailable ? 'error' : 'warn'} />
- <span className="font-mono text-[11px] text-[color:var(--text-muted)]">
+ <span className="font-mono text-micro text-[color:var(--text-muted)]">
  {projectionUnavailable ? 'Projection unavailable' : 'Projection warning'}
  </span>
  </span>
@@ -2623,14 +2623,14 @@ export function SprintRunBoard({
  const repoExpansionBanner = repoExpansions.length > 0 ? (
  <div
  role="status"
- className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5"
+ className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-meta leading-5"
  >
  <ul className="flex flex-col gap-1">
  {repoExpansions.map((expansion) => (
  <li key={expansion.repo.id} className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
  <StatusDot tone="neutral" className="self-center" />
  <span className="text-[color:var(--text-muted)]">Expanded into</span>
- <span className="font-mono text-[11px] text-[color:var(--text-strong)]">{expansion.displayName}</span>
+ <span className="font-mono text-micro text-[color:var(--text-strong)]">{expansion.displayName}</span>
  {expansion.tasks.length > 0 ? (
  <>
  <span className="text-[color:var(--text-muted)]">for</span>
@@ -2641,7 +2641,7 @@ export function SprintRunBoard({
  type="button"
  onClick={() => showAutomationRuntimeTask(task.id)}
  aria-label={`Open ${task.id} ${task.title}`}
- className="interactive rounded-[3px] px-0.5 font-mono tabular-nums text-[11px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+ className="interactive rounded-[3px] px-0.5 font-mono tabular-nums text-micro text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
  >
  {task.id}
  </button>
@@ -2673,12 +2673,12 @@ export function SprintRunBoard({
  return (
  <div
  aria-hidden="true"
- className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5"
+ className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-meta leading-5"
  >
  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
  <span className="inline-flex items-center gap-1.5">
  <StatusDot tone={tone} pulse={isSyncing} />
- <span className="text-[11px] text-[color:var(--text-muted)]">{heading}</span>
+ <span className="text-micro text-[color:var(--text-muted)]">{heading}</span>
  </span>
  {detail ? (
  <span
@@ -2704,10 +2704,10 @@ export function SprintRunBoard({
  >
  <div className="flex items-start justify-between gap-4">
  <div className="min-w-0">
- <div className="text-[12px] text-[color:var(--text-default)]">
+ <div className="text-meta text-[color:var(--text-default)]">
  Review uncommitted workspace changes and manually test the feature.
  </div>
- <div className="mt-1 text-[11px] text-[color:var(--text-muted)]">
+ <div className="mt-1 text-micro text-[color:var(--text-muted)]">
  {runSummary.touchedFiles.length} files touched · {runSummary.commandsRan.length} commands recorded · {runSummary.results.length} validation results
  </div>
  </div>
@@ -2731,7 +2731,7 @@ export function SprintRunBoard({
  const workspaceRemovedBanner = !handle.workspaceId ? (
  <div
  role="status"
- className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5"
+ className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-meta leading-5"
  >
  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
  <StatusDot tone="neutral" className="self-center" />
@@ -2915,10 +2915,10 @@ export function SprintRunBoard({
  <div className="mb-1 text-micro font-semibold text-[color:var(--text-disabled)]">
  Verify Progress
  </div>
- <h3 id="recovery-dialog-title" className="truncate text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
+ <h3 id="recovery-dialog-title" className="truncate text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
  Architect Audit
  </h3>
- <p className="mt-2 text-[13px] leading-6 text-[color:var(--text-muted)]">
+ <p className="mt-2 text-body leading-6 text-[color:var(--text-muted)]">
  The Architect will inspect the run store, check each task in order, and update task status through the sprintengine Python tool.
  </p>
  </div>
@@ -2972,7 +2972,7 @@ export function SprintRunBoard({
  <TruncatedText
  as="span"
  text={selectedRecoveryCliOption.description}
- className="mt-0.5 block text-[12px] text-[color:var(--text-disabled)]"
+ className="mt-0.5 block text-meta text-[color:var(--text-disabled)]"
  />
  </span>
  <svg
@@ -3021,7 +3021,7 @@ export function SprintRunBoard({
  <TruncatedText
  as="span"
  text={option.description}
- className="mt-0.5 block text-[12px] text-[color:var(--text-disabled)]"
+ className="mt-0.5 block text-meta text-[color:var(--text-disabled)]"
  />
  </span>
  {selected ? (
@@ -3083,11 +3083,11 @@ export function SprintRunBoard({
  </div>
  <h3
  id="request-changes-dialog-title"
- className="truncate text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]"
+ className="truncate text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]"
  >
  {requestChangesDialog.artifact.title}
  </h3>
- <p className="mt-2 text-[13px] leading-6 text-[color:var(--text-muted)]">
+ <p className="mt-2 text-body leading-6 text-[color:var(--text-muted)]">
  The sprint records this feedback on the artifact and reopens the owning task for rework.
  </p>
  </div>
@@ -3118,7 +3118,7 @@ export function SprintRunBoard({
  />
  </label>
  {requestChangesDialog.error ? (
- <p className="text-[12px] leading-5 text-[color:var(--tone-error)]">
+ <p className="text-meta leading-5 text-[color:var(--tone-error)]">
  {requestChangesDialog.error}
  </p>
  ) : null}
@@ -3187,7 +3187,7 @@ export function SprintRunBoard({
  <div className="mb-1 text-micro font-bold text-[color:var(--text-disabled)]">
  SprintEngine agents
  </div>
- <h3 id="add-member-dialog-title" className="text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
+ <h3 id="add-member-dialog-title" className="text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
  {!hasResidentWorkspace
  ? 'Add a role'
  : sprintEngineState.rosterConfigured ? 'Add an agent' : 'Spawn a team agent'}
@@ -3228,11 +3228,11 @@ export function SprintRunBoard({
  </span>
  <div className="min-w-0 flex-1">
  <TruncatedText as="div" text={option.label} className="text-sm font-semibold" />
- <p className={`mt-1 text-[12px] leading-5 ${selected ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-muted)]'}`}>
+ <p className={`mt-1 text-meta leading-5 ${selected ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-muted)]'}`}>
  {option.summary}
  </p>
  </div>
- <span className={`shrink-0 pt-0.5 text-right text-[11px] font-semibold ${
+ <span className={`shrink-0 pt-0.5 text-right text-micro font-semibold ${
  selected ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-disabled)]'
  }`}>
  {option.activeForRole} active / {option.openTasksForRole} open
@@ -3286,7 +3286,7 @@ export function SprintRunBoard({
  </div>
 
  {hasResidentWorkspace ? (
- <label className="flex cursor-pointer items-center gap-2 text-[12px] text-[color:var(--text-default)]">
+ <label className="flex cursor-pointer items-center gap-2 text-meta text-[color:var(--text-default)]">
  <input
  type="checkbox"
  checked={addMemberSpawnNow}
@@ -3298,11 +3298,11 @@ export function SprintRunBoard({
  ) : null}
 
  {!hasResidentWorkspace ? (
- <p className="border-l border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
+ <p className="border-l border-[color:var(--border-strong)] pl-3 text-meta leading-5 text-[color:var(--text-muted)]">
  The role joins this run’s configuration. No agent starts here — {CLOSED_WORKSPACE_REASON}.
  </p>
  ) : sprintEngineState.rosterConfigured ? (
- <p className="border-l border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
+ <p className="border-l border-[color:var(--border-strong)] pl-3 text-meta leading-5 text-[color:var(--text-muted)]">
  The new agent joins the run first.
  {hasPlannedTasks
  ? ' The architect will be asked to review whether the plan needs revision for this new specialist.'
@@ -3311,7 +3311,7 @@ export function SprintRunBoard({
  ) : null}
 
  {addMemberError ? (
- <p role="alert" className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+ <p role="alert" className="border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]">
  {addMemberError}
  </p>
  ) : null}

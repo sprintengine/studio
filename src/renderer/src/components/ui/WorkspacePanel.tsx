@@ -58,14 +58,14 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, Props>(function W
     >
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-4 py-3">
         <div className="min-w-0">
-          <h2 id={headingId} className="truncate text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]">
+          <h2 id={headingId} className="truncate text-title font-semibold tracking-tight text-[color:var(--text-strong)]">
             {title}
           </h2>
           {subtitle ? (
             <TruncatedText
               as="p"
               text={subtitle}
-              className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]"
+              className="mt-0.5 text-meta leading-5 text-[color:var(--text-muted)]"
             />
           ) : null}
         </div>

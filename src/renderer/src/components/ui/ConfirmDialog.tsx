@@ -77,7 +77,7 @@ export function ConfirmDialog({
       <ModalHeader title={title} titleId={titleId} onClose={pending ? undefined : onCancel} />
       {body ? (
         <ModalBody>
-          <div className="text-[13px] leading-5 text-[color:var(--text-default)]">{body}</div>
+          <div className="text-body leading-5 text-[color:var(--text-default)]">{body}</div>
         </ModalBody>
       ) : null}
       <ModalFooter>
@@ -210,7 +210,7 @@ function PromptDialog({
         <ModalHeader title={options.title} titleId={titleId} onClose={onCancel} />
         <ModalBody className="space-y-3">
           {options.body ? (
-            <div className="text-[13px] leading-5 text-[color:var(--text-default)]">{options.body}</div>
+            <div className="text-body leading-5 text-[color:var(--text-default)]">{options.body}</div>
           ) : null}
           {/* No visible label and no required asterisk. The dialog title names
               the thing being asked for and there is exactly one field, so a
@@ -232,13 +232,13 @@ function PromptDialog({
             }}
             className={[
               'block h-8 w-full rounded-[5px] border border-[color:var(--border-default)]',
-              'bg-[color:var(--bg-surface-raised)] px-2 text-[13px] text-[color:var(--text-strong)]',
+              'bg-[color:var(--bg-surface-raised)] px-2 text-body text-[color:var(--text-strong)]',
               'placeholder:text-[color:var(--text-disabled)]',
               FOCUS_RING_CLASS,
             ].join(' ')}
           />
           {shownError ? (
-            <p id={`${inputId}-error`} className="text-[11px] text-[color:var(--tone-error)]">
+            <p id={`${inputId}-error`} className="text-micro text-[color:var(--tone-error)]">
               {shownError}
             </p>
           ) : null}

@@ -29,7 +29,7 @@ interface FileCardProps {
 
 function DeltaCounts({ additions, deletions }: { additions: number; deletions: number }) {
   return (
-    <span className="shrink-0 font-mono text-[11px] tabular-nums">
+    <span className="shrink-0 font-mono text-micro tabular-nums">
       {additions > 0 ? <span className="text-[color:var(--tone-good)]">+{additions}</span> : null}
       {additions > 0 && deletions > 0 ? ' ' : null}
       {deletions > 0 ? <span className="text-[color:var(--tone-error)]">−{deletions}</span> : null}
@@ -43,7 +43,7 @@ function MarkReadButton({ read, onClick }: { read: boolean; onClick: () => void 
       type="button"
       onClick={onClick}
       aria-pressed={read}
-      className={`interactive inline-flex h-6 shrink-0 items-center gap-1.5 rounded-[5px] border px-2.5 text-[12px] font-medium focus-visible:focus-ring ${
+      className={`interactive inline-flex h-6 shrink-0 items-center gap-1.5 rounded-[5px] border px-2.5 text-meta font-medium focus-visible:focus-ring ${
         read
           ? 'border-transparent bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
           : 'border-[color:var(--border-default)] bg-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
@@ -88,10 +88,10 @@ export function FileCard({
     >
       <div className="flex min-h-[38px] items-center gap-2.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5">
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-mono text-[11.5px] text-[color:var(--text-strong)]" title={displayPath}>
+          <span className="block truncate font-mono text-meta text-[color:var(--text-strong)]" title={displayPath}>
             {displayPath}
           </span>
-          <span className="mt-0.5 block truncate text-[11.5px] text-[color:var(--text-subtle)]">
+          <span className="mt-0.5 block truncate text-meta text-[color:var(--text-subtle)]">
             <span className="font-medium text-[color:var(--text-muted)]">Why:</span> {fileWhyLine(why, readingNote)}
           </span>
         </span>
@@ -99,12 +99,12 @@ export function FileCard({
         <MarkReadButton read={read} onClick={() => onToggleRead(file.path)} />
       </div>
       {file.binary ? (
-        <p className="px-3 py-3 text-[12px] text-[color:var(--text-subtle)]">Binary file — no diff to show.</p>
+        <p className="px-3 py-3 text-meta text-[color:var(--text-subtle)]">Binary file — no diff to show.</p>
       ) : file.hunks.length === 0 ? (
-        <p className="px-3 py-3 text-[12px] text-[color:var(--text-subtle)]">No line changes.</p>
+        <p className="px-3 py-3 text-meta text-[color:var(--text-subtle)]">No line changes.</p>
       ) : (
         <Suspense
-          fallback={<p className="px-3 py-3 text-[12px] text-[color:var(--text-subtle)]">Loading diff…</p>}
+          fallback={<p className="px-3 py-3 text-meta text-[color:var(--text-subtle)]">Loading diff…</p>}
         >
           <ReviewDiffEditor
             file={file}

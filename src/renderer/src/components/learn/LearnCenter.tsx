@@ -97,7 +97,7 @@ export default function LearnCenter({ onSettingsTab }: LearnCenterProps) {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search tips"
-          className="h-8 w-64 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 text-[13px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]"
+          className="h-8 w-64 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]"
         />
         <div className="flex shrink-0 items-center gap-3">
           <div className="flex items-center gap-2">
@@ -110,7 +110,7 @@ export default function LearnCenter({ onSettingsTab }: LearnCenterProps) {
             <label
               id={`${startupSwitchId}-label`}
               htmlFor={startupSwitchId}
-              className="text-[12px] text-[color:var(--text-muted)]"
+              className="text-meta text-[color:var(--text-muted)]"
             >
               Show on startup
             </label>
@@ -128,12 +128,12 @@ export default function LearnCenter({ onSettingsTab }: LearnCenterProps) {
         className="flex-wrap gap-y-1"
       />
 
-      <div className="text-[12px] text-[color:var(--text-muted)] tabular-nums">
+      <div className="text-meta text-[color:var(--text-muted)] tabular-nums">
         {items.length} {items.length === 1 ? 'tip' : 'tips'} · {completedCount} marked done
       </div>
 
       {items.length === 0 ? (
-        <p className="py-4 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="py-4 text-meta leading-5 text-[color:var(--text-muted)]">
           {query.trim()
             ? `No tips match "${query.trim()}" in ${category === 'all' ? 'any category' : LEARNING_CATEGORY_LABELS[category as LearningCategory]}.`
             : 'No tips available for this category yet.'}
@@ -170,19 +170,19 @@ function LearningRow({ item, completed, onToggleComplete, onAction }: LearningRo
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <h4
-              className={`truncate text-[13px] font-medium ${
+              className={`truncate text-body font-medium ${
                 completed ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-strong)]'
               }`}
             >
               {item.title}
             </h4>
-            <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">
+            <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">
               {LEARNING_CATEGORY_LABELS[item.category]}
             </span>
           </div>
-          <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">{item.summary}</p>
+          <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{item.summary}</p>
           {item.body ? (
-            <p className="mt-2 text-[12px] leading-5 text-[color:var(--text-subtle)]">{item.body}</p>
+            <p className="mt-2 text-meta leading-5 text-[color:var(--text-subtle)]">{item.body}</p>
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-3">
@@ -199,7 +199,7 @@ function LearningRow({ item, completed, onToggleComplete, onAction }: LearningRo
             <label
               id={`${switchId}-label`}
               htmlFor={switchId}
-              className="text-[12px] text-[color:var(--text-muted)]"
+              className="text-meta text-[color:var(--text-muted)]"
             >
               Done
             </label>

@@ -747,7 +747,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           This reverts every change to{' '}
           {many ? `these ${unique.length} files` : unique[0].relativePath} in {activeScopeLabel}. The action
           cannot be undone from here.
-          <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
+          <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
       confirmLabel: many ? 'Revert files' : 'Revert file',
@@ -767,7 +767,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       body: (
         <>
           This rolls back every unstaged edit in {activeScopeLabel} and removes untracked files. The action cannot be undone from here.
-          <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
+          <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
       confirmLabel: 'Discard changes',
@@ -1063,7 +1063,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         body: (
           <>
             Branch <span className="font-mono">{branchName}</span> is already checked out at:
-            <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">{checkedOutElsewhere.path}</div>
+            <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">{checkedOutElsewhere.path}</div>
             <div className="mt-2">Git may refuse to switch to it here.</div>
           </>
         ),
@@ -1111,7 +1111,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         <>
           This merges {subject} into <span className="font-mono">{currentBranch}</span> in {activeScopeLabel}. If Git
           reports conflicts, the merge state is left in the working tree for you to resolve.
-          <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
+          <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
       confirmLabel: 'Merge',
@@ -1151,7 +1151,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           This replays the commits of <span className="font-mono">{currentBranch}</span> on top of{' '}
           <span className="font-mono">{subjectLabel}</span> in {activeScopeLabel}, rewriting their hashes. If Git
           reports conflicts, the rebase pauses for you to resolve and continue.
-          <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
+          <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
       confirmLabel: 'Rebase',
@@ -1232,7 +1232,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         <>
           This moves <span className="font-mono">{currentBranch}</span> back to “{commit.subject}” ({mode} reset).{' '}
           {consequence}
-          <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
+          <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
       confirmLabel: mode === 'hard' ? 'Hard reset' : 'Reset',
@@ -1556,7 +1556,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   if (!folderPath) {
     return (
-      <div className="flex h-full items-center justify-center bg-[color:var(--bg-surface)] px-6 text-center text-[12px] text-[color:var(--text-disabled)]">
+      <div className="flex h-full items-center justify-center bg-[color:var(--bg-surface)] px-6 text-center text-meta text-[color:var(--text-disabled)]">
         Open a folder to use Git controls.
       </div>
     )
@@ -1572,7 +1572,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   if (!repoRoot) {
     return (
-      <div className="flex h-full items-center justify-center bg-[color:var(--bg-surface)] px-6 text-center text-[12px] text-[color:var(--text-disabled)]">
+      <div className="flex h-full items-center justify-center bg-[color:var(--bg-surface)] px-6 text-center text-meta text-[color:var(--text-disabled)]">
         This folder is not a Git repository.
       </div>
     )
@@ -1600,7 +1600,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                   type="button"
                   onClick={() => void handlePull()}
                   disabled={Boolean(busy)}
-                  className={`flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-semibold tabular-nums text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
+                  className={`flex h-6 items-center gap-1 rounded-md px-2 text-micro font-semibold tabular-nums text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
                 >
                   <SyncArrowIcon direction="down" />
                   Pull {behind}
@@ -1613,7 +1613,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                   type="button"
                   onClick={() => void handlePush()}
                   disabled={Boolean(busy)}
-                  className={`flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-semibold tabular-nums text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
+                  className={`flex h-6 items-center gap-1 rounded-md px-2 text-micro font-semibold tabular-nums text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
                 >
                   <SyncArrowIcon direction="up" />
                   Push {ahead}
@@ -1642,7 +1642,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
            */}
           {workspaceWorktrees.length > 1 ? (
             <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2" title={activeRepoRoot ?? undefined}>
-              <span className="text-[11px] text-[color:var(--text-subtle)]">Project</span>
+              <span className="text-micro text-[color:var(--text-subtle)]">Project</span>
               <Select<string>
                 ariaLabel="Active project"
                 items={workspaceWorktrees.map((entry) => ({
@@ -1658,7 +1658,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             </div>
           ) : null}
           <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2">
-            <span className="text-[11px] text-[color:var(--text-subtle)]">Branch</span>
+            <span className="text-micro text-[color:var(--text-subtle)]">Branch</span>
             <Select<string>
               ariaLabel="Current branch"
               items={
@@ -1686,7 +1686,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               className={`grid ${activeScope?.kind === 'worktree' ? 'grid-cols-[4rem_minmax(0,1fr)_auto]' : 'grid-cols-[4rem_minmax(0,1fr)]'} items-center gap-2`}
               title={activeScopePath}
             >
-              <span className="text-[11px] text-[color:var(--text-subtle)]">Worktree</span>
+              <span className="text-micro text-[color:var(--text-subtle)]">Worktree</span>
               <Select<string>
                 ariaLabel="Active worktree"
                 items={scopeOptions.map((scope) => ({
@@ -1709,7 +1709,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                     type="button"
                     onClick={() => void handleReviewDiff()}
                     disabled={Boolean(busy) || !repoRoot}
-                    className={`h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
+                    className={`h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
                   >
                     Review changes
                   </button>
@@ -1783,7 +1783,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           <>
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" onMouseDown={beginChangeMarquee}>
               {allEntries.length === 0 ? (
-                <div className="py-2 text-[12px] text-[color:var(--text-subtle)]">Working tree clean</div>
+                <div className="py-2 text-meta text-[color:var(--text-subtle)]">Working tree clean</div>
               ) : (
                 <>
                   <ConflictGroup
@@ -1874,7 +1874,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         <div className="shrink-0 px-3 pb-3 pt-2">
           <div
             role={message.tone === 'error' ? 'alert' : 'status'}
-            className={`max-h-24 overflow-y-auto rounded-md px-2.5 py-2 text-[11px] [overflow-wrap:anywhere] ${
+            className={`max-h-24 overflow-y-auto rounded-md px-2.5 py-2 text-micro [overflow-wrap:anywhere] ${
               message.tone === 'error'
                 ? 'border border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] text-[color:var(--tone-error)]'
                 : message.tone === 'success'
@@ -1939,7 +1939,7 @@ function GitPanelTab({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold transition-colors ${FOCUS_RING_CLASS} ${
+      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-micro font-semibold transition-colors ${FOCUS_RING_CLASS} ${
         active
           ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
@@ -1990,7 +1990,7 @@ function ConflictGroup({
   return (
     <section className="mb-4">
       <div className="mb-1 flex h-6 items-center justify-between gap-2">
-        <div className="text-[12px] font-semibold text-[color:var(--tone-error)]">
+        <div className="text-meta font-semibold text-[color:var(--tone-error)]">
           Conflicts ({entries.length})
         </div>
       </div>
@@ -2027,7 +2027,7 @@ function ConflictGroup({
                   type="button"
                   onClick={() => onResolve(entry)}
                   disabled={Boolean(busy)}
-                  className="h-6 shrink-0 rounded-md px-2 text-[11px] font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30"
+                  className="h-6 shrink-0 rounded-md px-2 text-micro font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30"
                   aria-label={`Resolve ${entry.relativePath}`}
                 >
                   Resolve
@@ -2058,7 +2058,7 @@ function StashList({
 }) {
   if (stashes.length === 0) {
     return (
-      <div className="py-2 text-[12px] text-[color:var(--text-subtle)]">
+      <div className="py-2 text-meta text-[color:var(--text-subtle)]">
         No stashes — park the working tree with Stash on the Changes tab.
       </div>
     )
@@ -2075,7 +2075,7 @@ function StashList({
          */}
         {stashes.map((entry) => (
           <div key={entry.ref} className="group/row flex flex-col py-1">
-            <span className="min-w-0 truncate text-[12px] text-[color:var(--text-default)]" title={entry.message}>
+            <span className="min-w-0 truncate text-meta text-[color:var(--text-default)]" title={entry.message}>
               {entry.message || 'Stashed changes'}
             </span>
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -2094,7 +2094,7 @@ function StashList({
                     type="button"
                     onClick={() => onApply(entry, true)}
                     disabled={Boolean(busy)}
-                    className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30"
+                    className="h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30"
                     aria-label={`Pop ${entry.ref}`}
                   >
                     Pop
@@ -2105,7 +2105,7 @@ function StashList({
                     type="button"
                     onClick={() => onApply(entry, false)}
                     disabled={Boolean(busy)}
-                    className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30"
+                    className="h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30"
                     aria-label={`Apply ${entry.ref}`}
                   >
                     Apply
@@ -2116,7 +2116,7 @@ function StashList({
                     type="button"
                     onClick={() => onDrop(entry)}
                     disabled={Boolean(busy)}
-                    className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30"
+                    className="h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30"
                     aria-label={`Drop ${entry.ref}`}
                   >
                     Drop
@@ -2178,7 +2178,7 @@ function ChangeGroup({
   return (
     <section className="mb-4">
       <div className="mb-1 flex h-6 items-center justify-between gap-2">
-        <div className="text-[12px] font-semibold text-[color:var(--text-strong)]">{group.title}</div>
+        <div className="text-meta font-semibold text-[color:var(--text-strong)]">{group.title}</div>
         {group.bulkActions && group.entries.length > 0 ? (
           <div className="flex shrink-0 items-center gap-1">
             {group.bulkActions.map((bulkAction) => (
@@ -2187,7 +2187,7 @@ function ChangeGroup({
                   type="button"
                   onClick={() => void bulkAction.action()}
                   disabled={Boolean(busy)}
-                  className={`inline-flex h-6 shrink-0 items-center justify-center rounded-md px-2 text-[11px] font-semibold leading-none transition-colors disabled:opacity-30 ${
+                  className={`inline-flex h-6 shrink-0 items-center justify-center rounded-md px-2 text-micro font-semibold leading-none transition-colors disabled:opacity-30 ${
                     bulkAction.danger
                       ? 'text-[color:var(--tone-error)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]'
                       : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
@@ -2202,7 +2202,7 @@ function ChangeGroup({
         ) : null}
       </div>
       {group.entries.length === 0 ? (
-        <div className="py-1.5 text-[11px] text-[color:var(--text-disabled)]">{group.empty}</div>
+        <div className="py-1.5 text-micro text-[color:var(--text-disabled)]">{group.empty}</div>
       ) : (
         <>
           <div className="space-y-1">
@@ -2299,7 +2299,7 @@ function ChangeGroup({
             })}
           </div>
           {group.omittedCount > 0 ? (
-            <div className="mt-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2 py-1.5 text-[11px] text-[color:var(--text-subtle)]">
+            <div className="mt-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2 py-1.5 text-micro text-[color:var(--text-subtle)]">
               {group.omittedCount} more changes hidden to keep the panel responsive. Use Git CLI or stage/discard all for bulk actions.
             </div>
           ) : null}
@@ -2336,7 +2336,7 @@ function CommitComposer({
 }) {
   return (
     <section className="shrink-0 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-3">
-      <div className="mb-2 min-w-0 text-[11px] text-[color:var(--text-subtle)]">
+      <div className="mb-2 min-w-0 text-micro text-[color:var(--text-subtle)]">
         <span className="font-medium text-[color:var(--text-muted)]">Commit scope</span>
         <span className="mx-1.5 text-[color:var(--text-disabled)]" aria-hidden="true">/</span>
         <span className="font-mono" title={scopePath}>{scopeLabel}</span>
@@ -2345,10 +2345,10 @@ function CommitComposer({
         value={commitMessage}
         onChange={(event) => onCommitMessageChange(event.target.value)}
         placeholder="Commit message"
-        className="h-16 w-full resize-none rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2 text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] transition-colors focus:border-[color:var(--border-strong)]"
+        className="h-16 w-full resize-none rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2 text-meta text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] transition-colors focus:border-[color:var(--border-strong)]"
       />
       <div className="mt-2 flex items-center justify-between gap-2">
-        <div className="min-w-0 truncate text-[11px] text-[color:var(--text-subtle)]">
+        <div className="min-w-0 truncate text-micro text-[color:var(--text-subtle)]">
           {stagedCount > 0 ? `${stagedCount} staged` : 'Nothing staged'}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -2356,7 +2356,7 @@ function CommitComposer({
             type="button"
             onClick={() => void onFetch()}
             disabled={Boolean(busy)}
-            className="h-8 rounded-md px-2.5 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent"
+            className="h-8 rounded-md px-2.5 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent"
           >
             Fetch
           </button>
@@ -2364,7 +2364,7 @@ function CommitComposer({
             type="button"
             onClick={() => void onPull()}
             disabled={Boolean(busy)}
-            className="h-8 rounded-md px-2.5 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent"
+            className="h-8 rounded-md px-2.5 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent"
           >
             Pull
           </button>
@@ -2372,7 +2372,7 @@ function CommitComposer({
             type="button"
             onClick={() => void onPush()}
             disabled={Boolean(busy)}
-            className="h-8 rounded-md px-2.5 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent"
+            className="h-8 rounded-md px-2.5 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent"
           >
             Push
           </button>
@@ -2380,7 +2380,7 @@ function CommitComposer({
             type="button"
             onClick={() => void onCommit()}
             disabled={Boolean(busy) || !readyToCommit}
-            className="h-8 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--text-strong)] px-3 text-[11px] font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-[color:var(--bg-inverted-hover)] disabled:border-[color:var(--border-subtle)] disabled:bg-[color:var(--bg-hover)] disabled:text-[color:var(--text-disabled)]"
+            className="h-8 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--text-strong)] px-3 text-micro font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-[color:var(--bg-inverted-hover)] disabled:border-[color:var(--border-subtle)] disabled:bg-[color:var(--bg-hover)] disabled:text-[color:var(--text-disabled)]"
           >
             Commit
           </button>

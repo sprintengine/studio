@@ -164,7 +164,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
 
   if (!workspace || !runtimeState) {
     return (
-      <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] px-6 text-center text-[12px] text-[color:var(--text-muted)]">
+      <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] px-6 text-center text-meta text-[color:var(--text-muted)]">
         Design Wizard state is missing for this workspace.
       </div>
     )
@@ -178,7 +178,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
             type="button"
             onClick={() => setViewingIdea(false)}
             className="
-              inline-flex h-8 items-center rounded-md px-2 text-[12px] font-medium text-[color:var(--text-muted)]
+              inline-flex h-8 items-center rounded-md px-2 text-meta font-medium text-[color:var(--text-muted)]
               transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
               focus-visible:focus-ring
             "
@@ -188,12 +188,12 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
         </header>
         <main className="flex min-h-0 flex-1 justify-center overflow-auto px-6 py-10">
           <div className="flex w-full max-w-[560px] flex-col gap-4">
-            <h2 className="text-[18px] font-semibold text-[color:var(--text-strong)]">Idea seed</h2>
+            <h2 className="text-title font-semibold text-[color:var(--text-strong)]">Idea seed</h2>
             <div className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-4">
-              <p className="whitespace-pre-wrap text-[13px] leading-6 text-[color:var(--text-default)]">
+              <p className="whitespace-pre-wrap text-body leading-6 text-[color:var(--text-default)]">
                 {runtimeState.idea}
               </p>
-              <p className="mt-4 text-[12px] text-[color:var(--text-muted)]">
+              <p className="mt-4 text-meta text-[color:var(--text-muted)]">
                 UI: {runtimeState.hasUi === 'yes' ? 'visual app' : 'script or service'}
               </p>
             </div>

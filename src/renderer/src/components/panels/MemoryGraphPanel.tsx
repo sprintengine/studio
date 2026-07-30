@@ -228,7 +228,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
         <div className="pointer-events-auto flex items-center gap-1.5 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1">
           <div className="relative">
             <span
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-[color:var(--text-subtle)]"
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-meta text-[color:var(--text-subtle)]"
               aria-hidden
             >
               ⌕
@@ -351,7 +351,7 @@ function MemoryNotice({
         <div className="text-sm font-semibold text-[color:var(--text-strong)]">{title}</div>
         {tone === 'error' ? (
           <div
-            className="mx-auto mt-3 max-w-md rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-left font-mono text-[11px] text-[color:var(--text-muted)]"
+            className="mx-auto mt-3 max-w-md rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-left font-mono text-micro text-[color:var(--text-muted)]"
           >
             {message}
           </div>
@@ -381,7 +381,7 @@ function MemoryActivityStatusBadge({ status }: { status: MemoryActivityStatus })
       role="status"
       aria-live="polite"
     >
-      <div className="flex items-center gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[11px]">
+      <div className="flex items-center gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-micro">
         <StatusDot tone={dotTone} pulse={isLive} />
         {!status.isInstalled ? (
           <span className={labelTone}>Activity tracking off</span>

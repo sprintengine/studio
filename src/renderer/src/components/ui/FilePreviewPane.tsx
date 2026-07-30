@@ -88,7 +88,7 @@ export function FilePreviewPane({
               <button
                 type="button"
                 onClick={onPopOut}
-                className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-micro font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                 aria-label="Open in editor tab"
               >
                 <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
@@ -110,11 +110,11 @@ export function FilePreviewPane({
       {body ? (
         <div className="flex min-h-0 flex-1 flex-col p-3">{body}</div>
       ) : (
-        <div className="flex-1 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
+        <div className="flex-1 overflow-auto px-5 py-4 text-body leading-6 text-[color:var(--text-default)]">
           {renderAsMarkdown ? (
             <div className="markdown-body">{renderMarkdown(content)}</div>
           ) : (
-            <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-[color:var(--text-default)]">
+            <pre className="whitespace-pre-wrap break-words font-mono text-body leading-5 text-[color:var(--text-default)]">
               {content}
             </pre>
           )}

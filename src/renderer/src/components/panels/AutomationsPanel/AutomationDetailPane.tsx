@@ -63,12 +63,12 @@ export function AutomationDetailPane({
             live={definition.status === 'enabled'}
             label={DEFINITION_STATUS_LABEL[definition.status]}
           />
-          <h3 className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">{definition.name}</h3>
+          <h3 className="truncate text-body font-semibold text-[color:var(--text-strong)]">{definition.name}</h3>
           {definition.ownerModuleId ? (
-            <ModuleAttribution moduleId={definition.ownerModuleId} className="text-[11px]" />
+            <ModuleAttribution moduleId={definition.ownerModuleId} className="text-micro" />
           ) : null}
         </div>
-        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-micro">
           <Meta label="Trigger" value={cadenceSummary(definition.trigger)} />
           <Meta label="Action" value={`${actionLabel(definition.action.kind)} · ${definition.autonomyDefault === 'allow_changes' ? 'Allow changes' : 'Review only'}`} />
           <Meta label="Next run" value={nextAt !== null ? `${relativeFromNow(nextAt, now)} (${absoluteTime(nextAt)})` : definition.status === 'enabled' ? 'Pending' : 'Paused'} />
@@ -83,9 +83,9 @@ export function AutomationDetailPane({
         ) : null}
       </div>
 
-      <Section title="Run history" count={state === 'ready' ? runs.length : undefined} action={<GhostButton onClick={() => void loadRuns()} className="h-6 px-2 text-[11px]">Refresh</GhostButton>}>
+      <Section title="Run history" count={state === 'ready' ? runs.length : undefined} action={<GhostButton onClick={() => void loadRuns()} className="h-6 px-2 text-micro">Refresh</GhostButton>}>
         {state === 'loading' || state === 'idle' ? (
-          <div className="flex items-center gap-2 py-3 text-[11px] text-[color:var(--text-muted)]">
+          <div className="flex items-center gap-2 py-3 text-micro text-[color:var(--text-muted)]">
             <Spinner size={12} label="Loading runs" /> Loading runs…
           </div>
         ) : state === 'error' ? (
@@ -93,7 +93,7 @@ export function AutomationDetailPane({
             {error}
           </InlineNotice>
         ) : runs.length === 0 ? (
-          <p className="py-3 text-[11px] leading-5 text-[color:var(--text-muted)]">
+          <p className="py-3 text-micro leading-5 text-[color:var(--text-muted)]">
             No runs yet. {definition.status === 'enabled' ? 'The first run will appear here when the schedule fires or you run it now.' : 'Enable the automation to schedule runs.'}
           </p>
         ) : (
@@ -159,7 +159,7 @@ function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, 
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[11px] font-medium text-[color:var(--text-strong)]">{RUN_STATUS_LABEL[run.status]}</span>
+          <span className="text-micro font-medium text-[color:var(--text-strong)]">{RUN_STATUS_LABEL[run.status]}</span>
           {stamp !== null ? (
             <span className="shrink-0 tabular-nums text-micro text-[color:var(--text-subtle)]" title={absoluteTime(stamp)}>
               {relativeFromNow(stamp, now)}
@@ -171,11 +171,11 @@ function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, 
             as="p"
             multiline
             text={run.summary}
-            className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-[color:var(--text-muted)]"
+            className="mt-0.5 line-clamp-2 text-micro leading-4 text-[color:var(--text-muted)]"
           />
         ) : null}
         {run.blockedReason ? (
-          <p className="mt-0.5 text-[11px] leading-4 text-[color:var(--tone-warn)]">{run.blockedReason}</p>
+          <p className="mt-0.5 text-micro leading-4 text-[color:var(--tone-warn)]">{run.blockedReason}</p>
         ) : null}
         <AutomationRunActions run={run} onOpenAgent={onOpenAgent} onViewReport={onViewReport} onFinalize={onFinalize} finalizing={finalizing} />
       </div>

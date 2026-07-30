@@ -98,11 +98,11 @@ export function BacklogItemSearchPicker({
         />
       </div>
       {!hasQuery ? (
-        <p className="px-2.5 py-2 text-[12px] text-[color:var(--text-disabled)]">
+        <p className="px-2.5 py-2 text-meta text-[color:var(--text-disabled)]">
           {options.length === 0 ? noOptionsMessage : 'Type an item ID or name.'}
         </p>
       ) : visible.length === 0 ? (
-        <p className="px-2.5 py-2 text-[12px] text-[color:var(--text-disabled)]">No matching items.</p>
+        <p className="px-2.5 py-2 text-meta text-[color:var(--text-disabled)]">No matching items.</p>
       ) : (
         <div
           role={resultRole === 'listbox' ? 'listbox' : undefined}
@@ -122,7 +122,7 @@ export function BacklogItemSearchPicker({
                 data-backlog-search-result="true"
                 tabIndex={-1}
                 onClick={() => onSelect(option)}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
               >
                 {multiple ? (
                   <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
@@ -137,7 +137,7 @@ export function BacklogItemSearchPicker({
             )
           })}
           {remaining > 0 ? (
-            <p className="px-2.5 py-1.5 text-[11px] text-[color:var(--text-disabled)]">
+            <p className="px-2.5 py-1.5 text-micro text-[color:var(--text-disabled)]">
               {remaining} more — refine the search.
             </p>
           ) : null}

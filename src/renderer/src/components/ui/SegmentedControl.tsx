@@ -30,8 +30,8 @@ type SegmentedControlProps<V extends string = string> = {
 }
 
 const SEGMENT_SIZE: Record<'sm' | 'md', string> = {
-  sm: 'h-[26px] px-2.5 text-[11px]',
-  md: 'h-[30px] px-3.5 text-[12px]',
+  sm: 'h-[26px] px-2.5 text-micro',
+  md: 'h-control-sm px-3.5 text-meta',
 }
 
 export function SegmentedControl<V extends string = string>({

@@ -167,7 +167,7 @@ function WindowsMenuBar<MenuItem extends string>({
             key={label}
             type="button"
             onClick={(event) => onShowMenu(event, label)}
-            className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className="app-no-drag inline-flex h-7 items-center rounded-md px-2.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
           >
             {label}
           </button>
@@ -207,7 +207,7 @@ function WindowsMenuBar<MenuItem extends string>({
                   setMenuOpen(false)
                   onShowMenu(event, label)
                 }}
-                className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-[13px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
               >
                 {label}
               </button>

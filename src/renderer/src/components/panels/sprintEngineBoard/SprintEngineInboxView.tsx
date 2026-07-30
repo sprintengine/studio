@@ -316,7 +316,7 @@ export function SprintEngineInboxView({
                 // copy when evidence is present below, so it never reads as
                 // "nothing here" over a populated Evidence grouping.
                 visibleEvidence.length === 0 ? (
-                  <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                  <div className="px-3 py-6 text-meta leading-5 text-[color:var(--text-muted)]">
                     {emptyMessage}
                   </div>
                 ) : null
@@ -525,7 +525,7 @@ function SprintEngineSeededDocumentsPanel({
 
   return (
     <SprintEngineSeedPreviewShell title="Seeded documents" path={seedTitle ?? 'Seeded documents'} onBack={onBack}>
-      <p className="px-5 py-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
+      <p className="px-5 py-3 text-meta leading-5 text-[color:var(--text-muted)]">
         This sprint was seeded from the following {documentWord}. Open one to preview it.
       </p>
       <ul className="pb-2">
@@ -604,7 +604,7 @@ function SprintEngineSeedRowButton({
             // left margin as completed siblings — no ragged left edge.
             <span aria-hidden="true" className="icon-xs shrink-0" />
           ) : null}
-          <span className="min-w-0 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
+          <span className="min-w-0 truncate text-meta font-medium text-[color:var(--text-strong)]">
             {row.fileName}
           </span>
           {row.isPrimary ? (
@@ -616,7 +616,7 @@ function SprintEngineSeedRowButton({
         {/* Path on its own truncating line, then the short labels wrap — so
             every metadata item stays visible with no horizontal overflow even
             at the Inbox column's 320px minimum width. */}
-        <span className="flex min-w-0 flex-col gap-0.5 text-[11px] text-[color:var(--text-muted)]">
+        <span className="flex min-w-0 flex-col gap-0.5 text-micro text-[color:var(--text-muted)]">
           <span
             className="min-w-0 truncate font-mono text-[color:var(--text-subtle)]"
             title={row.path}
@@ -651,7 +651,7 @@ function SprintEngineSeedRowButton({
           type="button"
           onClick={() => void window.api.openExternal(provenance.url)}
           aria-label={`View ${provenance.nativeKey} in ${sprintEngineSeedProvenanceProviderLabel(provenance.provider)}`}
-          className="interactive mr-1 shrink-0 self-center rounded px-1.5 py-1 text-[11px] font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100 group-focus-within:opacity-100"
+          className="interactive mr-1 shrink-0 self-center rounded px-1.5 py-1 text-micro font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100 group-focus-within:opacity-100"
         >
           View in {sprintEngineSeedProvenanceProviderLabel(provenance.provider)}
         </button>
@@ -661,7 +661,7 @@ function SprintEngineSeedRowButton({
           type="button"
           onClick={() => onOpenInBacklog(row.backlogPath as string)}
           aria-label={`Open ${row.fileName} in Backlog`}
-          className="interactive mr-2 shrink-0 self-center rounded px-1.5 py-1 text-[11px] font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100 group-focus-within:opacity-100"
+          className="interactive mr-2 shrink-0 self-center rounded px-1.5 py-1 text-micro font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100 group-focus-within:opacity-100"
         >
           Open in Backlog
         </button>
@@ -688,8 +688,8 @@ function SprintEngineSeedPreview({
     return (
       <SprintEngineSeedPreviewShell title={row.fileName} path={row.path} onBack={onBack}>
         <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-          <span className="text-[12px] font-semibold text-[color:var(--tone-warn)]">Preview unavailable</span>
-          <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <span className="text-meta font-semibold text-[color:var(--tone-warn)]">Preview unavailable</span>
+          <span className="text-meta leading-5 text-[color:var(--text-muted)]">
             The project folder is not resolved yet, so this file cannot be read from disk.
           </span>
         </div>
@@ -768,13 +768,13 @@ function SprintEngineSeedFilePreview({
   return (
     <SprintEngineSeedPreviewShell title={row.fileName} path={row.path} onBack={onBack}>
       {state.kind === 'loading' ? (
-        <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--text-muted)]">
+        <div className="flex h-full items-center justify-center text-meta text-[color:var(--text-muted)]">
           Loading preview…
         </div>
       ) : (
         <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-          <span className="text-[12px] font-semibold text-[color:var(--tone-warn)]">Preview unavailable</span>
-          <span className="text-[12px] leading-5 text-[color:var(--text-muted)]">{state.reason}</span>
+          <span className="text-meta font-semibold text-[color:var(--tone-warn)]">Preview unavailable</span>
+          <span className="text-meta leading-5 text-[color:var(--text-muted)]">{state.reason}</span>
         </div>
       )}
     </SprintEngineSeedPreviewShell>
@@ -801,7 +801,7 @@ function SprintEngineSeedPreviewShell({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[12px] font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-meta font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
           aria-label="Back"
         >
           <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
@@ -815,7 +815,7 @@ function SprintEngineSeedPreviewShell({
           </svg>
           Back
         </button>
-        <span className="min-w-0 truncate text-[13px] font-medium text-[color:var(--text-strong)]" title={path}>
+        <span className="min-w-0 truncate text-body font-medium text-[color:var(--text-strong)]" title={path}>
           {title}
         </span>
       </header>

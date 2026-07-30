@@ -151,7 +151,7 @@ export default function AgentComposer({
     <div className="flex h-full min-h-0 w-full flex-col bg-[color:var(--bg-surface)]">
       <div className="flex items-center gap-3 border-b border-[color:var(--border-subtle)] px-4 py-2.5">
         {embedded ? null : (
-          <span className="text-[13px] font-semibold text-[color:var(--text-strong)]">New chat</span>
+          <span className="text-body font-semibold text-[color:var(--text-strong)]">New chat</span>
         )}
         <ProjectScopeChip
           folderPath={folderPath}
@@ -197,7 +197,7 @@ export default function AgentComposer({
               aria-label="Search agents"
               aria-controls="agent-composer-roster"
               aria-activedescendant={selectedRow ? optionId(selectedRow) : undefined}
-              className={`min-w-0 flex-1 bg-transparent text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+              className={`min-w-0 flex-1 bg-transparent text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
             />
           </div>
 
@@ -208,7 +208,7 @@ export default function AgentComposer({
             className="min-h-0 flex-1 overflow-y-auto"
           >
             {visibleRows.length === 0 ? (
-              <div className="px-2 py-6 text-center text-[11px] text-[color:var(--text-disabled)]">No matches</div>
+              <div className="px-2 py-6 text-center text-micro text-[color:var(--text-disabled)]">No matches</div>
             ) : (
               <>
                 {quickRows.length > 0 ? (
@@ -292,7 +292,7 @@ export default function AgentComposer({
           {selection.kind !== 'terminal' ? (
             <div className="mt-4 flex flex-wrap items-center gap-1.5">
               {!skillWorkspaceRoot ? null : composer.skillAttachment ? (
-                <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-[11.5px] font-medium text-[color:var(--text-strong)]">
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
                   <StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />
                   {composer.skillAttachment.name}
                   <button
@@ -321,7 +321,7 @@ export default function AgentComposer({
                       ref={ref}
                       type="button"
                       onClick={togglePopover}
-                      className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-[11.5px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+                      className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
                       {...triggerProps}
                     >
                       + Skill
@@ -330,7 +330,7 @@ export default function AgentComposer({
                 />
               )}
               {composer.connectorAttachment ? (
-                <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-[11.5px] font-medium text-[color:var(--text-strong)]">
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
                   <McpBrandIcon
                     slug={mcpIconSlug(composer.connectorAttachment.id)}
                     name={composer.connectorAttachment.name}
@@ -360,7 +360,7 @@ export default function AgentComposer({
                       ref={ref}
                       type="button"
                       onClick={togglePopover}
-                      className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-[11.5px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+                      className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
                       {...triggerProps}
                     >
                       + Connector
@@ -375,10 +375,10 @@ export default function AgentComposer({
             <button
               type="button"
               onClick={() => commit(selection)}
-              className="inline-flex items-center gap-2 rounded-md bg-[color:var(--accent-primary)] px-4 py-1.5 text-[13px] font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] focus-visible:focus-ring"
+              className="inline-flex items-center gap-2 rounded-md bg-[color:var(--accent-primary)] px-4 py-1.5 text-body font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] focus-visible:focus-ring"
             >
               {selection.kind === 'terminal' ? 'Open terminal' : 'Start chat'}
-              <kbd className="rounded bg-black/15 px-1 font-mono text-[11px]">⏎</kbd>
+              <kbd className="rounded bg-black/15 px-1 font-mono text-micro">⏎</kbd>
             </button>
           </div>
         </div>
@@ -436,7 +436,7 @@ function ProjectScopeChip({
           ref={ref}
           type="button"
           onClick={togglePopover}
-          className="inline-flex min-w-0 items-center gap-1.5 rounded border border-[color:var(--border-subtle)] px-2 py-0.5 text-[11.5px] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-default)] focus-visible:focus-ring"
+          className="inline-flex min-w-0 items-center gap-1.5 rounded border border-[color:var(--border-subtle)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-default)] focus-visible:focus-ring"
           {...triggerProps}
         >
           <FolderGlyph className="icon-xs shrink-0" />
@@ -461,7 +461,7 @@ function ProjectScopeChip({
           >
             <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
             <span className="min-w-0">
-              <span className="block truncate text-[12px] text-[color:var(--text-default)]">{option.label}</span>
+              <span className="block truncate text-meta text-[color:var(--text-default)]">{option.label}</span>
               <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">{option.path}</span>
             </span>
             {current ? (
@@ -482,7 +482,7 @@ function ProjectScopeChip({
           setOpen(false)
           onBrowseProject()
         }}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
       >
         <svg className="icon-xs shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -529,7 +529,7 @@ function ComposerRosterRow({
       <span className={selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}>
         {icon}
       </span>
-      <TruncatedText as="span" text={label} className="text-[13px]" />
+      <TruncatedText as="span" text={label} className="text-body" />
     </button>
   )
 }
@@ -549,7 +549,7 @@ function GetSpecialistsRow({ onOpenMarketplace }: { onOpenMarketplace: () => voi
       className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2 rounded py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
     >
       <SpecialistPacksSettingsIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
-      <TruncatedText as="span" text="Get specialist roles" className="text-[13px]" />
+      <TruncatedText as="span" text="Get specialist roles" className="text-body" />
       <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
@@ -592,10 +592,10 @@ function ComposerConfig({
     return (
       <div>
         <div className="flex items-center gap-2.5">
-          <TerminalSessionIcon className="h-[18px] w-[18px] text-[color:var(--text-strong)]" />
-          <span className="text-[15px] font-semibold text-[color:var(--text-strong)]">Terminal</span>
+          <TerminalSessionIcon className="size-icon-md text-[color:var(--text-strong)]" />
+          <span className="text-title font-semibold text-[color:var(--text-strong)]">Terminal</span>
         </div>
-        <p className="mt-1 max-w-[46ch] text-[12.5px] leading-relaxed text-[color:var(--text-muted)]">
+        <p className="mt-1 max-w-[46ch] text-body leading-relaxed text-[color:var(--text-muted)]">
           A plain shell in this project's folder — no agent, no model.
         </p>
       </div>
@@ -608,18 +608,18 @@ function ComposerConfig({
     ? activeSpecialist!.description
     : 'A general-purpose agent with no role prompt — it runs your instructions as written.'
   const icon = isSpecialist ? (
-    <SpecialistActionIcon icon={activeSpecialist!.icon} className="h-[18px] w-[18px] text-[color:var(--text-strong)]" />
+    <SpecialistActionIcon icon={activeSpecialist!.icon} className="size-icon-md text-[color:var(--text-strong)]" />
   ) : (
-    <CliIcon cli={selectionCli} className="h-[18px] w-[18px] text-[color:var(--text-strong)]" />
+    <CliIcon cli={selectionCli} className="size-icon-md text-[color:var(--text-strong)]" />
   )
 
   return (
     <div>
       <div className="flex items-center gap-2.5">
         {icon}
-        <span className="text-[15px] font-semibold text-[color:var(--text-strong)]">{name}</span>
+        <span className="text-title font-semibold text-[color:var(--text-strong)]">{name}</span>
       </div>
-      <p className="mt-1 max-w-[52ch] text-[12.5px] leading-relaxed text-[color:var(--text-muted)]">{description}</p>
+      <p className="mt-1 max-w-[52ch] text-body leading-relaxed text-[color:var(--text-muted)]">{description}</p>
 
       {/* The runtime, as the two controls it is: the model, and the reasoning
           level with its context window. Picking either persists as this agent's

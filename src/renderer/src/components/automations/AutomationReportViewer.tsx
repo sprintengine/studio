@@ -183,7 +183,7 @@ export function ReportPathPicker({
             onClick={() => onSelect(path)}
             title={path}
             className={[
-              'h-6 rounded px-2 text-[11px] font-medium outline-none transition-colors focus-visible:focus-ring',
+              'h-6 rounded px-2 text-micro font-medium outline-none transition-colors focus-visible:focus-ring',
               active
                 ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                 : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
@@ -209,7 +209,7 @@ export function ReportViewBody({
 }): JSX.Element {
   if (state.kind === 'loading') {
     return (
-      <div className="flex items-center gap-2 py-6 text-[12px] text-[color:var(--text-muted)]">
+      <div className="flex items-center gap-2 py-6 text-meta text-[color:var(--text-muted)]">
         <Spinner size={14} label="Loading report" />
         Loading report…
       </div>
@@ -240,7 +240,7 @@ export function ReportViewBody({
   if (state.kind === 'html-opened') {
     return (
       <div className="flex flex-col items-start gap-3 py-6">
-        <p className="text-[13px] leading-6 text-[color:var(--text-default)]">
+        <p className="text-body leading-6 text-[color:var(--text-default)]">
           This report opened in your browser.
         </p>
         {onOpenHtml ? <GhostButton onClick={onOpenHtml}>Open again</GhostButton> : null}
@@ -256,10 +256,10 @@ export function ReportViewBody({
   // cause sends the user looking for a pull request that does not exist.
   return (
     <div className="flex flex-col items-start gap-2 py-6">
-      <p className="text-[14px] font-semibold text-[color:var(--text-strong)]">
+      <p className="text-heading font-semibold text-[color:var(--text-strong)]">
         {pullRequestUrl ? 'This report hasn’t been merged yet' : 'This report isn’t in your workspace'}
       </p>
-      <p className="max-w-md text-[12px] leading-5 text-[color:var(--text-muted)]">
+      <p className="max-w-md text-meta leading-5 text-[color:var(--text-muted)]">
         {pullRequestUrl
           ? 'Its file lands under reports/ once the run’s pull request merges. Until then, open the pull request to review it.'
           : 'The run’s summary named this file, but there’s no matching file under reports/ here. The agent may have described a report it didn’t write.'}
@@ -269,7 +269,7 @@ export function ReportViewBody({
           href={pullRequestUrl}
           target="_blank"
           rel="noreferrer"
-          className="mt-1 inline-flex h-6 items-center rounded px-1.5 text-[12px] font-medium text-[color:var(--accent-primary)] hover:underline"
+          className="mt-1 inline-flex h-6 items-center rounded px-1.5 text-meta font-medium text-[color:var(--accent-primary)] hover:underline"
         >
           Pull request
         </a>

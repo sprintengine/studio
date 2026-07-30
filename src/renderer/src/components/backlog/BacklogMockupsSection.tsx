@@ -107,7 +107,7 @@ export function BacklogMockupsSection({
     >
       <div className="flex flex-col gap-2 px-3">
         {entries.length === 0 ? (
-          <p className="py-0.5 text-[12px] text-[color:var(--text-disabled)]">
+          <p className="py-0.5 text-meta text-[color:var(--text-disabled)]">
             No mockups attached. Use “Attach mockup…” to add one.
           </p>
         ) : (
@@ -161,12 +161,12 @@ function MockupRow({
             tabIndex={0}
             role="note"
             aria-label={`${entry.path}: missing, no file on disk`}
-            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 font-mono text-[12px] text-[color:var(--text-disabled)] outline-none focus-visible:focus-ring"
+            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 font-mono text-meta text-[color:var(--text-disabled)] outline-none focus-visible:focus-ring"
           >
             {entry.path}
           </span>
         </Tooltip>
-        <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">Missing</span>
+        <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">Missing</span>
         {onRemove ? <RemoveButton label={`Remove missing mockup ${entry.path}`} onClick={onRemove} /> : null}
       </li>
     )
@@ -319,7 +319,7 @@ function AttachMockupEditor({
           aria-expanded={triggerProps['aria-expanded']}
           aria-controls={triggerProps['aria-controls']}
           onClick={togglePopover}
-          className={`interactive inline-flex min-h-6 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${
+          className={`interactive inline-flex min-h-6 items-center gap-1 rounded px-1.5 py-0.5 text-micro font-medium hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${
             opened
               ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
               : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
@@ -337,7 +337,7 @@ function AttachMockupEditor({
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search mockups or type a path…"
           aria-label="Search mockup files"
-          className="w-full rounded border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-2 py-1 text-[12px] text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--border-strong)]"
+          className="w-full rounded border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-2 py-1 text-meta text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--border-strong)]"
         />
         <ul role="listbox" aria-label="Mockup files" className="flex max-h-64 flex-col gap-0.5 overflow-auto">
           {filtered.map((choice) => (
@@ -347,7 +347,7 @@ function AttachMockupEditor({
                 onClick={() => commit(choice.relativePath)}
                 className="interactive flex w-full min-w-0 flex-col rounded px-2 py-1 text-left hover:bg-[color:var(--bg-hover)]"
               >
-                <span className="truncate text-[12px] text-[color:var(--text-default)]">{choice.title}</span>
+                <span className="truncate text-meta text-[color:var(--text-default)]">{choice.title}</span>
                 <TruncatedText
                   as="span"
                   text={choice.relativePath}
@@ -361,15 +361,15 @@ function AttachMockupEditor({
               <button
                 type="button"
                 onClick={() => commit(freeTextPath)}
-                className="interactive flex w-full min-w-0 items-center gap-1 rounded px-2 py-1 text-left text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
+                className="interactive flex w-full min-w-0 items-center gap-1 rounded px-2 py-1 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
               >
                 <span className="text-[color:var(--text-muted)]">Attach path</span>
-                <span className="truncate font-mono text-[11px]">{freeTextPath}</span>
+                <span className="truncate font-mono text-micro">{freeTextPath}</span>
               </button>
             </li>
           ) : null}
           {filtered.length === 0 && !freeTextValid ? (
-            <li className="px-2 py-1 text-[11px] text-[color:var(--text-disabled)]">
+            <li className="px-2 py-1 text-micro text-[color:var(--text-disabled)]">
               {choices.length === 0 ? 'No mockup files found under backlog/mockups.' : 'No matching mockups.'}
             </li>
           ) : null}

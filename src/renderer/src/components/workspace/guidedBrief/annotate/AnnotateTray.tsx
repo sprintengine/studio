@@ -78,7 +78,7 @@ export function AnnotateTray({
                     min-w-0 flex-1 text-left focus-visible:focus-ring disabled:opacity-60
                   "
                 >
-                  <span className="line-clamp-2 text-[12px] leading-5 text-[color:var(--text-default)]">
+                  <span className="line-clamp-2 text-meta leading-5 text-[color:var(--text-default)]">
                     {annotation.message}
                   </span>
                   {unanchored ? (
@@ -113,7 +113,7 @@ export function AnnotateTray({
       {submitState.kind === 'failed' ? (
         <div
           role="alert"
-          className="max-w-[360px] rounded-md border border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-3 py-1.5 text-[11px] leading-4 text-[color:var(--tone-warn-on-tint)]"
+          className="max-w-[360px] rounded-md border border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-3 py-1.5 text-micro leading-4 text-[color:var(--tone-warn-on-tint)]"
         >
           {submitState.reason}
         </div>
@@ -125,7 +125,7 @@ export function AnnotateTray({
           onClick={onToggleList}
           aria-expanded={listOpen}
           className="
-            inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-[11px] text-[color:var(--text-strong)]
+            inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro text-[color:var(--text-strong)]
             transition-colors hover:bg-[color:var(--bg-hover)]
             focus-visible:focus-ring
           "
@@ -146,7 +146,7 @@ export function AnnotateTray({
           disabled={submitting}
           onClick={onClear}
           className="
-            inline-flex h-6 items-center rounded-full px-2 text-[11px] text-[color:var(--text-subtle)]
+            inline-flex h-6 items-center rounded-full px-2 text-micro text-[color:var(--text-subtle)]
             transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]
             disabled:opacity-60
             focus-visible:focus-ring
@@ -159,7 +159,7 @@ export function AnnotateTray({
           disabled={submitting || annotations.length === 0}
           onClick={onSend}
           className="
-            inline-flex h-6 items-center rounded-full bg-[color:var(--accent-primary)] px-3 text-[11px] font-medium
+            inline-flex h-6 items-center rounded-full bg-[color:var(--accent-primary)] px-3 text-micro font-medium
             text-[color:var(--text-on-accent)] transition-colors disabled:opacity-60 enabled:hover:opacity-90
             focus-visible:focus-ring
           "

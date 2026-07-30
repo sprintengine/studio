@@ -206,7 +206,7 @@ function FilterGroup<T extends string>({
       aria-label={label}
       className={`py-1 ${divider ? 'mt-1 border-t border-[color:var(--border-subtle)] pt-1.5' : ''}`}
     >
-      <p className="px-2.5 pb-0.5 text-[11px] text-[color:var(--text-subtle)]">{label}</p>
+      <p className="px-2.5 pb-0.5 text-micro text-[color:var(--text-subtle)]">{label}</p>
       {items.map((item) => {
         const selected = item.value === current
         return (
@@ -223,7 +223,7 @@ function FilterGroup<T extends string>({
             onKeyDown={onOptionKey}
             onClick={() => onSelect(item.value)}
             className={[
-              'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px]',
+              'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-meta',
               'hover:bg-[color:var(--bg-hover)]',
               selected
                 ? 'text-[color:var(--text-strong)]'

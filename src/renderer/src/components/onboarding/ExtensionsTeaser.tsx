@@ -64,7 +64,7 @@ export function ExtensionsTeaser() {
   if (view.kind === 'loading') {
     return (
       <TeaserSection>
-        <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+        <div className="flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
           <Spinner className="icon-sm shrink-0" />
           Looking for extensions to add…
         </div>
@@ -75,7 +75,7 @@ export function ExtensionsTeaser() {
   if (view.kind === 'error') {
     return (
       <TeaserSection>
-        <p className="text-[12px] text-[color:var(--text-muted)]">
+        <p className="text-meta text-[color:var(--text-muted)]">
           Couldn’t load extensions right now. You can browse them later from Extensions in the sidebar.
         </p>
       </TeaserSection>
@@ -85,7 +85,7 @@ export function ExtensionsTeaser() {
   if (view.kind === 'offline') {
     return (
       <TeaserSection>
-        <p className="text-[12px] text-[color:var(--text-muted)]">
+        <p className="text-meta text-[color:var(--text-muted)]">
           You’re offline — browse extensions later from Extensions in the sidebar.
         </p>
       </TeaserSection>
@@ -96,7 +96,7 @@ export function ExtensionsTeaser() {
     return (
       <TeaserSection>
         {view.staleNotice ? <StaleNotice message={view.staleNotice} /> : null}
-        <p className="text-[12px] text-[color:var(--text-muted)]">No extensions published yet.</p>
+        <p className="text-meta text-[color:var(--text-muted)]">No extensions published yet.</p>
       </TeaserSection>
     )
   }
@@ -105,10 +105,10 @@ export function ExtensionsTeaser() {
     <TeaserSection labelledBy="extensions-teaser-heading">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 id="extensions-teaser-heading" className="text-[13px] font-semibold text-[color:var(--text-strong)]">
+          <h3 id="extensions-teaser-heading" className="text-body font-semibold text-[color:var(--text-strong)]">
             Add extensions
           </h3>
-          <p className="mt-0.5 text-[11px] leading-5 text-[color:var(--text-muted)]">
+          <p className="mt-0.5 text-micro leading-5 text-[color:var(--text-muted)]">
             MCP servers, skill packs, and more from the extensions registry.
           </p>
         </div>
@@ -138,7 +138,7 @@ export function ExtensionsTeaser() {
 // live registry — shape-coded (dot + text), never colour-only.
 function StaleNotice({ message }: { message: string }) {
   return (
-    <p className="flex items-start gap-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+    <p className="flex items-start gap-1.5 text-micro leading-4 text-[color:var(--text-subtle)]">
       <StatusDot tone="neutral" className="mt-1 shrink-0" />
       <span>{message}</span>
     </p>
@@ -172,19 +172,19 @@ function TeaserRow({ plugin }: { plugin: MarketplacePluginEntry }) {
     <li className="flex items-center gap-2.5 py-2">
       <span
         aria-hidden
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[color:var(--bg-active)] font-mono text-[11px] font-semibold text-[color:var(--text-default)]"
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[color:var(--bg-active)] font-mono text-micro font-semibold text-[color:var(--text-default)]"
       >
         {mcpMonogram(plugin.name)}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] text-[color:var(--text-default)]">{plugin.name}</span>
+        <span className="block truncate text-meta text-[color:var(--text-default)]">{plugin.name}</span>
         {components ? (
-          <span className="mt-0.5 block truncate text-[11px] leading-4 text-[color:var(--text-subtle)]">
+          <span className="mt-0.5 block truncate text-micro leading-4 text-[color:var(--text-subtle)]">
             {components}
           </span>
         ) : null}
       </span>
-      <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-[color:var(--text-subtle)]">
+      <span className="inline-flex shrink-0 items-center gap-1.5 text-micro text-[color:var(--text-subtle)]">
         {verified ? null : <StatusDot tone="neutral" />}
         {verified ? plugin.publisher.name : `${plugin.publisher.name} · Community`}
       </span>

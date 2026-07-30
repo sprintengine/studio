@@ -1312,7 +1312,7 @@ function HorizonPolicyMenu({
 function PolicyControl({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[11px] text-[color:var(--text-muted)]">{label}</span>
+      <span className="text-micro text-[color:var(--text-muted)]">{label}</span>
       {children}
     </div>
   )
@@ -1335,7 +1335,7 @@ function SavedIndicator({
     )
   }
   return (
-    <span aria-live="polite" className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-subtle)]">
+    <span aria-live="polite" className="inline-flex items-center gap-1.5 text-micro text-[color:var(--text-subtle)]">
       {state === 'saved' ? (
         <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
           <path

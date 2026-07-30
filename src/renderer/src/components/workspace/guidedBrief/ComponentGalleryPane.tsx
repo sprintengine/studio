@@ -279,8 +279,8 @@ function GallerySection({
   return (
     <section className="mb-5 last:mb-0">
       <header className="flex items-baseline justify-between px-0.5 pb-2">
-        <span className="text-[11px] font-semibold text-[color:var(--text-strong)]">{title}</span>
-        <span className="text-[11px] tabular-nums text-[color:var(--text-subtle)]">{count}</span>
+        <span className="text-micro font-semibold text-[color:var(--text-strong)]">{title}</span>
+        <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">{count}</span>
       </header>
       {children}
     </section>
@@ -381,7 +381,7 @@ function PlaceholderCard({
         className="h-[108px] border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]"
       />
       <span className="flex flex-col gap-0.5 px-3 py-2">
-        <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">{title}</span>
+        <span className="text-meta font-semibold text-[color:var(--text-strong)]">{title}</span>
         <TruncatedText
           as="span"
           text={relativePath}
@@ -409,7 +409,7 @@ function BuildingCard({ title, path }: { title: string; path: string }) {
         <span className="text-micro text-[color:var(--text-subtle)]">Building {title}…</span>
       </span>
       <span className="flex flex-col gap-0.5 px-3 py-2">
-        <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">{title}</span>
+        <span className="text-meta font-semibold text-[color:var(--text-strong)]">{title}</span>
         <TruncatedText
           as="span"
           text={path}
@@ -496,7 +496,7 @@ function FoundationCard({
         focus-visible:focus-ring
       "
     >
-      <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">{foundation.title}</span>
+      <span className="text-meta font-semibold text-[color:var(--text-strong)]">{foundation.title}</span>
       <TruncatedText
         as="span"
         text={foundation.relativePath}
@@ -520,10 +520,10 @@ function EmptyGallery() {
         ))}
       </span>
       <span className="flex flex-col gap-1">
-        <span className="text-[12.5px] font-semibold text-[color:var(--text-strong)]">
+        <span className="text-body font-semibold text-[color:var(--text-strong)]">
           No components yet
         </span>
-        <span className="max-w-[360px] text-[11.5px] leading-5 text-[color:var(--text-muted)]">
+        <span className="max-w-[360px] text-meta leading-5 text-[color:var(--text-muted)]">
           The designer starts with your tokens and principles — components appear here as each one is
           built.
         </span>

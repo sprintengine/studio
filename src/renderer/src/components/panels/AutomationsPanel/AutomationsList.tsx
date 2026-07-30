@@ -35,8 +35,8 @@ export const DefinitionList = React.forwardRef<HTMLUListElement, DefinitionListP
   if (definitions.length === 0) {
     return (
       <div className="flex w-full shrink-0 flex-col items-center justify-center gap-3 px-6 py-10 text-center md:w-[340px] md:border-r md:border-[color:var(--border-default)]">
-        <p className="text-[12px] font-medium text-[color:var(--text-strong)]">No automations yet</p>
-        <p className="max-w-[15rem] text-[11px] leading-5 text-[color:var(--text-muted)]">
+        <p className="text-meta font-medium text-[color:var(--text-strong)]">No automations yet</p>
+        <p className="max-w-[15rem] text-micro leading-5 text-[color:var(--text-muted)]">
           Schedule an agent to run on this project — a nightly review, a recurring check.
         </p>
         <PrimaryButton onClick={onCreate}>New automation</PrimaryButton>
@@ -139,7 +139,7 @@ function DefinitionRow({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <TruncatedText as="span" text={def.name} className="text-[12px] font-medium text-[color:var(--text-strong)]" />
+            <TruncatedText as="span" text={def.name} className="text-meta font-medium text-[color:var(--text-strong)]" />
             {def.ownerModuleId ? <ModuleAttribution moduleId={def.ownerModuleId} className="text-micro" /> : null}
             {showStatusText ? (
               <span
@@ -152,7 +152,7 @@ function DefinitionRow({
               </span>
             ) : null}
           </div>
-          <div className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
+          <div className="mt-0.5 truncate text-micro text-[color:var(--text-muted)]">
             <span className="text-[color:var(--text-subtle)]">{triggerFamilyLabel(def.trigger)}</span>
             {detail !== null ? (
               <>
@@ -190,7 +190,7 @@ function DefinitionRow({
         <GhostButton
           onClick={(e) => { e.stopPropagation(); onRunNow() }}
           disabled={busy || def.status === 'paused'}
-          className="h-6 px-2 text-[11px]"
+          className="h-6 px-2 text-micro"
         >
           Run now
         </GhostButton>
@@ -205,7 +205,7 @@ function DefinitionRow({
 export function DetailEmptyState({ hasDefinitions }: { hasDefinitions: boolean }) {
   return (
     <div className="flex h-full items-center justify-center px-6 text-center">
-      <p className="max-w-xs text-[11px] leading-5 text-[color:var(--text-muted)]">
+      <p className="max-w-xs text-micro leading-5 text-[color:var(--text-muted)]">
         {hasDefinitions
           ? 'Select an automation to see its run history and details.'
           : 'Create an automation to schedule agents on this project.'}

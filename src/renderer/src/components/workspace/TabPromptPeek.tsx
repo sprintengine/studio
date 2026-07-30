@@ -169,7 +169,7 @@ export function TabPromptPeek({ prompt, children, tabLabel }: TabPromptPeekProps
         >
           <p
             ref={textRef}
-            className="m-0 whitespace-pre-wrap break-words text-[12px] leading-snug text-[color:var(--text-default)]"
+            className="m-0 whitespace-pre-wrap break-words text-meta leading-snug text-[color:var(--text-default)]"
             style={
               expanded
                 ? { maxHeight: EXPANDED_MAX_HEIGHT, overflowY: 'auto' }

@@ -84,7 +84,7 @@ function TargetGlyph({ target }: { target: FolderOpenTargetId }) {
   return (
     <span
       aria-hidden="true"
-      className="grid size-icon-sm shrink-0 place-items-center rounded-[3px] bg-[color:var(--bg-active)] font-mono text-[11px] font-medium leading-none tracking-tight text-[color:var(--text-muted)]"
+      className="grid size-icon-sm shrink-0 place-items-center rounded-[3px] bg-[color:var(--bg-active)] font-mono text-micro font-medium leading-none tracking-tight text-[color:var(--text-muted)]"
     >
       {TARGET_MARK[target]}
     </span>
@@ -427,13 +427,13 @@ export function WorkspaceIdentity({
               aria-label={sidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
               className={`app-no-drag interactive flex min-w-0 items-center rounded-[5px] px-1.5 py-0.5 hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
             >
-              <span className="min-w-0 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+              <span className="min-w-0 truncate text-body font-semibold text-[color:var(--text-strong)]">
                 {activeWorkspace.name}
               </span>
             </button>
           ) : (
             <span className="flex min-w-0 items-center px-1.5 py-0.5">
-              <span className="min-w-0 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+              <span className="min-w-0 truncate text-body font-semibold text-[color:var(--text-strong)]">
                 {activeWorkspace.name}
               </span>
             </span>
@@ -459,14 +459,14 @@ export function WorkspaceIdentity({
               type="button"
               onClick={toggleFilesPanel}
               aria-label={`Toggle file explorer, ${folderPath}`}
-              className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-[12px] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
               <span className="min-w-0 truncate">{projectName}</span>
             </button>
           </Tooltip>
         ) : (
-          <span className="hidden min-w-0 shrink-[100] items-center gap-1 text-[12px] text-[color:var(--text-muted)] md:inline-flex">
+          <span className="hidden min-w-0 shrink-[100] items-center gap-1 text-meta text-[color:var(--text-muted)] md:inline-flex">
             <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
             <span className="min-w-0 truncate">{projectName}</span>
           </span>
@@ -485,14 +485,14 @@ export function WorkspaceIdentity({
               aria-label={`${branchName ? `Toggle Git panel, branch ${branchName}` : 'Toggle Git panel, detached HEAD'}${
                 gitHasChanges ? `, ${gitChangeCount} uncommitted ${gitChangeCount === 1 ? 'change' : 'changes'}` : ''
               }`}
-              className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-[12px] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              className={`app-no-drag interactive flex min-w-0 items-center gap-1 rounded-[5px] px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
               <span className="min-w-0 max-w-[22ch] truncate">{branchName ?? 'detached'}</span>
               {gitHasChanges ? (
                 <span
                   aria-hidden="true"
-                  className="ml-0.5 flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[color:var(--git-count-badge-bg)] px-1.5 text-[11px] font-bold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]"
+                  className="ml-0.5 flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[color:var(--git-count-badge-bg)] px-1.5 text-micro font-bold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]"
                 >
                   {gitChangeLabel}
                 </span>
@@ -500,13 +500,13 @@ export function WorkspaceIdentity({
             </button>
           </Tooltip>
         ) : (
-          <span className="hidden min-w-0 shrink-[10] items-center gap-1 text-[12px] text-[color:var(--text-muted)] sm:inline-flex">
+          <span className="hidden min-w-0 shrink-[10] items-center gap-1 text-meta text-[color:var(--text-muted)] sm:inline-flex">
             <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
             <span className="min-w-0 truncate">{branchName ?? 'detached'}</span>
             {gitHasChanges ? (
               <span
                 title={`${gitChangeCount} uncommitted ${gitChangeCount === 1 ? 'change' : 'changes'}`}
-                className="ml-0.5 flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[color:var(--git-count-badge-bg)] px-1.5 text-[11px] font-bold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]"
+                className="ml-0.5 flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[color:var(--git-count-badge-bg)] px-1.5 text-micro font-bold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]"
               >
                 {gitChangeLabel}
               </span>

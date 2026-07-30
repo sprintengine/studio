@@ -220,20 +220,20 @@ export default function AgentComposerPopover({
           aria-label="Search agents"
           aria-controls="agent-composer-pop-roster"
           aria-activedescendant={selectedRow ? optionId(selectedRow) : undefined}
-          className={`min-w-0 flex-1 bg-transparent text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+          className={`min-w-0 flex-1 bg-transparent text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
         />
       </div>
 
       {composer.catalogStatus === 'loading' ? (
-        <div className="px-3 py-1.5 text-[11px] text-[color:var(--text-disabled)]" role="status">
+        <div className="px-3 py-1.5 text-micro text-[color:var(--text-disabled)]" role="status">
           Loading installed agents…
         </div>
       ) : composer.catalogStatus === 'error' ? (
-        <div className="px-3 py-1.5 text-[11px] text-[color:var(--text-muted)]" role="status">
+        <div className="px-3 py-1.5 text-micro text-[color:var(--text-muted)]" role="status">
           {composer.catalogError ?? 'Could not load agent plugins.'} Showing built-in agents.
         </div>
       ) : composer.agentCliOptions.length === 0 ? (
-        <div className="px-3 py-1.5 text-[11px] text-[color:var(--text-muted)]" role="status">
+        <div className="px-3 py-1.5 text-micro text-[color:var(--text-muted)]" role="status">
           No agent plugins installed.
         </div>
       ) : null}
@@ -245,7 +245,7 @@ export default function AgentComposerPopover({
         className="min-h-0 flex-1 overflow-y-auto py-1"
       >
         {visibleRows.length === 0 ? (
-          <div className="px-3 py-5 text-center text-[11px] text-[color:var(--text-disabled)]">No matches</div>
+          <div className="px-3 py-5 text-center text-micro text-[color:var(--text-disabled)]">No matches</div>
         ) : (
           visibleRows.map((row, index) => {
             const prev = visibleRows[index - 1]
@@ -344,7 +344,7 @@ export default function AgentComposerPopover({
       {skillAttachAvailable || worktreeAttachAvailable ? (
         <div className="flex flex-wrap items-center gap-1.5 border-t border-[color:var(--border-subtle)] px-2 py-1.5">
           {!skillAttachAvailable ? null : composer.skillAttachment ? (
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-[11.5px] font-medium text-[color:var(--text-strong)]">
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
               <StarGlyph filled className="icon-xs text-[color:var(--accent-primary)]" />
               {composer.skillAttachment.name}
               <button
@@ -374,7 +374,7 @@ export default function AgentComposerPopover({
                   ref={ref}
                   type="button"
                   onClick={togglePopover}
-                  className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-[11.5px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+                  className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
                   {...triggerProps}
                 >
                   + Skill
@@ -383,7 +383,7 @@ export default function AgentComposerPopover({
             />
           )}
           {!worktreeAttachAvailable ? null : composer.worktreeName !== null ? (
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-[11.5px] font-medium text-[color:var(--text-strong)]">
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]">
               Worktree
               <input
                 autoFocus
@@ -417,7 +417,7 @@ export default function AgentComposerPopover({
               <button
                 type="button"
                 onClick={() => composer.setWorktreeName('')}
-                className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-[11.5px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+                className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
               >
                 + Worktree
               </button>
@@ -514,7 +514,7 @@ function PopoverRosterRow({
         }`}
       >
         <span className={selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}>{icon}</span>
-        <TruncatedText as="span" text={label} className="text-[13px]" />
+        <TruncatedText as="span" text={label} className="text-body" />
         {persisted ? (
           <svg className="icon-sm shrink-0 text-[color:var(--accent-primary)]" viewBox="0 0 10 10" aria-hidden="true">
             <path d="M2 5.2l2 2 4-4" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />

@@ -71,10 +71,10 @@ export function InlineNotice({ tone, title, hint, detail, children, action, clas
 
   const details = detail ? (
     <details className="mt-1.5">
-      <summary className="cursor-pointer select-none text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]">
+      <summary className="cursor-pointer select-none text-meta text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]">
         Show details
       </summary>
-      <pre className="font-mono mt-1 overflow-x-auto whitespace-pre-wrap break-words rounded-[3px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1.5 text-[11px] leading-[1.5] text-[color:var(--text-muted)]">
+      <pre className="font-mono mt-1 overflow-x-auto whitespace-pre-wrap break-words rounded-[3px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1.5 text-micro leading-[1.5] text-[color:var(--text-muted)]">
         {detail}
       </pre>
     </details>
@@ -93,8 +93,8 @@ export function InlineNotice({ tone, title, hint, detail, children, action, clas
       >
         {glyph}
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] leading-6 text-[color:var(--text-strong)]">{title}</div>
-          {hint ? <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">{hint}</div> : null}
+          <div className="text-body leading-6 text-[color:var(--text-strong)]">{title}</div>
+          {hint ? <div className="mt-0.5 text-meta leading-5 text-[color:var(--text-muted)]">{hint}</div> : null}
           {details}
           {action ? <div className="mt-2 flex flex-wrap items-center gap-2">{action}</div> : null}
         </div>
@@ -107,7 +107,7 @@ export function InlineNotice({ tone, title, hint, detail, children, action, clas
     <div
       role={tone === 'error' ? 'alert' : 'status'}
       className={[
-        'flex items-start gap-2.5 rounded-[5px] border border-[color:var(--border-subtle)] px-3 py-2 text-[13px] leading-6 text-[color:var(--text-strong)]',
+        'flex items-start gap-2.5 rounded-[5px] border border-[color:var(--border-subtle)] px-3 py-2 text-body leading-6 text-[color:var(--text-strong)]',
         className ?? '',
       ].join(' ')}
       style={{ backgroundColor: softVar }}

@@ -155,7 +155,7 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
   }
 
   if (folderMissing || !folderReadyPath) {
-    return <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] px-6 text-center text-[12px] text-[color:var(--text-disabled)]">Open a folder to search file contents.</div>
+    return <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] px-6 text-center text-meta text-[color:var(--text-disabled)]">Open a folder to search file contents.</div>
   }
 
   return (
@@ -166,10 +166,10 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search file contents..."
-          className="h-8 w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-app)] px-3 text-[12px] text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] outline-none transition-colors focus:border-[color:var(--color-5)]"
+          className="h-8 w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-app)] px-3 text-meta text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] outline-none transition-colors focus:border-[color:var(--color-5)]"
         />
         {statusText && (
-          <div className={`mt-2 text-[11px] ${error ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-disabled)]'}`}>
+          <div className={`mt-2 text-micro ${error ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-disabled)]'}`}>
             {statusText}
           </div>
         )}
@@ -177,9 +177,9 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
 
       <div className="flex-1 overflow-y-auto">
         {!trimmedQuery ? (
-          <div className="px-4 py-3 text-[12px] text-[color:var(--text-disabled)]">Enter text to search this workspace.</div>
+          <div className="px-4 py-3 text-meta text-[color:var(--text-disabled)]">Enter text to search this workspace.</div>
         ) : !searching && !error && results.length === 0 ? (
-          <div className="px-4 py-3 text-[12px] text-[color:var(--text-disabled)]">No content matches.</div>
+          <div className="px-4 py-3 text-meta text-[color:var(--text-disabled)]">No content matches.</div>
         ) : (
           <div className="divide-y divide-[color:var(--border-default)]">
             {results.map((entry, index) => {
@@ -190,10 +190,10 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
                   key={`${entry.path}:${entry.lineNumber}:${entry.column}:${index}`}
                   tone="neutral"
                   title={
-                    <span className="font-mono text-[12px] text-[color:var(--text-default)]">{fileLabel}</span>
+                    <span className="font-mono text-meta text-[color:var(--text-default)]">{fileLabel}</span>
                   }
                   supporting={
-                    <span className="font-mono text-[12px] leading-5 text-[color:var(--text-muted)]">
+                    <span className="font-mono text-meta leading-5 text-[color:var(--text-muted)]">
                       {highlightLine(entry.lineText, entry.matchText)}
                     </span>
                   }

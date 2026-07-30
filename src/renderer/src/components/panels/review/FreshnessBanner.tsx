@@ -34,12 +34,12 @@ export function FreshnessBanner({ model, refreshing, refreshPhase, onRefresh }: 
       }`}
       role="status"
     >
-      <span className={`min-w-0 flex-1 text-[12px] leading-5 ${quiet ? 'text-[color:var(--text-subtle)]' : 'text-[color:var(--text-strong)]'}`}>
+      <span className={`min-w-0 flex-1 text-meta leading-5 ${quiet ? 'text-[color:var(--text-subtle)]' : 'text-[color:var(--text-strong)]'}`}>
         {model.lead ? <span className="font-semibold">{model.lead} </span> : null}
         {model.detail}
       </span>
       {refreshing ? (
-        <span className="flex shrink-0 items-center gap-2 text-[11.5px] text-[color:var(--text-muted)]">
+        <span className="flex shrink-0 items-center gap-2 text-meta text-[color:var(--text-muted)]">
           <Spinner />
           {REFRESH_PHASE_LABEL[refreshPhase ?? 'grouping']}
         </span>

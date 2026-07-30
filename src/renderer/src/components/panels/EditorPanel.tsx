@@ -424,7 +424,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   if (!filePath) {
     return (
-      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-[13px] font-mono">
+      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-body font-mono">
         Open a file from the Files pane
       </div>
     )
@@ -432,7 +432,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   if (contentLoadError?.path === activeFilePath) {
     return (
-      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] px-4 text-center text-[color:var(--tone-error)] text-[13px] font-mono">
+      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] px-4 text-center text-[color:var(--tone-error)] text-body font-mono">
         Failed to load file: {contentLoadError.message}
       </div>
     )
@@ -440,7 +440,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   if (restoringFilePath === activeFilePath || canRestoreMissingActiveFile) {
     return (
-      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-[13px] font-mono">
+      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-body font-mono">
         Loading file...
       </div>
     )
@@ -448,7 +448,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   if (!activeFile) {
     return (
-      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] px-4 text-center text-[color:var(--text-disabled)] text-[13px] font-mono">
+      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] px-4 text-center text-[color:var(--text-disabled)] text-body font-mono">
         This file is no longer open.
       </div>
     )
@@ -456,7 +456,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   if (!activeFileContentReady) {
     return (
-      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-[13px] font-mono">
+      <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-body font-mono">
         Loading file...
       </div>
     )
@@ -493,7 +493,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   if (isImage && activeFilePath) {
     if (!imageDataUrl || imageDataUrl.path !== activeFilePath) {
       return (
-        <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-[13px] font-mono">
+        <div className="h-full flex items-center justify-center bg-[color:var(--bg-app)] text-[color:var(--text-disabled)] text-body font-mono">
           Loading image...
         </div>
       )

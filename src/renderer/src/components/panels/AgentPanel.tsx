@@ -308,7 +308,7 @@ export default function AgentPanel({
   }
 
   return (
-    <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-[12px] text-[color:var(--text-default)] ${cliShellTone}`}>
+    <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-meta text-[color:var(--text-default)] ${cliShellTone}`}>
       <div className={`group relative flex flex-1 flex-col overflow-hidden bg-[color:var(--bg-app)] ${needsInput ? 'shadow-[inset_0_1px_0_var(--tone-warn-soft)]' : ''}`}>
         {hasStarted && (canSuspendTerminal || canLockTerminal || backlogItemRef || canUseSkill) ? (
           // The positioning lives on this wrapper, not the buttons: Tooltip wraps
@@ -338,7 +338,7 @@ export default function AgentPanel({
                       className={`interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-opacity hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100 ${open ? 'opacity-100' : 'opacity-0'}`}
                       {...triggerProps}
                     >
-                      <StarGlyph filled={false} stroked className="h-[15px] w-[15px]" />
+                      <StarGlyph filled={false} stroked className="size-icon-sm" />
                     </button>
                   </Tooltip>
                 )}
@@ -356,7 +356,7 @@ export default function AgentPanel({
                   aria-label="Suspend agent to free memory"
                   className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] opacity-0 transition-opacity hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100"
                 >
-                  <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" fill="none" className="size-icon-sm" aria-hidden="true">
                     <rect x="5" y="4" width="2" height="8" rx="1" fill="currentColor" />
                     <rect x="9" y="4" width="2" height="8" rx="1" fill="currentColor" />
                   </svg>
@@ -388,13 +388,13 @@ export default function AgentPanel({
                 >
                   {isTerminalLocked ? (
                     // Closed padlock: shackle seated on the body.
-                    <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" className="size-icon-sm" aria-hidden="true">
                       <rect x="3.75" y="7" width="8.5" height="5.75" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
                       <path d="M5.75 7V5.4a2.25 2.25 0 0 1 4.5 0V7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                     </svg>
                   ) : (
                     // Open padlock: right leg of the shackle lifted clear of the body.
-                    <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none" className="size-icon-sm" aria-hidden="true">
                       <rect x="3.75" y="7" width="8.5" height="5.75" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
                       <path d="M5.75 7V4.4a2.25 2.25 0 0 1 4.5 0v.35" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                     </svg>
@@ -412,7 +412,7 @@ export default function AgentPanel({
                 >
                   {/* Matches the Backlog rail glyph (PanelRail) so the iconography
                       reads as "the Backlog" at a glance. */}
-                  <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" fill="none" className="size-icon-sm" aria-hidden="true">
                     <path d="M6 4.5h7M6 8h7M6 11.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                     <circle cx="3" cy="4.5" r="1" fill="currentColor" />
                     <circle cx="3" cy="8" r="1" fill="currentColor" />
@@ -441,14 +441,14 @@ export default function AgentPanel({
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center">
               {sprintEngineTerminalBlocked ? (
-                <div className="max-w-sm text-[12px] leading-5 text-[color:var(--text-muted)]">
+                <div className="max-w-sm text-meta leading-5 text-[color:var(--text-muted)]">
                   {MULTICODE_SAFE_MODE
                     ? 'Safe mode is active. Sprint agent terminals are not auto-mounted.'
                     : 'Sprint agent terminals are disabled for this diagnostic run.'}
                 </div>
               ) : null}
               {agentCliUnavailable ? (
-                <div className="max-w-sm text-[12px] leading-5 text-[color:var(--text-muted)]">
+                <div className="max-w-sm text-meta leading-5 text-[color:var(--text-muted)]">
                   Agent CLI "{cli}" is unavailable. Reinstall or re-enable the plugin before launching this agent.
                 </div>
               ) : null}
@@ -488,7 +488,7 @@ export default function AgentPanel({
                     ? 'Resuming agent'
                     : 'Resume paused agent — click or type to resume'
                 }
-                className="group flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3.5 py-2 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:focus-ring"
+                className="group flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3.5 py-2 text-left text-micro text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:focus-ring"
               >
                 {/* Pause glyph, low-opacity — a status mark, not a call to action.
                     The pulse while resuming is the "alive right now" signal; it
@@ -497,7 +497,7 @@ export default function AgentPanel({
                 <svg
                   viewBox="0 0 16 16"
                   fill="none"
-                  className={`h-[11px] w-[11px] opacity-60 ${
+                  className={`size-icon-xs opacity-60 ${
                     isResumePending && isTerminalSuspended
                       ? 'animate-pulse motion-reduce:animate-none'
                       : ''

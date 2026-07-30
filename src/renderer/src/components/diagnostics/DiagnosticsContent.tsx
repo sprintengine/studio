@@ -259,7 +259,7 @@ function DashboardCard({
     <div className="flex flex-col gap-0.5 rounded border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
       <span className="text-micro text-[color:var(--text-muted)]">{label}</span>
       <span
-        className={`text-[15px] font-semibold tabular-nums ${
+        className={`text-title font-semibold tabular-nums ${
           tone === 'warn' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-strong)]'
         }`}
       >
@@ -458,7 +458,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
   const totals = aggregation.totals
 
   return (
-    <div className="flex h-full flex-col overflow-hidden font-mono text-[12px]">
+    <div className="flex h-full flex-col overflow-hidden font-mono text-meta">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[color:var(--border-default)] px-4 py-2.5">
         <div className="flex items-center gap-3">
@@ -600,7 +600,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
         >
         {/* Process metrics */}
         <section>
-          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">Processes</h2>
+          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">Processes</h2>
           {metrics && metrics.processes.length > 0 ? (
             <table className="w-full border-collapse">
               <thead>
@@ -641,9 +641,9 @@ export default function DiagnosticsContent({ headerActions }: Props) {
 
         {/* Memory trend + baseline diff */}
         <section>
-          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">Memory trend</h2>
+          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">Memory trend</h2>
           {metricsTrend.current ? (
-            <div className="flex flex-col gap-1 text-[11px] text-[color:var(--text-default)]">
+            <div className="flex flex-col gap-1 text-micro text-[color:var(--text-default)]">
               <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
                 <span>Reported process memory <strong>{formatBytes(metricsTrend.current.totalRssBytes)}</strong></span>
                 <span>renderer {formatBytes(metricsTrend.current.rendererRssBytes)}</span>
@@ -751,10 +751,10 @@ export default function DiagnosticsContent({ headerActions }: Props) {
         >
         {/* Long tasks */}
         <section>
-          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
             Long tasks (main-thread stalls &gt; 50ms, last {Math.round(longTaskSummary.windowMs / 1000)}s)
           </h2>
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] tabular-nums text-[color:var(--text-default)]">
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-micro tabular-nums text-[color:var(--text-default)]">
             <span className={longTaskSummary.count > 0 ? 'text-[color:var(--tone-error)]' : ''}>
               Count <strong>{longTaskSummary.count}</strong>
             </span>
@@ -769,10 +769,10 @@ export default function DiagnosticsContent({ headerActions }: Props) {
 
         {/* Frame cadence (rAF) — per-frame jank the longtask observer misses */}
         <section>
-          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
             Rendering cadence (frames, last {Math.round(frameStats.windowMs / 1000)}s)
           </h2>
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[11px] tabular-nums text-[color:var(--text-default)]">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-micro tabular-nums text-[color:var(--text-default)]">
             <span className={frameStats.fps !== null && frameStats.fps < 50 ? 'text-[color:var(--tone-error)]' : ''}>
               FPS <strong>{frameStats.fps ?? '—'}</strong>
             </span>
@@ -794,7 +794,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
 
         {/* Perf events rollup */}
         <section>
-          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
             Perf events ({perfRollup.length})
           </h2>
           {perfRollup.length > 0 ? (
@@ -844,7 +844,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
         {/* Terminal table */}
         <section>
           <div className="mb-1 flex items-center justify-between">
-            <h2 className="text-[11px] font-semibold text-[color:var(--text-muted)]">
+            <h2 className="text-micro font-semibold text-[color:var(--text-muted)]">
               Terminals ({aggregation.rows.length})
             </h2>
             <div className="flex items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
@@ -931,7 +931,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
         {/* Reaped terminals — audit trail of what the main-process reaper
             suspended/disposed this session, and from which workspace. */}
         <section>
-          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
             Reaped terminals ({metrics?.reapEvents?.length ?? 0})
           </h2>
           <p className="mb-2 text-micro text-[color:var(--text-subtle)]">
@@ -992,7 +992,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           className="flex flex-col gap-4"
         >
         <section>
-          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
             Workspaces ({workspacesByMemory.length})
           </h2>
           <p className="mb-2 text-micro text-[color:var(--text-subtle)]">
@@ -1059,7 +1059,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
         >
         {/* Active timers / supervisors */}
         <section>
-          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
             Active timers / supervisors ({timerRows.length})
           </h2>
           {timerRows.length > 0 ? (
@@ -1094,8 +1094,8 @@ export default function DiagnosticsContent({ headerActions }: Props) {
 
         {/* Terminal scrollback + write throughput */}
         <section>
-          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">Terminal subsystem</h2>
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] tabular-nums text-[color:var(--text-default)]">
+          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">Terminal subsystem</h2>
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-micro tabular-nums text-[color:var(--text-default)]">
             <span>
               Scrollback: <strong>{scrollback.instanceCount}</strong> instances ·{' '}
               {scrollback.totalLines.toLocaleString()} lines · ~{formatBytes(scrollback.estimatedBytes)} est.
@@ -1110,7 +1110,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
 
         {/* IPC throughput */}
         <section>
-          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
             IPC throughput {ipcThroughput ? `(${ipcThroughput.channels.length} channels)` : ''}
           </h2>
           {ipcThroughput && ipcThroughput.channels.length > 0 ? (
@@ -1147,7 +1147,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
 
         {/* Replay profiles */}
         <section>
-          <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
+          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
             Recent replay profiles ({profiles.length})
           </h2>
           {profiles.length > 0 ? (

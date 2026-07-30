@@ -147,11 +147,11 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
   }
 
   if (state.status === 'loading') {
-    return <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-[12px] text-[color:var(--text-disabled)]">Loading conflict...</div>
+    return <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] text-meta text-[color:var(--text-disabled)]">Loading conflict...</div>
   }
 
   if (state.status === 'error') {
-    return <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] px-6 text-center text-[12px] text-[color:var(--tone-error)]">{state.message}</div>
+    return <div className="flex h-full items-center justify-center bg-[color:var(--bg-app)] px-6 text-center text-meta text-[color:var(--tone-error)]">{state.message}</div>
   }
 
   return (
@@ -159,7 +159,7 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
       <div className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="truncate font-mono text-[12px] font-semibold text-[color:var(--text-strong)]" title={state.conflict.path}>
+            <div className="truncate font-mono text-meta font-semibold text-[color:var(--text-strong)]" title={state.conflict.path}>
               {state.conflict.relativePath}
             </div>
             <div className="mt-0.5 text-micro text-[color:var(--text-subtle)]">
@@ -170,13 +170,13 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
             type="button"
             onClick={() => void saveResolved()}
             disabled={state.saving}
-            className="h-8 shrink-0 rounded-md border border-[color:var(--color-6)] bg-[color:var(--text-strong)] px-3 text-[11px] font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-[color:var(--bg-inverted-hover)] disabled:border-[color:var(--bg-selected)] disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]"
+            className="h-8 shrink-0 rounded-md border border-[color:var(--color-6)] bg-[color:var(--text-strong)] px-3 text-micro font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-[color:var(--bg-inverted-hover)] disabled:border-[color:var(--bg-selected)] disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]"
           >
             {state.saving ? 'Saving...' : 'Save & Mark Resolved'}
           </button>
         </div>
         {state.message ? (
-          <div className="mt-2 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)] px-2.5 py-1.5 text-[11px] text-[color:var(--text-muted)]">
+          <div className="mt-2 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)] px-2.5 py-1.5 text-micro text-[color:var(--text-muted)]">
             {state.message}
           </div>
         ) : null}
@@ -202,12 +202,12 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
           <aside className="min-h-0 overflow-y-auto border-r border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
             <Section title="Conflicts" count={blocks.length} level={3} inset>
               {blocks.length === 0 ? (
-                <div className="text-[11px] text-[color:var(--text-subtle)]">No conflict markers remain.</div>
+                <div className="text-micro text-[color:var(--text-subtle)]">No conflict markers remain.</div>
               ) : (
                 <div className="space-y-2">
                   {blocks.map((block) => (
                     <div key={`${block.index}:${block.startOffset}`} className="rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] p-2">
-                      <div className="mb-2 text-[11px] font-semibold text-[color:var(--text-default)]">Conflict {block.index + 1}</div>
+                      <div className="mb-2 text-micro font-semibold text-[color:var(--text-default)]">Conflict {block.index + 1}</div>
                       <div className="grid gap-1">
                         <ConflictActionButton label="Use Pulled" onClick={() => applyBlock(block.index, block.ours)} />
                         <ConflictActionButton label="Use Stashed" onClick={() => applyBlock(block.index, block.theirs)} />
@@ -256,7 +256,7 @@ function ConflictReadOnlyPane({
   const monacoTheme = useMonacoBaseTheme()
   return (
     <section className="flex min-h-0 flex-col border-r border-[color:var(--border-default)] last:border-r-0">
-      <div className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-[12px] font-semibold text-[color:var(--text-default)]">
+      <div className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-meta font-semibold text-[color:var(--text-default)]">
         {title}
       </div>
       {content ? (
@@ -277,7 +277,7 @@ function ConflictReadOnlyPane({
           }}
         />
       ) : (
-        <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-[11px] text-[color:var(--text-disabled)]">
+        <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-micro text-[color:var(--text-disabled)]">
           {empty}
         </div>
       )}
@@ -290,7 +290,7 @@ function ConflictActionButton({ label, onClick }: { label: string; onClick: () =
     <button
       type="button"
       onClick={onClick}
-      className="h-7 rounded-md px-2 text-left text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)]"
+      className="h-7 rounded-md px-2 text-left text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)]"
     >
       {label}
     </button>

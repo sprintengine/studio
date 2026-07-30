@@ -148,7 +148,7 @@ export function BacklogRowHoverCard({
     ?? (dependencyState === 'blocked' ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status])
   return (
     <span className="flex max-w-[300px] flex-col gap-0.5 py-0.5">
-      <span className="whitespace-normal text-[11.5px] font-medium leading-snug text-[color:var(--text-strong)]">
+      <span className="whitespace-normal text-meta font-medium leading-snug text-[color:var(--text-strong)]">
         {item.title}
       </span>
       <span className="whitespace-normal text-[color:var(--text-muted)]">
@@ -252,7 +252,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
           {plainTitle ? (
             <span
-              className={`min-w-0 truncate text-[12px] ${item.isEpic ? 'font-semibold' : 'font-medium'} ${titleInk}`}
+              className={`min-w-0 truncate text-meta ${item.isEpic ? 'font-semibold' : 'font-medium'} ${titleInk}`}
             >
               {item.title}
             </span>
@@ -260,7 +260,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
             <TruncatedText
               as="span"
               text={item.title}
-              className={`min-w-0 text-[12px] ${item.isEpic ? 'font-semibold' : 'font-medium'} ${titleInk}`}
+              className={`min-w-0 text-meta ${item.isEpic ? 'font-semibold' : 'font-medium'} ${titleInk}`}
             />
           )}
           {/* Earned mark: the star exists only when starred — no placeholder
@@ -285,7 +285,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
           clipped words, so the space goes to the title above instead. An epic
           carries no size/priority (it is a container, not a work item), so its
           slot holds the completion meter instead. */}
-      <div className="mt-0.5 flex items-center gap-2 pl-[22px] text-[11px]">
+      <div className="mt-0.5 flex items-center gap-2 pl-[22px] text-micro">
         {item.displayId ? (
           <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-subtle)]">
             {item.displayId}
@@ -378,7 +378,7 @@ function BlockedBadge(): JSX.Element {
     <span
       role="img"
       aria-label="Blocked by prerequisites"
-      className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-[color:var(--text-muted)]"
+      className="inline-flex shrink-0 items-center gap-1 text-micro font-medium text-[color:var(--text-muted)]"
     >
       <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
         <circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.3" />
@@ -398,7 +398,7 @@ function EpicBlockedCount({ rollup }: { rollup: BacklogEpicBlockedRollup }): JSX
     <span
       role="img"
       aria-label={`${rollup.blocked} of ${rollup.remaining} remaining ${rollup.remaining === 1 ? 'item' : 'items'} blocked by prerequisites`}
-      className="inline-flex shrink-0 items-center gap-1 text-[11px] text-[color:var(--text-muted)]"
+      className="inline-flex shrink-0 items-center gap-1 text-micro text-[color:var(--text-muted)]"
     >
       <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
         <circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.3" />
@@ -428,7 +428,7 @@ function DanglingMockupBadge({ refs }: { refs: readonly string[] }): JSX.Element
       <span
         role="img"
         aria-label={label}
-        className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-[color:var(--tone-warn)]"
+        className="inline-flex shrink-0 items-center gap-1 text-micro font-medium text-[color:var(--tone-warn)]"
       >
         <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
           <path d="M8 2.75 14.5 13.5h-13z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
@@ -445,7 +445,7 @@ function WaitingBadge(): JSX.Element {
     <span
       role="img"
       aria-label="Waiting on prerequisites"
-      className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-[color:var(--text-muted)]"
+      className="inline-flex shrink-0 items-center gap-1 text-micro font-medium text-[color:var(--text-muted)]"
     >
       <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
         <path
@@ -504,7 +504,7 @@ export function DifficultyIndicator({ difficulty }: { difficulty?: BacklogDiffic
       <span
         role="img"
         aria-label={difficulty ? `Size ${DIFFICULTY_WORD[difficulty]}` : 'Size unestimated'}
-        className={`w-[2.25ch] shrink-0 text-right font-mono text-[11px] tabular-nums ${
+        className={`w-[2.25ch] shrink-0 text-right font-mono text-micro tabular-nums ${
           difficulty ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-disabled)]'
         }`}
       >
@@ -525,7 +525,7 @@ export function CriticalityIndicator({ criticality }: { criticality?: BacklogCri
         <span
           role="img"
           aria-label="No priority set"
-          className="w-4 shrink-0 text-right text-[11px] text-[color:var(--text-disabled)]"
+          className="w-4 shrink-0 text-right text-micro text-[color:var(--text-disabled)]"
         >
           –
         </span>
@@ -652,23 +652,23 @@ export function BacklogEpicHeaderContent({
       <TruncatedText
         as="span"
         text={group.title}
-        className={`min-w-0 flex-1 text-[12px] font-semibold ${titleInkClass(selected)}`}
+        className={`min-w-0 flex-1 text-meta font-semibold ${titleInkClass(selected)}`}
       />
       {group.kind === 'unknown' && group.slug ? (
         <TruncatedText
           as="span"
           text={group.slug}
-          className="max-w-[10rem] shrink-0 font-mono text-[11px] text-[color:var(--text-disabled)]"
+          className="max-w-[10rem] shrink-0 font-mono text-micro text-[color:var(--text-disabled)]"
         />
       ) : null}
       {group.kind === 'epic' ? (
-        <span className="flex shrink-0 items-center gap-2 text-[11px]">
+        <span className="flex shrink-0 items-center gap-2 text-micro">
           {blockedRollup && blockedRollup.blocked > 0 ? <EpicBlockedCount rollup={blockedRollup} /> : null}
           <EpicProgressMeter progress={{ done, total }} color={group.color} />
         </span>
       ) : (
         <span
-          className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-subtle)]"
+          className="shrink-0 tabular-nums text-micro text-[color:var(--text-subtle)]"
           aria-label={`${done} of ${total} complete`}
         >
           {done}/{total}

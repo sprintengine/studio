@@ -19,7 +19,7 @@ export type BacklogDraft = {
 
 const INPUT_CLASS = [
   'block w-full rounded-[5px] border border-[color:var(--border-default)]',
-  'bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] text-[color:var(--text-strong)]',
+  'bg-[color:var(--bg-surface-raised)] px-3 py-2 text-body text-[color:var(--text-strong)]',
   'placeholder:text-[color:var(--text-disabled)] transition-colors',
   FOCUS_RING_CLASS,
 ].join(' ')
@@ -107,7 +107,7 @@ export function BacklogCreateDialog({
             </Field>
           </div>
           {error ? (
-            <p role="alert" className="text-[12px] leading-5 text-[color:var(--tone-error)]">
+            <p role="alert" className="text-meta leading-5 text-[color:var(--tone-error)]">
               Couldn’t create the item: {error}
             </p>
           ) : null}

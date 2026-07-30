@@ -72,14 +72,14 @@ export function CommentComposer({
         }}
         placeholder={placeholder}
         rows={3}
-        className={`w-full max-w-[560px] resize-y rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] focus:border-[color:var(--border-focus)] ${FOCUS_RING_CLASS}`}
+        className={`w-full max-w-[560px] resize-y rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-2 text-body leading-5 text-[color:var(--text-strong)] focus:border-[color:var(--border-focus)] ${FOCUS_RING_CLASS}`}
       />
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <PrimaryButton onClick={submit} disabled={!trimmed}>
           {submitLabel}
         </PrimaryButton>
         <GhostButton onClick={onCancel}>Cancel</GhostButton>
-        <span className="ml-auto flex items-center gap-2.5 text-[11px] text-[color:var(--text-subtle)]">
+        <span className="ml-auto flex items-center gap-2.5 text-micro text-[color:var(--text-subtle)]">
           <span className="inline-flex items-center gap-1">
             <KbdChord keys={[PRIMARY_KEY, 'Enter']} /> submit
           </span>
@@ -89,7 +89,7 @@ export function CommentComposer({
         </span>
       </div>
       {anchorLabel || hint ? (
-        <p className="mt-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+        <p className="mt-1.5 text-micro leading-4 text-[color:var(--text-subtle)]">
           {anchorLabel ? (
             <>
               Anchored to <span className="font-medium text-[color:var(--text-default)]">{anchorLabel}</span>

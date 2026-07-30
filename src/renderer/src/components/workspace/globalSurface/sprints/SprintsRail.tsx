@@ -138,7 +138,7 @@ export function SprintsRail({
       {/* The lens is narrower than the runs behind it. Say so, rather than
           letting an empty rail read as "you have no sprints". */}
       {rows.length === 0 && runs.length > 0 ? (
-        <p className="px-2 pt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
+        <p className="px-2 pt-2 text-micro leading-4 text-[color:var(--text-muted)]">
           {search.trim() ? 'No sprints match.' : 'No sprints in this project.'}
         </p>
       ) : null}

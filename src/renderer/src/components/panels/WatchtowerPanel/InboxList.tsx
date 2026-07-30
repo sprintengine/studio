@@ -20,7 +20,7 @@ export function WatchtowerInboxRow({
   const fallbackSupporting = task.labels.length > 0 ? task.labels.join(' · ') : null
   const title = (
     <>
-      <span className="mr-2 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
+      <span className="mr-2 font-mono tabular-nums text-micro text-[color:var(--text-muted)]">
         {shortIdentifier(record)}
       </span>
       {task.title}
@@ -61,8 +61,8 @@ export function InboxSkeleton() {
 export function EmptyDetail() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <div className="text-[12px] font-semibold text-[color:var(--text-default)]">Triage</div>
-      <div className="text-[12px] text-[color:var(--text-muted)]">
+      <div className="text-meta font-semibold text-[color:var(--text-default)]">Triage</div>
+      <div className="text-meta text-[color:var(--text-muted)]">
         Select an inbox task to inspect, edit, comment, or promote.
       </div>
     </div>

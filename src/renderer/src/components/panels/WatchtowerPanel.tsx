@@ -691,7 +691,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
 
   if (!workspace) {
     return (
-      <div className="h-full bg-[color:var(--bg-app)] p-4 text-[12px] text-[color:var(--text-muted)]">
+      <div className="h-full bg-[color:var(--bg-app)] p-4 text-meta text-[color:var(--text-muted)]">
         Workspace not found.
       </div>
     )
@@ -699,7 +699,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
 
   if (!folderPath) {
     return (
-      <div className="h-full bg-[color:var(--bg-app)] p-6 text-[12px] text-[color:var(--text-muted)]">
+      <div className="h-full bg-[color:var(--bg-app)] p-6 text-meta text-[color:var(--text-muted)]">
         Choose a workspace folder to use Watchtower.
       </div>
     )
@@ -754,7 +754,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           <div
             role="status"
             aria-live="polite"
-            className="flex items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px]"
+            className="flex items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-meta"
           >
             <StatusDot tone="warn" pulse label="Agents running" />
             <span className="font-medium text-[color:var(--text-strong)]">
@@ -793,7 +793,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           {state.kind === 'loading' && inbox.length === 0 ? (
             <InboxSkeleton />
           ) : inbox.length === 0 ? (
-            <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-muted)]">
+            <div className="px-3 py-6 text-meta leading-5 text-[color:var(--text-muted)]">
               {inboxEmptyText}
             </div>
           ) : (
@@ -820,7 +820,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
           fileView ? (
             <FilePreviewPane
               title={
-                <span className="font-mono text-[12.5px] tabular-nums text-[color:var(--text-strong)]">
+                <span className="font-mono text-body tabular-nums text-[color:var(--text-strong)]">
                   {fileView.name}
                 </span>
               }

@@ -211,15 +211,15 @@ function SkillRow({
         className={`icon-sm mt-0.5 shrink-0 ${active ? 'text-[color:var(--accent-primary)]' : 'text-[color:var(--text-subtle)]'}`}
       />
       <span className="min-w-0 flex-1">
-        <TruncatedText as="span" text={skill.name} className="block text-[12.5px] font-medium text-[color:var(--text-strong)]" />
+        <TruncatedText as="span" text={skill.name} className="block text-body font-medium text-[color:var(--text-strong)]" />
         {skill.description ? (
-          <TruncatedText as="span" text={skill.description} className="block text-[11.5px] text-[color:var(--text-muted)]" />
+          <TruncatedText as="span" text={skill.description} className="block text-meta text-[color:var(--text-muted)]" />
         ) : null}
       </span>
       {installing ? (
         <Spinner className="mt-0.5 shrink-0" />
       ) : notInstalled ? (
-        <span className="mt-0.5 shrink-0 text-[11px] font-medium text-[color:var(--accent-primary)]">Install</span>
+        <span className="mt-0.5 shrink-0 text-micro font-medium text-[color:var(--accent-primary)]">Install</span>
       ) : (
         <span className="mt-0.5 shrink-0 text-micro text-[color:var(--text-subtle)]">
           {SOURCE_LABEL[skill.source]}
@@ -276,7 +276,7 @@ function SkillList({
 
   if (loading && groups.flat.length === 0) {
     return (
-      <div className="flex items-center gap-2 px-2.5 py-3 text-[12px] text-[color:var(--text-muted)]" role="status">
+      <div className="flex items-center gap-2 px-2.5 py-3 text-meta text-[color:var(--text-muted)]" role="status">
         <Spinner />
         Loading skills…
       </div>
@@ -284,14 +284,14 @@ function SkillList({
   }
   if (error) {
     return (
-      <div className="px-2.5 py-3 text-[12px] text-[color:var(--tone-error)]" role="status">
+      <div className="px-2.5 py-3 text-meta text-[color:var(--tone-error)]" role="status">
         {error}
       </div>
     )
   }
   if (groups.flat.length === 0) {
     return (
-      <div className="px-2.5 py-3 text-[12px] text-[color:var(--text-muted)]" role="status">
+      <div className="px-2.5 py-3 text-meta text-[color:var(--text-muted)]" role="status">
         {query.trim() ? `No skills match “${query.trim()}”` : 'No skills in this workspace yet'}
       </div>
     )
@@ -300,7 +300,7 @@ function SkillList({
   const renderGroup = (label: string, skills: WorkspaceSkill[], offset: number) =>
     skills.length > 0 ? (
       <div className="py-0.5">
-        <div className="px-2.5 pb-0.5 pt-1.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">
+        <div className="px-2.5 pb-0.5 pt-1.5 text-micro font-semibold text-[color:var(--text-subtle)]">
           {label}
         </div>
         {skills.map((skill, index) => (
@@ -448,7 +448,7 @@ export function SkillPickerPopover({
             ref={ref}
             type="button"
             onClick={togglePopover}
-            className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+            className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-meta font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
             {...triggerProps}
           >
             <StarGlyph filled={false} stroked className="icon-sm" />
@@ -473,7 +473,7 @@ export function SkillPickerPopover({
             onKeyDown={onSearchKeyDown}
             placeholder="Search skills…"
             aria-label="Search skills"
-            className={`min-w-0 flex-1 bg-transparent px-1 py-1 text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+            className={`min-w-0 flex-1 bg-transparent px-1 py-1 text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
           />
         </div>
         <SkillList
@@ -488,14 +488,14 @@ export function SkillPickerPopover({
         />
         {onManageSkills ? (
           <div className="flex items-center border-t border-[color:var(--border-subtle)] px-2.5 py-1.5">
-            <span className="flex-1 text-[11px] text-[color:var(--text-subtle)]">↑↓ choose · ⏎ use</span>
+            <span className="flex-1 text-micro text-[color:var(--text-subtle)]">↑↓ choose · ⏎ use</span>
             <button
               type="button"
               onClick={() => {
                 onOpenChange(false)
                 onManageSkills()
               }}
-              className="text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)]"
+              className="text-micro font-medium text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)]"
             >
               Manage skills →
             </button>
@@ -595,7 +595,7 @@ export const InlineSkillPicker = forwardRef<
         onPick={(skill) => void pick(skill)}
         onActiveIndexChange={setActiveIndex}
       />
-      <div className="flex items-center gap-2 border-t border-[color:var(--border-subtle)] px-2.5 py-1.5 text-[11px] text-[color:var(--text-subtle)]">
+      <div className="flex items-center gap-2 border-t border-[color:var(--border-subtle)] px-2.5 py-1.5 text-micro text-[color:var(--text-subtle)]">
         <span>↑↓ choose · ⏎ use · esc dismiss</span>
         <span className="ml-auto tabular-nums">
           {groups.flat.length} of {inventory.skills.length} skills

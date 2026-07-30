@@ -19,7 +19,7 @@ import type { HighlightColor } from '../../types/workspace'
 
 // design-tokens-allow: popover-elevation reuses the OverflowMenu shadow shape (no glow CTA pattern)
 const MENU_SURFACE_CLASS =
-  'rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1 text-[13px] text-[color:var(--text-default)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]'
+  'rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1 text-body text-[color:var(--text-default)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]'
 
 const MENU_Z_INDEX = 60
 
@@ -240,7 +240,7 @@ export function MenuItem({
       {icon ?? null}
       <span className="min-w-0 flex-1 truncate">{children}</span>
       {shortcut ? (
-        <span className="text-[11px] text-[color:var(--text-disabled)] font-mono">{shortcut}</span>
+        <span className="text-micro text-[color:var(--text-disabled)] font-mono">{shortcut}</span>
       ) : null}
       {trailing}
     </button>
@@ -271,7 +271,7 @@ export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: 
   return (
     <>
       {label ? (
-        <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium text-[color:var(--text-muted)]">
+        <div className="px-2.5 pb-1 pt-1.5 text-micro font-medium text-[color:var(--text-muted)]">
           {label}
         </div>
       ) : null}

@@ -124,7 +124,7 @@ export function WatchtowerActiveReviewAside({
             level={4}
             action={
               runs.length > 1 ? (
-                <div className="inline-flex max-w-[180px] items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+                <div className="inline-flex max-w-[180px] items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
                   <Select<string>
                     ariaLabel="Switch run"
                     items={runs.slice(0, 8).map((run, index) => ({
@@ -147,7 +147,7 @@ export function WatchtowerActiveReviewAside({
                   >
                     <SpecialistActionIcon icon="architecture" className="icon-md" />
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[color:var(--text-strong)]">
+                  <span className="min-w-0 flex-1 truncate text-body font-medium text-[color:var(--text-strong)]">
                     {triageRun ? 'Architect spinning up…' : 'Reviewers spinning up…'}
                   </span>
                   <StatusDot tone="warn" pulse label="Spinning up" />
@@ -218,10 +218,10 @@ export function WatchtowerActiveReviewAside({
                         <div className="min-w-0 flex-1 space-y-0.5">
                           <TruncatedText
                             as="span"
-                            className="block min-w-0 text-[13px] font-medium text-[color:var(--text-strong)]"
+                            className="block min-w-0 text-body font-medium text-[color:var(--text-strong)]"
                             text={displayLabel}
                           />
-                          <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
+                          <div className="flex min-w-0 items-center gap-1.5 text-micro">
                             <StatusDot tone={tone.tone} pulse={tone.pulse} />
                             <TruncatedText
                               as="span"
@@ -234,11 +234,11 @@ export function WatchtowerActiveReviewAside({
                         <>
                           <TruncatedText
                             as="span"
-                            className="min-w-0 flex-1 text-[13px] font-medium text-[color:var(--text-strong)]"
+                            className="min-w-0 flex-1 text-body font-medium text-[color:var(--text-strong)]"
                             text={displayLabel}
                           />
                           <StatusDot tone={tone.tone} pulse={tone.pulse} />
-                          <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
+                          <span className="shrink-0 text-micro text-[color:var(--text-muted)]">
                             {tone.label}
                           </span>
                         </>
@@ -260,7 +260,7 @@ export function WatchtowerActiveReviewAside({
           </Section>
         ) : (
           <Section title="No active review" level={4}>
-            <div className="text-[12px] text-[color:var(--text-muted)]">
+            <div className="text-meta text-[color:var(--text-muted)]">
               Start a review or fetch issues to populate this drawer.
             </div>
           </Section>
@@ -298,7 +298,7 @@ export function WatchtowerActiveReviewAside({
                       return (
                         <li
                           key={`${item.externalKey ?? item.externalUrl ?? index}:${index}`}
-                          className="flex min-w-0 items-center gap-2 py-0.5 text-[11px]"
+                          className="flex min-w-0 items-center gap-2 py-0.5 text-micro"
                         >
                           <StatusDot tone={itemTone} />
                           <span className="shrink-0 text-[color:var(--text-muted)]">{item.status}</span>
@@ -317,7 +317,7 @@ export function WatchtowerActiveReviewAside({
                 ) : null}
               </>
             ) : (
-              <div className="text-[12px] text-[color:var(--tone-error)]">{importResult.message}</div>
+              <div className="text-meta text-[color:var(--tone-error)]">{importResult.message}</div>
             )}
           </Section>
         ) : null}
