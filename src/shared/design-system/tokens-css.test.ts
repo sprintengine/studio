@@ -165,8 +165,32 @@ run('the accent is refused unless it is really a colour', () => {
   assert.equal(isColorValue('red; background: url(x)'), false)
 })
 
+run('a fontFamily ARRAY resolves to a CSS family list, quoted where it must be', () => {
+  // DTCG fontFamily values are arrays, not strings — the specimen showed our
+  // font instead of the bundle's until this was handled.
+  const document = {
+    sem: {
+      font: {
+        family: {
+          ui: { $type: 'fontFamily', $value: ['Inter', 'SF Pro Text', 'sans-serif'] },
+          mono: { $type: 'fontFamily', $value: ['JetBrains Mono', 'monospace'] },
+        },
+      },
+    },
+  }
+  assert.deepEqual(resolveFontFamilies(document), {
+    ui: 'Inter, "SF Pro Text", sans-serif',
+    mono: '"JetBrains Mono", monospace',
+  })
+})
+
 run('a bundle declaring no families resolves to null rather than to ours', () => {
   assert.deepEqual(resolveFontFamilies({}), { ui: null, mono: null })
+  // A single-string family (some bundles author it that way) still resolves.
+  assert.equal(
+    resolveFontFamilies({ sem: { font: { family: { ui: { $type: 'fontFamily', $value: 'Inter' } } } } }).ui,
+    'Inter',
+  )
 })
 
 run('parseTokenDocument refuses non-objects instead of throwing', () => {

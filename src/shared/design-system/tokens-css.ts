@@ -147,9 +147,36 @@ export function resolveFontFamilies(
   mode: DesignSystemTokenMode = 'light',
 ): { ui: string | null; mono: string | null } {
   return {
-    ui: resolveTokenValue(document, 'sem.font.family.ui', mode),
-    mono: resolveTokenValue(document, 'sem.font.family.mono', mode),
+    ui: resolveFontFamily(document, 'sem.font.family.ui', mode),
+    mono: resolveFontFamily(document, 'sem.font.family.mono', mode),
   }
+}
+
+/**
+ * Resolve one `fontFamily` token to a CSS family list.
+ *
+ * DTCG `fontFamily` values are ARRAYS (`["Inter", "SF Pro Text", …]`), not
+ * strings, so `resolveTokenValue` — which is about single values — cannot read
+ * them. Joining follows the same rule the bundle's own generator uses: comma
+ * separated, quoting any family whose name contains whitespace.
+ */
+function resolveFontFamily(
+  document: unknown,
+  path: string,
+  mode: DesignSystemTokenMode,
+): string | null {
+  if (!isRecord(document)) return null
+  const leaf = leafAt(document, path)
+  if (!leaf) return null
+  const raw = rawValueForMode(leaf, mode)
+  if (typeof raw === 'string') {
+    // A string value may still be an alias to another family token.
+    return resolveTokenValue(document, path, mode)
+  }
+  if (!Array.isArray(raw)) return null
+  const families = raw.filter((entry): entry is string => typeof entry === 'string')
+  if (families.length === 0) return null
+  return families.map((family) => (/\s/.test(family) ? `"${family}"` : family)).join(', ')
 }
 
 /** Parse a bundle's token document, or null when it is absent/unparseable. */
