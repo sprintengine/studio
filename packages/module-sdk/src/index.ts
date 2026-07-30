@@ -430,6 +430,17 @@ export type AutomationDefinition = {
    * natural exhaustion.
    */
   disableAfterRun?: boolean
+  /**
+   * The marketplace catalogue entry this automation was added from, and that
+   * entry's publisher. Provenance only: stamped once by the marketplace install
+   * path and immutable thereafter (patches cannot carry either field), so the
+   * shelf can answer "is this already added" for a project and open the record
+   * the entry produced. Distinct from `ownerModuleId`, which is module identity
+   * and governs who may write the record — a catalogue automation is the user's
+   * the moment it lands, and survives uninstalling the plugin that shipped it.
+   */
+  sourceCatalogueId?: string
+  sourcePublisher?: string
   nextRunAt: string | null
   lastRunAt: string | null
   lastRunId: string | null
@@ -453,9 +464,18 @@ export type AutomationDefinitionDraft = {
    * host. The user-facing IPC create path ignores it entirely.
    */
   ownerModuleId?: string
+  /**
+   * Catalogue provenance for drafts created by the marketplace install path.
+   * Stamped by the host from the bundle being installed — like `ownerModuleId`,
+   * never read off a caller-supplied payload.
+   */
+  sourceCatalogueId?: string
+  sourcePublisher?: string
 }
 
-export type AutomationDefinitionPatch = Partial<Omit<AutomationDefinitionDraft, 'id' | 'ownerModuleId'>>
+export type AutomationDefinitionPatch = Partial<
+  Omit<AutomationDefinitionDraft, 'id' | 'ownerModuleId' | 'sourceCatalogueId' | 'sourcePublisher'>
+>
 
 export type AutomationRunEventStatus = Extract<AutomationRunStatus, 'completed' | 'failed' | 'blocked'>
 export type AutomationRunEventTrigger = 'timer' | 'manual'

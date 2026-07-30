@@ -13,7 +13,9 @@ import type {
 } from '../../shared/automations/contracts'
 import type { AgentPhaseEvent } from '../../shared/agent-runtime'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
+import { createDefinitionWriteCore } from './definition-write'
 import { AutomationsEngine, projectFoldersFromWorkspaceSyncSnapshot } from './engine'
+import { allowAutomationProvider, createBuiltInAutomationProviderRegistry } from './provider-registry'
 import { openAutomationRunPullRequest, type CommandResult, type PullRequestDeps } from './pull-request'
 import { AutomationsStore, type AutomationStoreState } from './store'
 import { computeNextRun, validateScheduleTriggerConfig } from './schedule'
@@ -42,6 +44,7 @@ async function main(): Promise<void> {
   assertAtCadenceValidationMatrix()
   await assertAtCadenceFiresExactlyOnceThroughTheEngine()
   await assertPastAtCadenceNeverFiresAndStaysQuiet()
+  await assertCatalogueInstallIsScheduledByTheLiveEngine()
   await assertDisableAfterRunPausesScheduleAfterOneFire()
   await assertManualRunNowDoesNotConsumeOnceOffShot()
   await assertDisableAfterRunPausesTriggerEventAutomationAndBlocksSecondEvent()
@@ -358,6 +361,54 @@ async function assertAtCadenceFiresExactlyOnceThroughTheEngine(): Promise<void> 
   const second = await engine.tick()
   assert.equal(runs, 1, 'a fired one-shot never fires again')
   assert.deepEqual(second.problems, [], 'ticks after the fire stay quiet')
+}
+
+// The load-bearing claim of the marketplace install path: an automation added
+// while the app is running is scheduled by the live engine, with no restart.
+// It holds because every evaluation re-reads the store — there is no cached
+// definition set for a mid-session write to miss.
+async function assertCatalogueInstallIsScheduledByTheLiveEngine(): Promise<void> {
+  let now = Date.parse('2026-06-17T01:00:00.000Z')
+  const root = await createWorkspace()
+  let runs = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-installed', folderPath: root }],
+    now: () => now,
+    createRunId: () => 'run-installed',
+    runAutomation: async () => {
+      runs += 1
+      return { status: 'completed', summary: 'Installed automation ran.' }
+    },
+  })
+
+  const beforeInstall = await engine.tick()
+  assert.deepEqual(beforeInstall.problems, [], 'an empty project ticks quietly')
+  assert.equal(runs, 0)
+
+  const registry = createBuiltInAutomationProviderRegistry()
+  const writeCore = createDefinitionWriteCore({
+    createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
+    getTriggerProviderRegistrations: () => registry.listTriggerProviderRegistrations(),
+    getActionProviderRegistrations: () => registry.listActionProviderRegistrations(),
+    checkProviderPermission: allowAutomationProvider,
+    now: () => now,
+  })
+  const installed = await writeCore.installFromCatalogue(root, {
+    payload: {
+      name: 'Nightly dependency sweep',
+      trigger: { kind: 'schedule', config: dailyConfig('02:00', 'UTC') },
+      action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
+    },
+    sourceCatalogueId: 'multicode.nightly-sweep',
+  })
+  assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
+  if (!installed.ok) return
+  assert.equal(installed.value.definition.nextRunAt, '2026-06-17T02:00:00.000Z', 'the install computed the next run')
+
+  now = Date.parse('2026-06-17T02:00:30.000Z')
+  const afterInstall = await engine.tick()
+  assert.deepEqual(afterInstall.problems, [])
+  assert.equal(runs, 1, 'the automation added mid-session fires on the next tick, with no app restart')
 }
 
 // A past-dated enabled one-shot is valid config that simply never fires — the
