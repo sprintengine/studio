@@ -155,34 +155,32 @@ export function ContextRailColumn({
       data-context-rail=""
       data-context-rail-active={active ? 'true' : 'false'}
       tabIndex={-1}
-      // `--rail-ground` is the material the rail's own sticky create/search
-      // header paints to cover rows passing under it. In this column that ground
-      // is the sidebar's, not the door-panel raised tone: a rail that replaces
-      // the sidebar and then paints a different material reads as a panel
-      // dropped into the chrome rather than as the chrome itself.
+      // This column paints NO ground of its own, and neither does the rail's
+      // create/search head inside it — the head is a sibling of the scrollport
+      // now (see `SurfaceRailHeader`), so no row can pass beneath it and it has
+      // nothing to occlude. That is what lets a rail replacing the sidebar read
+      // as the chrome itself rather than as a panel dropped into it, and it is
+      // what makes the glass window material work here: the column inherits the
+      // sidebar's transparent canvas and the OS frost carries straight through.
       //
-      // `--bg-surface`, NOT `--bg-canvas`. The glass window material sets
-      // `--bg-canvas: transparent` on purpose, so the OS frost shows through the
-      // shell's background layers — and a sticky header is not a background
-      // layer. It has to occlude the rows sliding under it, so painting it with
-      // the canvas made every door's New/search header see-through under glass,
-      // with row text scrolling straight over the search field. `--bg-surface`
-      // is the door material (the brand checklist's rule for everything in this
-      // folder) and it is opaque in every window material, glass included.
+      // The `--rail-ground` custom property this used to declare is gone with the
+      // sticky head that consumed it. Do not reintroduce a ground here: an opaque
+      // material on this column is exactly the solid slab the head used to be.
       //
       // The Tailwind `hidden` class, not the `hidden` attribute: a `flex`
       // utility outranks the attribute rule and would leave it visible.
-      className={`context-rail-swap min-h-0 flex-1 flex-col outline-none [--rail-ground:var(--bg-surface)] ${
+      className={`context-rail-swap min-h-0 flex-1 flex-col outline-none ${
         active ? 'flex' : 'hidden'
       }`}
     >
       <div
         ref={railRef}
         aria-label={ariaLabel}
-        // The same scrollport contract the shell's inline aside has, so a rail
-        // moves between the two without touching its own layout: the sticky
-        // header's negative offsets fold this padding into itself.
-        className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2.5"
+        // The same contract the shell's inline aside has, so a rail moves between
+        // the two without touching its own layout. Neither host scrolls or insets
+        // any more: the rail owns both, because its head has to sit OUTSIDE the
+        // scrollport and flush to the column's edges.
+        className="flex min-h-0 flex-1 flex-col"
       />
       <ContextRailBackRow onBack={onBack} />
     </div>

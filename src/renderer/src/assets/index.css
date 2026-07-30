@@ -149,6 +149,14 @@
      the workspace card must never paint these tokens. */
   --bg-canvas: var(--bg-app);
   --bg-title-strip: var(--bg-surface);
+  /* Fill for a text field that sits IN the chrome (the rails' search box). The
+     raised tone is right on an opaque window, where the field reads as a step
+     above the panel behind it. Under glass it is not: the chrome around it goes
+     transparent for the OS frost, so an opaque field is the one thing in the bar
+     that is not made of the same material, and it reads as a slab. The glass
+     block below re-points this at a translucent tint. Normal windows are
+     untouched — this token resolves to exactly what the field painted before. */
+  --bg-field: var(--bg-surface-raised);
   /* Hover target for inverted high-contrast buttons (bg = --text-strong). On
      dark the button is near-white so hover intensifies toward pure white; the
      light theme flips this to near-black (see below) so the button's light
@@ -3128,6 +3136,15 @@ body:has([data-selection-pane]:focus-within)
 :root[data-window-material="glass"] {
   --bg-canvas: transparent;
   --bg-title-strip: transparent;
+  /* A field in the chrome tints the frost instead of replacing it, so it stays
+     the same material as the bar it sits in and reads as a field by its border
+     and its depth rather than by being a different colour. Mixed from --bg-app,
+     so it darkens on the dark themes and lightens on the light ones — a field
+     always steps toward the app's own base ink, whichever direction that is.
+     This is a small control, not one of the canvas layers the block above makes
+     transparent: one alpha step over the body tint is the depth, and it is the
+     only layer allowed to stack there. */
+  --bg-field: color-mix(in srgb, var(--bg-app) 45%, transparent);
 }
 :root[data-window-material="glass"] body {
   background-color: color-mix(in srgb, var(--bg-app) 52%, transparent);

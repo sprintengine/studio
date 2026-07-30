@@ -148,10 +148,11 @@ export function GlobalSurfaceShell({
             // (item 1993). This inline aside is the fallback for a host that does
             // not — it adopts the same width from the same constant rather than
             // keeping the second number (`w-[224px]`) that made a door two rails
-            // wide. `--rail-ground` is the material SurfaceRail's sticky header
-            // paints; here it is the door-panel raised tone.
+            // wide. It scrolls and insets nothing: the rail owns both, so its
+            // create/search head can sit outside the scrollport and paint no
+            // ground of its own (see `SurfaceRailHeader`).
             style={{ width: SIDEBAR_DEFAULT_WIDTH }}
-            className="flex shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-2.5 [--rail-ground:var(--bg-surface-raised)]"
+            className="flex min-h-0 shrink-0 flex-col border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]"
           >
             {rail}
           </aside>

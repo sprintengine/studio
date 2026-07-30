@@ -320,27 +320,56 @@ async function main(): Promise<void> {
     outside.remove()
   })
 
-  // The rail's sticky New/search header has to OCCLUDE the rows scrolling under
-  // it, so its ground must be a material that stays opaque in every window
-  // material. `--bg-canvas` is not one: the glass setting deliberately makes it
-  // transparent so the OS frost shows through the shell's background layers, and
-  // painting the header with it left every door's header see-through with row
-  // text sliding over the search field. Asserted on the source because the bug
-  // is a token choice, and jsdom resolves no custom properties to prove it.
+  // The rail's New/search head paints NO ground, in either host column (owner,
+  // 2026-07-30). It used to be `sticky` INSIDE the scrolling column, so it had to
+  // paint an opaque material to occlude the rows sliding under it — and an opaque
+  // material is a different colour from the chrome around it, which is what made
+  // the head read as a solid slab dropped into the bar. Under the glass window
+  // material the column goes transparent for the OS frost and the slab stayed
+  // opaque on top of it, so the seam was at its worst exactly where the material
+  // is meant to be continuous.
+  //
+  // The head is now a SIBLING of the scrollport (the app sidebar's own shape), so
+  // no row can reach it and it inherits the column — transparent included. These
+  // assert the structure that makes a ground unnecessary; reintroducing one, or
+  // moving the scrollport back onto a host column, brings the slab back.
+  // Asserted on source because jsdom resolves neither custom properties nor
+  // scroll geometry.
   {
     const railSource = readFileSync(
       join(process.cwd(), 'src/renderer/src/components/workspace/globalSurface/contextRail.tsx'),
       'utf8',
     )
-    const ground = railSource.match(/\[--rail-ground:var\((--[a-z-]+)\)\]/)
-    assert.ok(ground, 'the rail column declares a --rail-ground')
-    assert.notEqual(
-      ground?.[1],
-      '--bg-canvas',
-      'the sticky rail header is never grounded in the canvas — it is transparent under glass',
+    // The declaration form (`[--rail-ground:…]`), not the bare name — the comment
+    // above the column explains why the property is gone and must stay sayable.
+    assert.ok(
+      !/\[--rail-ground:/.test(railSource),
+      'the rail column declares no --rail-ground: the head it grounded is no longer sticky',
     )
-    assert.equal(ground?.[1], '--bg-surface', 'it is grounded in the door material, opaque everywhere')
-    console.log('ok - the rail header is grounded in a material that survives the glass window')
+    assert.ok(
+      !/overflow-y-auto/.test(railSource),
+      'and the column is not the scrollport — the rail owns that, so its head can sit outside it',
+    )
+
+    const substrateSource = readFileSync(
+      join(process.cwd(), 'src/renderer/src/components/workspace/globalSurface/surfaceSubstrate.tsx'),
+      'utf8',
+    )
+    // The head element's own class list — read from the `className` attribute
+    // rather than the surrounding source, so the comment explaining why the head
+    // is no longer sticky does not satisfy (or fail) its own assertion.
+    const head = substrateSource.slice(substrateSource.indexOf('export function SurfaceRailHeader'))
+    const headClasses = head.slice(0, head.indexOf('<button')).match(/className="([^"]*)"/)?.[1]
+    assert.ok(headClasses, 'the rail head renders an element with a class list')
+    assert.ok(
+      !/\bsticky\b/.test(headClasses ?? ''),
+      'the head is not sticky: nothing scrolls under it, so nothing has to be occluded',
+    )
+    assert.ok(
+      !/\bbg-\[/.test(headClasses ?? ''),
+      'and it paints no background of its own — it is the colour of the column it sits in',
+    )
+    console.log('ok - the rail head paints no ground and sits outside the scrollport')
   }
 
   console.log('context rail: all checks passed')
