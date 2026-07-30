@@ -571,6 +571,12 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                     f"This task's incoming source context lists every seeded child item as `{EPIC_CHILD_SOURCE_LABEL}`; mint exactly one task per entry so labelled. Entries with any other label are reading material, not work."
                 ] if epic_child_source_paths(state) else []),
                 "Re-check live membership before you finish — nothing about the epic is frozen at launch: `grep -l \"^epic: <slug>$\" backlog/*.md`, where <slug> is the epic file stem. A child added since launch is minted like any other.",
+                # Planning-time re-check only covers launch -> approval. A child
+                # added after the graph is approved needs the same pass at close,
+                # and the epic chose that over drift machinery (backlog item
+                # 2018), so the duty rides the terminal task that already exists
+                # rather than a new mechanism.
+                "Give the run's terminal integration-review task the same live-membership pass to run at close, in its own scope: re-read `epic:` membership and file a task for any child that appeared after the graph was approved, or state that none did. Do not add a separate mechanism for it.",
                 "Take each task's title from its item. Leave the description and acceptance criteria empty: --source-doc injects the item into the worker's claim prompt as read-in-full context, so restating it in the card only creates a second version to drift.",
                 "Cross-task contracts, decisions, and risks belong in the plan.md manifest, not in the minted cards.",
                 "Infer each task's modules from its item — package or directory level, never a file. A loose, honest guess is the target; this does not need to be precise.",

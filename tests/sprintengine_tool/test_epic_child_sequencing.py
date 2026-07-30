@@ -176,6 +176,11 @@ def test_the_plan_gate_directs_one_task_per_child_and_an_empty_card(tmp_path) ->
     assert "never a file" in notes
     # The old "split a child when it genuinely needs it" licence is gone.
     assert "Split a child" not in notes
+    # The planning-time grep only covers launch -> approval. The item's
+    # verification pass is the END-of-run one, and it rides the terminal task
+    # that already exists rather than a new mechanism.
+    assert "terminal integration-review task" in notes
+    assert "after the graph was approved" in notes
 
 
 def test_an_unmarked_bundle_gets_the_live_grep_and_no_phantom_list(tmp_path) -> None:
