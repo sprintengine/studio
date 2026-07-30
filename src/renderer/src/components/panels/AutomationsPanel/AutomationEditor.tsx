@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { CliModelPickerButton, DefinitionList, Field, GhostButton, InlineNotice, Popover, PrimaryButton, Select, type SelectItem, Switch } from '../../ui'
@@ -82,10 +82,6 @@ const INTERNAL_CONFIG_KEYS = new Set(['workspaceId', 'folderPath', 'requiredInte
 // and the connector target). They are loaded into the form and persisted, but
 // rendered by their picker rather than as generic free-text string fields.
 const PICKER_CONFIG_KEYS = new Set(['cliModel', 'permissionPreset', 'specialistId', 'connectorId', 'spawnSkillId'])
-
-// The form's own id, so its Save button reaches it through the `form` attribute
-// even when the host paints that button outside the form's DOM (the door bar).
-const FORM_ID = 'automation-editor'
 
 // Sentinel option value for "target no connector" — the Select emits a string, so
 // the cleared choice is a real item rather than null, and it maps back to removing
@@ -272,6 +268,12 @@ export function AutomationEditor({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [agentPickerOpen, setAgentPickerOpen] = useState(false)
+  // This form's own id, so its Save button reaches it through the `form`
+  // attribute even when the host paints that button outside the form's DOM (the
+  // door bar). Per INSTANCE, not a constant: the door paints over the workspace,
+  // so the door's editor and the panel's can be mounted at the same time, and a
+  // shared literal id would point the door's Save at the panel's form.
+  const formId = useId()
 
   // The cli config field is constrained to the same agent-picker catalog the
   // shared composer uses (T2 plugin registry), not a new hardcoded list, so an
@@ -642,7 +644,7 @@ export function AutomationEditor({
   // button reach the same `handleSubmit`.
   const actions = (
     <>
-      <PrimaryButton type="submit" form={FORM_ID} disabled={saving || validationError !== null}>
+      <PrimaryButton type="submit" form={formId} disabled={saving || validationError !== null}>
         {saving ? 'Saving…' : editor.mode === 'create' ? 'Create automation' : 'Save'}
       </PrimaryButton>
       <GhostButton type="button" onClick={onCancel}>Cancel</GhostButton>
@@ -651,7 +653,7 @@ export function AutomationEditor({
 
   return (
     <form
-      id={FORM_ID}
+      id={formId}
       // The two columns key off THIS form's width, not the viewport: the same
       // editor is the door's full canvas and a narrow workspace panel, and only
       // the container knows which.

@@ -261,9 +261,14 @@ async function main(): Promise<void> {
     assert.ok(bar, 'the door renders its bar')
     assert.ok(findButton(bar!, /^Save$/), 'Save rides the door bar')
     assert.match(bar!.textContent ?? '', /\.multi-code\/automations/, 'beside where the save lands')
-    const form = doorHost.querySelector('#automation-editor')
+    const form = doorHost.querySelector('form')
     assert.ok(form, 'the editor form is mounted')
     assert.equal(findButton(form!, /^Save$/), null, 'and carries no second Save of its own')
+    assert.equal(
+      findButton(bar!, /^Save$/)!.getAttribute('form'),
+      form!.id,
+      'the bar\'s Save is associated with THIS editor\'s form, by instance id',
+    )
   })
 
   act(() => doorRoot.unmount())

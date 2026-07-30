@@ -243,7 +243,12 @@ async function main(): Promise<void> {
     const mounted = await mount(starterDefinition, { actionsSlot: slot })
     run('given a bar slot, Save paints there and only there', () => {
       const inSlot = saveButton(slot as unknown as HTMLElement)
-      assert.equal(inSlot.getAttribute('form'), 'automation-editor', 'and stays associated with the form it submits')
+      const form = mounted.container.querySelector('form')
+      assert.ok(form?.id, 'the form carries an id to associate against')
+      // The association is per-INSTANCE: the door paints over the workspace, so
+      // two editors can be mounted at once and a shared literal id would point
+      // this Save at the other one's form.
+      assert.equal(inSlot.getAttribute('form'), form!.id, 'and stays associated with THIS form')
       const inForm = [...mounted.container.querySelectorAll('button')].filter((candidate) =>
         /^(Save|Cancel)$/.test(candidate.textContent ?? ''),
       )
