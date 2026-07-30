@@ -13,7 +13,7 @@ import type {
 import { findEscapingSymlink } from './bundle-copy-confinement'
 import { readDesignSystemLibraryEntry } from './library-registry'
 
-// Attach materializes a released bundle into a consuming workspace at
+// Attach materializes a library bundle into a consuming workspace at
 // <workspace>/design-system/ — a one-time copy exactly like knowledge/brand/,
 // with provenance stamped into the copy (never the source). The workspace
 // filesystem is the only dependency: no knowledge-graph root, no env vars.

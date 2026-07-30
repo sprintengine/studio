@@ -1,4 +1,4 @@
-// Result shapes for attaching a released design-system bundle to a consuming
+// Result shapes for attaching a design-system bundle to a consuming
 // workspace (main-process attach ↔ preload ↔ renderer). Attach is a one-time
 // copy to <workspace>/design-system/ with provenance stamped into the copy —
 // no live sync, no re-materialize-on-update, and never an overwrite or merge
@@ -6,7 +6,7 @@
 // knowledge/multicode/design-system-bundle.md.
 
 /**
- * Where the bundle comes from: a release in the user-global library
+ * Where the bundle comes from: an entry in the user-global library
  * (name+version resolve under the library root), or any browsed folder as the
  * escape hatch (validated as a bundle before anything is copied).
  */

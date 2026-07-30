@@ -83,7 +83,7 @@ run('report carries every section and key totals', () => {
 
   const report = formatDiagnosticsReport({ aggregation, metrics, profiles, now: NOW })
 
-  assert.match(report, /# Multicode performance diagnostics/)
+  assert.match(report, /# Performance diagnostics/)
   assert.match(report, /## Processes/)
   assert.match(report, /## Workspaces/)
   assert.match(report, /## Terminals/)

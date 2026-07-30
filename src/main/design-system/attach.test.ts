@@ -19,18 +19,18 @@ function makeExampleCopy(base: string): string {
   return dir
 }
 
-// Library releases are name/version-addressed copies whose manifest matches
-// the directory pair; place the example there directly (the release pipeline
-// itself is covered by library-registry.test.ts).
+// Library entries are name/version-addressed directories whose manifest matches
+// the directory pair; place the example there directly (reading the library is
+// covered by library-registry.test.ts).
 function makeLibraryWithExample(version: string): string {
   const root = mkdtempSync(join(tmpdir(), 'ds-attach-lib-'))
-  const releaseDir = join(root, 'example', version)
+  const entryDir = join(root, 'example', version)
   mkdirSync(join(root, 'example'), { recursive: true })
-  cpSync(exampleRoot, releaseDir, { recursive: true })
-  const manifest = readManifest(releaseDir)
+  cpSync(exampleRoot, entryDir, { recursive: true })
+  const manifest = readManifest(entryDir)
   manifest.version = version
   manifest.provenance.releasedAt = '2026-07-01T00:00:00.000Z'
-  writeFileSync(join(releaseDir, 'design-system.json'), JSON.stringify(manifest, null, 2))
+  writeFileSync(join(entryDir, 'design-system.json'), JSON.stringify(manifest, null, 2))
   return root
 }
 
@@ -43,12 +43,12 @@ run('library attach lands the full bundle at design-system/ with provenance stam
   const workspace = mkdtempSync(join(tmpdir(), 'ds-attach-ws-'))
   try {
     // Unknown manifest fields must survive the read → stamp → write cycle.
-    const releaseDir = join(libraryRoot, 'example', '1.2.3')
-    const released = readManifest(releaseDir)
-    released.xFutureField = { keep: true }
-    released.provenance.xVendorNote = 'preserve-me'
-    writeFileSync(join(releaseDir, 'design-system.json'), JSON.stringify(released, null, 2))
-    const releaseManifestBefore = readFileSync(join(releaseDir, 'design-system.json'), 'utf8')
+    const entryDir = join(libraryRoot, 'example', '1.2.3')
+    const entryManifest = readManifest(entryDir)
+    entryManifest.xFutureField = { keep: true }
+    entryManifest.provenance.xVendorNote = 'preserve-me'
+    writeFileSync(join(entryDir, 'design-system.json'), JSON.stringify(entryManifest, null, 2))
+    const libraryManifestBefore = readFileSync(join(entryDir, 'design-system.json'), 'utf8')
 
     const result = await attachDesignSystemBundle(
       { kind: 'library', name: 'example', version: '1.2.3' },
@@ -88,8 +88,8 @@ run('library attach lands the full bundle at design-system/ with provenance stam
 
     // Attach never mutates the library copy, and leaves no staging dir behind.
     assert.equal(
-      readFileSync(join(releaseDir, 'design-system.json'), 'utf8'),
-      releaseManifestBefore,
+      readFileSync(join(entryDir, 'design-system.json'), 'utf8'),
+      libraryManifestBefore,
       'attach must not stamp the library source',
     )
     assert.ok(
@@ -107,7 +107,7 @@ run('browsed-folder attach validates the bundle first and preserves existing pro
   const workspace = mkdtempSync(join(tmpdir(), 'ds-attach-ws-'))
   const libraryRoot = mkdtempSync(join(tmpdir(), 'ds-attach-lib-'))
   try {
-    // A shared released copy keeps its release stamp; attach adds attachedAt.
+    // A shared library entry keeps its own provenance; attach adds attachedAt.
     const source = readManifest(folder)
     source.provenance.sourceLibraryId = 'example'
     source.provenance.sourceLibraryVersion = '0.1.0'

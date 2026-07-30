@@ -219,7 +219,7 @@ assert.deepEqual(
 )
 assert.deepEqual(designPresetSteps.map((step) => step.state), ['active', 'upcoming'])
 // The design-system preset is a studio, not a pipeline: one station, no
-// Sprint Engine build tail (its release action is a separate epic task).
+// Sprint Engine build tail — the bundle it writes is the deliverable.
 const designSystemSteps = guidedBriefSteps('designer-working', 'yes', {
   wantsProductDiscussion: false,
   wantsArchitectureDiscussion: false,

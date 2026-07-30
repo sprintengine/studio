@@ -7,7 +7,6 @@ import type { DesignSystemScaffoldResult } from '../../shared/design-system/bund
 import type {
   DesignSystemLibraryListResult,
   DesignSystemLibraryReadResult,
-  DesignSystemReleaseResult,
 } from '../../shared/design-system/library'
 import type {
   DesignSystemAttachResult,
@@ -27,8 +26,6 @@ export const designSystemApi = {
     ipcRenderer.invoke('design-system:resolve-brand-demo-seed'),
   lintDesignSystemBundle: (bundleDir: string): Promise<DesignSystemBundleLintRunResult> =>
     ipcRenderer.invoke('design-system:lint-bundle', bundleDir),
-  releaseDesignSystemBundle: (bundleDir: string, version: string): Promise<DesignSystemReleaseResult> =>
-    ipcRenderer.invoke('design-system:release', bundleDir, version),
   listDesignSystemLibrary: (): Promise<DesignSystemLibraryListResult> =>
     ipcRenderer.invoke('design-system:library-list'),
   readDesignSystemLibraryEntry: (name: string, version: string): Promise<DesignSystemLibraryReadResult> =>
@@ -44,7 +41,6 @@ export const designSystemApi = {
   | 'scaffoldDesignSystemBundle'
   | 'resolveDesignSystemBrandDemoSeed'
   | 'lintDesignSystemBundle'
-  | 'releaseDesignSystemBundle'
   | 'listDesignSystemLibrary'
   | 'readDesignSystemLibraryEntry'
   | 'attachDesignSystemBundle'

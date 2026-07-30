@@ -3,10 +3,7 @@ import type { IpcMain } from 'electron'
 import type { DesignSystemBundleLintRunResult } from '../../shared/design-system/bundle-lint-run'
 import type { DesignSystemRegenResult } from '../../shared/design-system/derived-files'
 import type { DesignSystemScaffoldResult } from '../../shared/design-system/bundle-scaffold'
-import type {
-  DesignSystemLibraryReadResult,
-  DesignSystemReleaseResult,
-} from '../../shared/design-system/library'
+import type { DesignSystemLibraryReadResult } from '../../shared/design-system/library'
 import type {
   DesignSystemAttachResult,
   DesignSystemAttachSource,
@@ -21,7 +18,6 @@ import {
   defaultDesignSystemLibraryRoot,
   listDesignSystemLibrary,
   readDesignSystemLibraryEntry,
-  releaseDesignSystemBundle,
 } from '../design-system/library-registry'
 import { attachDesignSystemBundle } from '../design-system/attach'
 
@@ -44,7 +40,7 @@ function parseAttachSource(value: unknown): DesignSystemAttachSource | null {
 // Regenerates design-system derived files (tokens.css, catalog/index.html) by
 // forking the bundle's own generator scripts in a utility process. Triggered
 // on designer-turn completion in the guided-brief studio and callable on
-// demand (release and attach reuse it). A root with no bundle resolves ok
+// demand (attach reuses it). A root with no bundle resolves ok
 // with zero bundles, so non-design-system flows are untouched.
 //
 // Scaffolding stamps the bundle layout from resources/design-system/templates
@@ -77,9 +73,9 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
   ipcMain.handle('design-system:resolve-brand-demo-seed', () =>
     resolveDesignSystemBrandDemoSeedDir(),
   )
-  // On-demand bundle lint: the studio release action's validating phase. The
-  // release pipeline re-runs the same script as its own gate, so a pass here
-  // is a preview, never a bypass.
+  // On-demand bundle lint: the guided-brief studio's validating preview, which
+  // forks the bundle's own scripts/lint.mjs. It is the author's contribution
+  // gate — no viewer surface calls it.
   ipcMain.handle(
     'design-system:lint-bundle',
     (_event, bundleDir: unknown): Promise<DesignSystemBundleLintRunResult> => {
@@ -89,25 +85,9 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
       return runDesignSystemBundleLint(bundleDir, forkBundleScriptInUtilityProcess)
     },
   )
-  // Library release + list/read: immutable versioned copies under
-  // ~/.multicode/design-systems/<name>/<version>/ (library-registry.ts).
-  ipcMain.handle(
-    'design-system:release',
-    (_event, bundleDir: unknown, version: unknown): Promise<DesignSystemReleaseResult> => {
-      if (typeof bundleDir !== 'string' || bundleDir.trim().length === 0) {
-        return Promise.resolve({ ok: false, stage: 'request', message: 'No bundle directory provided.' })
-      }
-      if (typeof version !== 'string' || version.trim().length === 0) {
-        return Promise.resolve({ ok: false, stage: 'request', message: 'No release version provided.' })
-      }
-      return releaseDesignSystemBundle(
-        bundleDir,
-        version,
-        defaultDesignSystemLibraryRoot(),
-        forkBundleScriptInUtilityProcess,
-      )
-    },
-  )
+  // Library list/read: bundles under ~/.multicode/design-systems/<name>/<version>/
+  // (library-registry.ts). Read-only — the app-local release pipeline that used
+  // to write them was removed 2026-07-30.
   ipcMain.handle('design-system:library-list', () =>
     listDesignSystemLibrary(defaultDesignSystemLibraryRoot()),
   )
@@ -120,7 +100,7 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
       return readDesignSystemLibraryEntry(defaultDesignSystemLibraryRoot(), name, version)
     },
   )
-  // Attach: one-time copy of a released bundle (library entry or browsed
+  // Attach: one-time copy of a bundle (library entry or browsed
   // folder) into a consuming workspace at design-system/, provenance stamped
   // into the copy. An existing design-system/ is a typed 'conflict' refusal.
   ipcMain.handle(
