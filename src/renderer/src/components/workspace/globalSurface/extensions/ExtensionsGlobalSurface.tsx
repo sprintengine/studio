@@ -131,6 +131,19 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     [activeWorkspaceRoot, openGlobalSurface],
   )
 
+  // A Get lands the same way, one step further in: the automation the shelf just
+  // added arrives selected AND open in its editor, because the shelf configures
+  // nothing and this is the only place a starter is tailored (MC-2035). Same
+  // deep-link seam, same door — only the view differs, so there is no second way
+  // to address an automation.
+  const tailorAddedAutomation = useCallback(
+    (automationId: string) => {
+      dispatchAutomationSurfaceTarget(automationsDoorTarget(automationId, '', activeWorkspaceRoot), 'editor')
+      openGlobalSurface('automations')
+    },
+    [activeWorkspaceRoot, openGlobalSurface],
+  )
+
   // ── Counts for the bar + rail state lines (honest per source state) ────────
   const catalog = sources.catalogLoad.status === 'ready' ? sources.catalogLoad.data : []
   const plugins = sources.registryLoad.status === 'ready' ? sources.registryLoad.data : []
@@ -327,6 +340,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
             workspaceRoot={activeWorkspaceRoot}
             automationDefaultCli={lastSelectedCli}
             onOpenAutomation={openAutomation}
+            onAutomationAdded={tailorAddedAutomation}
           />
         )
       case 'modules':

@@ -573,6 +573,7 @@ export function ExtensionKindCanvas({
   workspaceRoot,
   automationDefaultCli,
   onOpenAutomation,
+  onAutomationAdded,
 }: {
   kind: ExtensionKind
   sources: ConnectorSources
@@ -585,6 +586,11 @@ export function ExtensionKindCanvas({
   /** Hands an already-added automation to the Automations door, which owns
    *  everything about how it runs. */
   onOpenAutomation?: (definition: AutomationDefinition) => void
+  /** A Get just landed. The shelf configures nothing (MC-2035), so it hands the
+   *  new automation straight to the door that does — one navigation, not "it was
+   *  added somewhere, go and find it". Only the store-issued id is known here;
+   *  the door resolves it against its own index. */
+  onAutomationAdded?: (automationId: string) => void
 }): JSX.Element {
   const copy = KIND_COPY[kind]
   const isAutomation = kind === 'automation'
@@ -651,6 +657,14 @@ export function ExtensionKindCanvas({
         // Re-read this project's automations, not the whole registry: the row
         // flips because the store changed, and the marketplace did not.
         await projectReload()
+        // Then leave: the automation is tailored in the Automations door, never
+        // here (MC-2035). The receipt names the id the store issued, which is the
+        // only handle this surface has on the definition it just created — the
+        // door resolves it against its own index. Landing there IS the
+        // confirmation, which is why it supersedes the "Added …" line rather
+        // than competing with it.
+        const addedId = result.installed.find((entry) => entry.kind === 'automation')?.id
+        if (addedId) onAutomationAdded?.(addedId)
       } catch (error) {
         setInstall({
           status: 'error',
@@ -658,7 +672,7 @@ export function ExtensionKindCanvas({
         })
       }
     },
-    [workspaceRoot, sources.mcpSettings, automationDefaultCli, projectReload],
+    [workspaceRoot, sources.mcpSettings, automationDefaultCli, projectReload, onAutomationAdded],
   )
 
   const addFromFolder = useCallback(async () => {
@@ -690,6 +704,11 @@ export function ExtensionKindCanvas({
       }
       setInstall({ status: 'done', message: addedMessage(result.installed, result.displayName, workspaceRoot) })
       await projectReload()
+      // Same hand-off as a Get: a folder that added an automation lands in the
+      // door that configures it. A folder carrying no automation component
+      // stays put — there is nothing for the door to open.
+      const addedId = result.installed.find((entry) => entry.kind === 'automation')?.id
+      if (addedId) onAutomationAdded?.(addedId)
     } catch (error) {
       setInstall({
         status: 'error',
@@ -698,7 +717,7 @@ export function ExtensionKindCanvas({
     } finally {
       setFolderPending(false)
     }
-  }, [workspaceRoot, sources.mcpSettings, automationDefaultCli, projectReload])
+  }, [workspaceRoot, sources.mcpSettings, automationDefaultCli, projectReload, onAutomationAdded])
 
   const retry = (
     <GhostButton
