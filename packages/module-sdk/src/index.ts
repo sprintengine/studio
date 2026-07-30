@@ -320,6 +320,8 @@ export type AutomationTriggerProvider = {
 
 export type ActionKind = 'spawn-agent' | 'run-command' | 'run-skill-loop' | string
 
+export type AutomationRunIsolation = 'worktree' | 'workspace-checkout'
+
 export type AutomationRun = {
   id: string
   automationId: string
@@ -340,6 +342,17 @@ export type AutomationRun = {
   touchedFiles?: string[]
   commandsRan?: string[]
   summary?: string
+  /**
+   * Isolation the run actually got, stamped by the built-in agent-backed actions
+   * at launch. `worktree` is the contained shape: its own worktree, its own
+   * branch, and a pull request on completion. `workspace-checkout` is the
+   * deliberate opt-out (`runInWorktree: false`): the agent ran in the user's own
+   * checkout, so the run has no branch and opens no pull request. Absent on
+   * historical runs and on runs that never launched an agent — read it, not the
+   * absence of {@link worktreePath}, to tell a contained run from an uncontained
+   * one without re-reading the definition.
+   */
+  isolation?: AutomationRunIsolation
   /** Git worktree the agent-backed run executes in (per-run isolation). */
   worktreePath?: string
   /** Branch the run's worktree is checked out on. */
@@ -421,6 +434,16 @@ export type AutomationDefinition = {
    * automations keep running in a worktree.
    */
   runInWorktree?: boolean
+  /**
+   * Runtime-only bridge for definitions written before `autonomyDefault` was
+   * retired (2026-07-30) whose author set it to `review_only`. That intent —
+   * report, do not fix — now lives in the automation's prompt, so the store read
+   * translates the retired key into this marker and the launch prompt carries a
+   * write-up-only instruction. Host-populated and never persisted: a module must
+   * not send it, and it is stripped again on write, so it exists only between a
+   * legacy file's read and the run it starts.
+   */
+  legacyWriteUpOnly?: true
   /**
    * Run once, then pause: after one triggered fire (schedule due-run, skipped
    * overdue run, webhook or polling trigger event) the definition transitions to
