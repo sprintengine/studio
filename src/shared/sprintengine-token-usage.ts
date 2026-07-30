@@ -12,6 +12,11 @@
 // Cumulative token usage for one model within one or more CLI sessions.
 // `split:false` marks a CLI that only exposes a cumulative total (Grok): the
 // component fields are unknown-zero, not real, and only `total` is meaningful.
+//
+// `total` counts each token ONCE — input + cacheCreation + output. `cacheRead`
+// is a separate figure and is NOT in the total: the whole context is re-read on
+// every API turn, so adding reads counts the same tokens once per turn and
+// turns a 9M-token run into a 738M-token one.
 export type SprintEngineModelTokenUsage = {
   model: string
   input: number

@@ -1449,7 +1449,8 @@ function RunMetricsSection({ report }: { report: SprintEngineRunReport }) {
 
 // Sprint token usage: one headline total with truthful coverage, plus the
 // per-model breakdown. Token counts only (dollar cost was rejected — prices
-// churn too fast to store honestly). An agent whose CLI has no readable token
+// churn too fast to store honestly). The headline counts each token once and
+// keeps cache re-reads out of it — see the shared wire type. An agent whose CLI has no readable token
 // source is called out as unmeasured rather than silently zeroed, and rows
 // from total-only CLIs (Grok) show no input/output split rather than a
 // fabricated one.
@@ -1471,7 +1472,11 @@ function TokenUsageSection({ report }: { report: SprintEngineTokenUsageReport | 
   }
 
   const cells: StatCell[] = [
-    { label: 'Total tokens', value: formatTokenCount(run.total.total) },
+    {
+      label: 'Total tokens',
+      value: formatTokenCount(run.total.total),
+      hint: 'Each token counted once: new input, tokens written to the prompt cache, and output. Context re-read from the cache is the separate Cache read figure.',
+    },
     // When any contributing CLI is total-only the component fields undercount,
     // so only the honest headline total is shown.
     ...(run.total.split
@@ -1479,13 +1484,14 @@ function TokenUsageSection({ report }: { report: SprintEngineTokenUsageReport | 
           {
             label: 'Fresh input',
             value: formatTokenCount(run.total.input),
-            hint: 'New (uncached) prompt tokens only. Almost all context arrives as cache reads instead, so this number is tiny by design.',
+            hint: 'New (uncached) prompt tokens only. Almost all context arrives through the cache instead, so this number is tiny by design.',
           },
+          { label: 'Cache write', value: formatTokenCount(run.total.cacheCreation) },
           { label: 'Output', value: formatTokenCount(run.total.output) },
           {
             label: 'Cache read',
             value: formatTokenCount(run.total.cacheRead),
-            hint: "Tokens re-read from the prompt cache: every API turn re-reads the agent's whole accumulated context, so long sessions dominate the total. Cache reads are billed at a small fraction of the input price.",
+            hint: "Tokens re-read from the prompt cache. Every API turn re-reads the agent's whole accumulated context, so this grows with turns × context and is not part of the total — counting it there would charge the same context once per turn. Billed at a small fraction of the input price.",
           },
         ]
       : []),
@@ -1497,7 +1503,7 @@ function TokenUsageSection({ report }: { report: SprintEngineTokenUsageReport | 
         {coverageNote ? (
           <div className="mb-3 text-meta leading-5 text-[color:var(--text-muted)]">{coverageNote}</div>
         ) : null}
-        <StatStrip cells={cells} columns="md:grid-cols-4" />
+        <StatStrip cells={cells} columns="md:grid-cols-5" />
         {run.perModel.length > 0 ? (
           <div className="mt-3 space-y-1">
             {run.perModel.map((row) => (

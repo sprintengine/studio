@@ -103,6 +103,28 @@ async function main(): Promise<void> {
     assert.equal(sessions[0].lastSample?.perModel[0]?.input, 100) // last sample won
   })
 
+  await run('ledger: a sample written under the old cache-inclusive total is re-derived on read', async () => {
+    const statePath = await buildTeamDir({})
+    await appendTokenLedgerRecord(statePath, {
+      kind: 'sample',
+      agentId: 'frontend-1',
+      cli: 'claude-code',
+      cliSessionId: 's1',
+      measured: true,
+      // Exactly what a pre-fix sample looks like on disk: total = every field
+      // summed, cache reads included. Runs already on disk are fixed by
+      // re-deriving here, not by rewriting an append-only ledger.
+      perModel: [
+        { model: 'claude-opus-5', input: 10, output: 40, cacheRead: 96_000_000, cacheCreation: 500, total: 96_000_550, split: true },
+      ],
+      sampledAt: NOW,
+      reason: 'teardown',
+    })
+    const sessions = await readTokenLedger(statePath)
+    assert.equal(sessions[0]?.lastSample?.perModel[0]?.total, 550)
+    assert.equal(sessions[0]?.lastSample?.perModel[0]?.cacheRead, 96_000_000)
+  })
+
   await run('report: per-task = owner sessions summed across a resume, per_task 1:1', async () => {
     const statePath = await buildTeamDir({
       tasks: [

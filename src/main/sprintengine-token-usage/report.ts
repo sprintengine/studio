@@ -204,9 +204,16 @@ async function resolveSessionUsage(
   const sample = session.lastSample?.measured ? session.lastSample.perModel : null
   if (!live.measured) return sample
   if (!sample) return live.perModel
-  const liveTotal = reduceModelUsageTotals(live.perModel).total
-  const sampleTotal = reduceModelUsageTotals(sample).total
-  return liveTotal >= sampleTotal ? live.perModel : sample
+  return completeness(live.perModel) >= completeness(sample) ? live.perModel : sample
+}
+
+// How much of the cumulative counter a snapshot carries. Every component, cache
+// reads included — this is "which read saw more of the session", not the
+// reported total (which excludes reads), and a snapshot that saw more turns
+// must win even when the extra turns were all cache hits.
+function completeness(rows: ReadonlyArray<SprintEngineModelTokenUsage>): number {
+  const totals = reduceModelUsageTotals(rows)
+  return totals.total + totals.cacheRead
 }
 
 // Every agent id that ever owned each task: the task record's implementer /

@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 
-import type { ModelTokenUsage } from './types'
+import { withDerivedTotals, type ModelTokenUsage } from './types'
 
 // Durable per-run token ledger: <teamDir>/metrics/token-usage.jsonl, appended
 // beside agent-feedback.jsonl (the established metrics sidecar). Append-only;
@@ -148,8 +148,12 @@ function parseRecord(value: unknown): SprintTokenLedgerRecord | null {
       cli,
       cliSessionId,
       measured: record.measured === true,
+      // Split rows have their total RE-derived from the components rather than
+      // trusted as written: samples appended before cache reads left the total
+      // carry the old inflated figure, and re-deriving on read fixes every run
+      // already on disk without rewriting an append-only file.
       perModel: Array.isArray(record.perModel)
-        ? record.perModel.filter(isModelUsageRow)
+        ? withDerivedTotals(record.perModel.filter(isModelUsageRow))
         : [],
       sampledAt: typeof record.sampledAt === 'string' ? record.sampledAt : '',
       reason: record.reason === 'session-end' ? 'session-end' : 'teardown',

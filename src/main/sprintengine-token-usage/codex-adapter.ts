@@ -157,9 +157,14 @@ export async function readCodexUsage(
   ])
   // Cross-check against the rollout's own session total: if a Codex release
   // ever changes the cache-inclusion semantics the derived components would
-  // skew, but the headline total stays pinned to Codex's own accounting.
+  // skew, but the headline total stays pinned to Codex's own accounting —
+  // minus the cached re-reads it folds in, which sit outside `total` here the
+  // same way they do for every other CLI (see withDerivedTotals).
   const reportedTotal = tokenCount(found.total_tokens)
-  const rows = reportedTotal > 0 ? derived.map((row) => ({ ...row, total: reportedTotal })) : derived
+  const rows =
+    reportedTotal > 0
+      ? derived.map((row) => ({ ...row, total: Math.max(0, reportedTotal - cacheRead) }))
+      : derived
   parsedByRollout.set(rolloutFile, { statKey, rows })
   return rows.map((row) => ({ ...row }))
 }

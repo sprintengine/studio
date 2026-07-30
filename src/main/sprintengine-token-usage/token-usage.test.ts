@@ -133,8 +133,10 @@ async function main(): Promise<void> {
     assert.equal(m.cacheRead, 7209984) // cached_input_tokens -> cacheRead
     assert.equal(m.cacheCreation, 0)
     assert.equal(m.split, true)
-    // input + output + cacheRead reconstructs Codex's own total_tokens.
-    assert.equal(m.total, 7815169)
+    // Codex's own total_tokens (7815169) LESS the cached re-reads it folds in:
+    // cache reads sit outside `total` for every CLI, so the headline stays
+    // "each token once" rather than the same context re-counted per turn.
+    assert.equal(m.total, 7815169 - 7209984)
   })
 
   await run('grok: total-only reading reconciled against the signals.json rollup', async () => {
@@ -245,7 +247,7 @@ async function main(): Promise<void> {
     assert.equal(unrouted.measured, false)
   })
 
-  await run('claude-code: split rows carry a derived total', async () => {
+  await run('claude-code: split rows total each token once, cache reads excluded', async () => {
     const home = await buildClaudeHome()
     const usage = await readSessionTokenUsage('claude-code', CLAUDE_SID, {
       homeDir: home,
@@ -254,7 +256,12 @@ async function main(): Promise<void> {
     })
     const opus = modelOf(usage.perModel, 'claude-opus-4-8')
     assert.equal(opus.split, true)
-    assert.equal(opus.total, opus.input + opus.output + opus.cacheRead + opus.cacheCreation)
+    assert.equal(opus.total, opus.input + opus.output + opus.cacheCreation)
+    // The read figure is still carried, just not folded into the total — every
+    // turn re-reads the whole context, so adding it counts the same tokens once
+    // per turn (the defect that showed a 9M-token sprint as 738M).
+    assert.ok(opus.cacheRead > 0, 'cache reads are still reported')
+    assert.ok(opus.total < opus.cacheRead, 'the total does not swallow the reads')
   })
 
   await run('missing source returns measured:false with a timestamp, never throws', async () => {
