@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../../../../../shared/design-system/attach'
+import {
+  DESIGN_SYSTEM_ATTACHED_PROMPT_LINE,
+  type DesignSystemAttachSource,
+} from '../../../../../shared/design-system/attach'
 import {
   buildDesignSystemKnowledgeNote,
   clearStaleAttachSelection,
@@ -63,7 +66,9 @@ assert.equal(countTrustCopy(folderHtml), 1, 'folder-selected state carries the t
 {
   const calls: Array<unknown> = []
   const onSelect = (source: unknown) => calls.push(source)
-  const selection = { kind: 'library', name: 'brand', version: '1.0.0' } as const
+  // A library selection is a REGISTRATION ID now (item 2004): the library is a
+  // registry of paths, and two cloned repos can hold the same name@version.
+  const selection: DesignSystemAttachSource = { kind: 'library', id: 'f6a9ae4a' }
 
   clearStaleAttachSelection({ existingBundle: true, selection, onSelect })
   assert.deepEqual(calls, [null], 'conflict + selection clears to null')
