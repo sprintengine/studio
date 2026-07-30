@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { JSDOM } from 'jsdom'
 
@@ -317,6 +319,29 @@ async function main(): Promise<void> {
     railColumn.remove()
     outside.remove()
   })
+
+  // The rail's sticky New/search header has to OCCLUDE the rows scrolling under
+  // it, so its ground must be a material that stays opaque in every window
+  // material. `--bg-canvas` is not one: the glass setting deliberately makes it
+  // transparent so the OS frost shows through the shell's background layers, and
+  // painting the header with it left every door's header see-through with row
+  // text sliding over the search field. Asserted on the source because the bug
+  // is a token choice, and jsdom resolves no custom properties to prove it.
+  {
+    const railSource = readFileSync(
+      join(process.cwd(), 'src/renderer/src/components/workspace/globalSurface/contextRail.tsx'),
+      'utf8',
+    )
+    const ground = railSource.match(/\[--rail-ground:var\((--[a-z-]+)\)\]/)
+    assert.ok(ground, 'the rail column declares a --rail-ground')
+    assert.notEqual(
+      ground?.[1],
+      '--bg-canvas',
+      'the sticky rail header is never grounded in the canvas — it is transparent under glass',
+    )
+    assert.equal(ground?.[1], '--bg-surface', 'it is grounded in the door material, opaque everywhere')
+    console.log('ok - the rail header is grounded in a material that survives the glass window')
+  }
 
   console.log('context rail: all checks passed')
 }

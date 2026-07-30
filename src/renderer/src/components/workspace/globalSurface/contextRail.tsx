@@ -161,9 +161,18 @@ export function ContextRailColumn({
       // the sidebar and then paints a different material reads as a panel
       // dropped into the chrome rather than as the chrome itself.
       //
+      // `--bg-surface`, NOT `--bg-canvas`. The glass window material sets
+      // `--bg-canvas: transparent` on purpose, so the OS frost shows through the
+      // shell's background layers — and a sticky header is not a background
+      // layer. It has to occlude the rows sliding under it, so painting it with
+      // the canvas made every door's New/search header see-through under glass,
+      // with row text scrolling straight over the search field. `--bg-surface`
+      // is the door material (the brand checklist's rule for everything in this
+      // folder) and it is opaque in every window material, glass included.
+      //
       // The Tailwind `hidden` class, not the `hidden` attribute: a `flex`
       // utility outranks the attribute rule and would leave it visible.
-      className={`context-rail-swap min-h-0 flex-1 flex-col outline-none [--rail-ground:var(--bg-canvas)] ${
+      className={`context-rail-swap min-h-0 flex-1 flex-col outline-none [--rail-ground:var(--bg-surface)] ${
         active ? 'flex' : 'hidden'
       }`}
     >
