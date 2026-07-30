@@ -44,7 +44,7 @@ NODE_PATH="$tmp/node_modules:$PWD/node_modules" \
   node scripts/testing/context-rail-door-pass.mjs
 ```
 
-Result: **100/100 checks passed.** Screenshots and a JSON transcript land in
+Result: **101/101 checks passed.** Screenshots and a JSON transcript land in
 `$MULTICODE_T19_OUT_DIR` (default `/tmp/multicode-t19-context-rail/out`).
 
 Two traps the harness documents and handles:
@@ -159,15 +159,21 @@ Exercised from Backlog (populated) and from Automations (empty), by both routes:
 
 | Door | Route | Projects rail back | Door's rail gone | Tree scrollTop | Focus lands on |
 |---|---|---|---|---|---|
-| Backlog | rail Back row | yes | yes | 0 → 0 (not scrollable at 4 rows) | `Backlog` trigger |
-| Backlog | Escape | yes | yes | 0 → 0 | `Backlog` trigger |
-| Automations | rail Back row | yes | yes | 0 → 0 | `Automations` trigger |
-| Automations | Escape | yes | yes | 0 → 0 | `Automations` trigger |
+| Backlog | rail Back row | yes | yes | 24 → 24 | `Backlog` trigger |
+| Backlog | Escape | yes | yes | 24 → 24 | `Backlog` trigger |
+| Automations | rail Back row | yes | yes | 24 → 24 | `Automations` trigger |
+| Automations | Escape | yes | yes | 24 → 24 | `Automations` trigger |
 
-Scroll preservation is reported honestly rather than claimed: this profile's tree
-holds one project, so `scrollHeight <= clientHeight` and the offset is 0 both
-sides. The mechanism itself (`treeScrollTopRef`, restored before the un-hidden
-rail paints) is unchanged by T19 and was verified under T7/T12.
+The scroll offset is a **real** measurement, not a degenerate one, and the way it
+got there is stated because it is a staged precondition: this fixture's single
+project cannot fill even a 300px-tall window, so the first run reported 0 → 0 and
+proved nothing. An inline `max-height` on the tree's own scrollport forces the
+overflow (`scrollHeight` 72 vs `clientHeight` 48); everything after that is the
+product's path — hiding the nav drops its offset to zero, and the effect keyed on
+the rail's activation restores `treeScrollTopRef` before the returned rail paints.
+Creating extra workspaces to overflow it naturally was tried first and abandoned:
+the "New Workspace" button is the empty-state CTA and is gone once a workspace
+exists.
 
 A note on the first run of this pass: focus initially landed on a terminal input,
 not the trigger. Cause was the harness — a programmatic `.click()` does not focus

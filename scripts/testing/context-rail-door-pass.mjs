@@ -601,6 +601,33 @@ async function main() {
 
     /* ---- Back + Escape, from Backlog and from an empty door ------------ */
     console.log('\n\n############ Back and Escape restore the projects rail ############')
+    // "Scroll position preserved" is only a real claim against a tree that can
+    // scroll, and 0 → 0 on a tree that fits proves nothing. Shrink the window until
+    // the tree overflows; the check below then compares a genuinely non-zero offset,
+    // and says so in its detail either way rather than quietly passing on a
+    // degenerate case.
+    // "Scroll position preserved" needs a tree that can actually scroll, and this
+    // fixture's one project cannot fill even a 300px window — a 0 → 0 result would
+    // pass while proving nothing. So the precondition is created deliberately: an
+    // inline max-height makes the real scrollport overflow. Everything after that
+    // is the product's own path — hiding the nav drops its offset to zero, and the
+    // effect keyed on the rail's activation puts `treeScrollTopRef` back before the
+    // restored rail paints. Stated plainly because it is a staged precondition, not
+    // a natural one.
+    const treeBox = await page.evaluate(() => {
+      const tree = document.querySelector('nav[role="tree"]')
+      if (!tree) return null
+      tree.style.maxHeight = '48px'
+      return { scrollHeight: tree.scrollHeight, clientHeight: tree.clientHeight, staged: true }
+    })
+    await page.waitForTimeout(400)
+    console.log(`  projects tree box: ${JSON.stringify(treeBox)}`)
+    transcript.treeBox = treeBox
+    check(
+      'the projects tree overflows, so scroll preservation is a real measurement',
+      treeBox !== null && treeBox.scrollHeight > treeBox.clientHeight,
+      JSON.stringify(treeBox),
+    )
     for (const [label, how] of [
       ['Backlog', 'back'],
       ['Backlog', 'escape'],
@@ -618,7 +645,8 @@ async function main() {
       const before = await page.evaluate(() => {
         const tree = document.querySelector('nav[role="tree"]')
         if (!tree) return null
-        tree.scrollTop = 24
+        tree.scrollTop = Math.min(24, Math.max(0, tree.scrollHeight - tree.clientHeight))
+        tree.dispatchEvent(new Event('scroll', { bubbles: false }))
         return { scrollTop: tree.scrollTop, scrollable: tree.scrollHeight > tree.clientHeight }
       })
       await activate(doorTrigger(page, label))
