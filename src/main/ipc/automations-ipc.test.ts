@@ -603,6 +603,52 @@ async function testDefinitionWriteSurfacesRefreshHookFailure(): Promise<void> {
   assert.match(created.ok ? '' : created.message, /receiver failed closed/u)
 }
 
+// The marketplace shelf is a global door and the store is per-project, so the
+// install path's one job at this boundary is to refuse to guess: a wrong-project
+// install is invisible, and one with no project at all is worse.
+async function testCatalogueInstallTargetsOnlyAnOpenProject(): Promise<void> {
+  const knownRoot = await withWorkspaceRoot()
+  const outsideRoot = await mkdtemp(join(tmpdir(), 'multicode-automations-ipc-outside-'))
+  const frontDoor = registerAutomationsIpc(
+    { registerIpc: () => undefined },
+    testDeps({ workspaceRoots: [knownRoot] })
+  )
+  const payload = {
+    name: 'Nightly dependency sweep',
+    trigger: { kind: 'schedule', config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'interval', everyMinutes: 10 } } },
+    action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
+  }
+
+  const noProject = await frontDoor.installCatalogueDefinition({
+    definition: payload,
+    sourceCatalogueId: 'multicode.nightly-sweep',
+  })
+  assert.equal(noProject.ok, false)
+  if (!noProject.ok) assert.equal(noProject.code, 'invalid_input', 'an install with no project refuses rather than picking one')
+
+  const wrongProject = await frontDoor.installCatalogueDefinition({
+    workspaceRoot: outsideRoot,
+    definition: payload,
+    sourceCatalogueId: 'multicode.nightly-sweep',
+  })
+  assert.equal(wrongProject.ok, false)
+  if (!wrongProject.ok) assert.equal(wrongProject.code, 'workspace_root_untrusted')
+  const outsideDefinitions = await new AutomationsStore(outsideRoot).listDefinitions()
+  assert.equal(outsideDefinitions.ok && outsideDefinitions.values.length, 0, 'a project the app does not have open is never written to')
+
+  const added = await frontDoor.installCatalogueDefinition({
+    workspaceRoot: knownRoot,
+    definition: payload,
+    sourceCatalogueId: 'multicode.nightly-sweep',
+    sourcePublisher: 'Multicode Labs',
+  })
+  assert.equal(added.ok, true, added.ok ? '' : added.message)
+  if (!added.ok) return
+  assert.equal(added.value.alreadyAdded, false)
+  assert.equal(added.value.workspaceRoot, knownRoot, 'the result names the project it used')
+  assert.equal(added.value.definition.sourceCatalogueId, 'multicode.nightly-sweep')
+}
+
 async function testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow(): Promise<void> {
   const knownRoot = await withWorkspaceRoot()
   const outsideRoot = await mkdtemp(join(tmpdir(), 'multicode-automations-ipc-outside-'))
@@ -815,6 +861,7 @@ async function main(): Promise<void> {
   await testDefinitionWritesNotifyRefreshHook()
   await testDefinitionWriteSurfacesRefreshHookFailure()
   await testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow()
+  await testCatalogueInstallTargetsOnlyAnOpenProject()
   await testEngineStatusChannelReflectsSidecar()
   await testInstanceListEnumeratesAcrossRootsAndRedacts()
   console.log('automations-ipc tests passed')

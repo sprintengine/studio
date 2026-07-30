@@ -156,6 +156,30 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     return ok(definitionForRenderer(created.value))
   }
 
+  // The marketplace install path (no IPC channel of its own — the marketplace's
+  // own install handler calls this). Same workspace-root trust gate as every
+  // other write, so a shelf install can only ever land in a project the app has
+  // open: an install with no target refuses rather than picking one.
+  const installCatalogueDefinition = async (input: unknown): Promise<AutomationsCatalogueInstallResult> => {
+    const workspaceRoot = parseWorkspaceRoot(input, deps.getWorkspaceSyncSnapshot)
+    if (!workspaceRoot.ok) return workspaceRoot
+    if (!isRecord(input) || typeof input.sourceCatalogueId !== 'string') {
+      return fail('invalid_input', 'sourceCatalogueId is required.')
+    }
+    const sourcePublisher = trimmedString(input.sourcePublisher)
+    const installed = withPostWriteFailure(await writeCore.installFromCatalogue(workspaceRoot.value, {
+      payload: input.definition,
+      sourceCatalogueId: input.sourceCatalogueId,
+      ...(sourcePublisher ? { sourcePublisher } : {}),
+    }))
+    if (!installed.ok) return installed
+    return ok({
+      definition: definitionForRenderer(installed.value.definition),
+      alreadyAdded: installed.value.alreadyAdded,
+      workspaceRoot: workspaceRoot.value,
+    })
+  }
+
   const runNow = async (input: unknown): Promise<AutomationsRunNowIpcResult> => {
     const parsed = parseDefinitionInput(input, deps.getWorkspaceSyncSnapshot)
     if (!parsed.ok) return parsed
@@ -247,8 +271,21 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     return ok({ state: status.state, ...(status.error ? { error: status.error } : {}) })
   })
 
-  return { createDefinition, updateDefinition, runNow }
+  return { createDefinition, updateDefinition, installCatalogueDefinition, runNow }
 }
+
+/**
+ * What a marketplace install landed: the definition (existing one when the
+ * project already had this catalogue entry) and the project it lives in, so the
+ * caller can name the target it used rather than leaving the user to guess.
+ */
+export type AutomationsCatalogueInstall = {
+  definition: AutomationDefinition
+  alreadyAdded: boolean
+  workspaceRoot: string
+}
+
+export type AutomationsCatalogueInstallResult = AutomationsResult<AutomationsCatalogueInstall>
 
 // App-level front door over the exact IPC pipeline (parse, workspace-root
 // trust, write core, engine). The automations module provides it as a kernel
@@ -258,6 +295,13 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
 export type AutomationsAppFrontDoor = {
   createDefinition(input: unknown): Promise<AutomationsDefinitionResult>
   updateDefinition(input: unknown): Promise<AutomationsDefinitionResult>
+  /**
+   * Adds a marketplace catalogue entry's automation to a project. The
+   * marketplace install path reaches the automations store only through here —
+   * there is no file for it to copy, so this is its equivalent of the
+   * `.agents/<kind>/` unpack every other component kind does.
+   */
+  installCatalogueDefinition(input: unknown): Promise<AutomationsCatalogueInstallResult>
   runNow(input: unknown): Promise<AutomationsRunNowIpcResult>
 }
 
