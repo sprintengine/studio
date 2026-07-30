@@ -107,7 +107,7 @@ function TargetGlyph({ target }: { target: FolderOpenTargetId }) {
  * - **A failed launch is visible and stops there.** The typed failure from the
  *   IPC is surfaced on the control; nothing silently retries in another editor.
  */
-function OpenWorkspaceFolderButton({
+export function OpenWorkspaceFolderButton({
   workspaceId,
   openPath,
 }: {

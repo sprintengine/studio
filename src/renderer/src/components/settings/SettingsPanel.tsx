@@ -829,7 +829,7 @@ function VersionControlStateLine({ view }: { view: VersionControlRowView }) {
 // state passes no switch rather than rendering a dead one, and a switch that
 // only looks like it does something is worse than the absence of one. The dot
 // and the state line carry health; nothing here pretends to carry enablement.
-function VersionControlSections({
+export function VersionControlSections({
   githubToken,
 }: {
   githubToken: React.ReactNode

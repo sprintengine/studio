@@ -325,8 +325,17 @@ async function main(): Promise<void> {
   await mount()
   assert.ok(container.textContent?.includes('Run your first sprint'), 'empty state copy')
   assert.ok(container.textContent?.includes('New sprint'), 'empty state offers the create path')
-  assert.equal(container.querySelector('aside[aria-label="Sprints list"]'), null, 'no rail when empty')
-  console.log('ok - empty index shows the first-run state with no rail')
+  // Rail presence is DECLARED, not derived from what the door holds (T19): an
+  // empty Sprints door still replaces the projects rail, and the empty state is
+  // the canvas's to say. Gating it on `runs.length > 0` is what used to leave a
+  // first-run door beside the projects rail as a second navigation column.
+  const emptyRail = container.querySelector('aside[aria-label="Sprints list"]')
+  assert.ok(emptyRail, 'the rail is declared even with nothing in it')
+  assert.ok(
+    emptyRail?.textContent?.includes('New sprint'),
+    'and it still carries the create affordance',
+  )
+  console.log('ok - empty index shows the first-run state beside a declared rail')
 
   // ── Populated index → rail, ordering, chips, auto-selected canvas ─────────
   listed = [
