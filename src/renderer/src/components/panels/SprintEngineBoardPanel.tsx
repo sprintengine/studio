@@ -76,7 +76,6 @@ import {
  getNextSprintEngineAgentId,
  getSprintEngineBoardRunPhase,
  getSprintEngineTaskBoardColumn,
- getSprintEngineTaskOwnerLabel,
  getSprintEngineRoleAccent,
  getUserDisabledSprintEngineRoleIds,
  getSprintEngineRoleLabel,
@@ -1472,7 +1471,23 @@ export function SprintRunBoard({
  const selectedTaskBoardColumn = selectedTask
  ? getSprintEngineTaskBoardColumn(selectedTask, sprintEngineState.tasks)
  : null
- const selectedTaskOwnerLabel = selectedTask ? getSprintEngineTaskOwnerLabel(selectedTask, rosterById) : ''
+ // Open the backlog item a task points at (the inspector's header pointer,
+ // item 2029). The item's home is the project's Backlog panel, so a resident
+ // workspace reveals it there; a door mount has no workspace to reveal it in,
+ // and falls back to this run's own Epic tab, which reads the same item. With
+ // neither, no open affordance is offered rather than one that does nothing.
+ const openSelectedTaskBacklogItem = useCallback(
+   (relativePath: string) => {
+     if (workspaceId) {
+       revealNavRailComponent(workspaceId, 'backlog', 'Backlog')
+       dispatchBacklogReveal({ workspaceId, relativePath })
+       return
+     }
+     if (epicSeed && !fixedView) setActiveView('epic')
+   },
+   [workspaceId, epicSeed, fixedView, setActiveView],
+ )
+ const canOpenBacklogItem = Boolean(workspaceId) || Boolean(epicSeed && !fixedView)
  const selectedTaskNeedsInputNote = selectedTask?.status === 'needs_input'
  ? 'This agent is waiting for input.'
  : null
@@ -1538,7 +1553,6 @@ export function SprintRunBoard({
  agents={agents}
  tasksById={tasksById}
  selectedTaskBoardColumn={selectedTaskBoardColumn}
- selectedTaskOwnerLabel={selectedTaskOwnerLabel}
  selectedTaskNeedsInputNote={selectedTaskNeedsInputNote}
  selectedTaskTokenUsage={selectedTaskTokenUsage}
  selectedTaskArtifacts={selectedTaskArtifacts}
@@ -1554,6 +1568,8 @@ export function SprintRunBoard({
  onSubmitPreviewAnnotations={submitPreviewAnnotations}
  onResolveTaskInput={resolveTaskInput}
  onPostTaskComment={postTaskComment}
+ onOpenBacklogItem={canOpenBacklogItem ? openSelectedTaskBacklogItem : null}
+ taskItemInEpic={Boolean(epicSeed)}
  onBackFromArtifact={() => setPreviewedArtifact(null)}
  onPopOutArtifact={popOutPreviewedArtifact}
  onSpawnAgent={spawnAgent}
