@@ -199,10 +199,11 @@ import type { DesignSystemBrandDemoResolveResult } from './design-system/brand-d
 import type { DesignSystemBundleLintRunResult } from './design-system/bundle-lint-run'
 import type { DesignSystemRegenResult } from './design-system/derived-files'
 import type { DesignSystemScaffoldResult } from './design-system/bundle-scaffold'
+import type { DesignSystemBundleReadResult } from './design-system/bundle-view'
 import type {
   DesignSystemLibraryListResult,
   DesignSystemLibraryReadResult,
-  DesignSystemReleaseResult,
+  DesignSystemRegisterResult,
 } from './design-system/library'
 import type {
   DesignSystemAttachResult,
@@ -3170,17 +3171,23 @@ export type ElectronApi = {
   regenerateDesignSystemDerivedFiles: (rootDir: string) => Promise<DesignSystemRegenResult>
   /** Stamp the design-system bundle layout (templates + manifest) into a workspace. Never overwrites an existing bundle. */
   scaffoldDesignSystemBundle: (workspaceRoot: string, name: string, summary: string) => Promise<DesignSystemScaffoldResult>
+  /** Create a new design-system bundle in a user-chosen folder — seeded from an existing bundle, or bare from the shipped templates. Never overwrites; rolls back on failure. */
+  seedDesignSystemBundle: (sourceDir: string | null, targetDir: string, name: string, summary: string) => Promise<DesignSystemScaffoldResult>
   /** Resolve the built-in "seed from the Multicode brand" demo source dir (knowledge/brand/); unavailable in builds that do not carry it. */
   resolveDesignSystemBrandDemoSeed: () => Promise<DesignSystemBrandDemoResolveResult>
-  /** Run a bundle's own scripts/lint.mjs on demand (the studio release action's validating phase; release re-runs the same gate). */
+  /** Run a bundle's own scripts/lint.mjs on demand (the guided-brief studio's validating preview — the author's contribution gate). */
   lintDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleLintRunResult>
-  /** Release an authored bundle into the user-global design-system library as an immutable versioned copy (lint gate + provenance stamp + derived-file regen). */
-  releaseDesignSystemBundle: (bundleDir: string, version: string) => Promise<DesignSystemReleaseResult>
-  /** List released design systems in the user-global library (name, version, summary per release). */
+  /** Read one design-system bundle directory for the Design door: identity, accent resolved from the token SOURCE, and the parsed manifest. Read-only — never writes, never forks a bundle script. */
+  readDesignSystemBundle: (bundleDir: string) => Promise<DesignSystemBundleReadResult>
+  /** List the library: every registered folder, probed live for its source state. */
   listDesignSystemLibrary: () => Promise<DesignSystemLibraryListResult>
-  /** Read one released design system's manifest from the user-global library. */
-  readDesignSystemLibraryEntry: (name: string, version: string) => Promise<DesignSystemLibraryReadResult>
-  /** Attach a design-system bundle (library release or browsed folder) to a workspace as a one-time copy at design-system/, provenance stamped. Refuses if design-system/ already exists. */
+  /** Read one registered design system by its registration id. */
+  readDesignSystemLibraryEntry: (id: string) => Promise<DesignSystemLibraryReadResult>
+  /** Point the library at a folder on disk. Registers a reference — copies nothing. */
+  registerDesignSystemFolder: (folderPath: string) => Promise<DesignSystemRegisterResult>
+  /** Drop a registration. Removes the reference only; the user's folder is untouched. */
+  forgetDesignSystemFolder: (id: string) => Promise<{ ok: true; forgotten: boolean }>
+  /** Attach a design-system bundle (library entry or browsed folder) to a workspace as a one-time copy at design-system/, provenance stamped. Refuses if design-system/ already exists. */
   attachDesignSystemBundle: (source: DesignSystemAttachSource, workspaceRoot: string) => Promise<DesignSystemAttachResult>
   /** List installed third-party capability modules with trust, permissions, and launch readiness. */
   listThirdPartyModules: () => Promise<ThirdPartyModuleListResult>

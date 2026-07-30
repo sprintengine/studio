@@ -4,6 +4,7 @@ import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
 import { automationsRendererModule } from './automations-module'
 import { backlogRendererModule } from './backlog-module'
+import { designRendererModule } from './design-module'
 import { devToolsRendererModule } from './dev-tools-module'
 import { gitRendererModule } from './git-module'
 import { memoryRendererModule } from './memory-module'
@@ -21,6 +22,7 @@ import { createRendererHost, type RendererModule } from './renderer-host'
 export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   agentRuntimeRendererModule,
   backlogRendererModule,
+  designRendererModule,
   devToolsRendererModule,
   memoryRendererModule,
   gitRendererModule,

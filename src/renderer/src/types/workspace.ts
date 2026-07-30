@@ -682,17 +682,6 @@ export type GuidedBriefHasUi = 'yes' | 'no'
 // workspace mode rather than becoming their own `WorkspaceMode`.
 export type GuidedBriefPreset = 'full-brief' | 'frontend-design' | 'design-system'
 
-// The last successful library release from a design-system studio. Drives the
-// re-release loop: the version input prefills this version for the user to
-// bump, and the released confirmation names the real library copy.
-export type DesignSystemStudioRelease = {
-  name: string
-  version: string
-  /** Absolute path of the immutable released copy in the user-global library. */
-  path: string
-  releasedAt: string
-}
-
 // Where a design-system studio starts. `null`/absent is the blank scaffold;
 // otherwise the designer agent's opening move is extracting the de-facto
 // design language from the named source (a user-picked product folder, or the
@@ -783,9 +772,6 @@ export type GuidedBriefRuntimeState = {
   // into the designer session's opening prompt. Absent/null on legacy states
   // and on blank-start studios; always null for the other presets.
   designSystemSeedSource?: DesignSystemSeedSource | null
-  // Design-system preset only: the last successful library release from this
-  // studio. Absent/null before the first release and on other presets.
-  designSystemLastRelease?: DesignSystemStudioRelease | null
   // Persisted so the renderer reattaches to the same PTY across HMR / refresh
   // instead of spawning a fresh strategist, architect, or designer.
   strategistSessionId: string | null

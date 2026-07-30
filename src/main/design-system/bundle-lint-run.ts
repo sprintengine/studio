@@ -5,11 +5,10 @@ import type { DesignSystemBundleLintRunResult } from '../../shared/design-system
 import type { BundleScriptFork } from './derived-file-runner'
 
 // On-demand run of a bundle's own scripts/lint.mjs, forked like every other
-// bundle script. This is the studio release action's validating phase; the
-// release pipeline (library-registry.ts) runs the same script again as its
-// own gate, so a pass here is a preview, never a bypass. Exit contract of the
-// template lint: 0 clean, 1 findings on stdout, anything else is
-// misconfiguration.
+// bundle script. This is the author's contribution gate — the guided-brief
+// studio's validating preview is its only caller, and no read-only surface
+// runs it. Exit contract of the template lint: 0 clean, 1 findings on stdout,
+// anything else is misconfiguration.
 export async function runDesignSystemBundleLint(
   bundleDir: string,
   fork: BundleScriptFork,

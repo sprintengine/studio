@@ -1,321 +1,408 @@
-import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'fs/promises'
+import { mkdir, readdir, readFile, rename, stat, writeFile } from 'fs/promises'
 import { homedir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
 
 import {
   DESIGN_SYSTEM_MANIFEST_FILENAME,
-  DESIGN_SYSTEM_NAME_PATTERN,
-  DESIGN_SYSTEM_VERSION_PATTERN,
   parseDesignSystemManifest,
   type DesignSystemManifest,
 } from '../../shared/design-system/manifest'
-import type {
-  DesignSystemLibraryEntry,
-  DesignSystemLibraryListResult,
-  DesignSystemLibraryReadResult,
-  DesignSystemLibraryRejection,
-  DesignSystemReleaseResult,
+import {
+  designSystemRegistrationId,
+  normaliseRegistryPath,
+  DESIGN_SYSTEM_REGISTRY_SCHEMA_VERSION,
+  type DesignSystemLibraryEntry,
+  type DesignSystemLibraryListResult,
+  type DesignSystemLibraryReadResult,
+  type DesignSystemRegisterResult,
+  type DesignSystemRegistration,
+  type DesignSystemRegistryFile,
+  type DesignSystemSourceState,
 } from '../../shared/design-system/library'
-import { findEscapingSymlink } from './bundle-copy-confinement'
-import { regenerateBundleDerivedFiles, type BundleScriptFork } from './derived-file-runner'
-import { runDesignSystemBundleLint } from './bundle-lint-run'
 
-// User-global design-system library: immutable, versioned copies of authored
-// bundles at <root>/<name>/<version>/, following the ~/.multicode registry
-// precedent of layout-template-registry.ts. The release pipeline is the
-// gatekeeper: the bundle's own lint must pass, the version + provenance are
-// stamped into the manifest, derived files are force-regenerated from the
-// stamped manifest (the catalog embeds the version), and only then is the
-// bundle copied in. Every failure surfaces as a typed result — nothing is
-// copied on failure, and re-releasing an existing name+version refuses.
+// The user-global design-system library: a REGISTRY OF PATHS the user pointed
+// at, read live from wherever they live. See library.ts for why it stopped being
+// a store of copies.
+//
+// This module writes exactly one file — its own registry at
+// `~/.multicode/design-systems.json`. It never writes inside a registered
+// folder: those belong to the user's own repo, and the door is a viewer.
 
+/** The registry file, beside the legacy copy directory so the two never collide. */
+export function defaultDesignSystemRegistryPath(): string {
+  return join(homedir(), '.multicode', 'design-systems.json')
+}
+
+/** Where release-era copies live. Read for adoption; never written, never removed. */
 export function defaultDesignSystemLibraryRoot(): string {
   return join(homedir(), '.multicode', 'design-systems')
 }
 
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path)
-    return true
-  } catch {
-    return false
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-async function readDirSafe(dir: string): Promise<import('fs').Dirent[]> {
-  try {
-    return await readdir(dir, { withFileTypes: true })
-  } catch {
-    return []
-  }
+function text(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
 }
 
-function toLibraryEntry(manifest: DesignSystemManifest, path: string): DesignSystemLibraryEntry {
-  const releasedAt = manifest.provenance.releasedAt
+function emptyRegistry(): DesignSystemRegistryFile {
+  return { schemaVersion: DESIGN_SYSTEM_REGISTRY_SCHEMA_VERSION, entries: [] }
+}
+
+/**
+ * Read the registry file, tolerating every way it can be absent or damaged.
+ *
+ * A missing file is an empty library — the ordinary first-run state. A file that
+ * will not parse is ALSO treated as empty rather than throwing, because the
+ * alternative is a door that cannot open at all; the next write rebuilds it.
+ * Individual malformed entries are dropped, not the whole file.
+ */
+export async function readDesignSystemRegistry(
+  registryPath: string,
+): Promise<DesignSystemRegistryFile> {
+  let raw: string
+  try {
+    raw = await readFile(registryPath, 'utf8')
+  } catch {
+    return emptyRegistry()
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return emptyRegistry()
+  }
+  if (!isRecord(parsed)) return emptyRegistry()
+  const rawEntries = Array.isArray(parsed.entries) ? parsed.entries : []
+  const entries: DesignSystemRegistration[] = []
+  const seen = new Set<string>()
+  for (const candidate of rawEntries) {
+    if (!isRecord(candidate)) continue
+    const path = text(candidate.path)
+    if (!path) continue
+    const id = text(candidate.id) ?? designSystemRegistrationId(path)
+    // One row per folder: a registry hand-edited into duplicates collapses
+    // rather than rendering the same system twice.
+    if (seen.has(id)) continue
+    seen.add(id)
+    entries.push({
+      id,
+      path,
+      name: text(candidate.name),
+      version: text(candidate.version),
+      addedAt: text(candidate.addedAt) ?? new Date(0).toISOString(),
+    })
+  }
   return {
-    name: manifest.name,
-    version: manifest.version,
-    summary: manifest.summary,
+    schemaVersion:
+      typeof parsed.schemaVersion === 'number'
+        ? parsed.schemaVersion
+        : DESIGN_SYSTEM_REGISTRY_SCHEMA_VERSION,
+    entries,
+    adoptedLegacyCopies: parsed.adoptedLegacyCopies === true,
+  }
+}
+
+/**
+ * Write the registry through a temp file + rename.
+ *
+ * The rename is atomic on every platform we ship, so a crash mid-write leaves
+ * the previous registry intact rather than a truncated one — losing the list of
+ * folders a user pointed at is not recoverable from anywhere else.
+ */
+async function writeDesignSystemRegistry(
+  registryPath: string,
+  registry: DesignSystemRegistryFile,
+): Promise<void> {
+  await mkdir(dirname(registryPath), { recursive: true })
+  const temporary = `${registryPath}.tmp`
+  await writeFile(temporary, `${JSON.stringify(registry, null, 2)}\n`, 'utf8')
+  await rename(temporary, registryPath)
+}
+
+async function statKind(path: string): Promise<'dir' | 'file' | 'missing' | 'unreadable'> {
+  try {
+    const stats = await stat(path)
+    return stats.isDirectory() ? 'dir' : 'file'
+  } catch (error) {
+    const code =
+      error !== null && typeof error === 'object' && 'code' in error
+        ? String((error as { code: unknown }).code)
+        : null
+    return code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unreadable'
+  }
+}
+
+interface ProbeResult {
+  sourceState: DesignSystemSourceState
+  manifest: DesignSystemManifest | null
+  message: string | null
+}
+
+/**
+ * Probe one registered folder: is it there, is it a bundle, does it parse?
+ *
+ * READ ONLY. This is the whole of what the library does to a user's folder.
+ */
+async function probe(path: string): Promise<ProbeResult> {
+  const kind = await statKind(path)
+  if (kind === 'missing' || kind === 'file') {
+    return {
+      sourceState: 'missing',
+      manifest: null,
+      message: `That folder is no longer there: ${path}`,
+    }
+  }
+  if (kind === 'unreadable') {
+    return { sourceState: 'unreadable', manifest: null, message: `Could not open ${path}` }
+  }
+  let contents: string
+  try {
+    contents = await readFile(join(path, DESIGN_SYSTEM_MANIFEST_FILENAME), 'utf8')
+  } catch (error) {
+    const code =
+      error !== null && typeof error === 'object' && 'code' in error
+        ? String((error as { code: unknown }).code)
+        : null
+    if (code === 'ENOENT') {
+      return {
+        sourceState: 'no-manifest',
+        manifest: null,
+        message: `That folder has no ${DESIGN_SYSTEM_MANIFEST_FILENAME}, so it is not a design system.`,
+      }
+    }
+    return {
+      sourceState: 'unreadable',
+      manifest: null,
+      message: `Could not read ${DESIGN_SYSTEM_MANIFEST_FILENAME} in ${path}`,
+    }
+  }
+  try {
+    return { sourceState: 'ok', manifest: parseDesignSystemManifest(contents), message: null }
+  } catch (error) {
+    return {
+      sourceState: 'invalid-manifest',
+      manifest: null,
+      message: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+function toEntry(
+  registration: DesignSystemRegistration,
+  probed: ProbeResult,
+): DesignSystemLibraryEntry {
+  const manifest = probed.manifest
+  const releasedAt = manifest?.provenance.releasedAt
+  return {
+    id: registration.id,
+    path: registration.path,
+    // The manifest when we could read it; otherwise the cached display value, so
+    // a folder that moved still shows what it used to be instead of going blank.
+    name: manifest?.name ?? registration.name,
+    version: manifest?.version ?? registration.version,
+    summary: manifest?.summary ?? '',
     releasedAt: typeof releasedAt === 'string' ? releasedAt : null,
-    path,
+    sourceState: probed.sourceState,
+    addedAt: registration.addedAt,
   }
-}
-
-// Newest release first within a name: numeric major.minor.patch, a release
-// above its own prereleases, prereleases lexicographic (good enough for v1).
-function compareVersionsDesc(a: string, b: string): number {
-  const [aCore, aPre = ''] = a.split('-', 2)
-  const [bCore, bPre = ''] = b.split('-', 2)
-  const aParts = aCore.split('.').map(Number)
-  const bParts = bCore.split('.').map(Number)
-  for (let i = 0; i < 3; i++) {
-    if (aParts[i] !== bParts[i]) return bParts[i] - aParts[i]
-  }
-  if (aPre === bPre) return 0
-  if (aPre === '') return -1
-  if (bPre === '') return 1
-  return bPre.localeCompare(aPre)
 }
 
 /**
- * Release ("Save as design system") an authored bundle into the library as an
- * immutable copy at `<root>/<name>/<version>/`. Pipeline: refuse an existing
- * name+version → bundle lint gate → stamp version + provenance into the
- * authoring manifest (unknown fields preserved by the canonical parser) →
- * force-regenerate derived files from the stamped manifest → copy. The copy
- * excludes nothing: the bundle is self-contained by design.
+ * Adopt release-era copies as registered paths, once.
+ *
+ * A user's machine may hold `<root>/<name>/<version>/` copies written before the
+ * release pipeline was deleted (item 2001). Leaving them unregistered would make
+ * their systems silently vanish from the app; deleting them is never an option.
+ * So they are registered IN PLACE, pointing at themselves, and the adoption is
+ * recorded so a deliberate Forget sticks.
  */
-export async function releaseDesignSystemBundle(
-  bundleDir: string,
-  version: string,
-  root: string,
-  fork: BundleScriptFork,
-): Promise<DesignSystemReleaseResult> {
-  const manifestPath = join(bundleDir, DESIGN_SYSTEM_MANIFEST_FILENAME)
-  let manifest: DesignSystemManifest
+async function adoptLegacyCopies(
+  legacyRoot: string,
+  existing: readonly DesignSystemRegistration[],
+): Promise<DesignSystemRegistration[]> {
+  const known = new Set(existing.map((entry) => normaliseRegistryPath(entry.path)))
+  const adopted: DesignSystemRegistration[] = []
+  let nameDirs: string[]
   try {
-    manifest = parseDesignSystemManifest(await readFile(manifestPath, 'utf8'))
-  } catch (error) {
-    return {
-      ok: false,
-      stage: 'manifest',
-      message: `Could not read the bundle manifest: ${error instanceof Error ? error.message : String(error)}`,
+    nameDirs = (await readdir(legacyRoot, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry) => entry.name)
+  } catch {
+    return adopted
+  }
+  for (const name of nameDirs.sort((a, b) => a.localeCompare(b))) {
+    let versionDirs: string[]
+    try {
+      versionDirs = (await readdir(join(legacyRoot, name), { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+        .map((entry) => entry.name)
+    } catch {
+      continue
+    }
+    for (const version of versionDirs.sort((a, b) => a.localeCompare(b))) {
+      const path = join(legacyRoot, name, version)
+      if (known.has(normaliseRegistryPath(path))) continue
+      const probed = await probe(path)
+      // Only adopt what really is a bundle: a stray directory under the old root
+      // is not a design system and must not become a permanent broken row.
+      if (probed.sourceState !== 'ok' || !probed.manifest) continue
+      known.add(normaliseRegistryPath(path))
+      adopted.push({
+        id: designSystemRegistrationId(path),
+        path,
+        name: probed.manifest.name,
+        version: probed.manifest.version,
+        addedAt: new Date().toISOString(),
+      })
     }
   }
+  return adopted
+}
 
-  if (!DESIGN_SYSTEM_VERSION_PATTERN.test(version)) {
-    return {
-      ok: false,
-      stage: 'manifest',
-      message: `Release version must be a semver string (got "${version}").`,
-    }
-  }
-
-  const releaseDir = join(root, manifest.name, version)
-  if (await pathExists(releaseDir)) {
-    return {
-      ok: false,
-      stage: 'conflict',
-      message: `${manifest.name}@${version} is already in the library. Releases are immutable — bump the version to release again.`,
-    }
-  }
-
-  // The library copy preserves symlinks verbatim, so a bundle tree carrying a
-  // link that resolves outside itself must never become a release — every
-  // later attach of that release would materialize the escaping link into a
-  // consuming repo. Fail closed before running any bundle script or mutating
-  // anything.
-  const escapingLink = await findEscapingSymlink(bundleDir)
-  if (escapingLink !== null) {
-    return {
-      ok: false,
-      stage: 'source',
-      message: `The bundle contains a symlink that points outside the bundle (${escapingLink}). Releases refuse bundles with escaping symlinks — nothing was copied.`,
-    }
-  }
-
-  // Lint gate before anything is mutated. One implementation of the lint
-  // fork + exit contract (bundle-lint-run.ts) serves both the studio's
-  // validating preview and this release gate, so the two can never drift —
-  // only the release-specific copy lives in this mapping.
-  const lint = await runDesignSystemBundleLint(bundleDir, fork)
-  if (!lint.ok) {
-    if (lint.kind === 'findings') {
-      return {
-        ok: false,
-        stage: 'lint',
-        message: 'The design-system lint found violations. Fix them and release again.',
-        lintFindings: lint.findings,
-      }
-    }
-    return { ok: false, stage: 'lint', message: lint.message }
-  }
-
-  // Stamp version + release provenance. The manifest object is the parsed
-  // value itself, so unknown top-level and provenance fields survive the
-  // read → stamp → write cycle; the parser self-check catches a stamp bug
-  // before it reaches disk.
-  const releasedAt = new Date().toISOString()
-  manifest.version = version
-  manifest.provenance = {
-    ...manifest.provenance,
-    sourceLibraryId: manifest.name,
-    sourceLibraryVersion: version,
-    releasedAt,
-  }
-  const stampedJson = `${JSON.stringify(manifest, null, 2)}\n`
-  try {
-    parseDesignSystemManifest(stampedJson)
-    await writeFile(manifestPath, stampedJson)
-  } catch (error) {
-    return {
-      ok: false,
-      stage: 'manifest',
-      message: `Could not stamp the bundle manifest: ${error instanceof Error ? error.message : String(error)}`,
-    }
-  }
-
-  // Force-regenerate derived files from the stamped manifest (tokens before
-  // the catalog that inlines them; the catalog also embeds the version), so a
-  // release can never ship stale derived output. Unlike authoring-time
-  // regeneration, a generator that is merely 'missing' fails the release: a
-  // released bundle must contain every derived file.
-  const regen = await regenerateBundleDerivedFiles(bundleDir, fork)
-  const incomplete = regen.runs.filter((run) => run.status !== 'ok')
-  if (!regen.ok || incomplete.length > 0) {
-    return {
-      ok: false,
-      stage: 'regenerate',
-      message:
-        regen.message ??
-        incomplete.map((run) => `${run.script}: ${run.status}`).join('; '),
-    }
-  }
-  for (const derivedFile of Object.keys(manifest.derived)) {
-    if (!(await pathExists(join(bundleDir, derivedFile)))) {
-      return {
-        ok: false,
-        stage: 'regenerate',
-        message: `Derived file was not produced by its generator: ${derivedFile}`,
-      }
-    }
-  }
-
-  // Copy through a dot-prefixed staging dir + rename so a half-written
-  // release can never be listed (list skips dot-dirs), then verify the copy
-  // parses before reporting success.
-  const stagingDir = join(root, manifest.name, `.staging-${version}`)
-  try {
-    await mkdir(join(root, manifest.name), { recursive: true })
-    await rm(stagingDir, { recursive: true, force: true })
-    await cp(bundleDir, stagingDir, { recursive: true })
-    await rename(stagingDir, releaseDir)
-  } catch (error) {
-    await rm(stagingDir, { recursive: true, force: true }).catch(() => undefined)
-    if (await pathExists(releaseDir)) {
-      return {
-        ok: false,
-        stage: 'conflict',
-        message: `${manifest.name}@${version} appeared in the library while releasing. Releases are immutable — bump the version to release again.`,
-      }
-    }
-    return {
-      ok: false,
-      stage: 'copy',
-      message: `Could not copy the bundle into the library: ${error instanceof Error ? error.message : String(error)}`,
-    }
-  }
-
-  try {
-    parseDesignSystemManifest(await readFile(join(releaseDir, DESIGN_SYSTEM_MANIFEST_FILENAME), 'utf8'))
-  } catch (error) {
-    return {
-      ok: false,
-      stage: 'copy',
-      message: `The released copy failed read-back verification: ${error instanceof Error ? error.message : String(error)}`,
-    }
-  }
-
-  return { ok: true, name: manifest.name, version, releasedAt, path: releaseDir }
+export interface LibraryPaths {
+  registryPath: string
+  /** The release-era copy root, read once for adoption. */
+  legacyRoot: string
 }
 
 /**
- * List every released design system under the library root. A missing root
- * is an empty library (nothing has been released yet); a release that does
- * not parse, or whose manifest disagrees with its directory, is surfaced in
- * `rejected` rather than silently skipped.
+ * Read the registry, adopting release-era copies the first time.
+ *
+ * Shared by list and read because either can be the first thing that happens on
+ * a machine that predates the registry. After the first pass the flag short
+ * circuits it, so the steady-state cost is the registry read either would do.
  */
-export async function listDesignSystemLibrary(root: string): Promise<DesignSystemLibraryListResult> {
+async function ensureAdopted(paths: LibraryPaths): Promise<DesignSystemRegistryFile> {
+  const registry = await readDesignSystemRegistry(paths.registryPath)
+  if (registry.adoptedLegacyCopies) return registry
+  const adopted = await adoptLegacyCopies(paths.legacyRoot, registry.entries)
+  registry.entries = [...registry.entries, ...adopted]
+  registry.adoptedLegacyCopies = true
+  await writeDesignSystemRegistry(paths.registryPath, registry)
+  return registry
+}
+
+/**
+ * List the library: every registered folder, probed live.
+ *
+ * A folder that cannot be read stays in the list as a row carrying its own
+ * failure state — dropping it would hide the fact that anything is wrong, and
+ * the user needs the row in order to re-point or forget it.
+ */
+export async function listDesignSystemLibrary(
+  paths: LibraryPaths,
+): Promise<DesignSystemLibraryListResult> {
+  const registry = await ensureAdopted(paths)
+
   const entries: DesignSystemLibraryEntry[] = []
-  const rejected: DesignSystemLibraryRejection[] = []
-
-  for (const nameEntry of await readDirSafe(root)) {
-    if (!nameEntry.isDirectory() || nameEntry.name.startsWith('.')) continue
-    const nameDir = join(root, nameEntry.name)
-    for (const versionEntry of await readDirSafe(nameDir)) {
-      if (!versionEntry.isDirectory() || versionEntry.name.startsWith('.')) continue
-      const releaseDir = join(nameDir, versionEntry.name)
-      let manifest: DesignSystemManifest
-      try {
-        manifest = parseDesignSystemManifest(
-          await readFile(join(releaseDir, DESIGN_SYSTEM_MANIFEST_FILENAME), 'utf8'),
-        )
-      } catch (error) {
-        rejected.push({
-          path: releaseDir,
-          message: error instanceof Error ? error.message : String(error),
-        })
-        continue
-      }
-      if (manifest.name !== nameEntry.name || manifest.version !== versionEntry.name) {
-        rejected.push({
-          path: releaseDir,
-          message: `Manifest identifies ${manifest.name}@${manifest.version}, which does not match its library directory.`,
-        })
-        continue
-      }
-      entries.push(toLibraryEntry(manifest, releaseDir))
-    }
+  const refreshed: DesignSystemRegistration[] = []
+  for (const registration of registry.entries) {
+    const probed = await probe(registration.path)
+    entries.push(toEntry(registration, probed))
+    refreshed.push({
+      ...registration,
+      // Refresh the display cache from what we just read; keep the old values
+      // when the read failed, so a missing folder keeps its identity.
+      name: probed.manifest?.name ?? registration.name,
+      version: probed.manifest?.version ?? registration.version,
+    })
+  }
+  if (JSON.stringify(refreshed) !== JSON.stringify(registry.entries)) {
+    await writeDesignSystemRegistry(paths.registryPath, { ...registry, entries: refreshed })
   }
 
   entries.sort(
-    (a, b) => a.name.localeCompare(b.name) || compareVersionsDesc(a.version, b.version),
+    (a, b) => (a.name ?? a.path).localeCompare(b.name ?? b.path) || a.path.localeCompare(b.path),
   )
-  return { entries, rejected }
+  return { entries }
 }
 
-/** Read one released design system's manifest for picker/completion UI. */
+/** Read one registered design system by id. */
 export async function readDesignSystemLibraryEntry(
-  root: string,
-  name: string,
-  version: string,
+  paths: LibraryPaths,
+  id: string,
 ): Promise<DesignSystemLibraryReadResult> {
-  // name/version compose a filesystem path from renderer input; the manifest
-  // patterns exclude path separators and dot-segments.
-  if (!DESIGN_SYSTEM_NAME_PATTERN.test(name)) {
-    return { ok: false, message: `Not a valid design-system name: "${name}".` }
+  // Adoption runs here too, not only on list: attach resolves an id directly, so
+  // a machine carrying release-era copies that attaches before it ever lists
+  // would otherwise find nothing registered.
+  const registry = await ensureAdopted(paths)
+  const registration = registry.entries.find((entry) => entry.id === id)
+  if (!registration) {
+    return {
+      ok: false,
+      message: `No design system is registered under ${id}.`,
+      sourceState: 'missing',
+    }
   }
-  if (!DESIGN_SYSTEM_VERSION_PATTERN.test(version)) {
-    return { ok: false, message: `Not a valid design-system version: "${version}".` }
+  const probed = await probe(registration.path)
+  if (probed.sourceState !== 'ok' || !probed.manifest) {
+    return {
+      ok: false,
+      message: probed.message ?? `Could not read ${registration.path}.`,
+      sourceState: probed.sourceState,
+    }
+  }
+  return { ok: true, entry: toEntry(registration, probed), manifest: probed.manifest }
+}
+
+/**
+ * Register a folder. Nothing is copied — the library learns the path, and the
+ * folder stays exactly where the user's repo put it.
+ *
+ * Registering a folder already in the library is not an error: it refreshes the
+ * cached display values and returns the existing entry, because "point at the
+ * one I already have" is a reasonable thing for a person to do twice.
+ */
+export async function registerDesignSystemFolder(
+  paths: LibraryPaths,
+  folderPath: string,
+): Promise<DesignSystemRegisterResult> {
+  if (typeof folderPath !== 'string' || folderPath.trim().length === 0) {
+    return { ok: false, message: 'No folder provided.' }
+  }
+  const probed = await probe(folderPath)
+  if (probed.sourceState !== 'ok' || !probed.manifest) {
+    // An explicit refusal naming the folder, never a row quietly added and then
+    // shown as broken: the user picked this folder a moment ago and needs to
+    // know it is not a design system.
+    return { ok: false, message: probed.message ?? `Could not read ${folderPath}.` }
   }
 
-  const releaseDir = join(root, name, version)
-  let manifest: DesignSystemManifest
-  try {
-    manifest = parseDesignSystemManifest(
-      await readFile(join(releaseDir, DESIGN_SYSTEM_MANIFEST_FILENAME), 'utf8'),
-    )
-  } catch (error) {
-    return {
-      ok: false,
-      message: `Could not read ${name}@${version} from the library: ${error instanceof Error ? error.message : String(error)}`,
-    }
+  const registry = await readDesignSystemRegistry(paths.registryPath)
+  const id = designSystemRegistrationId(folderPath)
+  const existing = registry.entries.find((entry) => entry.id === id)
+  const registration: DesignSystemRegistration = {
+    id,
+    path: folderPath,
+    name: probed.manifest.name,
+    version: probed.manifest.version,
+    addedAt: existing?.addedAt ?? new Date().toISOString(),
   }
-  if (manifest.name !== name || manifest.version !== version) {
-    return {
-      ok: false,
-      message: `Library copy at ${name}/${version} identifies itself as ${manifest.name}@${manifest.version}.`,
-    }
+  registry.entries = existing
+    ? registry.entries.map((entry) => (entry.id === id ? registration : entry))
+    : [...registry.entries, registration]
+  await writeDesignSystemRegistry(paths.registryPath, registry)
+  return { ok: true, entry: toEntry(registration, probed) }
+}
+
+/**
+ * Forget a registration.
+ *
+ * Removes the reference and NOTHING else — the folder on disk is the user's, and
+ * this app has never owned it. Forgetting an id that is not registered succeeds:
+ * the desired end state is already true.
+ */
+export async function forgetDesignSystemFolder(
+  paths: LibraryPaths,
+  id: string,
+): Promise<{ ok: true; forgotten: boolean }> {
+  const registry = await readDesignSystemRegistry(paths.registryPath)
+  const remaining = registry.entries.filter((entry) => entry.id !== id)
+  const forgotten = remaining.length !== registry.entries.length
+  if (forgotten) {
+    await writeDesignSystemRegistry(paths.registryPath, { ...registry, entries: remaining })
   }
-  return { ok: true, entry: toLibraryEntry(manifest, releaseDir), manifest }
+  return { ok: true, forgotten }
 }

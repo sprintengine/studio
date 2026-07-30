@@ -1,263 +1,347 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { BundleScriptFork } from './derived-file-runner'
+import {
+  designSystemRegistrationId,
+  normaliseRegistryPath,
+} from '../../shared/design-system/library'
 import {
   defaultDesignSystemLibraryRoot,
+  defaultDesignSystemRegistryPath,
+  forgetDesignSystemFolder,
   listDesignSystemLibrary,
   readDesignSystemLibraryEntry,
-  releaseDesignSystemBundle,
+  readDesignSystemRegistry,
+  registerDesignSystemFolder,
+  type LibraryPaths,
 } from './library-registry'
 
-// The production fork binding is Electron utilityProcess; the tests exercise
-// the release pipeline with a plain child_process fork so the bundle's real
-// lint + generator scripts run under node (same argv contract).
-const nodeFork: BundleScriptFork = (scriptPath, args, options) =>
-  new Promise((resolve) => {
-    const child = spawn(process.execPath, [scriptPath, ...args], { cwd: options.cwd })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (chunk) => {
-      stdout += String(chunk)
-    })
-    child.stderr.on('data', (chunk) => {
-      stderr += String(chunk)
-    })
-    child.on('error', (error) => resolve({ exitCode: null, stdout, stderr: `${stderr}${error.message}` }))
-    child.on('close', (exitCode) => resolve({ exitCode, stdout, stderr }))
-  })
-
-const exampleRoot = join(process.cwd(), 'resources', 'design-system', 'example')
+// The library is a REGISTRY OF PATHS the user pointed at, not a store of copies
+// (item 2004). Two properties matter most and are easy to lose:
+//
+//  1. Nothing is ever copied, and nothing is ever written inside a registered
+//     folder. That folder belongs to the user's repo.
+//  2. A folder that breaks stays in the list as a NAMED broken row. Dropping it
+//     would hide the problem and remove the only way to repair it.
 
 const tests: Array<{ name: string; body: () => Promise<void> }> = []
-
 function run(name: string, body: () => Promise<void>): void {
   tests.push({ name, body })
 }
 
-function makeExampleCopy(base: string): string {
-  const dir = mkdtempSync(join(tmpdir(), base))
+const exampleRoot = join(process.cwd(), 'resources', 'design-system', 'example')
+
+interface Fixture extends LibraryPaths {
+  home: string
+}
+
+function fixture(): Fixture {
+  const home = mkdtempSync(join(tmpdir(), 'ds-registry-'))
+  return {
+    home,
+    registryPath: join(home, '.multicode', 'design-systems.json'),
+    legacyRoot: join(home, '.multicode', 'design-systems'),
+  }
+}
+
+/** A real bundle at an arbitrary path — a folder inside someone's cloned repo. */
+function bundleAt(parent: string, name: string, version = '1.0.0'): string {
+  const dir = join(parent, name)
   cpSync(exampleRoot, dir, { recursive: true })
+  const manifestPath = join(dir, 'design-system.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
+  manifest.name = name
+  manifest.version = version
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
   return dir
 }
 
-function readManifest(dir: string): Record<string, any> {
-  return JSON.parse(readFileSync(join(dir, 'design-system.json'), 'utf8'))
+/** Every file under a directory with its bytes, for an unchanged-after check. */
+function snapshot(dir: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  const walk = (current: string): void => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else out[full.slice(dir.length)] = readFileSync(full, 'base64')
+    }
+  }
+  walk(dir)
+  return out
 }
 
-run('the default library root resolves under HOME at ~/.multicode/design-systems', async () => {
-  const fakeHome = mkdtempSync(join(tmpdir(), 'ds-lib-home-'))
-  const realHome = process.env.HOME
+function directoryExists(dir: string): boolean {
   try {
-    process.env.HOME = fakeHome
-    assert.equal(defaultDesignSystemLibraryRoot(), join(fakeHome, '.multicode', 'design-systems'))
+    readdirSync(dir)
+    return true
+  } catch {
+    return false
+  }
+}
+
+run('the registry file sits BESIDE the legacy copy directory, never inside it', async () => {
+  // A file where the old directory lives would collide with it; a machine that
+  // has both must be able to carry both.
+  assert.equal(`${defaultDesignSystemLibraryRoot()}.json`, defaultDesignSystemRegistryPath())
+})
+
+run('pointing at a folder registers a reference and copies nothing', async () => {
+  const paths = fixture()
+  const repo = mkdtempSync(join(tmpdir(), 'ds-repo-'))
+  try {
+    const bundle = bundleAt(repo, 'harbor', '1.2.0')
+    const before = snapshot(bundle)
+
+    const registered = await registerDesignSystemFolder(paths, bundle)
+    assert.equal(registered.ok, true, registered.ok ? '' : registered.message)
+    if (!registered.ok) return
+    assert.equal(registered.entry.path, bundle, 'the entry points at the folder itself')
+    assert.equal(registered.entry.name, 'harbor')
+    assert.equal(registered.entry.sourceState, 'ok')
+
+    assert.deepEqual(snapshot(bundle), before, 'the pointed-at folder is byte-identical')
+    assert.equal(directoryExists(paths.legacyRoot), false, 'nothing was copied into our storage')
+
+    const listed = await listDesignSystemLibrary(paths)
+    assert.equal(listed.entries.length, 1)
+    assert.equal(listed.entries[0].path, bundle)
   } finally {
-    if (realHome === undefined) delete process.env.HOME
-    else process.env.HOME = realHome
-    rmSync(fakeHome, { recursive: true, force: true })
+    rmSync(paths.home, { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
   }
 })
 
-run('release produces a complete versioned copy: lint gate, stamp, force-regen, immutable copy', async () => {
-  const bundle = makeExampleCopy('ds-lib-release-')
-  const root = mkdtempSync(join(tmpdir(), 'ds-lib-root-'))
+run('a live edit is visible on the next read — no copy, no sync, no watcher', async () => {
+  const paths = fixture()
+  const repo = mkdtempSync(join(tmpdir(), 'ds-repo-'))
   try {
-    // Unknown manifest fields must survive the read → stamp → write cycle.
-    const authored = readManifest(bundle)
-    authored.xFutureField = { keep: true }
-    authored.provenance.xVendorNote = 'preserve-me'
-    writeFileSync(join(bundle, 'design-system.json'), JSON.stringify(authored, null, 2))
-    // Deleted derived files prove the release force-regenerates before copying.
-    rmSync(join(bundle, 'foundations', 'tokens.css'))
-    rmSync(join(bundle, 'catalog', 'index.html'))
+    const bundle = bundleAt(repo, 'harbor', '1.2.0')
+    await registerDesignSystemFolder(paths, bundle)
 
-    const result = await releaseDesignSystemBundle(bundle, '1.2.3', root, nodeFork)
-    assert.equal(result.ok, true, JSON.stringify(result))
-    if (!result.ok) return
-    assert.equal(result.name, 'example')
-    assert.equal(result.version, '1.2.3')
-    assert.equal(result.path, join(root, 'example', '1.2.3'))
-    assert.ok(!Number.isNaN(Date.parse(result.releasedAt)), result.releasedAt)
+    // The user edits in their editor and comes back.
+    const manifestPath = join(bundle, 'design-system.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
+    manifest.version = '1.3.0'
+    manifest.summary = 'Edited in place.'
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 
-    // The copy is complete and self-contained: manifest, governance docs,
-    // scripts, authored sources, and freshly regenerated derived files.
-    const released = join(root, 'example', '1.2.3')
-    for (const file of [
-      'design-system.json',
-      'USAGE.md',
-      'AGENTS.md',
-      'scripts/lint.mjs',
-      'scripts/build-tokens.mjs',
-      'scripts/build-catalog.mjs',
-      'foundations/tokens.tokens.json',
-      'foundations/tokens.css',
-      'components/button/component.css',
-      'catalog/index.html',
-    ]) {
-      assert.ok(existsSync(join(released, file)), `released copy is missing ${file}`)
-    }
-
-    const manifest = readManifest(released)
-    assert.equal(manifest.version, '1.2.3')
-    assert.equal(manifest.provenance.sourceLibraryId, 'example')
-    assert.equal(manifest.provenance.sourceLibraryVersion, '1.2.3')
-    assert.equal(manifest.provenance.releasedAt, result.releasedAt)
-    assert.deepEqual(manifest.xFutureField, { keep: true }, 'unknown top-level field was dropped')
-    assert.equal(manifest.provenance.xVendorNote, 'preserve-me', 'unknown provenance field was dropped')
-
-    // Derived files were regenerated from the stamped manifest: the catalog
-    // header embeds the released version, not the authoring one.
-    const catalog = readFileSync(join(released, 'catalog', 'index.html'), 'utf8')
-    assert.ok(catalog.includes('v1.2.3'), 'catalog was not regenerated from the stamped manifest')
-
-    const listed = await listDesignSystemLibrary(root)
-    assert.deepEqual(listed.rejected, [])
-    assert.deepEqual(
-      listed.entries.map((entry) => [entry.name, entry.version, entry.releasedAt]),
-      [['example', '1.2.3', result.releasedAt]],
-    )
-    assert.equal(listed.entries[0].summary, manifest.summary)
-
-    const read = await readDesignSystemLibraryEntry(root, 'example', '1.2.3')
-    assert.equal(read.ok, true, JSON.stringify(read))
-    if (read.ok) {
-      assert.equal(read.manifest.version, '1.2.3')
-      assert.equal(read.entry.path, released)
-    }
+    const listed = await listDesignSystemLibrary(paths)
+    assert.equal(listed.entries[0].version, '1.3.0', 'read live from disk')
+    assert.equal(listed.entries[0].summary, 'Edited in place.')
   } finally {
-    rmSync(bundle, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
+    rmSync(paths.home, { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
   }
 })
 
-run('a lint failure blocks the release with the findings; nothing is copied, nothing stamped', async () => {
-  const bundle = makeExampleCopy('ds-lib-lintfail-')
-  const root = mkdtempSync(join(tmpdir(), 'ds-lib-root-'))
+run('each way a folder breaks is its own row state, and the row never disappears', async () => {
+  const paths = fixture()
+  const repo = mkdtempSync(join(tmpdir(), 'ds-repo-'))
   try {
-    const cssPath = join(bundle, 'components', 'button', 'component.css')
-    writeFileSync(cssPath, readFileSync(cssPath, 'utf8') + '\n.x { color: #ff0000; }\n')
+    const gone = bundleAt(repo, 'gone')
+    const stripped = bundleAt(repo, 'stripped')
+    const corrupt = bundleAt(repo, 'corrupt')
+    const fine = bundleAt(repo, 'fine')
+    for (const dir of [gone, stripped, corrupt, fine]) {
+      assert.equal((await registerDesignSystemFolder(paths, dir)).ok, true)
+    }
 
-    const result = await releaseDesignSystemBundle(bundle, '1.0.0', root, nodeFork)
+    rmSync(gone, { recursive: true, force: true })
+    rmSync(join(stripped, 'design-system.json'), { force: true })
+    writeFileSync(join(corrupt, 'design-system.json'), '{ not json')
+
+    const listed = await listDesignSystemLibrary(paths)
+    assert.equal(listed.entries.length, 4, 'every row survives — none silently dropped')
+    const byPath = new Map(listed.entries.map((entry) => [entry.path, entry]))
+    assert.equal(byPath.get(gone)?.sourceState, 'missing')
+    assert.equal(byPath.get(stripped)?.sourceState, 'no-manifest')
+    assert.equal(byPath.get(corrupt)?.sourceState, 'invalid-manifest')
+    assert.equal(byPath.get(fine)?.sourceState, 'ok')
+    // A missing folder keeps the identity it had, so the row stays recognisable.
+    assert.equal(byPath.get(gone)?.name, 'gone', 'the cached display name survives')
+    assert.equal(byPath.get(gone)?.path, gone, 'and the row names its path')
+
+    // Reading a broken entry reports WHICH kind of broken, not a generic error.
+    const brokenId = byPath.get(corrupt)?.id ?? ''
+    const read = await readDesignSystemLibraryEntry(paths, brokenId)
+    assert.equal(read.ok, false)
+    if (!read.ok) assert.equal(read.sourceState, 'invalid-manifest')
+  } finally {
+    rmSync(paths.home, { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+run('two folders may hold the same name and version — resolved by path, not coordinates', async () => {
+  const paths = fixture()
+  const repoA = mkdtempSync(join(tmpdir(), 'ds-repo-a-'))
+  const repoB = mkdtempSync(join(tmpdir(), 'ds-repo-b-'))
+  try {
+    const a = bundleAt(repoA, 'harbor', '1.2.0')
+    const b = bundleAt(repoB, 'harbor', '1.2.0')
+    await registerDesignSystemFolder(paths, a)
+    await registerDesignSystemFolder(paths, b)
+
+    const listed = await listDesignSystemLibrary(paths)
+    assert.equal(listed.entries.length, 2, 'a name clash is a display concern, not an error')
+    assert.equal(new Set(listed.entries.map((entry) => entry.id)).size, 2, 'distinct ids')
+
+    for (const entry of listed.entries) {
+      const read = await readDesignSystemLibraryEntry(paths, entry.id)
+      assert.equal(read.ok, true)
+      if (read.ok) assert.equal(read.entry.path, entry.path, 'each id reads its OWN folder')
+    }
+  } finally {
+    for (const dir of [paths.home, repoA, repoB]) rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+run('registering the same folder twice refreshes it rather than duplicating it', async () => {
+  const paths = fixture()
+  const repo = mkdtempSync(join(tmpdir(), 'ds-repo-'))
+  try {
+    const bundle = bundleAt(repo, 'harbor', '1.2.0')
+    const first = await registerDesignSystemFolder(paths, bundle)
+    const again = await registerDesignSystemFolder(paths, bundle)
+    assert.equal(first.ok, true)
+    assert.equal(again.ok, true)
+    const listed = await listDesignSystemLibrary(paths)
+    assert.equal(listed.entries.length, 1, 'pointing at the same folder twice is not an error')
+    if (first.ok && again.ok) {
+      assert.equal(again.entry.addedAt, first.entry.addedAt, 'the original addedAt is kept')
+    }
+  } finally {
+    rmSync(paths.home, { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+run('a folder that is not a design system is refused, not registered-then-broken', async () => {
+  const paths = fixture()
+  const repo = mkdtempSync(join(tmpdir(), 'ds-repo-'))
+  try {
+    const notABundle = join(repo, 'just-a-folder')
+    mkdirSync(notABundle)
+    const result = await registerDesignSystemFolder(paths, notABundle)
     assert.equal(result.ok, false)
-    if (result.ok) return
-    assert.equal(result.stage, 'lint')
-    assert.ok(result.lintFindings?.includes('no-raw-hex'), result.lintFindings)
-    assert.ok(!existsSync(join(root, 'example')), 'lint failure must copy nothing')
-    assert.equal(readManifest(bundle).version, '0.1.0', 'lint failure must not stamp the source manifest')
-
-    const listed = await listDesignSystemLibrary(root)
-    assert.deepEqual(listed.entries, [])
+    if (!result.ok) assert.match(result.message, /design-system\.json/)
+    assert.deepEqual((await listDesignSystemLibrary(paths)).entries, [], 'nothing was registered')
+    assert.equal((await registerDesignSystemFolder(paths, '')).ok, false, 'and neither is nothing')
   } finally {
-    rmSync(bundle, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
+    rmSync(paths.home, { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
   }
 })
 
-run('releases are immutable: same name+version refuses, a new version is a sibling copy', async () => {
-  const bundle = makeExampleCopy('ds-lib-immutable-')
-  const root = mkdtempSync(join(tmpdir(), 'ds-lib-root-'))
+run('forget removes the reference and NOTHING on disk', async () => {
+  const paths = fixture()
+  const repo = mkdtempSync(join(tmpdir(), 'ds-repo-'))
   try {
-    const first = await releaseDesignSystemBundle(bundle, '1.0.0', root, nodeFork)
-    assert.equal(first.ok, true, JSON.stringify(first))
-    const releasedManifest = readFileSync(join(root, 'example', '1.0.0', 'design-system.json'), 'utf8')
+    const bundle = bundleAt(repo, 'harbor')
+    const registered = await registerDesignSystemFolder(paths, bundle)
+    assert.equal(registered.ok, true)
+    if (!registered.ok) return
+    const before = snapshot(bundle)
 
-    const again = await releaseDesignSystemBundle(bundle, '1.0.0', root, nodeFork)
-    assert.equal(again.ok, false)
-    if (!again.ok) assert.equal(again.stage, 'conflict')
+    const forgotten = await forgetDesignSystemFolder(paths, registered.entry.id)
+    assert.equal(forgotten.forgotten, true)
+    assert.deepEqual((await listDesignSystemLibrary(paths)).entries, [])
+    assert.deepEqual(snapshot(bundle), before, 'the user’s folder is untouched')
+
+    // Forgetting something already gone succeeds: the end state is already true.
+    assert.equal((await forgetDesignSystemFolder(paths, 'nope')).forgotten, false)
+  } finally {
+    rmSync(paths.home, { recursive: true, force: true })
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+run('release-era copies are ADOPTED in place, once, and never moved or deleted', async () => {
+  const paths = fixture()
+  try {
+    // A machine carrying copies from before the release pipeline was deleted.
+    const legacy = join(paths.legacyRoot, 'brand', '1.1.0')
+    mkdirSync(join(paths.legacyRoot, 'brand'), { recursive: true })
+    cpSync(exampleRoot, legacy, { recursive: true })
+    const manifestPath = join(legacy, 'design-system.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
+    manifest.name = 'brand'
+    manifest.version = '1.1.0'
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    // A stray directory under the old root is NOT a bundle and must not become
+    // a permanent broken row.
+    mkdirSync(join(paths.legacyRoot, 'noise', '0.0.1'), { recursive: true })
+    const before = snapshot(legacy)
+
+    const listed = await listDesignSystemLibrary(paths)
+    assert.equal(listed.entries.length, 1, 'the real copy is adopted, the stray one is not')
+    assert.equal(listed.entries[0].path, legacy, 'adopted IN PLACE, pointing at itself')
+    assert.deepEqual(snapshot(legacy), before, 'the copy is not moved, rewritten, or deleted')
+
+    // Adoption runs once: a deliberate Forget must stick.
+    await forgetDesignSystemFolder(paths, listed.entries[0].id)
+    const after = await listDesignSystemLibrary(paths)
+    assert.deepEqual(after.entries, [], 'a forgotten adoption does not come back')
+    assert.equal(directoryExists(legacy), true, 'and the copy is still on disk')
+    const registry = await readDesignSystemRegistry(paths.registryPath)
+    assert.equal(registry.adoptedLegacyCopies, true)
+  } finally {
+    rmSync(paths.home, { recursive: true, force: true })
+  }
+})
+
+run('a damaged registry file is an empty library, never a door that cannot open', async () => {
+  const paths = fixture()
+  try {
+    mkdirSync(join(paths.home, '.multicode'), { recursive: true })
+    writeFileSync(paths.registryPath, '{ not json')
+    assert.deepEqual((await readDesignSystemRegistry(paths.registryPath)).entries, [])
+    assert.deepEqual((await listDesignSystemLibrary(paths)).entries, [])
+
+    // Entries missing a path are dropped; the rest of the file survives.
+    writeFileSync(
+      paths.registryPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        entries: [{ id: 'a' }, { path: '/somewhere/real' }, { path: '/somewhere/real' }],
+      }),
+    )
+    const registry = await readDesignSystemRegistry(paths.registryPath)
+    assert.equal(registry.entries.length, 1, 'pathless dropped, duplicate collapsed')
+    assert.equal(registry.entries[0].path, '/somewhere/real')
     assert.equal(
-      readFileSync(join(root, 'example', '1.0.0', 'design-system.json'), 'utf8'),
-      releasedManifest,
-      'a refused re-release must not touch the existing copy',
-    )
-
-    const second = await releaseDesignSystemBundle(bundle, '1.0.1', root, nodeFork)
-    assert.equal(second.ok, true, JSON.stringify(second))
-
-    const listed = await listDesignSystemLibrary(root)
-    assert.deepEqual(
-      listed.entries.map((entry) => entry.version),
-      ['1.0.1', '1.0.0'],
-      'siblings list newest version first',
+      registry.entries[0].id,
+      designSystemRegistrationId('/somewhere/real'),
+      'an entry with no id gets the id its path implies',
     )
   } finally {
-    rmSync(bundle, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
+    rmSync(paths.home, { recursive: true, force: true })
   }
 })
 
-run('a bundle with a symlink escaping the source refuses the release with nothing copied', async () => {
-  const outer = mkdtempSync(join(tmpdir(), 'ds-lib-symlink-'))
-  const root = mkdtempSync(join(tmpdir(), 'ds-lib-root-'))
-  try {
-    const bundle = join(outer, 'bundle')
-    cpSync(exampleRoot, bundle, { recursive: true })
-    writeFileSync(join(outer, 'secret.txt'), 'not-for-the-library')
-    symlinkSync(join('..', '..', 'secret.txt'), join(bundle, 'foundations', 'escape.css'))
-
-    const result = await releaseDesignSystemBundle(bundle, '1.0.0', root, nodeFork)
-    assert.equal(result.ok, false)
-    if (!result.ok) {
-      assert.equal(result.stage, 'source')
-      assert.ok(result.message.includes('symlink'), result.message)
-    }
-    assert.ok(!existsSync(join(root, 'example')), 'a refused release must copy nothing into the library')
-  } finally {
-    rmSync(outer, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-run('an invalid version or unreadable bundle refuses before running anything', async () => {
-  const bundle = makeExampleCopy('ds-lib-badversion-')
-  const root = mkdtempSync(join(tmpdir(), 'ds-lib-root-'))
-  try {
-    const badVersion = await releaseDesignSystemBundle(bundle, 'not-semver', root, nodeFork)
-    assert.equal(badVersion.ok, false)
-    if (!badVersion.ok) assert.equal(badVersion.stage, 'manifest')
-    assert.equal(readManifest(bundle).version, '0.1.0')
-
-    const notABundle = mkdtempSync(join(tmpdir(), 'ds-lib-notbundle-'))
-    try {
-      const missing = await releaseDesignSystemBundle(notABundle, '1.0.0', root, nodeFork)
-      assert.equal(missing.ok, false)
-      if (!missing.ok) assert.equal(missing.stage, 'manifest')
-    } finally {
-      rmSync(notABundle, { recursive: true, force: true })
-    }
-    assert.ok(!existsSync(join(root, 'example')))
-  } finally {
-    rmSync(bundle, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-run('list surfaces malformed releases as rejected; read validates its inputs and target', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'ds-lib-root-'))
-  try {
-    // Missing root is an empty library, not an error.
-    assert.deepEqual(await listDesignSystemLibrary(join(root, 'nope')), { entries: [], rejected: [] })
-
-    mkdirSync(join(root, 'broken', '1.0.0'), { recursive: true })
-    writeFileSync(join(root, 'broken', '1.0.0', 'design-system.json'), '{ not json')
-    const listed = await listDesignSystemLibrary(root)
-    assert.deepEqual(listed.entries, [])
-    assert.equal(listed.rejected.length, 1)
-    assert.equal(listed.rejected[0].path, join(root, 'broken', '1.0.0'))
-
-    const missing = await readDesignSystemLibraryEntry(root, 'ghost', '1.0.0')
-    assert.equal(missing.ok, false)
-
-    // Renderer-supplied names compose filesystem paths; traversal shapes are
-    // rejected before any read.
-    const traversal = await readDesignSystemLibraryEntry(root, '..', '1.0.0')
-    assert.equal(traversal.ok, false)
-    if (!traversal.ok) assert.ok(traversal.message.includes('valid design-system name'))
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
+run('ids are stable per folder, and paths normalise to one spelling', async () => {
+  assert.equal(
+    designSystemRegistrationId('/work/brand/design-system'),
+    designSystemRegistrationId('/work/brand/design-system/'),
+    'a trailing separator is the same folder',
+  )
+  assert.notEqual(designSystemRegistrationId('/work/a'), designSystemRegistrationId('/work/b'))
+  assert.equal(normaliseRegistryPath('C:\\work\\brand\\'), 'C:/work/brand')
+  // Case is NOT folded: two genuinely different Linux folders must stay two.
+  assert.notEqual(
+    designSystemRegistrationId('/work/Brand'),
+    designSystemRegistrationId('/work/brand'),
+  )
 })
 
 async function main(): Promise<void> {

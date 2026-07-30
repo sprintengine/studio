@@ -176,9 +176,9 @@ export async function runGuidedBriefStartBuild(
 ): Promise<void> {
   const { runtimeState, runOptions, finalRoleCounts } = input
 
-  // The design-system preset completes with "Save as design system" (the T6
-  // release pipeline), never a Sprint Engine build; its studio renders no
-  // build tail, so reaching here means a caller bug — refuse loudly.
+  // The design-system preset completes by authoring its bundle in place, never
+  // with a Sprint Engine build; its studio renders no build tail, so reaching
+  // here means a caller bug — refuse loudly.
   if (runtimeState.preset === 'design-system') {
     throw new GuidedBriefStartBuildError('design-system-preset')
   }

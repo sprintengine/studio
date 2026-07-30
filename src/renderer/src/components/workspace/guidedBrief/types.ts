@@ -128,8 +128,8 @@ function guidedBriefStageOrder(
   options: GuidedBriefProgressOptions = {},
 ): GuidedBriefStage[] {
   // The design-system preset is a studio, not a pipeline: the designer stage
-  // is the whole flow, and there is no Sprint Engine build tail. (The release
-  // action replaces it — see the design-system-platform epic.)
+  // is the whole flow, and there is no Sprint Engine build tail: the bundle
+  // written into the workspace's design-system/ folder is the deliverable.
   if (options.preset === 'design-system') return ['designer-working']
   const wantsProductDiscussion = options.wantsProductDiscussion ?? true
   const wantsArchitectureDiscussion = options.wantsArchitectureDiscussion ?? false
