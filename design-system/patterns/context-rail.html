@@ -174,8 +174,8 @@
     background: var(--sem-color-bg-hover);
   }
   .cr-row:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
   .cr-row-count {
     margin-left: auto;
@@ -222,8 +222,8 @@
     color: var(--sem-color-text-primary);
   }
   .cr-back:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
   .cr-glyph {
     width: var(--sem-icon-size-sm);
@@ -256,7 +256,8 @@
     animation: cr-swap-in var(--sem-motion-duration-normal) var(--sem-motion-ease-standard) both;
   }
   .cr-toggle:focus-visible ~ .cr-swap .cr-swap-trigger {
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
   @keyframes cr-swap-in {
     from {

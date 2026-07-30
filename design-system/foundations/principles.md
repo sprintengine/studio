@@ -62,8 +62,18 @@ are different questions and never share a treatment.
   rail → list → detail layout, two of the three panes are always resting. Three
   panes rendering a full-strength selection at once is the defect this rule
   exists to prevent.
-- **Focus** is `focus.ring` on `:focus-visible`, with `outline: none`. Never on
-  `:focus` — a mouse click must not draw a ring. Never suppressed.
+- **Focus** is `focus.ring` — a 2px `border.focus` **outline at
+  `focus.ring-offset`** — on `:focus-visible`, and it is the product's only
+  focus indicator. Never on `:focus`: a mouse click must not draw it. Never
+  suppressed, and never at a zero offset. The offset exists because
+  `border.focus` and `accent.primary` are the same value: drawn tight against
+  an accent-filled control the indicator has nothing to contrast with, and
+  focused renders identically to unfocused. An **outline**, not an offset ring —
+  the gap is transparent and shows whatever surface is actually behind, where
+  `ring-offset-color` has to be told that background and gets it wrong the
+  moment the control changes surface. A control that clips its own overflow
+  (the halves of a split button) uses a negative `focus.ring-offset` rather
+  than a second treatment.
 - **Hover** is a background change to `bg.hover`. No shadow, no scale, no glow,
   no border appearing on hover and shifting the layout.
 
@@ -190,6 +200,13 @@ the third person, and no serious product does it. Write the sentence without
 the name: "Will run:", "cannot be undone from here", "while the app is open".
 The name belongs in exactly four places: the window title, the About/version
 line, the sign-in and account surfaces, and first-run onboarding.
+
+The one carve-out is the brand **wordmark**, which may appear exactly once, as
+window chrome at the top of the left column. A mark is not a sentence: it
+identifies the window the way a title bar does, and it does not narrate. The
+rule above is unchanged for copy — no label, message, tooltip, or empty state
+gains the name because the wordmark exists — and "exactly once" is literal, so
+a second placement retires the first rather than joining it.
 
 **Report the result, not the inventory.** When an operation finishes, show the
 one fact that answers "did it work?" — a count, a name, a state. Everything

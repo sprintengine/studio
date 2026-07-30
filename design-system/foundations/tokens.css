@@ -115,7 +115,8 @@
   --sem-size-control-md: 34px;
   --sem-size-hit-target-min: 24px;
   --sem-focus-ring-width: 2px;
-  --sem-focus-ring: 0 0 0 2px var(--sem-color-border-focus);
+  --sem-focus-ring-offset: 2px;
+  --sem-focus-ring: 2px solid var(--sem-color-border-focus);
   --sem-z-base: 0;
   --sem-z-sticky: 10;
   --sem-z-drawer: 40;

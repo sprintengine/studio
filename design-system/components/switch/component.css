@@ -32,16 +32,13 @@
   box-shadow: inset 0 0 0 1px transparent;
 }
 
-/* The one control whose resting fill IS the focus colour: checked, the track
- * paints accent.primary, and border.focus resolves to that same value. The
- * standard `focus-ring` is a zero-offset shadow, so on a checked switch it
- * merges into the track and focused reads identically to unfocused. An outline
- * at a 2px offset separates them through a transparent gap — and unlike a ring
- * offset it makes no assumption about the fill behind the control, which is
- * whatever the host row is painting at the time. */
+/* The shared treatment, with nothing local about it. This control is why
+ * focus.ring is an offset outline system-wide: checked, the track paints
+ * accent.primary, border.focus resolves to that same value, and a zero-offset
+ * ring merged into the track so focused read identically to unfocused. */
 .ds-switch:focus-visible {
-  outline: var(--sem-focus-ring-width) solid var(--sem-color-border-focus);
-  outline-offset: var(--sem-focus-ring-width);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-switch:disabled {

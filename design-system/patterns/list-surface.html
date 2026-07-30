@@ -80,7 +80,7 @@
     cursor: pointer;
   }
   .rail-new:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
-  .rail-new:focus-visible { outline: none; box-shadow: var(--sem-shadow-focus-ring); }
+  .rail-new:focus-visible { outline: var(--sem-focus-ring); outline-offset: var(--sem-focus-ring-offset); }
 
   .rail-find { display: flex; align-items: center; gap: var(--sem-space-2xs); }
   .rail-search {
@@ -111,7 +111,7 @@
     cursor: pointer;
   }
   .rail-glyph:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
-  .rail-glyph:focus-visible { outline: none; box-shadow: var(--sem-shadow-focus-ring); }
+  .rail-glyph:focus-visible { outline: var(--sem-focus-ring); outline-offset: var(--sem-focus-ring-offset); }
   /* Collapsing the axes hides them; it must never hide that one is applied. */
   .rail-glyph[data-active="true"] { color: var(--sem-color-accent-primary); }
   .rail-glyph[data-active="true"]::after {

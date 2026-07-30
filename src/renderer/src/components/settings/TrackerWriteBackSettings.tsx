@@ -8,7 +8,14 @@ import type {
   TrackerWriteBackNotice,
   TrackerWriteBackTransitionEvent,
 } from '../../../../shared/electron-api'
-import { GhostButton, InlineNotice, Select, Switch, type SelectItem } from '../ui'
+import {
+  FOCUS_RING_PEER_CLASS,
+  GhostButton,
+  InlineNotice,
+  Select,
+  Switch,
+  type SelectItem,
+} from '../ui'
 import { trackerProviderMonogram } from './trackerConnectionsForm'
 import {
   COMMENT_EVENTS,
@@ -423,7 +430,12 @@ function CommentCheck({
           aria-hidden="true"
           className={[
             'inline-flex size-icon-sm items-center justify-center rounded-[3px] border transition-colors',
-            'peer-focus-visible:ring-2 peer-focus-visible:ring-[color:var(--border-focus)] peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-[color:var(--bg-surface-raised)]',
+            // The <input> is the tab stop; this box is what the user sees, so it
+            // takes the shared treatment on the input's focus. Previously a
+            // hand-rolled ring with a `ring-offset-color` pinned to
+            // --bg-surface-raised — which is wrong the moment this row sits on
+            // any other surface. The outline's gap needs no such guess.
+            FOCUS_RING_PEER_CLASS,
             checked
               ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
               : 'border-[color:var(--border-default)] bg-[color:var(--bg-app)]',

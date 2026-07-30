@@ -26,8 +26,8 @@
 }
 
 .ds-button:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-button:disabled {

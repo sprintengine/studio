@@ -1306,15 +1306,27 @@
           }
         }
       },
-      "ring": {
-        "$type": "shadow",
-        "$value": "0 0 0 2px var(--sem-color-border-focus)",
-        "$description": "The single composite focus ring, applied on :focus-visible.",
+      "ring-offset": {
+        "$type": "dimension",
+        "$value": "2px",
+        "$description": "The transparent gap between a focused control and its focus outline.",
         "$extensions": {
           "com.multicode": {
             "role": "focus",
-            "use": "Keyboard focus on every interactive element. Apply on :focus-visible with outline:none, never on :focus.",
-            "doNotUse": "Hover, selection, or validation — focus is its own signal and never shares a treatment."
+            "use": "outline-offset, wherever focus.ring is applied. The gap is what keeps focus readable on a control whose own fill is the accent: color.border-focus and accent.primary resolve to the same hue, so a zero-offset ring on an accent fill has nothing to contrast against.",
+            "doNotUse": "A wider offset to make focus louder — the gap is spatial separation, not emphasis."
+          }
+        }
+      },
+      "ring": {
+        "$type": "border",
+        "$value": "2px solid var(--sem-color-border-focus)",
+        "$description": "The single focus treatment: an outline drawn on :focus-visible at focus.ring-offset.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "focus",
+            "use": "Keyboard focus on every interactive element. Apply as `outline` on :focus-visible together with focus.ring-offset, never on :focus. An outline rather than a box-shadow ring: the offset gap is transparent and shows whatever surface is actually behind the control, where a ring offset has to be told that background and gets it wrong the moment the control changes surface.",
+            "doNotUse": "Hover, selection, or validation — focus is its own signal and never shares a treatment. Never at a zero offset, and never suppressed without a replacement."
           }
         }
       }

@@ -127,7 +127,8 @@
   --sem-size-control-md: 34px;
   --sem-size-hit-target-min: 24px;
   --sem-focus-ring-width: 2px;
-  --sem-focus-ring: 0 0 0 2px var(--sem-color-border-focus);
+  --sem-focus-ring-offset: 2px;
+  --sem-focus-ring: 2px solid var(--sem-color-border-focus);
   --sem-z-base: 0;
   --sem-z-sticky: 10;
   --sem-z-drawer: 40;
@@ -564,8 +565,8 @@ code {
 }
 
 .ds-button:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-button:disabled {
@@ -675,7 +676,8 @@ code {
 }
 
 .ds-input:focus-visible {
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-input[aria-invalid='true'] {
@@ -743,8 +745,8 @@ code {
 }
 
 .ds-list-row:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-list-row:disabled,
@@ -926,8 +928,8 @@ code {
 }
 
 .ds-list-row-action:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-list-row-action svg {
@@ -1134,8 +1136,8 @@ code {
 }
 
 .ds-provider-row__disclosure:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 /* The chevron rotates rather than being swapped for a second glyph, so the eye
@@ -1237,11 +1239,14 @@ code {
   color: var(--sem-color-text-primary);
 }
 
+/* The shared treatment, turned inward: the halves are joined inside a group that
+ * clips its overflow, so the outward gap would be cut off at the seam. Only the
+ * offset is negated — same width, same colour. No `outline: none` beside it; the
+ * outline is what replaces the UA one. */
 .ds-split-button__primary:focus-visible,
 .ds-split-button__chevron:focus-visible {
-  outline: none;
-  /* Inset, not the shared --sem-focus-ring: the group clips overflow. */
-  box-shadow: inset var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
 }
 
 .ds-split-button__primary:disabled,
@@ -1325,16 +1330,13 @@ code {
   box-shadow: inset 0 0 0 1px transparent;
 }
 
-/* The one control whose resting fill IS the focus colour: checked, the track
- * paints accent.primary, and border.focus resolves to that same value. The
- * standard `focus-ring` is a zero-offset shadow, so on a checked switch it
- * merges into the track and focused reads identically to unfocused. An outline
- * at a 2px offset separates them through a transparent gap — and unlike a ring
- * offset it makes no assumption about the fill behind the control, which is
- * whatever the host row is painting at the time. */
+/* The shared treatment, with nothing local about it. This control is why
+ * focus.ring is an offset outline system-wide: checked, the track paints
+ * accent.primary, border.focus resolves to that same value, and a zero-offset
+ * ring merged into the track so focused read identically to unfocused. */
 .ds-switch:focus-visible {
-  outline: var(--sem-focus-ring-width) solid var(--sem-color-border-focus);
-  outline-offset: var(--sem-focus-ring-width);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-switch:disabled {
@@ -1412,8 +1414,8 @@ code {
 }
 
 .ds-task-card:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 /* Selection is neutral: the accent is reserved for the primary action, so a
@@ -1664,8 +1666,8 @@ code {
     color: var(--sem-color-text-primary);
   }
 .ds-embed-component-provider-row .demo-icobtn:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
 .ds-embed-component-provider-row .demo-mono-mark {
     display: grid;
@@ -1871,8 +1873,8 @@ code {
     color: var(--sem-color-text-default);
   }
 .ds-embed-component-tooltip .demo-row:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
 .ds-embed-component-tooltip .demo-controls {
     display: flex;
@@ -1897,8 +1899,8 @@ code {
     color: var(--sem-color-text-default);
   }
 .ds-embed-component-tooltip .demo-icon:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
 .ds-embed-component-tooltip .demo-icon svg {
     width: var(--sem-icon-size-sm);
@@ -1919,8 +1921,8 @@ code {
     cursor: pointer;
   }
 .ds-embed-component-tooltip .demo-dock:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
 .ds-embed-component-tooltip .demo-specimen {
     display: flex;
@@ -2089,8 +2091,8 @@ code {
     background: var(--sem-color-bg-hover);
   }
 .ds-embed-pattern-context-rail .cr-row:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
 .ds-embed-pattern-context-rail .cr-row-count {
     margin-left: auto;
@@ -2131,8 +2133,8 @@ code {
     color: var(--sem-color-text-primary);
   }
 .ds-embed-pattern-context-rail .cr-back:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
 .ds-embed-pattern-context-rail .cr-glyph {
     width: var(--sem-icon-size-sm);
@@ -2160,7 +2162,8 @@ code {
     animation: cr-swap-in var(--sem-motion-duration-normal) var(--sem-motion-ease-standard) both;
   }
 .ds-embed-pattern-context-rail .cr-toggle:focus-visible ~ .cr-swap .cr-swap-trigger {
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
 @keyframes cr-swap-in {
     from {
@@ -2260,7 +2263,7 @@ code {
     cursor: pointer;
   }
 .ds-embed-pattern-list-surface .rail-new:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
-.ds-embed-pattern-list-surface .rail-new:focus-visible { outline: none; box-shadow: var(--sem-shadow-focus-ring); }
+.ds-embed-pattern-list-surface .rail-new:focus-visible { outline: var(--sem-focus-ring); outline-offset: var(--sem-focus-ring-offset); }
 .ds-embed-pattern-list-surface .rail-find { display: flex; align-items: center; gap: var(--sem-space-2xs); }
 .ds-embed-pattern-list-surface .rail-search {
     display: flex;
@@ -2290,7 +2293,7 @@ code {
     cursor: pointer;
   }
 .ds-embed-pattern-list-surface .rail-glyph:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
-.ds-embed-pattern-list-surface .rail-glyph:focus-visible { outline: none; box-shadow: var(--sem-shadow-focus-ring); }
+.ds-embed-pattern-list-surface .rail-glyph:focus-visible { outline: var(--sem-focus-ring); outline-offset: var(--sem-focus-ring-offset); }
 .ds-embed-pattern-list-surface .rail-glyph[data-active="true"] { color: var(--sem-color-accent-primary); }
 .ds-embed-pattern-list-surface .rail-glyph[data-active="true"]::after {
     content: "";
@@ -2602,7 +2605,8 @@ code {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.md</code><code class="catalog-token-value">34px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Comfortable control height for primary actions in overlays. Modal and drawer primary actions, where density relaxes.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.hit-target-min</code><code class="catalog-token-value">24px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The smallest permitted pointer target. A floor, not a size: every step of size.control.* clears it. Minimum interactive area. A control drawn smaller than this pads out to it with a transparent hit area. <strong>Do not:</strong> Shrinking a target below this because the glyph inside is small.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-width</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">Thickness of the focus ring. The one focus-ring thickness, everywhere.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring</code><code class="catalog-token-value">0 0 0 2px var(--sem-color-border-focus)</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The single composite focus ring, applied on :focus-visible. Keyboard focus on every interactive element. Apply on :focus-visible with outline:none, never on :focus. <strong>Do not:</strong> Hover, selection, or validation — focus is its own signal and never shares a treatment.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-offset</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The transparent gap between a focused control and its focus outline. outline-offset, wherever focus.ring is applied. The gap is what keeps focus readable on a control whose own fill is the accent: color.border-focus and accent.primary resolve to the same hue, so a zero-offset ring on an accent fill has nothing to contrast against. <strong>Do not:</strong> A wider offset to make focus louder — the gap is spatial separation, not emphasis.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring</code><code class="catalog-token-value">2px solid var(--sem-color-border-focus)</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The single focus treatment: an outline drawn on :focus-visible at focus.ring-offset. Keyboard focus on every interactive element. Apply as `outline` on :focus-visible together with focus.ring-offset, never on :focus. An outline rather than a box-shadow ring: the offset gap is transparent and shows whatever surface is actually behind the control, where a ring offset has to be told that background and gets it wrong the moment the control changes surface. <strong>Do not:</strong> Hover, selection, or validation — focus is its own signal and never shares a treatment. Never at a zero offset, and never suppressed without a replacement.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.base</code><code class="catalog-token-value">0</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Default in-flow content. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.sticky</code><code class="catalog-token-value">10</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Sticky panel headers and column headers. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.drawer</code><code class="catalog-token-value">40</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Drawers and their scrim. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
@@ -2646,7 +2650,7 @@ code {
 <p>| Ceiling | Limit | |---|---| | Product accents visible per view | 1 | | Status idioms | 1 — the 6px dot or a lifecycle glyph, never both | | Font families | 2 — <code>font.family.ui</code>, <code>font.family.mono</code> | | Font weights per view | 3 | | Font sizes per view | 3, repeating title / body / meta | | Border radii per view | 2 | | Controls above the first content row of a panel | 5 | | Visual elements per repeated row at rest | 4 | | Trailing actions a row may reveal on hover | 2 | | Motion treatments animating at any moment | 1 |</p>
 <h4>Selection and focus</h4>
 <p>Selection answers &quot;what did I pick?&quot;. Focus answers &quot;where am I typing?&quot;. They are different questions and never share a treatment.</p>
-<ul><li><strong>Focused selection</strong> — <code>bg.selected</code>, title at <code>text.primary</code>. The list the user is driving right now.</li><li><strong>Resting selection</strong> — <code>bg.selected-resting</code>, title at <code>text.default</code>. Every other pane's selection: it remembers the choice without competing.</li><li><strong>A multi-pane surface has exactly one focused selection.</strong> In a rail → list → detail layout, two of the three panes are always resting. Three panes rendering a full-strength selection at once is the defect this rule exists to prevent.</li><li><strong>Focus</strong> is <code>focus.ring</code> on <code>:focus-visible</code>, with <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring. Never suppressed.</li><li><strong>Hover</strong> is a background change to <code>bg.hover</code>. No shadow, no scale, no glow, no border appearing on hover and shifting the layout.</li></ul>
+<ul><li><strong>Focused selection</strong> — <code>bg.selected</code>, title at <code>text.primary</code>. The list the user is driving right now.</li><li><strong>Resting selection</strong> — <code>bg.selected-resting</code>, title at <code>text.default</code>. Every other pane's selection: it remembers the choice without competing.</li><li><strong>A multi-pane surface has exactly one focused selection.</strong> In a rail → list → detail layout, two of the three panes are always resting. Three panes rendering a full-strength selection at once is the defect this rule exists to prevent.</li><li><strong>Focus</strong> is <code>focus.ring</code> — a 2px <code>border.focus</code> <strong>outline at <code>focus.ring-offset</code></strong> — on <code>:focus-visible</code>, and it is the product's only focus indicator. Never on <code>:focus</code>: a mouse click must not draw it. Never suppressed, and never at a zero offset. The offset exists because <code>border.focus</code> and <code>accent.primary</code> are the same value: drawn tight against an accent-filled control the indicator has nothing to contrast with, and focused renders identically to unfocused. An <strong>outline</strong>, not an offset ring — the gap is transparent and shows whatever surface is actually behind, where <code>ring-offset-color</code> has to be told that background and gets it wrong the moment the control changes surface. A control that clips its own overflow (the halves of a split button) uses a negative <code>focus.ring-offset</code> rather than a second treatment.</li><li><strong>Hover</strong> is a background change to <code>bg.hover</code>. No shadow, no scale, no glow, no border appearing on hover and shifting the layout.</li></ul>
 <h4>Progressive disclosure</h4>
 <p>What you withhold is as deliberate as what you show. No screen confronts a person with everything at once.</p>
 <ul><li>Each screen gets one visual priority. High-signal status and the default reading path are visible; secondary detail and lower-frequency configuration are revealed as the user reaches for them, behind nearby disclosure.</li><li><strong>Prefer per-row and per-cell actions revealed on hover or focus over always-on controls.</strong> Delete, roll back, close, reveal-in-folder, and the rest belong to the row you are pointing at — not to every row simultaneously.</li><li>Anything revealed on hover <strong>must also appear on keyboard focus</strong>, and must have a non-hover path (an overflow menu, a context menu, or the detail pane). Hover-only is a bug, not a style.</li><li>Revealing an action must not resize or reflow the row. Reserve its space, or reveal it over the row's trailing padding.</li><li>Disclosure is not concealment: destructive or state-changing actions stay discoverable, and a state a person must act on is never hidden behind hover.</li></ul>
@@ -2665,6 +2669,7 @@ code {
 <ul><li>A subtitle that restates the title. &quot;Add a skill source&quot; / &quot;A public GitHub repository. We walk it and find the skills&quot; says the same thing twice.</li><li>A field label that restates the dialog title. One field under &quot;New horizon&quot; does not need a &quot;Horizon name&quot; label above it — pass the name to the control as its accessible name and let the placeholder do the visible work.</li><li>Helper text that restates the placeholder. A field showing <code>owner/repo</code> does not need &quot;a github.com address, or owner/repo&quot; beneath it.</li><li>A closing paragraph reassuring the user about what just happened. &quot;X is now one of your sources. Nothing is installed yet — take skills from it when you want them&quot; is three sentences replacing a state the screen already shows.</li></ul>
 <p>A line of copy earns its place only by carrying something the screen cannot: a consequence the user cannot see (where a file will be written), or a fact they cannot infer (which project this adopted as its home).</p>
 <p><strong>The product does not name itself.</strong> UI copy never says the application's name. &quot;Multicode will run this command&quot;, &quot;cannot be undone from Multicode&quot;, &quot;while Multicode is open&quot; — every one of these is the app narrating itself in the third person, and no serious product does it. Write the sentence without the name: &quot;Will run:&quot;, &quot;cannot be undone from here&quot;, &quot;while the app is open&quot;. The name belongs in exactly four places: the window title, the About/version line, the sign-in and account surfaces, and first-run onboarding.</p>
+<p>The one carve-out is the brand <strong>wordmark</strong>, which may appear exactly once, as window chrome at the top of the left column. A mark is not a sentence: it identifies the window the way a title bar does, and it does not narrate. The rule above is unchanged for copy — no label, message, tooltip, or empty state gains the name because the wordmark exists — and &quot;exactly once&quot; is literal, so a second placement retires the first rather than joining it.</p>
 <p><strong>Report the result, not the inventory.</strong> When an operation finishes, show the one fact that answers &quot;did it work?&quot; — a count, a name, a state. Everything else the operation happens to know (file counts, commit hashes, byte sizes, which internal layout was chosen) is stored, not displayed. Metadata dumped into a success message reads as a machine reporting to itself.</p>
 <p><strong>Empty is not invalid.</strong> A required field nobody has filled in yet is not an error. Do not mark it with a red &quot;Required&quot; or an asterisk on open — the disabled confirm button already says &quot;not yet&quot;. Validation messages appear after the first keystroke, never before.</p>
 <h4>Composition</h4>
@@ -2772,8 +2777,8 @@ code {
 }
 
 .ds-button:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-button:disabled {
@@ -3005,7 +3010,8 @@ code {
 }
 
 .ds-input:focus-visible {
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-input[aria-invalid='true'] {
@@ -3433,8 +3439,8 @@ code {
 }
 
 .ds-list-row:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-list-row:disabled,
@@ -3616,8 +3622,8 @@ code {
 }
 
 .ds-list-row-action:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-list-row-action svg {
@@ -4438,8 +4444,8 @@ code {
 }
 
 .ds-provider-row__disclosure:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 /* The chevron rotates rather than being swapped for a second glyph, so the eye
@@ -4536,8 +4542,8 @@ code {
     color: var(--sem-color-text-primary);
   }
   .demo-icobtn:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
   /* Stand-in for the real brand marks, which come from the product's own icon
      set. Two-letter mono monograms on the icon plate so every demo row reads at
@@ -4968,7 +4974,7 @@ code {
 <h4>Variants</h4>
 <ul><li>Default (no modifier) — the neutral outlined group at <code>size.control.sm</code>. This is the only tone the system offers.</li><li><code>ds-split-button--md</code> — the <code>size.control.md</code> step, with the label on <code>font.size.body</code>. For overlay footers and forms, where the surrounding controls sit on that row.</li><li><strong>No accent-filled variant, deliberately.</strong> A view gets one primary button (see <code>foundations/principles.md</code>); a control whose whole point is that its action is ambiguous until you read its glyph is not it.</li></ul>
 <h4>States</h4>
-<ul><li>Hover: the hovered half alone takes <code>bg.hover</code> and lifts to <code>text.primary</code>. The other half does not move — the halves are separately clickable and must say so.</li><li>Open: while the menu is on screen the chevron half stays at <code>bg.hover</code> via <code>[aria-expanded=&quot;true&quot;]</code>, tying the surface to the half that opened it.</li><li>Focus-visible: a 2px <code>border.focus</code> ring, drawn <strong>inset</strong> (<code>inset var(--sem-focus-ring)</code>) because the group clips its overflow — an outer ring would be cut off. Each half rings independently.</li><li>Disabled: 45% opacity and <code>not-allowed</code> on both halves. Disable the whole group or neither: a live primary beside a dead menu reads as a bug.</li><li>No press-scale. The group would scale as one object while only one half was pressed.</li></ul>
+<ul><li>Hover: the hovered half alone takes <code>bg.hover</code> and lifts to <code>text.primary</code>. The other half does not move — the halves are separately clickable and must say so.</li><li>Open: while the menu is on screen the chevron half stays at <code>bg.hover</code> via <code>[aria-expanded=&quot;true&quot;]</code>, tying the surface to the half that opened it.</li><li>Focus-visible: the shared <code>focus.ring</code> outline, at a <strong>negative</strong> <code>focus.ring-offset</code> because the group clips its overflow — an outward gap would be cut off on the joined edge. Each half draws independently.</li><li>Disabled: 45% opacity and <code>not-allowed</code> on both halves. Disable the whole group or neither: a live primary beside a dead menu reads as a bug.</li><li>No press-scale. The group would scale as one object while only one half was pressed.</li></ul>
 <h4>Usage</h4>
 <ul><li>The primary half must announce what it will do without a caption — that is the glyph's job. If the target cannot be shown in the resting state, this is the wrong control.</li><li>Choosing from the menu runs that target immediately <strong>and</strong> becomes the new primary. A menu that only re-points the primary makes every switch two clicks.</li><li>Offer only targets that resolve. A row for something that is not installed is a fake affordance — omit it, never disable it.</li><li>Keep the menu at two or more rows. One alternative is a plain button.</li><li>Persist the primary where the choice belongs (per app, per project) and fall back to the first available target when the remembered one is gone.</li></ul>
 <h4>Accessibility</h4>
@@ -5043,11 +5049,14 @@ code {
   color: var(--sem-color-text-primary);
 }
 
+/* The shared treatment, turned inward: the halves are joined inside a group that
+ * clips its overflow, so the outward gap would be cut off at the seam. Only the
+ * offset is negated — same width, same colour. No `outline: none` beside it; the
+ * outline is what replaces the UA one. */
 .ds-split-button__primary:focus-visible,
 .ds-split-button__chevron:focus-visible {
-  outline: none;
-  /* Inset, not the shared --sem-focus-ring: the group clips overflow. */
-  box-shadow: inset var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
 }
 
 .ds-split-button__primary:disabled,
@@ -5339,9 +5348,9 @@ code {
 <p>None. One size, one shape, one accent.</p>
 <p>A small variant is a rejected idea: the control is already at the floor of what reads in a dense row. A tone variant is also rejected — the fill is the one accent, and a red or amber switch would be a state a person must act on, which belongs in a notice rather than in a setting.</p>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Off | <code>bg.active</code> fill, <code>border.default</code> hairline, thumb in <code>text.primary</code> at the leading end | | On | <code>accent.primary</code> fill, hairline faded to transparent, thumb in <code>text.on-accent</code> at the trailing end | | Pressed | Thumb stretches to 15px, anchored at the end it is resting against | | Focus | <code>border.focus</code> outline at a <code>focus-ring-width</code> offset, from <code>:focus-visible</code> only | | Disabled | 45% opacity, <code>not-allowed</code> cursor, no press stretch |</p>
+<p>| State | Treatment | |---|---| | Off | <code>bg.active</code> fill, <code>border.default</code> hairline, thumb in <code>text.primary</code> at the leading end | | On | <code>accent.primary</code> fill, hairline faded to transparent, thumb in <code>text.on-accent</code> at the trailing end | | Pressed | Thumb stretches to 15px, anchored at the end it is resting against | | Focus | the shared <code>focus.ring</code> outline at <code>focus.ring-offset</code>, from <code>:focus-visible</code> only | | Disabled | 45% opacity, <code>not-allowed</code> cursor, no press stretch |</p>
 <p>The thumb's ink follows the surface under it: <code>text.on-accent</code> on the accent fill, <code>text.primary</code> on the neutral one. A statically light thumb vanishes on any theme whose accent is itself bright.</p>
-<p>Focus is the one place this component departs from the shared <code>focus-ring</code>. <code>border.focus</code> and <code>accent.primary</code> are the same value, and <code>focus-ring</code> is a zero-offset shadow — so on a checked switch the ring lands directly against a track of its own colour and focused becomes indistinguishable from unfocused. An outline at a 2px offset separates them through a transparent gap. A ring offset would need a fill colour behind it, and the fill behind a switch is whatever its host row is painting; the gap needs no such guess. Any other accent-filled control has the same collision and the same fix available.</p>
+<p>Focus takes the shared treatment with no local override — and this control is why that treatment is an offset outline. <code>border.focus</code> and <code>accent.primary</code> are the same value, so the zero-offset ring <code>focus.ring</code> used to be landed directly against a checked track of its own colour and focused became indistinguishable from unfocused. Every accent-filled control collided the same way, so the offset moved into <code>focus.ring</code> itself rather than staying an exception here.</p>
 <p>Travel runs at <code>motion.duration.normal</code> on the standard ease — slow enough to be read as movement rather than a jump. The fill, the hairline, and the thumb's ink all crossfade at <code>fast</code>, so the colour has settled by the time the thumb lands. The press stretch is one detail, not a spring: 3px, anchored, gone on release.</p>
 <h4>Usage</h4>
 <p><strong>It commits immediately.</strong> Never pair a switch with a Save button, and never put one in a form that submits later — that is a checkbox. If the write can fail, the row owns the failure: show the error next to the control and put the switch back where it was.</p>
@@ -5388,16 +5397,13 @@ code {
   box-shadow: inset 0 0 0 1px transparent;
 }
 
-/* The one control whose resting fill IS the focus colour: checked, the track
- * paints accent.primary, and border.focus resolves to that same value. The
- * standard `focus-ring` is a zero-offset shadow, so on a checked switch it
- * merges into the track and focused reads identically to unfocused. An outline
- * at a 2px offset separates them through a transparent gap — and unlike a ring
- * offset it makes no assumption about the fill behind the control, which is
- * whatever the host row is painting at the time. */
+/* The shared treatment, with nothing local about it. This control is why
+ * focus.ring is an offset outline system-wide: checked, the track paints
+ * accent.primary, border.focus resolves to that same value, and a zero-offset
+ * ring merged into the track so focused read identically to unfocused. */
 .ds-switch:focus-visible {
-  outline: var(--sem-focus-ring-width) solid var(--sem-color-border-focus);
-  outline-offset: var(--sem-focus-ring-width);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-switch:disabled {
@@ -5639,8 +5645,8 @@ code {
 }
 
 .ds-task-card:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 /* Selection is neutral: the accent is reserved for the primary action, so a
@@ -6045,8 +6051,8 @@ code {
     color: var(--sem-color-text-default);
   }
   .demo-row:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
   .demo-controls {
     display: flex;
@@ -6071,8 +6077,8 @@ code {
     color: var(--sem-color-text-default);
   }
   .demo-icon:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
   .demo-icon svg {
     width: var(--sem-icon-size-sm);
@@ -6096,8 +6102,8 @@ code {
     cursor: pointer;
   }
   .demo-dock:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
   .demo-specimen {
     display: flex;
@@ -6684,8 +6690,8 @@ triggersOut.textContent = String(document.querySelectorAll('[data-tip]').length)
     background: var(--sem-color-bg-hover);
   }
   .cr-row:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
   .cr-row-count {
     margin-left: auto;
@@ -6732,8 +6738,8 @@ triggersOut.textContent = String(document.querySelectorAll('[data-tip]').length)
     color: var(--sem-color-text-primary);
   }
   .cr-back:focus-visible {
-    outline: none;
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
   .cr-glyph {
     width: var(--sem-icon-size-sm);
@@ -6766,7 +6772,8 @@ triggersOut.textContent = String(document.querySelectorAll('[data-tip]').length)
     animation: cr-swap-in var(--sem-motion-duration-normal) var(--sem-motion-ease-standard) both;
   }
   .cr-toggle:focus-visible ~ .cr-swap .cr-swap-trigger {
-    box-shadow: var(--sem-focus-ring);
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
   }
   @keyframes cr-swap-in {
     from {
@@ -7239,7 +7246,7 @@ triggersOut.textContent = String(document.querySelectorAll('[data-tip]').length)
     cursor: pointer;
   }
   .rail-new:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
-  .rail-new:focus-visible { outline: none; box-shadow: var(--sem-shadow-focus-ring); }
+  .rail-new:focus-visible { outline: var(--sem-focus-ring); outline-offset: var(--sem-focus-ring-offset); }
 
   .rail-find { display: flex; align-items: center; gap: var(--sem-space-2xs); }
   .rail-search {
@@ -7270,7 +7277,7 @@ triggersOut.textContent = String(document.querySelectorAll('[data-tip]').length)
     cursor: pointer;
   }
   .rail-glyph:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
-  .rail-glyph:focus-visible { outline: none; box-shadow: var(--sem-shadow-focus-ring); }
+  .rail-glyph:focus-visible { outline: var(--sem-focus-ring); outline-offset: var(--sem-focus-ring-offset); }
   /* Collapsing the axes hides them; it must never hide that one is applied. */
   .rail-glyph[data-active=&quot;true&quot;] { color: var(--sem-color-accent-primary); }
   .rail-glyph[data-active=&quot;true&quot;]::after {

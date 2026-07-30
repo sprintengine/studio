@@ -40,5 +40,53 @@ export const TOOL_COLOR_VAR: Record<ToolIdentity, string> = {
   sprintengine: 'var(--tool-sprintengine)',
 }
 
-export const FOCUS_RING_CLASS =
-  'focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
+// The product's one focus indicator: a 2px --border-focus outline at a 2px
+// offset, declared once as the `focus-ring` utility in assets/index.css.
+//
+// The utility name is the single source, not these constants: markup that
+// writes `focus-visible:focus-ring` into a className string lands on the same
+// rule, and moving the treatment means editing the utility, never a consumer.
+// What no component may do is declare a treatment of its own — a
+// `focus-visible:ring-*` or `focus-visible:outline-*` carrying its own width or
+// colour, which is how the accent collision below survived nineteen themes.
+// That is enforced in ui/accessibility-contracts.test.ts. Prefer these four
+// constants in new code: they carry the trigger's rationale, and the
+// non-obvious ones (peer, wrapper) are easy to get wrong from memory.
+//
+// The offset is load-bearing, not decoration: --border-focus and
+// --accent-primary are the same value in 18 of the 19 themes, so a zero-offset
+// ring on an accent-filled control (PrimaryButton, a checked Switch) had nothing
+// to contrast with and focused rendered identically to unfocused. The
+// transparent gap is what separates them, and unlike `ring-offset-color` it
+// assumes nothing about the fill behind the control.
+//
+// No `outline-none` companion: the outline replaces the UA one, and pairing it
+// with an equal-specificity `focus:outline-none` would make which wins a matter
+// of stylesheet order.
+const FOCUS_RING_UTILITY = 'focus-ring'
+
+/** Focus on the element itself. The default — use this unless one of the below applies. */
+export const FOCUS_RING_CLASS = `focus-visible:${FOCUS_RING_UTILITY}`
+
+/**
+ * Inward, for an element that clips its own overflow or sits at the edge of a
+ * scrolling region: a focusable scroll container, a joined split-button half.
+ * An outward gap is cut off there.
+ */
+export const FOCUS_RING_INSET_CLASS = `focus-visible:${FOCUS_RING_UTILITY}-inset`
+
+/**
+ * For a decorative box drawn next to the real control — a styled checkbox whose
+ * `<input class="peer">` is the tab stop and carries the semantics.
+ */
+export const FOCUS_RING_PEER_CLASS = `peer-focus-visible:${FOCUS_RING_UTILITY}`
+
+/**
+ * For a wrapper that owns the visible border box while an `<input>` inside it is
+ * the tab stop (a search field with a glyph and a clear button). Keyed to the
+ * input's own focus, never `focus-within`: the clear button is a descendant, and
+ * a `focus-within` outline stays painted while that button draws its own,
+ * putting two indicators on one stop. `:focus` not `:focus-visible` because
+ * Chromium treats text inputs as focus-visible on click anyway.
+ */
+export const FOCUS_RING_WITHIN_INPUT_CLASS = `has-[input:focus]:${FOCUS_RING_UTILITY}`

@@ -53,6 +53,32 @@
   --spacing-control-md: var(--control-md);
 }
 
+/* The focus indicator, as markup's one name for it. Both utilities declare bare
+ * properties rather than nesting `&:focus-visible`, so the caller supplies the
+ * variant: `focus-visible:focus-ring` is the normal case, and the composite
+ * controls that need a different trigger — a decorative box ringed by its
+ * sibling input, a wrapper ringed by the input inside it — reach for
+ * `peer-focus-visible:` / `has-[input:focus]:` on the same utility instead of
+ * hand-rolling a second treatment. Named once each in components/ui/tokens.ts
+ * (FOCUS_RING_CLASS and its siblings); the values are --focus-ring /
+ * --focus-ring-offset in the :root block below.
+ *
+ * Deliberately no `outline-none` companion: the outline IS the replacement for
+ * the UA one, and `focus:outline-none` sits at the same specificity, so pairing
+ * them makes which one wins a question of stylesheet order. */
+@utility focus-ring {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Inward, for a control that clips its own overflow or sits at the edge of a
+ * scrolling region — a tab panel, a joined split-button half, a list surface
+ * whose rows scroll under a header. An outward gap gets cut off there. */
+@utility focus-ring-inset {
+  outline: var(--focus-ring);
+  outline-offset: calc(-1 * var(--focus-ring-offset));
+}
+
 /* Shared UI tokens — shared by Switchboard, Watchtower, and Sprint Engine
  * panel rebuilds. Existing tool-identity / theme variables are kept
  * intact below; these tokens add a semantic layer that primitives consume.
@@ -300,16 +326,35 @@
   --motion-deliberate: var(--sem-motion-duration-deliberate);
   --motion-ease: var(--sem-motion-ease-standard);
 
-  /* The one focus treatment in the product. Restates the bundle's
-     `--sem-focus-ring` rather than aliasing it, because the ring has to
-     compose against each theme's OWN --border-focus and seventeen themes set
-     that themselves; `var(--sem-focus-ring)` would freeze every one of them on
-     the bundle's green. Consumed from CSS here and from Tailwind through
-     FOCUS_RING_CLASS in components/ui/tokens.ts — those two are the only
-     declarations of a focus indicator anywhere. Every --border-focus is opaque
-     so the 2px ring clears 3:1 against --bg-app / --bg-surface /
-     --bg-surface-raised in all nineteen themes. */
-  --focus-ring: 0 0 0 2px var(--border-focus);
+  /* The one focus treatment in the product: a 2px outline at a 2px offset.
+     Restates the bundle's `--sem-focus-ring` rather than aliasing it, because
+     it has to compose against each theme's OWN --border-focus and seventeen
+     themes set that themselves; `var(--sem-focus-ring)` would freeze every one
+     of them on the bundle's green.
+
+     These two values are the only place the treatment is declared. They are
+     applied from exactly two places: the `focus-ring` / `focus-ring-inset`
+     utilities above (which markup reaches through FOCUS_RING_CLASS and its
+     siblings in components/ui/tokens.ts) and the FlexLayout rule near the end
+     of this file, which has to reach third-party markup no class of ours owns.
+     No component declares its own.
+
+     Why an offset and not a zero-offset ring: --border-focus and
+     --accent-primary resolve to the same value in 18 of the 19 themes (sage is
+     the only split, and only by a step), so drawn tight against an
+     accent-filled control — PrimaryButton, a checked Switch — the indicator
+     had nothing to contrast with and focused rendered pixel-identical to
+     unfocused. An outline, not `ring-offset`: the gap is transparent and shows
+     whatever surface is actually behind the control, where a ring offset has to
+     be told that background and gets it wrong the moment the control moves
+     surface.
+
+     Every --border-focus is opaque so the 2px outline clears 3:1 against
+     --bg-app / --bg-surface / --bg-surface-raised in all nineteen themes —
+     which is what it has to clear, because the offset gap makes those surfaces,
+     not the control's own fill, the colours it sits against. */
+  --focus-ring: 2px solid var(--border-focus);
+  --focus-ring-offset: 2px;
 
   /* Canonical elevation, one alias per step of the bundle's three-step ramp.
      Every step is an overlay: nothing in the document flow takes a shadow, so
@@ -2798,11 +2843,13 @@ body:has([data-selection-pane]:focus-within)
 }
 
 /* One focus treatment reaches the library's controls too — they ship with
-   `outline: none` and nothing in its place, which is a suppressed focus ring. */
+   `outline: none` and nothing in its place, which is a suppressed focus ring.
+   Inset, because these buttons sit inside the tab strip's own clipped box and
+   an outward gap would be cut off at the strip's edge. */
 .flexlayout__layout .flexlayout__tab_toolbar_button:focus-visible,
 .flexlayout__layout .flexlayout__tab_button_overflow:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-ring);
+  outline-offset: calc(-1 * var(--focus-ring-offset));
 }
 
 /* The strip sits flat on the terminal ground under a hairline — a slim caption

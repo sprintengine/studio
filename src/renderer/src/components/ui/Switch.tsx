@@ -1,15 +1,6 @@
 import React, { useCallback } from 'react'
 
-// The one control in the system whose resting fill IS the focus colour: when
-// checked the track paints `--accent-primary`, and `--border-focus` resolves to
-// that same value. The shared FOCUS_RING_CLASS draws its ring as a zero-offset
-// box-shadow, so on a checked switch the ring merges into the track and focused
-// and unfocused are pixel-identical. An outline at a 2px offset separates the
-// two with a transparent gap — no assumption about the fill behind the control,
-// which a `ring-offset` colour would have to make and would get wrong the
-// moment the row takes its hover or selected fill.
-const SWITCH_FOCUS_RING_CLASS =
-  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--border-focus)]'
+import { FOCUS_RING_CLASS } from './tokens'
 
 type SwitchProps = {
   checked: boolean
@@ -79,7 +70,11 @@ export function Switch({
         checked
           ? 'bg-[color:var(--accent-primary)] shadow-[inset_0_0_0_1px_transparent]'
           : 'bg-[color:var(--bg-active)] shadow-[inset_0_0_0_1px_var(--border-default)]',
-        SWITCH_FOCUS_RING_CLASS,
+        // The shared treatment, with nothing local about it. This control is why
+        // that treatment carries an offset: checked, the track paints
+        // --accent-primary, --border-focus resolves to the same value, and the
+        // zero-offset ring it used to be merged into the track.
+        FOCUS_RING_CLASS,
         className ?? '',
       ].join(' ')}
     >

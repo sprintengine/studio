@@ -48,21 +48,19 @@ belongs in a notice rather than in a setting.
 | Off | `bg.active` fill, `border.default` hairline, thumb in `text.primary` at the leading end |
 | On | `accent.primary` fill, hairline faded to transparent, thumb in `text.on-accent` at the trailing end |
 | Pressed | Thumb stretches to 15px, anchored at the end it is resting against |
-| Focus | `border.focus` outline at a `focus-ring-width` offset, from `:focus-visible` only |
+| Focus | the shared `focus.ring` outline at `focus.ring-offset`, from `:focus-visible` only |
 | Disabled | 45% opacity, `not-allowed` cursor, no press stretch |
 
 The thumb's ink follows the surface under it: `text.on-accent` on the accent
 fill, `text.primary` on the neutral one. A statically light thumb vanishes on
 any theme whose accent is itself bright.
 
-Focus is the one place this component departs from the shared `focus-ring`.
-`border.focus` and `accent.primary` are the same value, and `focus-ring` is a
-zero-offset shadow — so on a checked switch the ring lands directly against a
-track of its own colour and focused becomes indistinguishable from unfocused.
-An outline at a 2px offset separates them through a transparent gap. A ring
-offset would need a fill colour behind it, and the fill behind a switch is
-whatever its host row is painting; the gap needs no such guess. Any other
-accent-filled control has the same collision and the same fix available.
+Focus takes the shared treatment with no local override — and this control is
+why that treatment is an offset outline. `border.focus` and `accent.primary` are
+the same value, so the zero-offset ring `focus.ring` used to be landed directly
+against a checked track of its own colour and focused became indistinguishable
+from unfocused. Every accent-filled control collided the same way, so the offset
+moved into `focus.ring` itself rather than staying an exception here.
 
 Travel runs at `motion.duration.normal` on the standard ease — slow enough to
 be read as movement rather than a jump. The fill, the hairline, and the thumb's

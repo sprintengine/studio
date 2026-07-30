@@ -187,8 +187,8 @@
 }
 
 .ds-provider-row__disclosure:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 /* The chevron rotates rather than being swapped for a second glyph, so the eye

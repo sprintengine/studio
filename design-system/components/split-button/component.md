@@ -44,9 +44,9 @@ different target*. Two unrelated actions welded together are two buttons.
   say so.
 - Open: while the menu is on screen the chevron half stays at `bg.hover` via
   `[aria-expanded="true"]`, tying the surface to the half that opened it.
-- Focus-visible: a 2px `border.focus` ring, drawn **inset** (`inset
-  var(--sem-focus-ring)`) because the group clips its overflow — an outer ring
-  would be cut off. Each half rings independently.
+- Focus-visible: the shared `focus.ring` outline, at a **negative**
+  `focus.ring-offset` because the group clips its overflow — an outward gap
+  would be cut off on the joined edge. Each half draws independently.
 - Disabled: 45% opacity and `not-allowed` on both halves. Disable the whole
   group or neither: a live primary beside a dead menu reads as a bug.
 - No press-scale. The group would scale as one object while only one half was

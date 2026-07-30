@@ -66,11 +66,14 @@
   color: var(--sem-color-text-primary);
 }
 
+/* The shared treatment, turned inward: the halves are joined inside a group that
+ * clips its overflow, so the outward gap would be cut off at the seam. Only the
+ * offset is negated — same width, same colour. No `outline: none` beside it; the
+ * outline is what replaces the UA one. */
 .ds-split-button__primary:focus-visible,
 .ds-split-button__chevron:focus-visible {
-  outline: none;
-  /* Inset, not the shared --sem-focus-ring: the group clips overflow. */
-  box-shadow: inset var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
 }
 
 .ds-split-button__primary:disabled,

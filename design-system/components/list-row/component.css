@@ -33,8 +33,8 @@
 }
 
 .ds-list-row:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-list-row:disabled,
@@ -216,8 +216,8 @@
 }
 
 .ds-list-row-action:focus-visible {
-  outline: none;
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-list-row-action svg {

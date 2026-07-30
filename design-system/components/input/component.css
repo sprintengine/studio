@@ -43,7 +43,8 @@
 }
 
 .ds-input:focus-visible {
-  box-shadow: var(--sem-focus-ring);
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
 }
 
 .ds-input[aria-invalid='true'] {
