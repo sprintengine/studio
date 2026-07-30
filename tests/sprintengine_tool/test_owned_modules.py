@@ -10,8 +10,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from helpers import SwarmCli, SwarmTeamFixture, base_state, read_state, task, write_state
+from helpers import SwarmCli, SwarmTeamFixture, base_state, create_team, read_state, task, write_state
 from sprintengine_core.tool.shell import module_contains_path, paths_overlap
+from sprintengine_mcp import SprintEngineMcpServer
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -127,6 +128,35 @@ def test_plan_update_task_refuses_a_file_entry_too(tmp_path) -> None:
     )
 
     assert "is a file" in failure.stderr
+    # The refusal leaves the task exactly as it was — no half-applied replacement.
+    stored = read_state(fixture.state_path)["tasks"]
+    assert [t["ownedPaths"] for t in stored if t["id"] == "T1"] == [["src/panel"]]
+
+
+def test_the_mcp_boundary_refuses_a_file_entry_too(tmp_path) -> None:
+    # The surface architects actually plan through, and the surface the contract
+    # is documented on (`path` in sprintengine.plan.add_task).
+    fixture = create_team(tmp_path, "mcp-modules", [task("T1", "Seed", "developer")])
+    (tmp_path / "src" / "panel").mkdir(parents=True)
+    (tmp_path / "src" / "panel" / "Panel.tsx").write_text("export const Panel = 1\n", encoding="utf-8")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    request = {"statePath": str(fixture.state_path), "title": "Panel", "role": "developer"}
+    caller = {"id": "architect-1", "role": "architect", "mcpAuthorized": True}
+
+    refused = server.call_tool(
+        "sprintengine.plan.add_task", {**request, "path": ["src/panel/Panel.tsx"]}, caller
+    )
+    accepted = server.call_tool(
+        "sprintengine.plan.add_task", {**request, "path": ["src/panel"]}, caller
+    )
+
+    assert refused["ok"] is False
+    assert "`src/panel`" in refused["error"]["message"]
+    assert accepted["ok"] is True
+    # The refusal is not a half-write: only the module-owning task entered the store.
+    stored = read_state(fixture.state_path)["tasks"]
+    assert [t["title"] for t in stored] == ["Seed", "Panel"]
+    assert stored[1]["ownedPaths"] == ["src/panel"]
 
 
 # --- what coarse ownership buys ----------------------------------------------
