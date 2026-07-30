@@ -14,6 +14,7 @@ import { SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import type { DesignSystemLibraryEntry } from '../../../../../../shared/design-system/library'
 import { DesignCanvas } from './DesignCanvas'
+import { NewDesignSystemScreen, type NewDesignSystemSource } from './NewDesignSystemScreen'
 import { DesignRail } from './DesignRail'
 import {
   designFailureLine,
@@ -35,6 +36,12 @@ import {
 // makes the library a persisted registry of folders, and 2005 builds the create
 // screen. Nothing here invents a mechanism the other six doors do not already
 // have, and nothing here mounts a rail inside the canvas (MC-2014).
+
+/** The folder's own name, used as the new system's name. */
+function basenameOfPath(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean)
+  return parts[parts.length - 1] ?? path
+}
 
 /** Where the door's rail is bound in the workspace's own design-system copy. */
 const ATTACHED_BUNDLE_DIRECTORY = 'design-system'
@@ -80,6 +87,9 @@ export default function DesignGlobalSurface(): JSX.Element {
   // Both are transient view state, like every other door's selection.
   const [openComponent, setOpenComponent] = useState<string | null>(null)
   const [reloadingPath, setReloadingPath] = useState<string | null>(null)
+  // The name of the source a new system is being created from, while that is in
+  // flight — so the card that was clicked is the one that says "Creating…".
+  const [creatingFrom, setCreatingFrom] = useState<string | null>(null)
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -234,17 +244,11 @@ export default function DesignGlobalSurface(): JSX.Element {
   // Point at a folder: the one create path that works today. Item 2005 builds
   // the full screen behind this affordance; item 2004 makes the result persist.
   const pointAtFolder = useCallback(async () => {
-    setNewSelected(true)
-    setSelectedId(null)
     setPointError(null)
     const picked = await window.api.openDir()
-    if (!picked || !mounted.current) {
-      // Cancelling leaves nothing behind — nothing on disk, nothing in the
-      // registry, and the selection returns to the rail rather than stranding
-      // the canvas on a create screen.
-      setNewSelected(false)
-      return
-    }
+    // Cancelling leaves nothing behind — nothing on disk, nothing in the
+    // registry — and leaves the create screen up rather than stranding the user.
+    if (!picked || !mounted.current) return
     // Registering a REFERENCE: no copy is made anywhere, and the folder stays
     // exactly where the user's repo put it.
     const result = await window.api.registerDesignSystemFolder(picked)
@@ -270,6 +274,48 @@ export default function DesignGlobalSurface(): JSX.Element {
     setNewSelected(false)
     setSelectedId(libraryRowId(result.entry.path))
   }, [])
+
+  /**
+   * Create a new system, seeded from one the user has (or from nothing).
+   *
+   * The user chooses the folder; we write the bundle there, register it, and
+   * select it. Cancelling the picker leaves nothing on disk and nothing in the
+   * registry — the seed is not attempted until there is a folder to write to.
+   */
+  const seedFrom = useCallback(async (source: NewDesignSystemSource) => {
+    setPointError(null)
+    const target = await window.api.openDir()
+    if (!target || !mounted.current) return
+    setCreatingFrom(source.name)
+    try {
+      const name = basenameOfPath(target)
+      const seeded = await window.api.seedDesignSystemBundle(
+        source.path,
+        target,
+        name,
+        source.path ? `Seeded from ${source.name}.` : 'A new design system.',
+      )
+      if (!mounted.current) return
+      if (!seeded.ok) {
+        setPointError(seeded.message ?? 'Could not create the design system.')
+        return
+      }
+      const bundleDir = seeded.bundleDir ?? target
+      const registered = await window.api.registerDesignSystemFolder(bundleDir)
+      if (!mounted.current) return
+      if (!registered.ok) {
+        setPointError(registered.message)
+        return
+      }
+      await loadLibrary()
+      if (!mounted.current) return
+      setNewSelected(false)
+      setOpenComponent(null)
+      setSelectedId(libraryRowId(registered.entry.path))
+    } finally {
+      if (mounted.current) setCreatingFrom(null)
+    }
+  }, [loadLibrary])
 
   /**
    * Re-point a broken registration at wherever the folder went.
@@ -305,6 +351,25 @@ export default function DesignGlobalSurface(): JSX.Element {
     await loadLibrary()
   }, [loadLibrary])
 
+  /**
+   * The create screen's cards: one per readable library system, then Empty.
+   *
+   * Only systems we could actually read can be a start point — seeding from a
+   * folder that has moved would fail at the copy, and a card that cannot draw
+   * its own specimen is not a visual start point at all.
+   */
+  const startSources = useMemo<NewDesignSystemSource[]>(() => {
+    const cards: NewDesignSystemSource[] = []
+    for (const entry of registered) {
+      if (entry.sourceState !== 'ok') continue
+      const view = reads[entry.path]?.view ?? null
+      if (!view) continue
+      cards.push({ path: entry.path, name: view.identity.name, view })
+    }
+    cards.push({ path: null, name: 'Empty system', view: null })
+    return cards
+  }, [registered, reads])
+
   const rail = (
     <DesignRail
       entries={entries}
@@ -315,7 +380,14 @@ export default function DesignGlobalSurface(): JSX.Element {
       status={status}
       onStatus={setStatus}
       onSelect={selectRow}
-      onCreate={() => void pointAtFolder()}
+      onCreate={() => {
+        // The New affordance opens the create SCREEN; the folder picker is one
+        // action on it, not the whole of it.
+        setPointError(null)
+        setSelectedId(null)
+        setOpenComponent(null)
+        setNewSelected(true)
+      }}
       newSelected={newSelected}
     />
   )
@@ -340,6 +412,16 @@ export default function DesignGlobalSurface(): JSX.Element {
       // empty and error are the canvas's to say (T19 / MC-1993).
       rail={rail}
     >
+      {newSelected ? (
+        <NewDesignSystemScreen
+          sources={startSources}
+          mode={scheme === 'light' ? 'light' : 'dark'}
+          busy={creatingFrom}
+          error={pointError}
+          onPointAtFolder={() => void pointAtFolder()}
+          onSeedFrom={(source) => void seedFrom(source)}
+        />
+      ) : (
       <DesignSurfaceBody
         loadState={loadState}
         loadError={loadError}
@@ -358,6 +440,7 @@ export default function DesignGlobalSurface(): JSX.Element {
         pointError={pointError}
         onPointAtFolder={() => void pointAtFolder()}
       />
+      )}
     </GlobalSurfaceShell>
   )
 }

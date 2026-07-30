@@ -24,6 +24,13 @@ export const designSystemApi = {
     summary: string,
   ): Promise<DesignSystemScaffoldResult> =>
     ipcRenderer.invoke('design-system:scaffold-bundle', workspaceRoot, name, summary),
+  seedDesignSystemBundle: (
+    sourceDir: string | null,
+    targetDir: string,
+    name: string,
+    summary: string,
+  ): Promise<DesignSystemScaffoldResult> =>
+    ipcRenderer.invoke('design-system:seed-bundle', sourceDir, targetDir, name, summary),
   resolveDesignSystemBrandDemoSeed: (): Promise<DesignSystemBrandDemoResolveResult> =>
     ipcRenderer.invoke('design-system:resolve-brand-demo-seed'),
   lintDesignSystemBundle: (bundleDir: string): Promise<DesignSystemBundleLintRunResult> =>
@@ -47,6 +54,7 @@ export const designSystemApi = {
   ElectronApi,
   | 'regenerateDesignSystemDerivedFiles'
   | 'scaffoldDesignSystemBundle'
+  | 'seedDesignSystemBundle'
   | 'resolveDesignSystemBrandDemoSeed'
   | 'lintDesignSystemBundle'
   | 'readDesignSystemBundle'

@@ -560,6 +560,88 @@ async function main(): Promise<void> {
   act(() => {
     designRoot.unmount()
   })
+
+  // --- item 2005: the create screen ----------------------------------------
+  // The screen most at risk of growing affordances the epic explicitly cut:
+  // clone-from-GitHub, a DTCG token-file import, a marketplace shelf. Each was
+  // rejected for its own reason, and each would be easy to re-add by accident.
+
+  const { NewDesignSystemScreen } = await import(
+    '../workspace/globalSurface/design/NewDesignSystemScreen'
+  )
+  const newRoot = createRoot(designContainer)
+  act(() => {
+    newRoot.render(
+      React.createElement(NewDesignSystemScreen, {
+        sources: [
+          { path: '/work/brand/design-system', name: 'multicode', view: designView as never },
+          { path: null, name: 'Empty system', view: null },
+        ],
+        mode: 'dark',
+        busy: null,
+        error: null,
+        onPointAtFolder: () => {},
+        onSeedFrom: () => {},
+      }),
+    )
+  })
+
+  await run('2005 Point at a folder is the ONE accent-filled action on the screen', () => {
+    const primaries = Array.from(designContainer.querySelectorAll('button')).filter((button) =>
+      classesOf(button).some((token) => /^bg-\[color:var\(--accent-primary/.test(token)),
+    )
+    assert.equal(primaries.length, 1, 'exactly one accent-filled control')
+    assert.match(primaries[0].textContent ?? '', /Point at a folder/)
+  })
+
+  await run('2005 no heading sits above the grid', () => {
+    // With the rejected "bring one in" row cut there is one group on screen, and
+    // a heading must separate something from something else.
+    assert.equal(
+      designContainer.querySelectorAll('h1, h2, h3').length,
+      0,
+      'a heading here would label the only thing present',
+    )
+  })
+
+  await run('2005 a card names its system once, in the specimen — never again beneath', () => {
+    // The specimen lives inside a sandboxed iframe (srcdoc), so the app-side
+    // markup must carry the name only as the accessible label of the card.
+    const cards = Array.from(designContainer.querySelectorAll('button')).filter((button) =>
+      (button.getAttribute('aria-label') ?? '').startsWith('Start from'),
+    )
+    assert.equal(cards.length, 2, 'one per source, plus Empty')
+    const seeded = cards[0]
+    assert.equal(seeded.getAttribute('aria-label'), 'Start from multicode')
+    assert.ok(
+      !(seeded.textContent ?? '').includes('multicode'),
+      'no caption repeating the name the specimen already carries',
+    )
+    // Boxless: no border on the card itself.
+    for (const token of classesOf(seeded)) {
+      assert.ok(!/^border(-[trbl])?(-\d+)?$/.test(token), `a card must not be boxed: ${token}`)
+    }
+  })
+
+  await run('2005 nothing clones, imports a token file, or names a marketplace', () => {
+    const text = (designContainer.textContent ?? '').toLowerCase()
+    for (const forbidden of [
+      'github',
+      'clone',
+      'pull',
+      'fetch',
+      'marketplace',
+      'import',
+      'browse',
+      'url',
+    ]) {
+      assert.ok(!text.includes(forbidden), `the create screen must not offer "${forbidden}"`)
+    }
+  })
+
+  act(() => {
+    newRoot.unmount()
+  })
   designContainer.remove()
 
   act(() => {

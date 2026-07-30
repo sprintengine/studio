@@ -11,7 +11,10 @@ import type {
 } from '../../shared/design-system/attach'
 import { regenerateDesignSystemDerivedFiles } from '../design-system/derived-file-runner'
 import { forkBundleScriptInUtilityProcess } from '../design-system/utility-process-fork'
-import { scaffoldDesignSystemBundle } from '../design-system/bundle-scaffold'
+import {
+  scaffoldDesignSystemBundle,
+  seedDesignSystemBundle,
+} from '../design-system/bundle-scaffold'
 import { resolveDesignSystemTemplatesDir } from '../design-system/templates-path'
 import { resolveDesignSystemBrandDemoSeedDir } from '../design-system/brand-demo-path'
 import { runDesignSystemBundleLint } from '../design-system/bundle-lint-run'
@@ -79,6 +82,26 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
         templatesDir: resolveDesignSystemTemplatesDir(),
       })
     },
+  )
+  // Create a new bundle in a folder the user chose — seeded from one they have,
+  // or bare from the shipped templates (item 2005). The ONE place the design
+  // surface writes a bundle, and only ever into the folder the user picked.
+  ipcMain.handle(
+    'design-system:seed-bundle',
+    (
+      _event,
+      sourceDir: unknown,
+      targetDir: unknown,
+      name: unknown,
+      summary: unknown,
+    ): Promise<DesignSystemScaffoldResult> =>
+      seedDesignSystemBundle({
+        sourceDir: typeof sourceDir === 'string' && sourceDir.trim() ? sourceDir : null,
+        targetDir: typeof targetDir === 'string' ? targetDir : '',
+        name: typeof name === 'string' ? name : '',
+        summary: typeof summary === 'string' ? summary : '',
+        templatesDir: resolveDesignSystemTemplatesDir(),
+      }),
   )
   ipcMain.handle('design-system:resolve-brand-demo-seed', () =>
     resolveDesignSystemBrandDemoSeedDir(),
