@@ -285,6 +285,16 @@ expectIncludes(toast, 'toast-enter', 'Toast uses the shared toast-enter class wh
 expectIncludes(tooltip, 'role="tooltip"', 'Tooltip surface uses the tooltip role')
 expectIncludes(tooltip, "'aria-describedby'", 'Tooltip wires aria-describedby on the trigger')
 expectIncludes(tooltip, "event.key === 'Escape'", 'Tooltip closes on Escape')
+// A sentence-length tooltip (a full prompt, a path, an error) wraps inside a
+// capped measure instead of running off the screen edge. `multiline` REPLACES
+// the base `whitespace-nowrap` — appending a competing whitespace utility from
+// a caller's `className` is resolved by stylesheet order, not attribute order,
+// so the override has to happen where the base is chosen.
+expectMatches(
+  tooltip,
+  /multiline\s*\n?\s*\?\s*'max-w-\[[^']*\]\s+whitespace-pre-wrap[^']*'\s*\n?\s*:\s*'whitespace-nowrap'/,
+  'Tooltip swaps its whitespace base for multiline rather than appending one',
+)
 expectIncludes(tooltip, 'onMouseEnter', 'Tooltip opens on hover')
 expectIncludes(tooltip, 'onFocus', 'Tooltip opens on keyboard focus')
 expectIncludes(tooltip, 'onBlur', 'Tooltip closes on blur')

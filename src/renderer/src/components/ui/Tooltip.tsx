@@ -33,6 +33,15 @@ type TooltipProps = {
   children: React.ReactElement<TooltipChildProps>
   /** Hover open delay. Focus opens immediately so keyboard users do not wait. */
   openDelayMs?: number
+  /**
+   * Let the tooltip wrap over several lines inside a capped measure, for content
+   * that is a sentence rather than a label (a full prompt, a path, an error).
+   * This REPLACES the default `whitespace-nowrap` rather than being appended
+   * beside it: two whitespace utilities in one class attribute are resolved by
+   * stylesheet order, not attribute order, so a caller cannot reliably override
+   * the base from `className`.
+   */
+  multiline?: boolean
   className?: string
   /**
    * Classes applied to the wrapping span around the trigger. Use this when the
@@ -122,6 +131,7 @@ export function Tooltip({
   placement = 'top',
   children,
   openDelayMs = 200,
+  multiline = false,
   className,
   wrapperClassName,
   wrapperRole,
@@ -248,7 +258,10 @@ export function Tooltip({
               }}
               className={[
                 'popover-enter pointer-events-none z-50',
-                'whitespace-nowrap rounded-[5px] border border-[color:var(--border-strong)]',
+                multiline
+                  ? 'max-w-[420px] whitespace-pre-wrap break-words'
+                  : 'whitespace-nowrap',
+                'rounded-[5px] border border-[color:var(--border-strong)]',
                 'bg-[color:var(--bg-surface-raised)] px-2 py-1',
                 'text-micro leading-snug text-[color:var(--text-strong)]',
                 className ?? '',

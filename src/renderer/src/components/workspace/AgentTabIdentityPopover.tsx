@@ -156,7 +156,12 @@ export function AgentTabIdentityCard({
             {/* Clamped to two lines here, with the whole message in a tooltip on
                 the text itself: a prompt runs to any length, and a card that
                 grew with it would cover the work it describes. */}
-            <Tooltip content={identity.lastMessage.text} placement="bottom" wrapperClassName="block min-w-0">
+            <Tooltip
+              content={identity.lastMessage.text}
+              placement="bottom"
+              multiline
+              wrapperClassName="block min-w-0"
+            >
               <span className="block min-w-0">
                 <span className="line-clamp-2 whitespace-pre-wrap break-words leading-snug">
                   {identity.lastMessage.text}
