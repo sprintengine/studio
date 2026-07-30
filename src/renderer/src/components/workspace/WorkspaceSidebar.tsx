@@ -1423,7 +1423,18 @@ export default function WorkspaceSidebar({
       // One of the surface's selection panes: the active workspace row and the
       // active door entry drop to the resting tier while the keyboard is in
       // another pane (assets/index.css, "Selection tiers").
-      data-selection-pane="auto"
+      //
+      // Dropped entirely while a door owns this column, because then this aside
+      // is not the pane — the door's rail inside it is, and that rail declares
+      // itself `primary`. Left in place, the nested pane was governed by THIS
+      // one's rule: `auto` rests on anything not `:focus-within`, so the rail's
+      // selected row dropped from `--bg-selected` to `--bg-selected-resting` the
+      // moment focus moved to the door's detail pane, leaving the screen with
+      // zero focused selections instead of one — the opposite of `primary`,
+      // which holds while focus sits outside every pane. Nothing here loses its
+      // own tier: the workspaces tree is `hidden` in that state, so its rows are
+      // neither visible nor focusable.
+      {...(contextRailActive ? {} : { 'data-selection-pane': 'auto' })}
       // Width is class-driven when collapsed (fixed icon rail) and style-driven
       // when expanded (user-resizable). The width glide is suppressed mid-drag
       // so the rail tracks the pointer instead of lagging the 150ms transition.

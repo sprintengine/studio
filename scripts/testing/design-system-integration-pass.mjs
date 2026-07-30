@@ -46,6 +46,27 @@
 // transitioning *from*, which reports two tiers as identical. Every read below
 // is a turn behind its trigger.
 //
+// ─── STALE SINCE item 1993 / T19 (premium-feel-pass). Read before re-running ───
+// This pass assumes the shape T19 deliberately removed, so it now reports
+// failures that are NOT product regressions. Two assumptions broke:
+//
+//   • It navigates door → door by clicking sidebar rows *while a door is open*.
+//     That worked only because the Backlog door used to leave the app sidebar
+//     mounted. Every door now replaces it, so those rows are `display:none` and
+//     the Extensions leg silently keeps measuring the Backlog door.
+//   • `focusElsewhereScript` moves focus into "another selection pane" to read
+//     the resting-selected tier. A door surface now has exactly ONE reachable
+//     selection pane — its rail — which is the point of "one rail, ever", so that
+//     tier has no witness on a door and the read falls back to the selected fill.
+//     Measure the resting tier where a second pane still exists (a workspace with
+//     no door open) instead.
+//
+// What T19 verified in its place, in the same real app: the rail row holds the
+// full-strength fill while focus sits outside every pane, the pane inventory with
+// and without a door, and the dark rail-head ground —
+// `scripts/testing/context-rail-door-pass.mjs`, written up in
+// `docs/testing/2026-07-30-context-rail-doors-validation.md`.
+//
 // Prereqs: `npm run build` (needs out/main), playwright available:
 //   tmp=/tmp/multicode-playwright
 //   npm --prefix "$tmp" install playwright --no-audit --no-fund

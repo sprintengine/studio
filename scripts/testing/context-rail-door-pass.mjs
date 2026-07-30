@@ -477,6 +477,128 @@ async function main() {
     transcript.seam = seam
     await page.screenshot({ path: join(outDir, 'backlog-populated-dark.png') })
 
+    // AC2's "one focused selection". The rail's list declares itself the door's
+    // PRIMARY pane, which means it holds the full-strength fill while focus sits
+    // outside every pane and rests only when another PANE takes it. That claim has
+    // to be re-measured now the list lives INSIDE the app sidebar's own aside —
+    // which is itself marked `data-selection-pane="auto"`, so a nested pane could
+    // be governed by its ancestor's rule instead of its own.
+    const tierTokens = await page.evaluate(() => {
+      const read = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+      return { selected: read('--bg-selected'), resting: read('--bg-selected-resting') }
+    })
+    const rowFill = async () =>
+      page.evaluate(() => {
+        const row = document.querySelector('[data-context-rail] li[aria-selected="true"]')
+        return row ? getComputedStyle(row).backgroundColor : null
+      })
+    await page.evaluate(() => {
+      const list = document.querySelector('[data-context-rail] ul[role="listbox"]')
+      if (list) list.focus()
+    })
+    await page.waitForTimeout(700)
+    const fillWithRailFocus = await rowFill()
+    // Focus somewhere that is not a selection pane at all: the door's own region.
+    await page.evaluate(() => {
+      const region = document.querySelector('section[aria-label]')
+      if (region) {
+        region.setAttribute('tabindex', '-1')
+        region.focus()
+      }
+    })
+    await page.waitForTimeout(700)
+    const fillFocusOutsideEveryPane = await rowFill()
+    transcript.selectionTier = { tierTokens, fillWithRailFocus, fillFocusOutsideEveryPane }
+    console.log(`  selection tier: rail-focused ${fillWithRailFocus} · focus outside every pane ${fillFocusOutsideEveryPane}`)
+    check(
+      'the rail row is the door\'s one focused selection while the rail holds focus',
+      fillWithRailFocus !== null && fillWithRailFocus !== 'rgba(0, 0, 0, 0)',
+      `${fillWithRailFocus} (tokens ${JSON.stringify(tierTokens)})`,
+    )
+    check(
+      'and it KEEPS that fill while focus sits outside every selection pane (primary, not auto)',
+      fillFocusOutsideEveryPane === fillWithRailFocus,
+      `railFocused=${fillWithRailFocus} outside=${fillFocusOutsideEveryPane}`,
+    )
+
+    /* ---- the pane inventory the tier fix turns on ----------------------- */
+    // Two facts worth pinning, both consequences of "one rail, ever":
+    //
+    //  1. The sidebar aside carries `data-selection-pane="auto"` with no door open
+    //     and NONE while a door owns its column. That is the fix above, read as
+    //     the attribute rather than as a colour.
+    //  2. A door surface therefore has exactly ONE selection pane. Which is the
+    //     point — one focused selection per screen — but it also means the tier's
+    //     "another pane took focus" case has no witness on a door, so the T24
+    //     design-system pass's `resting-selected` leg is no longer measurable
+    //     THERE (it navigated between doors through sidebar rows, which only
+    //     worked while Backlog was the door that did not replace the sidebar).
+    console.log('\n\n############ selection panes, with and without a door ############')
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(900)
+    const panesNoDoor = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-selection-pane]')).map((p) => ({
+        pane: p.getAttribute('data-selection-pane'),
+        label: (p.getAttribute('aria-label') || p.tagName).slice(0, 28),
+        laidOut: p.offsetParent !== null,
+      })),
+    )
+    check(
+      'with no door open the sidebar aside is still the `auto` selection pane',
+      panesNoDoor.some((p) => p.label === 'Workspaces' && p.pane === 'auto'),
+      JSON.stringify(panesNoDoor),
+    )
+    await activate(doorTrigger(page, 'Backlog'))
+    await page.waitForTimeout(2500)
+    const panesInDoor = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-selection-pane]')).map((p) => ({
+        pane: p.getAttribute('data-selection-pane'),
+        label: (p.getAttribute('aria-label') || p.tagName).slice(0, 28),
+        laidOut: p.offsetParent !== null,
+      })),
+    )
+    transcript.panes = { noDoor: panesNoDoor, inDoor: panesInDoor }
+    console.log(`  no door: ${JSON.stringify(panesNoDoor)}\n  in door: ${JSON.stringify(panesInDoor)}`)
+    check(
+      'while a door owns the column the aside is no longer a pane — the rail inside it is',
+      !panesInDoor.some((p) => p.label === 'Workspaces'),
+      JSON.stringify(panesInDoor),
+    )
+    // "Laid out" is not "reachable": the workspace card's own pane (the file
+    // explorer) is still mounted behind the door and still has a box, but the
+    // door paints over it, so `.focus()` on a control in there does not take.
+    // Reachability is the fact that matters, and it is what makes the tier's
+    // "another pane took focus" case unwitnessable on a door surface.
+    const reachablePanes = await page.evaluate(() => {
+      const out = []
+      for (const pane of document.querySelectorAll('[data-selection-pane]')) {
+        // The pane element ITSELF is the tab stop on a roving-focus listbox (the
+        // Backlog rail's <ul tabindex=0>), so it is a candidate too — querying
+        // only descendants reported the rail as unreachable.
+        const control = [pane, ...pane.querySelectorAll('button, a[href], input, [tabindex]:not([tabindex="-1"])')].find((n) => {
+          if (n.tabIndex < 0) return false
+          const r = n.getBoundingClientRect()
+          return r.width > 0 && r.height > 0 && !n.disabled
+        })
+        if (!control) continue
+        control.focus()
+        if (pane.contains(document.activeElement)) {
+          out.push(pane.getAttribute('aria-label') || pane.tagName)
+        }
+      }
+      return out
+    })
+    transcript.reachablePanes = reachablePanes
+    check(
+      'and exactly one of them is REACHABLE — the door has one focusable selection pane',
+      reachablePanes.length === 1,
+      `reachable=${JSON.stringify(reachablePanes)} of ${JSON.stringify(panesInDoor.map((p) => p.label))}`,
+    )
+
+    // That reachability probe deliberately parked focus outside the surface, so
+    // Escape is not the door's any more — leave by the rail's Back row.
+    check('the pane probe leaves the door by its Back row', await leaveDoor(page, 'back'))
+
     /* ---- Back + Escape, from Backlog and from an empty door ------------ */
     console.log('\n\n############ Back and Escape restore the projects rail ############')
     for (const [label, how] of [
@@ -487,9 +609,10 @@ async function main() {
     ]) {
       // Leave whatever door the previous leg left open: while a door owns the
       // column its trigger row is display:none, and a click on a hidden row is a
-      // 30-second locator timeout, not a failure anyone can read.
-      await page.keyboard.press('Escape')
-      await page.waitForTimeout(900)
+      // 30-second locator timeout, not a failure anyone can read. The rail's Back
+      // row, not Escape — Escape only belongs to the door while focus is inside
+      // it, so it is not a reliable way to guarantee a clean start.
+      await leaveDoor(page, 'back')
       // Scroll the projects tree, so "scroll position preserved" is measurable
       // rather than trivially true at zero.
       const before = await page.evaluate(() => {
