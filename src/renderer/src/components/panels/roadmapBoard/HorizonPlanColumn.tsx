@@ -125,7 +125,6 @@ export type HorizonPlanColumnProps = {
   /** Add an authored ref to a track at an index — a drop from the backlog. */
   onAddRef: (laneIndex: number, ref: string, index?: number) => void
   /** Re-snapshot an epic step whose membership moved since it was placed. */
-  onResyncEpic: (laneIndex: number, entryIndex: number) => void
   /** Open this step's backlog item in its own project's Backlog. */
   onOpenItem: (row: HorizonStepRow) => void
   /** Swap the detail pane to the backlog you drag work from. */
@@ -162,7 +161,6 @@ export function HorizonPlanColumn({
   onManageRosters,
   onLanes,
   onAddRef,
-  onResyncEpic,
   onOpenItem,
   onAddWork,
   addWorkActive,
@@ -389,7 +387,6 @@ export function HorizonPlanColumn({
               steering={steering}
               onSelect={onSelect}
               onLanes={onLanes}
-              onResyncEpic={onResyncEpic}
               onRenameTrack={onRenameTrack}
               onRemoveTrack={onRemoveTrack}
               onDragStart={setDrag}
@@ -420,7 +417,6 @@ export function HorizonPlanColumn({
           lanes={lanes}
           onClose={() => setRowMenu(null)}
           onLanes={onLanes}
-          onResyncEpic={onResyncEpic}
           onOpenItem={onOpenItem}
         />
       ) : null}
@@ -449,7 +445,6 @@ function PlanBand({
   steering,
   onSelect,
   onLanes,
-  onResyncEpic,
   onRenameTrack,
   onRemoveTrack,
   onDragStart,
@@ -477,7 +472,6 @@ function PlanBand({
   steering: HorizonSteering
   onSelect: (ref: string) => void
   onLanes: (next: RoadmapLane[]) => void
-  onResyncEpic: (laneIndex: number, entryIndex: number) => void
   onRenameTrack: (laneIndex: number) => void
   onRemoveTrack: (laneIndex: number) => void
   onDragStart: (origin: DragOrigin) => void
@@ -587,9 +581,6 @@ function PlanBand({
               onMenu={(position) => onRowMenu(row, position)}
               buttonRef={(node) => rowRefs.current.set(row.ref, node)}
             />
-            {row.drift ? (
-              <DriftAffordance drift={row.drift} onResync={() => onResyncEpic(row.laneIndex, row.entryIndex)} />
-            ) : null}
             {/* The selected step's merge action is already the loud primary in
                 the detail pane 400px right, but ONLY when that pane actually
                 mounted a run strip for it — the notice can be attached by
@@ -796,34 +787,6 @@ function StepNotice({ row, steering }: { row: HorizonStepRow; steering: HorizonS
   )
 }
 
-// The static-plan drift affordance: a calm note that the epic's membership moved
-// since it was snapshotted, with one-click re-sync.
-function DriftAffordance({
-  drift,
-  onResync,
-}: {
-  drift: { gained: number; removed: number }
-  onResync: () => void
-}): JSX.Element {
-  const parts: string[] = []
-  if (drift.gained > 0) parts.push(`${drift.gained} new ${drift.gained === 1 ? 'item' : 'items'}`)
-  if (drift.removed > 0) parts.push(`${drift.removed} removed`)
-  return (
-    <div className="mb-1 ml-6 mr-2 mt-0.5 flex items-center gap-2 rounded-[5px] bg-[color:var(--bg-hover)] px-2.5 py-1">
-      <span className="min-w-0 flex-1 text-micro leading-4 text-[color:var(--text-muted)]">
-        This epic has {parts.join(' and ')} since you placed it.
-      </span>
-      <button
-        type="button"
-        onClick={onResync}
-        className={`interactive shrink-0 rounded px-1.5 text-micro font-medium text-[color:var(--accent-primary)] hover:bg-[color:var(--bg-active)] ${FOCUS_RING_CLASS}`}
-      >
-        Update step
-      </button>
-    </div>
-  )
-}
-
 // ── delivered ────────────────────────────────────────────────────────────────
 
 function DeliveredFooter({
@@ -908,7 +871,6 @@ function StepContextMenu({
   lanes,
   onClose,
   onLanes,
-  onResyncEpic,
   onOpenItem,
 }: {
   row: HorizonStepRow
@@ -917,7 +879,6 @@ function StepContextMenu({
   lanes: RoadmapLane[]
   onClose: () => void
   onLanes: (next: RoadmapLane[]) => void
-  onResyncEpic: (laneIndex: number, entryIndex: number) => void
   onOpenItem: (row: HorizonStepRow) => void
 }): JSX.Element {
   // Delivered work and a step a sprint is executing are not the plan's to edit:
@@ -930,9 +891,6 @@ function StepContextMenu({
   return (
     <ContextMenu x={x} y={y} ariaLabel={`Actions for ${row.title}`} onClose={onClose}>
       <MenuItem onClick={close(() => onOpenItem(row))}>Open in Backlog</MenuItem>
-      {row.drift ? (
-        <MenuItem onClick={close(() => onResyncEpic(row.laneIndex, row.entryIndex))}>Update step</MenuItem>
-      ) : null}
       {row.entryIndex > 0 ? (
         <MenuItem onClick={close(() => onLanes(splitLane(lanes, row.laneIndex, row.entryIndex)))}>
           Split the track here

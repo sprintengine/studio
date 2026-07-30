@@ -10,7 +10,6 @@ import {
   qualifiedRef,
   renderRoadmapBody,
   resolveEntryRoster,
-  roadmapEpicDrift,
   roadmapRefSlug,
   setRoadmapPolicy,
   setRoadmapProjects,
@@ -26,9 +25,25 @@ function run(name: string, body: () => void): void {
 }
 
 // A roadmap referencing two epics (auth, billing) + three loose items (foo, bar,
-// baz). Its body is exactly what renderRoadmapBody emits, so the canonical
+// baz). Every entry is a BARE reference (MC-2031) — an epic step stores no
+// membership. Its body is exactly what renderRoadmapBody emits, so the canonical
 // round-trip below is a byte check, not just a structural one.
 const CANONICAL_BODY = `# Payments roadmap
+
+## Backend
+- backlog/foo.md
+- backlog/epics/auth.md
+
+## Frontend
+- backlog/bar.md
+- backlog/epics/billing.md
+- backlog/baz.md
+`
+
+// The same plan as a pre-MC-2031 file wrote it: each epic followed by the member
+// snapshot it used to store. It must still parse, and the snapshot must vanish on
+// the next structural write — no on-disk migration exists or is needed.
+const LEGACY_SNAPSHOT_BODY = `# Payments roadmap
 
 ## Backend
 - backlog/foo.md
@@ -83,7 +98,7 @@ run('slug derivation matches filename stem', () => {
   assert.equal(roadmapRefSlug('backlog/checkout.html'), 'checkout')
 })
 
-run('parse: policy, lanes, entries, epic children', () => {
+run('parse: policy, lanes, bare entries', () => {
   const roadmap = parseRoadmap(ROADMAP_FILE)
   assert.deepEqual(roadmap.policy, { advance: 'approve', merge: 'manual', concurrency: 1 })
   assert.equal(roadmap.status, 'ready')
@@ -95,15 +110,24 @@ run('parse: policy, lanes, entries, epic children', () => {
   const [backend, frontend] = roadmap.lanes
   assert.equal(backend.title, 'Backend')
   assert.deepEqual(
-    backend.entries.map((entry) => ({ kind: entry.kind, ref: entry.ref, children: entry.children })),
+    backend.entries.map((entry) => ({ kind: entry.kind, ref: entry.ref })),
     [
-      { kind: 'item', ref: 'backlog/foo.md', children: [] },
-      { kind: 'epic', ref: 'backlog/epics/auth.md', children: ['backlog/auth-login.md', 'backlog/auth-logout.md'] },
+      { kind: 'item', ref: 'backlog/foo.md' },
+      { kind: 'epic', ref: 'backlog/epics/auth.md' },
     ],
   )
   assert.equal(frontend.entries.length, 3)
   assert.equal(frontend.entries[1].kind, 'epic')
-  assert.deepEqual(frontend.entries[1].children, ['backlog/bill-setup.md'])
+  assert.equal(frontend.entries[1].ref, 'backlog/epics/billing.md')
+})
+
+run('parse: a stored member snapshot is read, ignored, and dropped on the next write', () => {
+  const legacy = parseRoadmap(`---\ntype: roadmap\n---\n${LEGACY_SNAPSHOT_BODY}`)
+  // Never an error, and never a phantom step: the indented lines are inert.
+  assert.deepEqual(legacy.issues, [])
+  assert.deepEqual(legacy.lanes, parseRoadmap(`---\ntype: roadmap\n---\n${CANONICAL_BODY}`).lanes)
+  // The next structural write emits the bare plan — that IS the migration.
+  assert.equal(renderRoadmapBody(legacy), CANONICAL_BODY)
 })
 
 run('parse: a deeper subheading is not treated as a lane', () => {
@@ -126,10 +150,11 @@ run('parse: structural issues are surfaced, not thrown', () => {
   const entryBeforeLane = parseRoadmap('---\ntype: roadmap\n---\n- backlog/a.md\n')
   assert.equal(entryBeforeLane.issues[0]?.kind, 'entry_before_lane')
 
-  const childUnderItem = parseRoadmap('---\ntype: roadmap\n---\n## L\n- backlog/a.md\n  - backlog/b.md\n')
-  assert.equal(childUnderItem.issues[0]?.kind, 'child_under_non_epic')
-  // The stray child is not silently attached to the item entry.
-  assert.deepEqual(childUnderItem.lanes[0].entries[0].children, [])
+  // An indented ref under a non-epic entry was an issue while entries stored
+  // members; now it is simply not a step. Inert, not an error.
+  const indentedUnderItem = parseRoadmap('---\ntype: roadmap\n---\n## L\n- backlog/a.md\n  - backlog/b.md\n')
+  assert.deepEqual(indentedUnderItem.issues, [])
+  assert.deepEqual(indentedUnderItem.lanes[0].entries.map((entry) => entry.ref), ['backlog/a.md'])
 })
 
 // ---------------------------------------------------------------------------
@@ -196,6 +221,17 @@ function item(ref: string, status: RoadmapItemState['status'], dependsOn?: strin
   return { ref, status, ...(dependsOn ? { dependsOn } : {}) }
 }
 
+// A member of `epic`, stated the only way membership is stated: up-pointing
+// frontmatter on the child. An epic STEP resolves its members from these.
+function member(
+  ref: string,
+  epic: string,
+  status: RoadmapItemState['status'],
+  dependsOn?: string[],
+): RoadmapItemState {
+  return { ref, status, epic, ...(dependsOn ? { dependsOn } : {}) }
+}
+
 function projectItem(
   projectKey: ProjectKey,
   ref: string,
@@ -218,12 +254,15 @@ run('validate: dangling references surfaced, never dropped', () => {
   assert.equal(result.hasCycle, false)
 })
 
-run('validate: a stale epic entry ref and child are both surfaced as dangling', () => {
+run('validate: a stale epic entry ref is surfaced as dangling', () => {
+  // Members can never be dangling now — they are resolved FROM the known items —
+  // so only the entry ref itself can name nothing. Legacy indented lines are
+  // inert and must not be reported as refs the author has to clear.
   const roadmap = parseRoadmap(
     '---\ntype: roadmap\n---\n## L\n- backlog/epics/gone.md\n  - backlog/known.md\n  - backlog/ghost.md\n',
   )
   const result = validateRoadmap(roadmap, [item('backlog/known.md', 'ready')])
-  assert.deepEqual(result.danglingRefs, ['backlog/epics/gone.md', 'backlog/ghost.md'])
+  assert.deepEqual(result.danglingRefs, ['backlog/epics/gone.md'])
 })
 
 run('validate: no cycle when roadmap order agrees with dependsOn', () => {
@@ -253,10 +292,10 @@ run('validate: cycle detection spans epic children in lane order', () => {
   // auth's member c1. Members collapse onto their step's node, so step -> z
   // (order) and z -> step (member dep) closes a cycle on the step itself.
   const roadmap = parseRoadmap(
-    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n- backlog/z.md\n',
+    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n- backlog/z.md\n',
   )
   const result = validateRoadmap(roadmap, [
-    item('backlog/c1.md', 'ready', ['z']),
+    member('backlog/c1.md', 'auth', 'ready', ['z']),
     item('backlog/z.md', 'ready'),
   ])
   assert.equal(result.hasCycle, true)
@@ -342,16 +381,14 @@ run('eligibility: an epic step is ONE dispatch unit — the epic itself is eligi
   // A step runs as a single sprint. Mixed member statuses (one delivered, one
   // ready) make the epic's effective status `ready`, so the STEP is dispatched —
   // never an individual child.
-  const roadmap = parseRoadmap(
-    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n  - backlog/c2.md\n  - backlog/c3.md\n',
-  )
+  const roadmap = parseRoadmap('---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n')
   const [lane] = nextEligible(
     roadmap,
     [
       item('backlog/epics/auth.md', 'idea'),
-      item('backlog/c1.md', 'completed'),
-      item('backlog/c2.md', 'ready'),
-      item('backlog/c3.md', 'idea'),
+      member('backlog/c1.md', 'auth', 'completed'),
+      member('backlog/c2.md', 'auth', 'ready'),
+      member('backlog/c3.md', 'auth', 'idea'),
     ],
     NO_RUNS,
   )
@@ -362,15 +399,13 @@ run('eligibility: an epic step is ONE dispatch unit — the epic itself is eligi
 run('eligibility: an epic step with a live sprint reports in_progress', () => {
   // The execution link stamps the epic in_progress at start; the step must not
   // re-dispatch while its one sprint runs.
-  const roadmap = parseRoadmap(
-    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n  - backlog/c2.md\n',
-  )
+  const roadmap = parseRoadmap('---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n')
   const [lane] = nextEligible(
     roadmap,
     [
       item('backlog/epics/auth.md', 'in_progress'),
-      item('backlog/c1.md', 'completed'),
-      item('backlog/c2.md', 'ready'),
+      member('backlog/c1.md', 'auth', 'completed'),
+      member('backlog/c2.md', 'auth', 'ready'),
     ],
     NO_RUNS,
   )
@@ -379,17 +414,15 @@ run('eligibility: an epic step with a live sprint reports in_progress', () => {
 })
 
 run('eligibility: epic lane completes only when every child is terminal', () => {
-  const roadmap = parseRoadmap(
-    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n  - backlog/c2.md\n',
-  )
+  const roadmap = parseRoadmap('---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n')
   const [lane] = nextEligible(
     roadmap,
     [
       // The epic's own frontmatter may lag behind its members: derived
-      // completion (all children terminal) still finishes the lane.
+      // completion (all members terminal) still finishes the lane.
       item('backlog/epics/auth.md', 'in_progress'),
-      item('backlog/c1.md', 'completed'),
-      item('backlog/c2.md', 'archived'),
+      member('backlog/c1.md', 'auth', 'completed'),
+      member('backlog/c2.md', 'auth', 'archived'),
     ],
     NO_RUNS,
   )
@@ -402,14 +435,14 @@ run('eligibility: a member’s outside prerequisite gates the epic step', () => 
   // dispatch until z is delivered. c1's dep on sibling c2 is intra-epic — the
   // sprint's own ordering — and never a gate.
   const roadmap = parseRoadmap(
-    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n  - backlog/c2.md\n## M\n- backlog/z.md\n',
+    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n## M\n- backlog/z.md\n',
   )
   const blocked = nextEligible(
     roadmap,
     [
       item('backlog/epics/auth.md', 'idea'),
-      item('backlog/c1.md', 'ready', ['c2']),
-      item('backlog/c2.md', 'ready', ['z']),
+      member('backlog/c1.md', 'auth', 'ready', ['c2']),
+      member('backlog/c2.md', 'auth', 'ready', ['z']),
       item('backlog/z.md', 'ready'),
     ],
     NO_RUNS,
@@ -421,8 +454,8 @@ run('eligibility: a member’s outside prerequisite gates the epic step', () => 
     roadmap,
     [
       item('backlog/epics/auth.md', 'idea'),
-      item('backlog/c1.md', 'ready', ['c2']),
-      item('backlog/c2.md', 'ready', ['z']),
+      member('backlog/c1.md', 'auth', 'ready', ['c2']),
+      member('backlog/c2.md', 'auth', 'ready', ['z']),
       item('backlog/z.md', 'completed'),
     ],
     NO_RUNS,
@@ -436,14 +469,14 @@ run('eligibility: a pre-migration child-keyed worktree run still holds the epic 
   // MEMBER. Its unmerged PR must keep the lane on this step, and the following
   // step queued, even though the members all read terminal by status.
   const roadmap = parseRoadmap(
-    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n- backlog/z.md\n',
+    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n- backlog/z.md\n',
   )
   const runs = homeRuns([['backlog/c1.md', { mode: 'worktree', prMerged: false }]])
   const [lane] = nextEligible(
     roadmap,
     [
       item('backlog/epics/auth.md', 'in_progress'),
-      item('backlog/c1.md', 'completed'),
+      member('backlog/c1.md', 'auth', 'completed'),
       item('backlog/z.md', 'ready'),
     ],
     runs,
@@ -456,14 +489,14 @@ run('eligibility: an unmerged worktree run on an epic step gates on the PR', () 
   // One sprint delivered the whole step but its PR has not merged — the lane
   // waits on the merge, keyed by the EPIC's run link.
   const roadmap = parseRoadmap(
-    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n- backlog/z.md\n',
+    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n- backlog/z.md\n',
   )
   const runs = homeRuns([['backlog/epics/auth.md', { mode: 'worktree', prMerged: false }]])
   const [lane] = nextEligible(
     roadmap,
     [
       item('backlog/epics/auth.md', 'completed'),
-      item('backlog/c1.md', 'completed'),
+      member('backlog/c1.md', 'auth', 'completed'),
       item('backlog/z.md', 'ready'),
     ],
     runs,
@@ -643,18 +676,110 @@ run('setRoadmapProjects: writes a block, round-trips, and no-ops when unchanged'
 })
 
 // ---------------------------------------------------------------------------
-// Static-plan drift
+// Golden: live epic membership must decide exactly what the stored snapshot did
 // ---------------------------------------------------------------------------
 
-run('roadmapEpicDrift: reports gained and removed children vs the snapshot', () => {
-  const roadmap = parseRoadmap(
-    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n  - backlog/c2.md\n',
-  )
-  const entry = roadmap.lanes[0].entries[0]
-  // Live membership dropped c2 and gained c3.
-  const drift = roadmapEpicDrift(entry, ['backlog/c1.md', 'backlog/c3.md'])
-  assert.deepEqual(drift.gained, ['backlog/c3.md'])
-  assert.deepEqual(drift.removed, ['backlog/c2.md'])
+// This fixture states the SAME membership twice: once as the indented child
+// lines a pre-MC-2031 plan stored, and once as the `epic:` frontmatter pointer
+// each member carries. It was written and run against the snapshot
+// implementation BEFORE that implementation was deleted, so the literals below
+// are the old engine's own answers — an equality proof between the two, not a
+// re-baselined expectation.
+const GOLDEN_PLAN = `---
+type: roadmap
+---
+## Build
+- backlog/epics/auth.md
+  - backlog/auth-login.md
+  - backlog/auth-logout.md
+  - backlog/auth-reset.md
+- backlog/after.md
+
+## Ship
+- backlog/z.md
+
+## Shipped
+- backlog/epics/billing.md
+  - backlog/bill-setup.md
+`
+
+function goldenItems(zStatus: RoadmapItemState['status']): RoadmapItemState[] {
+  return [
+    { ref: 'backlog/epics/auth.md', status: 'idea' },
+    // Terminal member: delivered before the step ran.
+    { ref: 'backlog/auth-login.md', status: 'completed', epic: 'auth' },
+    // Gates the step — `z` is not a member, so it is an OUTSIDE prerequisite.
+    { ref: 'backlog/auth-logout.md', status: 'ready', dependsOn: ['z'], epic: 'auth' },
+    // Intra-epic dependency: the sprint's own ordering, never a start gate.
+    { ref: 'backlog/auth-reset.md', status: 'idea', dependsOn: ['auth-logout'], epic: 'auth' },
+    { ref: 'backlog/after.md', status: 'ready' },
+    { ref: 'backlog/z.md', status: zStatus },
+    { ref: 'backlog/epics/billing.md', status: 'idea' },
+    { ref: 'backlog/bill-setup.md', status: 'archived', epic: 'billing' },
+  ]
+}
+
+const AUTH_UNIT = {
+  key: ':backlog/epics/auth.md',
+  ref: 'backlog/epics/auth.md',
+  projectKey: null,
+  relativePath: 'backlog/epics/auth.md',
+}
+
+run('golden: an unchanged epic yields the identical eligibility, member-gate and all', () => {
+  // `z` outstanding: the member's outside prerequisite holds the whole step.
+  assert.deepEqual(nextEligible(parseRoadmap(GOLDEN_PLAN), goldenItems('ready'), NO_RUNS), [
+    {
+      lane: 'Build',
+      eligibleRef: null,
+      eligible: null,
+      reason: 'blocked',
+      frontierRef: 'backlog/epics/auth.md',
+      frontier: AUTH_UNIT,
+    },
+    {
+      lane: 'Ship',
+      eligibleRef: 'backlog/z.md',
+      eligible: { key: ':backlog/z.md', ref: 'backlog/z.md', projectKey: null, relativePath: 'backlog/z.md' },
+      reason: 'eligible',
+      frontierRef: 'backlog/z.md',
+      frontier: { key: ':backlog/z.md', ref: 'backlog/z.md', projectKey: null, relativePath: 'backlog/z.md' },
+    },
+    // Every member terminal → the step is derived complete, so is its track.
+    { lane: 'Shipped', eligibleRef: null, eligible: null, reason: 'lane_complete', frontierRef: null, frontier: null },
+  ])
+
+  // `z` delivered: the gate lifts and the step (never a member) is dispatched.
+  const unblocked = nextEligible(parseRoadmap(GOLDEN_PLAN), goldenItems('completed'), NO_RUNS)
+  assert.deepEqual(unblocked[0], {
+    lane: 'Build',
+    eligibleRef: 'backlog/epics/auth.md',
+    eligible: AUTH_UNIT,
+    reason: 'eligible',
+    frontierRef: 'backlog/epics/auth.md',
+    frontier: AUTH_UNIT,
+  })
+})
+
+run('a child added to an epic mid-flight joins its step immediately', () => {
+  // The whole point of MC-2031: no stored set for a new member to fail to join,
+  // and therefore nothing to re-sync. The SAME plan text answers differently the
+  // moment the item universe does.
+  const roadmap = parseRoadmap('---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n- backlog/next.md\n')
+  const delivered = [
+    item('backlog/epics/auth.md', 'in_progress'),
+    member('backlog/c1.md', 'auth', 'completed'),
+    item('backlog/next.md', 'ready'),
+  ]
+  // Every member terminal → the step is delivered and the lane moves on.
+  assert.equal(nextEligible(roadmap, delivered, NO_RUNS)[0].eligibleRef, 'backlog/next.md')
+
+  // A sprint mints one more member. The step is no longer complete, so the lane
+  // holds at it rather than advancing past work nobody has done.
+  const withNewMember = [...delivered, member('backlog/c2.md', 'auth', 'ready')]
+  const [held] = nextEligible(roadmap, withNewMember, NO_RUNS)
+  assert.equal(held.frontierRef, 'backlog/epics/auth.md')
+  assert.equal(held.reason, 'in_progress')
 })
 
 // ---------------------------------------------------------------------------
@@ -666,7 +791,6 @@ const ROSTERED_BODY = `# Staffed roadmap
 ## Up next
 - backlog/auth-api.md
 - mobile:backlog/epics/login.md  @roster=Mobile UI
-  - mobile:backlog/login-form.md
 - backlog/epics/payments.md  @roster=General agents
 `
 
@@ -685,10 +809,9 @@ run('roster: an annotated entry parses its roster and keeps its ref', () => {
       ['backlog/epics/payments.md', 'General agents'],
     ],
   )
-  // The annotation never leaks into the ref, the project, or the child snapshot.
+  // The annotation never leaks into the ref or the project.
   assert.equal(entries[1].projectKey, 'mobile')
   assert.equal(entries[1].relativePath, 'backlog/epics/login.md')
-  assert.deepEqual(entries[1].children, ['mobile:backlog/login-form.md'])
   assert.deepEqual(roadmap.issues, [])
 })
 
@@ -707,17 +830,13 @@ run('roster: an un-annotated body renders exactly as it did before (no trailing 
   for (const line of rendered.split('\n')) assert.equal(line, line.replace(/\s+$/, ''))
 })
 
-run('roster: a @roster= on a child raises roster_on_child and still captures the child', () => {
+run('roster: an annotated legacy child line is inert, not a staffing override', () => {
   const roadmap = parseRoadmap(
     '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md  @roster=Mobile UI\n',
   )
   const entry = roadmap.lanes[0].entries[0]
-  assert.deepEqual(entry.children, ['backlog/c1.md'])
-  assert.equal(entry.roster, undefined)
-  assert.deepEqual(
-    roadmap.issues.map((issue) => [issue.kind, issue.line]),
-    [['roster_on_child', 3]],
-  )
+  assert.equal(entry.roster, undefined, 'a stray annotation never staffs the step above it')
+  assert.deepEqual(roadmap.issues, [])
 })
 
 run('roster: an empty @roster= raises empty_roster and does not read as inherit', () => {
@@ -743,7 +862,6 @@ run('roster: forward-compat — the old first-token-only rule still yields every
   assert.deepEqual(legacyRefs, [
     'backlog/auth-api.md',
     'mobile:backlog/epics/login.md',
-    'mobile:backlog/login-form.md',
     'backlog/epics/payments.md',
   ])
   // And no annotated line is mistaken for an unparseable entry.

@@ -10,9 +10,9 @@
 // the parse contract — plus the shared frontmatter helper. It imports NO renderer
 // module, so it is tsconfig.web-safe AND node-safe, and runs under the esbuild→node
 // test harness. The renderer's read-model adapters (BacklogItem → the shared
-// contract, the library rail, epic-child snapshotting) stay in the renderer file
-// because they depend on the renderer scan model; they call buildRoadmapEntry here
-// with children they snapshot, so the entry shape is defined once.
+// contract, the library rail) stay in the renderer file because they depend on the
+// renderer scan model; they call buildRoadmapEntry here, so the entry shape is
+// defined once.
 
 import { parseBacklogFrontmatter } from './frontmatter'
 import {
@@ -72,7 +72,7 @@ export function draftFromRoadmap(roadmap: Roadmap): RoadmapDraft {
 function cloneLanes(lanes: ReadonlyArray<RoadmapLane>): RoadmapLane[] {
   return lanes.map((lane) => ({
     title: lane.title,
-    entries: lane.entries.map((entry) => ({ ...entry, children: [...entry.children] })),
+    entries: lane.entries.map((entry) => ({ ...entry })),
   }))
 }
 
@@ -130,27 +130,26 @@ export function isEpicRef(ref: string): boolean {
   return normalizeRoadmapPath(ref).startsWith(EPICS_DIR_PREFIX)
 }
 
-// Build a lane entry for a ref resolved to a specific project, given the child refs
-// an epic contributes (snapshotted by the caller — the renderer from its scan, main
-// from its backlog listing). The stored `entry.ref` is the AUTHORED ref, so a home
-// entry stays unqualified and an aliased entry keeps its `alias:` prefix, round-
-// tripping through renderRoadmapBody unchanged. A non-epic ref carries no children
-// even if the caller passes some (defensive: only an epic entry stores a snapshot).
-// `roster` is the optional per-step staffing override (MC-1881); omitted or blank
-// means the step inherits the roadmap's policy roster.
+// Build a lane entry for a ref resolved to a specific project. An epic entry is a
+// BARE reference (MC-2031) — its members resolve live from `epic:` membership on
+// every read, so nothing is captured here. The stored `entry.ref` is the AUTHORED
+// ref, so a home entry stays unqualified and an aliased entry keeps its `alias:`
+// prefix, round-tripping through renderRoadmapBody unchanged. `roster` is the
+// optional per-step staffing override (MC-1881); omitted or blank means the step
+// inherits the roadmap's policy roster.
 export function buildRoadmapEntry(
   projectKey: ProjectKey,
   relativePath: string,
-  epicChildRefs: ReadonlyArray<string>,
   roster?: string,
 ): RoadmapEntry {
   const normalized = normalizeRoadmapPath(relativePath)
-  const ref = authoredRef(projectKey, normalized)
-  const staffing = roster?.trim() ? { roster: roster.trim() } : {}
-  if (isEpicRef(normalized)) {
-    return { kind: 'epic', ref, projectKey, relativePath: normalized, children: epicChildRefs.map(normalizeRoadmapPath), ...staffing }
+  return {
+    kind: isEpicRef(normalized) ? 'epic' : 'item',
+    ref: authoredRef(projectKey, normalized),
+    projectKey,
+    relativePath: normalized,
+    ...(roster?.trim() ? { roster: roster.trim() } : {}),
   }
-  return { kind: 'item', ref, projectKey, relativePath: normalized, children: [], ...staffing }
 }
 
 // Set (or clear) one step's roster override. A blank/undefined roster REMOVES the
@@ -300,7 +299,7 @@ function uniqueLaneTitle(lanes: ReadonlyArray<RoadmapLane>, base: string): strin
 // Dirty tracking + save composition
 // ---------------------------------------------------------------------------
 
-// True when the draft's structure (title, tracks, steps, snapshots) differs from
+// True when the draft's structure (title, tracks, steps) differs from
 // the baseline — i.e. anything renderRoadmapBody would emit differently. Policy is
 // a separate axis (policyChanged), because a policy-only edit takes the
 // frontmatter-only write path that preserves the body byte-for-byte.

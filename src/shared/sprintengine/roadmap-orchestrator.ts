@@ -16,11 +16,12 @@
 // substrate and shared run constants, never `src/main` or renderer.
 
 import {
+  epicMemberLookup,
   flattenLaneUnits,
   nextEligible,
   qualifiedRef,
   resolveEntryRoster,
-  resolveEpicChildRef,
+  type EpicMemberLookup,
   type ProjectKey,
   type Roadmap,
   type RoadmapItemState,
@@ -207,6 +208,7 @@ export type RoadmapReconcileResult = {
 // the same inputs always yield the same actions, which is what makes the driver's
 // kill/restart idempotent.
 export function reconcileRoadmap(input: RoadmapReconcileInput): RoadmapReconcileResult {
+  const membersOf = epicMemberLookup(input.items)
   const eligibilityByLane = new Map<string, RoadmapLaneEligibility>()
   for (const eligibility of nextEligible(input.roadmap, input.items, input.runLinks, input.resolvableProjects)) {
     eligibilityByLane.set(eligibility.lane, eligibility)
@@ -228,7 +230,7 @@ export function reconcileRoadmap(input: RoadmapReconcileInput): RoadmapReconcile
     // step no longer in this lane is an orphan — drop it, or the track stays
     // chained to a sprint for work the author deliberately removed (its run, if
     // still live, keeps running unmanaged; cancel it from the Sprints door).
-    const previous = dropUnplannedHandles(lane, input.laneRuntimes.get(lane.title) ?? { lane: lane.title })
+    const previous = dropUnplannedHandles(lane, input.laneRuntimes.get(lane.title) ?? { lane: lane.title }, membersOf)
     const decision = reconcileLane({
       lane: lane.title,
       eligibility: eligibilityByLane.get(lane.title),
@@ -251,16 +253,15 @@ export function reconcileRoadmap(input: RoadmapReconcileInput): RoadmapReconcile
 }
 
 // Every unit key this lane's CURRENT plan can legitimately reference — the
-// entries themselves plus each epic entry's snapshotted members (a lane runtime
+// entries themselves plus each epic entry's LIVE members (a lane runtime
 // persisted under the old per-child granularity holds a member key; that run
 // still belongs to the planned step, so it must not read as an orphan).
-function plannedKeysOf(lane: RoadmapLane): Set<string> {
+function plannedKeysOf(lane: RoadmapLane, membersOf: EpicMemberLookup): Set<string> {
   const planned = new Set<string>()
   for (const unit of flattenLaneUnits(lane)) {
     planned.add(unit.key)
-    for (const child of unit.children) {
-      const resolved = resolveEpicChildRef(child, unit.projectKey)
-      planned.add(qualifiedRef(resolved.projectKey, resolved.relativePath))
+    for (const member of membersOf(unit)) {
+      planned.add(qualifiedRef(member.projectKey ?? null, member.ref))
     }
   }
   return planned
@@ -269,8 +270,12 @@ function plannedKeysOf(lane: RoadmapLane): Set<string> {
 // Strip runtime handles that reference steps no longer in the lane's plan. A
 // park stamped with no itemRef (a dangling/unknown-project park) is kept — we
 // cannot tell which step it referenced, and resume is its documented exit.
-function dropUnplannedHandles(lane: RoadmapLane, runtime: RoadmapLaneRuntime): RoadmapLaneRuntime {
-  const planned = plannedKeysOf(lane)
+function dropUnplannedHandles(
+  lane: RoadmapLane,
+  runtime: RoadmapLaneRuntime,
+  membersOf: EpicMemberLookup,
+): RoadmapLaneRuntime {
+  const planned = plannedKeysOf(lane, membersOf)
   let next = runtime
   if (next.activeItemRef && !planned.has(next.activeItemRef)) {
     next = clearedActive(next)

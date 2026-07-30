@@ -26,9 +26,10 @@
 // where they are re-implemented so the pair stays aligned:
 //   - dependency resolution === backlogDependencies.ts RESOLVED_STATUSES
 //     (a prerequisite is resolved once completed or archived);
-//   - an epic entry derives from its children (MC-1617): the entry is terminal
-//     only when every child is terminal, and it contributes its children as the
-//     units the lane actually runs.
+//   - an epic entry derives from its members (MC-1617): the entry is terminal
+//     only when every member is terminal. Membership itself is the Backlog's own
+//     stored-up/derived-down rule (each child's `epic:` slug), resolved live by
+//     epicMemberLookup — a horizon stores no membership of its own (MC-2031).
 
 import {
   parseBacklogFrontmatter,
@@ -118,10 +119,9 @@ export function resolveRoadmapPermissionPreset(
 // One list entry in a lane. `item` and `epic` are decided by the reference path
 // shape at parse time; `unknown` is assigned by validateRoadmap when the ref
 // names no known backlog file (surfaced, never silently dropped — Fallback
-// Discipline). An epic entry carries the child references SNAPSHOTTED beneath it
-// (V1 plans are static): a bare epic ref cannot reconstruct what was captured, so
-// the "gained N items" drift check (roadmapEpicDrift) is a set difference against
-// this stored list.
+// Discipline). An epic entry is a BARE reference (MC-2031): its members resolve
+// live from `epic:` membership on every read, so a child added mid-flight is a
+// member the moment it exists and there is no stored set to reconcile.
 export type RoadmapEntryKind = 'item' | 'epic' | 'unknown'
 
 export type RoadmapEntry = {
@@ -135,14 +135,9 @@ export type RoadmapEntry = {
   // The project-relative backlog path with any `alias:` prefix stripped, e.g.
   // 'backlog/foo.md'. This is the path within `projectKey`'s root.
   relativePath: string
-  // Snapshotted child references for an epic entry, in the stored order (raw,
-  // verbatim). Empty for item/unknown entries. Each child inherits the entry's
-  // project unless it carries its own `alias:` prefix.
-  children: string[]
   // The saved ROSTER name this step overrides the roadmap-wide policy with,
   // authored as a trailing ` @roster=<name>` annotation on the entry line.
-  // Undefined = inherit (see resolveEntryRoster). Only top-level entries carry
-  // one; a child inherits its entry's roster exactly as it inherits projectKey.
+  // Undefined = inherit (see resolveEntryRoster).
   roster?: string
 }
 
@@ -168,17 +163,12 @@ export type RoadmapParseIssue = {
   line: number
   kind:
     | 'entry_before_lane'
-    | 'child_before_entry'
-    | 'child_under_non_epic'
     | 'unparseable_entry'
     // An entry (or child) uses an `alias:` prefix that the frontmatter
     // `projects:` map does not define — the lane cannot resolve a project.
     | 'unknown_alias'
     // The `projects:` map declares the same alias more than once.
     | 'duplicate_alias'
-    // A `@roster=` annotation sits on an epic CHILD line. A child inherits its
-    // entry's roster; the sprint is created per step, never per child.
-    | 'roster_on_child'
     // A `@roster=` annotation with nothing after the `=`. Surfaced rather than
     // read as "inherit", so a truncated edit is visible instead of silent.
     | 'empty_roster'
@@ -268,8 +258,8 @@ function splitAliasRef(rawRef: string): { alias: string | null; relativePath: st
 const ALIAS_TOKEN_RE = /^[A-Za-z0-9._-]+$/
 
 // Resolve an authored ref against an inherited project (the home project for a
-// top-level entry; the parent epic's project for a snapshotted child) and the set
-// of aliases the frontmatter declares. An alias not in the map still resolves to
+// top-level entry) and the set of aliases the frontmatter declares. An alias not
+// in the map still resolves to
 // that alias key (so the lane parks `unknown_project` downstream, never drops) but
 // is flagged so the author sees an `unknown_alias` issue.
 function resolveRef(
@@ -355,7 +345,6 @@ export function parseRoadmap(content: string): Roadmap {
   addDuplicateAliasIssues(projects, issues)
   let title: string | undefined
   let currentLane: RoadmapLane | null = null
-  let currentEntry: RoadmapEntry | null = null
 
   const lines = body.split(/\r?\n/)
   for (let index = 0; index < lines.length; index += 1) {
@@ -372,7 +361,6 @@ export function parseRoadmap(content: string): Roadmap {
         // Only `##` starts a lane. Deeper headings (`###` notes) are left as
         // opaque body prose so a hand-authored subsection is not a spurious lane.
         currentLane = { title: text, entries: [] }
-        currentEntry = null
         lanes.push(currentLane)
       }
       continue
@@ -384,30 +372,13 @@ export function parseRoadmap(content: string): Roadmap {
     const rawToken = normalizeRef(listItem[2].split(/\s+/)[0])
     const annotation = splitRosterAnnotation(listItem[2])
 
-    if (indent >= 2) {
-      // An indented list item is a snapshotted child of the entry above it.
-      if (!currentEntry) {
-        issues.push({ line: lineNumber, kind: 'child_before_entry', message: `Child "${rawToken}" has no parent entry.` })
-        continue
-      }
-      if (currentEntry.kind !== 'epic') {
-        issues.push({ line: lineNumber, kind: 'child_under_non_epic', message: `Child "${rawToken}" listed under a non-epic entry "${currentEntry.ref}".` })
-        continue
-      }
-      // A child never carries its own staffing — flagged, but still captured, so
-      // a mis-annotated file keeps its plan and only loses the stray override.
-      if (annotation.present) {
-        issues.push({ line: lineNumber, kind: 'roster_on_child', message: `Child "${rawToken}" carries a @roster= annotation; children inherit their step's roster.` })
-      }
-      currentEntry.children.push(rawToken)
-      // A child inheriting an unknown alias (its own or the parent's) is flagged
-      // so the author sees the same signal a top-level entry would raise.
-      const childResolved = resolveRef(rawToken, currentEntry.projectKey, knownAliases)
-      if (childResolved.unknownAlias) {
-        issues.push({ line: lineNumber, kind: 'unknown_alias', message: `Child "${rawToken}" uses an undefined project alias.` })
-      }
-      continue
-    }
+    // A pre-MC-2031 plan stored an epic's members as indented lines beneath it.
+    // Membership is now derived from live `epic:` frontmatter, so such a line is
+    // read and IGNORED — never an error, and dropped by the next structural
+    // write (renderRoadmapBody emits none). No on-disk migration exists or is
+    // needed. Indentation is also how a hand-authored sub-list is written, and
+    // neither shape means anything to the plan any more.
+    if (indent >= 2) continue
 
     // A top-level list item is a lane entry.
     if (!currentLane) {
@@ -425,15 +396,13 @@ export function parseRoadmap(content: string): Roadmap {
     if (annotation.present && annotation.roster === '') {
       issues.push({ line: lineNumber, kind: 'empty_roster', message: `Entry "${rawToken}" has an empty @roster= annotation.` })
     }
-    currentEntry = {
+    currentLane.entries.push({
       kind: entryKindForRelativePath(resolved.relativePath),
       ref: resolved.ref,
       projectKey: resolved.projectKey,
       relativePath: resolved.relativePath,
-      children: [],
       ...(annotation.roster ? { roster: annotation.roster } : {}),
-    }
-    currentLane.entries.push(currentEntry)
+    })
   }
 
   return { policy, projects, status, numericId, title, lanes, body, issues }
@@ -643,7 +612,6 @@ export function renderRoadmapBody(roadmap: Pick<Roadmap, 'title' | 'lanes'>): st
       // existed — no trailing whitespace, so an un-staffed file is byte-stable.
       const roster = entry.roster?.trim()
       out.push(roster ? `- ${entry.ref}  ${ROSTER_ANNOTATION_PREFIX}${roster}` : `- ${entry.ref}`)
-      for (const child of entry.children) out.push(`  - ${child}`)
     }
   })
   return out.join('\n') + '\n'
@@ -679,6 +647,11 @@ export type RoadmapItemState = {
   status: BacklogItemStatusPayload
   dependsOn?: string[]
   projectKey?: ProjectKey
+  // The slug of the epic this item is a member of (frontmatter `epic:`). Epic
+  // membership is stored UP on the child and derived down, so this is the ONLY
+  // membership axis a horizon reads: an epic step is a bare reference whose
+  // members resolve from the live item universe on every read.
+  epic?: string
 }
 
 const itemProjectKey = (item: RoadmapItemState): ProjectKey => item.projectKey ?? null
@@ -721,29 +694,24 @@ export function validateRoadmap(
     edges.set(from, set)
   }
 
-  const knownAliases = new Set(roadmap.projects.map((project) => project.alias))
+  const membersOf = epicMemberLookup(items)
   // Epic members collapse onto their step's node for ordering: the step (entry)
   // is the dispatch unit, so a member's dependency edge lands on the epic node —
   // a member depending on a later loose item still closes a cycle with the step.
   const memberOf = new Map<string, string>()
   for (const lane of roadmap.lanes) {
-    // Dangling is checked over every reference an author wrote — item and epic
-    // entry refs plus each snapshotted child — so a stale epic file or child is
-    // surfaced, not just the runnable units.
+    // Dangling is checked over the references an author wrote. Members are no
+    // longer among them: they are resolved FROM the known item set, so a member
+    // can never be dangling — only a stale entry ref can.
     for (const entry of lane.entries) {
       markDangling(entry.ref, entry.projectKey, entry.relativePath)
-      for (const child of entry.children) {
-        const resolved = resolveRef(child, entry.projectKey, knownAliases)
-        markDangling(resolved.ref, resolved.projectKey, resolved.relativePath)
-      }
     }
     // Order edges sequence the runnable units (one per entry).
     const units = flattenLaneUnits(lane)
     for (const unit of units) {
-      for (const child of unit.children) {
-        const resolved = resolveEpicChildRef(child, unit.projectKey)
-        const childKey = qualifiedRef(resolved.projectKey, normalizeRef(resolved.relativePath))
-        if (!memberOf.has(childKey)) memberOf.set(childKey, unit.key)
+      for (const member of membersOf(unit)) {
+        const memberKey = qualifiedRef(itemProjectKey(member), normalizeRef(member.ref))
+        if (!memberOf.has(memberKey)) memberOf.set(memberKey, unit.key)
       }
     }
     for (let index = 1; index < units.length; index += 1) {
@@ -941,9 +909,6 @@ export type LaneUnit = {
   // The entry kind the unit was built from ('unknown' is a validation verdict,
   // never assigned here).
   kind: RoadmapEntryKind
-  // The snapshotted child refs (raw, verbatim) for an epic unit; [] otherwise.
-  // Children are display/derivation data — they are NOT dispatched individually.
-  children: string[]
   // The step's own `@roster=` override, verbatim and UNRESOLVED (MC-1881). The
   // fallback to the roadmap policy is applied by `resolveEntryRoster` at the one
   // place staffing is decided — carrying the raw value here keeps this flattening
@@ -953,9 +918,9 @@ export type LaneUnit = {
 
 // The runnable units of a lane: ONE unit per entry. A step is the dispatch
 // granularity — an epic entry runs as a single sprint (the sprint plans the
-// epic's children as its tasks), so the epic itself is the unit; its snapshotted
-// children ride along for progress display and for deriving shared-mode
-// completion (an epic is delivered only when all its children are terminal).
+// epic's members as its tasks), so the epic itself is the unit; its members are
+// resolved live (epicMemberLookup) wherever progress display or shared-mode
+// completion needs them.
 // Exported so the steering surface (MC-1620) renders and counts exactly the units
 // the orchestrator schedules — the board's "done vs up next" split is the frontier
 // index over this same flattening, never a parallel re-derivation.
@@ -966,18 +931,44 @@ export function flattenLaneUnits(lane: RoadmapLane): LaneUnit[] {
     projectKey: entry.projectKey,
     relativePath: entry.relativePath,
     kind: entry.kind,
-    children: entry.kind === 'epic' ? [...entry.children] : [],
     ...(entry.roster ? { roster: entry.roster } : {}),
   }))
 }
 
-// Resolve a snapshotted child ref: inherit the parent epic's project unless the
-// child carries its own `alias:` prefix. (Validation of the alias against the
-// projects map happens in parse; here we only split the reference.) Exported so
-// the board surface resolves an epic unit's children against the same rule.
-export function resolveEpicChildRef(child: string, inherited: ProjectKey): { projectKey: ProjectKey; relativePath: string } {
-  const { alias, relativePath } = splitAliasRef(child)
-  return { projectKey: alias ?? inherited, relativePath }
+// The members of an epic step, resolved LIVE from the item universe (MC-2031).
+// A horizon stores no membership: each member points UP at its epic through
+// frontmatter `epic:`, exactly as the Backlog's own grouping does, so a child a
+// sprint mints mid-epic is a member of the step the moment the file exists.
+// Members resolve within the epic's OWN project — `epic:` is a slug, and a slug
+// never crosses a project boundary — and epic files are never members of each
+// other, so a nested epic ref is not picked up.
+export type EpicMemberLookup = (
+  unit: Pick<LaneUnit, 'kind' | 'ref' | 'projectKey'>,
+) => ReadonlyArray<RoadmapItemState>
+
+// Build the lookup once per pass; every consumer that needs an epic's members
+// goes through it so the board, the orchestrator and eligibility can never
+// disagree about who is in a step.
+export function epicMemberLookup(items: ReadonlyArray<RoadmapItemState>): EpicMemberLookup {
+  const byEpic = new Map<string, RoadmapItemState[]>()
+  for (const item of items) {
+    if (!item.epic) continue
+    if (entryKindForRelativePath(normalizeRef(item.ref)) === 'epic') continue
+    const key = projectSlugKey(itemProjectKey(item), item.epic)
+    const members = byEpic.get(key)
+    if (members) members.push(item)
+    else byEpic.set(key, [item])
+  }
+  // Path order: the one ordering an epic's members have that is stable across
+  // sessions and machines now that nothing stores a sequence. Runtime ordering
+  // still comes from `dependsOn`, so this is presentation, never a constraint.
+  for (const members of byEpic.values()) {
+    members.sort((a, b) => normalizeRef(a.ref).localeCompare(normalizeRef(b.ref)))
+  }
+  return (unit) =>
+    unit.kind === 'epic'
+      ? (byEpic.get(projectSlugKey(unit.projectKey, roadmapRefSlug(unit.ref))) ?? [])
+      : []
 }
 
 const TERMINAL_STATUSES: ReadonlySet<BacklogItemStatusPayload> = new Set<BacklogItemStatusPayload>([
@@ -989,9 +980,9 @@ const TERMINAL_STATUSES: ReadonlySet<BacklogItemStatusPayload> = new Set<Backlog
 // that is not yet MERGED (its predecessor, by construction, is merged); the lane
 // is eligible when that frontier is `ready` with every prerequisite resolved.
 // A step (entry) is the dispatch granularity: an epic entry is ONE unit — one
-// sprint delivers the whole epic — whose effective status derives from its
-// snapshotted children (terminal only when all children are terminal), so the
-// lane still advances truthfully when members are worked outside a tracked run.
+// sprint delivers the whole epic — whose effective status derives from its LIVE
+// members (terminal only when all members are terminal), so the lane still
+// advances truthfully when members are worked outside a tracked run.
 //
 // `items` is the backlog universe (flat, each tagged with its `projectKey`); a
 // unit resolves against the items sharing its project. `resolvableProjects`, when
@@ -1016,34 +1007,33 @@ export function nextEligible(
     bySlug.set(projectSlugKey(project, roadmapRefSlug(item.ref)), item)
   }
   const resolvable = resolvableProjects ?? presentProjects
+  const membersOf = epicMemberLookup(items)
+  const memberKey = (member: RoadmapItemState): string =>
+    qualifiedRef(itemProjectKey(member), normalizeRef(member.ref))
 
   // A unit's effective backlog state. An item unit reads its own state. An epic
   // unit runs as ONE sprint but is DELIVERED by its members, so its effective
-  // status derives from the snapshotted children when they say more than the
-  // epic's own frontmatter:
-  //   1. every known child terminal (and at least one known) → completed
+  // status derives from its live members when they say more than the epic's own
+  // frontmatter:
+  //   1. every member terminal (and at least one member) → completed
   //   2. the epic's own status when it is live or terminal (a started sprint
   //      stamps the epic in_progress via the execution link)
-  //   3. any child in_progress/needs_input → in_progress
-  //   4. any child ready → ready
+  //   3. any member in_progress/needs_input → in_progress
+  //   4. any member ready → ready
   //   5. else the epic's own status (idea etc. read as blocked, like any entry)
   const effectiveState = (unit: LaneUnit): RoadmapItemState | undefined => {
     const own = byKey.get(unit.key)
-    if (unit.kind !== 'epic' || unit.children.length === 0 || !own) return own
-    const childStatuses: BacklogItemStatusPayload[] = []
-    for (const child of unit.children) {
-      const resolved = resolveEpicChildRef(child, unit.projectKey)
-      const state = byKey.get(qualifiedRef(resolved.projectKey, normalizeRef(resolved.relativePath)))
-      if (state) childStatuses.push(state.status)
-    }
-    if (childStatuses.length > 0 && childStatuses.every((status) => TERMINAL_STATUSES.has(status))) {
+    if (unit.kind !== 'epic' || !own) return own
+    const memberStatuses = membersOf(unit).map((member) => member.status)
+    if (memberStatuses.length === 0) return own
+    if (memberStatuses.every((status) => TERMINAL_STATUSES.has(status))) {
       return { ...own, status: 'completed' }
     }
     if (own.status === 'in_progress' || own.status === 'needs_input' || TERMINAL_STATUSES.has(own.status)) return own
-    if (childStatuses.some((status) => status === 'in_progress' || status === 'needs_input')) {
+    if (memberStatuses.some((status) => status === 'in_progress' || status === 'needs_input')) {
       return { ...own, status: 'in_progress' }
     }
-    if (childStatuses.some((status) => status === 'ready')) return { ...own, status: 'ready' }
+    if (memberStatuses.some((status) => status === 'ready')) return { ...own, status: 'ready' }
     return own
   }
 
@@ -1051,17 +1041,16 @@ export function nextEligible(
     const link = runLinks.get(unit.key)
     if (link?.mode === 'worktree') return link.prMerged === true
     // Migration guard: a run started under the old child-granularity keyed its
-    // execution link on a MEMBER, not the epic. An unmerged child worktree PR
+    // execution link on a MEMBER, not the epic. An unmerged member worktree PR
     // still holds the step — the lane must not advance past it.
     if (unit.kind === 'epic') {
-      for (const child of unit.children) {
-        const resolved = resolveEpicChildRef(child, unit.projectKey)
-        const childLink = runLinks.get(qualifiedRef(resolved.projectKey, normalizeRef(resolved.relativePath)))
-        if (childLink?.mode === 'worktree' && childLink.prMerged !== true) return false
+      for (const member of membersOf(unit)) {
+        const link = runLinks.get(memberKey(member))
+        if (link?.mode === 'worktree' && link.prMerged !== true) return false
       }
     }
     // Shared runs and manual/untracked items: terminal (effective) status is the
-    // signal — an epic unit is delivered when all its children are.
+    // signal — an epic unit is delivered when all its members are.
     const state = effectiveState(unit)
     return state !== undefined && TERMINAL_STATUSES.has(state.status)
   }
@@ -1085,14 +1074,16 @@ export function nextEligible(
   const unitDependenciesResolved = (unit: LaneUnit, state: RoadmapItemState): boolean => {
     if (!dependsOnResolved(state, unit.projectKey)) return false
     if (unit.kind !== 'epic') return true
-    const memberSlugs = new Set(unit.children.map((child) => roadmapRefSlug(child)))
-    for (const child of unit.children) {
-      const resolved = resolveEpicChildRef(child, unit.projectKey)
-      const childState = byKey.get(qualifiedRef(resolved.projectKey, normalizeRef(resolved.relativePath)))
-      if (!childState) continue
-      for (const slug of childState.dependsOn ?? []) {
+    const members = membersOf(unit)
+    const memberSlugs = new Set(members.map((member) => roadmapRefSlug(member.ref)))
+    for (const member of members) {
+      // A delivered member's prerequisites cannot gate a step that has not run:
+      // its work is already done. (The stored snapshot captured OPEN members
+      // only, so skipping terminal ones here preserves that gate exactly.)
+      if (TERMINAL_STATUSES.has(member.status)) continue
+      for (const slug of member.dependsOn ?? []) {
         if (memberSlugs.has(slug)) continue
-        const target = bySlug.get(projectSlugKey(resolved.projectKey, slug))
+        const target = bySlug.get(projectSlugKey(itemProjectKey(member), slug))
         if (!target || !TERMINAL_STATUSES.has(target.status)) return false
       }
     }
@@ -1143,30 +1134,4 @@ export function nextEligible(
     }
     return { lane: lane.title, eligibleRef: null, eligible: null, reason: 'blocked', frontierRef: frontier.ref, frontier: frontierUnitRef }
   })
-}
-
-// ---------------------------------------------------------------------------
-// Static-plan drift ("this epic gained N items since you planned")
-// ---------------------------------------------------------------------------
-
-// The set difference between an epic's live `epic:` membership and the child list
-// snapshotted into the roadmap at add time. V1 plans are static, so mid-epic
-// children a sprint mints do NOT auto-join; this surfaces them for the one-click
-// re-sync affordance (T4). `gained` are live children absent from the snapshot;
-// `removed` are snapshotted children no longer live members.
-export type RoadmapEpicDrift = {
-  epicRef: string
-  gained: string[]
-  removed: string[]
-}
-
-export function roadmapEpicDrift(
-  entry: RoadmapEntry,
-  liveChildRefs: ReadonlyArray<string>,
-): RoadmapEpicDrift {
-  const snapshot = new Set(entry.children.map(normalizeRef))
-  const live = new Set(liveChildRefs.map(normalizeRef))
-  const gained = [...live].filter((ref) => !snapshot.has(ref))
-  const removed = [...snapshot].filter((ref) => !live.has(ref))
-  return { epicRef: entry.ref, gained, removed }
 }
