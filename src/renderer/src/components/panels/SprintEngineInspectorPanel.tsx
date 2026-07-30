@@ -3,10 +3,25 @@
 // the orchestrator stays focused on state coordination and IPC plumbing while
 // the inspector owns its own rendering, sub-components, and detail formatting.
 //
-// Task-mode layout (after the 2026-05 redesign):
-//   header → owner line → conditional callouts (needs input / open findings)
-//   → description + AC → artifacts → scores line → activity feed (filter chips
-//   + chronological timeline) → compact details.
+// Task-mode layout (item 2029) reads in four groups, in this order:
+//   who and what   — status, id, title, and a POINTER at the backlog item
+//                    this task delivers (never the item's own words: no
+//                    description, no acceptance criteria live here)
+//   where it runs  — Repo · Modules · After
+//   how it is going— Elapsed (activity sparkline) · Diff (add/delete ratio
+//                    bar) · Tokens (a plain number, no bar — token counts have
+//                    no natural ceiling, and an unmeasured source reads as
+//                    unmeasured, never as zero)
+//   what happened  — ONE timeline: comments, status changes, work notes,
+//                    review passes and the run's VCS milestones, newest first,
+//                    compose at the top, one lifecycle glyph per entry.
+//
+// Groups are separated by SPACE, not rules: the pane draws no horizontal
+// hairline of its own, and a vertical tone bar appears only on an exception
+// callout (needs input / blocked), never as structure.
+//
+// Nothing is removed from the record. Every field the engine writes is still
+// written and still reachable — this module decides only what is RENDERED.
 //
 // Data shaping lives next door in `sprintEngineInspector.ts`; the orchestrator
 // passes hydrated derived values via props rather than letting the inspector
@@ -16,11 +31,11 @@ import React, { useCallback, useId, useMemo, useRef, useState } from 'react'
 import type {
   AgentState,
   SprintEngineArtifact,
+  SprintEngineEvent,
   SprintEngineTask,
   SprintEngineTaskActivityEntry,
   SprintEngineTaskActivityType,
   SprintEngineTaskBoardColumn,
-  SprintEngineTaskComment,
   SprintEngineTaskDiff,
   SprintEngineTaskDiffLine,
   SprintEngineTaskEvidence,
@@ -37,19 +52,16 @@ import {
   feedbackIssueSeverityLabels,
 } from '../../utils/sprintengineRunSummary'
 import {
-  getOpenSprintEngineFeedbackComments,
   getOpenSprintEngineFeedbackFindings,
   getOpenSprintEngineFeedbackIssues,
   getSprintEngineArtifactAutoApprovalEligibility,
   getSprintEngineArtifactDependencyBlockers,
   getSprintEngineAgentActivityDescending,
-  getSprintEngineTaskActivityDescending,
   getSprintEngineTaskImplementerTimeline,
   getSprintEngineTasksWorkedOnByAgent,
   getSprintEngineRoleLabel,
   sprintEngineArtifactKindLabel,
   sprintEngineArtifactStatusLabels,
-  sprintEngineTaskCommentTypeLabels,
   sprintEngineTaskStateLabel,
   taskBoardColumnToLifecycle,
   type SprintEngineAgentActivityEntry,
@@ -73,33 +85,40 @@ import {
   PrimaryButton,
   RoleAvatar,
   Spinner,
-  TabPanel,
-  Tabs,
+  Tooltip,
   TruncatedText,
   type DefinitionItem,
-  type TabItem,
 } from '../ui'
 import {
   SOURCE_HANDOFF_ARTIFACT_ID,
   artifactStatusTone,
+  buildTaskTimeline,
   formatArtifactBlockerSummary,
   formatArtifactSummary,
+  formatElapsed,
   formatMobileArtifactDecision,
   formatTaskSourceLabel,
   formatTimestamp,
   getMobileArtifactDecision,
   sprintEngineInboxRowSupporting,
   sprintEngineInboxRowLifecycle,
+  taskActivitySparkline,
+  taskDiffTotals,
+  taskElapsedMs,
+  taskModuleLabels,
+  timelineItemLifecycle,
+  type ActivitySparkBar,
   type ArtifactActionState,
   type TaskInputActionState,
   type TaskCommentActionState,
+  type TaskTimelineItem,
   type RuntimeAgentView,
   type SprintEngineInspectorSelection,
 } from './sprintEngineInspector'
 import { HtmlArtifactFrame } from '../workspace/guidedBrief/MockupPreviewPane'
 import type { MockupAnnotation } from '../workspace/guidedBrief/annotate/types'
 import { sprintEngineSeedPreviewKind } from './sprintEngineBoard/sprintEngineStartedFrom'
-import { parentPath } from '../../utils/paths'
+import { basename, parentPath } from '../../utils/paths'
 
 function SectionList({
   title,
@@ -153,84 +172,6 @@ function CompletedCheckGlyph({ className, label }: GlyphProps) {
         strokeLinejoin="round"
       />
     </svg>
-  )
-}
-
-function AcceptanceCheckbox({ checked }: { checked: boolean }) {
-  if (checked) {
-    return (
-      <svg
-        className="icon-xs text-[color:var(--tone-good)]"
-        viewBox="0 0 12 12"
-        fill="none"
-        role="img"
-        aria-label="met"
-      >
-        <title>met</title>
-        <circle cx="6" cy="6" r="5" fill="currentColor" opacity="0.18" />
-        <path
-          d="M3.6 6.3 L5.4 8 L8.6 4.4"
-          stroke="currentColor"
-          strokeWidth="1.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    )
-  }
-  return (
-    <svg
-      className="icon-xs text-[color:var(--text-disabled)]"
-      viewBox="0 0 12 12"
-      fill="none"
-      role="img"
-      aria-label="pending"
-    >
-      <title>pending</title>
-      <circle cx="6" cy="6" r="4.6" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  )
-}
-
-function TaskCommentRow({ comment }: { comment: SprintEngineTaskComment }) {
-  const label = comment.type ? sprintEngineTaskCommentTypeLabels[comment.type] : 'Comment'
-  const authorLabel = comment.authorAgentId ?? comment.actor
-  const absolute = comment.createdAt ? new Date(comment.createdAt).toLocaleString() : undefined
-  const relative = comment.createdAt ? formatRelativeTime(comment.createdAt) : '—'
-  const [expanded, setExpanded] = useState(false)
-  return (
-    <div>
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-micro">
-        {/* The comment type is a word, not an identifier: it leaves mono to the
-            agent id beside it and separates by weight and ink instead of case. */}
-        <span className="text-micro font-medium tracking-normal text-[color:var(--text-default)]">{label}</span>
-        <span className="font-mono text-micro text-[color:var(--text-muted)]">{authorLabel}</span>
-        {comment.authorRole ? (
-          <span className="text-[color:var(--text-disabled)]">{getSprintEngineRoleLabel(comment.authorRole)}</span>
-        ) : null}
-        <span
-          title={absolute}
-          className="ml-auto tabular-nums font-mono text-micro text-[color:var(--text-disabled)]"
-        >
-          {relative}
-        </span>
-      </div>
-      <CollapsibleMessage
-        message={comment.body}
-        expanded={expanded}
-        onToggle={() => setExpanded((prev) => !prev)}
-        className="mt-1 text-meta leading-5 text-[color:var(--text-default)] [overflow-wrap:anywhere]"
-      />
-      {comment.paths && comment.paths.length > 0 ? (
-        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
-          {comment.paths.map((path) => (
-            <span key={path} className="font-mono text-micro text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
-              {path}
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </div>
   )
 }
 
@@ -567,6 +508,7 @@ export function SprintEngineArtifactList({
   title = 'Review Artifacts',
   emptyLabel,
   hideHeader = false,
+  dividers = true,
   onSelectTask,
   onOpenArtifact,
   onApproveArtifact,
@@ -578,6 +520,9 @@ export function SprintEngineArtifactList({
   title?: string
   emptyLabel: string
   hideHeader?: boolean
+  /** Hairline between rows. Off on the task detail pane, whose anatomy carries
+   *  every group boundary with space instead of a rule (item 2029). */
+  dividers?: boolean
   onSelectTask: (taskId: string) => void
   onOpenArtifact: (artifact: SprintEngineArtifact) => void
   onApproveArtifact: (artifact: SprintEngineArtifact) => void
@@ -597,7 +542,11 @@ export function SprintEngineArtifactList({
       )}
 
       {artifacts.length > 0 ? (
-        <ol className="@container divide-y divide-[color:var(--border-default)]">
+        <ol
+          className={`@container ${
+            dividers ? 'divide-y divide-[color:var(--border-default)]' : 'space-y-1'
+          }`}
+        >
           {artifacts.map((artifact) => {
             const task = tasksById[artifact.taskId]
             const action = actions[artifact.id]
@@ -873,50 +822,6 @@ function TaskCallout({
         {label}
       </div>
       <div className="mt-1 text-[color:var(--text-default)]">{children}</div>
-    </div>
-  )
-}
-
-function TaskScoresLine({ task }: { task: SprintEngineTask }) {
-  const feedback = task.feedback
-  if (!feedback) return null
-  const confidence = feedback.scores.confidencePct
-  const hallucination = feedback.scores.hallucinationRiskPct
-  if (typeof confidence !== 'number' && typeof hallucination !== 'number') return null
-
-  const captured = feedback.capturedAt ? formatRelativeTime(feedback.capturedAt) : null
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-[color:var(--text-muted)]">
-      {typeof confidence === 'number' ? (
-        <span>
-          Confidence{' '}
-          <span className="tabular-nums font-mono text-[color:var(--text-strong)]">
-            {Math.round(confidence)}%
-          </span>
-        </span>
-      ) : null}
-      {typeof hallucination === 'number' ? (
-        <span>
-          Hallucination{' '}
-          <span
-            className="tabular-nums font-mono"
-            style={{
-              color:
-                hallucination >= 30
-                  ? 'var(--tone-error)'
-                  : hallucination >= 10
-                    ? 'var(--tone-warn)'
-                    : 'var(--text-strong)',
-            }}
-          >
-            {Math.round(hallucination)}%
-          </span>
-        </span>
-      ) : null}
-      <span className="text-[color:var(--text-disabled)]">
-        from <span className="font-mono">{feedback.agentId}</span>
-        {captured ? `, ${captured}` : ''}
-      </span>
     </div>
   )
 }
@@ -1254,7 +1159,7 @@ function TaskOpenFindings({
         </span>
         <span className="tabular-nums text-micro text-[color:var(--text-disabled)]">{total}</span>
       </div>
-      <ul className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
+      <ul className="space-y-2">
         {findings.map((finding) => (
           <li key={finding.id} className="py-2 text-meta leading-5 text-[color:var(--text-default)]">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
@@ -1314,31 +1219,15 @@ function TaskOpenFindings({
   )
 }
 
-// Activity feed — the spine. Replaces five legacy stacked sections
-// (Activity, Implementation Handoff, Open Feedback Comments, ready-action
-// messages, Recorded Artifacts) with one filterable chronological list.
-// Sub-filter chips reduce the stream by entry type without hiding any data.
-
-type ActivityFilter = 'all' | 'reviews' | 'comments' | 'status' | 'evidence'
-
-const ACTIVITY_FILTERS: Array<{ key: ActivityFilter; label: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'reviews', label: 'Reviews' },
-  { key: 'comments', label: 'Comments' },
-  { key: 'status', label: 'Status' },
-  { key: 'evidence', label: 'Evidence' },
-]
-
-const ACTIVITY_TYPE_TO_FILTER: Record<SprintEngineTaskActivityType, Exclude<ActivityFilter, 'all'>> = {
-  comment: 'comments',
-  status_change: 'status',
-  claim: 'status',
-  evidence: 'evidence',
-  feedback: 'reviews',
-  needs_input: 'comments',
-  artifact: 'reviews',
-  system: 'status',
-}
+// The timeline — the pane's one stream. It replaced five legacy stacked
+// sections with a single chronological list; item 2029 then removed its filter
+// chips from BOTH consumers (this task pane and the agent pane below).
+//
+// The chips were a per-viewer subset of one short list, and they cost more than
+// they saved: a filtered stream hides the entry that explains the one you are
+// reading, and "which chip am I on" is state the reader has to carry. One
+// unfiltered stream, newest first, with a lifecycle glyph per entry is faster
+// to scan and cannot lie about what happened.
 
 // Boilerplate "{actor} did X on {task}" messages duplicate the verb chip and
 // add no signal — suppress for these types. Real prose lives on comments,
@@ -1363,30 +1252,35 @@ const COALESCIBLE_ACTIVITY_TYPES = new Set<SprintEngineTaskActivityType>(['evide
 // exceeding this are clipped with a "Show more" toggle.
 const LONG_MESSAGE_PREVIEW_LIMIT = 280
 
-type ActivityGroup = {
+type TimelineGroup = {
   key: string
-  primary: SprintEngineTaskActivityEntry
-  members: SprintEngineTaskActivityEntry[]
+  primary: TaskTimelineItem
+  /** How many consecutive identical-actor entries this row stands for. */
+  count: number
+  /** Oldest member's timestamp, so the next candidate is measured against the
+   *  end of the burst rather than its head. */
+  lastTimestamp: string
 }
 
-function groupActivityEntries(entries: SprintEngineTaskActivityEntry[]): ActivityGroup[] {
-  const groups: ActivityGroup[] = []
-  for (const entry of entries) {
+function groupTimelineItems(items: ReadonlyArray<TaskTimelineItem>): TimelineGroup[] {
+  const groups: TimelineGroup[] = []
+  for (const item of items) {
     const last = groups[groups.length - 1]
-    const lastMember = last ? last.members[last.members.length - 1] : null
     const coalescible =
-      Boolean(last) &&
-      Boolean(lastMember) &&
-      COALESCIBLE_ACTIVITY_TYPES.has(entry.type) &&
-      last!.primary.type === entry.type &&
-      last!.primary.actor === entry.actor &&
-      Math.abs(
-        new Date(lastMember!.timestamp).getTime() - new Date(entry.timestamp).getTime(),
+      Boolean(last)
+      && item.kind === 'activity'
+      && last!.primary.kind === 'activity'
+      && COALESCIBLE_ACTIVITY_TYPES.has(item.entry.type)
+      && last!.primary.entry.type === item.entry.type
+      && last!.primary.entry.actor === item.entry.actor
+      && Math.abs(
+        new Date(last!.lastTimestamp).getTime() - new Date(item.timestamp).getTime(),
       ) <= ACTIVITY_COALESCE_WINDOW_MS
     if (coalescible) {
-      last!.members.push(entry)
+      last!.count += 1
+      last!.lastTimestamp = item.timestamp
     } else {
-      groups.push({ key: entry.id, primary: entry, members: [entry] })
+      groups.push({ key: item.key, primary: item, count: 1, lastTimestamp: item.timestamp })
     }
   }
   return groups
@@ -1565,7 +1459,7 @@ function FeedbackDetail({
   const hallucination = feedback.scores.hallucinationRiskPct
   const roleFit = feedback.scores.roleFitPct
   return (
-    <div className="mt-2 space-y-2 border-l border-[color:var(--border-subtle)] pl-3 text-meta leading-5">
+    <div className="mt-2 space-y-2 pl-3 text-meta leading-5">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-disabled)]">
         <span>{sourceLabel}</span>
         <span>·</span>
@@ -1665,7 +1559,7 @@ function ArtifactDetail({
   const kindLabel = sprintEngineArtifactKindLabel(artifact.kind)
   const statusLabel = sprintEngineArtifactStatusLabels[artifact.status] ?? artifact.status
   return (
-    <div className="mt-2 space-y-1.5 border-l border-[color:var(--border-subtle)] pl-3 text-meta leading-5">
+    <div className="mt-2 space-y-1.5 pl-3 text-meta leading-5">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-disabled)]">
         <span>{kindLabel}</span>
         <span>·</span>
@@ -1704,7 +1598,7 @@ function EvidenceDetail({
   const diffCount = evidence.diffs?.length ?? 0
 
   return (
-    <div className="mt-2 space-y-2 border-l border-[color:var(--border-subtle)] pl-3 text-meta leading-5">
+    <div className="mt-2 space-y-2 pl-3 text-meta leading-5">
       <div className="text-micro text-[color:var(--text-disabled)]">Recorded evidence (latest snapshot)</div>
       {summary ? (
         <div className="text-[color:var(--text-default)] [overflow-wrap:anywhere]">{summary}</div>
@@ -1745,8 +1639,17 @@ function EvidenceDetail({
   )
 }
 
-function TaskActivityFeed({
-  entries,
+// What a VCS milestone reads as on the task's own timeline. The engine records
+// these once for the RUN; `buildTaskTimeline` attributes them to the tasks whose
+// work they actually carry, so the wording here names the milestone, not the run.
+function vcsTimelineVerb(item: Extract<TaskTimelineItem, { kind: 'vcs' }>): string {
+  if (item.vcs === 'pr_opened') return 'opened the pull request'
+  if (item.vcs === 'pr_merged') return 'merged the pull request'
+  return 'committed'
+}
+
+function TaskTimeline({
+  items,
   emptyLabel,
   task,
   artifacts,
@@ -1754,7 +1657,7 @@ function TaskActivityFeed({
   onOpenArtifact,
   onJumpToFindings,
 }: {
-  entries: SprintEngineTaskActivityEntry[]
+  items: TaskTimelineItem[]
   emptyLabel: string
   task: SprintEngineTask
   artifacts: SprintEngineArtifact[]
@@ -1762,169 +1665,127 @@ function TaskActivityFeed({
   onOpenArtifact: ((artifact: SprintEngineArtifact) => void) | null
   onJumpToFindings: (() => void) | null
 }) {
-  const [filter, setFilter] = useState<ActivityFilter>('all')
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
 
-  const filteredEntries = useMemo(() => {
-    if (filter === 'all') return entries
-    return entries.filter((entry) => ACTIVITY_TYPE_TO_FILTER[entry.type] === filter)
-  }, [entries, filter])
+  const groups = useMemo(() => groupTimelineItems(items), [items])
 
-  const groups = useMemo(() => groupActivityEntries(filteredEntries), [filteredEntries])
-
-  const toggleExpanded = useCallback((id: string) => {
+  const toggleExpanded = useCallback((key: string) => {
     setExpanded((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }, [])
 
-  return (
-    <div>
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <div className="text-micro font-semibold text-[color:var(--text-muted)]">Activity</div>
-        <div className="flex gap-0.5" role="group" aria-label="Filter activity">
-          {ACTIVITY_FILTERS.map((option) => {
-            const active = filter === option.key
-            return (
-              <button
-                key={option.key}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setFilter(option.key)}
-                className={`interactive rounded px-2 py-1 text-micro ${
-                  active
-                    ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                    : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
-                }`}
-              >
-                {option.label}
-              </button>
-            )
-          })}
-        </div>
-      </div>
+  if (groups.length === 0) {
+    return <div className="text-meta text-[color:var(--text-disabled)]">{emptyLabel}</div>
+  }
 
-      {groups.length === 0 ? (
-        <div className="text-meta text-[color:var(--text-disabled)]">
-          {entries.length === 0 ? emptyLabel : 'No entries match this filter.'}
-        </div>
-      ) : (
-        <ol className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
-          {groups.map((group) => {
-            const entry = group.primary
-            const count = group.members.length
-            const absolute = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : undefined
-            const relative = entry.timestamp ? formatRelativeTime(entry.timestamp) : '—'
-            const showMessage = activityMessageIsVisible(entry)
-            const hasDetail = activityEntryHasDetail(entry, task, artifacts)
-            const isExpanded = expanded.has(entry.id)
-            const matchedFeedback = entry.type === 'feedback' ? findFeedbackForEntry(entry, task) : null
-            const matchedArtifact = entry.type === 'artifact' ? findArtifactForEntry(entry, artifacts) : null
-            const verbContent = (
-              <>
-                <span className="font-mono text-micro text-[color:var(--text-default)]">
-                  {entry.actor}
-                </span>
-                <span>{activityVerb(entry)}</span>
-                {count > 1 ? (
-                  <span className="tabular-nums text-[color:var(--text-disabled)]">
-                    ×{count}
-                  </span>
-                ) : null}
-                {hasDetail ? (
-                  <span
-                    aria-hidden="true"
-                    className={
-                      'ml-0.5 inline-block text-[color:var(--text-disabled)] transition-transform '
-                      + (isExpanded ? 'rotate-90' : '')
-                    }
-                  >
-                    ›
-                  </span>
-                ) : null}
-              </>
-            )
-            return (
-              <li
-                key={group.key}
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-2 py-2.5 text-meta leading-5 text-[color:var(--text-default)]"
+  return (
+    <ol className="space-y-2.5">
+      {groups.map((group) => {
+        const item = group.primary
+        const entry = item.kind === 'activity' ? item.entry : null
+        const count = group.count
+        const absolute = item.timestamp ? new Date(item.timestamp).toLocaleString() : undefined
+        const relative = item.timestamp ? formatRelativeTime(item.timestamp) : '—'
+        const lifecycle = timelineItemLifecycle(item)
+        const showMessage =
+          item.kind === 'activity' ? activityMessageIsVisible(item.entry) : Boolean(item.event.message)
+        const message = item.kind === 'activity' ? item.entry.message : item.event.message
+        const actor = item.kind === 'activity' ? item.entry.actor : item.event.actor
+        const verb = item.kind === 'activity' ? activityVerb(item.entry) : vcsTimelineVerb(item)
+        const hasDetail = entry ? activityEntryHasDetail(entry, task, artifacts) : false
+        const isExpanded = expanded.has(group.key)
+        const matchedFeedback = entry?.type === 'feedback' ? findFeedbackForEntry(entry, task) : null
+        const matchedArtifact = entry?.type === 'artifact' ? findArtifactForEntry(entry, artifacts) : null
+        const verbContent = (
+          <>
+            <span className="font-mono text-micro text-[color:var(--text-default)]">{actor}</span>
+            <span>{verb}</span>
+            {count > 1 ? (
+              <span className="tabular-nums text-[color:var(--text-disabled)]">×{count}</span>
+            ) : null}
+            {hasDetail ? (
+              <span
+                aria-hidden="true"
+                className={
+                  'ml-0.5 inline-block text-[color:var(--text-disabled)] transition-transform '
+                  + (isExpanded ? 'rotate-90' : '')
+                }
               >
-                <div className="min-w-0">
-                  {hasDetail ? (
-                    <button
-                      type="button"
-                      onClick={() => toggleExpanded(entry.id)}
-                      aria-expanded={isExpanded}
-                      className={
-                        'interactive -mx-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded px-1 py-0.5 '
-                        + 'text-left text-micro text-[color:var(--text-muted)] '
-                        + 'hover:text-[color:var(--text-strong)] '
-                        + FOCUS_RING_CLASS
-                      }
-                    >
-                      {verbContent}
-                    </button>
-                  ) : (
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
-                      {verbContent}
-                    </div>
-                  )}
-                  {showMessage ? (
-                    <CollapsibleMessage
-                      message={entry.message}
-                      expanded={isExpanded}
-                      onToggle={() => toggleExpanded(entry.id)}
-                      className="mt-0.5 text-[color:var(--text-default)] [overflow-wrap:anywhere]"
-                    />
-                  ) : null}
-                  {hasDetail && isExpanded && entry.type === 'evidence' ? (
-                    <EvidenceDetail evidence={task.evidence} onViewDiff={onViewDiff} />
-                  ) : null}
-                  {hasDetail && isExpanded && entry.type === 'feedback' && matchedFeedback ? (
-                    <FeedbackDetail
-                      feedback={matchedFeedback}
-                      task={task}
-                      onJumpToFindings={onJumpToFindings}
-                    />
-                  ) : null}
-                  {hasDetail && isExpanded && entry.type === 'artifact' && matchedArtifact ? (
-                    <ArtifactDetail
-                      artifact={matchedArtifact}
-                      onOpen={onOpenArtifact ? () => onOpenArtifact(matchedArtifact) : null}
-                    />
-                  ) : null}
-                </div>
-                <span
-                  title={absolute}
-                  className="tabular-nums font-mono text-micro text-[color:var(--text-disabled)]"
+                ›
+              </span>
+            ) : null}
+          </>
+        )
+        return (
+          <li
+            key={group.key}
+            className="grid grid-cols-[16px_minmax(0,1fr)_auto] items-baseline gap-x-2 text-meta leading-5 text-[color:var(--text-default)]"
+          >
+            {/* Lifecycle glyph, never a tone dot: the entry kind reads by shape
+                (knowledge/brand/glyph-system.md), colour only reinforcing it.
+                Decorative — the actor and verb beside it already name the entry,
+                and speaking the lifecycle word here would announce a comment as
+                "Idea". */}
+            <LifecycleGlyph state={lifecycle} live={false} className="translate-y-[3px]" />
+            <div className="min-w-0">
+              {hasDetail ? (
+                <button
+                  type="button"
+                  onClick={() => toggleExpanded(group.key)}
+                  aria-expanded={isExpanded}
+                  className={
+                    'interactive -mx-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded px-1 py-0.5 '
+                    + 'text-left text-micro text-[color:var(--text-muted)] '
+                    + 'hover:text-[color:var(--text-strong)] '
+                    + FOCUS_RING_CLASS
+                  }
                 >
-                  {relative}
-                </span>
-              </li>
-            )
-          })}
-        </ol>
-      )}
-    </div>
-  )
-}
-
-function TaskOpenFeedbackComments({ comments }: { comments: SprintEngineTaskComment[] }) {
-  if (comments.length === 0) return null
-  return (
-    <div>
-      <div className="mb-2 text-micro font-semibold text-[color:var(--tone-warn)]">
-        Open feedback ({comments.length})
-      </div>
-      <div className="space-y-3">
-        {comments.map((comment) => (
-          <TaskCommentRow key={comment.id} comment={comment} />
-        ))}
-      </div>
-    </div>
+                  {verbContent}
+                </button>
+              ) : (
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
+                  {verbContent}
+                </div>
+              )}
+              {showMessage ? (
+                <CollapsibleMessage
+                  message={message}
+                  expanded={isExpanded}
+                  onToggle={() => toggleExpanded(group.key)}
+                  className="mt-0.5 text-[color:var(--text-default)] [overflow-wrap:anywhere]"
+                />
+              ) : null}
+              {hasDetail && isExpanded && entry?.type === 'evidence' ? (
+                <EvidenceDetail evidence={task.evidence} onViewDiff={onViewDiff} />
+              ) : null}
+              {hasDetail && isExpanded && entry?.type === 'feedback' && matchedFeedback ? (
+                <FeedbackDetail
+                  feedback={matchedFeedback}
+                  task={task}
+                  onJumpToFindings={onJumpToFindings}
+                />
+              ) : null}
+              {hasDetail && isExpanded && entry?.type === 'artifact' && matchedArtifact ? (
+                <ArtifactDetail
+                  artifact={matchedArtifact}
+                  onOpen={onOpenArtifact ? () => onOpenArtifact(matchedArtifact) : null}
+                />
+              ) : null}
+            </div>
+            <span
+              title={absolute}
+              className="tabular-nums font-mono text-micro text-[color:var(--text-disabled)]"
+            >
+              {relative}
+            </span>
+          </li>
+        )
+      })}
+    </ol>
   )
 }
 
@@ -1945,6 +1806,12 @@ function taskCanBeSentBackForRework(status: SprintEngineTask['status']): boolean
 // original owner, whom the supervisor re-engages. "Resume"-style re-routing for a
 // *blocked* task lives in TaskInputResponsePrompt instead; this surface is everyday
 // annotation.
+//
+// It sits directly under the Timeline heading, ABOVE the newest entry (item
+// 2029): the newest entry is the one you are replying to, so the reply field
+// belongs beside it rather than past the whole history. Its own heading is
+// gone with it — the field says what it is, and the Send control only appears
+// once there is something to send.
 function TaskCommentComposer({
   taskId,
   canSendBack,
@@ -1981,32 +1848,43 @@ function TaskCommentComposer({
         ? 'text-[color:var(--tone-good)]'
         : 'text-[color:var(--text-muted)]'
 
+  const dirty = body.trim().length > 0
+
   return (
     <div>
-      <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">Add comment</div>
       <label htmlFor={fieldId} className="sr-only">
         Add a comment for the agent
       </label>
-      <textarea
-        id={fieldId}
-        value={body}
-        onChange={(event) => setBody(event.target.value)}
-        onKeyDown={handleKeyDown}
-        disabled={pending}
-        rows={3}
-        placeholder="Add a comment for the agent… (⌘/Ctrl+Enter to comment)"
-        className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-body leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-60"
-      />
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <PrimaryButton onClick={() => void submit(false)} disabled={!canSubmit}>
-          Comment
-        </PrimaryButton>
-        {canSendBack ? (
-          <GhostButton onClick={() => void submit(true)} disabled={!canSubmit}>
-            Comment &amp; send back for rework
-          </GhostButton>
-        ) : null}
+      <div className="flex items-start gap-2">
+        <textarea
+          id={fieldId}
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={pending}
+          rows={dirty ? 3 : 1}
+          placeholder="Add a comment"
+          className="block min-w-0 flex-1 resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-meta leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+        />
+        <span
+          aria-hidden="true"
+          className="shrink-0 pt-1.5 font-mono text-micro text-[color:var(--text-disabled)]"
+        >
+          ⌘↵
+        </span>
       </div>
+      {dirty ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <PrimaryButton onClick={() => void submit(false)} disabled={!canSubmit}>
+            Comment
+          </PrimaryButton>
+          {canSendBack ? (
+            <GhostButton onClick={() => void submit(true)} disabled={!canSubmit}>
+              Comment &amp; send back for rework
+            </GhostButton>
+          ) : null}
+        </div>
+      ) : null}
       {action ? (
         <div className={`mt-2 text-meta leading-5 ${messageToneClass}`}>{action.message}</div>
       ) : null}
@@ -2063,13 +1941,7 @@ function AgentActivityFeed({
   emptyLabel: string
   onSelectTask: (taskId: string) => void
 }) {
-  const [filter, setFilter] = useState<ActivityFilter>('all')
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(() => new Set())
-
-  const filtered = useMemo(() => {
-    if (filter === 'all') return entries
-    return entries.filter(({ entry }) => ACTIVITY_TYPE_TO_FILTER[entry.type] === filter)
-  }, [entries, filter])
 
   const toggleMessage = useCallback((key: string) => {
     setExpandedMessages((prev) => {
@@ -2082,49 +1954,35 @@ function AgentActivityFeed({
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <div className="text-micro font-bold text-[color:var(--text-disabled)]">
-          Activity ({entries.length})
-        </div>
-        <div className="flex gap-0.5" role="group" aria-label="Filter activity">
-          {ACTIVITY_FILTERS.map((option) => {
-            const active = filter === option.key
-            return (
-              <button
-                key={option.key}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setFilter(option.key)}
-                className={`interactive rounded px-2 py-1 text-micro ${
-                  active
-                    ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                    : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
-                }`}
-              >
-                {option.label}
-              </button>
-            )
-          })}
-        </div>
+      <div className="mb-2 flex flex-wrap items-baseline gap-2">
+        <div className="text-micro font-semibold text-[color:var(--text-muted)]">Timeline</div>
+        <span className="tabular-nums font-mono text-micro text-[color:var(--text-disabled)]">
+          {entries.length}
+        </span>
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="text-meta text-[color:var(--text-disabled)]">
-          {entries.length === 0 ? emptyLabel : 'No entries match this filter.'}
-        </div>
+      {entries.length === 0 ? (
+        <div className="text-meta text-[color:var(--text-disabled)]">{emptyLabel}</div>
       ) : (
-        <ol className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
-          {filtered.map(({ entry, taskId, taskTitle }) => {
+        <ol className="space-y-2.5">
+          {entries.map(({ entry, taskId, taskTitle }) => {
             const key = `${taskId}:${entry.id}`
             const absolute = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : undefined
             const relative = entry.timestamp ? formatRelativeTime(entry.timestamp) : '—'
             const showMessage = activityMessageIsVisible(entry)
             const isExpanded = expandedMessages.has(key)
+            const lifecycle = timelineItemLifecycle({
+              key,
+              timestamp: entry.timestamp,
+              kind: 'activity',
+              entry,
+            })
             return (
               <li
                 key={key}
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-2 py-2.5 text-meta leading-5 text-[color:var(--text-default)]"
+                className="grid grid-cols-[16px_minmax(0,1fr)_auto] items-baseline gap-x-2 text-meta leading-5 text-[color:var(--text-default)]"
               >
+                <LifecycleGlyph state={lifecycle} live={false} className="translate-y-[3px]" />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
                     <button
@@ -2272,7 +2130,7 @@ function ChangedFilesSection({ task }: { task: SprintEngineTask }) {
   }
 
   return (
-    <div className="divide-y divide-[color:var(--border-subtle)] border-t border-[color:var(--border-subtle)]">
+    <div>
       {diffs.map((diff, index) => {
           const expandable = diff.hunks.length > 0 && !diff.skippedReason
           const expanded = expandable && expandedPaths.has(diff.path)
@@ -2301,7 +2159,7 @@ function ChangedFilesSection({ task }: { task: SprintEngineTask }) {
               </span>
             </>
           )
-          const rowLayout = 'grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-2 text-left'
+          const rowLayout = 'grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 rounded px-2 py-1.5 text-left'
 
           return (
             <div key={`${diff.path}:${diff.oldPath ?? ''}:${index}`}>
@@ -2326,6 +2184,286 @@ function ChangedFilesSection({ task }: { task: SprintEngineTask }) {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Task detail groups — pointer, execution facts, readouts (item 2029)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * The header's link row: the item this task delivers, and the way to open it.
+ *
+ * A POINTER, never a restatement. The item carries the intent and the
+ * acceptance criteria; this card carries the execution record. When the run was
+ * seeded from an epic the row says so, because that is where the item is read
+ * inside the sprint (the Epic tab). With nothing to open, the row still names
+ * the item — a label is honest, a dead button is not.
+ */
+function TaskItemPointer({
+  task,
+  inEpic,
+  onOpenBacklogItem,
+}: {
+  task: SprintEngineTask
+  inEpic: boolean
+  onOpenBacklogItem: ((relativePath: string) => void) | null
+}) {
+  const backlogRef = task.backlogRef
+  const githubUrl = task.source?.type === 'github' ? task.source.externalUrl?.trim() : ''
+
+  const pointer = backlogRef
+    ? {
+        label: backlogRef.displayKey?.trim() || basename(backlogRef.projectRelativePath),
+        title: backlogRef.projectRelativePath,
+        context: inEpic ? 'in this epic' : null,
+        onOpen: onOpenBacklogItem
+          ? () => onOpenBacklogItem(backlogRef.projectRelativePath)
+          : null,
+      }
+    : githubUrl
+      ? {
+          label: task.source?.externalId
+            ? `${task.source.repo ? `${task.source.repo} ` : ''}#${task.source.externalId}`
+            : formatTaskSourceLabel(task),
+          title: githubUrl,
+          context: 'GitHub issue',
+          onOpen: () => window.open(githubUrl, '_blank', 'noopener,noreferrer'),
+        }
+      : null
+
+  if (!pointer) return null
+
+  const body = (
+    <>
+      <span className="min-w-0 flex-1 truncate text-meta text-[color:var(--text-default)]">
+        <span className="font-mono">{pointer.label}</span>
+        {pointer.context ? (
+          <span className="text-[color:var(--text-muted)]"> · {pointer.context}</span>
+        ) : null}
+      </span>
+      {pointer.onOpen ? (
+        <span className="shrink-0 font-mono text-micro text-[color:var(--accent-primary)]">open →</span>
+      ) : null}
+    </>
+  )
+
+  const layout =
+    'mt-3 flex w-full items-center gap-2 rounded-[5px] border border-[color:var(--border-default)] '
+    + 'bg-[color:var(--bg-surface-raised)] px-2.5 py-1.5 text-left'
+
+  if (!pointer.onOpen) {
+    return (
+      <div className={layout} title={pointer.title}>
+        {body}
+      </div>
+    )
+  }
+  return (
+    // The item's own path is the tooltip: the row shows its key, and the key
+    // alone does not say which file it is on a multi-repo run.
+    <Tooltip content={pointer.title} placement="top" wrapperClassName="block">
+      <button
+        type="button"
+        onClick={pointer.onOpen}
+        aria-label={`Open ${pointer.label}`}
+        className={`${layout} interactive hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+      >
+        {body}
+      </button>
+    </Tooltip>
+  )
+}
+
+/**
+ * Where the task runs: the three facts the backlog item genuinely does not
+ * have. Modules are the task's `ownedPaths` — directories since item 2019 —
+ * named the way a person refers to them rather than shown as a file whitelist.
+ */
+function TaskExecutionFacts({ task }: { task: SprintEngineTask }) {
+  const modules = useMemo(() => taskModuleLabels(task.ownedPaths), [task.ownedPaths])
+  const after = task.dependsOn.length > 0 ? task.dependsOn.join(' · ') : '—'
+  return (
+    <dl className="flex flex-wrap gap-x-6 gap-y-3">
+      <TaskFact term="Repo" value={task.repo || '—'} />
+      <TaskFact
+        term="Modules"
+        value={modules.length > 0 ? modules.map((module) => module.name).join(' · ') : '—'}
+        title={modules.map((module) => module.path).join('\n')}
+      />
+      <TaskFact term="After" value={after} />
+    </dl>
+  )
+}
+
+function TaskFact({ term, value, title }: { term: string; value: string; title?: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-micro text-[color:var(--text-subtle)]">{term}</dt>
+      <dd
+        className="mt-0.5 font-mono text-micro text-[color:var(--text-default)] [overflow-wrap:anywhere]"
+        title={title || undefined}
+      >
+        {value}
+      </dd>
+    </div>
+  )
+}
+
+// Activity over the elapsed window. Self-scaling — the tallest bar is the
+// busiest bucket — so it needs no axis and cannot be read against an invented
+// maximum. The bucket holding the most recent entry carries full accent.
+function ActivitySparkline({ bars, label }: { bars: ActivitySparkBar[]; label: string }) {
+  return (
+    <div className="mt-1 flex h-[18px] items-end gap-[2px]" role="img" aria-label={label}>
+      {bars.map((bar, index) => (
+        // One ink at two strengths, not two colours: the accent held back to a
+        // quarter for history and full for the newest bucket. The soft accent
+        // token resolves near-grey on a light surface, which reads as a stray
+        // rectangle rather than a chart.
+        <span
+          key={index}
+          className={`flex-1 rounded-[1px] bg-[color:var(--accent-primary)] ${
+            bar.recent ? '' : 'opacity-25'
+          }`}
+          style={{ height: `${Math.round(bar.height * 100)}%` }}
+        />
+      ))}
+    </div>
+  )
+}
+
+// Added vs deleted as a RATIO — the one bar on this pane, and honest because a
+// ratio scales itself. A bar for tokens or for a raw line count would have to
+// be drawn against a maximum nobody set.
+function DiffRatioBar({ additions, deletions }: { additions: number; deletions: number }) {
+  const total = additions + deletions
+  if (total <= 0) return null
+  const addPct = (additions / total) * 100
+  return (
+    <div
+      className="mt-1 flex h-[5px] overflow-hidden rounded-[3px] bg-[color:var(--bg-hover)]"
+      role="img"
+      aria-label={`${additions} added, ${deletions} deleted`}
+    >
+      <span className="block h-full bg-[color:var(--diff-added)]" style={{ width: `${addPct}%` }} />
+      <span className="block h-full bg-[color:var(--diff-removed)]" style={{ width: `${100 - addPct}%` }} />
+    </div>
+  )
+}
+
+function TaskReadout({
+  label,
+  value,
+  muted,
+  children,
+}: {
+  label: string
+  value: string
+  muted?: boolean
+  children?: React.ReactNode
+}) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="text-micro text-[color:var(--text-subtle)]">{label}</div>
+      <div
+        className={`mt-0.5 truncate font-mono text-meta ${
+          muted ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-strong)]'
+        }`}
+      >
+        {value}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * How it is going: three readouts true of every task whatever it does, which is
+ * what makes them chartable at all.
+ *
+ * Elapsed carries a sparkline and Diff carries an add/delete ratio bar because
+ * both scale themselves. Tokens carries NO bar: token counts have no natural
+ * ceiling, so any bar would be drawn against an invented maximum. An agent
+ * whose CLI exposes no readable token source reads as unmeasured — never as a
+ * zero, which would claim a measurement nobody made.
+ */
+function TaskReadouts({
+  task,
+  tokenUsage,
+  timeline,
+  diffOpen,
+  onToggleDiff,
+}: {
+  task: SprintEngineTask
+  tokenUsage: SprintEngineTaskTokenUsage | null | undefined
+  timeline: TaskTimelineItem[]
+  diffOpen: boolean
+  onToggleDiff: (() => void) | null
+}) {
+  // One clock read per render pass; the pane re-renders on every projection
+  // tick, so a live task's elapsed figure stays current without a timer.
+  const nowMs = Date.now()
+  const elapsedMs = taskElapsedMs(task, nowMs)
+  const startedMs = task.startedAt ? Date.parse(task.startedAt) : NaN
+  const bars = useMemo(() => {
+    if (elapsedMs === null || !Number.isFinite(startedMs)) return []
+    return taskActivitySparkline(
+      timeline.map((item) => item.timestamp),
+      { startMs: startedMs, endMs: startedMs + elapsedMs },
+    )
+  }, [timeline, startedMs, elapsedMs])
+
+  const diff = taskDiffTotals(task)
+  const tokens = tokenUsage?.measured
+    ? formatTokenCount(tokenUsage.total.total)
+    : tokenUsage?.ownerOwnsMultipleTasks
+      ? 'not attributable'
+      : 'unmeasured'
+
+  return (
+    <div className="flex gap-4">
+      <TaskReadout
+        label="Elapsed"
+        value={elapsedMs === null ? 'not started' : formatElapsed(elapsedMs)}
+        muted={elapsedMs === null}
+      >
+        {bars.length > 0 ? <ActivitySparkline bars={bars} label="Activity over time" /> : null}
+      </TaskReadout>
+
+      <div className="min-w-0 flex-1">
+        {diff && onToggleDiff ? (
+          <button
+            type="button"
+            onClick={onToggleDiff}
+            aria-expanded={diffOpen}
+            className={`interactive -mx-1 block w-full rounded px-1 text-left ${FOCUS_RING_CLASS}`}
+          >
+            <div className="text-micro text-[color:var(--text-subtle)]">
+              Diff
+              <span
+                aria-hidden="true"
+                className={`ml-1 inline-block text-[color:var(--text-disabled)] transition-transform ${
+                  diffOpen ? 'rotate-90' : ''
+                }`}
+              >
+                ›
+              </span>
+            </div>
+            <div className="mt-0.5 truncate font-mono text-meta text-[color:var(--text-strong)]">
+              +{diff.additions} −{diff.deletions}
+            </div>
+            <DiffRatioBar additions={diff.additions} deletions={diff.deletions} />
+          </button>
+        ) : (
+          <TaskReadout label="Diff" value={diff ? `+${diff.additions} −${diff.deletions}` : 'none'} muted={!diff}>
+            {diff ? <DiffRatioBar additions={diff.additions} deletions={diff.deletions} /> : null}
+          </TaskReadout>
+        )}
+      </div>
+
+      <TaskReadout label="Tokens" value={tokens} muted={!tokenUsage?.measured} />
     </div>
   )
 }
@@ -2380,7 +2518,6 @@ export function SprintEngineInspectorPanel({
   agents,
   tasksById,
   selectedTaskBoardColumn,
-  selectedTaskOwnerLabel,
   selectedTaskNeedsInputNote,
   selectedTaskTokenUsage,
   selectedTaskArtifacts,
@@ -2396,6 +2533,8 @@ export function SprintEngineInspectorPanel({
   onSubmitPreviewAnnotations,
   onResolveTaskInput,
   onPostTaskComment,
+  onOpenBacklogItem,
+  taskItemInEpic = false,
   onBackFromArtifact,
   onPopOutArtifact,
   onSpawnAgent,
@@ -2411,7 +2550,6 @@ export function SprintEngineInspectorPanel({
   agents: Record<string, AgentState>
   tasksById: Record<string, SprintEngineTask>
   selectedTaskBoardColumn: SprintEngineTaskBoardColumn | null
-  selectedTaskOwnerLabel: string
   selectedTaskNeedsInputNote: string | null
   /** Owner-session token usage for the selected task (single-owner engine),
    * from the run's token ledger. Absent/unmeasured renders no figure. */
@@ -2435,6 +2573,16 @@ export function SprintEngineInspectorPanel({
   onSubmitPreviewAnnotations?: (annotations: MockupAnnotation[]) => Promise<void>
   onResolveTaskInput: (taskId: string, resolution: string, complete: boolean) => Promise<boolean>
   onPostTaskComment: (taskId: string, body: string, options: { reopenForRework: boolean }) => Promise<boolean>
+  /**
+   * Open the backlog item a task points at (item 2029's header pointer). Null
+   * when this mount has nowhere to open it — no resident workspace to reveal it
+   * in and no Epic tab to switch to — and the pointer then renders as a plain
+   * label rather than a button that does nothing.
+   */
+  onOpenBacklogItem?: ((relativePath: string) => void) | null
+  /** The run was seeded from the epic this task's item belongs to, so the
+   *  pointer can say where the item is read inside the sprint. */
+  taskItemInEpic?: boolean
   onBackFromArtifact: () => void
   onPopOutArtifact: () => void
   onSpawnAgent: (agentId: string) => void
@@ -2621,8 +2769,14 @@ export function SprintEngineInspectorPanel({
   const lifecycleLive = lifecycle === 'in_progress' || lifecycle === 'needs_input'
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="border-b border-[color:var(--border-default)] px-5 py-4">
+    // The anatomy rules for this pane (zero internal horizontal rules, one
+    // stream, compose above the newest entry) are asserted on the RENDERED
+    // surface by scripts/testing/sprintengine-task-detail-pass.mjs, which finds
+    // the pane by this attribute.
+    <div data-sprintengine-task-detail className="flex h-full min-h-0 flex-col">
+      {/* Who and what. No rule under it: the space between this group and the
+          next is what separates them (item 2029 anatomy). */}
+      <header className="px-5 pb-2 pt-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">
@@ -2644,16 +2798,21 @@ export function SprintEngineInspectorPanel({
             closeLabel="Close task detail"
           />
         </div>
+        <TaskItemPointer
+          task={selectedTask}
+          inEpic={taskItemInEpic}
+          onOpenBacklogItem={onOpenBacklogItem ?? null}
+        />
       </header>
 
       <SprintEngineTaskBody
         key={selectedTask.id}
         selectedTask={selectedTask}
-        selectedTaskOwnerLabel={selectedTaskOwnerLabel}
         selectedTaskNeedsInputNote={selectedTaskNeedsInputNote}
         selectedTaskTokenUsage={selectedTaskTokenUsage}
         selectedTaskArtifacts={selectedTaskArtifacts}
         selectedTaskArtifactBlockers={selectedTaskArtifactBlockers}
+        runEvents={sprintEngineState.events}
         artifactActions={artifactActions}
         taskInputAction={taskInputActions[selectedTask.id]}
         taskCommentAction={taskCommentActions[selectedTask.id]}
@@ -2674,11 +2833,11 @@ export function SprintEngineInspectorPanel({
 
 function SprintEngineTaskBody({
   selectedTask,
-  selectedTaskOwnerLabel,
   selectedTaskNeedsInputNote,
   selectedTaskTokenUsage,
   selectedTaskArtifacts,
   selectedTaskArtifactBlockers,
+  runEvents,
   artifactActions,
   taskInputAction,
   taskCommentAction,
@@ -2694,11 +2853,13 @@ function SprintEngineTaskBody({
   terminalActionsUnavailable,
 }: {
   selectedTask: SprintEngineTask
-  selectedTaskOwnerLabel: string
   selectedTaskNeedsInputNote: string | null
   selectedTaskTokenUsage?: SprintEngineTaskTokenUsage | null
   selectedTaskArtifacts: SprintEngineArtifact[]
   selectedTaskArtifactBlockers: ReturnType<typeof getSprintEngineArtifactDependencyBlockers>
+  /** The run's event log. The timeline merges the VCS milestones this task's
+   *  own work reached out of it; nothing else is read from it here. */
+  runEvents: SprintEngineEvent[]
   artifactActions: Record<string, ArtifactActionState>
   taskInputAction: TaskInputActionState | undefined
   taskCommentAction: TaskCommentActionState | undefined
@@ -2715,47 +2876,36 @@ function SprintEngineTaskBody({
 }) {
   const openIssues = getOpenSprintEngineFeedbackIssues(selectedTask.feedback)
   const openFindings = getOpenSprintEngineFeedbackFindings(selectedTask.feedback)
-  const activityEntries = getSprintEngineTaskActivityDescending(selectedTask)
-  const openFeedbackComments = getOpenSprintEngineFeedbackComments(selectedTask)
-  const [view, setView] = useState<'activity' | 'diff'>('activity')
-  const tabIdPrefix = useId()
+  const timeline = useMemo(
+    () => buildTaskTimeline(selectedTask, runEvents),
+    [selectedTask, runEvents],
+  )
   const findingsAnchorRef = useRef<HTMLDivElement | null>(null)
+  const changedFilesRef = useRef<HTMLDivElement | null>(null)
   const diffCount = selectedTask.evidence.diffs?.length ?? 0
   const captureExpected = diffCaptureStatuses.includes(selectedTask.status)
-  const showDiffTab = captureExpected || diffCount > 0
-  const tabItems: TabItem<'activity' | 'diff'>[] = [
-    { id: 'activity', label: 'Activity' },
-    { id: 'diff', label: 'Diff', ...(diffCount > 0 ? { count: diffCount } : {}) },
-  ]
-  const effectiveView = showDiffTab ? view : 'activity'
+  const hasChangedFiles = captureExpected || diffCount > 0
+  const [diffOpen, setDiffOpen] = useState(false)
   const hasOpenFindings = openIssues.length + openFindings.length > 0
   const onJumpToFindings = hasOpenFindings
     ? () => findingsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     : null
-
-  const activityStream = (
-    <>
-      <TaskActivityFeed
-        entries={activityEntries}
-        emptyLabel="No activity recorded yet."
-        task={selectedTask}
-        artifacts={selectedTaskArtifacts}
-        onViewDiff={showDiffTab ? () => setView('diff') : null}
-        onOpenArtifact={(artifact) => void onOpenArtifact(artifact)}
-        onJumpToFindings={onJumpToFindings}
-      />
-      <TaskOpenFeedbackComments comments={openFeedbackComments} />
-      <TaskCommentComposer
-        taskId={selectedTask.id}
-        canSendBack={taskCanBeSentBackForRework(selectedTask.status)}
-        action={taskCommentAction}
-        onPostTaskComment={onPostTaskComment}
-      />
-    </>
-  )
+  // The Diff readout IS the way into the changed files — the tab beside the
+  // stream is gone (item 2029), so the number you read and the files behind it
+  // are one control. The timeline's evidence entry opens the same section.
+  const openChangedFiles = hasChangedFiles
+    ? () => {
+        setDiffOpen(true)
+        window.requestAnimationFrame(() =>
+          changedFilesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+        )
+      }
+    : null
 
   return (
-    <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-body leading-6 text-[color:var(--text-default)]">
+    <div className="flex-1 space-y-5 overflow-auto px-5 pb-4 pt-2 text-body leading-6 text-[color:var(--text-default)]">
+      {/* Who is on it — the header names the task, this names the workers and
+          opens their terminals. */}
       <TaskImplementerTimeline
         task={selectedTask}
         runtimeAgents={runtimeAgents}
@@ -2763,6 +2913,8 @@ function SprintEngineTaskBody({
         terminalActionsUnavailable={terminalActionsUnavailable}
       />
 
+      {/* An exception state preempts the reading order: a task waiting on a
+          person is the only thing worth reading first. */}
       <TaskNeedsInputCallout
         task={selectedTask}
         fallbackNote={selectedTaskNeedsInputNote}
@@ -2780,10 +2932,28 @@ function SprintEngineTaskBody({
         <ArtifactBlockerList blockers={selectedTaskArtifactBlockers} />
       ) : null}
 
+      {/* Where it runs. */}
+      <TaskExecutionFacts task={selectedTask} />
+
+      {/* How it is going. */}
+      <div>
+        <TaskReadouts
+          task={selectedTask}
+          tokenUsage={selectedTaskTokenUsage}
+          timeline={timeline}
+          diffOpen={diffOpen}
+          onToggleDiff={hasChangedFiles ? () => setDiffOpen((open) => !open) : null}
+        />
+        {hasChangedFiles && diffOpen ? (
+          <div ref={changedFilesRef} className="mt-2">
+            <ChangedFilesSection task={selectedTask} />
+          </div>
+        ) : null}
+      </div>
+
       {/* MC-1469: artifacts are the task's outputs, not reference metadata —
-          they render first-class after the review surfaces rather than inside
-          the collapsed More section. Hidden entirely when a task has none so
-          artifact-less tasks stay quiet. */}
+          they render first-class rather than inside the collapsed More section.
+          Hidden entirely when a task has none so artifact-less tasks stay quiet. */}
       {selectedTaskArtifacts.length > 0 ? (
         <SprintEngineArtifactList
           artifacts={selectedTaskArtifacts}
@@ -2791,6 +2961,7 @@ function SprintEngineTaskBody({
           actions={artifactActions}
           title="Artifacts"
           emptyLabel=""
+          dividers={false}
           onSelectTask={onSelectTask}
           onOpenArtifact={(artifact) => void onOpenArtifact(artifact)}
           onApproveArtifact={(artifact) => void onApproveArtifact(artifact)}
@@ -2802,176 +2973,107 @@ function SprintEngineTaskBody({
         <TaskOpenFindings issues={openIssues} findings={openFindings} />
       </div>
 
+      {/* What happened — one stream, compose above the newest entry. There is
+          no description and no acceptance criteria on this pane: those are the
+          backlog item's words, and the header points at it. */}
       <div>
-        <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">
-          Description
+        <div className="mb-2 flex flex-wrap items-baseline gap-2">
+          <div className="text-micro font-semibold text-[color:var(--text-muted)]">Timeline</div>
+          <span className="tabular-nums font-mono text-micro text-[color:var(--text-disabled)]">
+            {timeline.length}
+          </span>
         </div>
-        <div className="text-body leading-6 text-[color:var(--text-default)]">
-          {selectedTask.description || (
-            <span className="text-[color:var(--text-disabled)]">No description recorded.</span>
+        <div className="mb-3">
+          <TaskCommentComposer
+            taskId={selectedTask.id}
+            canSendBack={taskCanBeSentBackForRework(selectedTask.status)}
+            action={taskCommentAction}
+            onPostTaskComment={onPostTaskComment}
+          />
+        </div>
+        <TaskTimeline
+          items={timeline}
+          emptyLabel="Nothing has happened on this task yet."
+          task={selectedTask}
+          artifacts={selectedTaskArtifacts}
+          onViewDiff={openChangedFiles}
+          onOpenArtifact={(artifact) => void onOpenArtifact(artifact)}
+          onJumpToFindings={onJumpToFindings}
+        />
+      </div>
+
+      {/* Everything the engine records that this pane does not headline. Kept
+          reachable, never deleted — agents read the full metadata and the run
+          statistics are built from it. */}
+      <details className="group">
+        <summary className="cursor-pointer list-none text-micro font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]">
+          <span className="mr-1 inline-block transition-transform group-open:rotate-90" aria-hidden="true">›</span>
+          More
+        </summary>
+        <div className="mt-3 space-y-4">
+          <DefinitionList
+            layout="compact-grid"
+            items={[
+              { term: 'Source', description: formatTaskSourceLabel(selectedTask) },
+              {
+                term: selectedTask.completedAt ? 'Completed' : 'Started',
+                description: formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt),
+              },
+              ...(selectedTask.model
+                ? [{ term: 'Model', description: selectedTask.model }]
+                : []),
+            ]}
+          />
+
+          {selectedTask.triage ? (
+            <div className="border-l border-[color:var(--tone-warn-soft)] pl-3 text-meta leading-5 text-[color:var(--text-default)]">
+              <div className="text-micro font-semibold text-[color:var(--tone-warn)]">
+                Architect triage
+              </div>
+              <div className="mt-1">{selectedTask.triage.summary}</div>
+            </div>
+          ) : null}
+
+          <SectionList
+            title="Owned modules"
+            items={selectedTask.ownedPaths}
+            emptyLabel="No owned modules recorded."
+          />
+          <SectionList
+            title="Implementation notes"
+            items={selectedTask.implementationNotes}
+            emptyLabel="No implementation notes recorded."
+          />
+          {selectedTask.notes.length > 0 ? (
+            <SectionList title="Planning notes" items={selectedTask.notes} emptyLabel="" />
+          ) : null}
+
+          <div>
+            <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">
+              Evidence summary
+            </div>
+            <div>{selectedTask.evidence.summary || 'No completion summary recorded yet.'}</div>
+          </div>
+
+          <SectionList
+            title="Commands run"
+            items={selectedTask.evidence.commandsRan}
+            emptyLabel="No commands recorded."
+          />
+          <SectionList
+            title="Results"
+            items={selectedTask.evidence.results}
+            emptyLabel="No test or validation results recorded."
+          />
+          {selectedTask.evidence.diffs && selectedTask.evidence.diffs.length > 0 ? null : (
+            <SectionList
+              title="Touched files"
+              items={selectedTask.evidence.touchedFiles}
+              emptyLabel="No touched files recorded."
+            />
           )}
         </div>
-      </div>
-
-      {selectedTask.acceptanceCriteria.length > 0 ? (
-        <div>
-          <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">
-            Acceptance criteria
-          </div>
-          <ul className="space-y-1.5 text-body text-[color:var(--text-default)]">
-            {selectedTask.acceptanceCriteria.map((criterion) => (
-              <li
-                key={criterion}
-                className="grid grid-cols-[14px_minmax(0,1fr)] items-baseline gap-2"
-              >
-                <AcceptanceCheckbox checked={selectedTask.status === 'done'} />
-                <span className="[overflow-wrap:anywhere]">{criterion}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      <TaskScoresLine task={selectedTask} />
-
-      {showDiffTab ? (
-        <div>
-          <Tabs<'activity' | 'diff'>
-            ariaLabel="Task detail views"
-            idPrefix={tabIdPrefix}
-            items={tabItems}
-            value={effectiveView}
-            onChange={setView}
-          />
-          <TabPanel
-            idPrefix={tabIdPrefix}
-            tabId="activity"
-            active={effectiveView === 'activity'}
-            className="mt-4 space-y-5"
-          >
-            {activityStream}
-          </TabPanel>
-          <TabPanel
-            idPrefix={tabIdPrefix}
-            tabId="diff"
-            active={effectiveView === 'diff'}
-            className="mt-4"
-          >
-            <ChangedFilesSection task={selectedTask} />
-          </TabPanel>
-        </div>
-      ) : (
-        <div className="space-y-5">{activityStream}</div>
-      )}
-
-      {/* Compact details — secondary metadata. Hairline-divided, untitled
-          section headings reserved for hierarchy that earns them. */}
-      <div className="border-t border-[color:var(--border-subtle)] pt-4">
-        <DefinitionList
-          layout="compact-grid"
-          items={[
-            { term: 'Source', description: formatTaskSourceLabel(selectedTask) },
-            { term: 'Owner', description: selectedTaskOwnerLabel },
-            // Owner-session token usage (single-owner engine: one agent takes
-            // the task start → finish, so its session total IS the task's
-            // cost). Shown only when a real figure exists — an unmeasured CLI
-            // or a pre-ledger run renders no row, never a fabricated zero.
-            ...(selectedTaskTokenUsage?.measured
-              ? [
-                  {
-                    term: 'Tokens',
-                    description: `${formatTokenCount(selectedTaskTokenUsage.total.total)} (owner session total)`,
-                  },
-                ]
-              : selectedTaskTokenUsage?.ownerOwnsMultipleTasks
-                ? [{ term: 'Tokens', description: 'Not attributable — owner worked multiple tasks' }]
-                : []),
-            {
-              term: 'Depends on',
-              description: selectedTask.dependsOn.length > 0 ? selectedTask.dependsOn.join(', ') : 'None',
-            },
-            {
-              term: selectedTask.completedAt ? 'Completed' : 'Started',
-              description: formatTimestamp(selectedTask.completedAt ?? selectedTask.startedAt),
-            },
-          ]}
-        />
-
-        {selectedTask.source?.type === 'github' ? (
-          <div className="mt-3 text-meta leading-5 text-[color:var(--text-default)]">
-            <span className="text-[color:var(--text-muted)]">GitHub issue · </span>
-            <span>
-              {selectedTask.source.repo ? `${selectedTask.source.repo} ` : ''}
-              {selectedTask.source.externalId ? `#${selectedTask.source.externalId}` : ''}
-            </span>
-            {selectedTask.source.externalUrl ? (
-              <button
-                type="button"
-                onClick={() => {
-                  window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
-                }}
-                className="mt-1 text-micro text-[color:var(--accent-primary)] interactive hover:text-[color:var(--accent-primary-hover)]"
-              >
-                Open issue →
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-
-        {selectedTask.triage ? (
-          <div className="mt-3 border-l border-[color:var(--tone-warn-soft)] pl-3 text-meta leading-5 text-[color:var(--text-default)]">
-            <div className="text-micro font-semibold text-[color:var(--tone-warn)]">
-              Architect triage
-            </div>
-            <div className="mt-1">{selectedTask.triage.summary}</div>
-          </div>
-        ) : null}
-
-        {/* Additional reference sections collapsed to keep the surface
-            quiet. Open on demand. */}
-        <details className="group mt-4">
-          <summary className="cursor-pointer list-none text-micro font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]">
-            <span className="mr-1 inline-block transition-transform group-open:rotate-90" aria-hidden="true">›</span>
-            More
-          </summary>
-          <div className="mt-3 space-y-4">
-            <SectionList title="Owned paths" items={selectedTask.ownedPaths} emptyLabel="No owned paths recorded." />
-            <SectionList
-              title="Implementation notes"
-              items={selectedTask.implementationNotes}
-              emptyLabel="No implementation notes recorded."
-            />
-            {selectedTask.notes.length > 0 ? (
-              <SectionList title="Planning notes" items={selectedTask.notes} emptyLabel="" />
-            ) : null}
-
-            <div>
-              <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">
-                Evidence summary
-              </div>
-              <div>{selectedTask.evidence.summary || 'No completion summary recorded yet.'}</div>
-            </div>
-
-            <SectionList
-              title="Commands run"
-              items={selectedTask.evidence.commandsRan}
-              emptyLabel="No commands recorded."
-            />
-            <SectionList
-              title="Results"
-              items={selectedTask.evidence.results}
-              emptyLabel="No test or validation results recorded."
-            />
-            {selectedTask.evidence.diffs && selectedTask.evidence.diffs.length > 0 ? null : (
-              <SectionList
-                title="Touched files"
-                items={selectedTask.evidence.touchedFiles}
-                emptyLabel="No touched files recorded."
-              />
-            )}
-          </div>
-        </details>
-      </div>
+      </details>
     </div>
   )
 }
