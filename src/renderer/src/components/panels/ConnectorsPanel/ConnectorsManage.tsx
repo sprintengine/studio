@@ -227,7 +227,7 @@ export function ConnectorsManage({
       <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
         <details className="group space-y-3 [&[open]]:space-y-3">
           {/* Row-sized affordance matching the inventory rows above it. */}
-          <summary className="interactive flex cursor-pointer list-none items-center justify-between gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] p-2.5 text-body font-semibold text-[color:var(--text-strong)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]">
+          <summary className="interactive flex cursor-pointer list-none items-center justify-between gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] p-2.5 text-body font-semibold text-[color:var(--text-strong)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)] focus-visible:focus-ring">
             <span>Add a custom MCP</span>
             <span aria-hidden className="text-meta font-medium text-[color:var(--text-subtle)] transition-transform group-open:rotate-180">▾</span>
           </summary>

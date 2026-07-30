@@ -161,7 +161,7 @@ function MockupRow({
             tabIndex={0}
             role="note"
             aria-label={`${entry.path}: missing, no file on disk`}
-            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 font-mono text-[12px] text-[color:var(--text-disabled)] outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 font-mono text-[12px] text-[color:var(--text-disabled)] outline-none focus-visible:focus-ring"
           >
             {entry.path}
           </span>

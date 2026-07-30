@@ -15,7 +15,7 @@
 import React from 'react'
 import { Popover } from './Popover'
 import { MenuItem, roveMenuFocus } from './ContextMenu'
-import { FOCUS_RING_CLASS } from './tokens'
+import { FOCUS_RING_INSET_CLASS } from './tokens'
 
 export type SplitButtonItem = {
   id: string
@@ -52,7 +52,9 @@ const HALF =
   'interactive inline-flex items-center bg-transparent text-[color:var(--text-default)] ' +
   'text-meta font-medium transition-colors hover:bg-[color:var(--bg-hover)] ' +
   'hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-45 ' +
-  `${FOCUS_RING_CLASS} focus-visible:ring-inset`
+  // Inset: the group clips its overflow, so an outward gap would be cut off
+  // on the joined edge between the halves.
+  FOCUS_RING_INSET_CLASS
 
 // Trailing check on the row the primary half runs. Trailing, not leading: the
 // leading slot carries the target's own glyph, which is what makes the row

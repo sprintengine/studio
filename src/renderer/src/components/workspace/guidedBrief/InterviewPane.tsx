@@ -120,7 +120,7 @@ export function InterviewQuestionCard({
               onKeyDown={(event) => onOptionKeyDown(event, index)}
               className={`
                 flex cursor-pointer flex-col gap-0.5 rounded-md border px-3 py-2 outline-none
-                transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+                transition-colors focus-visible:focus-ring
                 ${
                   selected
                     ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
@@ -191,7 +191,7 @@ export function InterviewQuestionCard({
             text-[12px] font-semibold text-[color:var(--bg-app)] transition-colors
             hover:bg-[color:var(--accent-primary-hover)]
             disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
-            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+            focus-visible:focus-ring
           "
         >
           Answer

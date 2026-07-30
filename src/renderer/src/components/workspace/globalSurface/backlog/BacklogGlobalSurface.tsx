@@ -903,7 +903,7 @@ function BacklogDoorList({
       tabIndex={0}
       onKeyDown={onKeyDown}
       aria-activedescendant={activeIndex >= 0 ? `backlog-door-opt-${activeIndex}` : undefined}
-      className="min-h-0 flex-1 overflow-y-auto py-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]"
+      className="min-h-0 flex-1 overflow-y-auto py-1 outline-none focus-visible:focus-ring-inset"
     >
       {rows.map((row) => {
         if (row.kind === 'project') {

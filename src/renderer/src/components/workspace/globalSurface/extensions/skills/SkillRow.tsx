@@ -5,7 +5,7 @@
 
 import React from 'react'
 
-import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
+import { FOCUS_RING_INSET_CLASS } from '../../../../ui/tokens'
 import { skillGroupLabel, type SkillListItem } from './skillsSurfaceModel'
 
 export function SkillRow({
@@ -39,7 +39,7 @@ export function SkillRow({
         // The row clips its children to its own rounded corners, so both
         // targets draw their focus ring INSIDE their box — an outset ring would
         // survive as a 1px sliver on the row's edge and read as no ring at all.
-        className={`grid w-8 shrink-0 place-items-center ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
+        className={`grid w-8 shrink-0 place-items-center ${FOCUS_RING_INSET_CLASS}`}
       >
         <span
           aria-hidden="true"
@@ -57,7 +57,7 @@ export function SkillRow({
       <button
         type="button"
         onClick={onOpen}
-        className={`group/skill-row flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pr-2.5 text-left ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
+        className={`group/skill-row flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pr-2.5 text-left ${FOCUS_RING_INSET_CLASS}`}
       >
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-body font-medium text-[color:var(--text-strong)]">{item.name}</span>

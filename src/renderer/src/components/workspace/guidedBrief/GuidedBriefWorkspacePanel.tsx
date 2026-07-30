@@ -180,7 +180,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
             className="
               inline-flex h-8 items-center rounded-md px-2 text-[12px] font-medium text-[color:var(--text-muted)]
               transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+              focus-visible:focus-ring
             "
           >
             Back to brief

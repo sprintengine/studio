@@ -144,7 +144,7 @@ export function SprintEngineRosterTable({
               }}
               className="
                 flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left transition-colors
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]
+                focus-visible:focus-ring-inset
                 disabled:cursor-not-allowed
               "
             >
@@ -319,7 +319,7 @@ export function AgentCliPicker({
               interactive inline-flex h-7 min-w-[140px] items-center justify-between gap-2 rounded-md border border-[color:var(--color-5)]
               bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)]
               hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+              focus-visible:focus-ring
               disabled:cursor-not-allowed disabled:opacity-45
             "
             {...triggerProps}

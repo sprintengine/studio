@@ -238,7 +238,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search notes…"
-              className="h-8 w-64 rounded-[5px] border border-[color:var(--border-strong)] bg-transparent pl-7 pr-7 text-xs text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-subtle)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+              className="h-8 w-64 rounded-[5px] border border-[color:var(--border-strong)] bg-transparent pl-7 pr-7 text-xs text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-subtle)] focus-visible:focus-ring"
             />
             <kbd
               className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded-[3px] bg-[color:var(--bg-surface-raised)] px-1 py-0.5 font-mono text-micro text-[color:var(--text-disabled)]"
@@ -250,7 +250,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
             <button
               type="button"
               onClick={() => void loadGraph()}
-              className="flex h-8 items-center gap-1.5 rounded-[5px] px-2.5 text-xs text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+              className="flex h-8 items-center gap-1.5 rounded-[5px] px-2.5 text-xs text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
               aria-label="Refresh knowledge index"
             >
               <span aria-hidden>↻</span>

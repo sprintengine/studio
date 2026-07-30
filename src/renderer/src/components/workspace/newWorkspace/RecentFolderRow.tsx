@@ -42,7 +42,7 @@ export function RecentFolderRow({ path, active, hints, onSelect }: RecentFolderR
       onClick={() => onSelect(path)}
       className={`
         group flex w-full min-w-0 items-center gap-3 rounded px-2 py-1.5 text-left
-        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+        transition-colors focus-visible:focus-ring
         ${active ? 'bg-[color:var(--bg-hover)]' : 'hover:bg-[color:var(--bg-surface-raised)]'}
       `}
     >

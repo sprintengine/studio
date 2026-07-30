@@ -153,7 +153,7 @@ function Row({
       aria-expanded={open}
       aria-current={open ? 'true' : undefined}
       aria-label={ariaLabel}
-      className="interactive flex min-w-0 flex-1 items-baseline gap-2 px-3 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+      className="interactive flex min-w-0 flex-1 items-baseline gap-2 px-3 py-1.5 text-left focus-visible:focus-ring"
     >
       <span className="self-center text-[color:var(--text-subtle)]">
         <Chevron open={open} />

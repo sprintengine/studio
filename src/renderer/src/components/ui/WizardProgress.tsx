@@ -96,7 +96,7 @@ export function WizardProgress({
                 className="
                   inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] font-medium text-[color:var(--text-muted)]
                   transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
-                  focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+                  focus-visible:focus-ring
                 "
               >
                 {body}
@@ -176,7 +176,7 @@ export function WizardProgress({
                   ? `Go back to step ${idx + 1}: ${stepLabel}`
                   : `Go back to step ${idx + 1}`
               }
-              className="h-full flex-1 rounded-full outline-none transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+              className="h-full flex-1 rounded-full outline-none transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
             />
           )
         })}

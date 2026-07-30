@@ -123,7 +123,7 @@ run('a skill row carries two targets and never nests them', () => {
   assert.equal(hasNestedButton(markup), false)
   // The row clips its children, so an outset focus ring survives as a 1px
   // sliver: both targets ring inward or the keyboard has no visible focus.
-  assert.equal(markup.match(/focus-visible:ring-inset/g)?.length, 4, 'both targets on both rows')
+  assert.equal(markup.match(/focus-visible:focus-ring-inset/g)?.length, 4, 'both targets on both rows')
 })
 
 run('a grouped source renders its group tree and one group of rows', () => {

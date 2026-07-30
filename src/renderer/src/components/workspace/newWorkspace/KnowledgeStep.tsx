@@ -201,7 +201,7 @@ export function KnowledgeStep({ projectRoot, committedRelativeRoot, onCommit, au
                   aria-pressed={active}
                   className={[
                     'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-[12px] transition-colors',
-                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]',
+                    'focus-visible:focus-ring',
                     active
                       ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                       : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
@@ -219,7 +219,7 @@ export function KnowledgeStep({ projectRoot, committedRelativeRoot, onCommit, au
         <button
           type="button"
           onClick={() => commit('')}
-          className="w-fit rounded text-[12px] text-[color:var(--text-subtle)] underline-offset-2 hover:text-[color:var(--text-default)] hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          className="w-fit rounded text-[12px] text-[color:var(--text-subtle)] underline-offset-2 hover:text-[color:var(--text-default)] hover:underline focus-visible:focus-ring"
         >
           Clear knowledge folder
         </button>

@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative } from 'node:path'
 
 const root = process.cwd()
 
 function read(path: string): string {
   return readFileSync(join(root, path), 'utf8')
+}
+
+function collectSources(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) collectSources(full, out)
+    else if (entry.isFile() && /\.tsx?$/.test(entry.name)) out.push(full)
+  }
+  return out
 }
 
 function expectIncludes(source: string, needle: string, message: string): void {
@@ -159,14 +168,10 @@ expectIncludes(
   'var(--accent-primary)',
   'Switch uses the accent token for the checked state',
 )
-// --border-focus resolves to --accent-primary, so a zero-offset focus ring
-// against a checked track is invisible: focused and unfocused render
-// identically. The offset outline is the only thing separating them, and it is
-// why this control does not use the shared FOCUS_RING_CLASS.
-expectMatches(
+expectIncludes(
   switchPrimitive,
-  /focus-visible:outline-offset-2[\s\S]*focus-visible:outline-\[color:var\(--border-focus\)\]/,
-  'Switch shows focus as an offset outline, so the checked track cannot swallow it',
+  'FOCUS_RING_CLASS',
+  'Switch takes the shared focus treatment — no local focus exception survives',
 )
 
 expectIncludes(field, 'htmlFor={htmlFor}', 'Field links its <label> to the child input via htmlFor')
@@ -416,5 +421,86 @@ expectIncludes(settingsPanel, 'const skillEntries = await window.api.readdir(ski
 expectIncludes(settingsPanel, 'sourcePath: joinLocalPath(skillsPath, entry.name)', 'Settings role install copies individual skill folders')
 expectIncludes(settingsPanel, "destinationKind: 'skills' as const", 'Settings role install targets discovered skills at .sprintengine/skills')
 expectIncludes(settingsPanel, 'await window.api.copyPathInto(target.sourcePath, destinationDir, { overwrite: true })', 'Settings role install preserves resolved child names in registry discovery folders')
+
+// --- The focus indicator (WCAG 2.4.7 / 1.4.11) -------------------------------
+//
+// One treatment, one declaration, and it has to survive a control whose own fill
+// is the focus colour. `--border-focus` and `--accent-primary` resolve to the
+// same value in 18 of the 19 themes, so a zero-offset ring on `PrimaryButton` or
+// a checked `Switch` had nothing to contrast against and focused rendered
+// pixel-identical to unfocused. What separates them now is geometry, not colour:
+// the indicator is an outline at a non-zero offset, so it lies wholly outside
+// the accent fill against the surface behind it. The chain below is what makes
+// that claim checkable — accent-filled control → shared class → one utility →
+// outline at a positive offset. The pixels are measured separately, in a browser
+// over the real compiled CSS; a class name is not evidence that anything painted.
+{
+  const tokens = read('src/renderer/src/components/ui/tokens.ts')
+  const focusRingUtility = "const FOCUS_RING_UTILITY = 'focus-ring'"
+  expectIncludes(tokens, focusRingUtility, 'tokens.ts names the one focus utility exactly once')
+  expectMatches(
+    tokens,
+    /export const FOCUS_RING_CLASS = `focus-visible:\$\{FOCUS_RING_UTILITY\}`/,
+    'FOCUS_RING_CLASS is that utility on :focus-visible — never a width and a colour of its own',
+  )
+
+  // The utility, and the values it applies, in assets/index.css.
+  expectMatches(
+    rendererCss,
+    /@utility focus-ring \{\s*outline: var\(--focus-ring\);\s*outline-offset: var\(--focus-ring-offset\);\s*\}/,
+    'the focus-ring utility applies --focus-ring as an outline at --focus-ring-offset',
+  )
+  const outline = /--focus-ring:\s*([^;]+);/.exec(rendererCss)
+  assert.ok(outline, '--focus-ring is declared in index.css')
+  assert.match(
+    outline[1],
+    /^2px solid var\(--border-focus\)$/,
+    'the indicator is a 2px outline in the theme’s own --border-focus, not a box-shadow ring',
+  )
+  const offset = /--focus-ring-offset:\s*(\d+(?:\.\d+)?)px;/.exec(rendererCss)
+  assert.ok(offset, '--focus-ring-offset is declared in index.css')
+  assert.ok(
+    Number(offset[1]) > 0,
+    `the offset is what separates the indicator from an accent fill, so it must be positive (found ${offset?.[1]}px)`,
+  )
+
+  // The accent-filled controls: both take the shared class, so both inherit that
+  // offset. PrimaryButton is the most visible case, a checked Switch the one
+  // that was measured as pixel-identical before the fix.
+  expectMatches(
+    buttons,
+    /bg-\[color:var\(--accent-primary\)\][\s\S]{0,200}FOCUS_RING_CLASS/,
+    'PrimaryButton pairs its accent fill with the shared focus class',
+  )
+  expectMatches(
+    switchPrimitive,
+    /bg-\[color:var\(--accent-primary\)\][\s\S]{0,600}FOCUS_RING_CLASS/,
+    'a checked Switch pairs its accent track with the shared focus class',
+  )
+
+  // And nothing hand-rolls a second treatment. This is the app-wide half of the
+  // contract: a per-component ring would drift the moment the shared one moves,
+  // which is exactly how the accent collision survived nineteen themes.
+  // Focus-scoped only, and over code rather than prose: a selection ring
+  // (ContextMenu's chosen swatch, WorkspaceSidebar's drop target) is a different
+  // signal that legitimately draws a ring, and tests name class strings to assert
+  // on them. Comments are stripped so a note *about* the retired idiom does not
+  // read as a use of it.
+  const HAND_ROLLED_FOCUS =
+    /(?:focus-visible|peer-focus-visible|group-focus-visible|has-\[input:focus\]):(?:ring|outline)-/
+  const componentSources = collectSources(join(root, 'src/renderer/src'))
+  const offenders = componentSources.filter((path) => {
+    if (/\.test\.tsx?$/.test(path)) return false
+    const code = readFileSync(path, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1')
+    return HAND_ROLLED_FOCUS.test(code)
+  })
+  assert.deepEqual(
+    offenders.map((path) => relative(root, path)),
+    [],
+    'no component declares a focus treatment of its own — the utility is the only one',
+  )
+}
 
 console.log('Accessibility primitive contracts passed')

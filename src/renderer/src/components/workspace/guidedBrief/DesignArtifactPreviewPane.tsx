@@ -72,7 +72,7 @@ function PreviewHeader({
             className="
               inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
               transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+              focus-visible:focus-ring
             "
           >
             Reload
@@ -85,7 +85,7 @@ function PreviewHeader({
             className="
               inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
               transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+              focus-visible:focus-ring
             "
           >
             {copied ? 'Copied' : 'Copy path'}

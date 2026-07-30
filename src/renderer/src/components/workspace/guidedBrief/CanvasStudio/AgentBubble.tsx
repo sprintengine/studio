@@ -61,7 +61,7 @@ export function AgentBubble({
         absolute bottom-5 right-5 z-20 flex max-w-[calc(100%-2.5rem)] items-center gap-2.5
         rounded-full border bg-[color:var(--bg-surface-raised)] py-2 pl-2.5 pr-4 text-left
         shadow-[var(--shadow-drawer)] transition-colors hover:bg-[color:var(--bg-hover)]
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+        focus-visible:focus-ring
         ${attention
           ? 'border-[color:var(--tone-warn)] ring-1 ring-[color:var(--tone-warn)]'
           : 'border-[color:var(--border-default)]'}

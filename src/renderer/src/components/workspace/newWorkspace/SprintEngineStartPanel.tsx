@@ -229,7 +229,7 @@ export function SprintEngineStartPanel({
               className="
                 h-7 w-16 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)]
                 px-2 text-right text-[12px] tabular-nums text-[color:var(--text-strong)]
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+                focus-visible:focus-ring
               "
             />
             <div className="mt-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">

@@ -1910,7 +1910,7 @@ export default function SettingsPanel({
                     type="button"
                     aria-pressed={appearanceWindowMaterial === material}
                     onClick={() => setAppearanceWindowMaterial(material)}
-                    className={`interactive rounded px-3.5 py-1 text-body font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+                    className={`interactive rounded px-3.5 py-1 text-body font-medium focus-visible:focus-ring ${
                       appearanceWindowMaterial === material
                         ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
                         : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
@@ -2936,7 +2936,7 @@ const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
       tabIndex={active ? 0 : -1}
       onClick={onClick}
       onKeyDown={onKeyDown}
-      className={`interactive flex w-full items-center gap-2 rounded-[5px] px-2 py-1 text-left text-body leading-5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+      className={`interactive flex w-full items-center gap-2 rounded-[5px] px-2 py-1 text-left text-body leading-5 focus-visible:focus-ring ${
         active
           ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'

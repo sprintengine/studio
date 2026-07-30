@@ -1924,7 +1924,7 @@ function BacklogList({
       // Active-descendant so screen readers announce the active plan as j/k/arrow
       // navigation moves selection while focus stays on the listbox.
       aria-activedescendant={activeIndex >= 0 ? `backlog-opt-${activeIndex}` : undefined}
-      className="min-h-0 flex-1 overflow-y-auto py-1 outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]"
+      className="min-h-0 flex-1 overflow-y-auto py-1 outline-none focus-visible:focus-ring-inset"
     >
       {groupedRows
         ? groupedRows.map((row) =>
@@ -2975,7 +2975,7 @@ function BacklogEpicSearchEditor({
           aria-controls={triggerProps['aria-controls']}
           aria-label="Move to epic"
           onClick={togglePopover}
-          className="interactive inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          className="interactive inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
         >
           <span className="min-w-0 flex-1 truncate">{currentLabel}</span>
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className="shrink-0 text-[color:var(--text-muted)]">

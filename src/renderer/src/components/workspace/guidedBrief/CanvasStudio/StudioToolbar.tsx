@@ -48,7 +48,7 @@ function NavRegion({ nav, drawerOpen, onToggleDrawer, screensButtonRef }: Props)
             onClick={onToggleDrawer}
             aria-expanded={drawerOpen}
             aria-haspopup="dialog"
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors focus-visible:focus-ring ${
               drawerOpen
                 ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
                 : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
@@ -132,7 +132,7 @@ function PillSegmented({
             className={`
               max-w-[13ch] truncate px-2.5 py-1 text-[11px] transition-colors
               disabled:cursor-not-allowed
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]
+              focus-visible:focus-ring-inset
               ${index > 0 ? 'border-l border-[color:var(--border-subtle)]' : ''}
               ${
                 isActive

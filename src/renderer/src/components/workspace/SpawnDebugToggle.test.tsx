@@ -56,7 +56,7 @@ run('active: aria-pressed=true with the error-tone fill', () => {
 
 run('carries a visible focus ring and a tooltip noting Auto/Bypass work best', () => {
   const el = tooltipElement(false, () => {})
-  assert.match(buttonOf(el).props.className, /focus-visible:ring-2/, 'keyboard focus is visible, not suppressed')
+  assert.match(buttonOf(el).props.className, /focus-visible:focus-ring/, 'keyboard focus is visible, not suppressed')
   assert.match(String(el.props.content), /Auto/, 'the tooltip notes the Auto preset')
   assert.match(String(el.props.content), /Bypass/, 'the tooltip notes the Bypass preset')
 })

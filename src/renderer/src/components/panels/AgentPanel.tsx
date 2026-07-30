@@ -335,7 +335,7 @@ export default function AgentPanel({
                       type="button"
                       onClick={togglePopover}
                       aria-label="Use a skill"
-                      className={`interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-opacity hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] group-hover:opacity-100 ${open ? 'opacity-100' : 'opacity-0'}`}
+                      className={`interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] transition-opacity hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100 ${open ? 'opacity-100' : 'opacity-0'}`}
                       {...triggerProps}
                     >
                       <StarGlyph filled={false} stroked className="h-[15px] w-[15px]" />
@@ -354,7 +354,7 @@ export default function AgentPanel({
                   type="button"
                   onClick={suspendTerminal}
                   aria-label="Suspend agent to free memory"
-                  className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] opacity-0 transition-opacity hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] group-hover:opacity-100"
+                  className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] opacity-0 transition-opacity hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100"
                 >
                   <svg viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px]" aria-hidden="true">
                     <rect x="5" y="4" width="2" height="8" rx="1" fill="currentColor" />
@@ -380,7 +380,7 @@ export default function AgentPanel({
                   onClick={toggleTerminalLock}
                   aria-label={isTerminalLocked ? 'Unlock terminal — allow automatic pausing' : 'Lock terminal — never pause automatically'}
                   aria-pressed={isTerminalLocked}
-                  className={`interactive inline-flex h-7 w-7 items-center justify-center rounded-md border transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] group-hover:opacity-100 ${
+                  className={`interactive inline-flex h-7 w-7 items-center justify-center rounded-md border transition-opacity focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100 ${
                     isTerminalLocked
                       ? 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)] opacity-100'
                       : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] opacity-0 hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)]'
@@ -408,7 +408,7 @@ export default function AgentPanel({
                   type="button"
                   onClick={openLinkedBacklogItem}
                   aria-label={`Open Backlog item: ${backlogItemRef.title}`}
-                  className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+                  className="interactive inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--border-default)] hover:text-[color:var(--text-default)] focus-visible:focus-ring"
                 >
                   {/* Matches the Backlog rail glyph (PanelRail) so the iconography
                       reads as "the Backlog" at a glance. */}
@@ -488,7 +488,7 @@ export default function AgentPanel({
                     ? 'Resuming agent'
                     : 'Resume paused agent — click or type to resume'
                 }
-                className="group flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3.5 py-2 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+                className="group flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3.5 py-2 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:focus-ring"
               >
                 {/* Pause glyph, low-opacity — a status mark, not a call to action.
                     The pulse while resuming is the "alive right now" signal; it

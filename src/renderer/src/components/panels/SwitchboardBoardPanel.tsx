@@ -23,7 +23,7 @@ import {
   CloseIconButton,
   DefinitionList,
   Drawer,
-  FOCUS_RING_CLASS,
+  FOCUS_RING_INSET_CLASS,
   GhostButton,
   OverflowMenu,
   PanelHeader,
@@ -509,7 +509,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         onKeyDown={handleBoardKeyDown}
         aria-label="Switchboard board"
         aria-labelledby="switchboard-panel-title"
-        className={`flex min-w-0 flex-1 flex-col ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
+        className={`flex min-w-0 flex-1 flex-col ${FOCUS_RING_INSET_CLASS}`}
       >
         <PanelHeader
           tool="switchboard"
@@ -540,7 +540,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
             onClick={() => setRunningOpen(true)}
             aria-label="Open running agents"
             aria-pressed={runningOpen}
-            className="interactive flex items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-left text-[12px] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+            className="interactive flex items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-left text-[12px] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
           >
             <StatusDot tone="accent" pulse label="Agents running" />
             <span className="font-medium text-[color:var(--text-strong)]">
@@ -947,7 +947,7 @@ function SwitchboardRunningAgentsAside({
                 type="button"
                 onClick={() => onSelectTask(entry.execution.taskId)}
                 aria-label={`Focus ${identifier} in board`}
-                className="interactive flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]"
+                className="interactive flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring-inset"
               >
                 {role ? (
                   <RoleAvatar role={role} size="md" ariaLabel="" />
@@ -1854,7 +1854,7 @@ function RunnerSettingsFields({
                     : [...draft.queues, queue]
                   onChange({ ...draft, queues: next })
                 }}
-                className={`interactive h-6 rounded-[5px] border px-2 text-[11px] font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+                className={`interactive h-6 rounded-[5px] border px-2 text-[11px] font-medium focus-visible:focus-ring ${
                   active
                     ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'

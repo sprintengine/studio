@@ -91,4 +91,13 @@ export { Toast } from './Toast'
 export { Tooltip, type TooltipChildProps } from './Tooltip'
 export { TruncatedText } from './TruncatedText'
 export type { Tone, StatusTone, ToolIdentity } from './tokens'
-export { FOCUS_RING_CLASS, TONE_COLOR_VAR, STATUS_TONE_COLOR_VAR, TONE_SOFT_VAR, TOOL_COLOR_VAR } from './tokens'
+export {
+  FOCUS_RING_CLASS,
+  FOCUS_RING_INSET_CLASS,
+  FOCUS_RING_PEER_CLASS,
+  FOCUS_RING_WITHIN_INPUT_CLASS,
+  TONE_COLOR_VAR,
+  STATUS_TONE_COLOR_VAR,
+  TONE_SOFT_VAR,
+  TOOL_COLOR_VAR,
+} from './tokens'

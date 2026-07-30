@@ -491,7 +491,7 @@ function IssueRow({
             onClick={onStartSprint}
             disabled={sprint === 'starting'}
             aria-label={`Start a sprint from ${issue.nativeKey}`}
-            className={`interactive shrink-0 self-center rounded px-2 py-1 text-[11px] font-medium text-[color:var(--text-muted)] transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+            className={`interactive shrink-0 self-center rounded px-2 py-1 text-[11px] font-medium text-[color:var(--text-muted)] transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:focus-ring ${
               sprint === 'starting'
                 ? 'opacity-100'
                 : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'

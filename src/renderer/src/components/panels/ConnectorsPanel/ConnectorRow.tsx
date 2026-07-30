@@ -91,7 +91,7 @@ export function ConnectorRow({
             onClick={onOpen}
             aria-expanded={selected}
             aria-label={`Show details for ${name}`}
-            className="interactive flex min-w-0 items-center gap-1.5 rounded-sm text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+            className="interactive flex min-w-0 items-center gap-1.5 rounded-sm text-left focus-visible:focus-ring"
           >
             {nameAndChips}
           </button>
@@ -145,7 +145,7 @@ export function ConnectorRow({
           onClick={onOpen}
           aria-expanded={selected}
           aria-label={`Show details for ${name}`}
-          className="interactive flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          className="interactive flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus-visible:focus-ring"
         >
           {content}
         </button>

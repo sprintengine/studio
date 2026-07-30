@@ -482,7 +482,7 @@ export default function MobileSettingsTab() {
             <button
               type="button"
               onClick={() => void refreshDiagnostics()}
-              className="rounded-md px-2.5 py-1 text-meta font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+              className="rounded-md px-2.5 py-1 text-meta font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
             >
               {showDiagnostics ? 'Refresh' : 'Show'}
             </button>

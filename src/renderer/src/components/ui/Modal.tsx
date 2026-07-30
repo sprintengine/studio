@@ -146,7 +146,7 @@ const PRIMARY_STYLES =
 
 export function ModalButton({ variant = 'ghost', className, ...rest }: ModalButtonProps) {
   const base =
-    'rounded-md px-3.5 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-45'
+    'rounded-md px-3.5 py-2 text-sm font-semibold transition-colors focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-45'
   const styles: Record<ButtonVariant, string> = {
     primary: PRIMARY_STYLES,
     ghost:

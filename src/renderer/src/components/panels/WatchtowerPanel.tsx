@@ -38,7 +38,7 @@ import type { AgentTaskOutcome, DraftTask } from './WatchtowerPanel/types'
 import {
   Banner,
   FilePreviewPane,
-  FOCUS_RING_CLASS,
+  FOCUS_RING_INSET_CLASS,
   OverflowMenu,
   PanelHeader,
   PrimaryButton,
@@ -787,7 +787,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         <div
           tabIndex={0}
           onKeyDown={handleInboxKeyDown}
-          className={`flex-1 overflow-auto ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
+          className={`flex-1 overflow-auto ${FOCUS_RING_INSET_CLASS}`}
           aria-label="Inbox tasks"
         >
           {state.kind === 'loading' && inbox.length === 0 ? (

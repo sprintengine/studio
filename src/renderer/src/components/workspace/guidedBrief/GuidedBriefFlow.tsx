@@ -996,7 +996,7 @@ export function GuidedBriefFlow({
               className="
                 inline-flex h-9 items-center rounded-md px-3 text-[12px] font-medium text-[color:var(--text-default)]
                 transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+                focus-visible:focus-ring
               "
             >
               Back
@@ -1094,7 +1094,7 @@ function StepRail({
               disabled={!reviewable}
               aria-current={step.state === 'active' ? 'step' : undefined}
               onClick={() => onReview(step.stage)}
-              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors focus-visible:focus-ring ${
                 step.state === 'active'
                   ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
                   : isReviewing
@@ -1270,7 +1270,7 @@ function DesignSystemReleaseCard({
             type="button"
             onClick={() => void window.api.showItemInFolder(phase.release.path)}
             aria-label={`Show ${phase.release.name}@${phase.release.version} in your file manager`}
-            className="mt-2 block max-w-full truncate font-mono text-[11px] text-[color:var(--text-subtle)] underline decoration-[color:var(--border-default)] underline-offset-2 transition-colors hover:text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+            className="mt-2 block max-w-full truncate font-mono text-[11px] text-[color:var(--text-subtle)] underline decoration-[color:var(--border-default)] underline-offset-2 transition-colors hover:text-[color:var(--text-default)] focus-visible:focus-ring"
           >
             {destination}
           </button>
@@ -1376,7 +1376,7 @@ function LintFindingsList({ findings }: { findings: string }) {
       <pre
         tabIndex={0}
         aria-label="Lint report"
-        className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-4 text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+        className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-4 text-[color:var(--text-default)] focus-visible:focus-ring"
       >
         {findings}
       </pre>
@@ -1386,7 +1386,7 @@ function LintFindingsList({ findings }: { findings: string }) {
     <ul
       tabIndex={0}
       aria-label="Lint findings"
-      className="mt-2 max-h-40 overflow-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+      className="mt-2 max-h-40 overflow-auto focus-visible:focus-ring"
     >
       {parsed.issues.map((issue, index) => (
         <li
@@ -1540,7 +1540,7 @@ function SecondaryButton({
         inline-flex h-9 items-center rounded-md border border-[color:var(--border-default)] px-3 text-[12px] font-medium text-[color:var(--text-default)]
         transition-colors hover:border-[color:var(--accent-primary)] hover:text-[color:var(--text-strong)]
         disabled:cursor-not-allowed disabled:border-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+        focus-visible:focus-ring
       "
     >
       {children}
@@ -1577,7 +1577,7 @@ function PrimaryButton({
         inline-flex h-9 items-center rounded-md bg-[color:var(--accent-primary)] px-4 text-[13px] font-semibold text-[color:var(--bg-app)]
         transition-colors hover:bg-[color:var(--accent-primary-hover)]
         disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+        focus-visible:focus-ring
       "
     >
       {children}

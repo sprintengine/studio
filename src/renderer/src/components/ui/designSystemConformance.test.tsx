@@ -17,8 +17,11 @@ import { JSDOM } from 'jsdom'
 //        (`data-selection-pane` + `:focus-within`) and is measured in the built
 //        app by `scripts/testing/selection-tier-pass.mjs`, not here — jsdom
 //        loads no stylesheet, so it can only read class names.
-//   T5   every tab carries a `:focus-visible` ring; `focus:outline-none` is
-//        never left undischarged, and a bare `:focus` ring does not count.
+//   T5   every tab carries the shared `:focus-visible` indicator;
+//        `focus:outline-none` is never left undischarged, and a bare `:focus`
+//        ring does not count. T18 made that indicator an offset outline behind
+//        one `focus-ring` utility, so the class a tab must carry is the utility
+//        reference, not a width and a colour spelled out per control.
 //   T11  the active tab is marked by an accent hairline underline plus an ink
 //        lift — never by an accent fill on the control itself.
 //   T10  row padding resolves to steps on the `sem.space` 2px grid.
@@ -256,12 +259,14 @@ async function main(): Promise<void> {
     for (const tab of tabs) {
       const classes = classesOf(tab)
       assert.ok(
-        classes.some((token) => /^focus-visible:(ring|outline|shadow|border)/.test(token)),
-        `tab "${tab.textContent}" declares a focus-visible ring`,
+        classes.some((token) =>
+          /^focus-visible:(focus-ring|ring|outline|shadow|border)/.test(token),
+        ),
+        `tab "${tab.textContent}" declares a focus-visible indicator`,
       )
       assert.ok(
-        classes.includes('focus-visible:ring-[color:var(--border-focus)]'),
-        `tab "${tab.textContent}" takes the ring colour from --border-focus, not a literal`,
+        classes.includes('focus-visible:focus-ring'),
+        `tab "${tab.textContent}" reaches for the shared focus-ring utility rather than spelling out a width and a colour`,
       )
     }
   })
@@ -275,7 +280,9 @@ async function main(): Promise<void> {
       )
       if (!classes.includes('focus:outline-none')) continue
       assert.ok(
-        classes.some((token) => /^focus-visible:(ring|outline|shadow|border)/.test(token)),
+        classes.some((token) =>
+          /^focus-visible:(focus-ring|ring|outline|shadow|border)/.test(token),
+        ),
         'focus:outline-none is only allowed alongside a focus-visible replacement',
       )
     }
@@ -291,8 +298,8 @@ async function main(): Promise<void> {
     assert.equal(activeTab?.getAttribute('tabindex'), '0', 'and it is the tab in the tab order')
     assert.equal(idleTab?.getAttribute('tabindex'), '-1', 'roving focus keeps the other one out of it')
     assert.ok(
-      hasClassMatching(activeTab, /^focus-visible:ring-2$/),
-      'the ring is still declared on the element that now holds focus',
+      hasClassMatching(activeTab, /^focus-visible:focus-ring$/),
+      'the indicator is still declared on the element that now holds focus',
     )
   })
 

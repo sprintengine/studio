@@ -75,8 +75,7 @@ export function AnnotateTray({
                   onClick={() => onEdit(index)}
                   aria-label={`Edit note ${index + 1}: ${annotation.message}`}
                   className="
-                    min-w-0 flex-1 text-left focus:outline-none focus-visible:ring-2
-                    focus-visible:ring-[color:var(--border-focus)] disabled:opacity-60
+                    min-w-0 flex-1 text-left focus-visible:focus-ring disabled:opacity-60
                   "
                 >
                   <span className="line-clamp-2 text-[12px] leading-5 text-[color:var(--text-default)]">
@@ -97,7 +96,7 @@ export function AnnotateTray({
                     mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm
                     text-[color:var(--text-subtle)] opacity-0 transition-opacity
                     hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]
-                    focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+                    focus-visible:focus-ring
                     focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100
                     disabled:opacity-0
                   "
@@ -128,7 +127,7 @@ export function AnnotateTray({
           className="
             inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-[11px] text-[color:var(--text-strong)]
             transition-colors hover:bg-[color:var(--bg-hover)]
-            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+            focus-visible:focus-ring
           "
         >
           <span className="tabular-nums font-semibold">{annotations.length}</span>
@@ -150,7 +149,7 @@ export function AnnotateTray({
             inline-flex h-6 items-center rounded-full px-2 text-[11px] text-[color:var(--text-subtle)]
             transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]
             disabled:opacity-60
-            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+            focus-visible:focus-ring
           "
         >
           Clear
@@ -162,7 +161,7 @@ export function AnnotateTray({
           className="
             inline-flex h-6 items-center rounded-full bg-[color:var(--accent-primary)] px-3 text-[11px] font-medium
             text-[color:var(--text-on-accent)] transition-colors disabled:opacity-60 enabled:hover:opacity-90
-            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+            focus-visible:focus-ring
           "
         >
           {submitting ? 'Sending…' : submitLabel ?? annotateSubmitLabel(annotations.length)}

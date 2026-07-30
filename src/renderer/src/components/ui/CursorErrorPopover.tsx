@@ -226,7 +226,7 @@ export function CursorErrorPopover({
               className={[
                 'interactive -my-0.5 inline-flex h-5 w-5 items-center justify-center rounded-[4px]',
                 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]',
+                'focus-visible:focus-ring',
                 // Copy stays hidden until the box is hovered or expanded so the
                 // resting state is just the message.
                 expanded || paused ? 'opacity-100' : 'opacity-0',
@@ -249,7 +249,7 @@ export function CursorErrorPopover({
                 className={[
                   'interactive -my-0.5 inline-flex h-5 w-5 items-center justify-center rounded-[4px]',
                   'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]',
+                  'focus-visible:focus-ring',
                 ].join(' ')}
               >
                 <CloseIcon className="h-3 w-3" />

@@ -188,7 +188,7 @@ function McpToolRow({
       onClick={onToggle}
       className="
         flex h-9 w-full items-center gap-3 border-b border-[color:var(--border-subtle)] text-left transition-colors
-        hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]
+        hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring-inset
       "
     >
       <RowCheck checked={enabled} />

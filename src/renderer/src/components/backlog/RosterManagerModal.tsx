@@ -121,7 +121,7 @@ export function RosterManagerModal({
                 value={newName}
                 onChange={(event) => setNewName(event.target.value)}
                 placeholder="New roster name"
-                className="w-full rounded border border-[color:var(--border-default)] bg-transparent px-2 py-1 text-[12px] text-[color:var(--text-default)] outline-none placeholder:text-[color:var(--text-disabled)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+                className="w-full rounded border border-[color:var(--border-default)] bg-transparent px-2 py-1 text-[12px] text-[color:var(--text-default)] outline-none placeholder:text-[color:var(--text-disabled)] focus-visible:focus-ring"
               />
               {nameCollides ? (
                 <p className="mt-1 px-0.5 text-[11px] text-[color:var(--tone-error)]">

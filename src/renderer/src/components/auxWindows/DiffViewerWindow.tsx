@@ -105,7 +105,7 @@ function ChevronButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={direction === 'down' ? 'Next change' : 'Previous change'}
-      className="app-no-drag inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] disabled:opacity-40 disabled:hover:text-[color:var(--text-subtle)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+      className="app-no-drag inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] disabled:opacity-40 disabled:hover:text-[color:var(--text-subtle)] focus-visible:focus-ring"
     >
       <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
         <path

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef } from 'react'
-import { FOCUS_RING_CLASS } from './tokens'
+import { FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS } from './tokens'
 
 export type TabItem<T extends string = string> = {
   id: T
@@ -187,11 +187,9 @@ export function TabPanel({ idPrefix, tabId, active, children, className }: TabPa
       // The panel is a focusable scroll container, so it is a tab stop and needs
       // a signal that the keyboard is driving the region. Without this it falls
       // back to Chromium's UA outline — the one treatment the design system
-      // cannot theme. Inset, as the door listboxes already do, because the ring
-      // sits at the edge of a scrolling region.
-      className={[className ?? '', FOCUS_RING_CLASS, 'focus-visible:ring-inset']
-        .filter(Boolean)
-        .join(' ')}
+      // cannot theme. Inset, as the door listboxes already do, because the
+      // indicator sits at the edge of a scrolling region.
+      className={[className ?? '', FOCUS_RING_INSET_CLASS].filter(Boolean).join(' ')}
       tabIndex={0}
     >
       {children}

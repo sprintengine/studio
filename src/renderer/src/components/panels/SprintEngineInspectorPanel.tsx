@@ -64,6 +64,7 @@ import {
   DefinitionList,
   FilePreviewPane,
   FOCUS_RING_CLASS,
+  FOCUS_RING_INSET_CLASS,
   GhostButton,
   IconButton,
   InboxRow,
@@ -1126,7 +1127,7 @@ function TaskInputResponsePrompt({
           disabled={pending}
           rows={3}
           placeholder="Reply to the agent… (Enter to send, Shift+Enter for a new line)"
-          className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-60"
         />
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1996,7 +1997,7 @@ function TaskCommentComposer({
         disabled={pending}
         rows={3}
         placeholder="Add a comment for the agent… (⌘/Ctrl+Enter to comment)"
-        className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-60"
+        className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-60"
       />
       <div className="mt-2 flex flex-wrap gap-1.5">
         <PrimaryButton onClick={() => void submit(false)} disabled={!canSubmit}>
@@ -2312,7 +2313,7 @@ function ChangedFilesSection({ task }: { task: SprintEngineTask }) {
                   aria-expanded={expanded}
                   aria-controls={panelId}
                   onClick={() => toggle(diff.path)}
-                  className={`${rowLayout} interactive hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
+                  className={`${rowLayout} interactive hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_INSET_CLASS}`}
                 >
                   {rowContent}
                 </button>

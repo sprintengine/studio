@@ -119,7 +119,7 @@ export function ConversationPane({
             type="button"
             onClick={onCollapse}
             aria-label="Minimize the conversation"
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus-visible:focus-ring"
           >
             <svg viewBox="0 0 12 12" className="icon-xs" aria-hidden="true">
               <path d="M2.5 6h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -181,7 +181,7 @@ export function ConversationPane({
                   className="
                     ml-auto inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
                     transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
-                    focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+                    focus-visible:focus-ring
                   "
                 >
                   {terminalVisible ? 'Hide' : 'Show'}

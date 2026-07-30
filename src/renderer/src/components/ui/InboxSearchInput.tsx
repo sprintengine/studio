@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { FOCUS_RING_CLASS } from './tokens'
+import { FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS } from './tokens'
 
 // InboxSearchInput — the 28 px search input used at the top of inbox-style
 // list panes. Owns the 5 px radius, hairline border, magnifier glyph, and
@@ -30,17 +30,11 @@ export function InboxSearchInput({
         'flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)]',
         'bg-[color:var(--bg-surface-raised)] px-2 text-[12px]',
         // The field is a composite: the input is the tab stop, but the border
-        // box a user sees is this wrapper. So the wrapper draws the ring, in
-        // the same 2px `--border-focus` every other control uses
-        // (FOCUS_RING_CLASS's treatment).
-        //
-        // Keyed to the input's own focus, NOT to `focus-within`: the clear
-        // button is a descendant, so a `focus-within` ring would still be
-        // painted while that button is focused and drawing its own — two
-        // concentric rings on one stop, which the one-treatment rule forbids.
-        // `:focus` rather than `:focus-visible` because the stop is a text
-        // field, which Chromium treats as focus-visible on click anyway.
-        'has-[input:focus]:ring-2 has-[input:focus]:ring-[color:var(--border-focus)]',
+        // box a user sees is this wrapper, so the wrapper draws the indicator.
+        // Same treatment as every other control, different trigger — the
+        // rationale for keying it to the input's own focus rather than
+        // `focus-within` is on the constant.
+        FOCUS_RING_WITHIN_INPUT_CLASS,
       ].join(' ')}
     >
       <SearchGlyph />

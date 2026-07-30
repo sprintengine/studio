@@ -49,7 +49,7 @@ export const DefinitionList = React.forwardRef<HTMLUListElement, DefinitionListP
       aria-label="Automations. Use j and k or the arrow keys to move between automations."
       tabIndex={0}
       onKeyDown={onKeyDown}
-      className="w-full shrink-0 py-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)] md:w-[340px] md:overflow-y-auto md:border-r md:border-[color:var(--border-default)]"
+      className="w-full shrink-0 py-1 outline-none focus-visible:focus-ring-inset md:w-[340px] md:overflow-y-auto md:border-r md:border-[color:var(--border-default)]"
     >
       {definitions.map((def) => (
         <DefinitionRow
@@ -125,7 +125,7 @@ function DefinitionRow({
       <button
         type="button"
         onClick={onSelect}
-        className="flex w-full items-start gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]"
+        className="flex w-full items-start gap-2 text-left outline-none focus-visible:focus-ring-inset"
       >
         {busy ? (
           <Spinner size={14} label="Working" className="mt-[2px]" />

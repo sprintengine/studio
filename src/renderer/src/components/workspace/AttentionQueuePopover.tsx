@@ -119,7 +119,7 @@ export function AttentionQueuePopover({
             onClick={togglePopover}
             aria-pressed={open}
             aria-label={triggerAriaLabel(badge.count)}
-            className={`app-no-drag interactive relative inline-flex h-7 w-7 items-center justify-center bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+            className={`app-no-drag interactive relative inline-flex h-7 w-7 items-center justify-center bg-transparent focus-visible:focus-ring ${
               open
                 ? 'text-[color:var(--text-strong)]'
                 : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'

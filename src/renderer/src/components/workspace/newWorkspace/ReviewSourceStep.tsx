@@ -29,7 +29,7 @@ const REVIEW_DEPTHS: Array<{ id: 'brief' | 'standard' | 'thorough'; label: strin
 const reviewFieldLabelClass = 'text-[12px] font-medium text-[color:var(--text-strong)]'
 const reviewHelpClass = 'text-[11.5px] leading-4 text-[color:var(--text-subtle)]'
 const reviewInputClass =
-  'w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12.5px] text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
+  'w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12.5px] text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)] focus-visible:focus-ring'
 
 export function ReviewSourceStep({
   sourceKind,
@@ -112,7 +112,7 @@ export function ReviewSourceStep({
               role="tab"
               aria-selected={selected}
               onClick={() => onChangeSourceKind(segment.kind)}
-              className={`flex-1 rounded-[5px] px-2 py-1.5 text-[12px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+              className={`flex-1 rounded-[5px] px-2 py-1.5 text-[12px] font-medium transition-colors focus-visible:focus-ring ${
                 selected
                   ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
                   : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
@@ -237,7 +237,7 @@ export function ReviewSourceStep({
                   role="tab"
                   aria-selected={selected}
                   onClick={() => onChangeDepth(option.id)}
-                  className={`rounded-[5px] px-2 py-1 text-[11.5px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+                  className={`rounded-[5px] px-2 py-1 text-[11.5px] font-medium transition-colors focus-visible:focus-ring ${
                     selected
                       ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
                       : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'

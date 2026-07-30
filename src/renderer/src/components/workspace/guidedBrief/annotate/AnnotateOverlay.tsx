@@ -114,7 +114,7 @@ export function AnnotateOverlay({
               border-2 border-[color:var(--bg-surface)] bg-[color:var(--annotate-pin-bg)]
               text-micro font-semibold tabular-nums text-[color:var(--annotate-pin-ink)]
               shadow-[var(--shadow-drawer)] disabled:opacity-60
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+              focus-visible:focus-ring
             "
             style={{ left: position.left, top: position.top, width: ANNOTATE_PIN_SIZE, height: ANNOTATE_PIN_SIZE }}
           >
@@ -205,7 +205,7 @@ function NoteComposer({
           resize-none rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]
           px-2 py-1.5 text-[12px] leading-5 text-[color:var(--text-default)]
           placeholder:text-[color:var(--text-subtle)]
-          focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+          focus-visible:focus-ring
         "
       />
       <div className="flex items-center gap-1.5">
@@ -216,7 +216,7 @@ function NoteComposer({
             className="
               inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--tone-warn)]
               transition-colors hover:bg-[color:var(--tone-warn-soft)]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+              focus-visible:focus-ring
             "
           >
             Remove
@@ -229,7 +229,7 @@ function NoteComposer({
             className="
               inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
               transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+              focus-visible:focus-ring
             "
           >
             Cancel
@@ -242,7 +242,7 @@ function NoteComposer({
               inline-flex h-6 items-center rounded-sm bg-[color:var(--accent-primary)] px-2 text-[11px] font-medium
               text-[color:var(--text-on-accent)] transition-colors disabled:opacity-50
               enabled:hover:opacity-90
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+              focus-visible:focus-ring
             "
           >
             {mode === 'edit' ? 'Save' : 'Add note'}

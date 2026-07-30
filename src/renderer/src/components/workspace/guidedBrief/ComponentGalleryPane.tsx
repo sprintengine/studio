@@ -373,7 +373,7 @@ function PlaceholderCard({
       className="
         flex w-full flex-col overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-left
         transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)]
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+        focus-visible:focus-ring
       "
     >
       <span
@@ -447,7 +447,7 @@ function GlyphCell({
       className="
         grid h-16 w-16 place-items-center overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]
         transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)]
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+        focus-visible:focus-ring
       "
     >
       {svg ? (
@@ -493,7 +493,7 @@ function FoundationCard({
       className="
         flex min-w-0 max-w-[280px] flex-1 basis-56 flex-col gap-1 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2.5 text-left
         transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)]
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+        focus-visible:focus-ring
       "
     >
       <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">{foundation.title}</span>

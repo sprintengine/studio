@@ -131,7 +131,7 @@ export default function MemoryPreviewPane({
             <button
               type="button"
               onClick={onOpenInEditor}
-              className="h-8 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 text-[12px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+              className="h-8 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 text-[12px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
             >
               Open in editor
             </button>
@@ -184,7 +184,7 @@ export default function MemoryPreviewPane({
                   key={target.id}
                   type="button"
                   onClick={() => onNavigate(target)}
-                  className="group inline-flex items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+                  className="group inline-flex items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-[11px] text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
                 >
                   <span
                     className="h-[6px] w-[6px] rounded-full"

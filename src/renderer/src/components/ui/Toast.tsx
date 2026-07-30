@@ -93,7 +93,7 @@ export function Toast({
           className={[
             'interactive -m-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px]',
             'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]',
+            'focus-visible:focus-ring',
           ].join(' ')}
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">

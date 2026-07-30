@@ -151,7 +151,7 @@ export function TipStartupModal({
             type="checkbox"
             checked={showTipsOnStartup}
             onChange={(event) => setLearningShowTipsOnStartup(event.target.checked)}
-            className="h-3 w-3 rounded border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--accent-primary)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+            className="h-3 w-3 rounded border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--accent-primary)] focus-visible:focus-ring"
           />
           Show on startup
         </label>
@@ -196,7 +196,7 @@ function TipPagerButton({ direction, onClick, label }: TipPagerButtonProps) {
         type="button"
         onClick={onClick}
         aria-label={label}
-        className="flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+        className="flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
       >
         <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           {direction === 'prev' ? (

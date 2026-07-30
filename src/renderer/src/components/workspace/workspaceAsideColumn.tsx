@@ -113,7 +113,7 @@ export function WorkspaceAsideColumn({ label, width, onWidthChange, children }: 
         tabIndex={0}
         onPointerDown={handleResizePointerDown}
         onKeyDown={handleResizeKeyDown}
-        className={`group absolute left-0 top-0 z-20 h-full w-1.5 -translate-x-1/2 cursor-col-resize focus:outline-none ${FOCUS_RING_CLASS}`}
+        className={`group absolute left-0 top-0 z-20 h-full w-1.5 -translate-x-1/2 cursor-col-resize ${FOCUS_RING_CLASS}`}
       >
         <span
           aria-hidden="true"

@@ -36,7 +36,7 @@ import {
   Spinner,
   StarGlyph,
 } from '../../../../ui'
-import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
+import { FOCUS_RING_INSET_CLASS } from '../../../../ui/tokens'
 import { EmptyState, SectionHead } from './SkillSourceCanvas'
 import {
   createSkillSearchScheduler,
@@ -390,7 +390,7 @@ function HitRow({
         onClick={() => void window.api.openExternal(href)}
         // The row clips its children, so the ring draws inside its own box or
         // it survives as a 1px sliver and reads as no focus at all.
-        className={`flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
+        className={`flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left ${FOCUS_RING_INSET_CLASS}`}
       >
         {body}
       </button>

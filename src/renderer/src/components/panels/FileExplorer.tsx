@@ -2102,7 +2102,7 @@ function ExplorerTree({
         onDragOver={handleRootDragOver}
         onDragLeave={handleRootDragLeave}
         onDrop={handleRootDrop}
-        className={`flex min-h-full flex-col gap-px rounded-md px-1 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+        className={`flex min-h-full flex-col gap-px rounded-md px-1 py-1.5 outline-none focus-visible:focus-ring ${
           rootDropActive ? 'ring-1 ring-inset ring-[color:var(--accent-primary)]' : ''
         }`}
       >

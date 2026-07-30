@@ -540,7 +540,7 @@ export function HtmlArtifactFrame({
                   aria-pressed={view.mode === option.id}
                   className={`
                     inline-flex h-6 items-center rounded-sm px-1.5 text-[11px]
-                    transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+                    transition-colors focus-visible:focus-ring
                     ${view.mode === option.id
                       ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                       : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'}
@@ -562,7 +562,7 @@ export function HtmlArtifactFrame({
                     aria-pressed={viewport === option.id}
                     className={`
                       inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] tabular-nums
-                      transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+                      transition-colors focus-visible:focus-ring
                       ${viewport === option.id
                         ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                         : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'}
@@ -579,7 +579,7 @@ export function HtmlArtifactFrame({
                 className="
                   inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] tabular-nums text-[color:var(--text-muted)]
                   transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
-                  focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+                  focus-visible:focus-ring
                 "
               >
                 {Math.round(zoom * 100)}%
@@ -596,7 +596,7 @@ export function HtmlArtifactFrame({
               className="
                 inline-flex h-6 w-6 items-center justify-center rounded-sm text-[color:var(--text-muted)]
                 transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+                focus-visible:focus-ring
               "
             >
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
@@ -613,7 +613,7 @@ export function HtmlArtifactFrame({
               className="
                 inline-flex h-6 w-6 items-center justify-center rounded-sm text-[color:var(--text-muted)]
                 transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+                focus-visible:focus-ring
               "
             >
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
@@ -640,7 +640,7 @@ export function HtmlArtifactFrame({
               aria-pressed={allowScripts}
               className={`
                 inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-[11px]
-                transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+                transition-colors focus-visible:focus-ring
                 ${allowScripts
                   ? 'bg-[color:var(--tone-warn-soft)] text-[color:var(--tone-warn)]'
                   : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'}
@@ -669,7 +669,7 @@ export function HtmlArtifactFrame({
               inline-flex h-6 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
               transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
               disabled:cursor-wait disabled:opacity-60
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+              focus-visible:focus-ring
             "
           >
             {browserOpenState.kind === 'opening' ? 'Opening…' : 'Open in browser'}
@@ -816,7 +816,7 @@ function CommentToggle({
       aria-disabled={unavailable || undefined}
       className={`
         inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-[11px]
-        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+        transition-colors focus-visible:focus-ring
         ${unavailable ? 'cursor-not-allowed text-[color:var(--text-muted)] opacity-50' : ''}
         ${!unavailable && active ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : ''}
         ${!unavailable && !active ? 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]' : ''}

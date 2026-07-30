@@ -90,7 +90,7 @@ export function HtmlPreviewCard({
       className="
         flex w-full flex-col overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-left
         transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)]
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
+        focus-visible:focus-ring
       "
     >
       <span

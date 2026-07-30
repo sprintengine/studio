@@ -43,7 +43,7 @@ function MarkReadButton({ read, onClick }: { read: boolean; onClick: () => void 
       type="button"
       onClick={onClick}
       aria-pressed={read}
-      className={`interactive inline-flex h-6 shrink-0 items-center gap-1.5 rounded-[5px] border px-2.5 text-[12px] font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+      className={`interactive inline-flex h-6 shrink-0 items-center gap-1.5 rounded-[5px] border px-2.5 text-[12px] font-medium focus-visible:focus-ring ${
         read
           ? 'border-transparent bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
           : 'border-[color:var(--border-default)] bg-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
