@@ -34,7 +34,8 @@ import {
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
-import { focusOrAddComponentTab } from '../../utils/modelRegistry'
+import { focusOrAddComponentTab, revealNavRailComponent } from '../../utils/modelRegistry'
+import { dispatchBacklogReveal } from '../../utils/backlogReveal'
 
 // Lazy so the run-summary report (+ its charts) only loads with the Summary tab.
 const SprintEngineRunSummaryPanel = React.lazy(() => import('./SprintEngineRunSummaryPanel'))
@@ -75,7 +76,6 @@ import {
  getNextSprintEngineAgentId,
  getSprintEngineBoardRunPhase,
  getSprintEngineTaskBoardColumn,
- getSprintEngineTaskOwnerLabel,
  getSprintEngineRoleAccent,
  getUserDisabledSprintEngineRoleIds,
  getSprintEngineRoleLabel,
@@ -130,6 +130,12 @@ import {
  SprintEngineSummaryNavIcon,
  SprintEngineTasksNavIcon,
 } from './sprintEngineBoard/SprintEngineBoardIcons'
+import { BacklogTypeGlyph } from '../backlog/BacklogTypeGlyph'
+import { SprintEngineEpicView } from './sprintEngineBoard/SprintEngineEpicView'
+import {
+ sprintEngineEpicSeed,
+ sprintEngineProjectRootFromStatePath,
+} from './sprintEngineBoard/sprintEngineEpicModel'
 import { SprintEngineInboxView } from './sprintEngineBoard/SprintEngineInboxView'
 import { SprintEngineRosterView } from './sprintEngineBoard/SprintEngineRosterView'
 import { SprintEngineTasksKanbanView } from './sprintEngineBoard/SprintEngineTasksKanbanView'
@@ -798,11 +804,19 @@ export function SprintRunBoard({
  // The Summary view only exists once the run is complete; coerce a stale
  // persisted `summary` back to Tasks for incomplete runs so it can't strand.
  const runComplete = Boolean(sprintEngineState && isCompletedSprintEngineRun(sprintEngineState))
+ // The backlog epic this run was seeded from (item 2028). Null for a goal-seeded
+ // run — which is what keeps the Epic section, and its tab, absent entirely.
+ const epicSeed = useMemo(
+ () => sprintEngineEpicSeed(sprintEngineState?.source, sprintEngineState?.sourceBundle),
+ [sprintEngineState?.source, sprintEngineState?.sourceBundle],
+ )
  const requestedView = fixedView ?? activeView
  const effectiveView: SprintEngineView =
  requestedView === 'summary' && !runComplete
  ? 'tasks'
  : requestedView === 'repos' && !reposTab
+ ? 'inbox'
+ : requestedView === 'epic' && !epicSeed
  ? 'inbox'
  : requestedView
  const effectiveTasksLayout: SprintEngineTasksLayout = fixedTasksLayout ?? activeTasksLayout
@@ -1457,7 +1471,23 @@ export function SprintRunBoard({
  const selectedTaskBoardColumn = selectedTask
  ? getSprintEngineTaskBoardColumn(selectedTask, sprintEngineState.tasks)
  : null
- const selectedTaskOwnerLabel = selectedTask ? getSprintEngineTaskOwnerLabel(selectedTask, rosterById) : ''
+ // Open the backlog item a task points at (the inspector's header pointer,
+ // item 2029). The item's home is the project's Backlog panel, so a resident
+ // workspace reveals it there; a door mount has no workspace to reveal it in,
+ // and falls back to this run's own Epic tab, which reads the same item. With
+ // neither, no open affordance is offered rather than one that does nothing.
+ const openSelectedTaskBacklogItem = useCallback(
+   (relativePath: string) => {
+     if (workspaceId) {
+       revealNavRailComponent(workspaceId, 'backlog', 'Backlog')
+       dispatchBacklogReveal({ workspaceId, relativePath })
+       return
+     }
+     if (epicSeed && !fixedView) setActiveView('epic')
+   },
+   [workspaceId, epicSeed, fixedView, setActiveView],
+ )
+ const canOpenBacklogItem = Boolean(workspaceId) || Boolean(epicSeed && !fixedView)
  const selectedTaskNeedsInputNote = selectedTask?.status === 'needs_input'
  ? 'This agent is waiting for input.'
  : null
@@ -1523,7 +1553,6 @@ export function SprintRunBoard({
  agents={agents}
  tasksById={tasksById}
  selectedTaskBoardColumn={selectedTaskBoardColumn}
- selectedTaskOwnerLabel={selectedTaskOwnerLabel}
  selectedTaskNeedsInputNote={selectedTaskNeedsInputNote}
  selectedTaskTokenUsage={selectedTaskTokenUsage}
  selectedTaskArtifacts={selectedTaskArtifacts}
@@ -1539,6 +1568,8 @@ export function SprintRunBoard({
  onSubmitPreviewAnnotations={submitPreviewAnnotations}
  onResolveTaskInput={resolveTaskInput}
  onPostTaskComment={postTaskComment}
+ onOpenBacklogItem={canOpenBacklogItem ? openSelectedTaskBacklogItem : null}
+ taskItemInEpic={Boolean(epicSeed)}
  onBackFromArtifact={() => setPreviewedArtifact(null)}
  onPopOutArtifact={popOutPreviewedArtifact}
  onSpawnAgent={spawnAgent}
@@ -2347,6 +2378,20 @@ export function SprintRunBoard({
  // dropping the badge so it never disagrees with the suppressed inbox list.
  count: !sprintRunCanceled && inboxArtifactCount > 0 ? inboxArtifactCount : undefined,
  },
+ // Only a run seeded from a backlog epic carries one; a goal-seeded run's
+ // chrome row is unchanged (item 2028). No count: the epic's own completion
+ // is the meter on the section itself, not a second number up here.
+ ...(epicSeed
+ ? [{
+ id: 'epic' as const,
+ label: 'Epic',
+ // The Backlog's own epic mark, so the container reads the same here as it
+ // does on a backlog row. Decorative — the tab's label names it.
+ icon: ({ className }: { className?: string }) => (
+ <BacklogTypeGlyph type="epic" className={className} />
+ ),
+ }]
+ : []),
  {
  id: 'roster',
  label: 'Agents',
@@ -2810,6 +2855,35 @@ export function SprintRunBoard({
  onSelectTask={setSelectedTaskId}
  inspectorContent={renderInspectorPanel()}
  inspectorExpanded={inspectorExpanded}
+ />
+ </div>
+ ) : null}
+
+ {effectiveView === 'epic' && epicSeed ? (
+ <div
+ id="sprintengine-view-panel-epic"
+ role="tabpanel"
+ aria-labelledby="sprintengine-view-tab-epic"
+ className="flex min-h-0 flex-1"
+ >
+ <SprintEngineEpicView
+ seed={epicSeed}
+ tasks={sprintEngineState.tasks}
+ // A door mount has no workspace, so no folder status — but the run's
+ // own store names its project, which is the backlog this epic lives in.
+ folderPath={folderPath ?? sprintEngineProjectRootFromStatePath(sprintEngineContext?.statePath)}
+ workspaceId={workspaceId}
+ // A mount whose view is fixed cannot switch to Tasks, so it does not
+ // offer the jump at all.
+ onOpenTask={fixedView ? null : (taskId) => {
+ setSelectedTaskId(taskId)
+ setActiveView('tasks')
+ }}
+ onRevealInBacklog={(relativePath) => {
+ if (!workspaceId) return
+ revealNavRailComponent(workspaceId, 'backlog', 'Backlog')
+ dispatchBacklogReveal({ workspaceId, relativePath })
+ }}
  />
  </div>
  ) : null}

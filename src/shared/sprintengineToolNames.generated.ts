@@ -749,7 +749,11 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "type": "array"
         },
         "path": {
-          "type": "array"
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The modules this task owns: project-root-relative DIRECTORY paths, relative to the task's repo root. A task owns the directories it works in, never individual files \u2014 an entry naming an existing file is rejected. These paths are also the task's commit pathspec, so anything the task adds, splits, or moves inside them is committed by it. Tasks whose modules overlap never run at the same time, so give concurrent tasks disjoint modules."
         },
         "acceptance": {
           "type": "array"
@@ -760,6 +764,23 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         "sourceDocs": {
           "type": "array",
           "description": "Project-root-relative canonical source documents this task implements (e.g. the backlog item on a reference-sourced run). Workers are directed to read each in full on claim; keep the task card the delta, never a restatement."
+        },
+        "backlogRef": {
+          "type": "object",
+          "required": [
+            "projectRelativePath"
+          ],
+          "properties": {
+            "projectRelativePath": {
+              "type": "string",
+              "description": "Project-root-relative path to the backlog item file, e.g. backlog/2026-07-30-example.md."
+            },
+            "displayKey": {
+              "type": "string",
+              "description": "Human key of that item when known, e.g. MC-1843."
+            }
+          },
+          "description": "The backlog item this task delivers, as a project-root-relative path to the item file. One item per task: a second task pointing at the same item is rejected, naming the task that already holds it."
         },
         "taskNote": {
           "type": "array"
@@ -927,7 +948,11 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "description": "Id of the project this task works in, from the ones the run declares. Omit for the run's main project. Owned paths stay relative to that project's root."
         },
         "path": {
-          "type": "array"
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The modules this task owns: project-root-relative DIRECTORY paths, relative to the task's repo root. A task owns the directories it works in, never individual files \u2014 an entry naming an existing file is rejected. These paths are also the task's commit pathspec, so anything the task adds, splits, or moves inside them is committed by it. Tasks whose modules overlap never run at the same time, so give concurrent tasks disjoint modules."
         },
         "acceptance": {
           "type": "array"
@@ -940,6 +965,26 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "description": "Replace the task's canonical source documents with this list of project-root-relative paths."
         },
         "clearSourceDocs": {
+          "type": "boolean"
+        },
+        "backlogRef": {
+          "type": "object",
+          "required": [
+            "projectRelativePath"
+          ],
+          "properties": {
+            "projectRelativePath": {
+              "type": "string",
+              "description": "Project-root-relative path to the backlog item file, e.g. backlog/2026-07-30-example.md."
+            },
+            "displayKey": {
+              "type": "string",
+              "description": "Human key of that item when known, e.g. MC-1843."
+            }
+          },
+          "description": "The backlog item this task delivers, as a project-root-relative path to the item file. One item per task: a second task pointing at the same item is rejected, naming the task that already holds it."
+        },
+        "clearBacklogRef": {
           "type": "boolean"
         },
         "taskNote": {

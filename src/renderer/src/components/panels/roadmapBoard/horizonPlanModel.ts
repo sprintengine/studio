@@ -85,8 +85,6 @@ export type HorizonStepRow = {
   /** The delivering pull request, on a delivered step. */
   prUrl?: string
   notice?: HorizonStepNotice
-  /** This epic's membership moved since it was placed — offer the re-sync. */
-  drift?: { gained: number; removed: number }
   /** The ref names no backlog item this Multicode can see. Surfaced, never
    *  silently dropped (Fallback Discipline) — a stale step the author can act on
    *  beats a row that looks ordinary and parks the track when it is reached. */
@@ -149,8 +147,10 @@ export type HorizonPlanInput = {
   resolvableProjects?: ReadonlySet<ProjectKey>
   /** The name shown when nothing is chosen (the built-in default). */
   defaultRosterLabel: string
-  /** Epic drift by authored ref, when the host resolved it. */
-  driftByRef?: ReadonlyMap<string, { gained: number; removed: number }>
+  /** An epic step's live members, keyed by the epic's AUTHORED ref and valued by
+   *  the members' authored refs (`refDisplay`'s key). The host resolves it from
+   *  the scan; a step with no runtime yet sizes from this. */
+  epicMembersByRef?: ReadonlyMap<string, ReadonlyArray<string>>
 }
 
 export const HORIZON_PLAN_HEAD_FALLBACK = 'Plan'
@@ -191,15 +191,14 @@ export function buildHorizonPlan(input: HorizonPlanInput): HorizonPlan {
       const rosterName = resolveEntryRoster(entry, { roster: input.policyRoster })
       const missing =
         rosterName !== undefined && !input.knownRosterNames.has(rosterName.trim().toLowerCase())
-      // An epic's size comes from the SNAPSHOT (what this step will deliver),
-      // resolved against live status through the board unit when it has one, and
-      // against the display map otherwise — so a just-dropped epic still counts.
+      // An epic's size is its LIVE membership (MC-2031), read through the board
+      // unit when it has one and off the host's membership map otherwise — so a
+      // just-dropped epic, which has no runtime yet, still counts.
+      const members = entry.kind === 'epic' ? (input.epicMembersByRef?.get(entry.ref) ?? []) : []
       const childStatuses =
         unit?.children?.map((child) => child.status)
-        ?? (entry.kind === 'epic'
-          ? entry.children.map((child) => input.refDisplay.get(resolveChildRef(child, entry.projectKey))?.status)
-          : [])
-      const total = entry.kind === 'epic' ? Math.max(entry.children.length, childStatuses.length) : 0
+        ?? members.map((member) => input.refDisplay.get(member)?.status)
+      const total = entry.kind === 'epic' ? childStatuses.length : 0
       const done = roadmapMembersDone(childStatuses)
       const row: HorizonStepRow = {
         key: `${laneIndex}:${entryIndex}:${entry.ref}`,
@@ -227,8 +226,6 @@ export function buildHorizonPlan(input: HorizonPlanInput): HorizonPlan {
         unresolved: unit?.itemStatus === undefined && display === undefined && projectReadable,
         projectUnavailable: !projectReadable,
       }
-      const drift = input.driftByRef?.get(entry.ref)
-      if (drift) row.drift = drift
       return row
     })
 
@@ -274,25 +271,14 @@ export function buildHorizonPlan(input: HorizonPlanInput): HorizonPlan {
   }
 }
 
-// An epic step delivered every member it snapshotted; an item step delivered
-// itself. Read off the size label so the footer's item count and the rows'
-// trailing counts can never disagree.
+// An epic step delivered every member it carried; an item step delivered itself.
+// Read off the size label so the footer's item count and the rows' trailing
+// counts can never disagree.
 function deliveredItemCount(row: HorizonStepRow): number {
   if (!row.sizeLabel) return 1
   const total = row.sizeLabel.includes('/') ? row.sizeLabel.split('/')[1] : row.sizeLabel
   const parsed = Number.parseInt(total, 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
-}
-
-// A snapshotted child inherits its epic's project unless it carries its own
-// `alias:` prefix — the same rule `resolveEpicChildRef` applies, restated here
-// against the AUTHORED ref (the display map's key) rather than the split pair.
-function resolveChildRef(child: string, inherited: ProjectKey): string {
-  const normalized = child.replace(/\\/g, '/').replace(/^\/+/, '')
-  const colon = normalized.indexOf(':')
-  const slash = normalized.indexOf('/')
-  if (colon > 0 && (slash === -1 || colon < slash)) return normalized
-  return inherited ? `${inherited}:${normalized}` : normalized
 }
 
 // Hang the track's attention on the step it belongs to. The target is found by

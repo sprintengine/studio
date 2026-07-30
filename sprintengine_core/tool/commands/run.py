@@ -18,6 +18,9 @@ from sprintengine_core.tool.plans import (
     ensure_product_intake_gate,
     find_architect_plan_gate,
     apply_source_context_to_task,
+    EPIC_CHILD_KEY,
+    EPIC_CHILD_SOURCE_LABEL,
+    epic_child_source_paths,
     handover_path_for_state,
     import_source_to_team_file,
     parse_source_bundle_arg,
@@ -163,6 +166,12 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
         wrote_handover = True
 
     source_specs = [parse_source_bundle_arg(value) for value in getattr(args, "source", [])]
+    # On an epic handover the bundle IS the epic's children — that is what the
+    # flag combination has always meant (the epic is the root source, the
+    # children are the sources). Marking them here is what lets the planner
+    # enumerate them one-to-one and the coverage warning count them, on the
+    # CLI/mobile launch path exactly as on the desktop one (backlog item 2018).
+    bundle_is_epic_children = str(getattr(args, "source_plan_kind", "") or "").strip() == "epic"
     if source_specs:
         source_dir: Optional[Path] = None
         used_names: set[str] = set()
@@ -181,6 +190,7 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
                     "origin": "reference",
                     "path": project_relative_display_path(state_path, original_path),
                     "capturedAt": captured_at,
+                    **({EPIC_CHILD_KEY: True} if bundle_is_epic_children else {}),
                 })
             else:
                 assert source_dir is not None
@@ -193,6 +203,7 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
                     "path": project_relative_display_path(state_path, copied_path),
                     "originalPath": project_relative_display_path(state_path, original_path),
                     "capturedAt": captured_at,
+                    **({EPIC_CHILD_KEY: True} if bundle_is_epic_children else {}),
                 })
 
     initial: Dict[str, Any] = {
@@ -523,35 +534,65 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 apply_source_context_to_task(plan_task, state, state_path)
             refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
         elif has_epic_source:
-            # Reference-based epic launch: the epic and its child design documents
-            # are the canonical plan. plan.md is NOT seeded — it becomes a thin
-            # manifest that references those documents. The architect reviews and
-            # updates the design docs in place, then builds the task graph.
+            # Reference-based epic launch: the epic and its child items are the
+            # canonical plan. plan.md is NOT seeded — it becomes a thin manifest
+            # that references those documents. The planning role reviews and
+            # updates the design docs in place, then SEQUENCES the children into a
+            # task graph rather than re-authoring them as fresh task cards
+            # (backlog item 2018): one task per child, the item stays the spec.
             plan_task = plan_gate["task"]
-            plan_task["title"] = "Review epic designs in place and create task graph"
+            plan_task["title"] = "Sequence the epic's child items into a task graph"
             plan_task["description"] = (
-                "Review the referenced epic and every child design document against the current codebase. "
-                "Update stale or incomplete design content in those backlog files themselves, then write "
-                f"{plan_path_artifact_value(state_path)} as a manifest that references each source document "
-                "(project-root-relative), and create the full task graph covering every child item."
+                "Every open child item of the epic is one task. Review the referenced epic and every child "
+                "item against the current codebase, update stale or incomplete design content in those "
+                f"backlog files themselves, then write {plan_path_artifact_value(state_path)} as a manifest "
+                "that references each source document (project-root-relative), and mint exactly one task per "
+                "child item. Spend your planning effort on the graph — ordering, concurrency, dependencies — "
+                "not on rewriting content the item already carries."
             )
             plan_task["acceptanceCriteria"] = [
-                "Every child item of the epic is enumerated (children are the backlog items whose `epic:` frontmatter names the epic slug) and each design document is read.",
-                "Each design document is verified against the current codebase; stale, missing, or incorrect design content is updated in the backlog files themselves, not re-authored into plan.md.",
+                "Every open child item of the epic is enumerated (children are the backlog items whose `epic:` frontmatter names the epic slug) and each is read in full.",
+                "Exactly one task is minted per open child item: no child is split across tasks, and no task covers two children.",
+                "Every minted task carries its child item as its backlogRef (--backlog-ref) and as its sourceDocs entry (--source-doc), and takes its title from the item.",
+                "Minted tasks carry no description and no acceptance criteria: the item is the spec, and the card is the execution record.",
+                "Every minted task declares the modules it works in (--path, directory paths); no minted task declares a file path.",
+                "Tasks whose modules overlap carry an ordering edge between them; tasks with disjoint modules carry none, so they run concurrently.",
+                "An item's `dependsOn` frontmatter is reproduced as a dependency edge between the tasks minted for those items.",
+                "Each child item is verified against the current codebase; stale, missing, or incorrect design content is updated in the backlog files themselves, not re-authored into plan.md.",
                 "plan.md is a manifest: it references every source document by project-root-relative path with a per-document verification note, and adds only cross-cutting decisions, risks, and the task graph summary.",
-                "The task graph covers all child items of the epic; every child maps to at least one task.",
-                "Every task derived from a child design document carries that document's project-root-relative path in its sourceDocs (--source-doc).",
-                "Each child item's acceptance criteria are collectively covered by the acceptance criteria of the task(s) derived from it; no criterion is left owned by no task.",
-                "Architect plan artifact is marked ready for user approval after review.",
+                "The plan artifact is marked ready for user approval after review.",
             ]
             plan_task["implementationNotes"] = [
-                "Enumerate the epic's children with `grep -l \"^epic: <slug>$\" backlog/*.md`, where <slug> is the epic file stem.",
+                # Only when the launch actually marked children. A run store
+                # seeded before the marker existed has an unlabelled bundle, and
+                # pointing at a list that is not there would read as "there are
+                # no children" — the live grep below is what carries those runs.
+                *([
+                    f"This task's incoming source context lists every seeded child item as `{EPIC_CHILD_SOURCE_LABEL}`; mint exactly one task per entry so labelled. Entries with any other label are reading material, not work."
+                ] if epic_child_source_paths(state) else []),
+                "Re-check live membership before you finish — nothing about the epic is frozen at launch: `grep -l \"^epic: <slug>$\" backlog/*.md`, where <slug> is the epic file stem. A child added since launch is minted like any other.",
+                # Planning-time re-check only covers launch -> approval. A child
+                # added after the graph is approved needs the same pass at close,
+                # and the epic chose that over drift machinery (backlog item
+                # 2018), so the duty rides the terminal task that already exists
+                # rather than a new mechanism.
+                "Write the same live-membership pass into the acceptance of the run's terminal integration-review task, so it runs again at close: re-read `epic:` membership, and file a task for any child that appeared after the graph was approved or state that none did. Fold it into that task — do not add a separate mechanism.",
+                "Take each task's title from its item. Leave the description and acceptance criteria empty: --source-doc injects the item into the worker's claim prompt as read-in-full context, so restating it in the card only creates a second version to drift.",
+                "Cross-task contracts, decisions, and risks belong in the plan.md manifest, not in the minted cards.",
+                "Infer each task's modules from its item — package or directory level, never a file. A loose, honest guess is the target; this does not need to be precise.",
+                "Serialize tasks whose modules overlap with a dependency edge. A task's commit sweeps everything dirty inside its modules, so two tasks sharing one never run at the same time; the edge records the order you intend instead of leaving the engine to pick one.",
                 "In worktree-mode runs, edit the copies of the backlog files in their own project's worktree so design updates ride that project's run branch and pull request.",
                 "Do not copy valid design prose into plan.md; the manifest only references the design documents and records verification, decisions, risks, and the task graph summary.",
                 "Additional relevant documents (design systems, mockups, Knowledge Graph notes) may be added to the manifest as project-root-relative references.",
-                "Set --source-doc on every task derived from a child design document: the child backlog file is the worker's canonical brief, injected into the claim prompt as read-in-full context. Keep the task card the delta — verified/corrected pointers, pinned decisions, cross-task contracts, and role scope — never a restatement of the document.",
-                "A child item is usually already sized for one agent: one task per child is the normal outcome. Split a child when it genuinely needs it (role boundary, size, sequencing) and note the reason in plan.md.",
-                "The final review scheduling task must set each child item's frontmatter `status: completed` when the sprint completes (in worktree mode, editing the copies in their own project's worktree so the flips ride that project's pull request).",
+                # No child-status note. Child item status is app-owned and propagates
+                # one way, from the run: `in_progress` when a child's OWN task claims,
+                # `completed` only once the sprint has LANDED (MC-2017,
+                # resolveSprintEngineChildRunLink). This branch used to tell the
+                # planner to mint a task that writes `status: completed` when the
+                # sprint COMPLETES, which is a second writer racing the first and
+                # wrong on both timing and reversibility: it stamps `completed` onto
+                # a branch that has not merged, and once an item reads `completed`
+                # neither the landing pass nor the cancel restore will touch it again.
                 *source_bundle_reference_notes(state, state_path),
             ]
             apply_source_context_to_task(plan_task, state, state_path)

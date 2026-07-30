@@ -243,7 +243,9 @@ assert.equal(sprintEngineSeedKindLabel({ kind: 'unknown', isEpicRoot: false }), 
   const listSites = inspectorSource.match(/<SprintEngineArtifactList/g) ?? []
   assert.equal(listSites.length, 1, 'the task detail renders exactly one artifact list')
   const listIndex = inspectorSource.indexOf('<SprintEngineArtifactList')
-  const moreIndex = inspectorSource.indexOf('<details className="group mt-4">')
+  // Matched on the disclosure, not on its spacing classes: item 2029 moved the
+  // group's separation from a margin on the <details> to the body's own rhythm.
+  const moreIndex = inspectorSource.indexOf('<details className="group')
   assert.ok(moreIndex > -1, 'the More disclosure still exists for reference sections')
   assert.ok(
     listIndex > -1 && listIndex < moreIndex,

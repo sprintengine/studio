@@ -57,14 +57,14 @@ import { useHorizonLibrary } from '../../panels/roadmapBoard/useHorizonLibrary'
 import { useRoadmapPlanDraft } from '../../backlog/useRoadmapPlanDraft'
 import {
   addLibraryEntry,
-  epicEntryDrift,
+  authoredRef,
   refDisplayMapMulti,
   removeLane,
   renameLane,
-  resyncEpicEntry,
   roadmapItemStatesMulti,
   splitAuthoredRef,
 } from '../../backlog/roadmapAuthoring'
+import { childrenOfEpic } from '../../../utils/backlogEpics'
 import { RosterMenu } from '../../backlog/RosterMenu'
 import { RosterManagerModal } from '../../backlog/RosterManagerModal'
 import { NO_ROLES_ROSTER_NAME } from '../newWorkspace/savedRosters'
@@ -83,7 +83,7 @@ import { createBacklogDoorActions, type BacklogDoorMutationApi } from './backlog
 import { getRendererHost, selectModuleEnabled } from '../../../modules'
 import { focusOrAddFileTab } from '../../../utils/modelRegistry'
 import type { BacklogLinkProvider } from '../../../modules/renderer-host'
-import { validateRoadmap, type ProjectKey, type RoadmapPolicy } from '../../../../../shared/backlog/roadmap'
+import { roadmapRefSlug, validateRoadmap, type ProjectKey, type RoadmapPolicy } from '../../../../../shared/backlog/roadmap'
 import type { SprintEngineRoster } from '../../../types/workspace'
 import type { BacklogItem } from '../../../utils/backlog'
 import type { BacklogProjectFeed, BacklogProjectRef } from '../../../hooks/useAllProjectsBacklog'
@@ -459,16 +459,22 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     return map
   }, [library.projects])
 
-  // The epic drift affordance ("this epic gained N items → Update step"), keyed
-  // by authored ref so the pure plan model never needs the scan itself. Each
-  // epic reconciles against ITS OWN project's membership, not the home project's.
-  const driftByRef = useMemo(() => {
-    const map = new Map<string, { gained: number; removed: number }>()
+  // An epic step's LIVE members (MC-2031), keyed by authored ref so the pure plan
+  // model never needs the scan itself and sizes a step even before it has a
+  // runtime. Each epic resolves against ITS OWN project's membership, not the
+  // home project's, and its members are authored refs — the display map's key.
+  const epicMembersByRef = useMemo(() => {
+    const map = new Map<string, string[]>()
     for (const lane of plan.draft.lanes) {
       for (const entry of lane.entries) {
-        if (entry.kind !== 'epic') continue
-        const drift = epicEntryDrift(itemsByProjectKey.get(entry.projectKey) ?? [], entry)
-        if (drift) map.set(entry.ref, { gained: drift.gained.length, removed: drift.removed.length })
+        if (entry.kind !== 'epic' || map.has(entry.ref)) continue
+        const members = childrenOfEpic(
+          [...(itemsByProjectKey.get(entry.projectKey) ?? [])],
+          roadmapRefSlug(entry.ref),
+        )
+          .map((member) => authoredRef(entry.projectKey, member.relativePath))
+          .sort()
+        map.set(entry.ref, members)
       }
     }
     return map
@@ -525,7 +531,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         // unreadable, not stale — the row must not tell the author to delete a
         // healthy step while the detail pane says the project is simply closed.
         resolvableProjects: new Set(library.projects.map((project) => project.projectKey)),
-        driftByRef,
+        epicMembersByRef,
       }),
     [
       plan.draft.lanes,
@@ -537,7 +543,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       projectNameByKey,
       savedRosters,
       library.projects,
-      driftByRef,
+      epicMembersByRef,
     ],
   )
 
@@ -549,17 +555,6 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       plan.update((draft) => addLibraryEntry(draft, laneIndex, project, relativePath, index))
     },
     [plan, projectByKey],
-  )
-
-  const handleResyncEpic = useCallback(
-    (laneIndex: number, entryIndex: number) => {
-      const entry = plan.draft.lanes[laneIndex]?.entries[entryIndex]
-      if (!entry) return
-      plan.setLanes(
-        resyncEpicEntry(itemsByProjectKey.get(entry.projectKey) ?? [], plan.draft.lanes, laneIndex, entryIndex),
-      )
-    },
-    [plan, itemsByProjectKey],
   )
 
   const handleOpenStep = useCallback(
@@ -921,7 +916,6 @@ export default function RoadmapGlobalSurface(): JSX.Element {
           onManageRosters={() => setRosterManagerOpen(true)}
           onLanes={plan.setLanes}
           onAddRef={addRef}
-          onResyncEpic={handleResyncEpic}
           onOpenItem={handleOpenStep}
           onAddWork={() => setBacklogOpen((open) => !open)}
           addWorkActive={backlogOpen}

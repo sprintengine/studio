@@ -19,8 +19,8 @@ function run(name: string, body: () => void): void {
   tests.push({ name, body })
 }
 
-// A two-lane roadmap: Backend runs three loose items, Platform runs an epic
-// (two snapshotted children) then a loose item.
+// A two-lane roadmap: Backend runs three loose items, Platform runs an epic step
+// (a BARE reference — its members resolve live) then a loose item.
 const ROADMAP = parseRoadmap(
   `---
 type: roadmap
@@ -34,16 +34,19 @@ type: roadmap
 
 ## Platform
 - backlog/epics/auth.md
-  - backlog/auth-1.md
-  - backlog/auth-2.md
 - backlog/ship.md
 `,
 )
+
+// The one epic in the fixture and the members its `epic:` pointers give it —
+// membership the board asks the scan for, never the plan file (MC-2031).
+const AUTH_MEMBERS = ['backlog/auth-1.md', 'backlog/auth-2.md']
 
 // A home-only resolver keyed by relative path (the single-project shape). All
 // entries resolve to the home project (projectKey null).
 function infoMap(
   entries: Record<string, { status: BacklogItemStatusPayload; title?: string; prUrl?: string }>,
+  membersByEpic: Record<string, string[]> = { 'backlog/epics/auth.md': AUTH_MEMBERS },
 ): RoadmapBoardResolver {
   const lookup = (projectKey: ProjectKey, relativePath: string): RoadmapBoardItemInfo | undefined => {
     if (projectKey !== null) return undefined
@@ -51,7 +54,13 @@ function infoMap(
     if (!found) return undefined
     return { status: found.status, title: found.title ?? relativePath, ...(found.prUrl ? { prUrl: found.prUrl } : {}) }
   }
-  return { itemInfo: lookup, projectName: (projectKey) => projectKey ?? 'Home', resolvableProjects: new Set<ProjectKey>([null]) }
+  return {
+    itemInfo: lookup,
+    projectName: (projectKey) => projectKey ?? 'Home',
+    resolvableProjects: new Set<ProjectKey>([null]),
+    epicMembers: (projectKey, epicRelativePath) =>
+      projectKey === null ? (membersByEpic[epicRelativePath] ?? []) : [],
+  }
 }
 
 // Lane runtime handles are unit qualifiedRefs; spell the home-project one so the
@@ -209,6 +218,31 @@ run('board: dangling frontier reads unknown, never dropped', () => {
   assert.equal(backend.reason, 'dangling')
 })
 
+run('board: an item that is BOTH a step and an epic member keeps both readings', () => {
+  // Lane order puts the member's own step first, so the step pass sees it before
+  // the membership pass does. Neither may be dropped by the other.
+  const roadmap = parseRoadmap(
+    `---
+type: roadmap
+---
+## Platform
+- backlog/auth-1.md
+- backlog/epics/auth.md
+`,
+  )
+  const info = infoMap({
+    'backlog/auth-1.md': { status: 'completed' },
+    'backlog/epics/auth.md': { status: 'idea' },
+    'backlog/auth-2.md': { status: 'ready' },
+  })
+  const [platform] = buildRoadmapBoardModel(roadmap, info, new Map())
+  assert.equal(platform.units[0].state, 'done', 'the member is still a step in its own right')
+  // And the epic step still derives from BOTH members, so it is up next rather
+  // than reading as an epic nobody belongs to.
+  assert.deepEqual(platform.units[1].children?.map((child) => child.ref), AUTH_MEMBERS)
+  assert.equal(platform.units[1].state, 'up_next')
+})
+
 // --- Project-qualified board (instance-global) -----------------------------
 
 const CROSS_PROJECT = parseRoadmap(
@@ -233,6 +267,7 @@ const crossResolver: RoadmapBoardResolver = {
   },
   projectName: (projectKey) => (projectKey === null ? 'Home' : projectKey === 'mobile' ? 'Mobile app' : ''),
   resolvableProjects: new Set<ProjectKey>([null, 'mobile']),
+  epicMembers: () => [],
 }
 
 run('board: units carry their project key + display name', () => {
@@ -261,6 +296,7 @@ run('board: an unresolvable project frontier reads unknown_project, never droppe
     },
     projectName: (projectKey) => (projectKey === null ? 'Home' : projectKey ?? ''),
     resolvableProjects: new Set<ProjectKey>([null, 'mobile']),
+    epicMembers: () => [],
   }
   const ship = buildRoadmapBoardModel(CROSS_PROJECT, resolver, new Map()).find((lane) => lane.lane === 'Ship')
   assert.ok(ship)
@@ -353,7 +389,7 @@ status: in_progress
   assert.equal(parsed.lanes.length, 1)
 })
 
-run('skip: removes an epic entry with its snapshotted children', () => {
+run('skip: removes an epic entry with any legacy member lines beneath it', () => {
   const content = `---
 type: roadmap
 ---
@@ -371,25 +407,19 @@ type: roadmap
   )
 })
 
-run('skip: removes a single snapshotted epic child, keeping the epic + siblings', () => {
+run('skip: a member ref names no step, so the file is left alone', () => {
+  // Skipping is a plan edit. A member is not in the plan — it belongs to its epic
+  // through its own frontmatter — so there is nothing here to remove, and quietly
+  // editing a legacy indented line would be a change nobody asked for.
   const content = `---
 type: roadmap
 ---
 ## Platform
 - backlog/epics/auth.md
   - backlog/auth-1.md
-  - backlog/auth-2.md
 - backlog/ship.md
 `
-  const next = skipRoadmapEntry(content, 'backlog/auth-1.md', 'no longer needed', '2026-07-18')
-  const parsed = parseRoadmap(next)
-  // The epic entry and the loose item remain; only the one child is gone.
-  assert.deepEqual(
-    parsed.lanes[0].entries.map((entry) => entry.ref),
-    ['backlog/epics/auth.md', 'backlog/ship.md'],
-  )
-  assert.deepEqual(parsed.lanes[0].entries[0].children, ['backlog/auth-2.md'])
-  assert.ok(next.includes('<!-- skipped 2026-07-18: backlog/auth-1.md — no longer needed -->'))
+  assert.equal(skipRoadmapEntry(content, 'backlog/auth-1.md', 'no longer needed', '2026-07-18'), content)
 })
 
 run('skip: an unmatched ref leaves the file byte-identical', () => {

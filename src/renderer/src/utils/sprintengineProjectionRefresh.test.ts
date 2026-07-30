@@ -1109,6 +1109,250 @@ async function testTeardownFailureLeavesMarkerUnset(): Promise<void> {
   assert.deepEqual(markerCalls, [], 'failed teardown leaves the marker unset for a retry')
 }
 
+// ── MC-2017: a child item moves with its task, and lands with the sprint.
+//
+// One epic, three children, one task each. The fixtures below vary only what the
+// run has done, so each test reads as the acceptance criterion it proves.
+
+const CHILD_PATHS = ['backlog/child-a.md', 'backlog/child-b.md', 'backlog/child-c.md']
+
+function childFanoutProjection(input: {
+  taskStatuses: [string, string, string]
+  runStatus?: string
+  pullRequestState?: 'open' | 'merged'
+}): unknown {
+  const updatedAt = '2026-07-30T15:00:00Z'
+  return {
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    generatedAt: updatedAt,
+    updatedAt,
+    run: {
+      id: 'unified-refresh',
+      name: 'Unified Refresh',
+      goal: 'Deliver the epic',
+      status: input.runStatus ?? 'executing',
+      rosterConfigured: true,
+      updatedAt,
+      ...(input.pullRequestState
+        ? {
+          vcs: {
+            mode: 'run_worktree',
+            worktreePath: '/tmp/worktree',
+            branchName: 'sprint/unified-refresh',
+            lastCommitSha: 'abc123',
+            pullRequestUrl: 'https://example.test/pr/1',
+            pullRequestState: input.pullRequestState,
+          },
+        }
+        : {}),
+    },
+    roster: {},
+    tasks: input.taskStatuses.map((status, index) => ({
+      id: `T${index + 1}`,
+      title: `Deliver ${CHILD_PATHS[index]}`,
+      role: 'developer',
+      status,
+      folderStatus: status,
+      dependsOn: [],
+      activity: [],
+      backlogRef: { projectRelativePath: CHILD_PATHS[index] },
+    })),
+    artifacts: [],
+    activity: [],
+  }
+}
+
+// The store an epic launch leaves behind: the epic carrying the run link, and one
+// `pending` child link per child remembering the status it held beforehand.
+function childFanoutStore(childStatuses: [string, string, string]): BacklogObjectStorePayload {
+  const runTarget = {
+    kind: 'sprintengine.run',
+    id: 'unified-refresh',
+    path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+  }
+  return {
+    schemaVersion: 1,
+    items: [
+      {
+        id: 'epic',
+        source: { type: 'file', relativePath: 'backlog/epics/delivery.md' },
+        metadata: {},
+        links: [{
+          id: 'sprint-engine:unified-refresh',
+          moduleId: 'sprint-engine',
+          type: 'execution',
+          label: 'Sprint',
+          target: runTarget,
+          status: 'active',
+        }],
+      },
+      ...CHILD_PATHS.map((relativePath, index) => ({
+        id: `child-${index}`,
+        source: { type: 'file' as const, relativePath },
+        status: childStatuses[index] as BacklogObjectStorePayload['items'][number]['status'],
+        metadata: {},
+        links: [{
+          id: 'sprint-engine:unified-refresh',
+          moduleId: 'sprint-engine',
+          type: 'execution' as const,
+          label: 'Sprint',
+          target: runTarget,
+          status: 'pending' as const,
+          priorStatus: 'ready' as const,
+        }],
+      })),
+    ],
+  }
+}
+
+type BacklogMutation = {
+  workspaceRoot: string
+  relativePath: string
+  link: BacklogItemLinkPayload
+  status?: string
+}
+
+async function runChildFanoutRefresh(input: {
+  data: unknown
+  store: BacklogObjectStorePayload
+  workspace?: Workspace
+}): Promise<BacklogMutation[]> {
+  const backlogMutations: BacklogMutation[] = []
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: input.workspace ?? workspace(),
+    tokens: new Map(),
+    cause: 'supervisor',
+    force: true,
+    ports: portsFor({
+      data: input.data,
+      applied: [],
+      backlogMutations,
+      backlogStore: input.store,
+    }),
+  })
+  return backlogMutations
+}
+
+// Acceptance: starting a sprint from an epic moves each child to in_progress only
+// as its OWN task claims — not all at once on run start.
+async function testChildMovesOnlyWhenItsOwnTaskClaims(): Promise<void> {
+  const mutations = await runChildFanoutRefresh({
+    data: childFanoutProjection({ taskStatuses: ['in_progress', 'todo', 'todo'] }),
+    store: childFanoutStore(['ready', 'ready', 'ready']),
+  })
+
+  assert.deepEqual(
+    mutations.map((mutation) => [mutation.relativePath, mutation.link.status, mutation.status]),
+    [
+      // Every child binds to its task — the edge is what the Epic tab draws, and
+      // an unclaimed child has one too. Only the CLAIMED child moves status.
+      ['backlog/child-a.md', 'active', 'in_progress'],
+      ['backlog/child-b.md', 'pending', undefined],
+      ['backlog/child-c.md', 'pending', undefined],
+    ],
+    'only the claimed child moves; the two unclaimed ones stay exactly where they were',
+  )
+  assert.deepEqual(
+    mutations.map((mutation) => mutation.link.target.taskId),
+    ['T1', 'T2', 'T3'],
+    'each child is bound to the task whose backlogRef names it',
+  )
+
+  // Re-running against the store the writes above produced is a no-op: the
+  // binding is cached on the link, so a per-tick reconcile does not churn.
+  const settled = childFanoutStore(['in_progress', 'ready', 'ready'])
+  settled.items[1].links![0] = { ...mutations[0].link }
+  settled.items[2].links![0] = { ...mutations[1].link }
+  settled.items[3].links![0] = { ...mutations[2].link }
+  const rerun = await runChildFanoutRefresh({
+    data: childFanoutProjection({ taskStatuses: ['in_progress', 'todo', 'todo'] }),
+    store: settled,
+  })
+  assert.deepEqual(rerun, [], 'a settled fan-out writes nothing on the next tick')
+}
+
+// Acceptance: a completed run whose pull request is unmerged leaves every child
+// in_progress — there is no point completing an item that sits on a branch.
+async function testCompletedButUnmergedRunLeavesChildrenInProgress(): Promise<void> {
+  const mutations = await runChildFanoutRefresh({
+    data: childFanoutProjection({
+      taskStatuses: ['done', 'done', 'done'],
+      runStatus: 'complete',
+      pullRequestState: 'open',
+    }),
+    store: childFanoutStore(['in_progress', 'in_progress', 'in_progress']),
+  })
+
+  const childMutations = mutations.filter((mutation) => mutation.relativePath.startsWith('backlog/child'))
+  assert.equal(childMutations.length, 3, 'every child link is rebound to its finished task')
+  for (const mutation of childMutations) {
+    assert.equal(mutation.link.status, 'active', 'a done task on an unmerged branch stays in flight')
+    assert.equal(mutation.status, undefined, 'the child is already in_progress and is not moved')
+  }
+  // Acceptance: the epic's own file is never written a status.
+  const epicMutation = mutations.find((mutation) => mutation.relativePath.includes('/epics/'))
+  assert.equal(epicMutation?.status, undefined, 'the epic derives its status and is never written one')
+}
+
+// Acceptance: merging the pull request moves every done task's child to completed
+// — observed from DORMANCY, because the merge happens long after the run finished.
+async function testMergedRunCompletesEveryChildFromDormancy(): Promise<void> {
+  const dormant = {
+    ...workspace(),
+    sprintEngineAutoState: autoState('complete', 500),
+  } as unknown as Workspace
+  const mutations = await runChildFanoutRefresh({
+    workspace: dormant,
+    data: childFanoutProjection({
+      taskStatuses: ['done', 'done', 'done'],
+      runStatus: 'complete',
+      pullRequestState: 'merged',
+    }),
+    store: childFanoutStore(['in_progress', 'in_progress', 'in_progress']),
+  })
+
+  assert.deepEqual(
+    mutations
+      .filter((mutation) => mutation.relativePath.startsWith('backlog/child'))
+      .map((mutation) => [mutation.relativePath, mutation.link.status, mutation.status]),
+    [
+      ['backlog/child-a.md', 'completed', 'completed'],
+      ['backlog/child-b.md', 'completed', 'completed'],
+      ['backlog/child-c.md', 'completed', 'completed'],
+    ],
+    'a landed sprint completes every child, even though nothing is polling the run any more',
+  )
+}
+
+// Acceptance: cancelling a sprint returns every non-completed child to the status
+// it held before the sprint started. A child that already landed stays completed.
+async function testCanceledRunRestoresChildrenToTheirPreSprintStatus(): Promise<void> {
+  const mutations = await runChildFanoutRefresh({
+    data: childFanoutProjection({ taskStatuses: ['canceled', 'canceled', 'done'], runStatus: 'canceled' }),
+    store: childFanoutStore(['in_progress', 'in_progress', 'completed']),
+  })
+
+  const childMutations = mutations.filter((mutation) => mutation.relativePath.startsWith('backlog/child'))
+  assert.deepEqual(
+    childMutations.map((mutation) => [mutation.relativePath, mutation.link.status, mutation.status]),
+    [
+      ['backlog/child-a.md', 'canceled', 'ready'],
+      ['backlog/child-b.md', 'canceled', 'ready'],
+      ['backlog/child-c.md', 'canceled', undefined],
+    ],
+    'the two in-flight children go back to `ready`; the finished one is not un-finished',
+  )
+  for (const mutation of childMutations) {
+    assert.equal(
+      mutation.link.priorStatus,
+      undefined,
+      'the restore target is consumed, so a later status cannot be reverted a second time',
+    )
+  }
+}
+
 function testCanStopPollingCompletedProjection(): void {
   const state = completedWorkspace('complete').sprintEngineState!
   // Terminal + hydrated + completion teardown already ran → safe to stop polling.
@@ -1280,5 +1524,9 @@ await testEnterDormancyIsIdempotentAcrossRepeats()
 await testCompletedRunWithMarkerSkipsTeardown()
 await testReopenedRunClearsMarker()
 await testTeardownFailureLeavesMarkerUnset()
+await testChildMovesOnlyWhenItsOwnTaskClaims()
+await testCompletedButUnmergedRunLeavesChildrenInProgress()
+await testMergedRunCompletesEveryChildFromDormancy()
+await testCanceledRunRestoresChildrenToTheirPreSprintStatus()
 
 console.log('sprintengine projection refresh tests passed')

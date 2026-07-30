@@ -34,13 +34,14 @@ import {
 } from '../shared/sprintengine/roadmap-orchestrator'
 import {
   DEFAULT_ROADMAP_POLICY,
+  epicMemberLookup,
   flattenLaneUnits,
   isRoadmapPermissionPreset,
   nextEligible,
   parseRoadmap,
   qualifiedRef,
-  resolveEpicChildRef,
   resolveRoadmapPermissionPreset,
+  roadmapItemKey,
   roadmapRefSlug,
   splitQualifiedRef,
   type ProjectKey,
@@ -422,6 +423,9 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
       status: item.status,
       projectKey: item.projectKey,
       ...(item.dependsOn ? { dependsOn: item.dependsOn } : {}),
+      // Epic membership rides the universe (MC-2031): an epic step's members are
+      // resolved from these pointers, never from anything stored in the plan.
+      ...(item.epic ? { epic: item.epic } : {}),
     }))
 
     const laneRuntimes = await ports.readLaneRuntime(active.relativePath, ports.listWorkspaceRoots())
@@ -649,10 +653,10 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
   }
 
   // Record a delivered step's backlog items as completed, on the MAIN checkout
-  // (MC-1904). An epic step marks its SNAPSHOTTED MEMBERS, never the epic file —
-  // an epic's status derives from its members (`nextEligible`'s effectiveState), so
+  // (MC-1904). An epic step marks its LIVE MEMBERS, never the epic file — an
+  // epic's status derives from its members (`nextEligible`'s effectiveState), so
   // writing it directly would paper over the derivation instead of feeding it. An
-  // item step (and an epic with no snapshotted members) marks itself.
+  // item step (and an epic with no members) marks itself.
   //
   // Honesty constraint: a member whose tasks did not all finish is left alone. The
   // run's brief is the whole step, so the default is delivered; the run's terminal
@@ -705,13 +709,13 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
 
   // The backlog items a delivered handle should mark completed.
   //
-  // A STEP handle (the normal case) resolves to the step's snapshotted members, or
-  // to the step itself when it has none. A handle naming a snapshotted MEMBER
-  // resolves to that member alone: a lane runtime written under the old
-  // child-granularity keys its `activeItemRef` on a member, and the reducer
-  // deliberately keeps such a handle (`plannedKeysOf` includes children) — so
-  // matching only top-level steps here would have silently marked nothing for
-  // exactly the runs that migration guard exists to carry.
+  // A STEP handle (the normal case) resolves to the step's live members, or to the
+  // step itself when it has none. A handle naming a MEMBER resolves to that member
+  // alone: a lane runtime written under the old child-granularity keys its
+  // `activeItemRef` on a member, and the reducer deliberately keeps such a handle
+  // (`plannedKeysOf` includes members) — so matching only top-level steps here
+  // would have silently marked nothing for exactly the runs that migration guard
+  // exists to carry.
   //
   // Empty means the handle names nothing the plan still carries; the caller reports
   // that rather than doing nothing quietly.
@@ -719,16 +723,19 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     entry: RoadmapEntry,
     itemRef: string,
   ): Array<{ projectKey: ProjectKey; relativePath: string }> {
+    const membersOf = epicMemberLookup(entry.itemStates)
     for (const lane of entry.roadmap.lanes) {
       for (const unit of flattenLaneUnits(lane)) {
+        const members = membersOf(unit)
         if (unit.key === itemRef) {
-          return unit.children.length > 0
-            ? unit.children.map((child) => resolveEpicChildRef(child, unit.projectKey))
+          return members.length > 0
+            ? members.map((member) => ({ projectKey: member.projectKey ?? null, relativePath: member.ref }))
             : [{ projectKey: unit.projectKey, relativePath: unit.relativePath }]
         }
-        for (const child of unit.children) {
-          const resolved = resolveEpicChildRef(child, unit.projectKey)
-          if (qualifiedRef(resolved.projectKey, resolved.relativePath) === itemRef) return [resolved]
+        for (const member of members) {
+          if (roadmapItemKey(member) === itemRef) {
+            return [{ projectKey: member.projectKey ?? null, relativePath: member.ref }]
+          }
         }
       }
     }
@@ -978,18 +985,22 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
         status: item.status,
       })
     }
+    const membersOf = epicMemberLookup(entry.itemStates)
     const resolver: RoadmapBoardResolver = {
       itemInfo: (projectKey, relativePath) => infoByKey.get(qualifiedRef(projectKey, normalizeRoadmapPath(relativePath))),
       projectName: (projectKey) => projectDisplayName(entry, projectKey),
       resolvableProjects: entry.resolvableProjects,
+      epicMembers: (projectKey, epicRelativePath) =>
+        membersOf({ kind: 'epic', ref: epicRelativePath, projectKey }).map((member) => member.ref),
     }
     const lanes = buildRoadmapBoardModel(entry.roadmap, resolver, laneRuntimeViewMap(entry))
     return { roadmapRef: entry.roadmapRef, title: entry.roadmap.title, lanes }
   }
 
-  // Add a step to the plan: an item (or an epic as one step, snapshotting its
-  // children) from the home project or any open workspace. Malformed or unresolvable
-  // refs are rejected with a message and the file is never touched (acceptance #2).
+  // Add a step to the plan: an item, or an epic as one step (a bare reference —
+  // its members resolve live on every read), from the home project or any open
+  // workspace. Malformed or unresolvable refs are rejected with a message and the
+  // file is never touched (acceptance #2).
   async function addStep(input: {
     ref: string
     projectPath?: string
@@ -1017,8 +1028,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
       return { ok: false, message: `${stored} is already in the roadmap.` }
     }
 
-    const epicChildren = item.isEpic ? epicChildRefs(items, relativePath) : []
-    const newEntry = buildRoadmapEntry(target.projectKey, relativePath, epicChildren)
+    const newEntry = buildRoadmapEntry(target.projectKey, relativePath)
 
     const baseline = draftFromRoadmap(entry.roadmap)
     const draft = draftFromRoadmap(entry.roadmap)
@@ -1492,23 +1502,8 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     }
   }
 
-  // The runnable children of an epic, path-sorted for a deterministic snapshot
-  // (matches the renderer's snapshotEpicChildren). Non-epic OPEN members only —
-  // finished work never rides into a new plan (mirror the renderer's filter).
-  function epicChildRefs(items: ReadonlyArray<RoadmapBacklogItem>, epicRelativePath: string): string[] {
-    const slug = roadmapRefSlug(epicRelativePath)
-    return items
-      .filter(
-        (item) =>
-          !item.isEpic && item.epic === slug && item.status !== 'completed' && item.status !== 'archived',
-      )
-      .map((item) => normalizeRoadmapPath(item.relativePath))
-      .sort()
-  }
-
   // Locate a stored (authored) entry ref across the lanes — the lane + position the
-  // plan transforms address. Only top-level entries are located; a snapshotted epic
-  // child is removed via skipStep, not remove_step.
+  // plan transforms address.
   function locateEntry(
     lanes: Roadmap['lanes'],
     ref: string,

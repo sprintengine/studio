@@ -21,7 +21,7 @@ from sprintengine_core.tool.artifacts import (
 from sprintengine_core.tool.constants import VALID_APPROVAL_MODES
 from sprintengine_core.tool.feedback import append_feedback_record, attach_feedback_payload, build_feedback_payload
 from sprintengine_core.tool.paths import now_iso
-from sprintengine_core.tool.plans import resolve_planning_role
+from sprintengine_core.tool.plans import epic_child_coverage_warnings, resolve_planning_role
 from sprintengine_core.tool.state import (
     append_agent_notification_event,
     append_event,
@@ -204,6 +204,11 @@ def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
             integration_warnings = [
                 *review_planning_warnings(state),
                 *integration_review_warnings(state),
+                # On an epic-sourced run the plan is a sequencing of the epic's
+                # children, so "which child did this plan leave undelivered?" is
+                # the same class of question as the review-coverage ones above,
+                # and rides the same advisory channel (backlog item 2018).
+                *epic_child_coverage_warnings(state),
                 *plan_seam_section_warnings(
                     state, artifact_absolute_path(args.state, str(artifact.get("path") or ""))
                 ),

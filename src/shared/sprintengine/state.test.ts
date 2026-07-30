@@ -469,6 +469,42 @@ function testBothReviewCharterMarkersSurviveProjection(): void {
   )
 }
 
+// `backlogRef` is the identity the Epic tab's mapping column, the child→task
+// link and the task header pointer all key on, so it must reach the renderer
+// off the projection rather than being parsed out of run internals. Absent is
+// the normal case — most tasks deliver no item, and a store written before the
+// field existed carries none — and a record with no usable path must read as
+// absent rather than as a pointer at nothing.
+function testBacklogRefSurvivesProjectionAndToleratesAbsence(): void {
+  const state = normalizeSprintEngineProjection(
+    v3Projection({
+      tasks: [
+        {
+          id: 'T1',
+          title: 'Deliver the item',
+          role: 'developer',
+          status: 'todo',
+          backlogRef: { projectRelativePath: 'backlog/2026-07-30-example.md', displayKey: 'MC-2020' },
+        },
+        { id: 'T2', title: 'Deliver no item', role: 'developer', status: 'todo' },
+        { id: 'T3', title: 'Pointer at nothing', role: 'developer', status: 'todo', backlogRef: { displayKey: 'MC-2021' } },
+        { id: 'T4', title: 'Not an object', role: 'developer', status: 'todo', backlogRef: 'backlog/x.md' },
+      ],
+    })
+  )
+  const refs = (state?.tasks ?? []).map((task) => task.backlogRef)
+  assert.deepEqual(
+    refs,
+    [
+      { projectRelativePath: 'backlog/2026-07-30-example.md', displayKey: 'MC-2020' },
+      undefined,
+      undefined,
+      undefined,
+    ],
+    'a usable pointer survives whole; absent, path-less, and non-object records all read as absent'
+  )
+}
+
 // Completion is done-or-canceled, mirroring the engine's recompute_phase
 // rollup exactly. Strict every-done here while Python tolerates canceled
 // produced a run whose state said "completed" but whose TS consumers
@@ -488,6 +524,7 @@ function testCompletionToleratesCanceledTasks(): void {
 testCompletionToleratesCanceledTasks()
 testCategoricalFindingsSurviveNormalization()
 testBothReviewCharterMarkersSurviveProjection()
+testBacklogRefSurvivesProjectionAndToleratesAbsence()
 testWorkersViewPopulatedFromProjectionWorkers()
 testWorkersFallBackToRosterBridgeWhenAbsent()
 testRosterBuilderDerivesFromWorkers()

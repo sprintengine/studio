@@ -485,7 +485,13 @@ function resolveInitSourceBundle(
 ): SprintEngineStateInitializeSourceBundleItem[] {
   if (!Array.isArray(input)) return []
   return input
-    .map((item) => resolveInitSourceItem(item))
+    .map((item) => {
+      const resolved = resolveInitSourceItem(item)
+      if (!resolved) return null
+      // An epic's child item, marked by the launch path: it is a unit of work
+      // the planner mints one task for, not reading material sharing the bundle.
+      return item?.epicChild === true ? { ...resolved, epicChild: true } : resolved
+    })
     .filter((item): item is SprintEngineStateInitializeSourceBundleItem => item !== null)
 }
 

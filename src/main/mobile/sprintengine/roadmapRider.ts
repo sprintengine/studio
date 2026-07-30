@@ -47,6 +47,16 @@ export async function readMobileRoadmapRiders(workspaceRoot: string): Promise<Mo
     itemInfo: (projectKey, relativePath) => (projectKey === null ? infoByPath.get(relativePath.toLowerCase()) : undefined),
     projectName: (projectKey) => projectKey ?? 'This project',
     resolvableProjects: new Set([null]),
+    // An epic step's live members: the same `epic:` frontmatter pointer the
+    // Backlog groups by (MC-2031). Path-sorted for a stable order.
+    epicMembers: (projectKey, epicRelativePath) => {
+      if (projectKey !== null) return []
+      const slug = roadmapRefSlug(epicRelativePath)
+      return listed.items
+        .filter((item) => !item.isEpic && item.epic === slug)
+        .map((item) => item.relativePath)
+        .sort()
+    },
   }
 
   const store = createRoadmapOrchestratorStore(workspaceRoot)

@@ -12,7 +12,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
-import { flattenLaneUnits, isRoadmapContent, parseRoadmap, type ProjectKey, type Roadmap } from '../../../../../shared/backlog/roadmap'
+import { flattenLaneUnits, isRoadmapContent, parseRoadmap, roadmapRefSlug, type ProjectKey, type Roadmap } from '../../../../../shared/backlog/roadmap'
+import { childrenOfEpic } from '../../../utils/backlogEpics'
 import {
   buildRoadmapBoardModel,
   deriveRepoMergeBlockers,
@@ -445,6 +446,19 @@ function buildInstanceResolver(
     return byPath
   }
 
+  // An epic step's LIVE members, read off the same per-project scan (MC-2031):
+  // every non-epic item whose `epic:` frontmatter names it, path-sorted so the
+  // order is stable across sessions now that nothing stores a sequence.
+  const membersFor = (projectKey: ProjectKey, epicRelativePath: string): string[] => {
+    const path = pathOf(projectKey)
+    const items = path ? itemsByRootKey.get(rootKey(path)) : undefined
+    if (!items) return []
+    const slug = roadmapRefSlug(epicRelativePath)
+    return childrenOfEpic([...items], slug)
+      .map((member) => normalizeRelativePath(member.relativePath))
+      .sort()
+  }
+
   const resolvableProjects = new Set<ProjectKey>([null])
   for (const project of roadmap.projects) {
     if (knownRootKeys.has(rootKey(project.path))) resolvableProjects.add(project.alias)
@@ -458,6 +472,7 @@ function buildInstanceResolver(
       return projectKey ?? 'This project'
     },
     resolvableProjects,
+    epicMembers: membersFor,
   }
 }
 

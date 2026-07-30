@@ -1,13 +1,19 @@
-import type { BacklogItem, BacklogItemLink, BacklogResolvedLink } from './backlog'
-import { isCanceledSprintEngineRun, isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
+import type { BacklogItem, BacklogItemLink, BacklogItemLinkStatus, BacklogResolvedLink } from './backlog'
+import {
+  deriveSprintEngineRepoMergeRollup,
+  isCanceledSprintEngineRun,
+  isCompletedSprintEngineRun,
+  normalizeSprintEngineProjection,
+} from './sprintengine'
 import {
   SPRINT_ENGINE_RUN_TARGET_KIND,
+  isSprintEngineChildRunLink,
   safeProjectRelativeRunPath,
   sprintEngineRunLinkOf,
   teamSlugFromStatePath,
 } from '../../../shared/backlog/sprintengine-links'
 import type { BacklogLinkProviderInput } from '../modules/renderer-host'
-import type { Workspace } from '../types/workspace'
+import type { SprintEngineState, Workspace } from '../types/workspace'
 
 // The link shapes, ids and builders live in src/shared/backlog/sprintengine-links.ts
 // so the main process can write the same links for a phone-driven run, where no
@@ -20,11 +26,71 @@ export {
   SPRINT_ENGINE_RUN_TARGET_KIND,
   buildSprintEnginePullRequestLink,
   buildSprintEngineRunLink,
+  isSprintEngineChildRunLink,
   sprintEnginePullRequestLinkId,
   sprintEnginePullRequestLinksOf,
   sprintEngineRepoDisplayName,
   sprintEngineRunLinkId,
 } from '../../../shared/backlog/sprintengine-links'
+
+/**
+ * Whether a run has LANDED: finished, and every branch it delivered merged.
+ *
+ * This is the completion a Backlog item is allowed to read — there is no point
+ * marking an item completed while its work sits unmerged on a branch (MC-2017).
+ * It composes the two canonical predicates rather than re-deriving either: task
+ * completeness (`isCompletedSprintEngineRun`) and the cross-repo merge rollup
+ * (`deriveSprintEngineRepoMergeRollup().allMerged`, MC-1613), so a run spanning
+ * projects only lands when its LAST branch does.
+ *
+ * A run with no worktree has no branch to merge — its work is already on the
+ * checkout branch — so completion is landing. Same rule the run-landed automation
+ * trigger applies (src/main/automations/triggers/sprint-engine-run-landed.ts).
+ */
+export function isLandedSprintEngineRun(state: SprintEngineState): boolean {
+  if (isCanceledSprintEngineRun(state) || !isCompletedSprintEngineRun(state)) return false
+  if (state.vcs?.mode !== 'run_worktree') return true
+  return deriveSprintEngineRepoMergeRollup(state.vcs)?.allMerged === true
+}
+
+/**
+ * The live status of one epic-child run link, and the task it is bound to.
+ *
+ * A child link tracks ITS TASK, not the whole run — that is what makes the fan-out
+ * task-accurate, so a child whose task has not started is not prematurely moved
+ * (MC-2017). The task is bound by `backlogRef`: the planner mints one task per
+ * child pointing back at the child's file, and the binding is cached onto
+ * `target.taskId` by the first tick that sees it.
+ *
+ * The `done` case is the point of the whole item: a finished task whose run has
+ * not landed keeps its child `active` (reading `in_progress`), because the work is
+ * still only on a branch.
+ */
+export function resolveSprintEngineChildRunLink(input: {
+  state: SprintEngineState
+  link: Pick<BacklogItemLink, 'target'>
+  itemRelativePath: string
+}): { status: BacklogItemLinkStatus; taskId?: string } {
+  const itemKey = pathKey(input.itemRelativePath)
+  const taskId = input.link.target.taskId
+    ?? input.state.tasks.find(
+      (task) => task.backlogRef && pathKey(task.backlogRef.projectRelativePath) === itemKey,
+    )?.id
+  // Run-level cancellation is decided for every child at once and outranks
+  // whatever their individual tasks say.
+  if (isCanceledSprintEngineRun(input.state)) return { status: 'canceled', ...(taskId ? { taskId } : {}) }
+
+  const task = taskId ? input.state.tasks.find((candidate) => candidate.id === taskId) : undefined
+  // No task yet: the planner has not minted this child's task, so nothing has
+  // claimed it and the link stays recorded-but-not-started.
+  if (!task) return { status: 'pending', ...(taskId ? { taskId } : {}) }
+  if (task.status === 'canceled') return { status: 'canceled', taskId }
+  if (task.status === 'todo') return { status: 'pending', taskId }
+  // The engine's `review` phase is an implementation detail of how the sprint
+  // runs, not a human review gate, so it reads as ordinary work in progress.
+  if (task.status !== 'done') return { status: 'active', taskId }
+  return { status: isLandedSprintEngineRun(input.state) ? 'completed' : 'active', taskId }
+}
 
 export type SprintEngineProjectionRead = {
   ok: boolean
@@ -132,6 +198,25 @@ export async function resolveSprintEngineBacklogLink(
   const state = normalizeSprintEngineProjection(projection.data, teamSlugFromStatePath(statePath))
   if (!state) {
     return unavailableLink(input.link, 'Sprint projection is malformed.')
+  }
+
+  // An epic child tracks its own task, not the run: it must not read Active
+  // before its task claims, nor Completed while the run sits unmerged. Resolving
+  // it here — and not only in the projection tick that writes it — is what stops
+  // the Backlog surface's sync pass from overwriting a child's per-task status
+  // with the run-level one.
+  if (isSprintEngineChildRunLink(input.link)) {
+    const child = resolveSprintEngineChildRunLink({
+      state,
+      link: input.link,
+      itemRelativePath: input.item.relativePath,
+    })
+    return {
+      ...input.link,
+      ...(child.taskId ? { target: { ...input.link.target, taskId: child.taskId } } : {}),
+      status: child.status,
+      canOpen: true,
+    }
   }
 
   // Cancellation is a decided terminal that outranks completeness: a canceled

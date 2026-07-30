@@ -1004,7 +1004,7 @@ def test_mcp_epic_reference_handover_and_init_over_mcp_route(tmp_path) -> None:
         actor("workspace-user", "user"),
     )
     assert initialized["ok"] is True
-    assert initialized["result"]["planTask"]["title"] == "Review epic designs in place and create task graph"
+    assert initialized["result"]["planTask"]["title"] == "Sequence the epic's child items into a task graph"
     assert initialized["result"].get("productTask") is None
     assert not (team_dir / "plan.md").exists()
 

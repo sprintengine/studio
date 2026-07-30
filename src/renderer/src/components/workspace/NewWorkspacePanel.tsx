@@ -88,7 +88,8 @@ import { BacklogRowContent } from '../backlog/BacklogRow'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import type { BacklogItem, BacklogScanResult } from '../../utils/backlog'
 import { compareBacklogItems } from '../../utils/backlogTriage'
-import { childrenOfEpic, epicSlug } from '../../utils/backlogEpics'
+import { childrenOfEpic, epicSlug, isBacklogEpicPath } from '../../utils/backlogEpics'
+import { buildSprintEngineRunLink } from '../../utils/sprintengineBacklogLinks'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import {
   mockupSourceDocFromMarkdown,
@@ -1816,6 +1817,11 @@ export default function NewWorkspacePanel({
           sourcePath: child.path,
           sourceRelativePath: child.relativePath,
           sourceContent: child.sourceContent,
+          // The children are the sprint's work list, not reading material: the
+          // planner mints exactly one task per child (MC-2018). The mockups
+          // appended below share this bundle and carry no marker, so the two
+          // stay tellable apart all the way into the run store.
+          epicChild: true,
         }
       })
       : isHtmlSource
@@ -2239,34 +2245,37 @@ export default function NewWorkspacePanel({
               pathExists: window.api.pathExists,
               initializeSprintEngineState: window.api.initializeSprintEngineState,
               recordBacklogExecutionLink: async ({ workspaceRoot, sourceRelativePath, teamSlug, statePath, childRelativePaths }) => {
+                const runRelativePath = workspaceRelativePath(workspaceRoot, statePath) ?? statePath
+                const source = backlogScan.result.items.find((item) => item.relativePath === sourceRelativePath)
                 const result = await window.api.addOrUpdateBacklogLink({
                   workspaceRoot,
                   relativePath: sourceRelativePath,
-                  link: {
-                    id: `sprint-engine:${teamSlug}`,
-                    moduleId: 'sprint-engine',
-                    type: 'execution',
-                    label: 'Sprint',
-                    target: {
-                      kind: 'sprintengine.run',
-                      id: teamSlug,
-                      path: workspaceRelativePath(workspaceRoot, statePath) ?? statePath,
-                    },
-                    status: 'active',
-                  },
-                  status: 'in_progress',
+                  link: buildSprintEngineRunLink({ teamSlug, runRelativePath }),
+                  // An epic's status is derived from its children and its file is
+                  // never written a status of its own — the children below carry
+                  // the sprint's progress instead. Read off the scan, which knows
+                  // `type: epic` too; the path test only catches `backlog/epics/`.
+                  ...(source?.isEpic || isBacklogEpicPath(sourceRelativePath)
+                    ? {}
+                    : { status: 'in_progress' as const }),
                 })
                 if (!result.ok) throw new Error(result.message)
-                // Flip every epic child to in_progress in the main checkout so the
-                // whole epic shows the sprint immediately. Never downgrade a child
-                // that is already in_progress or completed.
+                // Link every epic child to the run, remembering the status it held
+                // before the sprint so a cancel can put it back. The link starts
+                // `pending`, NOT `active`: a child moves to in_progress when its own
+                // task claims (the projection tick binds it and drives it), so an
+                // epic does not read as six items in flight the moment it launches.
                 for (const childPath of childRelativePaths ?? []) {
                   const child = backlogScan.result.items.find((item) => item.relativePath === childPath)
-                  if (child && (child.status === 'in_progress' || child.status === 'completed')) continue
-                  const childResult = await window.api.updateBacklogStatus({
+                  const childResult = await window.api.addOrUpdateBacklogLink({
                     workspaceRoot,
                     relativePath: childPath,
-                    status: 'in_progress',
+                    link: buildSprintEngineRunLink({
+                      teamSlug,
+                      runRelativePath,
+                      status: 'pending',
+                      ...(child ? { priorStatus: child.status } : {}),
+                    }),
                   })
                   if (!childResult.ok) throw new Error(childResult.message)
                 }

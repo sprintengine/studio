@@ -5,6 +5,7 @@ import type {
   BacklogReadResult,
   SprintEngineProjectionReadResult,
 } from '../../../shared/electron-api'
+import type { BacklogItemStatus } from './backlog'
 import type { DiagnosticLogInput } from '../types/workspace'
 import type { SprintEngineState, Workspace, WorkspaceId } from '../types/workspace'
 import type { SprintEngineAutomationEvent } from '../types/workspace'
@@ -15,6 +16,9 @@ import { isBacklogEpicPath } from './backlogEpics'
 import { isCanceledSprintEngineRun, isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
 import {
   buildSprintEnginePullRequestLink,
+  isLandedSprintEngineRun,
+  isSprintEngineChildRunLink,
+  resolveSprintEngineChildRunLink,
   sprintEnginePullRequestLinksOf,
   sprintEngineRepoDisplayName,
   sprintEngineStatePathForBacklogLink,
@@ -49,7 +53,10 @@ export type SprintEngineProjectionRefreshPorts = {
     workspaceRoot: string
     relativePath: string
     link: BacklogItemLinkPayload
-    status?: 'completed'
+    // Widened past `completed` for the epic-child fan-out (MC-2017), which also
+    // moves a child to `in_progress` on claim and back to its pre-sprint status
+    // when the sprint is canceled.
+    status?: BacklogItemStatus
   }): Promise<BacklogMutationResult>
   publishDiagnostic?(input: DiagnosticLogInput): Promise<unknown> | unknown
   // Remove the completed run's agent panels (recording each resumable session
@@ -174,8 +181,17 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
       // This is the changed-projection branch, so it fires once (on the first read
       // of the canceled projection); after it, `canStopPolling…` quiesces the poll.
       // Idempotent regardless: the link refresh self-skips once the chip matches.
-      // Scoped to cancellation so a completed dormant run stays display-only.
-      if (isCanceledSprintEngineRun(parsedState)) {
+      //
+      // A MERGE is the other dormant-only transition (MC-2017). A pull request
+      // merges on GitHub long after the run finished and went dormant, and the
+      // only thing that observes it is `SprintEnginePullRequestPollSupervisor`,
+      // which probes `gh` and then forces a refresh straight into this branch.
+      // Without this arm an epic's children would sit `in_progress` forever after
+      // their sprint merged. Scoped to a WORKTREE run that has landed: a run with
+      // no branch to merge has no post-completion transition to catch, so its
+      // links are settled by the completing tick and it stays display-only.
+      const merged = parsedState.vcs?.mode === 'run_worktree' && isLandedSprintEngineRun(parsedState)
+      if (isCanceledSprintEngineRun(parsedState) || merged) {
         await refreshBacklogSprintEngineRunLinks({
           workspace,
           state: parsedState,
@@ -439,7 +455,13 @@ async function refreshBacklogSprintEngineRunLinks(input: {
   // the Backlog item stays whatever the user left it (they may re-plan).
   const canceled = isCanceledSprintEngineRun(state)
   const completed = !canceled && isCompletedSprintEngineRun(state)
-  if (!canceled && !completed) return
+  // Epic-child links are per-TASK, so they reconcile on every tick of a
+  // backlog-sourced run, not only at the run's terminals — that is what makes a
+  // child move on its own task's claim (MC-2017). Gated on the run actually
+  // having planned backlog work so an ordinary run still reads the Backlog store
+  // only at its terminals.
+  const hasChildWork = state.tasks.some((task) => task.backlogRef)
+  if (!canceled && !completed && !hasChildWork) return
   const runLinkStatus = canceled ? 'canceled' : 'completed'
   if (!workspace.folderPath || !workspace.sprintEngineContext?.statePath) return
   if (!ports.readBacklogObjectStore || !ports.addOrUpdateBacklogLink) return
@@ -473,7 +495,35 @@ async function refreshBacklogSprintEngineRunLinks(input: {
       if (link.type !== 'execution') continue
       const linkStatePath = sprintEngineStatePathForBacklogLink(workspace.folderPath, link)
       if (!linkStatePath || normalizedPathKey(linkStatePath) !== targetStatePathKey) continue
+
+      // An epic child follows its own task, on every tick. Its whole lifecycle —
+      // claim, landing, and the restore that undoes an abandoned sprint — lives in
+      // the helper below; the run-level reconcile that follows is for the item
+      // that LAUNCHED the run.
+      if (isSprintEngineChildRunLink(link)) {
+        const failure = await reconcileBacklogChildLink({
+          workspaceRoot: workspace.folderPath,
+          record,
+          link,
+          state,
+          isEpic,
+          addOrUpdateBacklogLink: ports.addOrUpdateBacklogLink,
+        })
+        if (failure) {
+          await ports.publishDiagnostic?.({
+            level: 'warning',
+            source: 'sprintengine',
+            title: 'Backlog link refresh failed',
+            message: failure,
+            workspaceId: workspace.id,
+            workspaceName: workspace.name,
+          })
+        }
+        continue
+      }
       matchedThisRun = true
+      if (!canceled && !completed) continue
+
       // Nothing to reconcile once the chip already carries this run's terminal
       // status — and, for a completed run, the epic link (its only touch) or an
       // already-completed item is fully settled.
@@ -500,10 +550,13 @@ async function refreshBacklogSprintEngineRunLinks(input: {
       }
     }
 
-    // Attach the completed sprint's pull requests to its originating item — one per
+    // Attach the completed sprint's pull requests to its ORIGINATING item — one per
     // project it delivered (MC-1612). Only when this record links to the current run;
     // a project whose URL is already linked is skipped so the per-tick reconcile does
     // not churn the store. `external` is lifecycle-neutral, so no item-status change.
+    // Deliberately not fanned out to epic children (`matchedThisRun` is set only by
+    // the run-level link): the pull request belongs to the sprint, and one copy on
+    // the launched epic is where a person looks for it.
     if (!matchedThisRun) continue
     const existingByLinkId = new Map(
       sprintEnginePullRequestLinksOf(record.links ?? []).map((link) => [link.id, link.target.url]),
@@ -533,4 +586,88 @@ async function refreshBacklogSprintEngineRunLinks(input: {
       }
     }
   }
+}
+
+/**
+ * Reconcile one epic child against the task that delivers it (MC-2017).
+ *
+ * Exactly one thing propagates from a sprint to a child: its status. The child
+ * moves to `in_progress` when its own task claims — not when the run starts — and
+ * to `completed` only when the sprint has LANDED, because there is no point
+ * marking an item completed while it sits unmerged on a branch. An abandoned
+ * sprint (canceled run, or a canceled task) puts the child back to the status it
+ * held before the sprint started, which the link has been carrying as
+ * `priorStatus` since it was created; leaving it stranded `in_progress` is worse
+ * than never having moved it.
+ *
+ * Returns a message when the write failed, so the caller can surface it.
+ */
+async function reconcileBacklogChildLink(input: {
+  workspaceRoot: string
+  record: { source: { relativePath: string }; status?: BacklogItemStatus }
+  link: BacklogItemLinkPayload
+  state: SprintEngineState
+  isEpic: boolean
+  addOrUpdateBacklogLink: NonNullable<SprintEngineProjectionRefreshPorts['addOrUpdateBacklogLink']>
+}): Promise<string | null> {
+  const { record, link } = input
+  const resolved = resolveSprintEngineChildRunLink({
+    state: input.state,
+    link,
+    itemRelativePath: record.source.relativePath,
+  })
+  const restoring = resolved.status === 'canceled' && link.priorStatus !== undefined
+  const nextLink: BacklogItemLinkPayload = {
+    ...link,
+    target: { ...link.target, ...(resolved.taskId ? { taskId: resolved.taskId } : {}) },
+    status: resolved.status,
+    // The restore target is consumed once it has been used: a link that has already
+    // put its child back must not put it back a second time from a later status.
+    ...(restoring ? { priorStatus: undefined } : {}),
+  }
+
+  const nextStatus = nextBacklogChildStatus({
+    resolved: resolved.status,
+    priorStatus: link.priorStatus,
+    currentStatus: record.status,
+    // A child is never an epic, but an epic's status is derived from ITS children
+    // and is never written to its file — so if one ever matched here, the status
+    // write is the part to drop, not the link refresh.
+    isEpic: input.isEpic,
+  })
+  const linkUnchanged =
+    link.status === nextLink.status
+    && link.target.taskId === nextLink.target.taskId
+    && link.priorStatus === nextLink.priorStatus
+  if (linkUnchanged && nextStatus === undefined) return null
+
+  const result = await input.addOrUpdateBacklogLink({
+    workspaceRoot: input.workspaceRoot,
+    relativePath: record.source.relativePath,
+    link: nextLink,
+    ...(nextStatus ? { status: nextStatus } : {}),
+  })
+  return result.ok ? null : result.message
+}
+
+// The status a child should be written to for a resolved child-link status, or
+// undefined to leave it alone. Pure so the propagation rules read as one table.
+function nextBacklogChildStatus(input: {
+  resolved: BacklogItemLinkPayload['status']
+  priorStatus: BacklogItemStatus | undefined
+  currentStatus: BacklogItemStatus | undefined
+  isEpic: boolean
+}): BacklogItemStatus | undefined {
+  // An archived item is out of the lifecycle entirely, and an epic derives its
+  // status from its children rather than being written one.
+  if (input.isEpic || input.currentStatus === 'archived') return undefined
+  const next =
+    input.resolved === 'active' ? 'in_progress'
+      : input.resolved === 'completed' ? 'completed'
+        // Only a NON-completed child is restored: a child that already landed is
+        // finished work, and cancelling the rest of the sprint does not un-finish it.
+        : input.resolved === 'canceled' && input.currentStatus !== 'completed' ? input.priorStatus
+          // `pending` is the not-yet-claimed child: recorded, deliberately unmoved.
+          : undefined
+  return next === input.currentStatus ? undefined : next
 }

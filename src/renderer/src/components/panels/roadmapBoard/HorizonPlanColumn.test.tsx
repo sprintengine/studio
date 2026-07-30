@@ -88,6 +88,8 @@ function render({
     policyRoster: undefined,
     knownRosterNames: new Set(['no roles']),
     defaultRosterLabel: 'No roles',
+    // Live epic membership, as the surface resolves it from the scan (MC-2031).
+    epicMembersByRef: new Map([['backlog/epics/ext.md', ['backlog/child-a.md', 'backlog/child-b.md']]]),
   })
   return renderToStaticMarkup(
     <HorizonPlanColumn
@@ -103,7 +105,6 @@ function render({
       onManageRosters={() => undefined}
       onLanes={() => undefined}
       onAddRef={() => undefined}
-      onResyncEpic={() => undefined}
       onOpenItem={() => undefined}
       onAddWork={() => undefined}
       addWorkActive={false}
@@ -193,7 +194,7 @@ run('selection is the neutral fill, with no left bar and no accent', () => {
 })
 
 run('an epic step carries its size in the trailing slot', () => {
-  const lanes = lanesOf('## Delivery\n- backlog/epics/ext.md\n  - backlog/child-a.md\n  - backlog/child-b.md\n')
+  const lanes = lanesOf('## Delivery\n- backlog/epics/ext.md\n')
   const markup = render({ lanes })
   assert.match(markup, /Extensions: doors become installable modules/)
   assert.match(markup, />1\/2</, 'one of two members has landed')

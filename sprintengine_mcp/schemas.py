@@ -64,6 +64,18 @@ REPO_PROPERTY = {
 }
 ARTIFACT_ID_PROPERTY = {"type": "string", "description": "Sprint Engine artifact id."}
 
+OWNED_MODULES_PROPERTY = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": (
+        "The modules this task owns: project-root-relative DIRECTORY paths, relative to the task's repo root. "
+        "A task owns the directories it works in, never individual files — an entry naming an existing file is "
+        "rejected. These paths are also the task's commit pathspec, so anything the task adds, splits, or moves "
+        "inside them is committed by it. Tasks whose modules overlap never run at the same time, so give "
+        "concurrent tasks disjoint modules."
+    ),
+}
+
 ACTOR_SCHEMA = {
     "type": "object",
     "required": ["id"],
@@ -162,6 +174,23 @@ PHASES_PROPERTY = {
     "type": "array",
     "items": {"type": "string", "enum": sorted(VALID_TASK_PHASES)},
     "description": "Ordered post-implementation phases for this task. Omit to inherit the run default; [] for none. Must be a subset of the run's defaultPhases.",
+}
+# The backlog item a task delivers. Single-valued: the Epic tab resolves an item
+# to exactly one task, so the engine rejects a second task on the same item.
+BACKLOG_REF_PROPERTY = {
+    "type": "object",
+    "required": ["projectRelativePath"],
+    "properties": {
+        "projectRelativePath": {
+            "type": "string",
+            "description": "Project-root-relative path to the backlog item file, e.g. backlog/2026-07-30-example.md.",
+        },
+        "displayKey": {
+            "type": "string",
+            "description": "Human key of that item when known, e.g. MC-1843.",
+        },
+    },
+    "description": "The backlog item this task delivers, as a project-root-relative path to the item file. One item per task: a second task pointing at the same item is rejected, naming the task that already holds it.",
 }
 
 
@@ -273,8 +302,8 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
             **FEEDBACK_PROPERTIES,
         },
     ),
-    "sprintengine.plan.add_task": object_schema(["statePath", "title", "role"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "repo": REPO_PROPERTY, "dependsOn": {"type": "array"}, "path": {"type": "array"}, "acceptance": {"type": "array"}, "note": {"type": "array"}, "sourceDocs": {"type": "array", "description": "Project-root-relative canonical source documents this task implements (e.g. the backlog item on a reference-sourced run). Workers are directed to read each in full on claim; keep the task card the delta, never a restatement."}, "taskNote": {"type": "array"}, "producesImplementation": {"type": "boolean"}, "kind": {"type": "string", "enum": ["work", "review", "integration_review"], "description": "Charter marker: review = a planned review of other tasks' work; integration_review = the terminal task proving the pieces work together. Both run like any other task."}, "fromFinding": {"type": "object", "description": "The structured finding this task was filed to answer: {taskId, findingId}. Set it when triaging a reviewer escalation into a new task, so the finding chain survives the run."}, "needsTriage": {"type": "boolean"}, "phases": PHASES_PROPERTY, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
-    "sprintengine.plan.update_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "repo": REPO_PROPERTY, "path": {"type": "array"}, "acceptance": {"type": "array"}, "note": {"type": "array"}, "sourceDocs": {"type": "array", "description": "Replace the task's canonical source documents with this list of project-root-relative paths."}, "clearSourceDocs": {"type": "boolean"}, "taskNote": {"type": "array"}, "clearTaskNotes": {"type": "boolean"}, "producesImplementation": {"type": "boolean"}, "kind": {"type": "string", "enum": ["work", "review", "integration_review"], "description": "Set or clear the charter marker; work clears it."}, "needsTriage": {"type": "boolean"}, "clearNeedsTriage": {"type": "boolean"}, "phases": PHASES_PROPERTY, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
+    "sprintengine.plan.add_task": object_schema(["statePath", "title", "role"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "repo": REPO_PROPERTY, "dependsOn": {"type": "array"}, "path": OWNED_MODULES_PROPERTY, "acceptance": {"type": "array"}, "note": {"type": "array"}, "sourceDocs": {"type": "array", "description": "Project-root-relative canonical source documents this task implements (e.g. the backlog item on a reference-sourced run). Workers are directed to read each in full on claim; keep the task card the delta, never a restatement."}, "backlogRef": BACKLOG_REF_PROPERTY, "taskNote": {"type": "array"}, "producesImplementation": {"type": "boolean"}, "kind": {"type": "string", "enum": ["work", "review", "integration_review"], "description": "Charter marker: review = a planned review of other tasks' work; integration_review = the terminal task proving the pieces work together. Both run like any other task."}, "fromFinding": {"type": "object", "description": "The structured finding this task was filed to answer: {taskId, findingId}. Set it when triaging a reviewer escalation into a new task, so the finding chain survives the run."}, "needsTriage": {"type": "boolean"}, "phases": PHASES_PROPERTY, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
+    "sprintengine.plan.update_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "repo": REPO_PROPERTY, "path": OWNED_MODULES_PROPERTY, "acceptance": {"type": "array"}, "note": {"type": "array"}, "sourceDocs": {"type": "array", "description": "Replace the task's canonical source documents with this list of project-root-relative paths."}, "clearSourceDocs": {"type": "boolean"}, "backlogRef": BACKLOG_REF_PROPERTY, "clearBacklogRef": {"type": "boolean"}, "taskNote": {"type": "array"}, "clearTaskNotes": {"type": "boolean"}, "producesImplementation": {"type": "boolean"}, "kind": {"type": "string", "enum": ["work", "review", "integration_review"], "description": "Set or clear the charter marker; work clears it."}, "needsTriage": {"type": "boolean"}, "clearNeedsTriage": {"type": "boolean"}, "phases": PHASES_PROPERTY, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
     "sprintengine.plan.delete_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "unlinkDependents": {"type": "boolean"}}),
     "sprintengine.plan.add_dependency": object_schema(["statePath", "taskId", "dependsOn"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "dependsOn": {"type": "array"}}),
     "sprintengine.plan.remove_dependency": object_schema(["statePath", "taskId", "dependsOn"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "dependsOn": {"type": "array"}}),

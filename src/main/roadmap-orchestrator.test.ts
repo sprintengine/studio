@@ -478,7 +478,7 @@ test('addStep from another project registers its alias and qualifies the ref', a
   assert.match(h.getRoadmap(), /- mobile:backlog\/m\.md/)
 })
 
-test('addStep as one step snapshots an epic\'s children', async () => {
+test('addStep adds an epic as ONE bare step, capturing no membership', async () => {
   const h = harness(roadmapFile('approve', 'manual', '## Backend\n- backlog/a.md'), {
     itemsByRoot: {
       [ROOT]: [
@@ -493,8 +493,9 @@ test('addStep as one step snapshots an epic\'s children', async () => {
   const result = await orchestrator.addStep({ ref: 'backlog/epics/auth.md' })
   assert.equal(result.ok, true)
   assert.match(h.getRoadmap(), /- backlog\/epics\/auth\.md/)
-  assert.match(h.getRoadmap(), /  - backlog\/login\.md/)
-  assert.match(h.getRoadmap(), /  - backlog\/logout\.md/)
+  // Its members are members by their own `epic:` frontmatter; nothing about them
+  // is written into the plan, so nothing can go stale (MC-2031).
+  assert.doesNotMatch(h.getRoadmap(), /^\s+- /m)
 })
 
 test('removeStep drops a step; reorderStep changes its position', async () => {
@@ -915,7 +916,9 @@ test('resume over a DEAD run still abandons without asking', async () => {
 // --- MC-1904: delivered work reads completed --------------------------------
 
 // A roadmap whose single step is an epic with two snapshotted members.
-const EPIC_LANE = '## Backend\n- backlog/epics/auth.md\n  - backlog/login.md\n  - backlog/logout.md'
+// An epic step is a BARE reference (MC-2031); `login`/`logout` are its members
+// purely by their own `epic: auth` frontmatter below.
+const EPIC_LANE = '## Backend\n- backlog/epics/auth.md'
 const EPIC_ITEMS: RoadmapBacklogItem[] = [
   { relativePath: 'backlog/epics/auth.md', status: 'ready', isEpic: true, title: 'Auth' },
   { relativePath: 'backlog/login.md', status: 'ready', epic: 'auth', title: 'Login' },
