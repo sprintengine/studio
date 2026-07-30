@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useResolvedColorScheme } from '../../../../hooks/useAppTheme'
+import { pathJoin } from '../../../../utils/paths'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import type {
   DesignSystemBundleIdentity,
@@ -54,11 +55,6 @@ interface BundleRead {
  */
 let sessionBundlePaths: string[] = []
 
-function joinBundlePath(root: string, child: string): string {
-  const separator = root.includes('\\') && !root.includes('/') ? '\\' : '/'
-  return `${root.replace(/[\\/]+$/, '')}${separator}${child}`
-}
-
 export default function DesignGlobalSurface(): JSX.Element {
   const back = useSurfaceBackNav()
   const scheme = useResolvedColorScheme()
@@ -73,7 +69,7 @@ export default function DesignGlobalSurface(): JSX.Element {
     [workspaces, activeWorkspaceId],
   )
   const projectBundlePath = activeWorkspace?.folderPath
-    ? joinBundlePath(activeWorkspace.folderPath, ATTACHED_BUNDLE_DIRECTORY)
+    ? pathJoin(activeWorkspace.folderPath, ATTACHED_BUNDLE_DIRECTORY)
     : null
 
   const [libraryPaths, setLibraryPaths] = useState<string[]>(() => [...sessionBundlePaths])
