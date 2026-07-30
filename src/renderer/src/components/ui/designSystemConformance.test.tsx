@@ -390,6 +390,178 @@ async function main(): Promise<void> {
     }
   })
 
+  // --- item 2003: the Design door's canvas ---------------------------------
+  // The canvas renders THIRD-PARTY design systems, so it is the surface most
+  // likely to drift into borrowing the previewed system's idioms. Mounted with a
+  // fixture view and read as markup, like everything else here.
+
+  const { DesignCanvas } = await import(
+    '../workspace/globalSurface/design/DesignCanvas'
+  )
+  const designContainer = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(designContainer)
+  const designRoot = createRoot(designContainer)
+  const designView = {
+    identity: {
+      path: '/work/brand/design-system',
+      name: 'multicode',
+      version: '2.4.0',
+      summary: 'The in-house system.',
+      // design-tokens-allow: a PREVIEWED bundle's own tokens are content under test, not app chrome — the point is that they are not ours.
+      accent: { light: '#2f6a4a', dark: '#4daf7d' },
+    },
+    manifest: {
+      schemaVersion: 1,
+      name: 'multicode',
+      version: '2.4.0',
+      summary: 'The in-house system.',
+      modes: ['light', 'dark'],
+      namingGrammar: {},
+      contents: { components: ['button'], glyphs: ['check'] },
+      derived: {},
+      provenance: {},
+    },
+    specimen: {
+      // design-tokens-allow: a PREVIEWED bundle's own tokens are content under test, not app chrome — the point is that they are not ours.
+      tokensCss: ':root{--sem-color-bg-app:#08080c}',
+      // design-tokens-allow: a PREVIEWED bundle's own tokens are content under test, not app chrome — the point is that they are not ours.
+      ramp: [{ path: 'ref.color.green.600', light: '#2f6a4a', dark: '#4daf7d' }],
+      fontFamilyUi: 'Inter, system-ui',
+      fontFamilyMono: null,
+      problems: [],
+    },
+    groups: [
+      { key: 'components', label: 'Components', entries: ['button'], count: 1 },
+      { key: 'glyphs', label: 'Glyphs', entries: ['check'], count: 1 },
+    ],
+    components: [
+      {
+        name: 'button',
+        css: '.ds-button{border-radius:5px}',
+        inlineStyles: [],
+        stages: [{ mode: 'light', html: '<button class="ds-button">Continue</button>' }],
+        variantCount: 3,
+        stateCount: 4,
+        doc: {
+          anatomy: 'Label.',
+          variants: '- primary\n- secondary\n- ghost',
+          states: '- rest\n- hover\n- focus-visible\n- disabled',
+          usage: 'One primary per view.',
+          accessibility: 'Native button.',
+        },
+        unresolvedRefs: [],
+      },
+    ],
+    patterns: [],
+    glyphs: [{ name: 'check', svg: '<svg viewBox="0 0 16 16"></svg>' }],
+    assetBudgetExhausted: false,
+  }
+  act(() => {
+    designRoot.render(
+      React.createElement(DesignCanvas, {
+        view: designView as never,
+        mode: 'dark',
+        openComponent: null,
+        onOpenComponent: () => {},
+        onCloseComponent: () => {},
+        onReload: () => {},
+        reloading: false,
+      }),
+    )
+  })
+
+  await run('2003 no component tile carries a border — spacing does the grouping', () => {
+    const tiles = Array.from(designContainer.querySelectorAll('button')) as Element[]
+    const componentTiles = tiles.filter((tile) =>
+      (tile.getAttribute('aria-label') ?? '').startsWith('button'),
+    )
+    assert.ok(componentTiles.length > 0, 'the fixture renders a component tile')
+    for (const tile of componentTiles) {
+      for (const element of [tile, ...subtree(tile)]) {
+        for (const token of classesOf(element)) {
+          // `border-0`/`border-none` REMOVE a border (the iframe's UA default),
+          // which is the rule, not a violation of it.
+          if (token === 'border-0' || token === 'border-none') continue
+          assert.ok(
+            !/^border(-[trbl])?(-\d+)?$/.test(token) && !token.startsWith('border-['),
+            `a tile must not draw a border, found \`${token}\``,
+          )
+        }
+      }
+    }
+  })
+
+  await run('2003 hover is a background change — never a scale, shadow, or border', () => {
+    for (const element of subtree(designContainer.firstElementChild as Element)) {
+      for (const token of classesOf(element)) {
+        if (!token.startsWith('hover:')) continue
+        assert.ok(
+          token.startsWith('hover:bg-') || token.startsWith('hover:text-'),
+          `hover may only change background or ink, found \`${token}\``,
+        )
+      }
+    }
+  })
+
+  await run('2003 the canvas spends two radii, and no marketing radius', () => {
+    const radii = new Set<string>()
+    for (const element of [
+      designContainer.firstElementChild as Element,
+      ...subtree(designContainer.firstElementChild as Element),
+    ]) {
+      for (const token of classesOf(element)) {
+        if (token.startsWith('rounded')) radii.add(token)
+      }
+    }
+    for (const token of radii) {
+      assert.ok(
+        !/^rounded-(2xl|3xl|full)$/.test(token),
+        `marketing radii are reject-on-sight, found \`${token}\``,
+      )
+    }
+    assert.ok(radii.size <= 2, `two radii per view; found ${[...radii].join(', ')}`)
+  })
+
+  await run('2003 headings are sentence case, never uppercase letter-spaced', () => {
+    for (const element of subtree(designContainer.firstElementChild as Element)) {
+      for (const token of classesOf(element)) {
+        assert.ok(token !== 'uppercase', 'uppercase is not a hierarchy device')
+        assert.ok(!/^tracking-(wide|wider|widest)$/.test(token), `found \`${token}\``)
+      }
+    }
+    const headings = Array.from(designContainer.querySelectorAll('h2, h3')) as Element[]
+    for (const heading of headings) {
+      const text = heading.textContent ?? ''
+      assert.ok(text !== text.toUpperCase() || text.length < 2, `shouting heading: ${text}`)
+    }
+  })
+
+  await run('2003 no Release, version history, lint or regenerate affordance exists', () => {
+    const text = (designContainer.textContent ?? '').toLowerCase()
+    for (const forbidden of ['release', 'lint', 'regenerate', 'version history', 'pull']) {
+      assert.ok(!text.includes(forbidden), `the canvas must not offer "${forbidden}"`)
+    }
+    // The two actions that DO belong are both about the folder.
+    assert.ok(text.includes('reveal'), 'Reveal is offered')
+    assert.ok(text.includes('reload'), 'Reload is offered')
+  })
+
+  await run('2003 the specimen has no container and the name appears exactly once', () => {
+    const occurrences = (designContainer.textContent ?? '').split('multicode').length - 1
+    assert.equal(occurrences, 1, 'the system name is shown once, in the specimen')
+    const specimen = designContainer.querySelector('[aria-label="multicode specimen"]')
+    assert.ok(specimen, 'the specimen is a labelled region')
+    for (const token of classesOf(specimen)) {
+      assert.ok(!token.startsWith('border'), 'the specimen has no container')
+      assert.ok(!token.startsWith('bg-'), 'and no surface of its own')
+    }
+  })
+
+  act(() => {
+    designRoot.unmount()
+  })
+  designContainer.remove()
+
   act(() => {
     root.unmount()
   })

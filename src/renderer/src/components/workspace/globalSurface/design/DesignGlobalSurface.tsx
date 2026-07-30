@@ -7,11 +7,12 @@ import type {
   DesignSystemBundleIdentity,
   DesignSystemBundleReadFailure,
 } from '../../../../../../shared/design-system/bundle-view'
-import type { DesignSystemManifest } from '../../../../../../shared/design-system/manifest'
-import { GhostButton, PrimaryButton } from '../../../ui'
+import type { DesignSystemBundleView } from '../../../../../../shared/design-system/bundle-view'
+import { PrimaryButton } from '../../../ui'
 import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
 import { SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
+import { DesignCanvas } from './DesignCanvas'
 import { DesignRail } from './DesignRail'
 import {
   designFailureLine,
@@ -39,8 +40,8 @@ const ATTACHED_BUNDLE_DIRECTORY = 'design-system'
 /** A bundle the rail knows about, with whatever the reader made of it. */
 interface BundleRead {
   identity: DesignSystemBundleIdentity | null
-  /** The parsed manifest, so the canvas can render the groups IT declares. */
-  manifest: DesignSystemManifest | null
+  /** The whole view the canvas renders, or null when the read failed. */
+  view: DesignSystemBundleView | null
   failure: DesignSystemBundleReadFailure | null
 }
 
@@ -81,6 +82,10 @@ export default function DesignGlobalSurface(): JSX.Element {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<DesignRailStatusFilter>('all')
   const [pointError, setPointError] = useState<string | null>(null)
+  // Which component's variants are open, and which bundle is being re-read.
+  // Both are transient view state, like every other door's selection.
+  const [openComponent, setOpenComponent] = useState<string | null>(null)
+  const [reloadingPath, setReloadingPath] = useState<string | null>(null)
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -131,8 +136,8 @@ export default function DesignGlobalSurface(): JSX.Element {
         setReads((previous) => ({
           ...previous,
           [path]: result.ok
-            ? { identity: result.view.identity, manifest: result.view.manifest, failure: null }
-            : { identity: null, manifest: null, failure: result.reason },
+            ? { identity: result.view.identity, view: result.view, failure: null }
+            : { identity: null, view: null, failure: result.reason },
         }))
       }
     })()
@@ -189,11 +194,37 @@ export default function DesignGlobalSurface(): JSX.Element {
     setSelectedId(entries[0]?.id ?? null)
   }, [entries, selectedId, newSelected])
 
+  /**
+   * Re-read one bundle from disk.
+   *
+   * There is no watcher and no polling in v1: the user edits in their editor and
+   * comes back. A failed re-read replaces the row's state with the failure rather
+   * than leaving the previous, now-wrong, render on screen.
+   */
+  const reloadBundle = useCallback(async (path: string) => {
+    setReloadingPath(path)
+    try {
+      const result = await window.api.readDesignSystemBundle(path)
+      if (!mounted.current) return
+      setReads((previous) => ({
+        ...previous,
+        [path]: result.ok
+          ? { identity: result.view.identity, view: result.view, failure: null }
+          : { identity: null, view: null, failure: result.reason },
+      }))
+    } finally {
+      if (mounted.current) setReloadingPath(null)
+    }
+  }, [])
+
   const selectRow = useCallback((id: string) => {
     // Exactly one focused selection across rail and canvas.
     setNewSelected(false)
     setPointError(null)
     setSelectedId(id)
+    // A new system opens on its overview, never on the previous system's
+    // component detail.
+    setOpenComponent(null)
   }, [])
 
   // Point at a folder: the one create path that works today. Item 2005 builds
@@ -220,7 +251,7 @@ export default function DesignGlobalSurface(): JSX.Element {
     sessionBundlePaths = [...new Set([...sessionBundlePaths, picked])]
     setReads((previous) => ({
       ...previous,
-      [picked]: { identity: result.view.identity, manifest: result.view.manifest, failure: null },
+      [picked]: { identity: result.view.identity, view: result.view, failure: null },
     }))
     setLibraryPaths((previous) => [...new Set([...previous, picked])])
     setNewSelected(false)
@@ -262,13 +293,19 @@ export default function DesignGlobalSurface(): JSX.Element {
       // empty and error are the canvas's to say (T19 / MC-1993).
       rail={rail}
     >
-      <DesignCanvas
+      <DesignSurfaceBody
         loadState={loadState}
         loadError={loadError}
         onRetry={() => void loadLibrary()}
         hasEntries={entries.length > 0}
         selectedEntry={selectedEntry}
-        selectedManifest={selectedEntry ? (reads[selectedEntry.path]?.manifest ?? null) : null}
+        selectedView={selectedEntry ? (reads[selectedEntry.path]?.view ?? null) : null}
+        mode={scheme === 'light' ? 'light' : 'dark'}
+        openComponent={openComponent}
+        onOpenComponent={setOpenComponent}
+        onCloseComponent={() => setOpenComponent(null)}
+        onReloadBundle={() => selectedEntry && void reloadBundle(selectedEntry.path)}
+        reloadingBundle={reloadingPath !== null}
         pointError={pointError}
         onPointAtFolder={() => void pointAtFolder()}
       />
@@ -276,17 +313,23 @@ export default function DesignGlobalSurface(): JSX.Element {
   )
 }
 
-// The canvas: the four shared door states plus the selected system. Item 2003
-// replaces the selected-system branch with the real specimen and the rendered
-// components; what it shows today is the manifest's own declared contents,
-// which is real data rather than a placeholder.
-function DesignCanvas({
+// Which of the door's states the body is in: the four shared canvas states, the
+// point-at-a-folder refusal, and the real canvas for a readable system. Every
+// state is reachable and distinct — a folder we cannot read never renders like a
+// system with no components.
+function DesignSurfaceBody({
   loadState,
   loadError,
   onRetry,
   hasEntries,
   selectedEntry,
-  selectedManifest,
+  selectedView,
+  mode,
+  openComponent,
+  onOpenComponent,
+  onCloseComponent,
+  onReloadBundle,
+  reloadingBundle,
   pointError,
   onPointAtFolder,
 }: {
@@ -295,7 +338,13 @@ function DesignCanvas({
   onRetry: () => void
   hasEntries: boolean
   selectedEntry: DesignRailEntry | null
-  selectedManifest: DesignSystemManifest | null
+  selectedView: DesignSystemBundleView | null
+  mode: 'light' | 'dark'
+  openComponent: string | null
+  onOpenComponent: (name: string) => void
+  onCloseComponent: () => void
+  onReloadBundle: () => void
+  reloadingBundle: boolean
   pointError: string | null
   onPointAtFolder: () => void
 }): JSX.Element {
@@ -355,80 +404,22 @@ function DesignCanvas({
       />
     )
   }
-  return <DesignSystemOverview entry={selectedEntry} manifest={selectedManifest} />
-}
-
-/**
- * What one system shows today: its folder, and the groups its own manifest
- * declares, in manifest order, each with its count.
- *
- * Groups come from `manifest.contents` rather than a taxonomy we invent — a
- * system declaring a set we did not anticipate still renders, and a group it
- * declares empty is not drawn. There is no cross-tool standard for component
- * taxonomy, so we adopt none. Item 2003 keeps this rule and adds the specimen
- * and the real rendered components beneath it.
- */
-function DesignSystemOverview({
-  entry,
-  manifest,
-}: {
-  entry: DesignRailEntry
-  manifest: DesignSystemManifest | null
-}): JSX.Element {
-  const identity = entry.identity
-  const groups = manifest ? declaredGroups(manifest) : []
+  if (!selectedView) {
+    // Selected, readable, but its read has not landed yet. A spinner here rather
+    // than an empty canvas that reads as "this system has nothing in it".
+    return <SurfaceCanvasState kind="loading" label={`Reading ${selectedEntry.path}…`} />
+  }
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* The canvas toolbar: the folder this system IS, and the action that
-          opens it. Both belong to the content, not to the door's top bar. */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-[color:var(--border-subtle)] px-6 py-2">
-        <span className="min-w-0 flex-1 truncate font-mono text-micro text-[color:var(--text-subtle)]">
-          {entry.path}
-        </span>
-        <GhostButton onClick={() => void window.api.showItemInFolder(entry.path)}>Reveal</GhostButton>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-        {identity?.summary ? (
-          <p className="max-w-[68ch] text-body leading-6 text-[color:var(--text-default)]">
-            {identity.summary}
-          </p>
-        ) : null}
-        {groups.length > 0 ? (
-          <dl className="mt-5 flex flex-wrap gap-x-8 gap-y-3">
-            {groups.map((group) => (
-              <div key={group.key} className="flex flex-col gap-0.5">
-                <dt className="text-meta text-[color:var(--text-muted)]">{group.label}</dt>
-                <dd className="font-mono text-heading tabular-nums text-[color:var(--text-strong)]">
-                  {group.count}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        ) : null}
-      </div>
-    </div>
+    <DesignCanvas
+      view={selectedView}
+      mode={mode}
+      openComponent={openComponent}
+      onOpenComponent={onOpenComponent}
+      onCloseComponent={onCloseComponent}
+      onReload={onReloadBundle}
+      reloading={reloadingBundle}
+    />
   )
-}
-
-/**
- * The manifest's declared contents groups, in manifest (JSON key) order.
- *
- * `contents` fixes five known keys but its type is open, so a bundle declaring
- * another group survives the canonical parser and must survive this too. Only
- * string arrays are treated as groups; an empty one is dropped.
- */
-function declaredGroups(
-  manifest: DesignSystemManifest,
-): Array<{ key: string; label: string; count: number }> {
-  return Object.entries(manifest.contents)
-    .filter((pair): pair is [string, string[]] => Array.isArray(pair[1]) && pair[1].length > 0)
-    .map(([key, values]) => ({ key, label: sentenceCase(key), count: values.length }))
-}
-
-/** Sentence case: `principles.md` rejects uppercase letter-spaced labels. */
-function sentenceCase(key: string): string {
-  const spaced = key.replace(/[-_]/g, ' ')
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
 
 function DesignGlyph(): JSX.Element {

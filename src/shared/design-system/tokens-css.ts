@@ -7,11 +7,20 @@
 // staleness would look like ours. Reading the source means a stale generated file
 // cannot make us lie.
 //
-// This module holds ONLY the resolution the door needs: walk the two declared
-// tiers (`ref` raw scales, `sem` consumable meaning), resolve `{dotted.path}`
-// aliases, and pick a mode. Item 2003 extends it with the full `:root` /
-// `[data-mode="dark"]` emission that component previews need, kept honest against
-// the bundle's own generator by a byte-equality drift test. Contract:
+// Two things live here. The resolution the rail needs (walk the `ref`/`sem`
+// tiers, follow `{dotted.path}` aliases, pick a mode), and `emitTokensCss` —
+// the full `:root` / `[data-mode="dark"]` block component previews are rendered
+// against.
+//
+// `emitTokensCss` is a SECOND implementation of the emission the bundle's own
+// `scripts/build-tokens.mjs` performs, which the KG otherwise forbids. It is
+// allowed here for one reason: this one WRITES NOTHING. Regeneration still
+// belongs to the bundle's own script (forked by `derived-file-runner.ts`); this
+// only composes a string in memory so a scripts-off iframe has the right
+// variables. What keeps the two honest is `test:shared:design-system-tokens-css`,
+// which runs the template script over the example bundle and asserts
+// byte-equality with this function. If you change either emitter, that test
+// fails — which is the point. Contract:
 // knowledge/multicode/design-system-bundle.md.
 
 /** The two modes the bundle format fixes (`manifest.modes`). */
@@ -151,4 +160,144 @@ export function parseTokenDocument(contents: string): Record<string, unknown> | 
   } catch {
     return null
   }
+}
+
+// ── Emission ─────────────────────────────────────────────────────────────────
+// Byte-identical to `resources/design-system/templates/scripts/build-tokens.mjs`,
+// held by a drift test. Emission contract, restated so a reader need not diff
+// the two: one custom property per token (`--` + path with `.` → `-`); `:root`
+// carries every token at its light/default `$value`; `[data-mode="dark"]`
+// re-declares only tokens whose `modes.dark` differs from `modes.light`; aliases
+// emit `var(--target)`; `fontFamily` arrays join with commas, quoting entries
+// containing whitespace.
+
+const EMIT_ALIAS_PATTERN = /^\{([a-z0-9.-]+)\}$/
+
+interface CollectedToken {
+  path: string
+  node: Record<string, unknown>
+}
+
+function collectTokens(
+  node: unknown,
+  path: string[],
+  out: CollectedToken[],
+): CollectedToken[] {
+  if (!isRecord(node)) return out
+  if ('$value' in node) {
+    out.push({ path: path.join('.'), node })
+    return out
+  }
+  for (const [key, child] of Object.entries(node)) collectTokens(child, [...path, key], out)
+  return out
+}
+
+function cssVariableName(tokenPath: string): string {
+  return `--${tokenPath.replace(/\./g, '-')}`
+}
+
+function modesOf(token: CollectedToken): Record<string, unknown> | null {
+  const extensions = token.node.$extensions
+  if (!isRecord(extensions)) return null
+  const vendor = extensions[VENDOR_KEY]
+  if (!isRecord(vendor)) return null
+  return isRecord(vendor.modes) ? vendor.modes : null
+}
+
+export interface EmitTokensCssResult {
+  /** The `:root` + `[data-mode="dark"]` blocks, with the generator's header. */
+  css: string
+  /**
+   * Tokens the bundle's own generator would REFUSE (missing `$type`, an alias
+   * to nothing, a `$value` form the contract does not cover). Reported rather
+   * than thrown: the door renders what it can and says what it could not read,
+   * because refusing to draw a bundle is the author's gate, not a viewer's.
+   */
+  problems: string[]
+}
+
+/**
+ * Emit a bundle's token document as CSS custom properties.
+ *
+ * Unlike the bundle's generator this never throws and never writes. A token the
+ * generator would reject is skipped and named in `problems`, so one malformed
+ * token costs its own variable rather than the whole preview.
+ */
+export function emitTokensCss(document: unknown): EmitTokensCssResult {
+  const problems: string[] = []
+  const tokens = collectTokens(document, [], [])
+  if (tokens.length === 0) {
+    return { css: '', problems: ['foundations/tokens.tokens.json contains no tokens'] }
+  }
+  const tokenPaths = new Set(tokens.map((token) => token.path))
+
+  const emitValue = (tokenPath: string, value: unknown): string | null => {
+    if (typeof value === 'string') {
+      const alias = EMIT_ALIAS_PATTERN.exec(value)
+      if (alias) {
+        if (!tokenPaths.has(alias[1])) {
+          problems.push(`${tokenPath}: alias ${value} resolves to no token`)
+          return null
+        }
+        return `var(${cssVariableName(alias[1])})`
+      }
+      return value
+    }
+    if (typeof value === 'number') return String(value)
+    if (Array.isArray(value)) {
+      const parts: string[] = []
+      for (const item of value) {
+        if (typeof item !== 'string') {
+          problems.push(`${tokenPath}: fontFamily entries must be strings`)
+          return null
+        }
+        parts.push(/\s/.test(item) ? `"${item}"` : item)
+      }
+      return parts.join(', ')
+    }
+    problems.push(`${tokenPath}: unsupported $value form`)
+    return null
+  }
+
+  const darkOverrides: Array<{ token: CollectedToken; darkValue: unknown }> = []
+  for (const token of tokens) {
+    if (typeof token.node.$type !== 'string' || token.node.$type.length === 0) {
+      problems.push(`${token.path}: missing explicit $type`)
+    }
+    if (token.node.$value === undefined) problems.push(`${token.path}: missing $value`)
+    const modes = modesOf(token)
+    if (!modes) continue
+    if (!('light' in modes) || !('dark' in modes)) {
+      problems.push(`${token.path}: modes must declare exactly light and dark`)
+      continue
+    }
+    if (JSON.stringify(modes.light) !== JSON.stringify(token.node.$value)) {
+      problems.push(`${token.path}: modes.light must equal $value (light is the default mode)`)
+    }
+    if (JSON.stringify(modes.dark) !== JSON.stringify(modes.light)) {
+      darkOverrides.push({ token, darkValue: modes.dark })
+    }
+  }
+
+  // The generator's header, verbatim — the drift test compares whole files.
+  let css = `/* GENERATED FILE — do not edit by hand.
+ * Derived from foundations/tokens.tokens.json by scripts/build-tokens.mjs.
+ * Emission contract: knowledge/multicode/design-system-bundle.md.
+ * :root carries the light (default) mode; [data-mode="dark"] overrides the
+ * tokens whose values differ in dark mode. */
+:root {
+`
+  for (const token of tokens) {
+    const value = emitValue(token.path, token.node.$value)
+    if (value === null) continue
+    css += `  ${cssVariableName(token.path)}: ${value};\n`
+  }
+  css += '}\n[data-mode="dark"] {\n'
+  for (const { token, darkValue } of darkOverrides) {
+    const value = emitValue(token.path, darkValue)
+    if (value === null) continue
+    css += `  ${cssVariableName(token.path)}: ${value};\n`
+  }
+  css += '}\n'
+  return { css, problems }
 }

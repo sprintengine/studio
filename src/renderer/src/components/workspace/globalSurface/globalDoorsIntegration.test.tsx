@@ -134,9 +134,9 @@ let designLibrary: Array<{ path: string; name: string; version: string; summary:
 const designBundlePath = `${multicode}/design-system`
 const designLibraryOnlyPath = '/work/harbor/design-system'
 const designBundles: Record<string, unknown> = {
-  [designLibraryOnlyPath]: {
+  ['/work/harbor/design-system']: {
     identity: {
-      path: designLibraryOnlyPath,
+      path: '/work/harbor/design-system',
       name: 'harbor',
       version: '1.2.0',
       summary: 'A cloned system.',
@@ -149,18 +149,28 @@ const designBundles: Record<string, unknown> = {
       summary: 'A cloned system.',
       modes: ['light', 'dark'],
       namingGrammar: {},
-      contents: { foundations: [], components: ['card'], patterns: [], glyphs: [], assets: [] },
+      contents: { foundations: ['tokens'], components: ['card'], patterns: [], glyphs: [], assets: [] },
       derived: {},
       provenance: {},
     },
+    // design-tokens-allow: a PREVIEWED bundle's own tokens are content under test, not app chrome — the point is that they are not ours.
+    specimen: { tokensCss: ':root{--sem-color-bg-app:#08080c}', ramp: [], fontFamilyUi: null, fontFamilyMono: null, problems: [] },
+    groups: [
+      { key: 'foundations', label: 'Foundations', entries: ['tokens'], count: 1 },
+      { key: 'components', label: 'Components', entries: ['card'], count: 1 },
+    ],
+    components: [],
+    patterns: [],
+    glyphs: [],
+    assetBudgetExhausted: false,
   },
   [designBundlePath]: {
     identity: {
-      path: designBundlePath,
+      path: 'MULTICODE_PLACEHOLDER/design-system',
       name: 'multicode',
       version: '2.4.0',
       summary: 'The in-house system.',
-      // design-tokens-allow: a previewed bundle's own accent is content, not app chrome.
+      // design-tokens-allow: a PREVIEWED bundle's own tokens are content under test, not app chrome — the point is that they are not ours.
       accent: { light: '#2f6a4a', dark: '#4daf7d' },
     },
     manifest: {
@@ -174,6 +184,16 @@ const designBundles: Record<string, unknown> = {
       derived: {},
       provenance: {},
     },
+    // design-tokens-allow: a PREVIEWED bundle's own tokens are content under test, not app chrome — the point is that they are not ours.
+    specimen: { tokensCss: ':root{--sem-color-bg-app:#08080c}', ramp: [], fontFamilyUi: null, fontFamilyMono: null, problems: [] },
+    groups: [
+      { key: 'foundations', label: 'Foundations', entries: ['tokens'], count: 1 },
+      { key: 'components', label: 'Components', entries: ['button', 'input'], count: 2 },
+    ],
+    components: [],
+    patterns: [],
+    glyphs: [],
+    assetBudgetExhausted: false,
   },
 }
 
