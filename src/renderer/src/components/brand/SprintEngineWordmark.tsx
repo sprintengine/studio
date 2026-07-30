@@ -3,10 +3,10 @@
 // set the name the same way: Inter semibold, -0.011em tracking, "engine" in the
 // accent.
 //
-// Live DOM text, not an SVG `<text>` — the retired MulticodeWordmark was an SVG
-// and so scaled by viewBox rather than by the type ramp, which put it outside
-// every type rule in the system. As text it takes `text-heading` (14px) from
-// the ramp and `--text-strong` / `--accent-primary` from the active theme.
+// Live DOM text, not an SVG `<text>`. The wordmark this replaced was drawn as
+// SVG text and so scaled by viewBox rather than by the type ramp, which put it
+// outside every type rule in the system. As text it takes `text-heading` (14px)
+// from the ramp and `--text-strong` / `--accent-primary` from the active theme.
 //
 // The accent is ink here, never a fill: the wordmark is inside the sidebar's
 // accent budget precisely because it colors letterforms and nothing else. The
