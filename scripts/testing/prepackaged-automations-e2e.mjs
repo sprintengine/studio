@@ -1,5 +1,19 @@
-// T9 app drive: Extensions shelf -> Get -> Automations door, on the built app.
-// Usage: NODE_PATH=/tmp/multicode-playwright/node_modules node drive.mjs
+// Acceptance drive for the prepackaged automations: browse the Extensions
+// Automations shelf, press Get on a starter, land in the Automations door with
+// its editor open, and check what the install left on disk — plus the duplicate
+// Get, and the regression that an automation written before this sprint still
+// loads, edits and saves.
+//
+// Run after `npm run build`, once per polarity (the dark ramp keys off
+// `data-mode`, which the theme sets):
+//   NODE_PATH=/tmp/multicode-playwright/node_modules \
+//     T9_THEME=Light node scripts/testing/prepackaged-automations-e2e.mjs
+//   NODE_PATH=/tmp/multicode-playwright/node_modules \
+//     T9_THEME=Dark  node scripts/testing/prepackaged-automations-e2e.mjs
+//
+// Screenshots and a step log land in T9_OUT (a temp directory by default).
+// What this drive deliberately does NOT do is press Run now: that launches an
+// agent with permissions fully bypassed, which is a person's call to make.
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -18,6 +32,14 @@ const OUT = process.env.T9_OUT || join(tmpdir(), `t9-drive-${THEME.toLowerCase()
 const PROFILE = join(OUT, 'profile')
 const PROJECT = join(OUT, 'project')
 
+// The drive needs a clean profile and a clean project every run, so it wipes
+// OUT first. That is a recursive delete of a path this script did not create,
+// so it only ever runs inside the system temp directory — an OUT pointed
+// anywhere else is refused rather than emptied.
+if (!resolve(OUT).startsWith(resolve(tmpdir()))) {
+  console.error(`T9_OUT must be inside ${tmpdir()} — refusing to delete ${OUT}.`)
+  process.exit(2)
+}
 rmSync(OUT, { recursive: true, force: true })
 mkdirSync(OUT, { recursive: true })
 mkdirSync(PROFILE, { recursive: true })

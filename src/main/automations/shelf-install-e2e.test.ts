@@ -118,7 +118,7 @@ async function readStoreDefinitions(root: string): Promise<Array<Record<string, 
 
 // Get on the shipped starter writes one definition whose every field the
 // install defaults own — read back from the file, not from the install result.
-async function assertGetWritesTheDefinitionTheInstallDefaultsPromise(): Promise<string> {
+async function assertGetWritesTheDefinitionTheInstallDefaultsPromise(): Promise<void> {
   const project = await makeProject('project')
   const frontDoor = frontDoorFor([project])
   const got = await pressGet(STARTERS[0], { frontDoor, workspaceRoot: project, cli: 'claude-code' })
@@ -160,7 +160,6 @@ async function assertGetWritesTheDefinitionTheInstallDefaultsPromise(): Promise<
   const afterSecond = await readStoreDefinitions(project)
   assert.equal(afterSecond.length, 1, 'a duplicate Get writes nothing')
   assert.equal(afterSecond[0].id, definition.id, 'a duplicate Get resolves to the same definition')
-  return project
 }
 
 // Both preconditions the install cannot invent: a project to install into, and
@@ -209,10 +208,15 @@ async function assertALiveEngineSchedulesAnInstallWithoutRestart(): Promise<void
   const frontDoor = frontDoorFor([project])
   const registry = createBuiltInAutomationProviderRegistry()
   const fired: string[] = []
+  // One engine for the whole check, on a clock the harness moves. Constructing a
+  // second engine to reach the due time would BE the restart this is proving is
+  // unnecessary.
+  let clock = Date.now()
   const engine = new AutomationsEngine({
     getProjectFolders: () => [{ workspaceId: 'ws-live', folderPath: project }],
     createStore: (root: string) => new AutomationsStore(root),
     triggerProviders: registry.listTriggerProviders(),
+    now: () => clock,
     runAutomation: async (input: never) => {
       fired.push((input as unknown as { definition: { id: string } }).definition.id)
       return { status: 'completed' as const, summary: 'recorded by the harness' }
@@ -223,8 +227,8 @@ async function assertALiveEngineSchedulesAnInstallWithoutRestart(): Promise<void
   assert.equal(before.fired.length, 0, 'nothing to fire before the install')
   assert.equal(before.scheduled.length, 0, 'nothing scheduled before the install')
 
-  // The shortest cadence the validator accepts, so a clock-advanced second
-  // engine can fire it without the harness sleeping.
+  // The shortest cadence the validator accepts, so the clock only has to move
+  // minutes for the run to come due.
   const installed = await frontDoor.installCatalogueDefinition({
     workspaceRoot: project,
     sourceCatalogueId: 'multicode.t9-live-schedule',
@@ -239,24 +243,13 @@ async function assertALiveEngineSchedulesAnInstallWithoutRestart(): Promise<void
   const automationId = installed.ok ? installed.value.definition.id : ''
   record('installed under a running engine', { automationId, nextRunAt: installed.ok ? installed.value.definition.nextRunAt : null })
 
-  // The interval's next run is minutes out, so drive the clock rather than
-  // wait: the point is that the engine sees a definition it never started with.
   const seen = await engine.tick()
   record('tick immediately after install', { scheduled: seen.scheduled.length, fired: seen.fired.length })
   assert.equal(seen.scheduled.length, 1, 'the engine picked up the new definition with no restart')
   assert.equal(seen.scheduled[0].automationId, automationId)
 
-  const later = new AutomationsEngine({
-    getProjectFolders: () => [{ workspaceId: 'ws-live', folderPath: project }],
-    createStore: (root: string) => new AutomationsStore(root),
-    triggerProviders: registry.listTriggerProviders(),
-    runAutomation: async (input: never) => {
-      fired.push((input as unknown as { definition: { id: string } }).definition.id)
-      return { status: 'completed' as const, summary: 'recorded by the harness' }
-    },
-    now: () => Date.now() + 6 * 60_000,
-  } as never)
-  const dueTick = await later.tick()
+  clock += 6 * 60_000
+  const dueTick = await engine.tick()
   record('tick once the schedule is due', { fired: dueTick.fired.map((run) => run.automationId), problems: dueTick.problems, executorSaw: fired })
   assert.deepEqual(fired, [automationId], 'the automation the engine never started with is the one that fired')
 }
