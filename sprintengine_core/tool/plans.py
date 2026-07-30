@@ -25,6 +25,17 @@ SOURCE_KIND_LABELS = {
 
 SOURCE_CONTEXT_HEADING = "Incoming source context for this run:"
 
+# A source-bundle entry that IS one of the launched epic's child items, rather
+# than supporting reading material (a mockup, a design system note). Set by the
+# launch paths (backlog item 2018): the desktop panel marks each child it seeds,
+# and an `--source-plan-kind epic` handover marks every `--source` it is given,
+# because on that flag combination the bundle IS the children. Without the
+# marker the planner cannot tell a child it must deliver from a document it must
+# merely read, and the coverage warning has nothing to count.
+EPIC_CHILD_KEY = "epicChild"
+
+EPIC_CHILD_SOURCE_LABEL = "Epic child item"
+
 def plan_path_artifact_value(state_path: Path) -> str:
     return normalize_artifact_path(state_path, "plan.md")["path"]
 
@@ -53,6 +64,50 @@ def source_bundle_items(state: Dict[str, Any], kind: Optional[str] = None) -> Li
     if kind is None:
         return items
     return [item for item in items if item.get("kind") == kind]
+
+def epic_child_source_items(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The launched epic's child items, in seed order — the sprint's work list.
+
+    Only meaningful on an epic-sourced run: the root plan kind is what makes the
+    bundle a list of children rather than a reading list, so a marked entry on
+    any other run is ignored rather than silently promoted.
+    """
+    if source_plan_kind(state) != "epic":
+        return []
+    return [item for item in source_bundle_items(state) if item.get(EPIC_CHILD_KEY) is True]
+
+def epic_child_source_paths(state: Dict[str, Any]) -> List[str]:
+    return unique_strings([str(item.get("path") or "") for item in epic_child_source_items(state)])
+
+def epic_child_coverage_warnings(state: Dict[str, Any]) -> List[str]:
+    """Advisory: a seeded child item that no task delivers (backlog item 2018).
+
+    One task per child is the planning contract, and `backlogRef` is the only
+    field that records "this task IS that item" — so an unreferenced child means
+    either work nobody planned or a pointer nobody set. Advisory, never a block:
+    a docs-only or deliberately partial plan is legitimate, and the point is that
+    the gap is a visible decision rather than an accident. Canceled tasks do not
+    count as coverage.
+    """
+    children = epic_child_source_paths(state)
+    if not children:
+        return []
+    delivered: set[str] = set()
+    for task in state.get("tasks", []) or []:
+        if not isinstance(task, dict) or task.get("status") == "canceled":
+            continue
+        backlog_ref = task.get("backlogRef")
+        if isinstance(backlog_ref, dict):
+            delivered.add(str(backlog_ref.get("projectRelativePath") or ""))
+    uncovered = [path for path in children if path not in delivered]
+    if not uncovered:
+        return []
+    return [
+        "epic_child_uncovered: child item(s) "
+        f"{', '.join(uncovered)} are seeded on this run but no task carries them as its "
+        "backlogRef. Mint one task per child item and point it at the item, or record in "
+        "plan.md why that child is not delivered by this sprint."
+    ]
 
 def state_has_source_kind(state: Dict[str, Any], kind: str) -> bool:
     if source_bundle_items(state, kind):
@@ -229,7 +284,15 @@ def source_context_reference_lines(state: Dict[str, Any], state_path: Path) -> L
 
     for item in source_bundle_items(state):
         kind = str(item.get("kind") or "unknown").strip()
+        # An epic's child item is labelled as one wherever the bundle is listed:
+        # this list is the planner's enumerable work list (one task per child),
+        # and a child sitting under its document kind alongside the mockups is
+        # exactly the "undifferentiated reading material" backlog item 2018
+        # replaces. The document kind is kept in parentheses — a child that is a
+        # product plan still reads as one.
         label = SOURCE_KIND_LABELS.get(kind, kind.replace("_", " ").title())
+        if item.get(EPIC_CHILD_KEY) is True and source_plan_kind(state) == "epic":
+            label = f"{EPIC_CHILD_SOURCE_LABEL} ({label})"
         source_path = (
             source_context_display_path(state_path, item.get("originalPath"))
             or source_context_display_path(state_path, item.get("path"))

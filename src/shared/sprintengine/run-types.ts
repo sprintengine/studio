@@ -674,6 +674,13 @@ export type SprintEngineSourceBundleItem = {
   sourcePath: string
   sourceRelativePath: string
   sourceContent: string
+  /**
+   * This entry IS one of the launched epic's child items — a unit of work the
+   * planner mints exactly one task for — rather than supporting reading
+   * material (an attached mockup, a design-system note) that happens to share
+   * the bundle. Only set on an `epic` launch; the engine ignores it elsewhere.
+   */
+  epicChild?: boolean
 }
 
 export type SprintEngineSource = {
@@ -691,6 +698,8 @@ export type SprintEngineSourceBundleStateItem = {
   path: string
   originalPath?: string
   capturedAt?: string
+  /** See {@link SprintEngineSourceBundleItem.epicChild}. */
+  epicChild?: boolean
 }
 
 /**

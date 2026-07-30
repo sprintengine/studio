@@ -1945,6 +1945,10 @@ export type SprintEngineStateInitializeSourceBundleItem = {
   path: string
   originalPath?: string
   capturedAt?: string
+  // This entry is one of the launched epic's child items (a unit of work the
+  // planner mints one task for), not supporting reading material sharing the
+  // bundle. See SprintEngineSourceBundleItem.epicChild.
+  epicChild?: boolean
 }
 
 export type SprintEngineStateInitializeInput = {

@@ -1816,6 +1816,11 @@ export default function NewWorkspacePanel({
           sourcePath: child.path,
           sourceRelativePath: child.relativePath,
           sourceContent: child.sourceContent,
+          // The children are the sprint's work list, not reading material: the
+          // planner mints exactly one task per child (MC-2018). The mockups
+          // appended below share this bundle and carry no marker, so the two
+          // stay tellable apart all the way into the run store.
+          epicChild: true,
         }
       })
       : isHtmlSource
