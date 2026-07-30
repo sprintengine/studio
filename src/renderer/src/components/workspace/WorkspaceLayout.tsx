@@ -1307,11 +1307,17 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         taskId: currentTaskId ?? null,
         worktree: agentWorktree,
         status: identityStatus,
+        lastMessage: tabPrompt ?? null,
       }
 
+      // The identity card carries the last message itself, so the agent tab
+      // takes the bare name — wrapping `tabContent` here would open the peek
+      // popover UNDER this card and leave two hover surfaces fighting over the
+      // same pointer. Plain terminal tabs, which have no identity card, keep
+      // the peek as their only reveal.
       renderValues.content = (
         <AgentTabIdentityPopover identity={agentIdentity}>
-          {tabContent}
+          {tabNameSpan}
           {trailing}
         </AgentTabIdentityPopover>
       )

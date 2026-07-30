@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { IconButton, PointerPopover, StatusDot, type Tone } from '../ui'
+import { IconButton, PointerPopover, StatusDot, Tooltip, type Tone } from '../ui'
 import CliIcon from '../CliIcon'
 import { GitBranchGlyph } from './WorkspaceActions'
+import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import type { AgentCli } from '../../types/workspace'
 
 // Identity shown for an agent terminal tab. Assembled by the caller from the
@@ -23,6 +24,13 @@ export type AgentTabIdentity = {
   /** Worktree the agent runs on, or null when it's on the main checkout. */
   worktree: { branch: string | null; cwd: string | null } | null
   status: { tone: Tone; pulse: boolean; label: string }
+  /**
+   * The last message sent to this agent, when one was captured. It belongs on
+   * this card rather than in a peek popover of its own: an agent tab that
+   * opened two hover surfaces at once put one over the other, and the answer to
+   * "what is this tab" and "what was it asked" is one answer.
+   */
+  lastMessage: { text: string; at: number } | null
 }
 
 // Hover opens after a beat so a quick sweep across the tab strip never flickers
@@ -141,6 +149,23 @@ export function AgentTabIdentityCard({
                 <CopyGlyph done={copied} />
               </IconButton>
             </span>
+          </IdentityRow>
+        ) : null}
+        {identity.lastMessage ? (
+          <IdentityRow label="Last message">
+            {/* Clamped to two lines here, with the whole message in a tooltip on
+                the text itself: a prompt runs to any length, and a card that
+                grew with it would cover the work it describes. */}
+            <Tooltip content={identity.lastMessage.text} placement="bottom" wrapperClassName="block min-w-0">
+              <span className="block min-w-0">
+                <span className="line-clamp-2 whitespace-pre-wrap break-words leading-snug">
+                  {identity.lastMessage.text}
+                </span>
+                <span className="mt-0.5 block text-micro text-[color:var(--text-subtle)]">
+                  {formatRelativeMsAgo(identity.lastMessage.at, Date.now())}
+                </span>
+              </span>
+            </Tooltip>
           </IdentityRow>
         ) : null}
       </dl>

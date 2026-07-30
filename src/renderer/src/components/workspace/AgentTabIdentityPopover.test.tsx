@@ -25,6 +25,7 @@ const GENERAL: AgentTabIdentity = {
   taskId: null,
   worktree: null,
   status: { tone: 'good', pulse: true, label: 'Working' },
+  lastMessage: null,
 }
 
 // --- General agent: model + runtime + session, no task ---------------------
@@ -67,6 +68,24 @@ const onWorktree = card({
 assert.match(onWorktree, /feat\/tab-identity/, 'a worktree agent shows its branch')
 assert.equal(/Main checkout/.test(onWorktree), false, 'worktree agent is not labelled main checkout')
 assert.match(onWorktree, /title="\/tmp\/wt\/feat-tab-identity"/, 'worktree cwd is available on hover')
+
+// --- Last message: on THIS card, never a second hover surface --------------
+// An agent tab used to open the identity card and a prompt-peek popover at the
+// same time, one over the other. The message is a row here now; the row clamps
+// and carries the full text in its own tooltip, because a prompt has no length
+// limit and a card that grew with it would cover the work it describes.
+const withMessage = card({
+  ...GENERAL,
+  lastMessage: { text: 'Rewrite the door bar so it lifts into the app strip', at: Date.now() - 60_000 },
+})
+assert.match(withMessage, /Last message/, 'the card carries a Last message row')
+assert.match(withMessage, /Rewrite the door bar/, 'and the message itself')
+assert.match(withMessage, /line-clamp-2/, 'clamped, so a long prompt cannot grow the card without bound')
+assert.equal(
+  /Last message/.test(general),
+  false,
+  'a tab with no captured prompt shows no empty row',
+)
 
 // --- Paused agent: status reads "Paused", never "Idle" ---------------------
 const paused = card({
