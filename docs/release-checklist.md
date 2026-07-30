@@ -35,7 +35,6 @@ of the first release that ships it, then delete the line.
   module that sets the field — the property no longer exists, so the compile
   fails rather than the value being ignored. Delete the assignment; there is no
   replacement, and reviewer-versus-fixer intent belongs in the prompt.
-
 - Sprint Engines panel shortcut (item 1813): the Sprint Engines panel became the
   Sprints door, and the `panel.sprint-engines.toggle` command went with it. A
   custom shortcut saved for that command stopped firing when the panel was
