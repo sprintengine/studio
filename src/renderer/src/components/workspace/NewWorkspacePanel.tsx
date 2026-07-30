@@ -2246,14 +2246,18 @@ export default function NewWorkspacePanel({
               initializeSprintEngineState: window.api.initializeSprintEngineState,
               recordBacklogExecutionLink: async ({ workspaceRoot, sourceRelativePath, teamSlug, statePath, childRelativePaths }) => {
                 const runRelativePath = workspaceRelativePath(workspaceRoot, statePath) ?? statePath
+                const source = backlogScan.result.items.find((item) => item.relativePath === sourceRelativePath)
                 const result = await window.api.addOrUpdateBacklogLink({
                   workspaceRoot,
                   relativePath: sourceRelativePath,
                   link: buildSprintEngineRunLink({ teamSlug, runRelativePath }),
                   // An epic's status is derived from its children and its file is
                   // never written a status of its own — the children below carry
-                  // the sprint's progress instead.
-                  ...(isBacklogEpicPath(sourceRelativePath) ? {} : { status: 'in_progress' as const }),
+                  // the sprint's progress instead. Read off the scan, which knows
+                  // `type: epic` too; the path test only catches `backlog/epics/`.
+                  ...(source?.isEpic || isBacklogEpicPath(sourceRelativePath)
+                    ? {}
+                    : { status: 'in_progress' as const }),
                 })
                 if (!result.ok) throw new Error(result.message)
                 // Link every epic child to the run, remembering the status it held

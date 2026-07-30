@@ -25,7 +25,7 @@ import { AutomationsStore } from '../../automations/store'
 import { WEBHOOK_TRIGGER_KIND } from '../../automations/triggers/webhook'
 import { registerAutomationsIpc } from '../../ipc/automations-ipc'
 import type { IpcInvokeHandler } from '../../module-host/main-host'
-import { addOrUpdateBacklogLink } from '../../backlog-service'
+import { addOrUpdateBacklogLink, readBacklogObjectStore } from '../../backlog-service'
 import { parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
 import { buildSprintEngineRunLink } from '../../../shared/backlog/sprintengine-links'
 
@@ -1692,14 +1692,34 @@ async function assertBacklogStartLaunchesAnEpicWithItsChildren(): Promise<void> 
   assert.equal(sources.some((source) => source.includes('goal-runs.md')), false)
   assert.equal(sources.some((source) => source.includes('unrelated.md')), false)
 
-  // Every child that is not already underway moves with the epic; a finished one
-  // is never dragged backwards.
+  // MC-2017: launching links every child to the run and moves NONE of them. A
+  // child goes `in_progress` when its own task claims, which is the projection
+  // tick's job — the launch only records where each child started, so an
+  // abandoned sprint can put it back.
   const childA = parseBacklogFrontmatter(await readFile(join(workspaceRoot, 'backlog', 'child-a.md'), 'utf8'))
-  assert.equal(childA.fields.status, 'in_progress')
+  assert.equal(childA.fields.status, 'ready', 'a child does not move just because the epic launched')
   const childDone = parseBacklogFrontmatter(await readFile(join(workspaceRoot, 'backlog', 'child-done.md'), 'utf8'))
-  assert.equal(childDone.fields.status, 'completed')
+  assert.equal(childDone.fields.status, 'completed', 'a finished child is never dragged backwards')
   const unrelated = parseBacklogFrontmatter(await readFile(join(workspaceRoot, 'backlog', 'unrelated.md'), 'utf8'))
   assert.equal(unrelated.fields.status, 'ready')
+  // The epic container derives its status from its children and is never written one.
+  const epic = parseBacklogFrontmatter(await readFile(join(workspaceRoot, 'backlog', 'goal-runs.md'), 'utf8'))
+  assert.equal(epic.fields.status, undefined, 'an epic file never gains a status line')
+
+  const store = await readBacklogObjectStore(workspaceRoot)
+  assert.equal(store.ok, true)
+  const childLinks = (store.ok ? store.store.items : [])
+    .filter((item) => item.source.relativePath.startsWith('backlog/child'))
+    .map((item) => [item.source.relativePath, item.links?.[0]?.status, item.links?.[0]?.priorStatus])
+    .sort()
+  assert.deepEqual(
+    childLinks,
+    [
+      ['backlog/child-a.md', 'pending', 'ready'],
+      ['backlog/child-done.md', 'pending', 'completed'],
+    ],
+    'each child carries a pending run link remembering the status it held before the sprint',
+  )
 }
 
 async function assertBacklogStartHonoursExplicitWorktreeOptOut(): Promise<void> {
