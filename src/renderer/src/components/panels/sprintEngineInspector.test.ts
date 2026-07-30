@@ -202,6 +202,20 @@ assert.equal(formatElapsed(3 * 86_400_000 + 4 * 3_600_000), '3d 04h')
 }
 
 {
+  // An undated commit event cannot anchor the window: `>= ''` would be true for
+  // every pull request in the run.
+  const undated = buildTaskTimeline(task({ activity: [] }), [
+    { id: 'EVT-001', timestamp: '', type: 'task_changes_committed', actor: 'developer-1', message: 'developer-1 committed Sprint Engine changes for T2: abc123.' },
+    event('EVT-002', '2026-07-30T14:52:00Z', 'run_pull_request_opened', 'Opened pull request for sprint/x.'),
+  ])
+  assert.deepEqual(
+    undated.map((item) => item.key),
+    ['event:EVT-001'],
+    'an undated commit still shows, but claims no pull request',
+  )
+}
+
+{
   const beforeItsWork = buildTaskTimeline(task({ activity: [] }), [
     event('EVT-001', '2026-07-30T12:00:00Z', 'run_pull_request_opened', 'Opened pull request for sprint/x.'),
     event('EVT-002', '2026-07-30T14:40:00Z', 'task_changes_committed', 'developer-1 committed Sprint Engine changes for T2: abc123.'),

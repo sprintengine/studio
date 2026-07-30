@@ -2394,12 +2394,17 @@ function TaskReadouts({
   tokenUsage,
   timeline,
   diffOpen,
+  captureExpected,
   onToggleDiff,
 }: {
   task: SprintEngineTask
   tokenUsage: SprintEngineTaskTokenUsage | null | undefined
   timeline: TaskTimelineItem[]
   diffOpen: boolean
+  /** The task has reached a state where the engine captures a diff. With no
+   *  diffs recorded anyway the capture FAILED, and must not read as "no
+   *  changes" — a task that has not published yet simply has nothing to show. */
+  captureExpected: boolean
   onToggleDiff: (() => void) | null
 }) {
   // One clock read per render pass; the pane re-renders on every projection
@@ -2457,7 +2462,17 @@ function TaskReadouts({
             <DiffRatioBar additions={diff.additions} deletions={diff.deletions} />
           </button>
         ) : (
-          <TaskReadout label="Diff" value={diff ? `+${diff.additions} −${diff.deletions}` : 'none'} muted={!diff}>
+          <TaskReadout
+            label="Diff"
+            value={
+              diff
+                ? `+${diff.additions} −${diff.deletions}`
+                : captureExpected
+                  ? 'unavailable'
+                  : '—'
+            }
+            muted={!diff}
+          >
             {diff ? <DiffRatioBar additions={diff.additions} deletions={diff.deletions} /> : null}
           </TaskReadout>
         )}
@@ -2942,7 +2957,11 @@ function SprintEngineTaskBody({
           tokenUsage={selectedTaskTokenUsage}
           timeline={timeline}
           diffOpen={diffOpen}
-          onToggleDiff={hasChangedFiles ? () => setDiffOpen((open) => !open) : null}
+          captureExpected={captureExpected}
+          // Only offered when there is something behind it: a task whose
+          // capture failed says so in the readout instead of opening on the
+          // failure message.
+          onToggleDiff={diffCount > 0 ? () => setDiffOpen((open) => !open) : null}
         />
         {hasChangedFiles && diffOpen ? (
           <div ref={changedFilesRef} className="mt-2">

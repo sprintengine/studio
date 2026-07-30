@@ -595,14 +595,12 @@ export function buildTaskTimeline(
   for (const event of events) {
     if (event.type !== TASK_COMMIT_EVENT_TYPE) continue
     if (!eventNamesTask(event, task.id)) continue
-    commits.push({
-      key: `event:${event.id}`,
-      timestamp: event.timestamp ?? '',
-      kind: 'vcs' as const,
-      vcs: 'committed' as const,
-      event,
-    })
-    if (!firstCommitAt || (event.timestamp ?? '') < firstCommitAt) firstCommitAt = event.timestamp ?? ''
+    const timestamp = event.timestamp ?? ''
+    commits.push({ key: `event:${event.id}`, timestamp, kind: 'vcs' as const, vcs: 'committed' as const, event })
+    // Only a real stamp can anchor the pull-request window. An undated commit
+    // event would make `>= ''` true for every pull request in the run and pull
+    // them all onto this task.
+    if (timestamp && (firstCommitAt === null || timestamp < firstCommitAt)) firstCommitAt = timestamp
   }
   items.push(...commits)
 
@@ -610,8 +608,9 @@ export function buildTaskTimeline(
     const vcs = PULL_REQUEST_EVENT_KIND[event.type]
     if (!vcs) continue
     const explicit = Boolean(event.taskId) && event.taskId === task.id
+    const timestamp = event.timestamp ?? ''
     const carriesThisTask =
-      explicit || (firstCommitAt !== null && (event.timestamp ?? '') >= firstCommitAt)
+      explicit || (firstCommitAt !== null && timestamp !== '' && timestamp >= firstCommitAt)
     if (!carriesThisTask) continue
     items.push({ key: `event:${event.id}`, timestamp: event.timestamp ?? '', kind: 'vcs', vcs, event })
   }
