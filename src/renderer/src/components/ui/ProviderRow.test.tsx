@@ -544,7 +544,7 @@ const settings = readFileSync(
   'utf8',
 )
 const onboarding = readFileSync(
-  join(repoRoot, 'src/renderer/src/components/onboarding/OnboardingFlow.tsx'),
+  join(repoRoot, 'src/renderer/src/components/onboarding/FirstRunCliCard.tsx'),
   'utf8',
 )
 const canvas = readFileSync(
@@ -554,7 +554,7 @@ const canvas = readFileSync(
 
 for (const [label, source] of [
   ['Settings → Agents', settings],
-  ['onboarding essentials', onboarding],
+  ['first-run CLI card', onboarding],
   ['Agent CLIs canvas', canvas],
 ] as const) {
   assert.match(source, /<ProviderRow/, `${label} renders the shared row`)
@@ -564,7 +564,7 @@ for (const [label, source] of [
 // surface and "Not installed" on the other.
 for (const [label, source] of [
   ['Settings → Agents', settings],
-  ['onboarding essentials', onboarding],
+  ['first-run CLI card', onboarding],
 ] as const) {
   assert.match(source, /resolveCliProviderState\(/, `${label} derives state from the shared mapping`)
   assert.match(source, /<CliProviderStateLine/, `${label} renders the shared state line`)
