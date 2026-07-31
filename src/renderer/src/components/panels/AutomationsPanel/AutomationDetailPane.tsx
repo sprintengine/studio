@@ -70,7 +70,7 @@ export function AutomationDetailPane({
         </div>
         <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-micro">
           <Meta label="Trigger" value={cadenceSummary(definition.trigger)} />
-          <Meta label="Action" value={`${actionLabel(definition.action.kind)} · ${definition.autonomyDefault === 'allow_changes' ? 'Allow changes' : 'Review only'}`} />
+          <Meta label="Action" value={actionLabel(definition.action.kind)} />
           <Meta label="Next run" value={nextAt !== null ? `${relativeFromNow(nextAt, now)} (${absoluteTime(nextAt)})` : definition.status === 'enabled' ? 'Pending' : 'Paused'} />
           <Meta label="Last run" value={lastAt !== null ? `${relativeFromNow(lastAt, now)} (${absoluteTime(lastAt)})` : 'Never run'} />
         </dl>

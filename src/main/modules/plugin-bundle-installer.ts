@@ -23,8 +23,13 @@ import {
   hasCodeBearingComponent,
   resolveOptionallySignedManifest,
 } from '../../shared/marketplace'
+import type { AutomationDefinition, AutomationsResult } from '../../shared/automations/contracts'
+import { AGENT_BACKED_ACTION_KINDS } from '../../shared/automations/contracts'
 import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
-import { marketplaceComponentDigestMismatchIssuesSync } from '../../../packages/module-sdk/src/plugin-component-digests'
+import {
+  marketplaceAutomationPayloadIssuesSync,
+  marketplaceComponentDigestMismatchIssuesSync,
+} from '../../../packages/module-sdk/src/plugin-component-digests'
 import { installPluginFolder as installCliPluginFolder } from '../plugin-install'
 import { validateManifestSource } from '../plugin-registry'
 import { getPluginRegistryUserRoot, reloadPluginRegistry } from '../plugin-registry-instance'
@@ -38,6 +43,21 @@ const DEFAULT_SKILL_HARNESSES: SkillHarness[] = ['agents']
 
 type ComponentPath = { kind: MarketplaceComponentKind; path: string }
 
+/**
+ * Adds a catalogue entry's automation to a project — the automations app front
+ * door (`installCatalogueDefinition`), which owns payload parsing, the install
+ * defaults, the store-issued id, and the "already added" answer. Absent means
+ * the Automations module is not running, which an automation component reports
+ * rather than installing nothing and calling it success.
+ */
+export type MarketplaceAutomationInstaller = (input: {
+  workspaceRoot: string
+  /** The bundle's automation payload, verbatim; the front door owns parsing it. */
+  definition: unknown
+  sourceCatalogueId: string
+  sourcePublisher?: string
+}) => Promise<AutomationsResult<{ definition: AutomationDefinition; alreadyAdded: boolean }>>
+
 export type MarketplacePluginInstallerServices = {
   trustContext: () => ModuleTrustContext
   mcpConfigService: McpConfigService
@@ -46,6 +66,7 @@ export type MarketplacePluginInstallerServices = {
   installModuleFolder?: typeof installCapabilityModuleFolder
   installPluginFolder?: typeof installCliPluginFolder
   reloadPlugins?: () => void
+  installAutomationDefinition?: MarketplaceAutomationInstaller
 }
 
 type ResolvedComponent =
@@ -53,6 +74,11 @@ type ResolvedComponent =
   | { kind: 'skills'; path: string; installedDirName: string }
   | { kind: 'module'; path: string; id: string; trust: ModuleTrust }
   | { kind: 'cli'; path: string; id: string }
+  // An automation is a definition in a per-project store, not files to unpack,
+  // so the resolved component carries the parsed payload and no path to copy
+  // from. `catalogueId` is the plugin's own id — the shelf entry the user
+  // pressed Get on — and never becomes the automation's id.
+  | { kind: 'automation'; payload: unknown; catalogueId: string; publisher?: string }
 
 type ResolvedInstallPlan = {
   components: ResolvedComponent[]
@@ -149,12 +175,22 @@ async function buildInstallPlan(
     })
   }
 
+  // Mirror the download gate: an automation component must carry a definition
+  // payload, checked before any component is prepared or written.
+  const automationIssues = marketplaceAutomationPayloadIssuesSync(bundleRoot.path, manifest.components)
+  if (automationIssues.length > 0) {
+    return failure('Plugin bundle automation payload is not a valid automation definition.', 'automation', automationIssues, {
+      trust: trust.status,
+      loadEligible: isLoadEligible(trust.status),
+    })
+  }
+
   const resolvedComponents: ResolvedComponent[] = []
   for (const component of componentPaths(manifest.components)) {
     const resolved = await resolveComponent(bundleRoot.path, component)
     if (!resolved.ok) return failure(resolved.message, component.kind)
 
-    const prepared = await prepareComponent(resolved.path, component.kind, input, trustContext)
+    const prepared = await prepareComponent(resolved.path, component.kind, input, manifest, trustContext)
     if (!prepared.ok) return failure(prepared.message, component.kind, prepared.issues)
     resolvedComponents.push(prepared.component)
   }
@@ -185,6 +221,8 @@ async function installComponent(
         return await installModuleComponent(component, services, installed)
       case 'cli':
         return await installCliComponent(component, services, installed)
+      case 'automation':
+        return await installAutomationComponent(component, input, services, installed)
     }
   } catch (error) {
     return {
@@ -337,10 +375,53 @@ async function installCliComponent(
   }
 }
 
+// Automations do not unpack: the component becomes a definition in the target
+// project's automations store, created through the automations write path so it
+// is validated, scheduled, and broadcast exactly like one the user wrote. The
+// receipt names the id the store issued, which is how update and uninstall find
+// it later — and how a re-install recognises the entry it already added.
+async function installAutomationComponent(
+  component: Extract<ResolvedComponent, { kind: 'automation' }>,
+  input: MarketplacePluginInstallInput,
+  services: MarketplacePluginInstallerServices,
+  installed: MarketplacePluginInstalledComponent[]
+): Promise<
+  | { ok: true; installed: MarketplacePluginInstalledComponent }
+  | { ok: false; result: MarketplacePluginInstallResult }
+> {
+  const workspaceRoot = input.workspaceRoot?.trim()
+  if (!workspaceRoot) {
+    return componentFailure('automation', 'Open the project this automation should run in, then add it again.', installed)
+  }
+  if (!services.installAutomationDefinition) {
+    return componentFailure('automation', 'Automations are switched off, so this automation cannot be added.', installed)
+  }
+
+  const result = await services.installAutomationDefinition({
+    workspaceRoot,
+    definition: component.payload,
+    sourceCatalogueId: component.catalogueId,
+    ...(component.publisher ? { sourcePublisher: component.publisher } : {}),
+  })
+  if (!result.ok) return componentFailure('automation', result.message, installed)
+
+  return {
+    ok: true,
+    installed: {
+      kind: 'automation',
+      id: result.value.definition.id,
+      message: result.value.alreadyAdded
+        ? 'Already added to this project.'
+        : `Added "${result.value.definition.name}" to this project.`,
+    },
+  }
+}
+
 async function prepareComponent(
   path: string,
   kind: MarketplaceComponentKind,
   input: MarketplacePluginInstallInput,
+  manifest: MarketplacePluginAuthoringManifest,
   trustContext: ModuleTrustContext
 ): Promise<{ ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }> {
   switch (kind) {
@@ -352,7 +433,60 @@ async function prepareComponent(
       return prepareModuleComponent(path, trustContext)
     case 'cli':
       return prepareCliComponent(path)
+    case 'automation':
+      return prepareAutomationComponent(path, input, manifest)
   }
+}
+
+// An agent-backed automation whose payload names no CLI resolves the app's
+// last-selected CLI when it fires. Installing one with no such CLI configured
+// would create a job that fails at 02:00 with nobody watching, so the
+// precondition is checked here — before anything is written — rather than
+// discovered at the first run.
+async function prepareAutomationComponent(
+  path: string,
+  input: MarketplacePluginInstallInput,
+  manifest: MarketplacePluginAuthoringManifest
+): Promise<{ ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }> {
+  const source = await readText(path, 'automation component')
+  if (!source.ok) return { ok: false, message: 'Automation component could not be read.', issues: source.issues }
+
+  let payload: unknown
+  try {
+    payload = JSON.parse(source.source)
+  } catch (error) {
+    return {
+      ok: false,
+      message: 'Automation component is not valid JSON.',
+      issues: [{ path: '', message: error instanceof Error ? error.message : 'Invalid JSON.' }],
+    }
+  }
+
+  if (automationNeedsFallbackCli(payload) && !input.automationDefaultCli?.trim()) {
+    return {
+      ok: false,
+      message: 'This automation runs an agent, and no CLI is selected for agents to launch with. Choose one in Settings, then add it again.',
+      issues: [{ path: 'action.config.cli', message: 'No CLI was requested and no last-selected CLI is configured.' }],
+    }
+  }
+
+  return {
+    ok: true,
+    component: {
+      kind: 'automation',
+      payload,
+      catalogueId: manifest.id,
+      ...(manifest.publisher ? { publisher: manifest.publisher } : {}),
+    },
+  }
+}
+
+function automationNeedsFallbackCli(payload: unknown): boolean {
+  if (!isRecord(payload) || !isRecord(payload.action)) return false
+  const kind = payload.action.kind
+  if (typeof kind !== 'string' || !AGENT_BACKED_ACTION_KINDS.includes(kind)) return false
+  const config = payload.action.config
+  return !(isRecord(config) && typeof config.cli === 'string' && config.cli.trim().length > 0)
 }
 
 async function prepareMcpComponent(

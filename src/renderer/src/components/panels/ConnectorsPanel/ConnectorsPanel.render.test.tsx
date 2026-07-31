@@ -2,12 +2,13 @@ import assert from 'node:assert/strict'
 
 import { renderToStaticMarkup } from 'react-dom/server'
 
+import type { AutomationDefinition } from '../../../../../shared/automations/contracts'
 import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
 import { ConnectorsBody, FacetTabs, ReadyConnectorsRail } from './ConnectorsBrowseCanvas'
-import { ExtensionKindCanvas } from './ExtensionKindCanvas'
-import { deriveConnectorsView, type ConnectorFacet, type SourceLoad } from './connectorsFacets'
+import { ExtensionKindCanvas, automationShelfRowState } from './ExtensionKindCanvas'
+import { deriveConnectorsView, registryEntriesForKinds, type ConnectorFacet, type SourceLoad } from './connectorsFacets'
 import type { ConnectorSources } from './useConnectorSources'
 
 // A static-render smoke test: full Electron drive is not available in the shared
@@ -291,6 +292,113 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
     ),
     /The marketplace is unavailable: registry down\./,
   )
+}
+
+// --- the automations shelf (MC-2034) ---------------------------------------
+
+{
+  const deadCode: MarketplacePluginEntry = {
+    ...stripePlugin,
+    id: 'multicode.dead-code-sweep',
+    name: 'Dead code sweep',
+    publisher: { name: 'Multicode Labs', verified: false },
+    summary: 'Finds code nothing reaches and deletes only what it can prove is dead.',
+    category: 'Development',
+    provides: ['automation'],
+  }
+  const markup = renderToStaticMarkup(
+    <ExtensionKindCanvas kind="automation" sources={kindSources(ready([deadCode, stripePlugin]))} workspaceRoot="/repo" />,
+  )
+  assert.match(markup, /Automations/)
+  assert.match(markup, /Dead code sweep/)
+  // First paint, before the project's store has answered: the row must NOT
+  // claim "Not added" and must offer no Get — that is a state it does not know.
+  assert.match(markup, /Checking this project — published by Multicode Labs/)
+  assert.doesNotMatch(markup, /Not added/, 'a definitive negative is not shown while the read is in flight')
+  assert.doesNotMatch(markup, /Get Dead code sweep/, 'and no Get is offered against an unknown state')
+  assert.doesNotMatch(markup, /Finds code nothing reaches/, 'the description stays off the row face')
+  // Only automation entries list here.
+  assert.doesNotMatch(markup, /Stripe/)
+
+  // No signing vocabulary anywhere on this surface: an automation is a
+  // definition the app's own engine interprets, never code.
+  for (const word of [/Verified/, /Unsigned/, /Community/, /Inline MCP/, /trust/i]) {
+    assert.doesNotMatch(markup, word, `no trust vocabulary on the automations shelf (${word})`)
+  }
+  // And no version slot — the registry's bundle revision is not an automation's
+  // version, so the mono slot stays empty rather than saying "unknown".
+  assert.doesNotMatch(markup, /unknown version/i)
+
+  // A registry that fails to load is its own state, never "none available".
+  const down = renderToStaticMarkup(
+    <ExtensionKindCanvas
+      kind="automation"
+      sources={kindSources({ status: 'error', message: 'registry down.' })}
+      workspaceRoot="/repo"
+    />,
+  )
+  assert.match(down, /The marketplace is unavailable: registry down\./)
+  assert.doesNotMatch(down, /No automations are in the marketplace yet/)
+
+  // Day one: a registry with no automations in it says so.
+  assert.match(
+    renderToStaticMarkup(
+      <ExtensionKindCanvas kind="automation" sources={kindSources(ready([stripePlugin]))} workspaceRoot="/repo" />,
+    ),
+    /No automations are in the marketplace yet/,
+  )
+}
+
+// The row's state and action, over the one fact that decides them.
+{
+  const entry = registryEntriesForKinds(
+    [
+      {
+        ...stripePlugin,
+        id: 'multicode.dead-code-sweep',
+        name: 'Dead code sweep',
+        publisher: { name: 'Multicode Labs', verified: false },
+        provides: ['automation'],
+      },
+    ],
+    ['automation'],
+  )[0]
+
+  // Unknown is its own state, never a negative: a Get offered here could land on
+  // an automation the project already has.
+  const unknown = automationShelfRowState(entry, null, false)
+  assert.equal(unknown.stateLine, 'Checking this project — published by Multicode Labs')
+  assert.equal(unknown.action, 'none')
+
+  const notAdded = automationShelfRowState(entry, null, true)
+  assert.equal(notAdded.stateLine, 'Not added — published by Multicode Labs')
+  assert.equal(notAdded.health, 'neutral')
+  assert.equal(notAdded.action, 'get')
+
+  const definition = {
+    id: 'auto-1',
+    name: 'Dead code sweep',
+    status: 'enabled',
+    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '02:00' }, timezone: 'UTC' } },
+    action: { kind: 'spawn-agent', config: { prompt: 'Find code nothing reaches.' } },
+    sourceCatalogueId: 'multicode.dead-code-sweep',
+    nextRunAt: null,
+    lastRunAt: null,
+    lastRunId: null,
+    createdAt: '2026-07-30T00:00:00.000Z',
+    updatedAt: '2026-07-30T00:00:00.000Z',
+  } as AutomationDefinition
+
+  const added = automationShelfRowState(entry, definition, true)
+  assert.equal(added.stateLine, 'Added — Daily at 02:00', 'the state line names the schedule the project actually holds')
+  assert.equal(added.health, 'good', 'the dot follows the state, and is not a trust tier')
+  assert.equal(added.action, 'open', 'an automation already in this project cannot be got again')
+
+  // A paused one is still added — the state line says which, rather than
+  // reading as if it were still on the shelf.
+  const paused = automationShelfRowState(entry, { ...definition, status: 'paused' }, true)
+  assert.equal(paused.stateLine, 'Added, paused — Daily at 02:00')
+  assert.equal(paused.action, 'open')
 }
 
 // --- data-URI icons from the generated catalogue render through PluginIcon --

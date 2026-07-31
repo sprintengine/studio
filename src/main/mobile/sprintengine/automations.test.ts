@@ -23,7 +23,6 @@ function definitionOf(overrides: Partial<AutomationDefinition> & Pick<Automation
     status: 'enabled',
     trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
     action: { kind: 'agent-run', config: { prompt: 'do the thing' } },
-    autonomyDefault: 'review_only',
     nextRunAt: null,
     lastRunAt: null,
     lastRunId: null,

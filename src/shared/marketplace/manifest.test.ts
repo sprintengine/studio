@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 
 import {
+  MARKETPLACE_COMPONENT_KINDS,
   canonicalManifestPayload,
+  marketplaceAutomationPayloadIssues,
   parseMarketplaceIndex,
   parseMarketplacePluginManifest,
   validateMarketplaceIndex,
@@ -27,7 +29,20 @@ const VALID_PLUGIN = {
     skills: { path: 'skills/pack', files: [{ path: 'skills/pack/SKILL.md', sha256: VALID_DIGEST }] },
     module: { path: 'module', files: [{ path: 'module/manifest.json', sha256: VALID_DIGEST }] },
     cli: { path: 'cli', files: [{ path: 'cli/plugin.json', sha256: VALID_DIGEST }] },
+    automation: {
+      path: 'automation/automation.json',
+      files: [{ path: 'automation/automation.json', sha256: VALID_DIGEST }],
+    },
   },
+}
+
+// The payload an `automation` component points at: a JSON automation
+// definition draft. Only its structure is checked at the manifest tier.
+const VALID_AUTOMATION_PAYLOAD = {
+  name: 'Nightly dependency sweep',
+  status: 'paused',
+  trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' } },
+  action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
 }
 
 const VALID_MARKETPLACE = {
@@ -103,6 +118,7 @@ function testValidPluginManifest(): void {
     assert.equal(result.manifest.components.skills?.path, 'skills/pack')
     assert.equal(result.manifest.components.module?.path, 'module')
     assert.equal(result.manifest.components.cli?.path, 'cli')
+    assert.equal(result.manifest.components.automation?.path, 'automation/automation.json')
     assert.deepEqual(result.manifest.components.mcp?.files, [{ path: 'mcp/server.json', sha256: VALID_DIGEST }])
   }
 }
@@ -446,6 +462,37 @@ function testParseMarketplaceInvalidJson(): void {
   assert.equal(parseMarketplaceIndex('{not json').ok, false)
 }
 
+function testAutomationIsAComponentKind(): void {
+  assert.deepEqual([...MARKETPLACE_COMPONENT_KINDS], ['mcp', 'skills', 'module', 'cli', 'automation'])
+  const result = validateMarketplaceIndex({
+    ...VALID_MARKETPLACE,
+    plugins: [{ ...VALID_MARKETPLACE.plugins[0], provides: ['automation'] }],
+  })
+  assert.equal(result.ok, true)
+  if (result.ok) assert.deepEqual(result.marketplace.plugins[0]?.provides, ['automation'])
+}
+
+function testAutomationPayloadStructure(): void {
+  assert.deepEqual(marketplaceAutomationPayloadIssues(JSON.stringify(VALID_AUTOMATION_PAYLOAD)), [])
+
+  assert.deepEqual(issuePaths(marketplaceAutomationPayloadIssues('{not json')), ['components.automation'])
+  assert.deepEqual(issuePaths(marketplaceAutomationPayloadIssues('[]')), ['components.automation'])
+
+  for (const [field, path] of [
+    ['name', 'components.automation.name'],
+    ['trigger', 'components.automation.trigger'],
+    ['action', 'components.automation.action'],
+  ] as const) {
+    const issues = marketplaceAutomationPayloadIssues(JSON.stringify(withoutField(VALID_AUTOMATION_PAYLOAD, field)))
+    assert.deepEqual(issuePaths(issues), [path], `missing ${field} must be reported at ${path}`)
+  }
+
+  const untypedTrigger = marketplaceAutomationPayloadIssues(
+    JSON.stringify({ ...VALID_AUTOMATION_PAYLOAD, trigger: { config: {} } })
+  )
+  assert.deepEqual(issuePaths(untypedTrigger), ['components.automation.trigger.kind'])
+}
+
 testValidPluginManifest()
 testPluginMissingRequiredFields()
 testPluginRejectsInvalidComponentCases()
@@ -470,4 +517,6 @@ testMarketplaceMissingTopLevelFields()
 testMarketplaceMissingPluginFields()
 testMarketplaceRejectsNestedInvalidFields()
 testParseMarketplaceInvalidJson()
+testAutomationIsAComponentKind()
+testAutomationPayloadStructure()
 console.log('marketplace manifest tests passed')

@@ -26,6 +26,7 @@ import { reviewApi } from './api/review'
 import { skillsApi } from './api/skills'
 import { mobileBridgeApi } from './api/mobile-bridge'
 import { soulsApi } from './api/souls'
+import { splashApi } from './api/splash'
 import { sprintEngineApi } from './api/sprintengine'
 import { switchboardApi } from './api/switchboard'
 import { terminalApi } from './api/terminal'
@@ -47,6 +48,7 @@ const api = {
   diagnosticsGetIpcStats: snapshotIpcStats,
   ...agentConfigImportApi,
   ...windowApi,
+  ...splashApi,
   ...appearanceApi,
   ...authApi,
   ...automationApi,

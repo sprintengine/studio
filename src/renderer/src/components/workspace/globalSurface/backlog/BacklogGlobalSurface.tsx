@@ -587,11 +587,13 @@ export default function BacklogGlobalSurface(): JSX.Element {
   // paint, collapsible epic headers with a progress roll-up, and a project tag
   // that a title + state line cannot hold.
   //
-  // Neither the list nor this wrapper scrolls: the host column is the scrollport
-  // (the shell's inline aside, or the context-rail column), which is what lets
-  // the head above stay stuck to its top.
+  // This wrapper owns the scrollport, not the host column: the head has to sit
+  // OUTSIDE it (and flush to the column's edges) so it paints no ground of its
+  // own and reads as the chrome rather than a slab dropped into it — see
+  // `SurfaceRailHeader`. The same shape `SurfaceRail` uses, so both rails inset
+  // and scroll identically in either host.
   const rail = (
-    <div className="flex min-w-0 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <SurfaceRailHeader
         newAffordance={{
           label: 'New item',
@@ -627,19 +629,21 @@ export default function BacklogGlobalSurface(): JSX.Element {
           />
         }
       />
-      <BacklogDoorList
-        rows={renderRows}
-        now={now}
-        selectedKey={selectedKey}
-        showProjectTag={showProjectTag}
-        runGlyphByRowKey={runGlyphByRowKey}
-        onSelect={setSelectedKey}
-        onToggleGroup={toggleGroup}
-        onContextMenu={(event, key) => {
-          event.preventDefault()
-          setRowMenu({ rowKey: key, x: event.clientX, y: event.clientY })
-        }}
-      />
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2.5 pb-2.5 pt-2">
+        <BacklogDoorList
+          rows={renderRows}
+          now={now}
+          selectedKey={selectedKey}
+          showProjectTag={showProjectTag}
+          runGlyphByRowKey={runGlyphByRowKey}
+          onSelect={setSelectedKey}
+          onToggleGroup={toggleGroup}
+          onContextMenu={(event, key) => {
+            event.preventDefault()
+            setRowMenu({ rowKey: key, x: event.clientX, y: event.clientY })
+          }}
+        />
+      </div>
     </div>
   )
 

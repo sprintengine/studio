@@ -348,11 +348,85 @@ def _normalize_commit_pathspec(worktree: Path, raw_paths: List[str]) -> List[str
     return pathspec
 
 
-def _path_in_scope(path: str, pathspec: List[str]) -> bool:
-    for entry in pathspec:
-        if path == entry or path.startswith(entry + "/"):
-            return True
-    return False
+ROOT_MODULE = "."
+
+
+def normalize_owned_path(value: Any) -> str:
+    """One project-relative owned path in comparable form, or '' when unusable.
+
+    Every spelling of the project root — ``.``, ``./``, ``.//`` — folds to
+    :data:`ROOT_MODULE`, so "the whole tree" has one form the predicate below
+    recognizes. An ABSOLUTE root (``/``) deliberately does not: it normalizes to
+    ``''`` and so owns nothing, matching how absolute entries are dropped from
+    every commit pathspec. Promoting it to the project root would make it overlap
+    every module in the dispatch guard, which does not filter absolute entries.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return Path(raw).as_posix().rstrip("/")
+
+
+def module_contains_path(owner: str, candidate: str) -> bool:
+    """True when `candidate` IS the owned module `owner` or sits inside it.
+
+    A task owns modules — project-relative directories — not files (backlog item
+    2019), and this is the one predicate that answers "is this path inside that
+    ownership?" for commit scope, orphan detection, and the dispatch guard.
+
+    Comparison is by path SEGMENT, never by string prefix: ``payments-api/webhooks``
+    contains ``payments-api/webhooks/delivery.ts`` and does NOT contain
+    ``payments-api/webhooks-v2/anything``, which a ``startswith`` on the bare owner
+    would wrongly claim.
+
+    ``.`` is the project root, and contains every project-relative path. Coarse
+    ownership makes that spelling reachable — an architect told to declare
+    directories writes the one that means "all of them" — and segment comparison
+    alone would answer False for every candidate, so the task would own nothing,
+    commit nothing, and orphan its whole diff silently.
+
+    A file entry contains only itself, so a run store written before ownership
+    moved to modules keeps the exact scope it always had.
+    """
+    owner_value = normalize_owned_path(owner)
+    candidate_value = normalize_owned_path(candidate)
+    if not owner_value or not candidate_value:
+        return False
+    if owner_value == ROOT_MODULE:
+        return True
+    return candidate_value == owner_value or candidate_value.startswith(owner_value + "/")
+
+
+def paths_overlap(left: str, right: str) -> bool:
+    """True when either path contains the other — the symmetric ownership clash."""
+    return module_contains_path(left, right) or module_contains_path(right, left)
+
+
+def path_in_owned_scope(path: str, pathspec: List[str]) -> bool:
+    return any(module_contains_path(entry, path) for entry in pathspec)
+
+
+def modules_held_by_other_active_tasks(state: Dict[str, Any], task: Dict[str, Any]) -> List[str]:
+    """The `ownedPaths` of every OTHER task whose lease is currently active.
+
+    "Active" is `active_lease_worker`, the SAME notion the dispatch guard uses:
+    the two answer one question — who is live in this module right now — and a
+    second definition would let one of them protect what the other releases.
+    Repo-agnostic for the same reason the guard is: the commit sweep stages a
+    task's pathspec in every declared tree it worked (MC-1752), so the same
+    relative module in a sibling project is the same claim.
+    """
+    from sprintengine_core.tool.state import active_lease_worker
+
+    task_id = str(task.get("id") or "").strip()
+    held: List[str] = []
+    for other in state.get("tasks", []) or []:
+        if not isinstance(other, dict) or str(other.get("id") or "").strip() == task_id:
+            continue
+        if not active_lease_worker(other):
+            continue
+        held.extend(str(path) for path in (other.get("ownedPaths") or []))
+    return held
 
 
 def _parse_porcelain_z(output: str) -> List[Dict[str, str]]:
@@ -421,7 +495,26 @@ def _commit_task_paths_in_repo(
             set_repo_status(vcs, repo["id"], "dirty" if dirty else "ready")
         if not pathspec:
             return None
-        in_scope = sorted({record["path"] for record in dirty if _path_in_scope(record["path"], pathspec)})
+        in_scope = sorted({record["path"] for record in dirty if path_in_owned_scope(record["path"], pathspec)})
+        # The pathspec is WIDER than this task's modules: it also carries the paths
+        # the task declared touching (evidence, the latest implementation comment)
+        # and any explicitly passed `--path`. The dispatch guard reads ownedPaths
+        # only, so those extra entries are the one channel left through which a
+        # commit can still sweep another live task's half-finished work — and an
+        # agent told it owns DIRECTORIES passes a directory here, which takes the
+        # whole module including files it never touched. Stage a path only when it
+        # is inside THIS task's modules, or inside no other live task's.
+        # `owned` wins on overlap so a task always commits its own module: the
+        # dispatch guard normally keeps overlapping tasks from being live at once,
+        # but a repair transition or a hand-edited store can still produce one.
+        foreign = _normalize_commit_pathspec(worktree, modules_held_by_other_active_tasks(state, task))
+        if foreign:
+            own_modules = _normalize_commit_pathspec(worktree, owned)
+            in_scope = [
+                path
+                for path in in_scope
+                if path_in_owned_scope(path, own_modules) or not path_in_owned_scope(path, foreign)
+            ]
         if not in_scope:
             return None
         run_git_checked(worktree, ["add", "--", *in_scope])
@@ -603,7 +696,7 @@ def worktree_orphaned_dirty_paths(state: Dict[str, Any], state_path: Path, repo:
         {
             record["path"]
             for record in dirty
-            if record["path"] and not _path_in_scope(record["path"], owned_pathspec)
+            if record["path"] and not path_in_owned_scope(record["path"], owned_pathspec)
         }
     )
 
@@ -625,15 +718,26 @@ def run_orphaned_dirty_paths(state: Dict[str, Any], state_path: Path) -> List[Di
     ]
 
 
-def _owned_path_parent_dirs(worktree: Path, task: Dict[str, Any]) -> List[str]:
-    """Normalized parent directories of a task's owned paths (the dirs it works in)."""
+def _task_working_dirs(worktree: Path, task: Dict[str, Any]) -> List[str]:
+    """The directories a task works in, for the missed-scope orphan check.
+
+    A module entry IS such a directory and contributes itself. A legacy file
+    entry — an entry that resolves to an existing regular file — contributes its
+    parent, which is the directory that check has always used to spot a new
+    unowned sibling next to an owned file. Widening a module to its parent would
+    instead answer for every sibling module in the tree, blocking a publish on
+    another concern's noise.
+    """
     owned = _normalize_commit_pathspec(worktree, [str(p) for p in (task.get("ownedPaths") or [])])
-    parents: List[str] = []
+    dirs: List[str] = []
     for path in owned:
-        parent = path.rsplit("/", 1)[0] if "/" in path else ""
-        if parent and parent not in parents:
-            parents.append(parent)
-    return parents
+        if (worktree / path).is_file():
+            value = path.rsplit("/", 1)[0] if "/" in path else ""
+        else:
+            value = path
+        if value and value not in dirs:
+            dirs.append(value)
+    return dirs
 
 
 def task_scoped_orphaned_dirty_paths(
@@ -642,7 +746,7 @@ def task_scoped_orphaned_dirty_paths(
     """Orphaned dirty paths that sit in a directory this task already works in.
 
     Narrows :func:`worktree_orphaned_dirty_paths` to the orphans that fall inside
-    the parent directory of one of this task's owned paths — the strong
+    a directory this task works in (:func:`_task_working_dirs`) — the strong
     missed-scope signal (e.g. an owned ``a/b/Panel.tsx`` shell next to a new,
     unowned ``a/b/Panel/helper.ts``). Incidental untracked files elsewhere in the
     shared worktree (scratch files, screenshots, another concern's noise) are not
@@ -678,14 +782,12 @@ def task_scoped_orphaned_dirty_paths(
         orphaned = worktree_orphaned_dirty_paths(state, state_path, repo)
         if not orphaned:
             continue
-        parents = _owned_path_parent_dirs(worktree, task)
-        if not parents:
+        working_dirs = _task_working_dirs(worktree, task)
+        if not working_dirs:
             continue
         prefix = "" if is_bound else f"{repo.get('id')}:"
         scoped.extend(
-            f"{prefix}{path}"
-            for path in orphaned
-            if any(path == parent or path.startswith(parent + "/") for parent in parents)
+            f"{prefix}{path}" for path in orphaned if path_in_owned_scope(path, working_dirs)
         )
     return scoped
 
@@ -711,7 +813,7 @@ def _task_in_scope_dirty_paths(
     if status.returncode != 0:
         return []
     dirty = _parse_porcelain_z(status.stdout)
-    return sorted({record["path"] for record in dirty if _path_in_scope(record["path"], pathspec)})
+    return sorted({record["path"] for record in dirty if path_in_owned_scope(record["path"], pathspec)})
 
 
 def task_scoped_dirty_paths(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> List[str]:
@@ -746,7 +848,7 @@ def task_scoped_dirty_paths(state: Dict[str, Any], state_path: Path, task: Dict[
     if status.returncode != 0:
         return []
     dirty = _parse_porcelain_z(status.stdout)
-    return sorted({record["path"] for record in dirty if _path_in_scope(record["path"], pathspec)})
+    return sorted({record["path"] for record in dirty if path_in_owned_scope(record["path"], pathspec)})
 
 
 def workspace_is_git_repository(state_path: Path) -> bool:

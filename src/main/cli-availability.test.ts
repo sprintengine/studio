@@ -150,3 +150,52 @@ test('keys the cache by command/WSL override so a changed override re-probes', a
   await detectAgentCliAvailability({ cliRuntimes: { codex: { command: '/b/codex' } } }, deps)
   assert.equal(probes, 2)
 })
+
+// The boot-discovery contract (see boot-discovery.ts). The splash pass probes
+// with NO input; the renderer's first refreshCliAvailability probes with the
+// profile's cliRuntimes. For every CLI the user has not given a custom command,
+// both resolve to the same cache key, so the renderer reads the boot result
+// instead of spawning a second login shell per CLI moments later. Break this and
+// the splash makes launch slower, not faster.
+test('a boot-style probe warms the cache for the renderer first refresh', async () => {
+  clearCliAvailabilityCache()
+  let probes = 0
+  const deps = {
+    listEntries: () => [entry('codex'), entry('claude-code')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      return detected(cli, true)
+    },
+    now: () => 5000,
+    ttlMs: 60_000,
+  }
+
+  // Boot discovery: no input at all.
+  await detectAgentCliAvailability(undefined, deps)
+  assert.equal(probes, 2, 'boot probes each registered CLI once')
+
+  // The renderer, moments later, with a settings object that carries no command
+  // overrides — the shape a fresh profile has.
+  await detectAgentCliAvailability({ cliRuntimes: { codex: {}, 'claude-code': { useWsl: false } } }, deps)
+  assert.equal(probes, 2, 'the renderer refresh spawns nothing: every CLI hits the boot cache')
+})
+
+// The other half of the same contract: a CLI the user HAS pointed at a custom
+// binary must re-probe, because a different command is a different question.
+test('a CLI with a command override still re-probes after boot', async () => {
+  clearCliAvailabilityCache()
+  let probes = 0
+  const deps = {
+    listEntries: () => [entry('codex'), entry('claude-code')],
+    detect: async (cli: AgentCli) => {
+      probes += 1
+      return detected(cli, true)
+    },
+    now: () => 5000,
+    ttlMs: 60_000,
+  }
+
+  await detectAgentCliAvailability(undefined, deps)
+  await detectAgentCliAvailability({ cliRuntimes: { codex: { command: '/opt/custom/codex' } } }, deps)
+  assert.equal(probes, 3, 'only the overridden CLI re-probes; the other still hits the boot cache')
+})

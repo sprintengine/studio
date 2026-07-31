@@ -91,7 +91,7 @@ def test_epic_init_mints_review_in_place_plan_task_without_seeding_plan(tmp_path
     assert init_payload.get("productTask") is None
 
     plan_task = init_payload["planTask"]
-    assert plan_task["title"] == "Review epic designs in place and create task graph"
+    assert plan_task["title"] == "Sequence the epic's child items into a task graph"
     joined_ac = " ".join(plan_task["acceptanceCriteria"]).lower()
     assert "child item of the epic is enumerated" in joined_ac
     assert "not re-authored into plan.md" in joined_ac

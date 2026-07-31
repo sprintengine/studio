@@ -62,9 +62,26 @@ const TARGET_NAMES: Record<FolderOpenTargetId, string> = {
 // is reported as a failed launch.
 const LAUNCH_SETTLE_MS = 5_000
 
+/**
+ * The editor probe, as a plain call. Shared by the `fs:folder-open-targets`
+ * handler and the boot-discovery pass so both answer "which editors are
+ * installed" the same way. Cheap and synchronous — it walks PATH and
+ * /Applications with `existsSync` and spawns nothing — so it needs no cache.
+ */
+export function listFolderOpenTargetAvailability(
+  resolveLauncher: (target: FolderOpenTargetId) => FolderOpenLauncher | null
+): FolderOpenTargetAvailability[] {
+  return FOLDER_OPEN_TARGET_IDS.map((id) => ({ id, available: resolveLauncher(id) !== null }))
+}
+
+/** `resolveFolderOpenLauncher` against the real machine. */
+export function resolveFolderOpenLauncherHere(target: FolderOpenTargetId): FolderOpenLauncher | null {
+  return resolveFolderOpenLauncher(target, { platform: process.platform, env: process.env, exists: existsSync })
+}
+
 export function registerFolderOpenIpc(ipcMain: IpcMain, deps: FolderOpenIpcDependencies): void {
   ipcMain.handle('fs:folder-open-targets', async (): Promise<FolderOpenTargetAvailability[]> => {
-    return FOLDER_OPEN_TARGET_IDS.map((id) => ({ id, available: deps.resolveLauncher(id) !== null }))
+    return listFolderOpenTargetAvailability(deps.resolveLauncher)
   })
 
   ipcMain.handle('fs:open-folder-in-target', async (_, request: FolderOpenRequest): Promise<FolderOpenResult> => {
@@ -119,8 +136,7 @@ export function createFolderOpenIpcDependencies(
 ): FolderOpenIpcDependencies {
   return {
     showItemInFolder,
-    resolveLauncher: (target) =>
-      resolveFolderOpenLauncher(target, { platform: process.platform, env: process.env, exists: existsSync }),
+    resolveLauncher: resolveFolderOpenLauncherHere,
     runLauncher: (command, args) => runLauncher(command, args, LAUNCH_SETTLE_MS),
     assertPathReachable: (targetPath) => access(targetPath),
   }

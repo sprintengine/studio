@@ -257,13 +257,11 @@ export interface SurfaceRailGroup {
  * cross-door contract (MC-1816), and copying thirty lines of it into a fourth
  * door is precisely the drift this module was created to stop.
  *
- * Sticky, so creating and narrowing never scroll away: with a long list they must
- * stay in the same place on every door. The negative offsets fold the host
- * scrollport's padding into this head so it sits flush and paints over the rows
- * passing beneath it — `--rail-ground` being the material of whichever column
- * hosts the rail (the shell's inline aside, or the app sidebar's own column once
- * the rail replaces it). ONE divider, under the search row, which is what says "a
- * list starts here".
+ * Creating and narrowing never scroll away: with a long list they must stay in
+ * the same place on every door. That is structural, not sticky — the head is a
+ * SIBLING of the rail's scrollport rather than a child of it, so rows cannot
+ * reach it and it paints no ground of its own. ONE divider, under the search row,
+ * which is what says "a list starts here".
  */
 export function SurfaceRailHeader({
   newAffordance,
@@ -278,7 +276,18 @@ export function SurfaceRailHeader({
   filterControl?: React.ReactNode
 }): JSX.Element {
   return (
-    <div className="sticky -top-2.5 z-10 -mx-2.5 -mt-2.5 mb-2 shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--rail-ground,var(--bg-surface-raised))] px-2.5 pt-2.5">
+    // Outside the scrollport, not stuck to the top of it (owner, 2026-07-30).
+    // While this lived inside the scrolling column it had to be `sticky` and paint
+    // an opaque ground to occlude rows sliding under it — and that ground is a
+    // different material from the chrome around it, so the head read as a solid
+    // slab dropped into the bar. Under the glass window material it was worse: the
+    // column goes transparent to let the OS frost through, and the slab stayed
+    // opaque on top of it. The app sidebar has never had that seam because its own
+    // head sits above its scrollport (WorkspaceSidebar's `flex-1 overflow-y-auto`),
+    // so nothing can pass beneath it and it paints nothing. This is that shape:
+    // rows physically cannot reach it, so it needs no ground and inherits whatever
+    // the column is made of — including transparent.
+    <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-2.5 pb-0 pt-2.5">
       <button
         type="button"
         aria-current={newAffordance.selected ? 'true' : undefined}
@@ -445,7 +454,9 @@ export function SurfaceRail({
     // another pane on the surface takes focus, so a door that has just opened
     // shows one focused selection rather than none (assets/index.css,
     // "Selection tiers").
-    <div className="flex min-h-0 flex-col" data-selection-pane="primary" onKeyDown={onKeyDown}>
+    // The rail owns its own scroll boundary: the head is a sibling of the
+    // scrollport, never a child of it, which is what lets the head paint nothing.
+    <div className="flex min-h-0 flex-1 flex-col" data-selection-pane="primary" onKeyDown={onKeyDown}>
       {/* The shared rail head (SurfaceRailHeader): New-at-top, then search beside
           ONE narrowing glyph. The project lens rides inside that glyph's menu
           rather than standing as its own full-width Select above the search — a
@@ -465,6 +476,9 @@ export function SurfaceRail({
           ) : null
         }
       />
+      {/* The scrollport. It carries the rail's inset so the head above can sit
+          flush to the column's edges, the way the app sidebar's chrome does. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-2.5 pt-2">
       {/* No heading over an ungrouped list, and none over a lone group. "Horizons"
           above a field that already reads "Search horizons…" is the placeholder
           said twice, and a "Recent" header spanning every row groups nothing —
@@ -493,6 +507,7 @@ export function SurfaceRail({
           {rows.map(renderRow)}
         </ul>
       )}
+      </div>
     </div>
   )
 }

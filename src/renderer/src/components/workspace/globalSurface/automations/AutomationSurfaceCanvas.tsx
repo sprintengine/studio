@@ -50,7 +50,6 @@ export function AutomationSurfaceCanvas({
     return () => window.clearTimeout(timer)
   }, [state, focusRunId, focusNonce, runs])
 
-  const autonomy = definition.autonomyDefault === 'allow_changes' ? 'can make changes' : 'review only'
   // What the automation actually asks its agent to do. The prompt/command live in
   // the action's config map; without this the only way to read them was opening
   // Edit — the canvas must say what the automation is for, not just when it runs.
@@ -71,7 +70,7 @@ export function AutomationSurfaceCanvas({
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 py-1 text-meta">
             <WhatRow label="Trigger" value={cadenceSummary(definition.trigger)} />
             <WhatRow label="Project" value={projectLabel(workspaceRoot)} />
-            <WhatRow label="What runs" value={`${actionLabel(definition.action.kind)} · ${autonomy}`} />
+            <WhatRow label="What runs" value={actionLabel(definition.action.kind)} />
           </dl>
           {prompt ? (
             <div className="flex flex-col gap-1 pt-1.5">

@@ -27,13 +27,32 @@ import { AutomationsStore, type AutomationStoreProblem } from './store'
 // computation, the next-run state cache, and the definitions-changed
 // notification (webhook receiver refresh) cannot drift between callers.
 
+// Deliberately excludes `ownerModuleId` and the `sourceCatalogueId` /
+// `sourcePublisher` provenance pair: all three are stamped once at create and
+// are immutable, so no patch may carry them.
 export type ParsedDefinitionPatch = Partial<Pick<
   AutomationDefinition,
-  'name' | 'status' | 'trigger' | 'condition' | 'action' | 'autonomyDefault' | 'runInWorktree' | 'disableAfterRun'
+  'name' | 'status' | 'trigger' | 'condition' | 'action' | 'runInWorktree' | 'disableAfterRun'
 >>
 
+/**
+ * A marketplace catalogue entry's automation payload, plus the provenance the
+ * host stamps onto the record it creates. `payload` stays `unknown` — the parse
+ * below is the authoritative one; the bundle manifest's structural check is not.
+ */
+export type CatalogueDefinitionInstallInput = {
+  payload: unknown
+  sourceCatalogueId: string
+  sourcePublisher?: string
+}
+
+export type CatalogueDefinitionInstall = {
+  definition: AutomationDefinition
+  /** True when the project already had this catalogue entry: nothing was written. */
+  alreadyAdded: boolean
+}
+
 const AUTOMATION_STATUSES = new Set(['enabled', 'paused', 'blocked'])
-const AUTONOMY_DEFAULTS = new Set(['review_only', 'allow_changes'])
 
 export type DefinitionWriteDeps = {
   createStore: (workspaceRoot: string) => AutomationsStore
@@ -72,6 +91,17 @@ export type DefinitionWriteCore = {
     workspaceRoot: string,
     draft: AutomationDefinitionDraft
   ): Promise<DefinitionWriteResult<AutomationDefinition>>
+  /**
+   * The marketplace install path: parse a catalogue payload, resolve the install
+   * defaults, stamp provenance, and create — or report the entry as already
+   * added when this project has it. The third front door onto this core, so a
+   * shelf install gets the same validation, next-run computation, next-run cache
+   * write and definitions-changed notification the panel and modules get.
+   */
+  installFromCatalogue(
+    workspaceRoot: string,
+    input: CatalogueDefinitionInstallInput
+  ): Promise<DefinitionWriteResult<CatalogueDefinitionInstall>>
   update(
     workspaceRoot: string,
     automationId: string,
@@ -103,6 +133,29 @@ export function createDefinitionWriteCore(deps: DefinitionWriteDeps): Definition
     return postWriteFailure ? { ok: true, value, postWriteFailure } : { ok: true, value }
   }
 
+  async function createDefinition(
+    workspaceRoot: string,
+    draft: AutomationDefinitionDraft
+  ): Promise<DefinitionWriteResult<AutomationDefinition>> {
+    const timestamp = new Date(deps.now()).toISOString()
+    const definition = buildDefinitionForCreate(draft, timestamp, deps.createAutomationId)
+    const prepared = prepareDefinitionForWrite(
+      definition,
+      deps.getTriggerProviderRegistrations(),
+      deps.getActionProviderRegistrations(),
+      deps.checkProviderPermission,
+      deps.now()
+    )
+    if (!prepared.ok) return prepared
+
+    const store = deps.createStore(workspaceRoot)
+    const created = await store.createDefinition(prepared.value)
+    if (!created.ok) return storeError(created.error)
+    const state = await writeNextRunCache(store, prepared.value.id, prepared.value.nextRunAt)
+    if (!state.ok) return storeError(state.error)
+    return finishWrite(workspaceRoot, created.value)
+  }
+
   return {
     async get(workspaceRoot, automationId) {
       const definition = await deps.createStore(workspaceRoot).getDefinition(automationId)
@@ -110,24 +163,35 @@ export function createDefinitionWriteCore(deps: DefinitionWriteDeps): Definition
       return { ok: true, value: definition.value }
     },
 
-    async create(workspaceRoot, draft) {
-      const timestamp = new Date(deps.now()).toISOString()
-      const definition = buildDefinitionForCreate(draft, timestamp, deps.createAutomationId)
-      const prepared = prepareDefinitionForWrite(
-        definition,
-        deps.getTriggerProviderRegistrations(),
-        deps.getActionProviderRegistrations(),
-        deps.checkProviderPermission,
-        deps.now()
-      )
-      if (!prepared.ok) return prepared
+    create: createDefinition,
+
+    async installFromCatalogue(workspaceRoot, input) {
+      const sourceCatalogueId = input.sourceCatalogueId.trim()
+      if (!sourceCatalogueId) {
+        return fail('invalid_input', 'sourceCatalogueId is required to install a catalogue automation.')
+      }
+      // Parse first: a payload that does not parse writes nothing at all, and
+      // this runs before the store is read, let alone written.
+      const draft = parseDefinitionDraft(catalogueDraftInput(input.payload))
+      if (!draft.ok) return draft
 
       const store = deps.createStore(workspaceRoot)
-      const created = await store.createDefinition(prepared.value)
-      if (!created.ok) return storeError(created.error)
-      const state = await writeNextRunCache(store, prepared.value.id, prepared.value.nextRunAt)
-      if (!state.ok) return storeError(state.error)
-      return finishWrite(workspaceRoot, created.value)
+      const existing = await store.listDefinitions()
+      if (!existing.ok) return storeError(existing.errors[0])
+      const added = existing.values.find((definition) => definition.sourceCatalogueId === sourceCatalogueId)
+      if (added) return { ok: true, value: { definition: added, alreadyAdded: true } }
+
+      const sourcePublisher = input.sourcePublisher?.trim()
+      const created = await createDefinition(workspaceRoot, {
+        ...draft.value,
+        sourceCatalogueId,
+        ...(sourcePublisher ? { sourcePublisher } : {}),
+      })
+      if (!created.ok) return created
+      const value: CatalogueDefinitionInstall = { definition: created.value, alreadyAdded: false }
+      return created.postWriteFailure
+        ? { ok: true, value, postWriteFailure: created.postWriteFailure }
+        : { ok: true, value }
     },
 
     async update(workspaceRoot, automationId, patch, precondition) {
@@ -228,10 +292,11 @@ export function buildDefinitionForCreate(
     trigger: draft.trigger,
     condition: draft.condition,
     action: draft.action,
-    autonomyDefault: draft.autonomyDefault,
     ...(draft.runInWorktree === undefined ? {} : { runInWorktree: draft.runInWorktree }),
     ...(draft.disableAfterRun === undefined ? {} : { disableAfterRun: draft.disableAfterRun }),
     ...(draft.ownerModuleId === undefined ? {} : { ownerModuleId: draft.ownerModuleId }),
+    ...(draft.sourceCatalogueId === undefined ? {} : { sourceCatalogueId: draft.sourceCatalogueId }),
+    ...(draft.sourcePublisher === undefined ? {} : { sourcePublisher: draft.sourcePublisher }),
     nextRunAt: null,
     lastRunAt: null,
     lastRunId: null,
@@ -326,6 +391,29 @@ async function writeNextRunCache(
   return { ok: true }
 }
 
+/**
+ * The install defaults, applied before the parse so the payload cannot outvote
+ * them. A catalogue payload is a template, not a record:
+ * - its `id` is the author's and must never become the store id — one project
+ *   adding the same starter twice, or two projects adding it, would collide;
+ * - it arrives on (owner ruling), so a payload shipping `status: 'paused'` does
+ *   not get to land paused;
+ * - it never carries `runInWorktree`. A shelf item cannot opt a user out of
+ *   run isolation on their behalf (architect ruling, 2026-07-30): without a
+ *   worktree an unattended agent runs in the user's own checkout, with no
+ *   branch and so no pull request. Dropping the field rather than stamping
+ *   `true` leaves `absent ⇒ true` as the single place that answer lives.
+ * `cli` and `permissionPreset` are deliberately absent for the same reason:
+ * both have live fallbacks (last-selected CLI,
+ * `AUTOMATION_DEFAULT_PERMISSION_PRESET`) that stamping here would freeze into
+ * a second source of truth.
+ */
+function catalogueDraftInput(payload: unknown): unknown {
+  if (!isRecord(payload)) return payload
+  const { id, status, runInWorktree, ...rest } = payload
+  return { ...rest, status: 'enabled' }
+}
+
 export function parseDefinitionDraft(input: unknown): AutomationsResult<AutomationDefinitionDraft> {
   if (!isRecord(input)) return fail('invalid_input', 'Automation definition must be an object.')
   const name = trimmedString(input.name)
@@ -337,9 +425,9 @@ export function parseDefinitionDraft(input: unknown): AutomationsResult<Automati
   if (!condition.ok) return condition
   const action = parseKindConfig(input.action, 'action')
   if (!action.ok) return action
-  if (!isAutonomyDefault(input.autonomyDefault)) {
-    return fail('invalid_input', 'Automation definition autonomyDefault is invalid.')
-  }
+  // A caller still sending the retired `autonomyDefault` is ignored, not
+  // rejected: the field no longer means anything, and failing on it would break
+  // agent scripts and module code written against the old draft shape.
   if (input.runInWorktree !== undefined && typeof input.runInWorktree !== 'boolean') {
     return fail('invalid_input', 'Automation definition runInWorktree must be a boolean.')
   }
@@ -367,10 +455,10 @@ export function parseDefinitionDraft(input: unknown): AutomationsResult<Automati
     trigger: trigger.value,
     ...(condition.value ? { condition: condition.value } : {}),
     action: action.value,
-    autonomyDefault: input.autonomyDefault,
-    // ownerModuleId is deliberately not read from the input: ownership is
-    // stamped by the host (module service) or absent (user records) — a
-    // caller-supplied owner is ignored, never trusted.
+    // ownerModuleId and the sourceCatalogueId/sourcePublisher provenance pair
+    // are deliberately not read from the input: all three are stamped by the
+    // host (module service, marketplace install) or absent (user records) — a
+    // caller-supplied owner or provenance is ignored, never trusted.
     ...(runInWorktree === undefined ? {} : { runInWorktree }),
     ...(effectiveDisableAfterRun === undefined ? {} : { disableAfterRun: effectiveDisableAfterRun }),
   })
@@ -406,12 +494,8 @@ export function parseDefinitionPatch(input: unknown): AutomationsResult<ParsedDe
     if (!action.ok) return action
     patch.action = action.value
   }
-  if (input.autonomyDefault !== undefined) {
-    if (!isAutonomyDefault(input.autonomyDefault)) {
-      return fail('invalid_input', 'Automation definition autonomyDefault is invalid.')
-    }
-    patch.autonomyDefault = input.autonomyDefault
-  }
+  // `autonomyDefault` on a patch is ignored for the same reason it is ignored on
+  // a draft: the field is retired, and rejecting it would break existing callers.
   if (input.runInWorktree !== undefined) {
     if (typeof input.runInWorktree !== 'boolean') {
       return fail('invalid_input', 'Automation definition runInWorktree must be a boolean.')
@@ -454,10 +538,6 @@ function trimmedString(value: unknown): string | undefined {
 
 function isAutomationStatus(value: unknown): value is AutomationDefinition['status'] {
   return typeof value === 'string' && AUTOMATION_STATUSES.has(value)
-}
-
-function isAutonomyDefault(value: unknown): value is AutomationDefinition['autonomyDefault'] {
-  return typeof value === 'string' && AUTONOMY_DEFAULTS.has(value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

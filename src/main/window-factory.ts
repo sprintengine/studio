@@ -9,6 +9,12 @@ type CreateMainWindowOptions = {
   windowId?: string
   bounds?: { x: number; y: number; width: number; height: number } | null
   isMaximized?: boolean
+  // Hold this window hidden past `ready-to-show`; the caller reveals it with
+  // `revealMainWindow`. Set ONLY for the cold-start primary while the splash
+  // covers boot — otherwise the splash and the main window would both be on
+  // screen at once. Detached workspace windows and the window macOS `activate`
+  // re-creates never pass it, so they show themselves as they always did.
+  deferShow?: boolean
 }
 
 const forceCloseWindowIds = new WeakSet<BrowserWindow>()
@@ -42,6 +48,15 @@ export function applyWindowMaterialToWorkspaceWindows(material: WindowMaterial):
   }
 }
 
+// Show a window created with `deferShow`. Safe on a window that is already
+// visible or already gone: the boot reveal races a renderer signal against a
+// timeout, and the loser must be a no-op rather than a throw.
+export function revealMainWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  win.show()
+  win.focus()
+}
+
 export function markAppQuitInProgressForWindowClose(): void {
   appQuitInProgress = true
 }
@@ -57,6 +72,7 @@ export function createMainWindow({
   windowId = 'primary',
   bounds = null,
   isMaximized = false,
+  deferShow = false,
 }: CreateMainWindowOptions): BrowserWindow {
   // Consume the one-shot: only the first primary window of the process is
   // eligible to restore detached windows. Detached windows (windowId !==
@@ -113,7 +129,13 @@ export function createMainWindow({
   })
 
   win.on('ready-to-show', () => {
+    // Maximize regardless: it applies to a hidden window, so a deferred reveal
+    // still comes up in the placement the profile saved.
     if (isMaximized) win.maximize()
+    // ready-to-show fires before hydration and boot discovery settle — the exact
+    // stretch the splash is covering. Showing here would put the app frame and
+    // the plate on screen together.
+    if (deferShow) return
     win.show()
     win.focus()
   })

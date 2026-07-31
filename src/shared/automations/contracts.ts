@@ -7,6 +7,16 @@ export type JsonSchema = Record<string, unknown>
 // contract stays self-contained; kept in sync as a closed union.
 export type AutomationCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
 
+// The preset an agent-backed automation runs on when its definition names none.
+// An automation agent runs with nobody at its terminal, so `default` would stop
+// at the first approval prompt and hang the run until the idle reaper fails it.
+// Resolved in parseSpawnAgentConfig (src/main/automations/actions/spawn-agent.ts)
+// so every start path lands on the same answer, and read by the editor so the
+// control shows what an unset automation will actually run on. A definition that
+// names a preset keeps exactly that, and the automation MCP surface still refuses
+// `bypass_all` from an external caller (src/main/automation/automation-tools.ts).
+export const AUTOMATION_DEFAULT_PERMISSION_PRESET: AutomationCliPermissionPreset = 'bypass_all'
+
 export const AUTOMATIONS_LIST_CHANNEL = 'automations:list'
 export const AUTOMATIONS_GET_CHANNEL = 'automations:get'
 export const AUTOMATIONS_CREATE_CHANNEL = 'automations:create'
@@ -61,6 +71,21 @@ export const WEBHOOK_TRIGGER_KIND = 'webhook'
 export const SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND = 'sprint-engine.run-landed'
 export const SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND = 'sprint-engine.run-needs-input'
 export const SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND = 'sprint-engine.run-completed'
+
+export const SPAWN_AGENT_ACTION_KIND = 'spawn-agent'
+export const RUN_SKILL_LOOP_ACTION_KIND = 'run-skill-loop'
+
+/**
+ * The built-in actions that launch a CLI agent. An agent-backed action whose
+ * config names no `cli` falls back to the app's last-selected CLI at launch
+ * time, so an install that leaves the field unset must first confirm that
+ * fallback exists — see marketplace install in
+ * src/main/modules/plugin-bundle-installer.ts.
+ */
+export const AGENT_BACKED_ACTION_KINDS: readonly ActionKind[] = [
+  SPAWN_AGENT_ACTION_KIND,
+  RUN_SKILL_LOOP_ACTION_KIND,
+]
 
 export type TriggerKind = string
 
@@ -206,7 +231,6 @@ export type AutomationDefinition = {
   trigger: { kind: TriggerKind; config: unknown }
   condition?: { kind: string; config: unknown }
   action: { kind: ActionKind; config: unknown }
-  autonomyDefault: 'review_only' | 'allow_changes'
   /**
    * The capability module that created this automation through the SDK's
    * scoped Automations service; absent ⇒ user-owned. Stamped server-side from
@@ -224,6 +248,17 @@ export type AutomationDefinition = {
    */
   runInWorktree?: boolean
   /**
+   * Runtime-only bridge for definitions written before `autonomyDefault` was
+   * retired (2026-07-30) whose author set it to `review_only`. That intent —
+   * report, do not fix — now lives in the automation's prompt, so the store read
+   * translates the retired key into this marker
+   * ({@link translateRetiredAutonomy}) and the launch prompt carries a
+   * write-up-only instruction. Never accepted from a caller, and stripped again
+   * on write ({@link withoutWriteUpOnlyMarker}), so it exists only between a
+   * legacy file's read and the run it starts.
+   */
+  legacyWriteUpOnly?: true
+  /**
    * Run once, then pause: after one triggered fire (schedule due-run, skipped
    * overdue run, webhook or polling trigger event) the definition transitions to
    * `status: 'paused'`; re-enabling arms it again. A manual "Run now" never
@@ -232,12 +267,25 @@ export type AutomationDefinition = {
    * natural exhaustion.
    */
   disableAfterRun?: boolean
+  /**
+   * The marketplace catalogue entry this automation was added from, and that
+   * entry's publisher. Provenance only: stamped once by the marketplace install
+   * path and immutable thereafter (patches cannot carry either field), so the
+   * shelf can answer "is this already added" for a project and open the record
+   * the entry produced. Distinct from `ownerModuleId`, which is module identity
+   * and governs who may write the record — a catalogue automation is the user's
+   * the moment it lands, and survives uninstalling the plugin that shipped it.
+   */
+  sourceCatalogueId?: string
+  sourcePublisher?: string
   nextRunAt: string | null
   lastRunAt: string | null
   lastRunId: string | null
   createdAt: string
   updatedAt: string
 }
+
+export type AutomationRunIsolation = 'worktree' | 'workspace-checkout'
 
 export type AutomationRun = {
   id: string
@@ -260,6 +308,17 @@ export type AutomationRun = {
   touchedFiles?: string[]
   commandsRan?: string[]
   summary?: string
+  /**
+   * Isolation the run actually got, stamped by the built-in agent-backed actions
+   * at launch. `worktree` is the contained shape: its own worktree, its own
+   * branch, and a pull request on completion. `workspace-checkout` is the
+   * deliberate opt-out (`runInWorktree: false`): the agent ran in the user's own
+   * checkout, so the run has no branch and opens no pull request. Absent on
+   * historical runs and on runs that never launched an agent — read it, not the
+   * absence of {@link worktreePath}, to tell a contained run from an uncontained
+   * one without re-reading the definition.
+   */
+  isolation?: AutomationRunIsolation
   /** Git worktree the agent-backed run executes in (per-run isolation). */
   worktreePath?: string
   /** Branch the run's worktree is checked out on. */
@@ -281,7 +340,6 @@ export type AutomationDefinitionDraft = {
   trigger: { kind: TriggerKind; config: unknown }
   condition?: { kind: string; config: unknown }
   action: { kind: ActionKind; config: unknown }
-  autonomyDefault: AutomationDefinition['autonomyDefault']
   runInWorktree?: boolean
   disableAfterRun?: boolean
   /**
@@ -291,9 +349,18 @@ export type AutomationDefinitionDraft = {
    * host. The user-facing IPC create path ignores it entirely.
    */
   ownerModuleId?: string
+  /**
+   * Catalogue provenance for drafts created by the marketplace install path.
+   * Stamped by the host from the bundle being installed — like `ownerModuleId`,
+   * never read off a caller-supplied payload.
+   */
+  sourceCatalogueId?: string
+  sourcePublisher?: string
 }
 
-export type AutomationDefinitionPatch = Partial<Omit<AutomationDefinitionDraft, 'id' | 'ownerModuleId'>>
+export type AutomationDefinitionPatch = Partial<
+  Omit<AutomationDefinitionDraft, 'id' | 'ownerModuleId' | 'sourceCatalogueId' | 'sourcePublisher'>
+>
 
 // ── Scoped Automations service for capability modules ────────────────────────
 // A module's entry.main consumes this via the SDK's `getAutomationsService`
@@ -426,6 +493,47 @@ export function normalizeReportPath(rawPath: string): string | null {
   // Must address a file under reports/, i.e. at least `reports/<name>`.
   if (normalized.length < 2 || normalized[0] !== 'reports') return null
   return normalized.join('/')
+}
+
+// ── Retired `autonomyDefault` compatibility ──────────────────────────────────
+// The field was retired 2026-07-30: a read-only mode forbade the commit and push
+// that opening a pull request requires, so under PR-always it contradicted
+// itself. Reviewer-vs-fixer intent lives in the automation's prompt instead. The
+// definitions users already have on disk still carry the key, and a definition
+// its author set to `review_only` must not silently start behaving like a fixer,
+// so the store read translates that one value into {@link
+// AutomationDefinition.legacyWriteUpOnly} and the launch prompt carries the
+// instruction. The pair below is the whole bridge: translate in at the read,
+// strip out at the write, so neither the retired key nor its marker is ever
+// persisted.
+
+const RETIRED_AUTONOMY_KEY = 'autonomyDefault'
+const RETIRED_WRITE_UP_ONLY_AUTONOMY = 'review_only'
+
+/**
+ * Read side. Drops the retired key, and marks the definition write-up-only when
+ * it carried `review_only`. Loading never changes the definition's status: a
+ * legacy record stays enabled and keeps running (owner ruling — it was added
+ * enabled, not paused).
+ */
+export function translateRetiredAutonomy(stored: AutomationDefinition): AutomationDefinition {
+  if (!Object.hasOwn(stored, RETIRED_AUTONOMY_KEY)) return stored
+  const next: Record<string, unknown> = { ...stored }
+  const retired = next[RETIRED_AUTONOMY_KEY]
+  delete next[RETIRED_AUTONOMY_KEY]
+  if (retired === RETIRED_WRITE_UP_ONLY_AUTONOMY) next.legacyWriteUpOnly = true
+  return next as AutomationDefinition
+}
+
+/**
+ * Write side. The marker is derived from a key that no longer exists, so
+ * persisting it would resurrect the retired field under a new name — and a
+ * rewritten record no longer carries the legacy intent at all.
+ */
+export function withoutWriteUpOnlyMarker(definition: AutomationDefinition): AutomationDefinition {
+  if (definition.legacyWriteUpOnly === undefined) return definition
+  const { legacyWriteUpOnly, ...rest } = definition
+  return rest
 }
 
 // ── Instance-wide automation index ───────────────────────────────────────────

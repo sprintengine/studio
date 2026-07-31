@@ -1,0 +1,21 @@
+{
+  "name": "UI & UX review",
+  "status": "enabled",
+  "trigger": {
+    "kind": "schedule",
+    "config": {
+      "kind": "schedule",
+      "timezone": "UTC",
+      "cadence": {
+        "type": "daily",
+        "timeLocal": "03:30"
+      }
+    }
+  },
+  "action": {
+    "kind": "spawn-agent",
+    "config": {
+      "prompt": "Review the application interface against this project's own design system and brand guidance — whatever the repository actually carries: a token module, a theme file, a design-system folder, brand notes, a component library. Find it before you start; nothing is attached to this job. If the repository carries none, say so in your report and review the interface for internal consistency instead of against a standard you invented.\n\nScope yourself to what source can prove: token conformance, spacing off the scale, type sizes per view, hard-coded colours, missing keyboard paths, missing aria labels, and copy that explains instead of shows. You are not rendering the app — do not claim judgements about appearance you cannot support.\n\nOpen a pull request with the findings; fix only the mechanical ones.\n\nWrite the findings to reports/ui-ux-review-<today's date, YYYY-MM-DD>.md, and open that file by stating that this review read source and never rendered the app, so nothing in it describes how the interface actually looks. A mechanical fix is one where the design system gives exactly one correct value — a raw colour that has an exact token, a spacing value off the scale, a labelled control with no accessible name. Everything that needs judgement goes in the file, not in the diff."
+    }
+  }
+}

@@ -571,9 +571,11 @@ async function launchAgent(
     // Persisted so relaunch/resume keep the model and permission the run was
     // created with (the terminal launch path reads them off AgentState).
     cliModel: request.cliModel?.trim() || undefined,
-    // An automation-spawned agent runs unwatched, so an unset preset takes the
-    // app-level spawn default — bypass unless the user changed it (MC-1900).
-    // An explicit preset on the automation definition still wins outright.
+    // The automation path never arrives here unset: the spawn-agent action
+    // resolves the preset for every start path (AUTOMATION_DEFAULT_PERMISSION_PRESET,
+    // spawn-agent.ts), so an automation's answer is decided in one place and this
+    // request carries it verbatim. The fallback covers the other agent.launch
+    // callers, which take the app-level spawn default (MC-1900).
     cliPermissionPreset: request.permissionPreset ?? state.appSettings.lastAgentSpawnPermissionPreset,
     kind: specialistId ? 'specialist' : 'general',
     specialistId,

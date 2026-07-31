@@ -5,19 +5,17 @@
 // facing `horizon.*` automation tools share ONE transform engine; they are re-exported
 // below so every consumer of this path keeps importing them unchanged.
 //
-// What stays here needs the renderer read model (BacklogItem, childrenOfEpic,
-// normalizeRelativePath, BacklogItemSearchOption): the BacklogItem → shared-contract
-// adapters, the cross-project library rail, epic-child snapshotting, and the two entry
-// constructors that snapshot from a live scan. These cannot live in shared, which must
-// not import renderer modules.
+// What stays here needs the renderer read model (BacklogItem, normalizeRelativePath,
+// BacklogItemSearchOption): the BacklogItem → shared-contract adapters, the
+// cross-project library rail, and the two entry constructors. These cannot live in
+// shared, which must not import renderer modules.
 
 import {
   ROADMAP_TYPE,
-  roadmapEpicDrift,
   roadmapRefSlug,
   type ProjectKey,
   type RoadmapEntry,
-  type RoadmapLane,
+  type RoadmapItemState,
 } from '../../../../shared/backlog/roadmap'
 import {
   addEntry,
@@ -25,11 +23,9 @@ import {
   buildRoadmapEntry,
   draftContainsRef,
   insertEntry,
-  isEpicRef,
   type RoadmapDraft,
 } from '../../../../shared/backlog/roadmapAuthoring'
 import type { BacklogItemSearchOption } from './BacklogItemSearchPicker'
-import { childrenOfEpic } from '../../utils/backlogEpics'
 import { normalizeRelativePath, type BacklogItem } from '../../utils/backlog'
 
 // The pure transform engine, re-exported so the editor panel / planning view / tests
@@ -68,14 +64,15 @@ export type { RoadmapDraft } from '../../../../shared/backlog/roadmapAuthoring'
 
 // The minimal per-item state validateRoadmap/nextEligible read, adapted from the
 // renderer scan model. `ref` is the project-relative backlog path (the entry ref
-// axis); `dependsOn` is the prerequisite-slug list already parsed by the scan.
-export function roadmapItemStates(
-  items: ReadonlyArray<BacklogItem>,
-): Array<{ ref: string; status: BacklogItem['status']; dependsOn?: string[] }> {
+// axis); `dependsOn` is the prerequisite-slug list already parsed by the scan;
+// `epic` is the up-pointing membership slug an epic STEP resolves its members
+// through (MC-2031 — the plan itself stores no membership).
+export function roadmapItemStates(items: ReadonlyArray<BacklogItem>): RoadmapItemState[] {
   return items.map((item) => ({
     ref: normalizeRelativePath(item.relativePath),
     status: item.status,
     dependsOn: item.dependsOn,
+    ...(item.epic ? { epic: item.epic } : {}),
   }))
 }
 
@@ -158,8 +155,8 @@ export function refDisplayMapMulti(projects: ReadonlyArray<RoadmapProjectItems>)
 // is the project-relative path; slugs and dependsOn resolve within the same project.
 export function roadmapItemStatesMulti(
   projects: ReadonlyArray<RoadmapProjectItems>,
-): Array<{ ref: string; status: BacklogItem['status']; dependsOn?: string[]; projectKey: ProjectKey }> {
-  const states: Array<{ ref: string; status: BacklogItem['status']; dependsOn?: string[]; projectKey: ProjectKey }> = []
+): RoadmapItemState[] {
+  const states: RoadmapItemState[] = []
   for (const project of projects) {
     for (const item of project.items) {
       states.push({
@@ -167,6 +164,7 @@ export function roadmapItemStatesMulti(
         status: item.status,
         dependsOn: item.dependsOn,
         projectKey: project.projectKey,
+        ...(item.epic ? { epic: item.epic } : {}),
       })
     }
   }
@@ -199,55 +197,27 @@ export function entryPickerOptionsMulti(
 }
 
 // ---------------------------------------------------------------------------
-// Entry construction + epic snapshotting (scan-coupled)
+// Entry construction (scan-coupled)
 // ---------------------------------------------------------------------------
 // (The old bespoke library feed — buildRoadmapLibrary and its row types — was
 // retired when the planning rail rebuilt on the shared Backlog components; the
 // rail's model now lives beside it as buildLibraryGroupModels in
 // panels/roadmapBoard/HorizonBacklogSource.tsx.)
 
-// The child references an epic contributes, in a deterministic snapshot order.
-// V1 plans are static: the children are captured EXPLICITLY at add time so the
-// "gained N items" drift check is a set difference against this stored list (a
-// bare epic ref could not reconstruct it). Membership is derived down from the
-// live scan (childrenOfEpic); order is the scan's path-sorted order, which is
-// stable across sessions. Runtime sequencing still honors dependsOn regardless of
-// this order (nextEligible), so the snapshot is a starting sequence, not a
-// constraint.
-export function snapshotEpicChildren(
-  items: ReadonlyArray<BacklogItem>,
-  epicRef: string,
-): string[] {
-  const slug = roadmapRefSlug(epicRef)
-  return childrenOfEpic([...items], slug)
-    // Only OPEN members: a completed/archived member is delivered work — the
-    // step plans what remains, so finished items never ride into a new plan.
-    // The same filter shapes the drift live-set, so "Update" on an old snapshot
-    // offers to drop members that finished since it was captured.
-    .filter((child) => child.status !== 'completed' && child.status !== 'archived')
-    .map((child) => normalizeRelativePath(child.relativePath))
-}
-
 // Build a lane entry for a picked home-project ref (the keyboard picker and the
-// single-project Backlog editor). An epic ref snapshots its children now; an item
-// ref carries none. A ref that resolves to no known item is still added as an entry
-// (kind decided by path) — validateRoadmap surfaces it as dangling, so a stale pick
-// is visible, never silently dropped (Fallback Discipline).
-export function makeEntry(items: ReadonlyArray<BacklogItem>, ref: string): RoadmapEntry {
-  const normalized = normalizeRelativePath(ref)
-  const children = isEpicRef(normalized) ? snapshotEpicChildren(items, normalized) : []
-  return buildRoadmapEntry(null, normalized, children)
+// single-project Backlog editor). A ref that resolves to no known item is still
+// added as an entry (kind decided by path) — validateRoadmap surfaces it as
+// dangling, so a stale pick is visible, never silently dropped (Fallback
+// Discipline).
+export function makeEntry(ref: string): RoadmapEntry {
+  return buildRoadmapEntry(null, normalizeRelativePath(ref))
 }
 
-// Build a lane entry for a ref in a specific project. An epic snapshots its
-// children from THAT project's scan (stored unqualified — they inherit the epic
-// entry's project on read); an item carries none. The stored `entry.ref` is the
-// authored ref, so a home entry stays unqualified and an aliased entry keeps its
-// `alias:` prefix — round-tripping through renderRoadmapBody unchanged.
+// Build a lane entry for a ref in a specific project. The stored `entry.ref` is
+// the authored ref, so a home entry stays unqualified and an aliased entry keeps
+// its `alias:` prefix — round-tripping through renderRoadmapBody unchanged.
 export function makeProjectEntry(project: RoadmapProjectItems, relativePath: string): RoadmapEntry {
-  const normalized = normalizeRelativePath(relativePath)
-  const children = isEpicRef(normalized) ? snapshotEpicChildren(project.items, normalized) : []
-  return buildRoadmapEntry(project.projectKey, normalized, children)
+  return buildRoadmapEntry(project.projectKey, normalizeRelativePath(relativePath))
 }
 
 // Add a library row to a track, registering the source project's alias in the
@@ -271,39 +241,4 @@ export function addLibraryEntry(
   const lanes =
     index === undefined ? addEntry(draft.lanes, laneIndex, entry) : insertEntry(draft.lanes, laneIndex, index, entry)
   return { ...draft, projects, lanes }
-}
-
-// The gained/removed drift between an epic entry's stored snapshot and the epic's
-// live membership, for the "this epic gained N items" affordance. Returns null for
-// non-epic entries (nothing to reconcile).
-export function epicEntryDrift(
-  items: ReadonlyArray<BacklogItem>,
-  entry: RoadmapEntry,
-): { gained: string[]; removed: string[] } | null {
-  if (entry.kind !== 'epic') return null
-  const live = snapshotEpicChildren(items, entry.ref)
-  const { gained, removed } = roadmapEpicDrift(entry, live)
-  if (gained.length === 0 && removed.length === 0) return null
-  return { gained, removed }
-}
-
-// Re-sync an epic entry's snapshot to the epic's live membership (the one-click
-// action behind the "gained N items" affordance). Replaces the stored children
-// with the current snapshot in canonical order.
-export function resyncEpicEntry(
-  items: ReadonlyArray<BacklogItem>,
-  lanes: RoadmapLane[],
-  laneIndex: number,
-  entryIndex: number,
-): RoadmapLane[] {
-  return lanes.map((lane, li) => {
-    if (li !== laneIndex) return lane
-    return {
-      ...lane,
-      entries: lane.entries.map((entry, ei) => {
-        if (ei !== entryIndex || entry.kind !== 'epic') return entry
-        return { ...entry, children: snapshotEpicChildren(items, entry.ref) }
-      }),
-    }
-  })
 }

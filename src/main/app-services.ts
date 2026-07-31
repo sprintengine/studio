@@ -653,6 +653,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     setAutomationsAppFrontDoorResolver(resolver: () => AutomationsAppFrontDoor | null): void {
       resolveAutomationsAppFrontDoor = resolver
     },
+    // Read side of the same lazy resolver: the marketplace install path adds a
+    // catalogue automation through this door, and gets null while the module is
+    // down rather than a second way into the automations store.
+    getAutomationsAppFrontDoor: (): AutomationsAppFrontDoor | null => resolveAutomationsAppFrontDoor(),
     setRoadmapAppFrontDoorResolver(resolver: () => RoadmapAppFrontDoor | null): void {
       resolveRoadmapAppFrontDoor = resolver
     },

@@ -13,7 +13,6 @@ import type {
   AgentCliModelSelection,
   AgentConfigAdoptionResult,
   AppSettings,
-  PendingAgentConfigAdoption,
   CliRuntimeSettings,
   KeybindingSettings,
   LastSelectedReview,
@@ -45,9 +44,6 @@ import type {
   DiscoveredCliModelCatalog,
 } from '../../../../shared/cli-model-catalog'
 import {
-  advanceOnboardingStep,
-  resolveInitialOnboardingStep,
-  type OnboardingStep,
 } from '../onboardingState'
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from '../../components/workspace/sidebarWidth'
 import {
@@ -988,8 +984,8 @@ export const defaultAppSettings = (): AppSettings => ({
   modules: {},
   moduleSettings: {},
   modulesChosen: false,
-  onboardingStep: 'welcome',
-  pendingAgentConfigAdoption: null,
+  firstRunCliCardDismissed: false,
+  hasAdoptedAgentConfig: false,
   terminalIdleSuspendMinutes: DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES,
   terminalKeepRecentAlive: DEFAULT_TERMINAL_KEEP_RECENT_ALIVE,
   // Design Wizard specialists run on terminals by default. The conversation
@@ -1002,22 +998,17 @@ export const defaultAppSettings = (): AppSettings => ({
   guidedBriefConversationSessionsOptInReset: true,
 })
 
-// Accept a persisted adoption selection only when it is the expected shape (two
-// string arrays). Anything else — including a half-written or legacy value —
-// normalizes to null so a stale selection can never fabricate an adoption.
-export function normalizePendingAgentConfigAdoption(
-  value: unknown,
-): PendingAgentConfigAdoption | null {
-  if (!value || typeof value !== 'object') return null
-  const candidate = value as Partial<PendingAgentConfigAdoption>
-  const mcpServerKeys = Array.isArray(candidate.mcpServerKeys)
-    ? candidate.mcpServerKeys.filter((key): key is string => typeof key === 'string')
-    : []
-  const skillKeys = Array.isArray(candidate.skillKeys)
-    ? candidate.skillKeys.filter((key): key is string => typeof key === 'string')
-    : []
-  if (mcpServerKeys.length === 0 && skillKeys.length === 0) return null
-  return { mcpServerKeys, skillKeys }
+// `onboardingStep` is a RETIRED key: the wizard wrote it, nothing writes it now,
+// and it is no longer part of AppSettings. It is still read once at hydration —
+// through this widened view rather than by re-adding the field — because it is
+// the strongest signal that a profile was already in use before the wizard was
+// deleted. 'welcome' does not count: that profile installed the app, saw the
+// first screen and quit, which makes it a fresh user, not a returning one.
+type LegacyOnboardingSettings = { onboardingStep?: unknown }
+
+function isPostWelcomeLegacyOnboarding(settings: Partial<AppSettings> | undefined): boolean {
+  const step = (settings as LegacyOnboardingSettings | undefined)?.onboardingStep
+  return typeof step === 'string' && step !== 'welcome'
 }
 
 export function normalizeAppSettings(settings: Partial<AppSettings> | undefined, workspaces: Workspace[]): AppSettings {
@@ -1071,15 +1062,24 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     // Existing installs (already have workspaces) are treated as chosen so the
     // first-run chooser only appears for a genuinely fresh install.
     modulesChosen: settings?.modulesChosen ?? workspaces.length > 0,
-    // Resume a persisted onboarding step; fresh installs start at 'welcome',
-    // existing installs (workspaces present, or legacy modulesChosen) resolve to
-    // 'complete' so upgrades never re-onboard.
-    onboardingStep: resolveInitialOnboardingStep({
-      persisted: settings?.onboardingStep,
-      modulesChosen: settings?.modulesChosen,
-      hasWorkspaces: workspaces.length > 0,
-    }),
-    pendingAgentConfigAdoption: normalizePendingAgentConfigAdoption(settings?.pendingAgentConfigAdoption),
+    // MIGRATION off the retired onboarding wizard. `modulesChosen` and
+    // `onboardingStep` are the two signals that used to keep an existing install
+    // out of onboarding; both stay READABLE here (and are never written again) so
+    // an upgrade is recognised and converted, once, into this boolean.
+    //
+    // A profile parked at 'welcome' with no workspaces is deliberately NOT
+    // treated as dismissed: it installed, saw the welcome step, quit, and
+    // upgraded — which makes it exactly the fresh user this card is for. Anything
+    // past 'welcome' is someone who was already using the app.
+    firstRunCliCardDismissed:
+      settings?.firstRunCliCardDismissed
+      ?? (workspaces.length > 0
+        || settings?.modulesChosen === true
+        || isPostWelcomeLegacyOnboarding(settings)),
+    // An existing install already had its chance to adopt through the wizard's
+    // card, so it is not re-offered; a fresh profile adopts on its first
+    // workspace creation.
+    hasAdoptedAgentConfig: settings?.hasAdoptedAgentConfig ?? workspaces.length > 0,
     terminalIdleSuspendMinutes: normalizeTerminalIdleSuspendMinutes(settings?.terminalIdleSuspendMinutes),
     terminalKeepRecentAlive: normalizeTerminalKeepRecentAlive(settings?.terminalKeepRecentAlive),
     // Opt-in only: on solely when the stored value is exactly `true` AND this
@@ -1255,16 +1255,13 @@ export interface SettingsSliceActions {
    * so values survive a disable/enable cycle.
    */
   setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void
-  setModulesChosen: (chosen: boolean) => void
-  /** Set the onboarding step explicitly. */
-  setOnboardingStep: (step: OnboardingStep) => void
-  /** Advance onboarding to the next step (welcome → modules → workspace → complete). */
-  advanceOnboarding: () => void
-  /** Record (or clear with `null`) the deferred first-run config-adoption
-   *  selection captured on the essentials step. */
-  setPendingAgentConfigAdoption: (selection: PendingAgentConfigAdoption | null) => void
-  /** Set (or clear with `null`) the live outcome of the deferred adoption,
-   *  surfaced on the first-run overlay. */
+  /** Record the user's "not now" on the first-run CLI card. One way only —
+   *  there is no affordance that brings the card back, and none should be. */
+  dismissFirstRunCliCard: () => void
+  /** Mark this profile's one-time agent-config adoption as done. */
+  markAgentConfigAdopted: () => void
+  /** Set (or clear with `null`) the live outcome of the first-run adoption,
+   *  read out as one line in Settings → Agents. */
   setAgentConfigAdoptionResult: (result: AgentConfigAdoptionResult | null) => void
   setSearchExcludes: (patterns: string[]) => void
   /** Set how long an idle agent terminal waits before it is paused (minutes). */
@@ -1834,31 +1831,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.moduleSettings = { ...current, [namespace]: entry }
       }),
 
-    setModulesChosen: (chosen) =>
+    dismissFirstRunCliCard: () =>
       set((state) => {
-        state.appSettings.modulesChosen = chosen
+        state.appSettings.firstRunCliCardDismissed = true
       }),
 
-    setOnboardingStep: (step) =>
+    markAgentConfigAdopted: () =>
       set((state) => {
-        state.appSettings.onboardingStep = step
-      }),
-
-    advanceOnboarding: () =>
-      set((state) => {
-        const next = advanceOnboardingStep(state.appSettings.onboardingStep)
-        state.appSettings.onboardingStep = next
-        // Keep the legacy modulesChosen flag consistent: once onboarding moves
-        // past the modules step, the user has made their first-run choice.
-        if (next === 'workspace' || next === 'complete') state.appSettings.modulesChosen = true
-      }),
-
-    setPendingAgentConfigAdoption: (selection) =>
-      set((state) => {
-        state.appSettings.pendingAgentConfigAdoption =
-          selection && (selection.mcpServerKeys.length > 0 || selection.skillKeys.length > 0)
-            ? { mcpServerKeys: [...selection.mcpServerKeys], skillKeys: [...selection.skillKeys] }
-            : null
+        state.appSettings.hasAdoptedAgentConfig = true
       }),
 
     setAgentConfigAdoptionResult: (result) =>

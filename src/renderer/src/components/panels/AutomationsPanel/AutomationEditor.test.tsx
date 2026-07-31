@@ -20,7 +20,7 @@ import {
   webhookTriggerError,
   type SubmitTriggerForm,
 } from './automationsFormat'
-import { AutomationEditor } from './AutomationEditor'
+import { AutomationEditor, resolveAutomationRuntimeCli } from './AutomationEditor'
 
 function triggerForm(overrides: Partial<SubmitTriggerForm>): SubmitTriggerForm {
   return {
@@ -44,7 +44,6 @@ function definition(trigger: AutomationDefinition['trigger']): AutomationDefinit
     status: 'enabled',
     trigger,
     action: { kind: 'spawn-agent', config: { prompt: 'Review the repo' } },
-    autonomyDefault: 'review_only',
     nextRunAt: null,
     lastRunAt: null,
     lastRunId: null,
@@ -351,16 +350,30 @@ const agentBlockMarkup = renderToStaticMarkup(
 )
 
 assert.match(agentBlockMarkup, /General agent/, 'the agent block defaults to General agent (no specialist) in the picker trigger')
-assert.match(agentBlockMarkup, /No persona/, 'the General trigger row carries its description')
-assert.match(agentBlockMarkup, /Runtime/, 'the runtime row reuses CliModelPickerButton')
-assert.match(agentBlockMarkup, /Same team, runtimes, and permission presets/, 'help text names the reused picker')
-// The runtime row carries the interactive Default/Auto/Bypass chip group (the
-// shared PermissionPresetChips), not a read-only summary — permissions must be
-// settable without opening the picker popover.
-assert.match(agentBlockMarkup, /Permissions/, 'the runtime row labels the permission chip group')
-for (const chip of ['>Default<', '>Auto<', '>Bypass<']) {
-  assert.ok(agentBlockMarkup.includes(chip), `the runtime row renders the ${chip} permission chip`)
-}
+// The trigger carries the identity; what a general agent IS is the aside's own
+// "Agent — Plain — no role, no soul" fact rather than a second line saying it
+// again beside the control (MC-2035 trim).
+assert.match(agentBlockMarkup, /Plain — no role, no soul/, 'the aside states the agent as a fact of the run')
+assert.match(agentBlockMarkup, /Agent runtime and model/, 'the model control reuses CliModelPickerButton')
+assert.doesNotMatch(
+  agentBlockMarkup,
+  /Same team, runtimes, and permission presets/,
+  'the help text explaining where the picker came from is gone',
+)
+// Permission is its own field, and its option text IS the state: an automation
+// with no stored preset runs unattended, so the control must read that rather
+// than "Default" — the editor may not show a preset the run will not use.
+assert.match(agentBlockMarkup, /Permission/, 'the editor labels the permission field')
+assert.match(
+  agentBlockMarkup,
+  /Bypass all — runs unattended/,
+  'an unset automation reads as the unattended default',
+)
+assert.doesNotMatch(
+  agentBlockMarkup,
+  /Default — asks before acting<\/span>\s*<svg/,
+  'the trigger does not read "Default" for an automation that will run on bypass',
+)
 assert.doesNotMatch(agentBlockMarkup, /Run as a specialist agent, or a general agent\./, 'the retired flat Specialist select is gone')
 assert.doesNotMatch(agentBlockMarkup, /Model passed at launch/, 'the retired flat Model select is gone')
 
@@ -427,3 +440,100 @@ const connectorEditMarkup = renderToStaticMarkup(
 assert.match(connectorEditMarkup, /railway/, 'a stored connectorId round-trips into the connector control')
 
 console.log('AutomationEditor connector-picker render tests passed')
+
+// ---------------------------------------------------------------------------
+// A starter, opened where it is tailored (MC-2035). The Extensions shelf
+// configures nothing: a Get lands here, so this is the one screen that has to
+// show a real agent, a real cadence, `bypass_all` and the starter's prompt with
+// no empty picker anywhere — and has to say where the automation came from, so a
+// starter is distinguishable from something written in this project.
+// ---------------------------------------------------------------------------
+
+const starterProviders: AutomationsProviders = {
+  triggers: [
+    { kind: 'schedule', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+  ],
+  actions: [{
+    kind: 'spawn-agent',
+    configSchema: {
+      type: 'object',
+      properties: { cli: { type: 'string' }, prompt: { type: 'string' }, spawnSkillId: { type: 'string' }, connectorId: { type: 'string' } },
+      required: ['prompt'],
+    },
+    requiredIntegrations: [],
+    missingIntegrations: [],
+  }],
+}
+
+const DAILY_AT_0200: AutomationDefinition['trigger'] = {
+  kind: 'schedule',
+  config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'daily', timeLocal: '02:00' } },
+}
+
+// Exactly what the install writes (src/main/automations/definition-write.ts
+// `installFromCatalogue`): status enabled, the provenance pair stamped by the
+// host, and an action config that names NO cli — the launch resolves that.
+const starterDefinition: AutomationDefinition = {
+  ...definition(DAILY_AT_0200),
+  name: 'Dead code sweep',
+  action: { kind: 'spawn-agent', config: { prompt: 'Find code in this repository that nothing reaches.' } },
+  runInWorktree: true,
+  sourceCatalogueId: 'multicode.dead-code-sweep',
+  sourcePublisher: 'Multicode Labs',
+}
+
+function renderEditor(def: AutomationDefinition): string {
+  return renderToStaticMarkup(
+    <AutomationEditor
+      editor={{ mode: 'edit', definition: def }}
+      providers={starterProviders}
+      workspaceRoot="/tmp/multicode-automation-editor"
+      onCancel={() => {}}
+      onSaved={() => {}}
+    />,
+  )
+}
+
+const starterMarkup = renderEditor(starterDefinition)
+
+assert.match(starterMarkup, /Dead code sweep/, 'the head carries the automation name, edited in place')
+assert.match(starterMarkup, /Multicode Labs/, 'the head names the publisher beneath it')
+assert.match(starterMarkup, /Extensions shelf/, 'the aside names where it came from')
+assert.match(starterMarkup, /Find code in this repository that nothing reaches\./, 'the starter’s prompt is loaded')
+assert.match(starterMarkup, /Daily/, 'the cadence is the real one the definition carries')
+assert.match(starterMarkup, /02:00/, 'including its time')
+assert.match(starterMarkup, /Bypass all — runs unattended/, 'permission reads the unattended default it will run on')
+assert.match(starterMarkup, /Every run/, 'the aside states the run contract')
+assert.match(starterMarkup, /A branch it can open a pull request from/, 'what a worktree run produces')
+
+// No autonomy control anywhere. `review_only` is retired (MC-2036): it injected
+// "do not create files, commit, push" into the prompt, which made opening a pull
+// request impossible. Reviewer-vs-fixer intent lives in the prompt text now.
+for (const gone of [/autonomy/i, /review.only/i, /Write-up only/i]) {
+  assert.doesNotMatch(starterMarkup, gone, `no autonomy control survives (${gone})`)
+}
+
+// An automation written here says so, and has no publisher line to show.
+const handWrittenMarkup = renderEditor({
+  ...definition(DAILY_AT_0200),
+  name: 'My own nightly job',
+  action: { kind: 'spawn-agent', config: { prompt: 'Groom the backlog.' } },
+})
+assert.match(handWrittenMarkup, /Written in this project/, 'a hand-written automation names no shelf')
+assert.doesNotMatch(handWrittenMarkup, /Extensions shelf/, 'and is not dressed up as a starter')
+assert.doesNotMatch(handWrittenMarkup, /Multicode Labs/, 'with no publisher line')
+
+// The runtime the picker shows is the one the RUN resolves, in the launch's own
+// order: the definition's cli, else the last-selected one, else the catalog. A
+// picker that showed the catalog's first entry would name a runtime the 02:00 run
+// is not going to use. (Asserted on the pure resolver rather than on the rendered
+// picker: under `renderToStaticMarkup` a zustand read returns the store's INITIAL
+// state, so a static render cannot witness a store value at all.)
+const CATALOG = [{ value: 'claude-code' }, { value: 'cursor' }]
+assert.equal(resolveAutomationRuntimeCli('codex', 'cursor', CATALOG), 'codex', 'the definition’s own cli wins')
+assert.equal(resolveAutomationRuntimeCli(undefined, 'cursor', CATALOG), 'cursor', 'an unset cli reads the launch’s fallback')
+assert.equal(resolveAutomationRuntimeCli('  ', 'cursor', CATALOG), 'cursor', 'and blank counts as unset')
+assert.equal(resolveAutomationRuntimeCli(undefined, undefined, CATALOG), 'claude-code', 'with no fallback set, the catalog answers')
+assert.equal(resolveAutomationRuntimeCli(undefined, undefined, []), 'claude-code', 'and the picker is never left empty')
+
+console.log('AutomationEditor starter render tests passed')

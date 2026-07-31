@@ -286,10 +286,10 @@ def test_task_publish_blocks_on_orphaned_uncommitted_paths(tmp_path) -> None:
     assert "Cannot publish" in failure.stderr
     assert "src/Panel/helper.ts" in failure.stderr
 
-    # After the author owns the new directory, publish succeeds and the tree is clean.
-    fixture.cli.run(
-        "plan", "update-task", "--task-id", "T1", "--path", "src/Panel.tsx", "--path", "src/Panel", "--force"
-    )
+    # After the author owns the MODULE the split lives in, publish succeeds and the
+    # tree is clean. Re-declaring `src/Panel.tsx` is refused now that it exists:
+    # tasks own directories, not files (item 2019).
+    fixture.cli.run("plan", "update-task", "--task-id", "T1", "--path", "src", "--force")
     published = fixture.cli.run(
         "task", "publish", "--task-id", "T1", "--id", "developer-1", "--summary", "Split the panel."
     )

@@ -11,8 +11,8 @@ import {
   flattenLaneUnits,
   nextEligible,
   qualifiedRef,
-  resolveEpicChildRef,
   roadmapRefSlug,
+  type LaneUnit,
   type ProjectKey,
   type Roadmap,
   type RoadmapEntryKind,
@@ -77,8 +77,8 @@ export type RoadmapUnitState =
   | 'unknown'
   | 'unknown_project'
 
-// One snapshotted member of an epic step, resolved live for the board's per-step
-// progress display. `done` = the member's backlog status is terminal.
+// One member of an epic step, resolved live for the board's per-step progress
+// display. `done` = the member's backlog status is terminal.
 export type RoadmapBoardUnitChild = {
   ref: string
   title: string
@@ -97,8 +97,8 @@ export type RoadmapBoardUnit = {
   // name (the board's per-step project tag, mockup §2).
   projectKey: ProjectKey
   projectName: string
-  // An epic step's snapshotted members with live status — one sprint delivers
-  // the whole step; these show its inner progress. Absent for item steps.
+  // An epic step's live members — one sprint delivers the whole step; these show
+  // its inner progress. Absent for item steps and for an epic with no members.
   children?: RoadmapBoardUnitChild[]
   // The delivering pull request, when the item recorded one (done units link out).
   prUrl?: string
@@ -150,6 +150,11 @@ export type RoadmapBoardResolver = {
   itemInfo(projectKey: ProjectKey, relativePath: string): RoadmapBoardItemInfo | undefined
   projectName(projectKey: ProjectKey): string
   resolvableProjects: ReadonlySet<ProjectKey>
+  // An epic step's LIVE members (MC-2031): the project-relative paths of every
+  // backlog item whose `epic:` frontmatter names this epic, within the epic's own
+  // project. The plan stores no membership, so the board cannot enumerate members
+  // from the file — it asks the same scan it resolves `itemInfo` through.
+  epicMembers(projectKey: ProjectKey, epicRelativePath: string): ReadonlyArray<string>
 }
 
 // Build the board model for one roadmap. `resolve` supplies each unit's live
@@ -163,26 +168,36 @@ export function buildRoadmapBoardModel(
   resolve: RoadmapBoardResolver,
   laneRuntimeByLane: ReadonlyMap<string, RoadmapLaneStateView>,
 ): RoadmapBoardLane[] {
-  const itemStates: RoadmapItemState[] = []
-  const seenKeys = new Set<string>()
-  const pushItemState = (projectKey: ProjectKey, relativePath: string): void => {
+  // The item universe `nextEligible` resolves against: every step, plus every
+  // live member of an epic step (an epic's effective status derives from them).
+  // Members are pushed carrying the `epic:` slug they were found by, so the
+  // substrate re-derives exactly this membership rather than a parallel one.
+  // Keyed, not appended: an item can be reached twice — as a step of its own AND
+  // as a member of an epic step in the same plan. Whichever pass sees it second
+  // must not be dropped, or the membership (or the step) would go missing purely
+  // by lane order.
+  const stateByKey = new Map<string, RoadmapItemState>()
+  const pushItemState = (projectKey: ProjectKey, relativePath: string, epic?: string): void => {
     const key = qualifiedRef(projectKey, relativePath)
-    if (seenKeys.has(key)) return
-    seenKeys.add(key)
+    const existing = stateByKey.get(key)
+    if (existing) {
+      if (epic && !existing.epic) stateByKey.set(key, { ...existing, epic })
+      return
+    }
     const info = resolve.itemInfo(projectKey, relativePath)
-    if (info) itemStates.push({ ref: relativePath, status: info.status, projectKey })
+    if (info) stateByKey.set(key, { ref: relativePath, status: info.status, projectKey, ...(epic ? { epic } : {}) })
   }
+  const membersOf = (unit: LaneUnit): ReadonlyArray<string> =>
+    unit.kind === 'epic' ? resolve.epicMembers(unit.projectKey, unit.relativePath) : []
   for (const lane of roadmap.lanes) {
     for (const unit of flattenLaneUnits(lane)) {
       pushItemState(unit.projectKey, unit.relativePath)
-      // An epic unit's effective status derives from its members (nextEligible),
-      // so their states must be in the universe too.
-      for (const child of unit.children) {
-        const resolved = resolveEpicChildRef(child, unit.projectKey)
-        pushItemState(resolved.projectKey, resolved.relativePath)
-      }
+      const slug = roadmapRefSlug(unit.ref)
+      for (const member of membersOf(unit)) pushItemState(unit.projectKey, member, slug)
     }
   }
+
+  const itemStates = [...stateByKey.values()]
 
   const noRunLinks: ReadonlyMap<string, RoadmapRunState> = new Map()
   const eligibilityByLane = new Map<string, ReturnType<typeof nextEligible>[number]>()
@@ -220,18 +235,16 @@ export function buildRoadmapBoardModel(
         parkedKey,
         laneParked: Boolean(runtime?.parked),
       })
+      const members = resolvable ? membersOf(unit) : []
       const children: RoadmapBoardUnitChild[] | undefined =
-        unit.children.length > 0
-          ? unit.children.map((child) => {
-              const resolved = resolveEpicChildRef(child, unit.projectKey)
-              const childInfo = resolve.resolvableProjects.has(resolved.projectKey)
-                ? resolve.itemInfo(resolved.projectKey, resolved.relativePath)
-                : undefined
+        members.length > 0
+          ? members.map((member) => {
+              const memberInfo = resolve.itemInfo(unit.projectKey, member)
               return {
-                ref: child,
-                title: childInfo?.title ?? roadmapRefSlug(child),
-                ...(childInfo ? { status: childInfo.status } : {}),
-                done: isTerminalRoadmapStatus(childInfo?.status),
+                ref: member,
+                title: memberInfo?.title ?? roadmapRefSlug(member),
+                ...(memberInfo ? { status: memberInfo.status } : {}),
+                done: isTerminalRoadmapStatus(memberInfo?.status),
               }
             })
           : undefined
@@ -441,9 +454,9 @@ export type RepoMergeBlockers = {
 // dangling and PARK (eligibility_contradiction) instead of advancing. The reason is
 // preserved as an inert HTML comment appended to the body — invisible to
 // `parseRoadmap` (not a heading or list item) so it never becomes a spurious lane,
-// and the entry line (plus its snapshotted children) is removed in place, leaving
-// the rest of the file byte-stable. Skipping a single snapshotted epic child (an
-// indented ref) removes just that one line, keeping its epic and sibling children.
+// and the entry line is removed in place, leaving the rest of the file
+// byte-stable. Any indented lines beneath it — the member snapshot a pre-MC-2031
+// plan stored, inert on read — go with it rather than being left orphaned.
 // `date` is injected so the transform stays pure.
 export function skipRoadmapEntry(content: string, ref: string, reason: string, date: string): string {
   const { head, body } = splitFrontmatter(content)
@@ -455,14 +468,8 @@ export function skipRoadmapEntry(content: string, ref: string, reason: string, d
     const line = lines[index]
     if (!removed && isTopLevelEntryLine(line, normalizedRef)) {
       removed = true
-      // Skip this entry line and any indented child lines beneath it.
+      // Skip this entry line and any indented lines beneath it.
       while (index + 1 < lines.length && /^\s+-\s+/.test(lines[index + 1])) index += 1
-      continue
-    }
-    if (!removed && isChildEntryLine(line, normalizedRef)) {
-      // A snapshotted epic child: drop just this indented line, leaving its epic
-      // entry and sibling children intact so the frontier moves past it.
-      removed = true
       continue
     }
     out.push(line)
@@ -478,13 +485,6 @@ export function skipRoadmapEntry(content: string, ref: string, reason: string, d
 
 function isTopLevelEntryLine(line: string, ref: string): boolean {
   const match = /^-\s+(\S+)/.exec(line)
-  if (!match) return false
-  return match[1].replace(/\\/g, '/').replace(/^\/+/, '') === ref
-}
-
-// An indented list item — a snapshotted epic child under a top-level entry.
-function isChildEntryLine(line: string, ref: string): boolean {
-  const match = /^\s+-\s+(\S+)/.exec(line)
   if (!match) return false
   return match[1].replace(/\\/g, '/').replace(/^\/+/, '') === ref
 }

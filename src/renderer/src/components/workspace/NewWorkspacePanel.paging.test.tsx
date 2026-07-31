@@ -42,6 +42,9 @@ const FOLDER = '/tmp/multicode-paging-test'
 // type's own heading plus the shared name/folder fields; every later page is a
 // ConfigStepSection whose STEP_HEADING title is its marker.
 const WORKSPACE_PAGE = 'Workspace name'
+const IDEA_PAGE = 'Tell us about your idea'
+// The layout picker was removed from the standard flow; its heading is kept here
+// only so the single-page assertion can prove it renders nowhere.
 const LAYOUT_PAGE = 'Pick an IDE layout'
 
 // Every payload the panel pushes across the preload boundary during a create.
@@ -182,16 +185,44 @@ async function main(): Promise<void> {
     return { container, root, button, click, primary, jumpControls, type, text: () => container.textContent ?? '' }
   }
 
-  // ---------------------------------------------------------------- navigation
-  // The standard flow is two pages: name/folder, then the layout picker.
+  // ------------------------------------------------- standard is a single page
+  // Creating a standard workspace is folder -> Create. The layout picker used to
+  // be page 2, asking the user to confirm the Solo Dev default the panel had
+  // already chosen; it was removed, so the shortest path into the product now has
+  // no page turn at all.
+  const SKIP = 'Skip the rest and create'
   {
     const panel = mount({ mode: 'standard', folderPath: FOLDER })
 
-    // Page 1 renders ONLY page 1. The layout picker is a later page, so its
-    // heading must be nowhere in the DOM — this is the check that the pane is no
-    // longer one stacked scroll.
     assert.ok(panel.text().includes(WORKSPACE_PAGE), 'the flow opens on the name/folder page')
-    assert.ok(!panel.text().includes(LAYOUT_PAGE), 'only the active step renders')
+    assert.ok(!panel.text().includes(LAYOUT_PAGE), 'the layout picker is gone from the creation flow')
+    assert.equal(panel.primary().textContent?.trim(), 'Create workspace',
+      'the only page is the last page, so its primary is the create action')
+    assert.equal(panel.button('Continue'), undefined, 'a single-page flow never offers Continue')
+    assert.equal(panel.jumpControls().length, 0, 'a single-page flow has no step to jump back to')
+    // Single page == last page, and the skip affordance is never offered there:
+    // the primary already IS create.
+    assert.equal(panel.button(SKIP), undefined, 'a single-page flow offers no skip')
+    // The layout page carried the Advanced setup disclosure (MCP servers,
+    // knowledge graph, design system). Removing the page must not remove that —
+    // only the layout picker was ruled out.
+    assert.ok(panel.text().includes('Advanced setup'),
+      'the standard flow keeps create-time Advanced setup after losing its layout page')
+
+    panel.root.unmount()
+  }
+
+  // ---------------------------------------------------------------- navigation
+  // Paging itself is driven on the guided-brief flow, which is two pages:
+  // name/folder, then the idea step.
+  {
+    const panel = mount({ mode: 'guided-brief', folderPath: FOLDER })
+
+    // Page 1 renders ONLY page 1. The idea step is a later page, so its heading
+    // must be nowhere in the DOM — this is the check that the pane is no longer
+    // one stacked scroll.
+    assert.ok(panel.text().includes(WORKSPACE_PAGE), 'the flow opens on the name/folder page')
+    assert.ok(!panel.text().includes(IDEA_PAGE), 'only the active step renders')
     assert.equal(panel.primary().textContent?.trim(), 'Continue', 'a non-final page continues')
 
     // Nothing is completed yet, so there is nothing to jump back to.
@@ -199,10 +230,11 @@ async function main(): Promise<void> {
 
     // Continue advances.
     await panel.click(panel.primary())
-    assert.ok(panel.text().includes(LAYOUT_PAGE), 'Continue advances to the next page')
+    assert.ok(panel.text().includes(IDEA_PAGE), 'Continue advances to the next page')
     assert.ok(!panel.text().includes(WORKSPACE_PAGE),
       'the previous page unmounts on advance')
-    assert.equal(panel.primary().textContent?.trim(), 'Create workspace',
+    // Each type labels its own create verb; guided-brief's is "Start design".
+    assert.equal(panel.primary().textContent?.trim(), 'Start design',
       'the final page primary is the create action, not Continue')
 
     // The completed first step is now jumpable; the current one is not.
@@ -230,18 +262,6 @@ async function main(): Promise<void> {
   // --------------------------------------------------------- skip affordance
   // "Skip the rest and create" appears exactly when the flow is create-ready AND
   // the user is not on the last page — never as a second skip-shaped control.
-  const SKIP = 'Skip the rest and create'
-  {
-    const panel = mount({ mode: 'standard', folderPath: FOLDER })
-    // The standard flow's later page (the layout picker) is defaulted, so the
-    // flow is create-ready on page 1 and the skip is offered there.
-    assert.ok(panel.button(SKIP), 'skip is offered on a create-ready non-final page')
-
-    await panel.click(panel.primary())
-    assert.equal(panel.button(SKIP), undefined,
-      'skip is never offered on the last page — the primary IS create there')
-    panel.root.unmount()
-  }
   {
     // A blocked flow offers no skip: the sprint's team page carries the run's
     // only required intent, so until it is answered there is nothing to skip to.
@@ -275,6 +295,10 @@ async function main(): Promise<void> {
       panel.container.querySelector('textarea[placeholder="What outcome should this team deliver?"]') ?? undefined,
       'Ship the paged creation hub',
     )
+
+    // The positive half of the skip contract: answering the intent on a
+    // non-final page makes the flow create-ready, and the skip appears.
+    assert.ok(panel.button(SKIP), 'skip is offered once a create-ready non-final page is answered')
 
     if (skip) {
       await panel.click(panel.button(SKIP))
@@ -343,8 +367,8 @@ async function main(): Promise<void> {
     )
     // A rail switch swaps the flow under the current page; a page the new flow
     // does not have falls back to its first page rather than stranding the user.
-    assert.equal(nav.stepWithinFlow(['workspace', 'standard-layout'], 'sprintengine-roster'), 'workspace')
-    assert.equal(nav.stepWithinFlow(['workspace', 'standard-layout'], 'standard-layout'), 'standard-layout')
+    assert.equal(nav.stepWithinFlow(['workspace', 'guided-idea'], 'sprintengine-roster'), 'workspace')
+    assert.equal(nav.stepWithinFlow(['workspace', 'guided-idea'], 'guided-idea'), 'guided-idea')
   }
 
   const walked = await createSprint(false)

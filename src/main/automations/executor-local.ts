@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import type { Workspace, WorkspaceMode } from '../../renderer/src/types/workspace'
 import { createGitWorktree, removeGitWorktree } from '../git'
+import { resolveRepoRoot } from '../git-worktree-validation'
 import { createWorkspaceConfirmed } from '../workspace-create'
 import type { AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
 import { runSkillLoopAction } from './actions/run-skill-loop'
@@ -39,10 +40,11 @@ export type LocalAutomationExecutorOptions = {
   actionProviderRegistrations?: RegisteredAutomationProvider<AutomationActionProvider>[]
   getActionProviderRegistrations?: () => RegisteredAutomationProvider<AutomationActionProvider>[]
   checkProviderPermission?: AutomationProviderPermissionChecker
-  // Per-run worktree isolation for agent-backed runs. `createRunWorktree`
-  // returns null when isolation is not possible (e.g. the folder is not a Git
-  // repo) so the run falls back to the workspace checkout instead of blocking.
-  createRunWorktree?: (input: { workspaceRoot: string; runId: string }) => Promise<RunWorktree | null>
+  // Per-run worktree isolation for agent-backed runs. A run that asks for
+  // isolation and cannot get it fails — the creator throws
+  // RunWorktreeUnavailableError rather than reporting "no worktree", because
+  // there is no acceptable answer below isolation for an unattended agent.
+  createRunWorktree?: (input: { workspaceRoot: string; runId: string }) => Promise<RunWorktree>
   removeRunWorktree?: (input: { workspaceRoot: string; worktreePath: string }) => Promise<void>
 }
 
@@ -55,6 +57,19 @@ export class AutomationActionBlockedError extends Error {
   constructor(readonly blockedReason: string) {
     super(blockedReason)
     this.name = 'AutomationActionBlockedError'
+  }
+}
+
+// Why the run got no worktree. A folder that is not a git repository can never
+// produce one (the user has to answer that), while a worktree failure is
+// situational — a stale branch, a locked worktree, a full disk — so the two must
+// not read as the same blocked run.
+export type RunWorktreeUnavailableReason = 'not_a_git_repository' | 'worktree_creation_failed'
+
+export class RunWorktreeUnavailableError extends Error {
+  constructor(readonly reason: RunWorktreeUnavailableReason, message: string) {
+    super(message)
+    this.name = 'RunWorktreeUnavailableError'
   }
 }
 
@@ -128,27 +143,21 @@ export async function runLocalAutomationAction(
       resolveSpawnAgentTarget: (target: { workspaceId?: string; folderPath: string }) =>
         Promise.resolve(resolveLaunchTarget(target, options)),
       // Agent-backed runs launch into a per-run worktree so the agent's work
-      // (and its PR) is isolated from the user's checkout. Isolation is
-      // best-effort: a non-Git folder or a worktree failure falls back to the
-      // workspace checkout rather than blocking the run. A definition can opt out
-      // (runInWorktree === false) to run directly in the workspace checkout — that
-      // run has no branch, so it cannot (and does not) open a PR. Absent ⇒ true,
-      // so existing automations keep their per-run worktree.
+      // (and its PR) is isolated from the user's checkout. Isolation is not
+      // best-effort: a run that asks for a worktree and cannot get one is
+      // blocked, never downgraded to the user's checkout — an unattended agent
+      // runs with permissions bypassed, and a run with no worktree also has no
+      // branch and so no pull request to review. A definition can opt out
+      // (runInWorktree === false) to run directly in the workspace checkout, and
+      // that opt-out is the user's to make. Absent ⇒ true, so existing
+      // automations keep their per-run worktree.
       spawnAgent: async (spawnInput) => {
         // A connector run writes the connector's MCP config into the agent's cwd,
-        // so it must land in an isolated worktree — never the user's checkout.
-        // A connectorId therefore forces a worktree (overriding runInWorktree ===
-        // false) and fails the launch rather than falling back to the workspace
-        // checkout when one cannot be created, preserving the connector-chat
-        // isolation invariant.
+        // so it must land in an isolated worktree — never the user's checkout. A
+        // connectorId therefore forces a worktree even when the definition opted
+        // out, preserving the connector-chat isolation invariant.
         const wantsWorktree = spawnInput.connectorId != null || input.definition.runInWorktree !== false
-        const worktree = wantsWorktree ? await ensureRunWorktree(input, options) : null
-        if (spawnInput.connectorId && !worktree) {
-          throw new Error(
-            `Connector automation run for "${spawnInput.connectorId}" requires an isolated worktree, `
-            + 'but one could not be created (the folder is not a git repository or worktree creation failed).'
-          )
-        }
+        const worktree = wantsWorktree ? await ensureRunWorktree(input, options, spawnInput.connectorId) : null
         const launched = await spawnAgent(
           { ...spawnInput, worktreePath: worktree?.worktreePath },
           options,
@@ -283,23 +292,40 @@ async function spawnAgent(
   return { workspaceId, agentId: confirmed, executionId }
 }
 
+// Fails the run rather than returning "no worktree": every caller asked for
+// isolation, and there is nowhere else to put an unattended agent. The blocked
+// reason names the cause so a run blocked for want of a git repository is not
+// read as a run whose worktree creation failed.
 async function ensureRunWorktree(
   input: AutomationRunExecutionInput,
-  options: LocalAutomationExecutorOptions
-): Promise<RunWorktree | null> {
+  options: LocalAutomationExecutorOptions,
+  connectorId: string | undefined
+): Promise<RunWorktree> {
   const creator = options.createRunWorktree ?? defaultCreateRunWorktree
   try {
-    return await creator({ workspaceRoot: input.workspaceRoot, runId: input.run.id })
-  } catch {
-    // Worktree isolation is best-effort; fall back to the workspace checkout
-    // rather than blocking the run.
-    return null
+    const worktree = await creator({ workspaceRoot: input.workspaceRoot, runId: input.run.id })
+    // A creator that resolves to nothing is the old swallowed failure wearing a
+    // different shape. The types forbid it; this is the boundary that enforces
+    // it, because an injected creator is the one input here that TypeScript does
+    // not get to check at runtime.
+    if (!worktree) throw new RunWorktreeUnavailableError('worktree_creation_failed', 'no worktree was returned')
+    return worktree
+  } catch (error) {
+    const subject = connectorId
+      ? `Connector automation run for "${connectorId}" requires an isolated worktree`
+      : 'This automation runs in its own git worktree'
+    const cause = error instanceof RunWorktreeUnavailableError && error.reason === 'not_a_git_repository'
+      ? `${input.workspaceRoot} is not a git repository`
+      : `worktree creation failed: ${error instanceof Error ? error.message : 'unknown error'}`
+    throw new AutomationActionBlockedError(
+      `${subject}, but ${cause}. The run was blocked rather than launched in the workspace checkout.`
+    )
   }
 }
 
 export async function defaultCreateRunWorktree(
   input: { workspaceRoot: string; runId: string }
-): Promise<RunWorktree | null> {
+): Promise<RunWorktree> {
   const branchName = `automations/${input.runId}`
   const created = await createGitWorktree({
     repoRoot: input.workspaceRoot,
@@ -308,8 +334,15 @@ export async function defaultCreateRunWorktree(
     branchName,
     baseRef: 'HEAD',
   })
-  if (!created.ok) return null
-  return { worktreePath: created.data.path, branch: created.data.branch ?? branchName }
+  if (created.ok) return { worktreePath: created.data.path, branch: created.data.branch ?? branchName }
+  // createGitWorktree resolves the repo root first, so classify by re-running
+  // that one check — only on the failure path, leaving the happy path at a
+  // single git invocation.
+  const repoRoot = await resolveRepoRoot(input.workspaceRoot)
+  throw new RunWorktreeUnavailableError(
+    repoRoot.ok ? 'worktree_creation_failed' : 'not_a_git_repository',
+    created.message
+  )
 }
 
 export async function defaultRemoveRunWorktree(

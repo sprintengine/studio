@@ -20,6 +20,7 @@ import type { AutomationPullRequestResult } from './pull-request'
 import { computeNextRun, scheduleCadenceCanExhaust, validateScheduleTriggerConfig } from './schedule'
 import { evaluatePollingTriggerDefinition } from './polling-trigger-runner'
 import { readTranscriptSummary } from './transcript-summary'
+import { completeAutomationRun as completeRun } from './run-record'
 import { enqueueTriggerEventRun, type TriggerEventRunResult } from './trigger-event-runner'
 
 export type AutomationsProjectFolder = {
@@ -81,9 +82,6 @@ export type AutomationRunPullRequestOpener = (input: {
   branch: string
   title: string
   body: string
-  // Gates the backstop commit/push: a review_only run refuses to publish an
-  // unexpected working diff (see openAutomationRunPullRequest).
-  autonomy: AutomationDefinition['autonomyDefault']
 }) => Promise<AutomationPullRequestResult>
 
 export type AutomationRunWorktreeRemover = (input: {
@@ -774,13 +772,8 @@ export class AutomationsEngine {
 
     const definitionResult = await store.getDefinition(input.automationId)
     const definitionName = definitionResult.ok ? definitionResult.value.name : input.automationId
-    // When the definition is unreadable we cannot prove review_only, so default to
-    // allow_changes (preserve existing behavior); configured review_only runs have
-    // a readable definition at finalize, which is what the safeguard targets.
-    const autonomy = definitionResult.ok ? definitionResult.value.autonomyDefault : 'allow_changes'
 
     let pullRequestUrl: string | undefined
-    let withheldChangesReason: string | undefined
     const summaryParts: string[] = []
     if (input.summary?.trim()) summaryParts.push(input.summary.trim())
 
@@ -791,16 +784,12 @@ export class AutomationsEngine {
         branch: run.branch,
         title: `Automation: ${definitionName}`,
         body: `Opened by the "${definitionName}" automation (run ${run.id}).`,
-        autonomy,
       })
       if (pr.ok) {
         pullRequestUrl = pr.url
         summaryParts.push(pr.created ? `Opened pull request ${pr.url}.` : `Linked existing pull request ${pr.url}.`)
       } else {
         summaryParts.push(`No pull request linked: ${pr.reason}`)
-        // Surface a withheld review_only diff as a blocked reason so the finalize
-        // is visibly not a clean success (no silent push, no silent success).
-        if (pr.withheldChanges) withheldChangesReason = pr.reason
       }
     }
 
@@ -832,7 +821,6 @@ export class AutomationsEngine {
       status: input.outcome,
       completedAt: new Date(this.now()).toISOString(),
       pullRequestUrl,
-      blockedReason: withheldChangesReason ?? run.blockedReason,
       summary: summaryParts.length > 0 ? summaryParts.join(' ') : run.summary,
     }
     const recorded = await store.recordRun(finalRun)
@@ -1421,30 +1409,6 @@ export function projectFoldersFromWorkspaceSyncSnapshot(snapshot: WorkspaceSyncS
   )
 }
 
-function completeRun(run: AutomationRun, patch: Partial<AutomationRun>, completedAt: string): AutomationRun {
-  const status = patch.status ?? 'completed'
-  // An agent-backed run returns `running`: the action launched a long-lived
-  // agent and the run stays in-progress (linked to its terminal) until
-  // finalizeRun records the real outcome. Non-terminal runs carry no
-  // completedAt and emit no terminal run-event.
-  return {
-    ...run,
-    status,
-    completedAt: isTerminalRunStatus(status) ? completedAt : null,
-    blockedReason: patch.blockedReason,
-    workspaceId: patch.workspaceId,
-    agentId: patch.agentId,
-    executionId: patch.executionId,
-    promptFingerprint: patch.promptFingerprint,
-    touchedFiles: patch.touchedFiles,
-    commandsRan: patch.commandsRan,
-    summary: patch.summary,
-    worktreePath: patch.worktreePath,
-    branch: patch.branch,
-    pullRequestUrl: patch.pullRequestUrl,
-  }
-}
-
 // The max-run limit as a person would say it, for the sweep's run summary. Read
 // from the configured cap rather than hardcoded, so the number a user is told is
 // always the number that was actually applied.
@@ -1456,10 +1420,6 @@ function formatRunLimit(ms: number): string {
   }
   const minutes = Math.max(1, Math.round(ms / 60_000))
   return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
-}
-
-function isTerminalRunStatus(status: AutomationRunStatus): boolean {
-  return status === 'completed' || status === 'failed' || status === 'blocked' || status === 'skipped'
 }
 
 function nextRunIso(config: ScheduleTriggerConfig, after: number): string | null {

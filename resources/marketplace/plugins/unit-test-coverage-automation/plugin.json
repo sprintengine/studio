@@ -1,0 +1,22 @@
+{
+  "id": "unit-test-coverage-automation",
+  "displayName": "Unit test coverage",
+  "version": 1,
+  "defaultEnabled": false,
+  "source": "third-party",
+  "permissions": [],
+  "publisher": "Multicode Labs",
+  "category": "Testing",
+  "summary": "Writes unit tests for the weakest-covered, highest-cost paths, up to five files a run. One agent run nightly at 03:00 UTC, opening a pull request.",
+  "components": {
+    "automation": {
+      "path": "automation/automation.json",
+      "files": [
+        {
+          "path": "automation/automation.json",
+          "sha256": "9a226685c47e09ee8062f9daad4e8828af1b745fdce3c0ba7ebdb30d3a48c9c0"
+        }
+      ]
+    }
+  }
+}

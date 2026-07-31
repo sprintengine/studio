@@ -60,6 +60,12 @@ const DISPLAY = new Map<string, HorizonRefDisplay>([
   ['backlog/auth-logout.md', { title: 'Logout', status: 'ready' }],
 ])
 
+// Live epic membership, as the host resolves it from the scan (MC-2031) — the
+// plan text carries none.
+const EPIC_MEMBERS = new Map<string, string[]>([
+  ['backlog/epics/auth.md', ['backlog/auth-login.md', 'backlog/auth-logout.md']],
+])
+
 function input(overrides: Partial<HorizonPlanInput> = {}): HorizonPlanInput {
   return {
     lanes: [],
@@ -67,6 +73,7 @@ function input(overrides: Partial<HorizonPlanInput> = {}): HorizonPlanInput {
     refDisplay: DISPLAY,
     projectNameByKey: new Map([[null, 'multicode']]),
     policyRoster: undefined,
+    epicMembersByRef: EPIC_MEMBERS,
     knownRosterNames: new Set(['no roles', 'balanced four']),
     defaultRosterLabel: 'No roles',
     ...overrides,
@@ -101,7 +108,7 @@ run('a single track names itself in the head, and Now holds only the running ste
 })
 
 run('a delivered step leaves the list for the Delivered footer, with its count', () => {
-  const lanes = lanesOf('## Delivery\n- backlog/one.md\n- backlog/epics/auth.md\n  - backlog/auth-login.md\n  - backlog/auth-logout.md\n- backlog/two.md\n')
+  const lanes = lanesOf('## Delivery\n- backlog/one.md\n- backlog/epics/auth.md\n- backlog/two.md\n')
   const plan = buildHorizonPlan(
     input({
       lanes,
@@ -168,7 +175,7 @@ run('two tracks become two named bands in the ONE column, each with its own coun
 // ── the row ──────────────────────────────────────────────────────────────────
 
 run('the trailing slot carries step SIZE: done/total once anything landed, else the total', () => {
-  const lanes = lanesOf('## Delivery\n- backlog/epics/auth.md\n  - backlog/auth-login.md\n  - backlog/auth-logout.md\n- backlog/one.md\n')
+  const lanes = lanesOf('## Delivery\n- backlog/epics/auth.md\n- backlog/one.md\n')
   const plan = buildHorizonPlan(
     input({
       lanes,
@@ -195,14 +202,16 @@ run('the trailing slot carries step SIZE: done/total once anything landed, else 
 })
 
 run('an epic with nothing delivered shows a bare total', () => {
-  const lanes = lanesOf('## Delivery\n- backlog/epics/auth.md\n  - backlog/auth-logout.md\n')
-  const plan = buildHorizonPlan(input({ lanes }))
+  const lanes = lanesOf('## Delivery\n- backlog/epics/auth.md\n')
+  const plan = buildHorizonPlan(
+    input({ lanes, epicMembersByRef: new Map([['backlog/epics/auth.md', ['backlog/auth-logout.md']]]) }),
+  )
   assert.equal(plan.bands.flatMap((b) => b.rows)[0].sizeLabel, '1')
 })
 
-run('a step with no runtime yet still counts its snapshot from the display map', () => {
+run('a step with no runtime yet sizes from live membership + the display map', () => {
   // A just-dropped epic: the board has not caught up, so there is no unit.
-  const lanes = lanesOf('## Delivery\n- backlog/epics/auth.md\n  - backlog/auth-login.md\n  - backlog/auth-logout.md\n')
+  const lanes = lanesOf('## Delivery\n- backlog/epics/auth.md\n')
   const plan = buildHorizonPlan(input({ lanes, boardLanes: [] }))
   const row = plan.bands.flatMap((band) => band.rows)[0]
   assert.equal(row.title, 'Auth')

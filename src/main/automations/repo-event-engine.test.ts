@@ -37,7 +37,6 @@ function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDe
       kind: 'spawn-agent',
       config: { prompt: 'Review the repository.' },
     },
-    autonomyDefault: 'review_only',
     nextRunAt: '2026-06-17T02:00:00.000Z',
     lastRunAt: null,
     lastRunId: null,

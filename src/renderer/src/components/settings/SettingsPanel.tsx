@@ -61,6 +61,7 @@ import { ProjectKnowledgeList } from './ProjectKnowledgeList'
 import CliIcon from '../CliIcon'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { CliInstallControl } from './CliInstallControl'
+import { AgentConfigAdoptionStatus } from '../onboarding/agentConfigAdoption'
 import MulticodeMark from '../brand/MulticodeMark'
 import {
   GeneralSettingsIcon,
@@ -1109,6 +1110,9 @@ export default function SettingsPanel({
   const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
   const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
   const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
+  // Session-scoped: adoption runs at the first workspace creation, and this is
+  // where its outcome is reported. Null (and so silent) in every later session.
+  const agentConfigAdoptionResult = useWorkspaceStore((s) => s.agentConfigAdoptionResult)
   // Detection map shared with the deployment pickers — drives the at-a-glance
   // status on every CLI row without a per-row probe.
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
@@ -2186,6 +2190,11 @@ export default function SettingsPanel({
           {cliInstallMessage ? (
             <MessageBlock tone={cliInstallMessage.tone}>{cliInstallMessage.text}</MessageBlock>
           ) : null}
+          {/* First-run agent-config adoption. It runs silently at the first
+              workspace creation — the user is never asked — so this line is the
+              only place it is ever reported. Renders nothing unless an adoption
+              actually ran this session, and says so plainly when it failed. */}
+          <AgentConfigAdoptionStatus adoption={agentConfigAdoptionResult} />
           {/* The batch availability probe failing is a different fact from a
               plugin registry failure, and until now it was surfaced nowhere at
               all: every row simply read "Not found". */}

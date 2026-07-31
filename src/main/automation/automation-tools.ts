@@ -26,6 +26,7 @@ import type {
 } from '../ipc/sprintengine-ipc'
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
+import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../shared/automations/contracts'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import type {
   BacklogAddOrUpdateLinkInput,
@@ -73,7 +74,14 @@ const CONFIRM_POLL_INTERVAL_MS = 150
 
 // External callers get only these two presets; `bypass_all` is refused at the
 // tool boundary everywhere (epic decision 4, same policy as automation.create).
+// Order matters: the first entry is what an omitted preset resolves to.
 const LAUNCH_PERMISSION_PRESETS = ['default', 'auto_workspace'] as const
+
+// The built-in action kinds that launch a CLI agent, and so resolve a permission
+// preset (`runLocalAutomationAction` dispatches on exactly these two literals;
+// `run-skill-loop` reuses `parseSpawnAgentConfig`). Local because the automation
+// contracts carry no exported list yet — collapse this into one when they do.
+const AGENT_BACKED_ACTION_KINDS: readonly string[] = ['spawn-agent', 'run-skill-loop']
 
 // The built-in Backlog skill id backlog.work installs and invokes; the skill
 // contract owns item lifecycle through backlog.update, while this handoff tool
@@ -400,7 +408,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       worktreeName = optionalString(rawName)
     }
     return {
-      permissionPreset: optionalString(args.permissionPreset) as SprintEngineCliPermissionPreset | undefined,
+      // Always resolved, never forwarded as undefined: the renderer fills an
+      // absent preset from the user's last spawn choice, which ships as
+      // `bypass_all` — so omitting the key reached the preset this surface
+      // refuses. An external caller that names none gets the most restrictive
+      // allowed value.
+      permissionPreset: (optionalString(args.permissionPreset) as SprintEngineCliPermissionPreset | undefined)
+        ?? LAUNCH_PERMISSION_PRESETS[0],
       worktreeRequested,
       worktreeName,
     }
@@ -1062,9 +1076,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     description:
       'Create an Automation definition through the same validated pipeline the UI uses (provider/permission '
       + 'checks, schedule validation, workspace-root trust). The definition object carries name, trigger '
-      + '{kind, config}, action {kind, config}, and optional status/autonomyDefault. Agent-backed actions with '
-      + 'permissionPreset "bypass_all" are refused on this surface — that preset can only be set by a person in '
-      + 'the app.',
+      + '{kind, config}, action {kind, config}, and an optional status. An agent-backed action must name '
+      + 'permissionPreset "default" or "auto_workspace": naming none runs the agent unattended on "bypass_all", '
+      + 'which is refused on this surface — that preset can only be set by a person in the app.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1073,7 +1087,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'object',
           description:
             'Automation definition draft: { name, trigger: { kind, config }, action: { kind, config }, '
-            + 'status?, autonomyDefault? }. See automation.list output for the shape of existing definitions.',
+            + 'status? }. See automation.list output for the shape of existing definitions.',
         },
       },
       required: ['workspaceId', 'definition'],
@@ -1085,12 +1099,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (typeof args.definition !== 'object' || args.definition === null || Array.isArray(args.definition)) {
         return failure('invalid_arguments', '"definition" must be an object.')
       }
-      const preset = actionPermissionPreset(args.definition)
+      const preset = resolvedActionPermissionPreset(args.definition)
       if (preset === 'bypass_all') {
         return failure(
           'permission_preset_not_allowed',
-          'Automations created over the automation surface may not use permissionPreset "bypass_all". '
-            + 'A person can set that preset in the Automations panel if it is genuinely needed.'
+          'Automations created over the automation surface may not run on permissionPreset "bypass_all", which is '
+            + 'what an agent-backed automation runs on when it names no preset — name "default" or "auto_workspace" '
+            + 'explicitly. A person can set that preset in the Automations panel if it is genuinely needed.'
         )
       }
       const resolved = resolveWorkspaceRoot(workspaceId)
@@ -2301,15 +2316,23 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
 }
 
 // The definition draft's action config is opaque at this layer; the preset key
-// is the one security-relevant field the tool inspects before handing the
-// draft to the validated pipeline.
-function actionPermissionPreset(definition: object): string | null {
+// is the one security-relevant field the tool inspects before handing the draft
+// to the validated pipeline. It resolves the preset the way the run itself does
+// (parseSpawnAgentConfig): an agent-backed action that names no preset runs on
+// AUTOMATION_DEFAULT_PERMISSION_PRESET, so reading only the literal key would let
+// an external caller reach bypass by omission. Non-agent actions launch no CLI
+// and have no preset to resolve.
+function resolvedActionPermissionPreset(definition: object): string | null {
   const action = (definition as { action?: unknown }).action
   if (typeof action !== 'object' || action === null) return null
+  const kind = (action as { kind?: unknown }).kind
+  const agentBacked = typeof kind === 'string' && AGENT_BACKED_ACTION_KINDS.includes(kind)
   const config = (action as { config?: unknown }).config
-  if (typeof config !== 'object' || config === null) return null
-  const preset = (config as { permissionPreset?: unknown }).permissionPreset
-  return typeof preset === 'string' ? preset : null
+  const preset = typeof config === 'object' && config !== null
+    ? (config as { permissionPreset?: unknown }).permissionPreset
+    : undefined
+  if (typeof preset === 'string') return preset
+  return agentBacked ? AUTOMATION_DEFAULT_PERMISSION_PRESET : null
 }
 
 // Archived items live under backlog/archived/ (path-derived, matching the

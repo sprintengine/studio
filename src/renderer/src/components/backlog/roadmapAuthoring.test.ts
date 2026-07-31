@@ -13,7 +13,6 @@ import {
   draftFromRoadmap,
   entryPickerOptions,
   entryPickerOptionsMulti,
-  epicEntryDrift,
   isDraftDirty,
   makeEntry,
   makeProjectEntry,
@@ -25,11 +24,9 @@ import {
   refDisplayMapMulti,
   removeEntry,
   removeLane,
-  resyncEpicEntry,
   roadmapItemStates,
   roadmapProjectAlias,
   setEntryRoster,
-  snapshotEpicChildren,
   splitLane,
   structureChanged,
   type RoadmapProjectItems,
@@ -61,13 +58,10 @@ const CANONICAL_BODY = `# Payments roadmap
 ## Backend
 - backlog/foo.md
 - backlog/epics/auth.md
-  - backlog/auth-login.md
-  - backlog/auth-logout.md
 
 ## Frontend
 - backlog/bar.md
 - backlog/epics/billing.md
-  - backlog/bill-setup.md
 - backlog/baz.md
 `
 
@@ -131,7 +125,7 @@ run('round-trip: a structural edit re-emits a canonical body under the same fron
   const baseline = draftFromRoadmap(roadmap)
   const draft = draftFromRoadmap(roadmap)
   // Append a loose item to the first track.
-  draft.lanes = addEntry(draft.lanes, 0, makeEntry(SCAN, 'backlog/bar.md'))
+  draft.lanes = addEntry(draft.lanes, 0, makeEntry('backlog/bar.md'))
   assert.equal(structureChanged(baseline, draft), true)
   const saved = composeRoadmapSaveContent(ROADMAP_FILE, baseline, draft)
   // Frontmatter block preserved exactly; body is the re-parsed canonical form.
@@ -150,52 +144,22 @@ run('round-trip: a structural edit re-emits a canonical body under the same fron
 })
 
 // ---------------------------------------------------------------------------
-// Epic snapshot + drift (acceptance criterion 3)
+// Entry construction: epic steps are BARE references (MC-2031)
 // ---------------------------------------------------------------------------
 
-run('makeEntry: an epic ref snapshots its live children in scan order', () => {
-  const entry = makeEntry(SCAN, 'backlog/epics/auth.md')
+run('makeEntry: an epic ref is a bare step, carrying no membership', () => {
+  const entry = makeEntry('backlog/epics/auth.md')
   assert.equal(entry.kind, 'epic')
-  assert.deepEqual(entry.children, ['backlog/auth-login.md', 'backlog/auth-logout.md'])
+  assert.deepEqual(Object.keys(entry).sort(), ['kind', 'projectKey', 'ref', 'relativePath'])
 })
 
-run('makeEntry: an item ref carries no children', () => {
-  const entry = makeEntry(SCAN, 'backlog/foo.md')
-  assert.equal(entry.kind, 'item')
-  assert.deepEqual(entry.children, [])
+run('makeEntry: an item ref is an item step', () => {
+  assert.equal(makeEntry('backlog/foo.md').kind, 'item')
 })
 
 run('makeEntry: an unresolved ref is still added (surfaced as dangling later)', () => {
-  const entry = makeEntry(SCAN, 'backlog/ghost.md')
+  const entry = makeEntry('backlog/ghost.md')
   assert.equal(entry.kind, 'item')
-})
-
-run('epicEntryDrift: null when the snapshot matches live membership', () => {
-  const entry = makeEntry(SCAN, 'backlog/epics/auth.md')
-  assert.equal(epicEntryDrift(SCAN, entry), null)
-})
-
-run('epicEntryDrift: reports gained + removed after membership shifts', () => {
-  const entry = makeEntry(SCAN, 'backlog/epics/auth.md')
-  const shifted: BacklogItem[] = [
-    ...SCAN.filter((i) => i.relativePath !== 'backlog/auth-logout.md'),
-    item({ relativePath: 'backlog/auth-reset.md', title: 'Reset', epic: 'auth' }),
-  ]
-  const drift = epicEntryDrift(shifted, entry)
-  assert.ok(drift)
-  assert.deepEqual(drift.gained, ['backlog/auth-reset.md'])
-  assert.deepEqual(drift.removed, ['backlog/auth-logout.md'])
-})
-
-run('resyncEpicEntry: replaces the snapshot with live membership', () => {
-  const lanes = [{ title: 'T', entries: [makeEntry(SCAN, 'backlog/epics/auth.md')] }]
-  const shifted: BacklogItem[] = [
-    ...SCAN.filter((i) => i.relativePath !== 'backlog/auth-logout.md'),
-    item({ relativePath: 'backlog/auth-reset.md', title: 'Reset', epic: 'auth' }),
-  ]
-  const next = resyncEpicEntry(shifted, lanes, 0, 0)
-  assert.deepEqual(next[0].entries[0].children, ['backlog/auth-login.md', 'backlog/auth-reset.md'])
-  assert.equal(epicEntryDrift(shifted, next[0].entries[0]), null)
 })
 
 // ---------------------------------------------------------------------------
@@ -204,8 +168,8 @@ run('resyncEpicEntry: replaces the snapshot with live membership', () => {
 
 function twoTracks() {
   return [
-    { title: 'A', entries: [makeEntry(SCAN, 'backlog/foo.md'), makeEntry(SCAN, 'backlog/bar.md')] },
-    { title: 'B', entries: [makeEntry(SCAN, 'backlog/baz.md')] },
+    { title: 'A', entries: [makeEntry('backlog/foo.md'), makeEntry('backlog/bar.md')] },
+    { title: 'B', entries: [makeEntry('backlog/baz.md')] },
   ]
 }
 
@@ -278,18 +242,20 @@ run('entryPickerOptions excludes roadmaps and archived items', () => {
 })
 
 run('draftContainsRef finds an added entry', () => {
-  const lanes = addEntry([{ title: 'A', entries: [] }], 0, makeEntry(SCAN, 'backlog/foo.md'))
+  const lanes = addEntry([{ title: 'A', entries: [] }], 0, makeEntry('backlog/foo.md'))
   assert.equal(draftContainsRef(lanes, 'backlog/foo.md'), true)
   assert.equal(draftContainsRef(lanes, 'backlog/bar.md'), false)
 })
 
-run('roadmapItemStates carries status + dependsOn from the scan', () => {
-  const states = roadmapItemStates([item({ relativePath: 'backlog/x.md', status: 'ready', dependsOn: ['foo'] })])
+run('roadmapItemStates carries status, dependsOn and epic membership from the scan', () => {
+  const states = roadmapItemStates([
+    item({ relativePath: 'backlog/x.md', status: 'ready', dependsOn: ['foo'] }),
+    item({ relativePath: 'backlog/bill-setup.md', status: 'ready', epic: 'billing' }),
+  ])
   assert.deepEqual(states[0], { ref: 'backlog/x.md', status: 'ready', dependsOn: ['foo'] })
-})
-
-run('snapshotEpicChildren returns member paths for the epic slug', () => {
-  assert.deepEqual(snapshotEpicChildren(SCAN, 'backlog/epics/billing.md'), ['backlog/bill-setup.md'])
+  // `epic` is the axis an epic STEP resolves its members through — without it the
+  // horizon would have no membership at all.
+  assert.equal(states[1].epic, 'billing')
 })
 
 run('newRoadmapFileContent parses into a roadmap with default policy and one empty track', () => {
@@ -333,14 +299,13 @@ run('roadmapProjectAlias: slugifies and dedupes against taken aliases', () => {
   assert.equal(roadmapProjectAlias('multicode mobile', new Set(['multicode-mobile'])), 'multicode-mobile-2')
 })
 
-run('makeProjectEntry: a home epic is unqualified; a mobile epic is alias-qualified and snapshots its project', () => {
+run('makeProjectEntry: a home epic is unqualified; a mobile epic is alias-qualified', () => {
   const home = makeProjectEntry(HOME, 'backlog/epics/auth.md')
   assert.equal(home.ref, 'backlog/epics/auth.md')
   assert.equal(home.projectKey, null)
   const mobile = makeProjectEntry(MOBILE, 'backlog/epics/sync.md')
   assert.equal(mobile.ref, 'mobile:backlog/epics/sync.md')
   assert.equal(mobile.projectKey, 'mobile')
-  assert.deepEqual(mobile.children, ['backlog/sync-a.md', 'backlog/sync-b.md'])
 })
 
 run('acceptance #1: drag an item from A and an epic from B, reorder — file reflects the order with project-qualified refs + a projects map', () => {
@@ -358,7 +323,6 @@ run('acceptance #1: drag an item from A and an epic from B, reorder — file ref
   assert.deepEqual(reparsed.lanes[0].entries.map((e) => e.ref), ['mobile:backlog/epics/sync.md', 'backlog/foo.md'])
   const epicEntry = reparsed.lanes[0].entries[0]
   assert.equal(epicEntry.projectKey, 'mobile')
-  assert.deepEqual(epicEntry.children, ['backlog/sync-a.md', 'backlog/sync-b.md'])
   assert.deepEqual(reparsed.projects, [{ alias: 'mobile', path: '/abs/mobile' }])
   // No parse issues: the alias resolves against the projects map it wrote.
   assert.deepEqual(reparsed.issues, [])
@@ -397,7 +361,7 @@ run('refDisplayMapMulti + entryPickerOptionsMulti: keyed by authored ref across 
   assert.ok(!values.includes('mobile:backlog/roadmaps/mobile.md'))
 })
 
-run('snapshotEpicChildren: finished members never ride into a new plan', () => {
+run('addLibraryEntry: an epic lands as one bare step, whatever its members are doing', () => {
   const project: RoadmapProjectItems = {
     projectKey: null,
     projectName: 'multicode',
@@ -406,18 +370,16 @@ run('snapshotEpicChildren: finished members never ride into a new plan', () => {
       item({ relativePath: 'backlog/epics/hardening.md', title: 'Hardening', isEpic: true }),
       item({ relativePath: 'backlog/open-a.md', title: 'Open A', epic: 'hardening' }),
       item({ relativePath: 'backlog/done-b.md', title: 'Done B', epic: 'hardening', status: 'completed' }),
-      item({ relativePath: 'backlog/gone-c.md', title: 'Gone C', epic: 'hardening', status: 'archived' }),
     ],
   }
   const baseline = draftFromRoadmap(parseRoadmap(newRoadmapFileContent('P')))
   const draft = addLibraryEntry(baseline, 0, project, 'backlog/epics/hardening.md')
   const entry = draft.lanes[0].entries[0]
   assert.equal(entry.kind, 'epic')
-  // Only the open member is snapshotted — the step plans what remains.
-  assert.deepEqual(entry.children, ['backlog/open-a.md'])
-  // And the drift check agrees: an already-open-only snapshot reports no drift,
-  // so "Update" never offers to re-add delivered work.
-  assert.equal(epicEntryDrift(project.items, entry), null)
+  // Nothing about the epic's membership is captured, so nothing can go stale.
+  assert.deepEqual(Object.keys(entry).sort(), ['kind', 'projectKey', 'ref', 'relativePath'])
+  const saved = composeRoadmapSaveContent(newRoadmapFileContent('P'), baseline, draft)
+  assert.doesNotMatch(saved, /^\s+- /m, 'the written plan carries no indented member lines')
 })
 
 // ---------------------------------------------------------------------------
@@ -490,9 +452,9 @@ run('setEntryRoster: an out-of-range index is a no-op, and other tracks are unto
 })
 
 run('buildRoadmapEntry: an optional roster rides the constructed entry', () => {
-  assert.equal(buildRoadmapEntry(null, 'backlog/foo.md', [], 'Mobile UI').roster, 'Mobile UI')
-  assert.equal('roster' in buildRoadmapEntry(null, 'backlog/foo.md', []), false)
-  assert.equal('roster' in buildRoadmapEntry(null, 'backlog/foo.md', [], '  '), false)
+  assert.equal(buildRoadmapEntry(null, 'backlog/foo.md', 'Mobile UI').roster, 'Mobile UI')
+  assert.equal('roster' in buildRoadmapEntry(null, 'backlog/foo.md'), false)
+  assert.equal('roster' in buildRoadmapEntry(null, 'backlog/foo.md', '  '), false)
 })
 
 let failures = 0

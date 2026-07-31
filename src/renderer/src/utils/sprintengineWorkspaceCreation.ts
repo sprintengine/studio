@@ -175,6 +175,9 @@ function buildSprintEngineInitSourceSeed(
       origin: 'reference',
       path: item.sourceRelativePath,
       capturedAt,
+      // Carried into run.yaml so the planner can enumerate the epic's children
+      // one-to-one and plan approval can warn about one it left undelivered.
+      ...(item.epicChild === true ? { epicChild: true } : {}),
     })),
   }
 }

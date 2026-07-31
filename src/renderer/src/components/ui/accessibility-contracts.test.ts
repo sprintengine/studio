@@ -239,30 +239,31 @@ expectIncludes(rendererCss, '--shadow-drawer:', 'Canonical drawer elevation toke
 expectIncludes(rendererCss, '.drawer-panel', 'Canonical .drawer-panel slide/elevation class is defined in index.css')
 expectIncludes(rendererCss, 'box-shadow: var(--shadow-drawer)', '.drawer-panel applies the canonical drawer elevation')
 
-// OnboardingFlow — first-run overlay. Hand-rolls the dialog (not the Modal/Drawer
-// primitive) because it renders steps over a real workspace, but it must enforce
-// the same keyboard focus trap so a sighted keyboard user cannot Tab into the
-// obscured workspace on the first-run step (WCAG 2.4.3). The intentional
-// no-Escape / no-backdrop-dismiss behaviour stays: the primary button is the
-// only way forward on a fresh install.
-const onboardingFlow = read('src/renderer/src/components/onboarding/OnboardingFlow.tsx')
-expectIncludes(onboardingFlow, 'role="dialog"', 'OnboardingFlow exposes the dialog role')
-expectIncludes(onboardingFlow, 'aria-modal="true"', 'OnboardingFlow marks the overlay modal')
-expectIncludes(onboardingFlow, 'aria-labelledby={titleId}', 'OnboardingFlow wires aria-labelledby to its step title')
-expectIncludes(onboardingFlow, 'data-focus-sentinel="true"', 'OnboardingFlow installs focus sentinels to trap focus')
-expectIncludes(onboardingFlow, 'trapFocus', 'OnboardingFlow wires the focus-trap helper')
-expectIncludes(onboardingFlow, "onFocus={trapFocus('start')}", 'OnboardingFlow wraps focus to the last control from the leading sentinel')
-expectIncludes(onboardingFlow, "onFocus={trapFocus('end')}", 'OnboardingFlow wraps focus to the first control from the trailing sentinel')
-// The first-run step renders over a real workspace whose terminal autofocuses
-// AFTER the dialog mounts, so sentinels alone cannot keep focus inside. A
-// document focusin guard recovers focus into the dialog when it escapes behind
-// the overlay (WCAG 2.4.3).
-expectIncludes(onboardingFlow, "addEventListener('focusin'", 'OnboardingFlow installs a document focusin guard to recover focus into the dialog')
-expectIncludes(onboardingFlow, 'dialog.contains(target)', 'OnboardingFlow focusin guard only recovers focus when it escapes the dialog')
+// FirstRunCliCard — the one surviving first-run question. Deliberately NOT a
+// dialog: the onboarding wizard it replaced hand-rolled a modal with a focus
+// trap and no Escape, because on a fresh install there was nothing usable behind
+// it. There is now — the sidebar, the doors and the workspace all stay live — so
+// trapping focus or blocking Escape here would be a WCAG 2.4.3 regression
+// dressed up as rigour. It is a card the user may simply ignore, with one
+// explicit dismiss.
+const firstRunCliCard = read('src/renderer/src/components/onboarding/FirstRunCliCard.tsx')
 assert.ok(
-  !/event\.key === 'Escape'/.test(onboardingFlow),
-  'OnboardingFlow keeps the intentional no-Escape behaviour (no Escape dismiss handler)',
+  !/role="dialog"/.test(firstRunCliCard),
+  'FirstRunCliCard is a card, not a dialog — the app behind it is usable',
 )
+assert.ok(
+  !/aria-modal/.test(firstRunCliCard),
+  'FirstRunCliCard never claims to be modal',
+)
+assert.ok(
+  !/data-focus-sentinel/.test(firstRunCliCard) && !/trapFocus/.test(firstRunCliCard),
+  'FirstRunCliCard traps no focus: everything behind it stays reachable by keyboard',
+)
+// The backdrop must not eat clicks meant for the workspace behind it — the card
+// itself takes pointer events, the region it centres in does not.
+expectIncludes(firstRunCliCard, 'pointer-events-none', 'FirstRunCliCard lets clicks through its centring region')
+expectIncludes(firstRunCliCard, 'pointer-events-auto', 'FirstRunCliCard itself is interactive')
+expectIncludes(firstRunCliCard, 'Not now', 'FirstRunCliCard offers an explicit dismiss')
 
 // Toast — tone-driven live region. Polite/assertive split keys off StatusDot tones.
 expectMatches(toast, /neutral:\s*'status'/, 'Toast routes neutral tone to role="status"')

@@ -13,10 +13,11 @@
 
 import { realpath } from 'fs/promises'
 
-import { addOrUpdateBacklogLink, readBacklogObjectStore, updateBacklogStatus } from './backlog-service'
+import { addOrUpdateBacklogLink, isBacklogEpicRelativePath, readBacklogObjectStore } from './backlog-service'
 import {
   buildSprintEnginePullRequestLink,
   buildSprintEngineRunLink,
+  isSprintEngineChildRunLink,
   runRelativePathForStatePath,
   safeProjectRelativeRunPath,
   sprintEnginePullRequestLinksOf,
@@ -63,10 +64,6 @@ async function resolveRunRelativePath(workspaceRoot: string, statePath: string):
   return resolved === workspaceRoot ? null : runRelativePathForStatePath(resolved, statePath)
 }
 
-// Statuses a run start must never pull backwards. An epic child already being
-// worked (or already finished) is not reset because a sibling sprint launched.
-const nonRegressingStatuses = new Set<BacklogItemStatusPayload>(['in_progress', 'completed', 'archived'])
-
 /**
  * Record the run -> item execution link on the originating Backlog item and move
  * it to `in_progress`, mirroring the desktop creation flow.
@@ -75,8 +72,13 @@ const nonRegressingStatuses = new Set<BacklogItemStatusPayload>(['in_progress', 
  * correspondence that exists, and `attachSprintEnginePullRequestLink` finds the
  * originating item by scanning for it. No execution link, no PR link, ever.
  *
- * `childRelativePaths` are the epic's children, flipped to `in_progress` so the
- * whole epic shows the sprint at once.
+ * `childRelativePaths` are the launched epic's children. They get the same run
+ * link, recorded `pending` and remembering the status they held (MC-2017): a
+ * child moves to `in_progress` when its own task claims, lands only when the
+ * sprint does, and goes back to `priorStatus` if the sprint is abandoned. This
+ * writer must stay identical to the desktop one — a phone-started epic and a
+ * desktop-started one are the same run, and the projection tick that drives these
+ * links cannot tell (or care) which wrote them.
  */
 export async function recordSprintEngineExecutionLink(input: {
   workspaceRoot: string
@@ -93,20 +95,30 @@ export async function recordSprintEngineExecutionLink(input: {
     }
   }
 
+  // An epic derives its status from its children and is never written one. A
+  // launch that fans out to children IS an epic launch, whatever the file is
+  // called — the caller only resolves children for an epic — so that, not the
+  // `backlog/epics/` path alone, is what decides.
+  const isEpicSource =
+    (input.childRelativePaths?.length ?? 0) > 0 || isBacklogEpicRelativePath(input.relativePath)
   const linked = await addOrUpdateBacklogLink({
     workspaceRoot: input.workspaceRoot,
     relativePath: input.relativePath,
     link: buildSprintEngineRunLink({ teamSlug, runRelativePath }),
-    status: 'in_progress',
+    ...(isEpicSource ? {} : { status: 'in_progress' as const }),
   })
   if (!linked.ok) return linked
 
   for (const child of input.childRelativePaths ?? []) {
-    if (nonRegressingStatuses.has(child.status)) continue
-    const childResult = await updateBacklogStatus({
+    const childResult = await addOrUpdateBacklogLink({
       workspaceRoot: input.workspaceRoot,
       relativePath: child.relativePath,
-      status: 'in_progress',
+      link: buildSprintEngineRunLink({
+        teamSlug,
+        runRelativePath,
+        status: 'pending',
+        priorStatus: child.status,
+      }),
     })
     if (!childResult.ok) return childResult
   }
@@ -164,7 +176,10 @@ export async function attachSprintEnginePullRequestLink(input: {
 
   for (const record of store.store.items) {
     const matched = (record.links ?? []).some((link) => {
-      if (link.type !== 'execution') return false
+      // An epic child links the same run, but the pull request belongs to the
+      // sprint and one copy on the launched epic is where a person looks for it —
+      // the renderer's projection tick draws the same line (MC-2017).
+      if (link.type !== 'execution' || isSprintEngineChildRunLink(link)) return false
       const linkPath = link.target.path ? safeProjectRelativeRunPath(link.target.path) : null
       if (!linkPath) return false
       return [...roots].some((root) => `${root}/${pathKey(linkPath)}` === targetKey)

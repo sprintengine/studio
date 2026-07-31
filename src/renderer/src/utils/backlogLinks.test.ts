@@ -298,6 +298,39 @@ async function main(): Promise<void> {
   assert.equal(activeSync.persistError, null)
   assert.deepEqual(persistedActive, [{ status: 'in_progress', linkStatus: 'active' }])
 
+  // MC-2017: a `pending` execution link is work that is recorded but not started
+  // (an epic child whose task has not claimed). It refreshes the stored chip and
+  // is as lifecycle-neutral as an `unknown` one — the item is left alone. The
+  // link's `priorStatus` must survive that write: it is the only record of what
+  // to put the child back to if the sprint is canceled, and stripping it here
+  // would disarm the restore the moment someone opened the Backlog surface.
+  const pendingHost = createRendererHost()
+  pendingHost.hostFor('sprint-engine').registerBacklogLinkProvider(
+    provider('sprint-engine', ['sprintengine.run'], 'pending'),
+  )
+  const persistedPending: BacklogItemLink[] = []
+  const pendingSync = await syncBacklogItemLinks({
+    workspaceId: 'ws',
+    workspaceRoot: '/repo',
+    item: {
+      ...baseItem,
+      status: 'ready',
+      links: [{ ...sprintRunLink, status: 'active', priorStatus: 'ready' }],
+    },
+    providers: pendingHost.getBacklogLinkProviders(() => true),
+    persistLink: async (args) => {
+      persistedPending.push(args.link)
+      assert.equal(args.status, undefined, 'a pending link never carries an item status')
+      return { ok: true }
+    },
+  })
+  assert.equal(pendingSync.itemStatus, 'ready', 'a pending execution link leaves the item exactly where it was')
+  assert.deepEqual(
+    persistedPending.map((link) => [link.status, link.priorStatus]),
+    [['pending', 'ready']],
+    'the chip refreshes and the restore target survives the round trip',
+  )
+
   // An unavailable resolution renders but is never persisted, so a transient
   // unreadable run cannot clobber a stored status.
   const unknownProviders = syncHost.getBacklogLinkProviders(() => false)

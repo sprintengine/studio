@@ -31,7 +31,7 @@ import {
 import type { MarketplaceResourceResolver } from './resources'
 
 export const MARKETPLACE_PLUGIN_INSTALLS_FILENAME = 'marketplace-plugin-installs.json'
-const RECEIPT_COMPONENT_KINDS = new Set(['mcp', 'skills', 'module', 'cli'])
+const RECEIPT_COMPONENT_KINDS = new Set(['mcp', 'skills', 'module', 'cli', 'automation'])
 
 export type MarketplacePluginInstallReceipt = {
   id: string
@@ -185,6 +185,7 @@ export async function installOrUpdateMarketplacePlugin(
       mcpSettings: input.mcpSettings,
       mcpClients: input.mcpClients,
       skillHarnesses: input.skillHarnesses,
+      ...(input.automationDefaultCli ? { automationDefaultCli: input.automationDefaultCli } : {}),
     }
     const installed = await installMarketplacePlugin(installInput, services)
     if (!installed.ok) {
@@ -800,6 +801,13 @@ async function uninstallReceipt(
             reloadPlugins()
           }
           break
+        case 'automation':
+          // Deliberately left in place (owner ruling): an added automation is
+          // the user's from the moment it lands — they name it, edit it, and
+          // schedule it against their own repo. Silently deleting a scheduled
+          // job because the plugin that shipped its starter went away is worse
+          // than leaving a record they can see and remove themselves.
+          break
       }
       removed.push(component)
     } catch (error) {
@@ -962,6 +970,10 @@ function filesystemComponentPaths(
         paths.push(join((services.pluginRoot ?? getPluginRegistryUserRoot)(), component.id))
         break
       case 'mcp':
+      // An automation is a store record, not a path, and an update never
+      // rewrites it: the receipt's id keeps pointing at the record the first
+      // install created, so there is nothing to snapshot or restore.
+      case 'automation':
         break
     }
   }

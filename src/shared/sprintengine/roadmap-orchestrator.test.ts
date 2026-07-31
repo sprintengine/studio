@@ -391,7 +391,7 @@ test('a pre-migration child-keyed active handle on a planned epic is NOT an orph
   // The lane's handle names a MEMBER of the planned epic step (old granularity).
   // That run still delivers the step — keep watching it, never start a second.
   const epicRoadmap = parseRoadmap(
-    '---\ntype: roadmap\nadvance: auto\n---\n\n## Backend\n- backlog/epics/auth.md\n  - backlog/c1.md\n',
+    '---\ntype: roadmap\nadvance: auto\n---\n\n## Backend\n- backlog/epics/auth.md\n',
   )
   const runtimes = new Map<string, RoadmapLaneRuntime>([
     ['Backend', { lane: 'Backend', activeItemRef: qref('backlog/c1.md') }],
@@ -399,7 +399,12 @@ test('a pre-migration child-keyed active handle on a planned epic is NOT an orph
   const result = reconcileRoadmap(
     baseInput({
       roadmap: epicRoadmap,
-      items: [item('backlog/epics/auth.md', 'in_progress'), item('backlog/c1.md', 'in_progress')],
+      // c1 is a member of the auth step by its own `epic:` pointer (MC-2031) —
+      // which is what makes the legacy member-keyed handle a planned key.
+      items: [
+        item('backlog/epics/auth.md', 'in_progress'),
+        { ref: 'backlog/c1.md', status: 'in_progress', epic: 'auth' },
+      ],
       laneRuntimes: runtimes,
       observations: new Map([[qref('backlog/c1.md'), observation({ itemRef: qref('backlog/c1.md') })]]),
     }),

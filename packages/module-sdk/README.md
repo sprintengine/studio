@@ -216,7 +216,6 @@ export const registerMain: RegisterMain = (host) => {
         // `timezone`, fires once, then the automation shows no upcoming run.
         trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'UTC' } },
         action: { kind: 'my-module.build-digest', config: {} },
-        autonomyDefault: 'review_only',
       },
     })
     return created // { ok: true, automation } | { ok: false, code, message }

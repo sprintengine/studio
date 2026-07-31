@@ -674,6 +674,13 @@ export type SprintEngineSourceBundleItem = {
   sourcePath: string
   sourceRelativePath: string
   sourceContent: string
+  /**
+   * This entry IS one of the launched epic's child items — a unit of work the
+   * planner mints exactly one task for — rather than supporting reading
+   * material (an attached mockup, a design-system note) that happens to share
+   * the bundle. Only set on an `epic` launch; the engine ignores it elsewhere.
+   */
+  epicChild?: boolean
 }
 
 export type SprintEngineSource = {
@@ -691,6 +698,8 @@ export type SprintEngineSourceBundleStateItem = {
   path: string
   originalPath?: string
   capturedAt?: string
+  /** See {@link SprintEngineSourceBundleItem.epicChild}. */
+  epicChild?: boolean
 }
 
 /**
@@ -700,6 +709,20 @@ export type SprintEngineSourceBundleStateItem = {
  * sprintengine_core/tool/shell.py); a contract test pins them together.
  */
 export const DEFAULT_SPRINTENGINE_TASK_REPO = 'primary'
+
+/**
+ * The one backlog item a task delivers. Single-valued and optional: it is the
+ * identity the Epic tab's mapping column, the child→task link, and the task
+ * header pointer all key on, and the engine rejects a second task pointing at
+ * the same item. Distinct from {@link SprintEngineTask.sourceDocs} (a reading
+ * list) and {@link SprintEngineTaskSource} (bidirectional tracker sync).
+ */
+export type SprintEngineTaskBacklogRef = {
+  /** Project-root-relative, POSIX-separated path to the backlog item file. */
+  projectRelativePath: string
+  /** The item's human key when known, e.g. `MC-1843`. */
+  displayKey?: string
+}
 
 export type SprintEngineTask = {
   id: string
@@ -744,6 +767,8 @@ export type SprintEngineTask = {
   implementationNotes: string[]
   /** Canonical source documents (reference-sourced runs): the worker's read-in-full brief. */
   sourceDocs?: string[]
+  /** The backlog item this task delivers, when it delivers one. */
+  backlogRef?: SprintEngineTaskBacklogRef
   evidence: SprintEngineTaskEvidence
   feedback?: SprintEngineTaskFeedback
   /** Reviewer assessments captured against this task (one per review pass). */

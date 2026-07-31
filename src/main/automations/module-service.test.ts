@@ -50,7 +50,6 @@ function draft(overrides: Partial<AutomationDefinitionDraft> = {}): AutomationDe
     status: 'paused',
     trigger: { kind: 'fixture-trigger', config: {} },
     action: { kind: 'fixture-action', config: {} },
-    autonomyDefault: 'review_only',
     ...overrides,
   }
 }
@@ -62,7 +61,6 @@ function definitionRecord(id: string, ownerModuleId?: string): AutomationDefinit
     status: 'paused',
     trigger: { kind: 'fixture-trigger', config: {} },
     action: { kind: 'fixture-action', config: {} },
-    autonomyDefault: 'review_only',
     ...(ownerModuleId === undefined ? {} : { ownerModuleId }),
     nextRunAt: null,
     lastRunAt: null,
@@ -303,7 +301,6 @@ function testEnabledPastAtCadenceSavesWithNoUpcomingRun(): void {
         config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'at', datetime: '2020-01-01T09:00' } },
       },
       action: { kind: 'fixture-action', config: {} },
-      autonomyDefault: 'review_only',
       nextRunAt: null,
       lastRunAt: null,
       lastRunId: null,

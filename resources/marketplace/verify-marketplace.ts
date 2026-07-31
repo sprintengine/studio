@@ -4,17 +4,25 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import { buildSync } from 'esbuild'
 
+import {
+  marketplaceAutomationPayloadIssuesSync,
+  marketplaceComponentDigestMismatchIssuesSync,
+} from '../../packages/module-sdk/src/plugin-component-digests'
 import { normalizeMcpServerConfig } from '../../src/main/mcp-config-service'
 import { verifyBundledSkillFolder } from '../../src/main/marketplace/skill-content'
 import {
   MARKETPLACE_COMPONENT_KINDS,
   MARKETPLACE_EXTRA_HOSTS_ENV,
+  hasCodeBearingComponent,
   isMarketplaceSourceHostAllowed,
   parseMarketplaceExtraHosts,
   parseMarketplaceIndex,
+  parseMarketplacePluginAuthoringManifest,
   parseMarketplacePluginManifest,
   type MarketplaceComponentKind,
   type MarketplaceManifestIssue,
+  type MarketplacePluginAuthoringManifest,
+  type MarketplacePluginEntry,
   type MarketplacePluginManifest,
 } from '../../src/shared/marketplace'
 
@@ -97,7 +105,7 @@ function isInsideOrEqual(parent: string, candidate: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
-function componentKinds(manifest: MarketplacePluginManifest): MarketplaceComponentKind[] {
+function componentKinds(manifest: Pick<MarketplacePluginManifest, 'components'>): MarketplaceComponentKind[] {
   return MARKETPLACE_COMPONENT_KINDS.filter((kind) => manifest.components[kind] !== undefined)
 }
 
@@ -218,9 +226,18 @@ function validateEntrySource(entryId: string, source: string, issues: Verificati
  * Generated/unsigned entries carry self-contained icons (data: URI or an
  * https URL); only registry-relative icon paths must resolve to a committed
  * file. A remote icon is display-only, never fetched at verify time.
+ *
+ * A data URI renders offline and needs no registry base to resolve, which is
+ * why the automation starters use one — but a base64 blob is unreviewable, so
+ * those entries also commit the mark at `icons/<id>.svg`. When both exist they
+ * must be the same bytes: otherwise the reviewed mark and the shipped mark
+ * quietly diverge.
  */
-function validateEntryIcon(root: string, index: number, icon: string, issues: VerificationIssue[]): void {
-  if (icon.startsWith('data:image/')) return
+function validateEntryIcon(root: string, index: number, entryId: string, icon: string, issues: VerificationIssue[]): void {
+  if (icon.startsWith('data:image/')) {
+    assertInlineIconMatchesCommittedMark(root, index, entryId, icon, issues)
+    return
+  }
   if (URL.canParse(icon) && new URL(icon).protocol === 'https:') return
   const iconPath = join(root, icon)
   if (!isInsideOrEqual(root, iconPath) || !existsSync(iconPath)) {
@@ -228,28 +245,136 @@ function validateEntryIcon(root: string, index: number, icon: string, issues: Ve
   }
 }
 
+function assertInlineIconMatchesCommittedMark(
+  root: string,
+  index: number,
+  entryId: string,
+  icon: string,
+  issues: VerificationIssue[]
+): void {
+  const markPath = join(root, 'icons', `${entryId}.svg`)
+  if (!isInsideOrEqual(root, markPath) || !existsSync(markPath)) return
+  const encoded = /^data:image\/svg\+xml;base64,(.*)$/s.exec(icon)?.[1]
+  if (encoded === undefined) {
+    issues.push(issue(
+      `marketplace.json.plugins[${index}].icon`,
+      `icons/${entryId}.svg is committed, so the entry icon must be the base64 SVG data URI of those bytes.`
+    ))
+    return
+  }
+  if (!Buffer.from(encoded, 'base64').equals(readFileSync(markPath))) {
+    issues.push(issue(
+      `marketplace.json.plugins[${index}].icon`,
+      `inline icon does not match the committed mark at icons/${entryId}.svg.`
+    ))
+  }
+}
+
 /**
- * Every committed plugins/<id>/ payload must belong to a SIGNED index entry.
- * Without this sweep, stripping the signature field from an entry would
- * reclassify it as unsigned, skip the CLI verification entirely, and let a
- * tampered committed payload ship — the payload dir is what gets staged by
- * the packaged-seed install path, so its presence always demands a signature.
+ * Every committed plugins/<id>/ payload must be claimed by an index entry that
+ * this verifier actually checked — signed entries through `multicode-module
+ * plugin verify`, unsigned non-code-bearing entries through
+ * {@link validateUnsignedPluginPayload}. The payload dir is what the
+ * packaged-seed install path stages, so an unclaimed one would ship bytes
+ * nothing verified.
  */
 function assertNoOrphanPluginPayloads(
   root: string,
-  signedIds: Set<string>,
+  claimedIds: Set<string>,
   issues: VerificationIssue[]
 ): void {
   const pluginsRoot = join(root, 'plugins')
   if (!existsSync(pluginsRoot)) return
   for (const entry of readdirSync(pluginsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
-    if (!signedIds.has(entry.name)) {
+    if (!claimedIds.has(entry.name)) {
       issues.push(issue(
         `plugins/${entry.name}`,
-        'committed plugin payload has no SIGNED marketplace.json entry; payload dirs require a signed entry.'
+        'committed plugin payload has no verified marketplace.json entry; payload dirs require one.'
       ))
     }
+  }
+}
+
+/**
+ * A committed payload whose entry carries no signature (MC-2036: the automation
+ * starters, which are declarative definitions and so ship unsigned like every
+ * other non-code-bearing bundle). The signature gate is replaced, not dropped:
+ *
+ * - the manifest must parse under the optionally-signed authoring contract;
+ * - it must carry no `module`/`cli` component, mirroring the download and
+ *   install gates that refuse an unsigned code-bearing bundle;
+ * - its component digests must match the committed bytes, so the payload cannot
+ *   drift from what the manifest declares;
+ * - an automation payload must be a valid definition draft, and an MCP
+ *   component must parse — the same per-kind content checks the signed path
+ *   runs, so the two lanes differ only in how identity is proven.
+ *
+ * What a signature would additionally prove — that the bundle came from the
+ * named publisher — is why an unsigned entry may not claim
+ * `publisher.verified`; that rule is enforced on the entry, above.
+ */
+function validateUnsignedPluginPayload(
+  root: string,
+  pluginRoot: string,
+  entry: MarketplacePluginEntry,
+  index: number,
+  issues: VerificationIssue[]
+): void {
+  const manifestPath = join(pluginRoot, 'plugin.json')
+  const manifestResult = parseMarketplacePluginAuthoringManifest(readFileSync(manifestPath, 'utf8'))
+  if (!manifestResult.ok) {
+    issues.push(...formatValidatorIssues(`plugins/${entry.id}/plugin.json`, manifestResult.issues))
+    return
+  }
+  const { manifest } = manifestResult
+  if (manifest.signature !== undefined) {
+    issues.push(issue(
+      `marketplace.json.plugins[${index}].signature`,
+      'committed bundle is signed but its registry entry carries no signature; publish the signature on both.'
+    ))
+    return
+  }
+  if (hasCodeBearingComponent(manifest.components)) {
+    issues.push(issue(
+      `plugins/${entry.id}/plugin.json`,
+      'an unsigned bundle may not carry a module or cli component; sign it before publishing.'
+    ))
+  }
+  issues.push(...formatValidatorIssues(
+    `plugins/${entry.id}/plugin.json`,
+    marketplaceComponentDigestMismatchIssuesSync(pluginRoot, manifest, { bytesLabel: 'committed bytes' })
+  ))
+  issues.push(...formatValidatorIssues(
+    `plugins/${entry.id}/plugin.json`,
+    marketplaceAutomationPayloadIssuesSync(pluginRoot, manifest.components)
+  ))
+  const mcpPath = manifest.components.mcp?.path
+  if (mcpPath) validateMcpComponent(root, pluginRoot, entry.id, mcpPath, issues)
+  assertEntryMatchesManifest(entry, index, manifest, issues)
+}
+
+/**
+ * The registry entry restates the manifest's identity, so the two must agree —
+ * a shelf that lists a different name, version, or component set than the
+ * bundle installs is a lie the user cannot see.
+ */
+function assertEntryMatchesManifest(
+  entry: MarketplacePluginEntry,
+  index: number,
+  manifest: MarketplacePluginAuthoringManifest,
+  issues: VerificationIssue[]
+): void {
+  if (entry.id !== manifest.id) issues.push(issue(`marketplace.json.plugins[${index}].id`, `expected ${manifest.id}, got ${entry.id}.`))
+  if (entry.name !== manifest.displayName) {
+    issues.push(issue(`marketplace.json.plugins[${index}].name`, `expected "${manifest.displayName}", got "${entry.name}".`))
+  }
+  if (entry.latest !== manifest.version) {
+    issues.push(issue(`marketplace.json.plugins[${index}].latest`, `expected ${manifest.version}, got ${entry.latest}.`))
+  }
+  const provides = componentKinds(manifest)
+  if (entry.provides.join(',') !== provides.join(',')) {
+    issues.push(issue(`marketplace.json.plugins[${index}].provides`, `expected ${provides.join(', ')}, got ${entry.provides.join(', ')}.`))
   }
 }
 
@@ -321,33 +446,52 @@ async function validateMarketplace(root: string, cliBundle: string): Promise<Ver
 
   const { marketplace } = marketplaceResult
   const ids = new Set<string>()
-  const signedIds = new Set<string>()
+  const claimedPayloadIds = new Set<string>()
   for (const [index, entry] of marketplace.plugins.entries()) {
     if (ids.has(entry.id)) issues.push(issue(`marketplace.json.plugins[${index}].id`, 'plugin ids must be unique.'))
     ids.add(entry.id)
-    if (entry.signature !== undefined) signedIds.add(entry.id)
 
     if (entry.source !== undefined) validateEntrySource(entry.id, entry.source, issues)
-    validateEntryIcon(root, index, entry.icon, issues)
+    validateEntryIcon(root, index, entry.id, entry.icon, issues)
 
-    // Unsigned entries (source-bearing plugin references and inline-MCP
-    // configs) are legal post-MC-1434: they reference external content, so
-    // there is no local plugins/<id>/ manifest to signature-verify. The app
-    // routes them through the community trust prompt; the schema/source-host/
-    // icon checks above are the whole publish contract for them.
-    if (entry.signature === undefined) {
-      if (entry.mcp !== undefined && entry.provides.join(',') !== 'mcp') {
-        issues.push(issue(`marketplace.json.plugins[${index}].provides`, "inline-MCP entries must set provides to ['mcp']."))
-      }
-      continue
+    // Publisher verification is a signature claim: the fingerprint check below
+    // is the only thing that binds a bundle to its named publisher, so an entry
+    // with no signature has nothing to bind. Enforcing this here is also what
+    // keeps stripping a signature from silently downgrading a first-party
+    // bundle into the unsigned lane.
+    if (entry.publisher.verified && entry.signature === undefined) {
+      issues.push(issue(
+        `marketplace.json.plugins[${index}].publisher.verified`,
+        'a verified publisher is proven by a signature; an unsigned entry may not claim one.'
+      ))
     }
 
     const pluginRoot = join(root, 'plugins', entry.id)
     const pluginManifestPath = join(pluginRoot, 'plugin.json')
-    if (!isInsideOrEqual(root, pluginRoot) || !existsSync(pluginManifestPath)) {
+    const hasCommittedPayload = isInsideOrEqual(root, pluginRoot) && existsSync(pluginManifestPath)
+
+    // Unsigned entries (source-bearing plugin references and inline-MCP
+    // configs) are legal post-MC-1434, and post-MC-2036 an unsigned entry may
+    // also ship a committed bundle when nothing in it is code-bearing — the
+    // automation starters do. Most reference external content only and have no
+    // local manifest at all; the schema/source-host/icon checks above are the
+    // whole publish contract for those.
+    if (entry.signature === undefined) {
+      if (entry.mcp !== undefined && entry.provides.join(',') !== 'mcp') {
+        issues.push(issue(`marketplace.json.plugins[${index}].provides`, "inline-MCP entries must set provides to ['mcp']."))
+      }
+      if (hasCommittedPayload) {
+        claimedPayloadIds.add(entry.id)
+        validateUnsignedPluginPayload(root, pluginRoot, entry, index, issues)
+      }
+      continue
+    }
+
+    if (!hasCommittedPayload) {
       issues.push(issue(`plugins/${entry.id}/plugin.json`, 'plugin manifest is required.'))
       continue
     }
+    claimedPayloadIds.add(entry.id)
 
     const cliResult = runPluginVerify(cliBundle, pluginRoot)
     if (!cliResult.ok) {
@@ -364,17 +508,7 @@ async function validateMarketplace(root: string, cliBundle: string): Promise<Ver
       continue
     }
     const { manifest } = manifestResult
-    if (entry.id !== manifest.id) issues.push(issue(`marketplace.json.plugins[${index}].id`, `expected ${manifest.id}, got ${entry.id}.`))
-    if (entry.name !== manifest.displayName) {
-      issues.push(issue(`marketplace.json.plugins[${index}].name`, `expected "${manifest.displayName}", got "${entry.name}".`))
-    }
-    if (entry.latest !== manifest.version) {
-      issues.push(issue(`marketplace.json.plugins[${index}].latest`, `expected ${manifest.version}, got ${entry.latest}.`))
-    }
-    const provides = componentKinds(manifest)
-    if (entry.provides.join(',') !== provides.join(',')) {
-      issues.push(issue(`marketplace.json.plugins[${index}].provides`, `expected ${provides.join(', ')}, got ${entry.provides.join(', ')}.`))
-    }
+    assertEntryMatchesManifest(entry, index, manifest, issues)
     if (JSON.stringify(entry.signature) !== JSON.stringify(manifest.signature)) {
       issues.push(issue(`marketplace.json.plugins[${index}].signature`, 'registry signature must match plugins/<id>/plugin.json signature.'))
     }
@@ -398,7 +532,7 @@ async function validateMarketplace(root: string, cliBundle: string): Promise<Ver
     if (mcpPath) validateMcpComponent(root, pluginRoot, entry.id, mcpPath, issues)
   }
 
-  assertNoOrphanPluginPayloads(root, signedIds, issues)
+  assertNoOrphanPluginPayloads(root, claimedPayloadIds, issues)
   await validateBundledSkillPayloads(root, marketplace, issues)
   assertNoKeyMaterial(root, root, issues)
   return issues

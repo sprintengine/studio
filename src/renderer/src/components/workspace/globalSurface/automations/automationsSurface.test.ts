@@ -71,7 +71,10 @@ run('the run notification routes to the door for the door target and the legacy 
 run('the surface target latch carries the ref for a door target and rejects foreign ones', () => {
   dispatchAutomationSurfaceTarget(automationsDoorTarget('auto-7', 'run-2', '/repo/app'))
   const drained = consumePendingAutomationSurfaceTarget()
-  assert.deepEqual(drained, { automationId: 'auto-7', runId: 'run-2', folderPath: '/repo/app' })
+  assert.deepEqual(drained, {
+    ref: { automationId: 'auto-7', runId: 'run-2', folderPath: '/repo/app' },
+    view: 'runs',
+  })
   assert.equal(consumePendingAutomationSurfaceTarget(), null, 'draining is once-only')
 
   dispatchAutomationSurfaceTarget({ kind: 'task', ref: 'x' })
@@ -80,7 +83,22 @@ run('the surface target latch carries the ref for a door target and rejects fore
   // The newest dispatch wins if the surface has not drained yet.
   dispatchAutomationSurfaceTarget(automationsDoorTarget('first', 'r1', null))
   dispatchAutomationSurfaceTarget(automationsDoorTarget('second', 'r2', null))
-  assert.equal(consumePendingAutomationSurfaceTarget()?.automationId, 'second')
+  assert.equal(consumePendingAutomationSurfaceTarget()?.ref.automationId, 'second')
+})
+
+// MC-2035: the shelf's Get hands an automation over for tailoring, not for
+// reading its run history — the same seam and the same decoder, one extra bit of
+// intent. A run notification keeps landing on `runs`, asserted above.
+run('the latch carries the editor view the Extensions shelf asks for', () => {
+  dispatchAutomationSurfaceTarget(automationsDoorTarget('auto-9', '', '/repo/app'), 'editor')
+  const drained = consumePendingAutomationSurfaceTarget()
+  assert.equal(drained?.view, 'editor', 'the view rides beside the ref')
+  assert.equal(drained?.ref.automationId, 'auto-9', 'and names the automation the shelf just added')
+  assert.equal(drained?.ref.runId, '', 'with no run to focus')
+
+  // The legacy run kind still decodes, and defaults to the run history.
+  dispatchAutomationSurfaceTarget({ kind: 'run', ref: automationsDoorTarget('auto-3', 'run-1', null).ref })
+  assert.equal(consumePendingAutomationSurfaceTarget()?.view, 'runs', 'a persisted notification never opens the editor')
 })
 
 console.log('all automations surface tests passed')

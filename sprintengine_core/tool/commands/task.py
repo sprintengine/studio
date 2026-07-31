@@ -37,6 +37,7 @@ from sprintengine_core.tool.plans import resolve_planning_role
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.shell import commit_task_changes_if_needed
 from sprintengine_core.tool.state import (
+    active_module_conflict,
     append_agent_notification_event,
     append_event,
     append_task_activity,
@@ -232,7 +233,25 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
             # queue; a worker takes the first ready task for its role. The old
             # round-robin cursor (dispatchCursors) was deleted with the dispatch
             # mechanism (MC-1591): leases, not a cursor, prevent double-claims.
-            selected = candidates[0] if candidates else None
+            #
+            # Module ownership is the second gate, checked BEFORE a lease is
+            # minted (backlog item 2019): a task whose modules overlap an
+            # in-flight task's would have its commit sweep up that task's
+            # half-finished work. Plan-time serialization is not enough on its
+            # own — coordinator edges are advisory, and hand-edited or mid-run
+            # filed tasks must hold the invariant too. A blocked candidate is
+            # skipped, not fatal: the next ready task with disjoint modules
+            # still runs, which is the whole point of keeping modules disjoint.
+            selected = None
+            module_blocker: Optional[Dict[str, Any]] = None
+            for candidate in candidates:
+                conflict = active_module_conflict(state, candidate)
+                if conflict:
+                    if module_blocker is None:
+                        module_blocker = {"task": candidate, "conflict": conflict}
+                    continue
+                selected = candidate
+                break
             if selected and worker_has_active_lease(state, args.id, excluding_task_id=selected.get("id")):
                 # Lease uniqueness: a worker already holding an active lease cannot
                 # claim a second task. Leave it ready for a fresh id and stop this
@@ -285,6 +304,27 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 }
 
             phase_dirty = recompute_phase(state)
+            if module_blocker:
+                # Ready, but waiting on a module: say which task holds it, so the
+                # board can show why this one is not running instead of reading
+                # as an idle queue.
+                blocked = module_blocker["task"]
+                conflict = module_blocker["conflict"]
+                return {
+                    "ok": True,
+                    "claimed": False,
+                    "reason": "module_held_by_active_task",
+                    "message": (
+                        f"{blocked.get('id')} is ready but waits for module `{conflict['module']}`, held by "
+                        f"{conflict['taskId']} ({conflict['workerId']}). Tasks sharing a module never run at "
+                        "the same time; this one claims once that task is done."
+                    ),
+                    "task": {"id": blocked.get("id"), "status": blocked.get("status")},
+                    "agent": agent,
+                    "blocker": {"reason": "module_held_by_active_task", **conflict},
+                    "releasedExpired": expired["released"],
+                    "write": runtime["dirty"] or phase_dirty or expired["dirty"],
+                }
             scope = f" in {session_repo}" if session_repo else ""
             return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks{scope}. Stop.", "releasedExpired": expired["released"], "write": runtime["dirty"] or phase_dirty or expired["dirty"]}
 
@@ -307,6 +347,21 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
                     "error": "Worker already holds an active lease; another worker must claim this task.",
                     "reason": "worker_task_capacity_reached",
                     "task": {"id": task.get("id"), "status": task.get("status")},
+                    "write": False,
+                }
+            # Same module invariant as the queue claim: a direct claim must not be
+            # the way around it, or one task's commit sweeps the other's work.
+            conflict = active_module_conflict(state, task)
+            if conflict:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Module `{conflict['module']}` is held by {conflict['taskId']} "
+                        f"({conflict['workerId']}). Tasks sharing a module never run at the same time."
+                    ),
+                    "reason": "module_held_by_active_task",
+                    "task": {"id": task.get("id"), "status": task.get("status")},
+                    "blocker": {"reason": "module_held_by_active_task", **conflict},
                     "write": False,
                 }
             model, cli = _resolve_execution_identity(args)

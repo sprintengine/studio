@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type { IJsonModel } from 'flexlayout-react'
-import type { OnboardingStep } from './onboardingState'
 import type {
   Workspace,
   WorkspaceBacklogState,
@@ -34,7 +33,6 @@ import type {
   AppSettings,
   LastSelectedReview,
   ReviewGuideDefaults,
-  PendingAgentConfigAdoption,
   UsageTelemetrySettings,
   VoiceDictationSettings,
   CliRuntimeSettings,
@@ -271,13 +269,11 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /** Write one value in a module's `module:<id>` settings namespace; `undefined` deletes the key. */
   setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void
-  setModulesChosen: (chosen: boolean) => void
-  setOnboardingStep: (step: OnboardingStep) => void
-  advanceOnboarding: () => void
-  // Transient outcome of the deferred first-run config adoption (T3), shown on
-  // the first-run overlay. Not persisted (see extractSettingsFields).
+  dismissFirstRunCliCard: () => void
+  markAgentConfigAdopted: () => void
+  // Transient outcome of the silent first-run config adoption, read out as one
+  // line in Settings → Agents. Not persisted (see extractSettingsFields).
   agentConfigAdoptionResult: AgentConfigAdoptionResult | null
-  setPendingAgentConfigAdoption: (selection: PendingAgentConfigAdoption | null) => void
   setAgentConfigAdoptionResult: (result: AgentConfigAdoptionResult | null) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
   markLearningTipSeen: (tipId: string) => void

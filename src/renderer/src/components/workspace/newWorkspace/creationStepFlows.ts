@@ -23,7 +23,6 @@ export type StepId =
   | 'workspace'
   | 'mcp-servers'
   | 'knowledge'
-  | 'standard-layout'
   | 'sprintengine-team'
   | 'sprintengine-roster'
   | 'sprintengine-tools'
@@ -48,7 +47,12 @@ export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'spri
 // drops it for a folder whose project already has a configured/inherited knowledge
 // root (see shouldShowKnowledgeStep).
 export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
-  standard: ['workspace', 'standard-layout'],
+  // Zero-config: pick a folder and create. The layout step used to sit here,
+  // asking the user to confirm a selection that was already made — the panel
+  // seeds Solo Dev (explorer + editor + one agent terminal), which is the shape
+  // every workspace should start in. A different layout comes from the Command
+  // Palette after the workspace exists.
+  standard: ['workspace'],
   switchboard: ['workspace'],
   // Zero-config like Switchboard: pick a folder and create; the fixed
   // single-surface template (control center + right-docked run terminals) means
@@ -98,8 +102,7 @@ export function stepsForMode(mode: CreationMode): StepId[] {
   const stepsId = definition?.creationStepsId
   if (isCreationStepsId(stepsId)) return STEPS_BY_MODE[stepsId]
   // A registered type with no shell flow (module-contributed types) ships its
-  // own createTemplate(): zero-config like switchboard — showing the standard
-  // layout picker would override the type's template with an IDE layout.
+  // own createTemplate(): zero-config, the same shape the standard flow now has.
   if (definition) return ['workspace']
   return STEPS_BY_MODE.standard
 }

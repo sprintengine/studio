@@ -518,6 +518,11 @@ export type MarketplacePluginInstallInput = {
   mcpSettings?: McpSettings
   mcpClients?: McpClientTarget[]
   skillHarnesses?: SkillHarness[]
+  // The CLI an agent-backed automation falls back to when its own config names
+  // none (`appSettings.lastSelectedCli`, which only the renderer holds). An
+  // automation component that would need it and does not get it refuses to
+  // install, rather than creating a scheduled job that cannot launch.
+  automationDefaultCli?: string
 }
 
 // Both bundle and inline-MCP registry installs use this shape: a bundle entry
@@ -1704,6 +1709,18 @@ export type WindowPlacement = {
   displayId: number | null
 }
 
+// One push from the boot-discovery pass to the splash window. `status` is a
+// plain sentence naming the leg still in flight ("Finding your agents…"), never
+// a percentage: the legs run concurrently and resolve out of order, so a
+// percentage would be a promise the boot cannot keep. `progress` is 0..1 and
+// drives only the hairline pinned to the splash's bottom edge, which advances on
+// leg COMPLETION. Declared here rather than in src/main because the splash
+// renderer and the preload both read it, and src/shared cannot import src/main.
+export type SplashProgress = {
+  status: string
+  progress: number
+}
+
 export type CreateWorkspaceWindowInput = {
   windowId: string
   workspaceId?: string | null
@@ -1946,6 +1963,10 @@ export type SprintEngineStateInitializeSourceBundleItem = {
   path: string
   originalPath?: string
   capturedAt?: string
+  // This entry is one of the launched epic's child items (a unit of work the
+  // planner mints one task for), not supporting reading material sharing the
+  // bundle. See SprintEngineSourceBundleItem.epicChild.
+  epicChild?: boolean
 }
 
 export type SprintEngineStateInitializeInput = {
@@ -2370,8 +2391,16 @@ export type BacklogItemLinkPayload = {
     id: string
     path?: string
     url?: string
+    // The one task inside the target that owns this item, when the target is a
+    // run and the item is one of its epic children (MC-2017).
+    taskId?: string
   }
-  status?: 'active' | 'completed' | 'canceled' | 'failed' | 'unknown'
+  // `pending` is recorded-but-not-started: the link exists so the item shows its
+  // sprint, but it does not drive the item to `in_progress` yet.
+  status?: 'pending' | 'active' | 'completed' | 'canceled' | 'failed' | 'unknown'
+  // The item status to restore if this link's work is abandoned. Written when an
+  // epic-child link is created and consumed when the run or its task is canceled.
+  priorStatus?: BacklogItemStatusPayload
   updatedAt?: string
 }
 
@@ -2789,6 +2818,13 @@ export type ElectronApi = {
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
   onWindowPlacementChanged: (cb: (placement: WindowPlacement) => void) => () => void
   onWindowCloseRequested: (cb: () => void) => () => void
+  // Splash boot handshake. `onSplashProgress` is consumed only by the standalone
+  // splash renderer; `notifyBootComplete` is sent once by the primary workspace
+  // window when its first frame is on screen, and is what closes the splash and
+  // reveals the main window (main also holds a hard timeout, so a renderer that
+  // never gets there cannot strand a hidden main window).
+  onSplashProgress: (cb: (update: SplashProgress) => void) => () => void
+  notifyBootComplete: () => void
   workspaceSyncDispatch: (command: WorkspaceSyncCommand) => Promise<WorkspaceSyncCommandResult>
   workspaceSyncGetSnapshot: () => Promise<WorkspaceSyncSnapshot>
   workspaceSyncGetEventsAfter: (sequence: number) => Promise<WorkspaceSyncEvent[]>

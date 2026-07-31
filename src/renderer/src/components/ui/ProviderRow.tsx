@@ -67,6 +67,13 @@ export type ProviderRowProps = {
    *  a neutral `--bg-selected` fill, no border and no accent, per the selection
    *  tiers in `design-system/patterns/selection.html`. */
   selected?: boolean
+  /** How a row in such a list BECOMES selected. Supplying it makes the mark and
+   *  text a single button — the `ConnectorRow` pattern — so the detail pane
+   *  opens by keyboard as well as by mouse, and the row's own action button
+   *  stays a separate tab stop rather than being swallowed by it. Ignored when
+   *  the row is disclosable: a row cannot both expand in place and drive a pane
+   *  beside it. */
+  onSelect?: () => void
   /** The per-instance detail revealed by the chevron. */
   children?: React.ReactNode
   className?: string
@@ -128,11 +135,13 @@ export function ProviderRow({
   onExpandedChange,
   actions,
   selected = false,
+  onSelect,
   children,
   className,
 }: ProviderRowProps) {
   const detailId = `${React.useId()}-detail`
   const disclosable = Boolean(onExpandedChange && children)
+  const selectable = Boolean(onSelect) && !disclosable
   const switchable = typeof enabled === 'boolean' && Boolean(onEnabledChange)
   const open = disclosable && expanded
 
@@ -140,12 +149,66 @@ export function ProviderRow({
     onExpandedChange?.(!expanded)
   }, [expanded, onExpandedChange])
 
+  // The mark and the text: one unit, because whichever way a row is driven they
+  // are driven together — the chevron's click target, the selection button's
+  // face, or neither.
+  const face = (
+    <>
+      <span className="relative mt-px grid size-icon-lg shrink-0 place-items-center">
+        {icon}
+        {/* The 6px health dot, docked on the mark's corner. aria-hidden: the
+            state line carries the meaning, so the colour is never the only
+            thing saying it. */}
+        <span
+          aria-hidden="true"
+          className={[
+            'absolute -left-0.5 -top-0.5 size-1.5 rounded-full',
+            // Tracks the fill the face will actually take. A face that no
+            // longer paints a hover fill must not ring its dot in the hover
+            // colour either, or the keyline halos on a surface-coloured row.
+            disclosable || selectable ? DOT_KEYLINE_HOVER : '',
+            selected ? DOT_KEYLINE_SELECTED : DOT_KEYLINE_RESTING,
+          ].join(' ')}
+          style={{ backgroundColor: STATUS_TONE_COLOR_VAR[health] }}
+        />
+      </span>
+
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2">
+          {/* Name and version are a baseline PAIR — neither grows, so they
+              stay adjacent instead of the version drifting to the far edge on
+              a row with no trailing controls. Both may truncate; flex shrink
+              is proportional to content, so a `--version` that prints a whole
+              sentence (GNU bash) absorbs nearly all of it and the name
+              survives. The 45% cap is the backstop for the pathological case
+              an uncapped slot got wrong: a one-letter name beside a full
+              sentence of version output. */}
+          <span className="min-w-0 truncate text-body font-semibold text-[color:var(--text-strong)]">
+            {name}
+          </span>
+          {version ? (
+            <span
+              title={version}
+              className="min-w-0 max-w-[45%] truncate font-mono text-micro tabular-nums text-[color:var(--text-subtle)]"
+            >
+              {version}
+            </span>
+          ) : null}
+        </span>
+        <span className="mt-px block text-meta leading-[var(--text-line-default)] text-[color:var(--text-muted)]">
+          {stateLine}
+        </span>
+      </span>
+    </>
+  )
+
   return (
     <div className={className ?? ''}>
       {/* Mouse users get the whole row as the hit target; the chevron is the
           only focusable control for it, so there is exactly one tab stop and
           one aria-expanded per row rather than a row-button wrapping a
-          button. */}
+          button. A selectable row spends that one tab stop on its face button
+          instead, and its trailing action keeps its own. */}
       <div
         {...(disclosable ? { onClick: toggleExpanded } : {})}
         className={[
@@ -161,55 +224,23 @@ export function ProviderRow({
           // system a row that lights up says "you can act on me" — a marketplace
           // row whose only control is its Get button, or an onboarding row with
           // nothing behind a chevron, must not make that promise.
-          disclosable ? 'cursor-pointer hover:bg-[color:var(--bg-hover)]' : '',
+          disclosable || selectable ? 'cursor-pointer hover:bg-[color:var(--bg-hover)]' : '',
           selected ? 'bg-[color:var(--bg-selected)]' : '',
         ].join(' ')}
       >
-        <span className="relative mt-px grid size-icon-lg shrink-0 place-items-center">
-          {icon}
-          {/* The 6px health dot, docked on the mark's corner. aria-hidden: the
-              state line carries the meaning, so the colour is never the only
-              thing saying it. */}
-          <span
-            aria-hidden="true"
-            className={[
-              'absolute -left-0.5 -top-0.5 size-1.5 rounded-full',
-              // Tracks the fill the face will actually take. A face that no
-              // longer paints a hover fill must not ring its dot in the hover
-              // colour either, or the keyline halos on a surface-coloured row.
-              disclosable ? DOT_KEYLINE_HOVER : '',
-              selected ? DOT_KEYLINE_SELECTED : DOT_KEYLINE_RESTING,
-            ].join(' ')}
-            style={{ backgroundColor: STATUS_TONE_COLOR_VAR[health] }}
-          />
-        </span>
-
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-2">
-            {/* Name and version are a baseline PAIR — neither grows, so they
-                stay adjacent instead of the version drifting to the far edge on
-                a row with no trailing controls. Both may truncate; flex shrink
-                is proportional to content, so a `--version` that prints a whole
-                sentence (GNU bash) absorbs nearly all of it and the name
-                survives. The 45% cap is the backstop for the pathological case
-                an uncapped slot got wrong: a one-letter name beside a full
-                sentence of version output. */}
-            <span className="min-w-0 truncate text-body font-semibold text-[color:var(--text-strong)]">
-              {name}
-            </span>
-            {version ? (
-              <span
-                title={version}
-                className="min-w-0 max-w-[45%] truncate font-mono text-micro tabular-nums text-[color:var(--text-subtle)]"
-              >
-                {version}
-              </span>
-            ) : null}
-          </span>
-          <span className="mt-px block text-meta leading-[var(--text-line-default)] text-[color:var(--text-muted)]">
-            {stateLine}
-          </span>
-        </span>
+        {selectable ? (
+          <button
+            type="button"
+            onClick={onSelect}
+            aria-expanded={selected}
+            aria-label={`Show details for ${name}`}
+            className={`flex min-w-0 flex-1 items-start gap-3 rounded-[var(--radius-xs)] text-left ${FOCUS_RING_CLASS}`}
+          >
+            {face}
+          </button>
+        ) : (
+          face
+        )}
 
         {actions || disclosable || switchable ? (
           <span

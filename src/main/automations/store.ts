@@ -8,6 +8,7 @@ import type {
   AutomationRunStatus,
   AutomationStatus,
 } from '../../shared/automations/contracts'
+import { translateRetiredAutonomy, withoutWriteUpOnlyMarker } from '../../shared/automations/contracts'
 
 export const AUTOMATIONS_STORE_DIRECTORY = '.multi-code/automations'
 export const AUTOMATION_RUN_HISTORY_LIMIT = 50
@@ -317,13 +318,17 @@ export class AutomationsStore {
     }
   }
 
+  // The one place a definition reaches disk, and so the one place the read-time
+  // legacy marker is stripped — including from the value handed back, because
+  // once the record is rewritten the legacy key is gone from the file too.
   private async writeDefinition(
     definition: AutomationDefinition,
     path: string
   ): Promise<AutomationStoreWriteResult<AutomationDefinition>> {
-    const written = await this.writeJson(path, definition)
+    const persisted = withoutWriteUpOnlyMarker(definition)
+    const written = await this.writeJson(path, persisted)
     if (!written.ok) return written
-    return { ok: true, value: definition }
+    return { ok: true, value: persisted }
   }
 
   private async writeRun(run: AutomationRun, path: string): Promise<AutomationStoreWriteResult<AutomationRun>> {
@@ -347,7 +352,9 @@ export class AutomationsStore {
   private async readDefinitionFile(path: string): Promise<AutomationStoreReadResult<AutomationDefinition>> {
     const parsed = await this.readJson(path)
     if (!parsed.ok) return parsed
-    return this.validateDefinition(parsed.value, path)
+    const validated = this.validateDefinition(parsed.value, path)
+    if (!validated.ok) return validated
+    return { ok: true, value: translateRetiredAutonomy(validated.value) }
   }
 
   private async readRunFile(path: string): Promise<AutomationStoreReadResult<AutomationRun>> {
@@ -526,7 +533,6 @@ function isAutomationDefinition(value: unknown): value is AutomationDefinition {
     && isKindConfig(value.trigger)
     && (value.condition === undefined || isKindConfig(value.condition))
     && isKindConfig(value.action)
-    && (value.autonomyDefault === 'review_only' || value.autonomyDefault === 'allow_changes')
     && isOptionalString(value.ownerModuleId)
     && isNullableString(value.nextRunAt)
     && isNullableString(value.lastRunAt)

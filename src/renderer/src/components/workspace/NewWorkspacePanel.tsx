@@ -88,7 +88,8 @@ import { BacklogRowContent } from '../backlog/BacklogRow'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import type { BacklogItem, BacklogScanResult } from '../../utils/backlog'
 import { compareBacklogItems } from '../../utils/backlogTriage'
-import { childrenOfEpic, epicSlug } from '../../utils/backlogEpics'
+import { childrenOfEpic, epicSlug, isBacklogEpicPath } from '../../utils/backlogEpics'
+import { buildSprintEngineRunLink } from '../../utils/sprintengineBacklogLinks'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import {
   mockupSourceDocFromMarkdown,
@@ -170,10 +171,6 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     title: 'Connect a knowledge graph',
     subtitle: 'Point new agents at a folder of project knowledge they should read. Optional — skip and set it later in Settings.',
   },
-  'standard-layout': {
-    title: 'Pick an IDE layout',
-    subtitle: 'You can change this any time. The default fits most projects.',
-  },
   'sprintengine-team': {
     title: 'What should the team work on?',
     subtitle: 'Start fresh, pick something from your backlog, or reopen a team.',
@@ -208,7 +205,6 @@ const STEP_LABEL: Record<StepId, string> = {
   workspace: 'Where',
   'mcp-servers': 'Tools',
   knowledge: 'Knowledge',
-  'standard-layout': 'Layout',
   'sprintengine-team': 'What',
   'sprintengine-roster': 'Team',
   'sprintengine-tools': 'Tools',
@@ -448,9 +444,16 @@ export default function NewWorkspacePanel({
   )
   const [name, setName] = useState(initialWorkspaceName)
   const [nameTouched, setNameTouched] = useState(false)
-  const [layoutId, setLayoutId] = useState<string>(
+  // Index 2 is Solo Dev — explorer + editor + one agent terminal. Every standard
+  // workspace starts there: the creation flow no longer has a layout step, and a
+  // different layout comes from the Command Palette once the workspace exists.
+  const [layoutId] = useState<string>(
     LAYOUT_TEMPLATES[2]?.id ?? LAYOUT_TEMPLATES[0].id,
   )
+  // Still loaded and still handed to buildStandardCreation, which resolves a
+  // layoutId against bundled + user templates. With the layout step gone nothing
+  // in the UI selects a user template today; the plumbing stays so a future
+  // surface for them plugs straight in rather than being rebuilt.
   const [userLayoutTemplates, setUserLayoutTemplates] = useState<LayoutTemplate[]>([])
 
   const loadUserLayoutTemplates = useCallback(async () => {
@@ -1076,8 +1079,15 @@ export default function NewWorkspacePanel({
   // guide, depth), so the generic Advanced setup disclosure would duplicate the
   // knowledge control — suppress it, like the sprint flow suppresses it for its
   // Tools & skills page.
+  // 'standard' is listed explicitly because it no longer HAS a config step: the
+  // layout picker it used to ride on was removed, and gating purely on
+  // configSteps.length would have taken create-time MCP / knowledge / design-system
+  // access down with it. Only the layout page was ruled out, not this disclosure.
   const showAdvancedSetup =
-    configSteps.length > 0 && isLastStep && mode !== 'sprintengine' && mode !== REVIEW_WORKSPACE_MODE
+    (configSteps.length > 0 || mode === 'standard')
+    && isLastStep
+    && mode !== 'sprintengine'
+    && mode !== REVIEW_WORKSPACE_MODE
 
   // The rail's type list — shell-owned Chat + Workspace, then the enabled
   // registry-contributed types (see modeModels.ts for the ordering contract).
@@ -1351,7 +1361,6 @@ export default function NewWorkspacePanel({
   const folderTargetUsable =
     folderDraftExists === true || analyzeWorkspaceTargetPath(folderDraftPath).ok
   const workspaceStepReady = folderTargetUsable && name.trim().length > 0
-  const standardLayoutStepReady = Boolean(layoutId)
   const sePlanReady =
     sePath !== 'plan' || (sePlanPath !== '' && sePlanContent != null && !sePlanError)
   const seTeamDetailsReady =
@@ -1388,7 +1397,6 @@ export default function NewWorkspacePanel({
 
   const stepReadiness = {
     workspaceStepReady,
-    standardLayoutStepReady,
     sprintEngineTeamReady,
     sprintEngineRosterReady,
     guidedIdeaReady,
@@ -1816,6 +1824,11 @@ export default function NewWorkspacePanel({
           sourcePath: child.path,
           sourceRelativePath: child.relativePath,
           sourceContent: child.sourceContent,
+          // The children are the sprint's work list, not reading material: the
+          // planner mints exactly one task per child (MC-2018). The mockups
+          // appended below share this bundle and carry no marker, so the two
+          // stay tellable apart all the way into the run store.
+          epicChild: true,
         }
       })
       : isHtmlSource
@@ -2239,34 +2252,37 @@ export default function NewWorkspacePanel({
               pathExists: window.api.pathExists,
               initializeSprintEngineState: window.api.initializeSprintEngineState,
               recordBacklogExecutionLink: async ({ workspaceRoot, sourceRelativePath, teamSlug, statePath, childRelativePaths }) => {
+                const runRelativePath = workspaceRelativePath(workspaceRoot, statePath) ?? statePath
+                const source = backlogScan.result.items.find((item) => item.relativePath === sourceRelativePath)
                 const result = await window.api.addOrUpdateBacklogLink({
                   workspaceRoot,
                   relativePath: sourceRelativePath,
-                  link: {
-                    id: `sprint-engine:${teamSlug}`,
-                    moduleId: 'sprint-engine',
-                    type: 'execution',
-                    label: 'Sprint',
-                    target: {
-                      kind: 'sprintengine.run',
-                      id: teamSlug,
-                      path: workspaceRelativePath(workspaceRoot, statePath) ?? statePath,
-                    },
-                    status: 'active',
-                  },
-                  status: 'in_progress',
+                  link: buildSprintEngineRunLink({ teamSlug, runRelativePath }),
+                  // An epic's status is derived from its children and its file is
+                  // never written a status of its own — the children below carry
+                  // the sprint's progress instead. Read off the scan, which knows
+                  // `type: epic` too; the path test only catches `backlog/epics/`.
+                  ...(source?.isEpic || isBacklogEpicPath(sourceRelativePath)
+                    ? {}
+                    : { status: 'in_progress' as const }),
                 })
                 if (!result.ok) throw new Error(result.message)
-                // Flip every epic child to in_progress in the main checkout so the
-                // whole epic shows the sprint immediately. Never downgrade a child
-                // that is already in_progress or completed.
+                // Link every epic child to the run, remembering the status it held
+                // before the sprint so a cancel can put it back. The link starts
+                // `pending`, NOT `active`: a child moves to in_progress when its own
+                // task claims (the projection tick binds it and drives it), so an
+                // epic does not read as six items in flight the moment it launches.
                 for (const childPath of childRelativePaths ?? []) {
                   const child = backlogScan.result.items.find((item) => item.relativePath === childPath)
-                  if (child && (child.status === 'in_progress' || child.status === 'completed')) continue
-                  const childResult = await window.api.updateBacklogStatus({
+                  const childResult = await window.api.addOrUpdateBacklogLink({
                     workspaceRoot,
                     relativePath: childPath,
-                    status: 'in_progress',
+                    link: buildSprintEngineRunLink({
+                      teamSlug,
+                      runRelativePath,
+                      status: 'pending',
+                      ...(child ? { priorStatus: child.status } : {}),
+                    }),
                   })
                   if (!childResult.ok) throw new Error(childResult.message)
                 }
@@ -2745,17 +2761,6 @@ export default function NewWorkspacePanel({
             />
                         </>
                       ) : null}
-
-          {step === 'standard-layout' ? (
-            <ConfigStepSection stepId="standard-layout" headingRef={headingRef}>
-            <StandardLayoutStep
-              layoutId={layoutId}
-              onChange={setLayoutId}
-              userTemplates={userLayoutTemplates}
-              onTemplatesChanged={loadUserLayoutTemplates}
-            />
-            </ConfigStepSection>
-          ) : null}
 
           {step === 'sprintengine-team' ? (
             <ConfigStepSection stepId="sprintengine-team" headingRef={headingRef}>
@@ -3511,132 +3516,6 @@ function McpServersStep({
       {message ? (
         <p className="text-micro leading-4 text-[color:var(--text-muted)]">{message}</p>
       ) : null}
-    </div>
-  )
-}
-
-function LayoutTemplateRadio({
-  template,
-  active,
-  onChange,
-}: {
-  template: LayoutTemplate
-  active: boolean
-  onChange: (id: string) => void
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      onClick={() => onChange(template.id)}
-      className={`
-        grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border px-3.5 py-3 text-left
-        transition-colors focus-visible:focus-ring
-        ${active
-          ? 'border-[color:var(--color-6)] bg-[color:var(--bg-surface-raised)]'
-          : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
-      `}
-    >
-      <span
-        className={`mt-1 inline-flex h-4 w-4 items-center justify-center rounded-full border ${
-          active ? 'border-[color:var(--text-strong)] bg-[color:var(--text-strong)]' : 'border-[color:var(--color-6)]'
-        }`}
-        aria-hidden="true"
-      >
-        {/* design-tokens-allow: inner glyph of a custom radio control — not a status dot */}
-        {active ? <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--bg-app)]" /> : null}
-      </span>
-      <span className="min-w-0">
-        <span className="block text-body font-semibold text-[color:var(--text-strong)]">{template.name}</span>
-        <span className="mt-0.5 block text-meta leading-5 text-[color:var(--text-muted)]">
-          {template.description}
-        </span>
-      </span>
-    </button>
-  )
-}
-
-function StandardLayoutStep({
-  layoutId,
-  onChange,
-  userTemplates,
-  onTemplatesChanged,
-}: {
-  layoutId: string
-  onChange: (id: string) => void
-  userTemplates: LayoutTemplate[]
-  onTemplatesChanged: () => void
-}) {
-  const [installing, setInstalling] = useState(false)
-  const [installMessage, setInstallMessage] = useState<{ tone: 'accent' | 'warn' | 'error'; text: string } | null>(null)
-
-  const installTemplateFolder = async () => {
-    if (typeof window.api.installUserLayoutTemplateFolder !== 'function') return
-    setInstalling(true)
-    setInstallMessage(null)
-    try {
-      const folder = await window.api.openDir()
-      if (!folder) return
-      const result = await window.api.installUserLayoutTemplateFolder(folder)
-      const rejected = result.rejected.length
-      if (!result.ok && result.installed.length === 0) {
-        setInstallMessage({
-          tone: 'error',
-          text:
-            result.message
-            ?? (rejected > 0 ? `${rejected} template${rejected === 1 ? '' : 's'} rejected as invalid.` : 'Nothing to install.'),
-        })
-      } else {
-        const summary = `${result.installed.length} template${result.installed.length === 1 ? '' : 's'} installed`
-        setInstallMessage({
-          tone: rejected > 0 ? 'warn' : 'accent',
-          text: rejected > 0 ? `${summary}, ${rejected} rejected.` : `${summary}.`,
-        })
-      }
-      onTemplatesChanged()
-    } catch (error) {
-      setInstallMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Install failed.' })
-    } finally {
-      setInstalling(false)
-    }
-  }
-
-  // Match the panel's existing inline-message idiom (border-l-2 + tone), as used
-  // for plan/create errors elsewhere in this file.
-  const messageClass =
-    installMessage?.tone === 'error'
-      ? 'border-[color:var(--tone-error)] text-[color:var(--tone-error)]'
-      : installMessage?.tone === 'warn'
-        ? 'border-[color:var(--tone-warn)] text-[color:var(--tone-warn)]'
-        : 'border-[color:var(--accent-primary)] text-[color:var(--accent-primary)]'
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      {/* Two-up grid: six built-ins land in three ~76px rows (~240px), so the
-          page fits the pane without scrolling instead of stacking ~650px of
-          full-width cards. */}
-      <div role="radiogroup" aria-label="IDE layout" className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-        {LAYOUT_TEMPLATES.map((template) => (
-          <LayoutTemplateRadio key={template.id} template={template} active={template.id === layoutId} onChange={onChange} />
-        ))}
-        {userTemplates.length > 0 ? (
-          <>
-            <div className="mt-2 text-micro font-medium text-[color:var(--text-subtle)] sm:col-span-2">Installed templates</div>
-            {userTemplates.map((template) => (
-              <LayoutTemplateRadio key={template.id} template={template} active={template.id === layoutId} onChange={onChange} />
-            ))}
-          </>
-        ) : null}
-      </div>
-      <div className="mt-1 flex flex-col gap-2">
-        <GhostButton size="sm" onClick={() => void installTemplateFolder()} disabled={installing} className="self-start">
-          {installing ? 'Installing' : 'Install template from folder'}
-        </GhostButton>
-        {installMessage ? (
-          <div className={`border-l-2 pl-3 text-meta leading-5 ${messageClass}`}>{installMessage.text}</div>
-        ) : null}
-      </div>
     </div>
   )
 }
@@ -4672,7 +4551,6 @@ function isStepReady(
   step: StepId,
   readiness: {
     workspaceStepReady: boolean
-    standardLayoutStepReady: boolean
     sprintEngineTeamReady: boolean
     sprintEngineRosterReady: boolean
     guidedIdeaReady: boolean
@@ -4686,8 +4564,6 @@ function isStepReady(
       return true
     case 'knowledge':
       return true
-    case 'standard-layout':
-      return readiness.standardLayoutStepReady
     case 'sprintengine-team':
       return readiness.sprintEngineTeamReady
     case 'sprintengine-roster':
@@ -4773,8 +4649,6 @@ function getStepBlockingMessage(args: {
       return committedKnowledgeRoot
         ? `Knowledge folder: ${committedKnowledgeRoot} — continue, or change it.`
         : 'Pick a knowledge folder, or skip to set it later in Settings.'
-    case 'standard-layout':
-      return 'Pick a layout, then create.'
     case 'sprintengine-team':
       if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
       if (sePath === 'plan' && !sePlanReady) return 'Select a backlog item or source file.'

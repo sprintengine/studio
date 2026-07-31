@@ -1,6 +1,9 @@
-import { app, BrowserWindow, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu } from 'electron'
 import { createAppMenu } from './app-menu'
-import { createMainWindow, markAppQuitInProgressForWindowClose } from './window-factory'
+import { createBootReveal } from './boot-reveal'
+import { runBootDiscovery } from './boot-discovery'
+import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
+import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow } from './window-factory'
 import { releaseAllWorkspaceRunnerLocks } from './workspace-runner-lock'
 import { currentRuntimeEnv, getManagedPython, reportManagedPythonResolution } from './managed-runtime'
 import type { MulticodeUpdateService } from './update-service'
@@ -102,16 +105,49 @@ export function registerAppLifecycle({
     Menu.setApplicationMenu(createAppMenu())
     // Always-on: one local SprintEngine Studio MCP gateway per app instance.
     await automationService?.initialize()
-    createMainWindow({ diagnosticsEnabled })
+
+    // The plate goes up BEFORE the main window is created: from here until the
+    // reveal there is always something on screen.
+    createSplashWindow()
+    const mainWindow = createMainWindow({ diagnosticsEnabled, deferShow: true })
+
+    const bootReveal = createBootReveal({
+      reveal: () => {
+        // Order matters: close the plate first, then show the app. Reversed,
+        // both are briefly on screen — the one thing the transition must never
+        // do.
+        closeSplashWindow()
+        revealMainWindow(mainWindow)
+      },
+    })
+    // `once`: a renderer that reloads mid-boot (dev HMR) must not re-arm a
+    // reveal that has already happened.
+    ipcMain.once('app:boot-complete', () => bootReveal.trigger())
+    // A renderer that dies before its first frame never sends the signal, and
+    // the window it was going to reveal is hidden. The timeout inside
+    // createBootReveal is the only thing between that and a Force Quit, so cover
+    // outright destruction here too rather than making the user wait it out.
+    mainWindow.webContents.on('render-process-gone', () => bootReveal.trigger())
+
+    // Discovery runs while the plate is up. Deliberately not awaited: the reveal
+    // is driven by the renderer's first frame, not by these legs, so a slow CLI
+    // probe delays a warmed cache and never the app.
+    void runBootDiscovery({
+      onProgress: sendSplashProgress,
+      // The one update check at boot. It MOVED here rather than being
+      // duplicated; the packaged guard rides with it, since checkForUpdates
+      // records an error state in an unpackaged build.
+      checkUpdates: async () => {
+        if (!app.isPackaged) return
+        await updateService.checkForUpdates(false)
+      },
+    })
+
     // Always-on: start the agent-state reporter socket so launches that follow
     // can install the hook against a live endpoint.
     void agentStateService?.initialize()
     void moduleKernel?.runStartup()
     handleAuthCallback(process.argv)
-
-    if (app.isPackaged) {
-      void updateService.checkForUpdates(false)
-    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow({ diagnosticsEnabled })

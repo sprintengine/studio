@@ -1,103 +1,117 @@
 import assert from 'node:assert/strict'
 
-import {
-  advanceOnboardingStep,
-  isOnboardingActive,
-  isOnboardingStep,
-  resolveInitialOnboardingStep,
-  shouldOpenStartupTipOnComplete,
-} from './onboardingState'
+import type { AgentCli, AgentCliAvailabilityMap } from '../../../shared/electron-api'
+import { shouldShowFirstRunCliCard } from './onboardingState'
 
-function testAdvanceWalksSequenceAndClamps(): void {
-  assert.equal(advanceOnboardingStep('welcome'), 'theme')
-  assert.equal(advanceOnboardingStep('theme'), 'essentials')
-  assert.equal(advanceOnboardingStep('essentials'), 'modules')
-  assert.equal(advanceOnboardingStep('modules'), 'workspace')
-  assert.equal(advanceOnboardingStep('workspace'), 'first-run')
-  assert.equal(advanceOnboardingStep('first-run'), 'complete')
-  assert.equal(advanceOnboardingStep('complete'), 'complete', 'complete is terminal')
+function availability(entries: Record<string, boolean>): AgentCliAvailabilityMap {
+  const map: AgentCliAvailabilityMap = {}
+  for (const [cli, installed] of Object.entries(entries)) {
+    map[cli as AgentCli] = {
+      cli: cli as AgentCli,
+      installed,
+      resolvedPath: installed ? `/usr/bin/${cli}` : null,
+      version: installed ? '1.0.0' : null,
+    }
+  }
+  return map
 }
 
-function testActiveUntilComplete(): void {
-  assert.equal(isOnboardingActive('welcome'), true)
-  assert.equal(isOnboardingActive('theme'), true)
-  assert.equal(isOnboardingActive('essentials'), true)
-  assert.equal(isOnboardingActive('modules'), true)
-  assert.equal(isOnboardingActive('workspace'), true)
-  assert.equal(isOnboardingActive('first-run'), true)
-  assert.equal(isOnboardingActive('complete'), false)
-}
-
-function testGuard(): void {
-  assert.equal(isOnboardingStep('welcome'), true)
-  assert.equal(isOnboardingStep('theme'), true)
-  assert.equal(isOnboardingStep('essentials'), true)
-  assert.equal(isOnboardingStep('first-run'), true)
-  assert.equal(isOnboardingStep('complete'), true)
-  // 'cli' was replaced by 'essentials' and is no longer a valid step.
-  assert.equal(isOnboardingStep('cli'), false)
-  assert.equal(isOnboardingStep('nope'), false)
-  assert.equal(isOnboardingStep(undefined), false)
-  assert.equal(isOnboardingStep(2), false)
-}
-
-function testInitialResume(): void {
-  // A persisted valid step always wins (resume mid-onboarding).
+// The card exists for exactly one machine: probe finished, nothing installed,
+// never dismissed.
+function testAsksOnlyWhenTheMachineReallyHasNoCli(): void {
   assert.equal(
-    resolveInitialOnboardingStep({ persisted: 'modules', hasWorkspaces: false }),
-    'modules'
-  )
-  assert.equal(
-    resolveInitialOnboardingStep({ persisted: 'workspace', hasWorkspaces: true }),
-    'workspace',
-    'persisted step wins even if workspaces exist'
-  )
-}
-
-function testInitialFreshVsExisting(): void {
-  // Truly fresh install → welcome.
-  assert.equal(resolveInitialOnboardingStep({ hasWorkspaces: false }), 'welcome')
-  // Existing install (has workspaces) → complete, never re-onboard on upgrade.
-  assert.equal(resolveInitialOnboardingStep({ hasWorkspaces: true }), 'complete')
-  // Already chose modules (legacy modulesChosen) but no workspaces → complete.
-  assert.equal(
-    resolveInitialOnboardingStep({ modulesChosen: true, hasWorkspaces: false }),
-    'complete'
-  )
-  // Invalid persisted value falls back to the fresh/existing logic.
-  assert.equal(resolveInitialOnboardingStep({ persisted: 'garbage', hasWorkspaces: false }), 'welcome')
-}
-
-function testStartupTipGate(): void {
-  // Fresh install that walked through onboarding this session → suppress the
-  // tip even when the preference is on (it would stack a focus-untrapped modal
-  // on the activation payoff and leak focus to the workspace behind it).
-  assert.equal(
-    shouldOpenStartupTipOnComplete({ onboardingActiveThisSession: true, showTipsOnStartup: true }),
-    false,
-    'just-onboarded session suppresses the tip'
-  )
-  assert.equal(
-    shouldOpenStartupTipOnComplete({ onboardingActiveThisSession: true, showTipsOnStartup: false }),
-    false
-  )
-  // Existing install (never active this session) → tip follows the preference.
-  assert.equal(
-    shouldOpenStartupTipOnComplete({ onboardingActiveThisSession: false, showTipsOnStartup: true }),
+    shouldShowFirstRunCliCard({
+      cliAvailabilityStatus: 'ready',
+      cliAvailability: availability({ codex: false, 'claude-code': false }),
+      firstRunCliCardDismissed: false,
+    }),
     true,
-    'existing install shows the tip when enabled'
-  )
-  assert.equal(
-    shouldOpenStartupTipOnComplete({ onboardingActiveThisSession: false, showTipsOnStartup: false }),
-    false,
-    'existing install respects show-on-startup off'
+    'a resolved probe with nothing installed is the one case worth asking about',
   )
 }
 
-testAdvanceWalksSequenceAndClamps()
-testActiveUntilComplete()
-testGuard()
-testInitialResume()
-testInitialFreshVsExisting()
-testStartupTipGate()
+// THE TRAP the whole predicate exists to avoid. Availability resolves after
+// hydration, so for the first moments of every launch the map is empty and
+// 'loading'. Answering then would flash the card at the majority of users, who
+// do have a CLI — the probe just has not said so yet.
+function testNeverFlashesBeforeTheProbeResolves(): void {
+  assert.equal(
+    shouldShowFirstRunCliCard({
+      cliAvailabilityStatus: 'loading',
+      cliAvailability: {},
+      firstRunCliCardDismissed: false,
+    }),
+    false,
+    'an unresolved probe is not evidence of absence',
+  )
+  assert.equal(
+    shouldShowFirstRunCliCard({
+      cliAvailabilityStatus: 'loading',
+      cliAvailability: availability({ codex: false }),
+      firstRunCliCardDismissed: false,
+    }),
+    false,
+    'a partial map mid-probe is not evidence of absence either',
+  )
+}
+
+// A probe that failed could not find out. Treating "we could not check" as "you
+// have nothing" would put a card in front of a user whose CLI is sitting there.
+function testAProbeErrorDoesNotAsk(): void {
+  assert.equal(
+    shouldShowFirstRunCliCard({
+      cliAvailabilityStatus: 'error',
+      cliAvailability: {},
+      firstRunCliCardDismissed: false,
+    }),
+    false,
+  )
+}
+
+function testOneInstalledCliIsEnough(): void {
+  assert.equal(
+    shouldShowFirstRunCliCard({
+      cliAvailabilityStatus: 'ready',
+      cliAvailability: availability({ codex: false, 'claude-code': true, gemini: false }),
+      firstRunCliCardDismissed: false,
+    }),
+    false,
+    'the question is "any CLI at all", not "every CLI"',
+  )
+}
+
+// Dismissal is the only persisted bit of the old wizard that survives, and it is
+// absolute: a user who said "not now" is never asked again, even if they later
+// uninstall the CLI they had.
+function testDismissedWins(): void {
+  assert.equal(
+    shouldShowFirstRunCliCard({
+      cliAvailabilityStatus: 'ready',
+      cliAvailability: availability({ codex: false }),
+      firstRunCliCardDismissed: true,
+    }),
+    false,
+  )
+}
+
+// An empty map with a resolved status is a real answer: the probe ran and found
+// no registered CLI installed. This is the fresh-machine case.
+function testResolvedEmptyMapAsks(): void {
+  assert.equal(
+    shouldShowFirstRunCliCard({
+      cliAvailabilityStatus: 'ready',
+      cliAvailability: {},
+      firstRunCliCardDismissed: false,
+    }),
+    true,
+  )
+}
+
+testAsksOnlyWhenTheMachineReallyHasNoCli()
+testNeverFlashesBeforeTheProbeResolves()
+testAProbeErrorDoesNotAsk()
+testOneInstalledCliIsEnough()
+testDismissedWins()
+testResolvedEmptyMapAsks()
+
 console.log('onboarding-state tests passed')
