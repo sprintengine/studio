@@ -1,5 +1,4 @@
 import type { IJsonModel } from 'flexlayout-react'
-import type { OnboardingStep } from '../store/onboardingState'
 import type {
   SprintEngineAutoState,
   SprintEngineCliPermissionPreset,
@@ -571,21 +570,21 @@ export type AppSettings = {
    */
   modulesChosen: boolean
   /**
-   * Current step of the first-run onboarding flow (welcome → modules → workspace
-   * → complete). Fresh installs start at 'welcome'; existing installs resolve to
-   * 'complete'. See store/onboardingState.ts.
+   * Whether the first-run "you have no agent CLI" card has been dismissed. The
+   * only persisted trace of the retired onboarding wizard, and deliberately a
+   * boolean rather than a step position: whether to ASK is a live predicate over
+   * probe state (see store/onboardingState.ts), and only the user's "not now"
+   * needs to survive a restart. Defaults true for any profile that predates the
+   * wizard's removal, so an upgrade is never asked.
    */
-  onboardingStep: OnboardingStep
+  firstRunCliCardDismissed: boolean
   /**
-   * Deferred first-run config-adoption selection captured on the essentials
-   * onboarding step (Cursor-style "we found N — adopt them?"). Holds the keys of
-   * the detected MCP servers / skills the user opted into. Persisted so the
-   * choice survives a mid-onboarding reload, and consumed (cleared) when the
-   * first workspace is created and the real adoptAgentConfig IPC runs against
-   * its root. `null` means nothing selected / nothing detected. See
-   * components/onboarding/AdoptConfigCard.tsx.
+   * Whether this profile has already had an existing Claude Code / Codex agent
+   * config adopted. Adoption runs silently at first workspace creation — it
+   * needs a real folder on disk, which does not exist any earlier — and this
+   * flag is what makes it once-per-profile rather than once-per-workspace.
    */
-  pendingAgentConfigAdoption: PendingAgentConfigAdoption | null
+  hasAdoptedAgentConfig: boolean
   /**
    * How long an idle agent terminal sits before it is paused (its CLI process is
    * killed to reclaim memory, with the painted view frozen and resumed on click
@@ -655,15 +654,21 @@ export type ReviewGuideDefaults = {
   model: string | null
 }
 
+/**
+ * What the silent first-run adoption found worth bringing over: the keys of the
+ * detected MCP servers and adoptable skills. Derived live at first workspace
+ * creation and handed straight to the real adoptAgentConfig IPC — it is no
+ * longer a persisted user selection, because there is no longer a card that asks.
+ */
 export type PendingAgentConfigAdoption = {
   mcpServerKeys: string[]
   skillKeys: string[]
 }
 
 /**
- * Live outcome of the deferred first-run config adoption, surfaced on the
- * first-run overlay after the workspace is created. Transient app state (not
- * persisted): set when adoption runs at workspace creation, never resumed.
+ * Live outcome of the first-run config adoption, read out as one line in
+ * Settings → Agents. Transient app state (not persisted): set when adoption runs
+ * at workspace creation, never resumed.
  */
 export type AgentConfigAdoptionResult =
   | { status: 'adopting' }

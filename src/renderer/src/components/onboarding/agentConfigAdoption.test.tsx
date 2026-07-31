@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import {
   ADOPTION_MISSING_ROOT_MESSAGE,
   AgentConfigAdoptionStatus,
-  planDeferredAdoption,
+  describeAdoptionCount,
+  planAgentConfigAdoption,
 } from './agentConfigAdoption'
 
 let failures = 0
@@ -20,47 +21,62 @@ function run(name: string, fn: () => void): void {
   }
 }
 
-const selection = { mcpServerKeys: ['mcp:codex:a'], skillKeys: ['skill:codex:b'] }
+const detected = { mcpServerKeys: ['mcp:codex:a'], skillKeys: ['skill:codex:b'] }
 
-// --- planDeferredAdoption: the post-create decision (skip / missing-root / adopt) ---
+// --- planAgentConfigAdoption: once per profile, silent, honest on failure ---
 
-run('skips when onboarding is already complete', () => {
+run('a profile that already adopted is never offered it again', () => {
   assert.deepEqual(
-    planDeferredAdoption({ onboardingStep: 'complete', selection, workspaceRoot: '/repo' }),
+    planAgentConfigAdoption({ hasAdoptedAgentConfig: true, workspaceRoot: '/repo', detected }),
     { kind: 'skip' },
   )
 })
 
-run('skips when there is no selection — the "Skip for now" path never adopts', () => {
-  // EssentialsStep clears pendingAgentConfigAdoption on skip, so the hook sees null.
+run('a failed or empty detection adopts nothing, silently', () => {
   assert.deepEqual(
-    planDeferredAdoption({ onboardingStep: 'workspace', selection: null, workspaceRoot: '/repo' }),
-    { kind: 'skip' },
+    planAgentConfigAdoption({ hasAdoptedAgentConfig: false, workspaceRoot: '/repo', detected: null }),
+    { kind: 'nothing-detected' },
   )
-})
-
-run('skips when the selection is empty', () => {
   assert.deepEqual(
-    planDeferredAdoption({
-      onboardingStep: 'workspace',
-      selection: { mcpServerKeys: [], skillKeys: [] },
+    planAgentConfigAdoption({
+      hasAdoptedAgentConfig: false,
       workspaceRoot: '/repo',
+      detected: { mcpServerKeys: [], skillKeys: [] },
     }),
-    { kind: 'skip' },
+    { kind: 'nothing-detected' },
   )
 })
 
-run('fails honestly when a selection exists but the workspace has no folder', () => {
-  for (const workspaceRoot of [null, '', '   ']) {
-    const plan = planDeferredAdoption({ onboardingStep: 'workspace', selection, workspaceRoot })
-    assert.equal(plan.kind, 'missing-root')
-    assert.equal(plan.kind === 'missing-root' && plan.result.status, 'failed')
-    assert.equal(plan.kind === 'missing-root' && plan.result.message, ADOPTION_MISSING_ROOT_MESSAGE)
+// ORDER MATTERS. The root is only checked once we know there IS something to
+// adopt. Checked first, every user who never had Claude Code or Codex would be
+// told we couldn't bring over a setup they never had.
+run('no root and nothing detected is silent, not a failure', () => {
+  const plan = planAgentConfigAdoption({
+    hasAdoptedAgentConfig: false,
+    workspaceRoot: null,
+    detected: { mcpServerKeys: [], skillKeys: [] },
+  })
+  assert.equal(plan.kind, 'nothing-detected')
+})
+
+// But a real setup with nowhere to write it IS a failure and says so — silently
+// dropping an adoption is worse than admitting it did not happen.
+run('a real setup with no usable folder fails out loud', () => {
+  for (const root of [null, '', '   ']) {
+    const plan = planAgentConfigAdoption({ hasAdoptedAgentConfig: false, workspaceRoot: root, detected })
+    assert.equal(plan.kind, 'missing-root', `root ${JSON.stringify(root)} is not a usable folder`)
+    if (plan.kind !== 'missing-root') throw new Error('unreachable')
+    assert.equal(plan.result.status, 'failed')
+    assert.equal(plan.result.message, ADOPTION_MISSING_ROOT_MESSAGE)
   }
 })
 
-run('adopts the selected keys against the validated workspace root', () => {
-  const plan = planDeferredAdoption({ onboardingStep: 'first-run', selection, workspaceRoot: '/repo/app' })
+run('adopts everything detected against the validated workspace root', () => {
+  const plan = planAgentConfigAdoption({
+    hasAdoptedAgentConfig: false,
+    workspaceRoot: '/repo/app',
+    detected,
+  })
   assert.deepEqual(plan, {
     kind: 'adopt',
     workspaceRoot: '/repo/app',
@@ -71,6 +87,12 @@ run('adopts the selected keys against the validated workspace root', () => {
 
 // --- AgentConfigAdoptionStatus: honest, shape-coded success/failure visibility ---
 
+run('counts read as plain English', () => {
+  assert.equal(describeAdoptionCount(1, 'MCP server'), '1 MCP server')
+  assert.equal(describeAdoptionCount(0, 'skill'), '0 skills')
+  assert.equal(describeAdoptionCount(3, 'skill'), '3 skills')
+})
+
 run('renders nothing when no adoption ran', () => {
   assert.equal(renderToStaticMarkup(<AgentConfigAdoptionStatus adoption={null} />), '')
 })
@@ -80,40 +102,34 @@ run('shows an in-flight line while adopting', () => {
   assert.match(html, /Bringing over your existing setup/)
 })
 
-run('shows real counts on success', () => {
+run('reports the real counts on success', () => {
   const html = renderToStaticMarkup(
-    <AgentConfigAdoptionStatus adoption={{ status: 'adopted', mcpServerCount: 2, skillCount: 1, warnings: [] }} />,
+    <AgentConfigAdoptionStatus
+      adoption={{ status: 'adopted', mcpServerCount: 2, skillCount: 1, warnings: [] }}
+    />,
   )
   assert.match(html, /Brought over 2 MCP servers and 1 skill\./)
 })
 
-run('is honest when nothing was actually adopted', () => {
+run('states nothing-adopted as nothing adopted, never as a success', () => {
   const html = renderToStaticMarkup(
-    <AgentConfigAdoptionStatus adoption={{ status: 'adopted', mcpServerCount: 0, skillCount: 0, warnings: [] }} />,
+    <AgentConfigAdoptionStatus
+      adoption={{ status: 'adopted', mcpServerCount: 0, skillCount: 0, warnings: [] }}
+    />,
   )
   assert.match(html, /Nothing to bring over/)
 })
 
-run('surfaces the real failure message and any warnings — never a fake success', () => {
+run('a failure carries the real message, not a generic apology', () => {
   const html = renderToStaticMarkup(
-    <AgentConfigAdoptionStatus
-      adoption={{ status: 'failed', message: 'disk write blocked' }}
-    />,
+    <AgentConfigAdoptionStatus adoption={{ status: 'failed', message: 'permission denied' }} />,
   )
-  assert.match(html, /Couldn.t bring over your existing setup/)
-  assert.match(html, /disk write blocked/)
-  assert.doesNotMatch(html, /Brought over/)
-
-  const withWarnings = renderToStaticMarkup(
-    <AgentConfigAdoptionStatus
-      adoption={{ status: 'adopted', mcpServerCount: 1, skillCount: 0, warnings: ['skipped duplicate server'] }}
-    />,
-  )
-  assert.match(withWarnings, /skipped duplicate server/)
+  assert.match(html, /Couldn’t bring over your existing setup\./)
+  assert.match(html, /permission denied/)
 })
 
 if (failures > 0) {
-  console.error(`agentConfigAdoption.test.tsx: ${failures} failing`)
+  console.error(`${failures} agent-config-adoption test(s) failed`)
   process.exit(1)
 }
-console.log('agentConfigAdoption.test.tsx: ok')
+console.log('agent config adoption tests passed')

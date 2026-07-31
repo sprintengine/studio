@@ -1,50 +1,62 @@
-import type { OnboardingStep } from '../../store/onboardingState'
-import type { AgentConfigAdoptionResult, PendingAgentConfigAdoption } from '../../types/workspace'
+import type { AgentConfigAdoptionResult } from '../../types/workspace'
 import { LifecycleGlyph, Spinner } from '../ui'
 
-// Shared, store-free helpers for the deferred first-run config adoption (T3) so
-// the rule and the read-out can be unit-tested without the renderer store.
+// Shared, store-free helpers for the first-run config adoption so the rule and
+// the read-out can be unit-tested without the renderer store.
+//
+// Adoption used to be a question: a card on the wizard's essentials step asked
+// which detected MCP servers and skills to bring over, recorded the answer, and
+// replayed it at workspace creation. The card is gone, so this now adopts
+// everything it finds, once per profile — but it still runs at first workspace
+// creation and nowhere earlier, because `agent-config-import.ts` needs a real
+// `workspaceRoot` that passes `isDirectory()` and no folder exists before then.
 
 export const ADOPTION_MISSING_ROOT_MESSAGE =
   'Couldn’t bring over your setup — this workspace has no project folder. Add it later from Settings.'
 
-export type DeferredAdoptionPlan =
+export type AgentConfigAdoptionPlan =
   | { kind: 'skip' }
+  | { kind: 'nothing-detected' }
   | { kind: 'missing-root'; result: Extract<AgentConfigAdoptionResult, { status: 'failed' }> }
   | { kind: 'adopt'; workspaceRoot: string; mcpServerKeys: string[]; skillKeys: string[] }
 
-// Decide what the post-create hook should do with the essentials-step selection:
-// - skip: onboarding already finished, or nothing is selected (covers the user
-//   who skipped — the selection was cleared — so adoptAgentConfig is never called);
-// - missing-root: a selection exists but there is no real workspace folder to
-//   write to, so fail honestly instead of silently dropping it;
+// Decide what to do once detection has run:
+// - skip: this profile already adopted, so nothing is offered twice;
+// - nothing-detected: there was no existing setup to bring over — a real answer,
+//   and a silent one (no read-out for a user who never had Claude Code or Codex);
+// - missing-root: there IS something to bring over but no folder to write it to,
+//   so fail out loud rather than dropping it silently;
 // - adopt: run the real adoptAgentConfig against the validated root.
-export function planDeferredAdoption(input: {
-  onboardingStep: OnboardingStep
-  selection: PendingAgentConfigAdoption | null
+//
+// Note the order: the root is only checked once we know there is something to
+// adopt. Checking it first would report "couldn’t bring over your setup" to
+// every user who never had one.
+export function planAgentConfigAdoption(input: {
+  hasAdoptedAgentConfig: boolean
   workspaceRoot: string | null
-}): DeferredAdoptionPlan {
-  if (input.onboardingStep === 'complete') return { kind: 'skip' }
-  const selection = input.selection
-  if (!selection || (selection.mcpServerKeys.length === 0 && selection.skillKeys.length === 0)) {
-    return { kind: 'skip' }
+  detected: { mcpServerKeys: string[]; skillKeys: string[] } | null
+}): AgentConfigAdoptionPlan {
+  if (input.hasAdoptedAgentConfig) return { kind: 'skip' }
+  const detected = input.detected
+  if (!detected || (detected.mcpServerKeys.length === 0 && detected.skillKeys.length === 0)) {
+    return { kind: 'nothing-detected' }
   }
   const root = input.workspaceRoot?.trim() ? input.workspaceRoot : null
   if (!root) {
     return { kind: 'missing-root', result: { status: 'failed', message: ADOPTION_MISSING_ROOT_MESSAGE } }
   }
-  return { kind: 'adopt', workspaceRoot: root, mcpServerKeys: selection.mcpServerKeys, skillKeys: selection.skillKeys }
+  return { kind: 'adopt', workspaceRoot: root, mcpServerKeys: detected.mcpServerKeys, skillKeys: detected.skillKeys }
 }
 
 export function describeAdoptionCount(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
-// Honest read-out of the deferred config adoption, surfaced on the first-run
-// overlay. Renders nothing unless an adoption actually ran this session: an
-// in-flight line while the real adoptAgentConfig IPC writes, a shape-coded
-// success summary with real counts, or the real failure message. Never a
-// fabricated success. Pure (props only).
+// Honest read-out of the config adoption, surfaced as one line in
+// Settings → Agents. Renders nothing unless an adoption actually ran this
+// session: an in-flight line while the real adoptAgentConfig IPC writes, a
+// shape-coded success summary with real counts, or the real failure message.
+// Never a fabricated success. Pure (props only).
 export function AgentConfigAdoptionStatus({ adoption }: { adoption: AgentConfigAdoptionResult | null }) {
   if (!adoption) return null
 

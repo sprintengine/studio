@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Actions, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
-import OnboardingFlow from '../onboarding/OnboardingFlow'
-import { planDeferredAdoption } from '../onboarding/agentConfigAdoption'
+import FirstRunCliCard from '../onboarding/FirstRunCliCard'
+import { shouldShowFirstRunCliCard } from '../../store/onboardingState'
+import { planAgentConfigAdoption } from '../onboarding/agentConfigAdoption'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { shouldOpenStartupTipOnComplete } from '../../store/onboardingState'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { resolveAvailableAgentCli, resolveCliReasoning, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
@@ -314,13 +314,13 @@ export default function WorkspaceManager() {
   const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
   const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
   const voiceDictation = useVoiceDictation()
-  const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
-  const setOnboardingStep = useWorkspaceStore((s) => s.setOnboardingStep)
-  // Deferred first-run config adoption (T3): the essentials step records which
-  // detected MCP servers / skills to adopt; the real adoptAgentConfig IPC runs
-  // here, once, against the newly-created workspace root.
-  const pendingAgentConfigAdoption = useWorkspaceStore((s) => s.appSettings.pendingAgentConfigAdoption)
-  const setPendingAgentConfigAdoption = useWorkspaceStore((s) => s.setPendingAgentConfigAdoption)
+  const firstRunCliCardDismissed = useWorkspaceStore((s) => s.appSettings.firstRunCliCardDismissed)
+  const dismissFirstRunCliCard = useWorkspaceStore((s) => s.dismissFirstRunCliCard)
+  const hasAdoptedAgentConfig = useWorkspaceStore((s) => s.appSettings.hasAdoptedAgentConfig)
+  const markAgentConfigAdopted = useWorkspaceStore((s) => s.markAgentConfigAdopted)
+  // Silent first-run config adoption: detection and the real adoptAgentConfig
+  // IPC both run here, once per profile, against the newly-created workspace
+  // root — the earliest moment a real folder exists to write into.
   const setAgentConfigAdoptionResult = useWorkspaceStore((s) => s.setAgentConfigAdoptionResult)
   const setActiveWorkspaceForWindow = useWorkspaceStore((s) => s.setActiveWorkspaceForWindow)
   const registerWorkspaceWindow = useWorkspaceStore((s) => s.registerWorkspaceWindow)
@@ -530,14 +530,6 @@ export default function WorkspaceManager() {
   const newChatPanelOpen = newChatPanelState !== null
   const [tipModalOpen, setTipModalOpen] = useState(false)
   const tipModalDecidedRef = useRef(false)
-  // True once onboarding has been observed active (any non-complete step) this
-  // session. A user who just walked through first-run onboarding should not be
-  // hit with the one-shot startup tip on top of the activation payoff — it both
-  // piles a second modal on the moment of completion and (because the tip Modal
-  // has no focus trap) lets Tab/Shift+Tab leak to the workspace terminal behind
-  // it. The tip returns to normal on the next launch, where onboardingStep is
-  // already 'complete' from the first render and this ref stays false.
-  const onboardingWasActiveRef = useRef(false)
   const showTipsOnStartup = useWorkspaceStore((s) => s.appSettings.learning?.showTipsOnStartup ?? true)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const [showPalette, setShowPalette] = useState(false)
@@ -769,6 +761,19 @@ export default function WorkspaceManager() {
     if (!selectModuleEnabled(moduleEnablement, entry.moduleId)) return null
     return entry
   }, [activeGlobalSurface, moduleEnablement])
+
+  // The first-run "you have no agent CLI" card. Two halves:
+  //   - shouldShowFirstRunCliCard is the honest answer to "does this machine
+  //     have any agent CLI", and refuses to answer until the probe resolves;
+  //   - the region check keeps it out of the way of whatever the user is
+  //     already looking at.
+  // Deliberately NOT gated on having a workspace: a user who dismisses the
+  // creation hub on an empty profile still deserves the answer.
+  const showFirstRunCliCard =
+    shouldShowFirstRunCliCard({ cliAvailabilityStatus, cliAvailability, firstRunCliCardDismissed })
+    && !activeGlobalSurfaceEntry
+    && !showNewWorkspacePanel
+    && !newChatPanelOpen
 
   // The open door's human name, for the rail's accessible name and the error
   // boundary's title. Derived once so the two can never disagree.
@@ -1014,17 +1019,12 @@ export default function WorkspaceManager() {
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-    // Creating the first workspace finishes onboarding outright — no payoff
-    // overlay. Jump straight to 'complete' regardless of the current step.
-    if (onboardingStep !== 'complete') setOnboardingStep('complete')
   }, [
     activeWorkspace?.folderPath,
     addWorkspace,
     closeSettingsOverlay,
     dismissNewWorkspacePanel,
-    onboardingStep,
     pickNewChatName,
-    setOnboardingStep,
     workspaceWindowId,
   ])
 
@@ -1239,15 +1239,12 @@ export default function WorkspaceManager() {
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-    if (onboardingStep !== 'complete') setOnboardingStep('complete')
   }, [
     activeWorkspace?.folderPath,
     addWorkspace,
     closeSettingsOverlay,
     dismissNewWorkspacePanel,
-    onboardingStep,
     pickNewChatName,
-    setOnboardingStep,
     workspaceWindowId,
   ])
 
@@ -1318,30 +1315,28 @@ export default function WorkspaceManager() {
   }
 
   useEffect(() => {
-    // Startup tips must never overlay first-run onboarding. While onboarding is
-    // active (fresh launch or a mid-onboarding reload), keep the tip modal
-    // actively closed — clearing it rather than just deferring guarantees no
-    // lingering open state can sit behind the render gate.
-    if (onboardingStep !== 'complete') {
-      onboardingWasActiveRef.current = true
-      setTipModalOpen(false)
-      return
-    }
+    // The one-shot startup tip. It used to wait for the onboarding wizard to
+    // finish, then suppress itself for the session that walked it — the wizard is
+    // gone, but the reason for that suppression is not: a profile with no
+    // workspaces yet is mid-setup, with the creation hub open over everything,
+    // and the tip modal (which has no focus trap) would stack on top of it and
+    // leak Tab to the surface behind. So a first-run session decides "no tip" and
+    // stays decided; the tip returns on the next launch, once a workspace exists.
     if (tipModalDecidedRef.current) return
-    tipModalDecidedRef.current = true
-    // A fresh onboarding that just reached 'complete' this session skips the
-    // one-shot tip; existing installs (complete on the first render) still get
-    // it. See shouldOpenStartupTipOnComplete for the rationale.
-    if (
-      !shouldOpenStartupTipOnComplete({
-        onboardingActiveThisSession: onboardingWasActiveRef.current,
-        showTipsOnStartup,
-      })
-    ) {
+    if (railWorkspaces.length === 0) {
+      tipModalDecidedRef.current = true
       return
     }
+    // Hold the decision until the CLI probe has said something. It resolves
+    // AFTER hydration, so deciding now would always decide "no card yet" and
+    // then pop the tip on top of the card a second later.
+    if (cliAvailabilityStatus === 'loading') return
+    tipModalDecidedRef.current = true
+    // The one question the app cannot answer for itself outranks a generic tip.
+    if (showFirstRunCliCard) return
+    if (!showTipsOnStartup) return
     setTipModalOpen(true)
-  }, [showTipsOnStartup, onboardingStep])
+  }, [showTipsOnStartup, railWorkspaces.length, cliAvailabilityStatus, showFirstRunCliCard])
 
   useEffect(() => {
     registerWorkspaceWindow(
@@ -1575,13 +1570,13 @@ export default function WorkspaceManager() {
   }, [mobileRelayEnabled, mobileWorkspaceRootKey])
 
   useEffect(() => {
-    // Auto-open the new-workspace panel when there are no workspaces — but during
-    // onboarding hold off until the flow reaches its workspace step, so the panel
-    // doesn't pop behind the welcome/modules overlay.
-    if (railWorkspaces.length === 0 && (onboardingStep === 'workspace' || onboardingStep === 'complete')) {
+    // Auto-open the new-workspace panel when there are no workspaces. This used
+    // to wait for the wizard to reach its workspace step so the panel did not pop
+    // behind an overlay; with no wizard, zero workspaces IS the whole condition.
+    if (railWorkspaces.length === 0) {
       setShowNewWorkspacePanel(true)
     }
-  }, [railWorkspaces.length, onboardingStep])
+  }, [railWorkspaces.length])
 
   useEffect(() => {
     let disposed = false
@@ -1733,29 +1728,63 @@ export default function WorkspaceManager() {
     [closeWorkspaceById],
   )
 
-  // Fire the deferred agent-config adoption against the just-created workspace
-  // root. Runs at most once per onboarding: the selection is consumed up front so
-  // a later create can't double-adopt, and the real adoptAgentConfig IPC's
-  // success/failure is surfaced honestly on the first-run overlay.
-  const runDeferredAgentConfigAdoption = useCallback(
+  // Bring over an existing Claude Code / Codex setup, silently, at the first
+  // workspace creation. This used to be a question on the wizard's essentials
+  // step — "we found N, adopt them?" — whose answer was replayed here. There is
+  // no card now, so it adopts everything it finds, once per profile.
+  //
+  // It cannot run any earlier: `agent-config-import.ts` requires a real
+  // `workspaceRoot` that passes `isDirectory()`, and until this moment there is
+  // no folder. The outcome is read out as one line in Settings → Agents — and a
+  // failure says so, because silently dropping an adoption is worse than
+  // admitting it failed.
+  const runFirstRunAgentConfigAdoption = useCallback(
     (workspaceRoot: string | null) => {
-      const plan = planDeferredAdoption({
-        onboardingStep,
-        selection: pendingAgentConfigAdoption,
-        workspaceRoot,
-      })
-      // skip covers onboarding-complete and the no-selection case — including a
-      // user who hit "Skip for now" (their selection was cleared), so adoption
-      // never runs for a skip.
-      if (plan.kind === 'skip') return
-      // Consume the selection up front so a later create can't double-adopt.
-      setPendingAgentConfigAdoption(null)
-      if (plan.kind === 'missing-root') {
-        setAgentConfigAdoptionResult(plan.result)
-        return
-      }
-      setAgentConfigAdoptionResult({ status: 'adopting' })
+      // Early-out before the detect IPC, not just before the write: a profile
+      // that already adopted should not probe the user's home directory again on
+      // every workspace it ever creates.
+      if (hasAdoptedAgentConfig) return
       void (async () => {
+        let detected: { mcpServerKeys: string[]; skillKeys: string[] } | null = null
+        try {
+          const detection = await window.api.detectExistingAgentConfig()
+          if (detection.ok) {
+            detected = {
+              mcpServerKeys: detection.mcpServers.map((server) => server.key),
+              // Non-adoptable skills (custom ones) are visible in Settings but
+              // never travel through this path.
+              skillKeys: detection.skills.filter((skill) => skill.adoptable).map((skill) => skill.key),
+            }
+          } else {
+            // Detection itself failed. Report it and leave the profile
+            // un-adopted so the next workspace creation tries again — claiming
+            // "adopted" here would bury a real failure under a flag.
+            setAgentConfigAdoptionResult({ status: 'failed', message: detection.message })
+            return
+          }
+        } catch (error) {
+          setAgentConfigAdoptionResult({
+            status: 'failed',
+            message: error instanceof Error ? error.message : String(error),
+          })
+          return
+        }
+
+        const plan = planAgentConfigAdoption({ hasAdoptedAgentConfig, workspaceRoot, detected })
+        if (plan.kind === 'skip') return
+        if (plan.kind === 'nothing-detected') {
+          // A real answer, and a silent one: a user who never had Claude Code or
+          // Codex has nothing to be told about. The profile is still marked so
+          // the detect probe does not run again.
+          markAgentConfigAdopted()
+          return
+        }
+        if (plan.kind === 'missing-root') {
+          setAgentConfigAdoptionResult(plan.result)
+          return
+        }
+
+        setAgentConfigAdoptionResult({ status: 'adopting' })
         try {
           const result = await window.api.adoptAgentConfig({
             workspaceRoot: plan.workspaceRoot,
@@ -1763,6 +1792,7 @@ export default function WorkspaceManager() {
             skillKeys: plan.skillKeys,
           })
           if (result.ok) {
+            markAgentConfigAdopted()
             setAgentConfigAdoptionResult({
               status: 'adopted',
               mcpServerCount: result.adoptedMcpServers.length,
@@ -1780,7 +1810,7 @@ export default function WorkspaceManager() {
         }
       })()
     },
-    [onboardingStep, pendingAgentConfigAdoption, setPendingAgentConfigAdoption, setAgentConfigAdoptionResult],
+    [hasAdoptedAgentConfig, markAgentConfigAdopted, setAgentConfigAdoptionResult],
   )
 
   const handleCreate = ({
@@ -1822,14 +1852,9 @@ export default function WorkspaceManager() {
       noteSprintDoorSelection(sprintEngineContext.statePath)
       openGlobalSurface('sprints')
     }
-    // Creating the first workspace finishes onboarding outright — no payoff
-    // overlay. Jump straight to 'complete' regardless of the current step.
-    if (onboardingStep !== 'complete') {
-      setOnboardingStep('complete')
-      // Now that a real workspace root exists, run any deferred config adoption
-      // the user opted into on the essentials step.
-      runDeferredAgentConfigAdoption(folderPath)
-    }
+    // A real workspace root now exists, which is the earliest point an existing
+    // agent config can be adopted. Guarded once-per-profile inside.
+    runFirstRunAgentConfigAdoption(folderPath)
   }
 
   const deleteWorkspaceWithState = useCallback(
@@ -3390,21 +3415,11 @@ export default function WorkspaceManager() {
             </GlobalSurfaceBarSlotContext.Provider>
           </div>
         ) : null}
-        {/* T6 first-run payoff: supply the real app actions it needs. A CLI is
-            "configured" when at least one catalog entry is confirmed installed;
-            the run reuses createNewChat against the just-created workspace
-            folder, and the no-CLI fallback opens the real command palette. */}
-        <OnboardingFlow
-          hasConfiguredCli={agentCliCatalog.some((option) => option.installed === true)}
-          onLaunchFirstAgent={() => createNewChat(activeWorkspace?.folderPath ?? undefined)}
-          onOpenCommandPalette={() => {
-            // The no-CLI payoff sends the user into the command palette as the
-            // learn-by-doing beat, then finishes onboarding. The startup-tip
-            // effect already skips its one-shot for any onboarding completed this
-            // session (onboardingWasActiveRef), so the palette is never covered.
-            runCommand('commandPalette.open')
-          }}
-        />
+        {/* The one first-run question the app cannot answer for itself. Held back
+            while anything else owns the region — a door, the creation hub, the new
+            chat panel — so it lands on a workspace the user has already reached
+            rather than competing with the thing they opened. */}
+        {showFirstRunCliCard ? <FirstRunCliCard onDismiss={dismissFirstRunCliCard} /> : null}
       </div>
       </div>
       {workspaceAsideTenant ? <WorkspaceAsideMount tenant={workspaceAsideTenant} /> : null}
@@ -3443,7 +3458,7 @@ export default function WorkspaceManager() {
         </React.Suspense>
       )}
 
-      {tipModalOpen && onboardingStep === 'complete' && (
+      {tipModalOpen && (
         <React.Suspense fallback={null}>
           <TipStartupModal
             open
