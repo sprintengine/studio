@@ -12,6 +12,7 @@ from sprintengine_core.tool.artifacts import artifacts_for_task, file_fingerprin
 from sprintengine_core.tool.constants import VALID_TASK_PHASES
 from sprintengine_core.tool.paths import now_iso, sprintengine_state_path_for
 from sprintengine_core.tool.plans import (
+    actor_is_coordinator,
     build_run_summary,
     default_swarm_name_for_state,
     ensure_plan_approval_gate,
@@ -24,7 +25,7 @@ from sprintengine_core.tool.plans import (
     handover_path_for_state,
     import_source_to_team_file,
     parse_source_bundle_arg,
-    resolve_planning_role,
+    resolve_coordinator_seat,
     plan_path_artifact_value,
     plan_path_for_state,
     product_intake_path_artifact_value,
@@ -763,14 +764,16 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             )
             return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
-        # Planner-routed, not architect-routed: in a general-only run the general IS
-        # the planner, and gating this on the literal role meant it never received the
-        # triage directive — architect-kind needs_input work queued forever.
-        if args.role == resolve_planning_role(state) and planner_actionable_needs_input_tasks(state):
+        # Planner-routed, not architect-routed: triage belongs to the run's
+        # coordinator seat, and gating this on a literal role meant a run without an
+        # architect never received the directive — architect-kind needs_input work
+        # queued forever. Asked of the joining AGENT, because a roleless coordinator
+        # has no role to compare.
+        if actor_is_coordinator(state, args.id) and planner_actionable_needs_input_tasks(state):
             directive = (
                 f"\n\n---\n"
                 f"## Your First Action\n"
-                f"You are agent `{args.id}` with role `architect`.\n"
+                f"You are agent `{args.id}`, this run's coordinator.\n"
                 "Architect-actionable needs_input work is queued.\n\n"
                 f"Run:\n```\nsprintengine triage needs-input --id {args.id}\n```\n\n"
                 "Follow the returned triage prompt. Resolve task-card, scope, artifact-review, tooling, or verification blockers through Sprint Engine commands. Do not edit application source in triage mode.\n\n"
@@ -1355,15 +1358,20 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         from sprintengine_core.tool.commands.task import normalized_needs_input_for_routing, planner_actionable_needs_input_tasks
 
-        # Triage belongs to whoever PLANS this run. Hardcoding "architect" forced an
-        # architect role onto a general-only run on the first triage call, which the
-        # roster boundary then rejected as off-roster — the blocked task could never
-        # be triaged by anyone. Validate against configuredRoles instead.
-        planning_role = resolve_planning_role(state)
-        ensure_role_in_roster(state, planning_role)
+        # Triage belongs to whoever COORDINATES this run. Hardcoding "architect"
+        # forced an architect role onto a run without one on the first triage call,
+        # which the roster boundary then rejected as off-roster — the blocked task
+        # could never be triaged by anyone. The seat's role is validated against
+        # configuredRoles when it has one; a roleless seat has nothing to validate,
+        # and passing an absent role to require_configured_role would raise on the
+        # very run this path exists to serve.
+        seat = resolve_coordinator_seat(state)
+        coordinator_noun = seat["role"] or "coordinator"
+        if seat["role"]:
+            ensure_role_in_roster(state, seat["role"])
         tasks = planner_actionable_needs_input_tasks(state)
         prompt_lines = [
-            f"You are the Sprint Engine {planning_role} triaging planner-actionable needs_input tasks.",
+            f"You are the Sprint Engine {coordinator_noun} triaging planner-actionable needs_input tasks.",
             "",
             "Goal:",
             str(state.get("sprintengine", {}).get("goal") or state.get("goal") or ""),

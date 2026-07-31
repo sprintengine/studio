@@ -33,7 +33,7 @@ from sprintengine_core.tool.phase_prompts import (
     build_phase_respawn_brief,
     build_rework_prompt,
 )
-from sprintengine_core.tool.plans import resolve_planning_role
+from sprintengine_core.tool.plans import actor_is_coordinator
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.shell import commit_task_changes_if_needed
 from sprintengine_core.tool.state import (
@@ -54,7 +54,6 @@ from sprintengine_core.tool.state import (
     release_expired_agent_targets,
     run_is_canceled,
     worker_has_active_lease,
-    worker_role,
     worker_view,
     with_locked_state,
 )
@@ -936,13 +935,10 @@ def cmd_task_note(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         actor = args.id or "user"
-        # The author's role is derived from the run's own records (lease / owned
-        # tasks / minted-id convention) — never the agents map. Planner feedback is
-        # typed by the run's planning role, not the literal "architect": a general
-        # planning its own run was writing `user_note`, so its direction to a worker
-        # read as human-typed.
-        role = worker_role(state, actor).strip().lower()
-        comment_type = "architect_feedback" if role and role == resolve_planning_role(state) else "user_note"
+        # Planner feedback is typed by the run's coordinator seat, not the literal
+        # "architect": a run planning itself without an architect was writing
+        # `user_note`, so its direction to a worker read as human-typed.
+        comment_type = "architect_feedback" if actor_is_coordinator(state, actor) else "user_note"
         comment = create_task_comment(
             state,
             task,

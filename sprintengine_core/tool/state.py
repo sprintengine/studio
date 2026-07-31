@@ -162,10 +162,11 @@ def roster_is_configured(state: Dict[str, Any]) -> bool:
     return bool(state.get("sprintengine", {}).get("rosterConfigured"))
 
 
-# Who PLANS is not a set here: `plans.resolve_planning_role` is the single source
-# (architect if rostered, else general). There is deliberately no PLANNING_ROLE_IDS
-# constant — it used to double as the seat cap, which is what capped a general-only
-# run at one agent (MC-1585). Keep the two questions apart.
+# Who COORDINATES is not a set here, and is not a role: `plans.resolve_coordinator_seat`
+# is the single source (an `architect` seat when one is rostered, a roleless seat
+# otherwise). There is deliberately no PLANNING_ROLE_IDS constant — it used to double
+# as the seat cap, which is what capped a run of plain agents at one agent (MC-1585).
+# Keep the two questions apart.
 
 def configured_role_set(state: Dict[str, Any]) -> Optional[set[str]]:
     """The run's enforced enabled-role set, or None when unconfigured.

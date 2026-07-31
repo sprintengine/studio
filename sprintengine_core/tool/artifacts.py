@@ -182,9 +182,9 @@ def mark_task_needs_input_for_artifact(state: Dict[str, Any], task: Dict[str, An
     artifact_title = str(artifact.get("title") or "").strip() if isinstance(artifact, dict) else ""
     task["needsInput"] = {
         # The planner-routed lane (PLANNER_ROUTED_NEEDS_INPUT_KINDS), not a literal
-        # architect: triage resolves the actor with `resolve_planning_role`, so this
-        # reaches the general in a general-only run. The wire value stays `architect`
-        # because the renderer and every run.yaml on disk read it.
+        # architect: triage resolves the actor from the run's coordinator seat, so
+        # this reaches a run that staffs no architect. The wire value stays
+        # `architect` because the renderer and every run.yaml on disk read it.
         "kind": "architect",
         "reason": "artifact_review",
         **({"artifactId": artifact_id} if artifact_id else {}),

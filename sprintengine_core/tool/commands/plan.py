@@ -9,8 +9,8 @@ from sprintengine_core.tool.feedback import set_architect_difficulty_estimate
 from pathlib import Path
 
 from sprintengine_core.tool.plans import (
+    actor_is_coordinator,
     apply_plan_gate_dependency,
-    resolve_planning_role,
 )
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.merge_graph import assert_no_repo_dependency_cycle
@@ -80,14 +80,12 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             ensure_task_can_be_replanned(task, args.force)
         except SystemExit:
             # Planner repo retarget (MC-1752): the repo binding is operational
-            # routing, not plan content. The planning role may correct a
+            # routing, not plan content. The run's coordinator may correct a
             # mis-bound repo on a started task — the exact stranding the
             # post-merge-hardening T11 hit — as a repo-ONLY, audited update.
             # Everything else on a started task still requires --force.
-            planning_role = resolve_planning_role(state)
             actor = str(args.actor or "")
-            actor_is_planner = actor == planning_role or actor.startswith(f"{planning_role}-")
-            if getattr(args, "repo", None) is None or not actor_is_planner:
+            if getattr(args, "repo", None) is None or not actor_is_coordinator(state, actor):
                 raise
             other_field_requested = any([
                 args.title is not None,

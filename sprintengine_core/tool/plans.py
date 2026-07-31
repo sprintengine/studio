@@ -331,30 +331,55 @@ def apply_source_context_to_task(task: Dict[str, Any], state: Dict[str, Any], st
     ]
     add_unique_values(task, "implementationNotes", notes)
 
-def resolve_planning_role(state: Dict[str, Any]) -> str:
-    """The role that owns the plan-approval gate, from the run's configuredRoles.
+COORDINATOR_AGENT_ID = "coordinator"
 
-    The architect owns planning whenever it is a configured role; a pool of plain
-    Generals with no architect plans the run itself, so the planner is `general`.
-    Preferring the architect whenever it is enabled keeps every existing
-    architect/specialist run on the architect path byte-for-byte. Authority is
-    `configuredRoles` (the run's legal role set), not a seated roster — so this
-    answers correctly at init, before any worker has claimed anything. A legacy
-    run with no configuredRoles defaults to `architect`.
+def resolve_coordinator_seat(state: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """The one seat that plans this run, adjudicates its plan gate, and triages it.
+
+    A seat, not a role. `role` names it only when the run staffs an architect;
+    every other run — a pool of plain agents, or a specialist roster with no
+    architect — coordinates through a seat with NO role. That is why callers ask
+    `actor_is_coordinator` instead of comparing a role to a literal: MC-1585 made
+    `architect` the planner-routed lane rather than a role name, and answering
+    with a role is what forced a roleless run to invent one to reach the lane.
+
+    Authority is `configuredRoles` (the run's legal role set), not a seated
+    roster, so this answers at init before any worker has claimed. Presence of
+    the key is what separates the two empty cases, and the store preserves that
+    distinction (`sync_state_to_store` writes an explicit `[]` and drops an
+    absent value): a run that never recorded an enabled-role set is a legacy or
+    headless store that predates roleless runs and keeps the architect seat,
+    while a recorded EMPTY set is a deliberate choice of no roles. Every one of
+    the 41 runs under `.multi-code/sprintengine/` on 2026-07-31 records a
+    non-empty `configuredRoles`, so no run on disk changes seats.
     """
-    configured = configured_role_set(state) or set()
-    if "architect" in configured:
-        return "architect"
-    if "general" in configured:
-        return "general"
-    return "architect"
+    if not isinstance(state.get("configuredRoles"), list):
+        return {"role": "architect", "agentId": "architect"}
+    if "architect" in (configured_role_set(state) or set()):
+        return {"role": "architect", "agentId": "architect"}
+    return {"role": None, "agentId": COORDINATOR_AGENT_ID}
 
-def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
+def actor_is_coordinator(state: Dict[str, Any], actor: str) -> bool:
+    """Is `actor` the agent holding this run's coordinator seat?
+
+    Id-aware, because a roleless coordinator has no role to interpolate into the
+    `<role>-N` match callers used to rebuild for themselves. A named seat still
+    answers for every worker the spawner mints into it (`architect`,
+    `architect-2`), so the architect path is unchanged.
+    """
+    clean = str(actor or "").strip()
+    if not clean:
+        return False
+    seat = resolve_coordinator_seat(state)
+    if clean == seat["agentId"]:
+        return True
+    role = seat["role"]
+    return bool(role) and (clean == role or clean.startswith(f"{role}-"))
+
+def find_plan_artifact(state: Dict[str, Any], state_path: Path) -> Optional[Dict[str, Any]]:
+    """The run's live plan artifact: the `architect_plan` bound to its own plan.md."""
     plan_resolved_path = artifact_absolute_path(state_path, plan_path_artifact_value(state_path))
-    plan_task = None
-    plan_artifact = None
-
-    for artifact in state.setdefault("artifacts", []):
+    for artifact in state.get("artifacts") or []:
         if not isinstance(artifact, dict):
             continue
         candidate_path = str(artifact.get("path") or "")
@@ -364,13 +389,34 @@ def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[st
             and candidate_path
             and artifact_absolute_path(state_path, candidate_path) == plan_resolved_path
         ):
-            plan_artifact = artifact
-            plan_task = find_task_by_id(state, artifact.get("taskId"))
-            break
+            return artifact
+    return None
+
+def task_is_coordination(state: Dict[str, Any], state_path: Path, task_id: str) -> bool:
+    """Is `task_id` this run's coordination job — planning and plan adjudication?
+
+    Answered by the plan artifact's `taskId` binding alone. The gate's `role` is
+    on its way out, and its `kind` never marked it: the gate carries `kind: None`
+    exactly like ordinary work across all 40 runs on disk.
+    """
+    clean = str(task_id or "").strip()
+    if not clean:
+        return False
+    artifact = find_plan_artifact(state, state_path)
+    return artifact is not None and str(artifact.get("taskId") or "").strip() == clean
+
+def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
+    plan_artifact = find_plan_artifact(state, state_path)
+    plan_task = find_task_by_id(state, plan_artifact.get("taskId")) if plan_artifact else None
 
     if plan_task is None:
+        # Legacy stores predate the artifact binding and identified the gate as T0
+        # plus the planning role. Only a NAMED seat can answer that; a roleless run
+        # has carried an artifact binding since its first init, so there is nothing
+        # for the fallback to match on.
+        seat_role = resolve_coordinator_seat(state)["role"]
         candidate = find_task_by_id(state, "T0")
-        if candidate and candidate.get("role") == resolve_planning_role(state):
+        if seat_role and candidate and candidate.get("role") == seat_role:
             plan_task = candidate
 
     return {"task": plan_task, "artifact": plan_artifact}
@@ -378,8 +424,8 @@ def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[st
 def apply_plan_gate_dependency(task: Dict[str, Any], state: Dict[str, Any], state_path: Path) -> None:
     """Planned work is gated on plan approval: a newly created task with no
     dependencies roots on the plan-approval gate task (owned by the run's
-    planning role — architect or general), so nothing becomes claimable before
-    the plan is approved and the task graph stays rooted at the plan review.
+    coordinator seat), so nothing becomes claimable before the plan is approved
+    and the task graph stays rooted at the plan review.
     Tasks created with explicit dependencies are covered transitively — every
     dependency chain terminates at a gated root."""
     if task.get("dependsOn"):
@@ -519,12 +565,21 @@ def ensure_plan_approval_gate(
     start_active: bool = True,
 ) -> Dict[str, Any]:
     plan_path_value = plan_path_artifact_value(state_path)
-    # The plan gate is owned by the run's planning role: `architect` on every
-    # architect/specialist run (so those stay byte-for-byte identical), `general`
-    # on a soulless-General run. `role_noun` carries the prose form so the
-    # architect copy is reproduced verbatim.
-    role = resolve_planning_role(state)
-    role_noun = role.capitalize()
+    # The plan gate belongs to the run's coordinator seat. When the seat is named
+    # the copy still reads through that role noun, so every architect run keeps
+    # its title, description, and acceptance strings byte-for-byte; a roleless
+    # seat drops the noun rather than borrowing one.
+    seat = resolve_coordinator_seat(state)
+    role = seat["role"]
+    plan_noun = f"{role.capitalize()} plan" if role else "Plan"
+    plan_authorship = f"{role.capitalize()}-authored active team plan" if role else "Active team plan"
+    plan_artifact_title = f"{role.capitalize()} Plan" if role else "Plan"
+    role_prefix = f"{role} " if role else ""
+    # Until a task's `role` becomes optional, every task must carry a
+    # registry-known role, so a roleless coordinator's gate falls back to the
+    # soulless `general` id purely to satisfy the schema. Nothing routes on it:
+    # the artifact binding identifies the gate and the seat identifies its owner.
+    task_role = role or "general"
     existing_gate = find_architect_plan_gate(state, state_path)
     plan_task = existing_gate["task"]
     plan_artifact = existing_gate["artifact"]
@@ -535,9 +590,9 @@ def ensure_plan_approval_gate(
         task_id = preferred_id if preferred_id not in task_ids(state) else next_task_id(state.get("tasks", []))
         plan_task = normalize_task({
             "id": task_id,
-            "title": f"Review {role} plan artifact",
-            "description": f"{role_noun}-authored active team plan at {plan_path_value} and task graph approval gate. Use this exact path; do not read, copy, or overwrite another team's plan.md.",
-            "role": role,
+            "title": f"Review {role} plan artifact" if role else "Review the plan",
+            "description": f"{plan_authorship} at {plan_path_value} and task graph approval gate. Use this exact path; do not read, copy, or overwrite another team's plan.md.",
+            "role": task_role,
             "status": "in_progress" if start_active else "todo",
             "ownerAgentId": actor if start_active else None,
             "dependsOn": [depends_on] if depends_on else [],
@@ -548,11 +603,11 @@ def ensure_plan_approval_gate(
             # author would end up self-reviewing a plan document.
             "phases": [],
             "acceptanceCriteria": [
-                f"{role_noun} plan describes the execution approach and task graph.",
-                f"{role_noun} plan artifact is written at the active team path `{plan_path_value}`.",
-                f"{role_noun} plan records confirmed decisions, repo-answered decisions, defaulted assumptions, and remaining open questions or blockers.",
-                f"{role_noun} plan pins every contract shared between tasks — named APIs, registry seams, component props and types, store fields, schemas, IPC channels — so no cross-task interface is left for an implementer to invent.",
-                f"{role_noun} plan commits to one choice per load-bearing decision, with rationale and the rejected alternative recorded; no decision is left open as an either/or for the implementer.",
+                f"{plan_noun} describes the execution approach and task graph.",
+                f"{plan_noun} artifact is written at the active team path `{plan_path_value}`.",
+                f"{plan_noun} records confirmed decisions, repo-answered decisions, defaulted assumptions, and remaining open questions or blockers.",
+                f"{plan_noun} pins every contract shared between tasks — named APIs, registry seams, component props and types, store fields, schemas, IPC channels — so no cross-task interface is left for an implementer to invent.",
+                f"{plan_noun} commits to one choice per load-bearing decision, with rationale and the rejected alternative recorded; no decision is left open as an either/or for the implementer.",
                 "If autonomous planning or artifact auto-approval is active, plan records conservative defaults used, risks accepted by autonomy mode, and any questions intentionally not asked.",
                 "Plan is reviewed by the user and either approved to done or sent back for changes.",
             ],
@@ -582,7 +637,7 @@ def ensure_plan_approval_gate(
         apply_source_context_to_task(plan_task, state, state_path)
 
     if plan_task.get("status") in ACTIVE_TASK_STATUSES:
-        mint_lease(plan_task, actor, role)
+        mint_lease(plan_task, actor, task_role)
         stamp_task_execution_identity(state, plan_task)
 
     if plan_artifact is None:
@@ -591,14 +646,14 @@ def ensure_plan_approval_gate(
         initial_status = "approved" if plan_task.get("status") == "done" else "draft"
         history = [{"action": "created", "actor": actor, "timestamp": now}]
         if initial_status == "approved":
-            history.append({"action": "approved", "actor": actor, "timestamp": now, "note": f"Imported from completed {role} plan task."})
+            history.append({"action": "approved", "actor": actor, "timestamp": now, "note": f"Imported from completed {role_prefix}plan task."})
         plan_artifact = {
             "id": next_artifact_id(state.setdefault("artifacts", [])),
-            # The canonical plan-artifact kind is shared by both planners; the
-            # general variant differs by title/owner, not kind, so the renderer
-            # artifact-kind map and find_architect_plan_gate keep working.
+            # The canonical plan-artifact kind is shared by every coordinator seat;
+            # a roleless run's plan differs by title/owner, not kind, so the renderer
+            # artifact-kind map and find_plan_artifact keep working.
             "kind": "architect_plan",
-            "title": f"{role_noun} Plan",
+            "title": plan_artifact_title,
             "path": plan_path_value,
             "status": initial_status,
             "createdBy": actor,
@@ -613,11 +668,11 @@ def ensure_plan_approval_gate(
             plan_artifact["approvedBy"] = actor
             plan_artifact["approvedAt"] = now
         state.setdefault("artifacts", []).append(plan_artifact)
-        append_event(state, "artifact_added", actor, f"{actor} registered {role} plan artifact {plan_artifact['id']}.")
+        append_event(state, "artifact_added", actor, f"{actor} registered {role_prefix}plan artifact {plan_artifact['id']}.")
     else:
         plan_artifact["taskId"] = plan_task.get("id")
         plan_artifact["path"] = plan_path_value
-        plan_artifact.setdefault("title", f"{role_noun} Plan")
+        plan_artifact.setdefault("title", plan_artifact_title)
         plan_artifact.setdefault("createdBy", actor)
         plan_artifact.setdefault("reviewHistory", [])
         plan_artifact.setdefault("recommendedTasks", [])

@@ -21,7 +21,7 @@ from sprintengine_core.tool.artifacts import (
 from sprintengine_core.tool.constants import VALID_APPROVAL_MODES
 from sprintengine_core.tool.feedback import append_feedback_record, attach_feedback_payload, build_feedback_payload
 from sprintengine_core.tool.paths import now_iso
-from sprintengine_core.tool.plans import epic_child_coverage_warnings, resolve_planning_role
+from sprintengine_core.tool.plans import actor_is_coordinator, epic_child_coverage_warnings
 from sprintengine_core.tool.state import (
     append_agent_notification_event,
     append_event,
@@ -29,7 +29,6 @@ from sprintengine_core.tool.state import (
     create_task_comment,
     find_task,
     with_locked_state,
-    worker_role,
 )
 from sprintengine_core.tool.tasks import recompute_phase
 
@@ -278,14 +277,10 @@ def cmd_artifact_request_changes(args: argparse.Namespace) -> Dict[str, Any]:
         # timestamp surface in the activity feed and enter open_feedback /
         # open_rework comment queues. The artifact-state activity entry above
         # carries the verb; this comment carries the human prose.
-        # Reviewer role via lease authority (MC-1591), not the deleted agents map:
-        # worker_role derives it from the reviewer's active lease, the tasks it owns
-        # or last implemented, then the minted-id convention.
-        actor_role = worker_role(state, args.id).strip().lower()
-        # Planner feedback follows the run's planning role (a general plans its own
-        # run), not the literal architect — otherwise it fell through to the generic
+        # Planner feedback follows the run's coordinator seat, not the literal
+        # architect — otherwise a run without one fell through to the generic
         # review_feedback bucket.
-        comment_type = "architect_feedback" if actor_role == resolve_planning_role(state) else "review_feedback"
+        comment_type = "architect_feedback" if actor_is_coordinator(state, args.id) else "review_feedback"
         artifact_id = str(artifact.get("id") or "")
         artifact_title = str(artifact.get("title") or "")
         comment_body = f"Changes requested for artifact {artifact_id} ({artifact_title}): {feedback}"
