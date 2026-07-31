@@ -21,9 +21,38 @@ What users see today: macOS Gatekeeper blocks the app on first launch (the
 right-click → Open workaround is required), and Windows SmartScreen warns on the
 installer. Silent auto-update via `electron-updater` is also unreliable unsigned.
 
-`.github/workflows/release.yml` already passes every variable below through to
-the `Package app` step, so signing switches on by adding repository secrets —
-no workflow edit is needed.
+## Do not pre-wire the workflow
+
+`.github/workflows/release.yml` deliberately passes **no** signing variables to
+the `Package app` step. It is tempting to add them ahead of time so that signing
+"switches on" when the secrets appear — that does not work and breaks the build:
+
+> `${{ secrets.CSC_LINK }}` for a secret that does not exist still **defines**
+> `CSC_LINK` as an empty string. electron-builder treats a present-but-empty
+> `CSC_LINK` as "sign this", then fails both macOS jobs with
+> `empty password will be used for code signing  reason=CSC_KEY_PASSWORD is not
+> defined`. Absent and empty are not the same thing to it.
+
+This was tried during the 0.2.0 release and reverted. Add the env block below in
+the **same commit** as the secrets, never before.
+
+```yaml
+      - name: Package app
+        run: npx electron-builder ${{ matrix.builderArgs }} --publish ${{ needs.validate.outputs.publish }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+```
+
+If only macOS certificates are ready, add only the `CSC_*` and `APPLE_*` lines;
+leaving `WIN_CSC_LINK` in with no Windows secret will break the Windows job the
+same way.
 
 ## Turning signing on
 
