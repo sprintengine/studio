@@ -1949,23 +1949,28 @@ function testTaskScopedLifecycleExemptsPlanningRoles(): void {
   const wakePlan = taskScopedPlanInput({ workspace, state, now, idleAgentIds: ['agent-1'], paths: ['task_wake'] })
   assert.equal(wakePlan.pastes.length, 0, 'a used roleless worker is never woken for another task')
   assert.equal(
-    sprintEngineWakeRestrictionTaskId(runtimeAgent(undefined, { lastOwnedTaskId: 'T-finished' })),
+    sprintEngineWakeRestrictionTaskId('agent-1', runtimeAgent(undefined, { lastOwnedTaskId: 'T-finished' }), { configuredRoles: [] }),
     'T-finished',
     'a used roleless worker is restricted to its own task, exactly like a named worker'
   )
+  assert.equal(
+    sprintEngineWakeRestrictionTaskId('coordinator', runtimeAgent(undefined, { lastOwnedTaskId: 'T-finished' }), { configuredRoles: [] }),
+    null,
+    'the roleless coordinator seat carries no wake restriction — same seat, and the only thing that separates it from the worker above is its id'
+  )
 
   assert.equal(
-    sprintEngineWakeRestrictionTaskId(runtimeAgent('architect', { lastOwnedTaskId: 'T-x' })),
+    sprintEngineWakeRestrictionTaskId('architect', runtimeAgent('architect', { lastOwnedTaskId: 'T-x' }), {}),
     null,
     'architect carries no wake restriction'
   )
   assert.equal(
-    sprintEngineWakeRestrictionTaskId(runtimeAgent('developer')),
+    sprintEngineWakeRestrictionTaskId('developer-1', runtimeAgent('developer'), {}),
     null,
     'an implementation agent that never owned a task carries no restriction'
   )
   assert.equal(
-    sprintEngineWakeRestrictionTaskId(runtimeAgent('developer', { lastOwnedTaskId: 'T-x' })),
+    sprintEngineWakeRestrictionTaskId('developer-1', runtimeAgent('developer', { lastOwnedTaskId: 'T-x' }), {}),
     'T-x',
     'a used implementation agent is restricted to its own task'
   )
