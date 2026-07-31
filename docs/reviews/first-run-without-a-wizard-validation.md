@@ -82,6 +82,21 @@ Note this profile had **zero workspaces**, which makes it the stronger test: the
 dismissal was derived from the retired `onboardingStep` / `modulesChosen` keys
 rather than from the has-workspaces shortcut.
 
+**Two honest limits on this run.**
+
+- **Adopted MCP servers were not exercised.** The epic names them, but this
+  profile had never adopted any (`mcpServers: null` before and after), so what is
+  proven is that nothing was written, not that an existing set survives. Adoption
+  is only reachable at workspace creation, and this profile never created one.
+- **`hasAdoptedAgentConfig` came out `false`** for this upgraded profile, because
+  it keys off `workspaces.length > 0` alone rather than the legacy wizard signals
+  that `firstRunCliCardDismissed` uses. That asymmetry is deliberate and the two
+  answer different questions — "have we asked this user before" versus "have we
+  already imported into one of their projects" — but the consequence is worth
+  stating: a returning user who onboarded and never made a workspace will have
+  their existing agent config adopted the first time they do. That is the correct
+  outcome (adoption never had a chance to run for them), not a migration miss.
+
 Evidence: `upgrade-before.json`, `upgrade-after.json`, `upgrade-1-old-build.png`,
 `upgrade-2-new-build.png`.
 
