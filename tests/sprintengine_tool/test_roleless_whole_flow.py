@@ -322,6 +322,11 @@ def test_a_role_based_run_dispatches_exactly_as_before(tmp_path: Path) -> None:
     an extra release, a lost role, a re-minted architect — fails here. Which agent
     the planner chooses to send is the other half of the seam, pinned by
     `testArchitectRunDispatchIsUnchanged` in `auto-run.test.ts`.
+
+    The expected sequence below is not a guess at what "unchanged" means: this
+    scenario was driven against the pre-epic tree (631ccff7, run store v4) and
+    against this branch, and both produced this ledger and this final ownership
+    byte for byte.
     """
     fixture = create_team(tmp_path, "role-based-dispatch", [])
     state = read_state(fixture.state_path)
