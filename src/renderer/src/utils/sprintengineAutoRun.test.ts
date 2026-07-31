@@ -5108,6 +5108,7 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   const triage = buildArchitectNeedsInputTriagePrompt({
     workspaceFolderPath: '/tmp/workspace',
     sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    agentId: 'architect',
     taskIds: ['T5', 'T6'],
   })
   assert.ok(triage.includes('sprintengine.triage.needs_input'), 'architect triage prompt names the MCP triage tool')
@@ -5123,6 +5124,18 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
     !/sprintengine (join|task |gate |triage |init |handover)/.test(triage),
     'architect triage prompt does not embed a sprintengine CLI command'
   )
+
+  // MC-2057: the payload id is the SEAT's agent id, not the literal. A roleless
+  // run has no `architect` id, so the hardcoded one named nobody and the triage
+  // tool could not resolve an actor from it.
+  const rolelessTriage = buildArchitectNeedsInputTriagePrompt({
+    workspaceFolderPath: '/tmp/workspace',
+    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    agentId: 'coordinator',
+    taskIds: ['T5'],
+  })
+  assert.ok(rolelessTriage.includes('"id": "coordinator"'), 'a roleless run triages as its coordinator seat')
+  assert.ok(!rolelessTriage.includes('"id": "architect"'), 'no architect id survives on a roleless run')
 }
 
 function testAgentNotificationPromptCompactsLongResolutionText(): void {

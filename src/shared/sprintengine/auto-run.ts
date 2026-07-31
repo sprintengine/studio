@@ -1780,10 +1780,10 @@ export function planSprintEngineDispatch(input: {
     // bootstrap and the all-tasks-done closure own those terminals.
     //
     // Triage (signalPlannerForNeedsInputTriage) runs outside this plan and
-    // re-engages the architect whenever architect-actionable needs_input tasks
-    // exist. Retiring that architect here would make triage respawn it next
-    // tick and idle_retire retire it again — an unbounded kill/respawn storm.
-    // The architect owns that triage work, so it is not "parked": skip it.
+    // re-engages the coordinator seat whenever architect-KIND needs_input tasks
+    // exist. Retiring that seat here would make triage respawn it next tick and
+    // idle_retire retire it again — an unbounded kill/respawn storm. The seat
+    // owns that triage work, so it is not "parked": skip it.
     const hasArchitectTriageWork =
       getArchitectActionableNeedsInputTasks(sprintEngineState).length > 0
     for (const agentId of input.idleAgentIds) {
@@ -1835,7 +1835,12 @@ export function planSprintEngineDispatch(input: {
         skipRetire('not-unclaimed-idle')
         continue
       }
-      if (runtimeAgent.role === 'architect' && hasArchitectTriageWork) {
+      // The seat, not the role name (MC-2057): the agent kept alive for pending
+      // `architect`-KIND triage is whoever holds the coordinator seat. Under the
+      // role comparison a roleless coordinator was retired WHILE its own triage
+      // work waited, and a needs_input task carries an owner so no dispatch,
+      // wake, or revival path re-engages anyone — the blocker stuck for good.
+      if (isSprintEngineCoordinatorAgent(agentId, sprintEngineState) && hasArchitectTriageWork) {
         skipRetire('architect-triage-work')
         continue
       }
@@ -2164,19 +2169,31 @@ export function buildAgentNotificationPrompt(
   ].filter((line): line is string => line !== null).join('\n')
 }
 
+/**
+ * The triage prompt pasted into (or spawned onto) the coordinator's terminal.
+ *
+ * `architect` in the name and the copy is the needs_input KIND — a wire value
+ * this epic deliberately does not rename. The AGENT is whoever holds the
+ * coordinator seat, so its id is threaded in rather than hardcoded: the
+ * hardcoded `architect` named an id that does not exist on a roleless run, and
+ * the triage tool resolves the actor from it. Mirrors the join-time directive
+ * in `sprintengine_core/tool/commands/run.py`, which interpolates the same id.
+ */
 export function buildArchitectNeedsInputTriagePrompt(input: {
   workspaceFolderPath: string
   sprintEngineStatePath: string
+  agentId: string
   taskIds: string[]
 }): string {
   // The managed Sprint Engine MCP server resolves run routing from the HTTP
   // run context.
   const triagePayload = {
-    id: 'architect',
+    id: input.agentId,
   }
   return [
-    'Fetch the canonical Sprint Engine architect triage instructions from the managed Sprint Engine MCP server.',
+    'Fetch the canonical Sprint Engine triage instructions from the managed Sprint Engine MCP server.',
     `Worker cwd: ${input.workspaceFolderPath}`,
+    `You are agent \`${input.agentId}\`, this run's coordinator.`,
     `Architect-actionable needs_input tasks detected: ${input.taskIds.join(', ')}.`,
     'Call the triage tool through MCP:',
     ['`sprintengine.triage.needs_input`', '```json', JSON.stringify(triagePayload, null, 2), '```'].join('\n'),

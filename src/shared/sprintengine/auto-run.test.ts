@@ -725,6 +725,118 @@ function testDepartedCoordinatorIsRevivedOnlyForCoordinatorRoutedWork(): void {
   )
 }
 
+// --- MC-2057: coordinator engagement asks the seat, not the role name -------
+
+/**
+ * The idle_retire skip that keeps the triage seat alive. Returns the plan for a
+ * run whose only blocker is one architect-KIND `needs_input` task, with
+ * `seatAgentId` live, idle, unclaimed, and well past the 5-minute window.
+ */
+function triageRetirementPlan(input: {
+  configuredRoles?: string[]
+  seatAgentId: string
+  seatRole?: string
+}): ReturnType<typeof planSprintEngineDispatch> {
+  const now = Date.now()
+  const state = stateFixture({
+    ...(input.configuredRoles ? { configuredRoles: input.configuredRoles as never } : {}),
+    tasks: [
+      task({
+        id: 'T-blocked',
+        role: undefined,
+        status: 'needs_input',
+        boardColumn: 'needs_input',
+        ownerAgentId: 'worker-1',
+        needsInput: { kind: 'architect', reason: 'plan ambiguity' },
+      } as never),
+    ],
+    sprintEngineAgents: {
+      [input.seatAgentId]: {
+        ...(input.seatRole ? { role: input.seatRole } : {}),
+        status: 'idle',
+        currentTaskId: null,
+        currentDispatch: null,
+      },
+    } as never,
+  })
+  const workspace = workspaceFixture({
+    agents: { [input.seatAgentId]: { id: input.seatAgentId, name: input.seatAgentId } },
+  } as never)
+
+  return planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: state,
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set([input.seatAgentId]),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    idleClock: new Map([[`${workspace.sprintEngineContext?.statePath}:${input.seatAgentId}`, now - 60 * 60_000]]),
+    retirementCooldown: new Map(),
+    taskScopedRetirementTaskIds: new Map(),
+    paths: new Set(['idle_retire'] as const) as never,
+  })
+}
+
+function testRolelessCoordinatorIsNotRetiredWhileTriageWorkIsPending(): void {
+  // The F1 gap: the skip was `runtimeAgent.role === 'architect'`, so a roleless
+  // coordinator was retired WHILE its own architect-KIND blocker waited. A
+  // needs_input task carries an owner, so nothing re-engages anyone afterwards
+  // — the blocker stuck permanently.
+  const plan = triageRetirementPlan({ configuredRoles: [], seatAgentId: 'coordinator' })
+
+  assert.deepEqual(
+    plan.retirements.map((retirement) => retirement.agentId),
+    [],
+    `the roleless seat survives its own pending triage; retirements=${JSON.stringify(plan.retirements)}`,
+  )
+  assert.ok(
+    plan.skips.some((skip) => (skip.data as { agentId?: string; reason?: string }).reason === 'architect-triage-work'),
+    `and states why; skips=${JSON.stringify(plan.skips)}`,
+  )
+}
+
+function testArchitectSeatRetirementSkipIsUnchanged(): void {
+  // The named seat answers the same on both id shapes it is seated into, which
+  // is what the role comparison used to cover.
+  for (const agentId of ['architect', 'architect-2']) {
+    const plan = triageRetirementPlan({
+      configuredRoles: ['architect', 'developer'],
+      seatAgentId: agentId,
+      seatRole: 'architect',
+    })
+    assert.deepEqual(
+      plan.retirements.map((retirement) => retirement.agentId),
+      [],
+      `${agentId} still holds its triage work; retirements=${JSON.stringify(plan.retirements)}`,
+    )
+  }
+
+  // A task-scoped worker on the same run is NOT the seat and is still retired.
+  const workerPlan = triageRetirementPlan({
+    configuredRoles: ['architect', 'developer'],
+    seatAgentId: 'developer-1',
+    seatRole: 'developer',
+  })
+  assert.deepEqual(
+    workerPlan.retirements.map((retirement) => retirement.agentId),
+    ['developer-1'],
+    `a non-seat idle worker is unaffected by pending triage; skips=${JSON.stringify(workerPlan.skips)}`,
+  )
+}
+
+function testMintedRolelessWorkerIsRetiredWhileTriageWorkIsPending(): void {
+  // The mistake the id-aware seat test exists to prevent: `agent-1` must never
+  // read as the roleless seat, or every idle worker on a blocked run would be
+  // kept alive forever.
+  const plan = triageRetirementPlan({ configuredRoles: [], seatAgentId: 'agent-1' })
+  assert.deepEqual(
+    plan.retirements.map((retirement) => retirement.agentId),
+    ['agent-1'],
+    `a minted roleless worker is not mistaken for the seat; skips=${JSON.stringify(plan.skips)}`,
+  )
+}
+
 function main(): void {
   testResolveSessionCwdWorktreeMode()
   testResolveSessionCwdCurrentWorkspaceWhenNoWorktree()
@@ -749,6 +861,9 @@ function main(): void {
   testRolelessRunBootstrapsItsCoordinatorSeat()
   testMintedRolelessWorkerIsTaskScopedForWakeAndRevival()
   testDepartedCoordinatorIsRevivedOnlyForCoordinatorRoutedWork()
+  testRolelessCoordinatorIsNotRetiredWhileTriageWorkIsPending()
+  testArchitectSeatRetirementSkipIsUnchanged()
+  testMintedRolelessWorkerIsRetiredWhileTriageWorkIsPending()
   console.log('auto-run.test.ts: all tests passed')
 }
 
