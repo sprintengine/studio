@@ -735,6 +735,7 @@ export default function WorkspaceSidebar({
   const [tabDropTarget, setTabDropTarget] = useState<
     | { kind: 'new' }
     | { kind: 'workspace'; id: WorkspaceId }
+    | { kind: 'folder'; key: string }
     | null
   >(null)
 
@@ -1024,14 +1025,12 @@ export default function WorkspaceSidebar({
     setTabDropTarget((current) => (current?.kind === 'new' ? null : current))
   }, [])
 
-  const handleTabDropOnNew = useCallback(
-    (event: React.DragEvent) => {
-      const payload = readTabDragPayload(event.dataTransfer)
-      setTabDropTarget(null)
-      if (!payload) return
-      event.preventDefault()
-      event.stopPropagation()
-
+  // Extract a dragged tab into a brand-new workspace. `folderPath` decides which
+  // project the new workspace belongs to: the source workspace's folder when the
+  // tab is dropped on the "New chat" target, or the folder's own path when it is
+  // dropped straight onto a project header.
+  const extractTabIntoNewWorkspace = useCallback(
+    (payload: TabDragPayload, folderPath: string | null) => {
       // Prefer the live-model spec (has the most up-to-date className/config)
       // and fall back to the drag payload if the source model has been
       // unmounted between drag start and drop.
@@ -1044,9 +1043,6 @@ export default function WorkspaceSidebar({
         className: payload.className,
       }
 
-      const sourceWorkspace = workspaceById.get(payload.sourceWorkspaceId) ?? null
-      const inheritedFolderPath = sourceWorkspace?.folderPath ?? null
-
       const syntheticTemplate: LayoutTemplate = {
         id: `extracted-tab-${Date.now()}`,
         name: payload.name || 'Workspace',
@@ -1057,14 +1053,28 @@ export default function WorkspaceSidebar({
 
       const newWorkspaceId = addWorkspaceFromStore(syntheticTemplate, {
         name: payload.name || undefined,
-        folderPath: inheritedFolderPath,
+        folderPath,
         windowId: workspaceWindowId,
       })
 
       migrateTabSideEffects(payload, newWorkspaceId)
       removeTab(payload.sourceWorkspaceId, payload.tabId, { preserveRuntime: true })
     },
-    [addWorkspaceFromStore, migrateTabSideEffects, workspaceById, workspaceWindowId]
+    [addWorkspaceFromStore, migrateTabSideEffects, workspaceWindowId]
+  )
+
+  const handleTabDropOnNew = useCallback(
+    (event: React.DragEvent) => {
+      const payload = readTabDragPayload(event.dataTransfer)
+      setTabDropTarget(null)
+      if (!payload) return
+      event.preventDefault()
+      event.stopPropagation()
+
+      const sourceWorkspace = workspaceById.get(payload.sourceWorkspaceId) ?? null
+      extractTabIntoNewWorkspace(payload, sourceWorkspace?.folderPath ?? null)
+    },
+    [extractTabIntoNewWorkspace, workspaceById]
   )
 
   const handleTabDragOverRow = useCallback(
@@ -1118,6 +1128,42 @@ export default function WorkspaceSidebar({
       setActiveWorkspace(workspace.id)
     },
     [migrateTabSideEffects, setActiveWorkspace, updateLayout]
+  )
+
+  // Dropping a tab on a project header extracts it into a NEW workspace filed
+  // under that project — the gesture that reads as obvious once a project row is
+  // on screen, and previously the one sidebar target that ignored tab drags
+  // entirely (its handlers bail unless a folder-reorder drag is in flight). A
+  // missing folder is refused: it cannot host a new workspace, matching the
+  // folder context menu, which hides "New workspace" for the same reason.
+  const handleTabDragOverFolder = useCallback(
+    (event: React.DragEvent, group: FolderGroup) => {
+      if (!dataTransferHasTabDrag(event.dataTransfer)) return
+      if (group.missing) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+      setTabDropTarget({ kind: 'folder', key: group.key })
+    },
+    []
+  )
+
+  const handleTabDragLeaveFolder = useCallback((groupKey: string) => {
+    setTabDropTarget((current) =>
+      current?.kind === 'folder' && current.key === groupKey ? null : current
+    )
+  }, [])
+
+  const handleTabDropOnFolder = useCallback(
+    (event: React.DragEvent, group: FolderGroup) => {
+      const payload = readTabDragPayload(event.dataTransfer)
+      setTabDropTarget(null)
+      if (!payload) return
+      if (group.missing) return
+      event.preventDefault()
+      event.stopPropagation()
+      extractTabIntoNewWorkspace(payload, group.fullPath)
+    },
+    [extractTabIntoNewWorkspace]
   )
 
   const renderWorkspaceRow = (workspace: Workspace, fKey: string, options?: { keyPrefix?: string }) => {
@@ -1668,6 +1714,8 @@ export default function WorkspaceSidebar({
             dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key
               ? dropIndicator.position
               : null
+          const isFolderTabDropTarget =
+            tabDropTarget?.kind === 'folder' && tabDropTarget.key === group.key
           return (
             <section key={group.key} className="relative pt-1">
               {/* The header container carries drag + context-menu; the disclosure
@@ -1677,8 +1725,21 @@ export default function WorkspaceSidebar({
               <header
                 draggable
                 onDragStart={(event) => handleFolderDragStart(event, group.key)}
-                onDragOver={(event) => handleFolderDragOver(event, group.key)}
-                onDrop={(event) => handleFolderDrop(event, group.key)}
+                onDragOver={(event) => {
+                  if (dataTransferHasTabDrag(event.dataTransfer)) {
+                    handleTabDragOverFolder(event, group)
+                    return
+                  }
+                  handleFolderDragOver(event, group.key)
+                }}
+                onDragLeave={() => handleTabDragLeaveFolder(group.key)}
+                onDrop={(event) => {
+                  if (dataTransferHasTabDrag(event.dataTransfer)) {
+                    handleTabDropOnFolder(event, group)
+                    return
+                  }
+                  handleFolderDrop(event, group.key)
+                }}
                 onDragEnd={handleDragEnd}
                 onContextMenu={(event) => {
                   event.preventDefault()
@@ -1693,6 +1754,12 @@ export default function WorkspaceSidebar({
                 ) : null}
                 {dropMark === 'after' ? (
                   <span aria-hidden="true" className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
+                ) : null}
+                {isFolderTabDropTarget ? (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-x-1 inset-y-0 rounded-md ring-2 ring-[color:var(--accent-primary)]"
+                  />
                 ) : null}
                 <button
                   type="button"
