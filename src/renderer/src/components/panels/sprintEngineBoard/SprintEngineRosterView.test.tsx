@@ -151,6 +151,15 @@ assert.ok(html.includes('aria-label="Architect model: Claude Code · Opus 4.8"')
 assert.ok(html.includes('aria-label="Developer model: Claude Code · Haiku 4.5"'), 'developer band edits its model in place')
 assert.ok(/\d+ of \d+ active/.test(html), 'role bands show the seat census')
 
+// The seat that holds the plan carries the coordination mark on a role-based run
+// too — coordination is a job on the task, not a role (MC-2053/2055), and the
+// design marks `architect-1` in its role-based panel as well.
+assert.equal(
+  (html.match(/aria-label="Coordinates this run"/g) ?? []).length,
+  1,
+  'exactly one seat — the architect — is marked as coordinating',
+)
+
 // Seat rows are single-line entries in a role-labeled list, newest-first.
 assert.ok(html.includes('aria-label="Developer agents"'), 'developer seats render in a role-labeled list')
 assert.ok(

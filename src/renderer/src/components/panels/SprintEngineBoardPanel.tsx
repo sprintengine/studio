@@ -1882,7 +1882,10 @@ export function SprintRunBoard({
  // `role` is absent only for a roleless run, whose agents carry no role at all
  // (MC-2057): the id is minted from the roleless allocator, there is no role to
  // enable in the engine, and no architect to notify about the plan.
- const confirmAddMember = async (role: SprintEngineRole | undefined = addMemberRole) => {
+ // TAKEN EXPLICITLY, never defaulted: passing `undefined` to a default
+ // parameter would resolve back to `addMemberRole` and mint a `developer-1`
+ // onto a run that has no roles at all. The dialog passes its own selection.
+ const confirmAddMember = async (role: SprintEngineRole | undefined) => {
  const memberName = normalizeAgentIdentifier(addMemberName)
  const memberCli = addMemberCli ?? (role ? addMemberRoleDefaultCli(role) : lastSelectedCli)
 
@@ -3420,7 +3423,7 @@ export function SprintRunBoard({
  <ModalButton
  variant="primary"
  disabled={addMemberBusy}
- onClick={() => void confirmAddMember()}
+ onClick={() => void confirmAddMember(addMemberRole)}
  >
  {addMemberBusy ? 'Adding…' : `Add ${getSprintEngineRoleLabel(addMemberRole)}`}
  </ModalButton>

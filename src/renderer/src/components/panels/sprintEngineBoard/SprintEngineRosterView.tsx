@@ -28,7 +28,7 @@ import type {
 import {
   SPRINT_ENGINE_ROLELESS_KEY,
   getSprintEngineRoleLabel,
-  sprintEngineCoordinatorSeat,
+  isSprintEngineCoordinatorAgent,
   sprintEngineEnabledRoles,
   sprintEngineRoleKey,
   sprintEngineRoleOrder,
@@ -344,10 +344,12 @@ export function SprintEngineRosterView({
   const liveAgentCount = allDescriptors.filter((entry) => entry.hasLiveTerminal).length
   const configuredRoleCount = enabledRoles.size
 
-  // The seat that holds the plan. Marked on its own row only when it has no role
-  // to name it — a run with an architect already says so in its band (§3).
-  const coordinatorSeat = sprintEngineCoordinatorSeat(sprintEngineState)
-  const markCoordinatorRow = coordinatorSeat.role === undefined
+  // The seat that holds the plan wears the same coordination mark its task wears
+  // on the board — on EVERY run, because coordination is a job, not a role
+  // (MC-2053; the design's role-based panel marks `architect-1` too). Asked by
+  // id, so a suffixed seat (`architect-1`) answers as well as a bare one.
+  const isCoordinatorRow = (agentId: string): boolean =>
+    isSprintEngineCoordinatorAgent(agentId, sprintEngineState)
 
   // "Add a role" lists the roles the run does not yet configure; picking one
   // routes through the host's enable-role path (a genuinely new role prompts
@@ -660,8 +662,8 @@ export function SprintEngineRosterView({
           <span className="flex w-[148px] shrink-0 items-center gap-1.5 truncate text-body font-medium text-[color:var(--text-default)]">
             <span className="truncate">{displayName}</span>
             {/* Which agent holds the plan — the same mark its coordination task
-                wears on the board. Only on a seat with no role to say it. */}
-            {markCoordinatorRow && agent.id === coordinatorSeat.agentId ? (
+                wears on the board. */}
+            {isCoordinatorRow(agent.id) ? (
               <Tooltip content="Coordinates this run — plans it and adjudicates the plan.">
                 <span
                   className="text-[color:var(--text-muted)]"
