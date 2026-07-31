@@ -231,8 +231,8 @@ def test_the_source_context_labels_children_and_leaves_reading_material_alone(tm
 
 
 def test_a_run_with_no_architect_gets_the_same_directive(tmp_path) -> None:
-    """`resolve_planning_role` already answers "who plans"; the directive rides
-    the plan gate, so a general-only run reads identically."""
+    """`resolve_coordinator_seat` already answers "who coordinates"; the directive
+    rides the plan gate, so a run with no architect reads identically."""
     _cli, _state_path, architect_run = _init_epic_run(tmp_path / "architect", roles=["architect", "developer"])
     _cli, _state_path, general_run = _init_epic_run(tmp_path / "general", roles=["general"])
 

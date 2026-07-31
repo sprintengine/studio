@@ -18,7 +18,7 @@ from pathlib import Path
 import yaml
 
 from sprintengine_core import store as folder_store
-from sprintengine_core.tool.plans import resolve_planning_role
+from sprintengine_core.tool.plans import resolve_coordinator_seat
 from sprintengine_mcp import SprintEngineMcpServer
 from sprintengine_mcp.schemas import MCP_V1_CONTRACT_SCHEMAS, TOOL_SCHEMAS
 from helpers import SwarmCli, read_state
@@ -133,7 +133,7 @@ def test_roles_formation_with_an_architect_still_plans_through_the_architect(tmp
     )
 
     state = read_state(state_path)
-    assert resolve_planning_role(state) == "architect"
+    assert resolve_coordinator_seat(state) == {"role": "architect", "agentId": "architect"}
     # The architect seat keeps its SINGLETON capacity rule and the user's roster
     # is exactly what the wizard sent — no formation collapsed it to ['architect'].
     assert state["configuredRoles"] == ["architect", "developer", "tester"]
@@ -147,7 +147,7 @@ def test_roles_formation_with_an_architect_still_plans_through_the_architect(tmp
     assert joined["result"]["run"]["configuredRoles"] == ["architect", "developer", "tester"]
 
 
-def test_no_roles_formation_still_plans_through_a_general(tmp_path) -> None:
+def test_no_roles_formation_plans_through_a_roleless_coordinator(tmp_path) -> None:
     root, state_path = _workspace(tmp_path, "pool-formation")
     cli = SwarmCli(state_path, cwd=root)
     cli.run(
@@ -159,7 +159,8 @@ def test_no_roles_formation_still_plans_through_a_general(tmp_path) -> None:
     )
 
     state = read_state(state_path)
-    assert resolve_planning_role(state) == "general"
+    # No architect on the roster, so the run coordinates through a roleless seat.
+    assert resolve_coordinator_seat(state) == {"role": None, "agentId": "coordinator"}
 
     joined = SprintEngineMcpServer(allowed_roots=[root]).call_tool(
         "sprintengine.agent.join",

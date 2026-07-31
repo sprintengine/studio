@@ -1,10 +1,11 @@
 """A run with no architect must still route: triage, escalation, plan review, comments.
 
-MC-1585: the default product is a pool of plain Generals, so `general` plans its own
-run (`resolve_planning_role`). Every path that asked "is this role literally
-`architect`?" silently dead-ended such a run — the blocked task queued forever with
-nobody allowed to triage it. These pin the planner-routed behavior end to end through
-the real CLI, not through hand-built state.
+MC-1585: the default product is a pool of plain agents, so such a run coordinates
+itself. Every path that asked "is this role literally `architect`?" silently
+dead-ended it — the blocked task queued forever with nobody allowed to triage it.
+The answer is now a SEAT (`resolve_coordinator_seat`), roleless whenever the run
+staffs no architect, and reached by id (`actor_is_coordinator`). These pin the
+planner-routed behavior end to end through the real CLI, not hand-built state.
 """
 
 from __future__ import annotations
@@ -22,58 +23,87 @@ def worker_roles(fixture) -> set[str]:
     return {str(worker.get("role") or "") for worker in projection["workers"].values()}
 
 
-def general_run(tmp_path, name: str, tasks=None):
-    """A real general-only run: configuredRoles == ['general'], one seated general."""
+COORDINATOR = "coordinator"
+
+
+def roleless_run(tmp_path, name: str, tasks=None, roles=("general",)):
+    """A run with no architect: its coordinator seat therefore carries no role."""
     fixture = create_team(tmp_path, name, tasks or [])
     state = read_state(fixture.state_path)
-    state["configuredRoles"] = ["general"]
+    state["configuredRoles"] = list(roles)
     state.setdefault("sprintengine", {})["rosterConfigured"] = True
-    state["agents"] = {"general": {"role": "general", "status": "idle", "currentTaskId": None}}
     write_state(fixture.state_path, state)
     return fixture
 
 
-def block_task(fixture, task_id: str, kind: str = "architect") -> dict:
+def block_task(fixture, task_id: str, kind: str = "architect", agent_id: str = "general") -> dict:
     return fixture.cli.run(
         "task", "status",
         "--task-id", task_id,
-        "--id", "general",
+        "--id", agent_id,
         "--status", "needs_input",
         "--needs-input-kind", kind,
         "--needs-input-question", "The acceptance criteria contradict the owned paths.",
     )
 
 
-def test_general_receives_the_triage_directive_on_join(tmp_path) -> None:
-    # run.py gated the triage directive on `args.role == "architect"`, so a general
-    # joining a run with queued planner-actionable work was told there was nothing to
-    # triage — the blocked task queued forever.
-    fixture = general_run(tmp_path, "general-triage-join", [task("T1", "Build it", "general")])
+def test_the_coordinator_receives_the_triage_directive_on_join(tmp_path) -> None:
+    # run.py gated the triage directive on `args.role == "architect"`, so the agent
+    # coordinating a run with queued planner-actionable work was told there was
+    # nothing to triage — the blocked task queued forever.
+    fixture = roleless_run(tmp_path, "general-triage-join", [task("T1", "Build it", "general")])
     block_task(fixture, "T1")
 
-    joined = fixture.cli.run("join", "--role", "general", "--id", "general")
+    joined = fixture.cli.run("join", "--role", "general", "--id", COORDINATOR)
 
     assert joined["action"] == "needs_input_triage"
     assert "triage needs-input" in joined["prompt"]
 
 
-def test_general_can_triage_without_an_architect_seat(tmp_path) -> None:
+def test_the_coordinator_can_triage_without_an_architect_seat(tmp_path) -> None:
     # cmd_triage_needs_input hardcoded ensure_agent_in_roster(state, id, "architect"),
     # which forced an off-roster architect seat that add_roster_agent then rejected.
-    fixture = general_run(tmp_path, "general-triage-run", [task("T1", "Build it", "general")])
+    fixture = roleless_run(tmp_path, "general-triage-run", [task("T1", "Build it", "general")])
     block_task(fixture, "T1")
 
-    triaged = fixture.cli.run("triage", "needs-input", "--id", "general")
+    triaged = fixture.cli.run("triage", "needs-input", "--id", COORDINATOR)
 
     assert [entry["id"] for entry in triaged["tasks"]] == ["T1"]
-    assert "You are the Sprint Engine general" in triaged["prompt"]
+    assert "You are the Sprint Engine coordinator" in triaged["prompt"]
     # The triage prompt must hand the agent its OWN id, not the literal `architect`.
-    assert "--id general" in triaged["prompt"]
+    assert f"--id {COORDINATOR}" in triaged["prompt"]
     assert "--id architect " not in triaged["prompt"]
-    # No architect worker was conjured onto a general-only run (leases derive the
-    # worker set; there is no agents map to seat a phantom architect into).
+    # No architect worker was conjured onto a run that staffs none (leases derive
+    # the worker set; there is no agents map to seat a phantom architect into).
     assert "architect" not in worker_roles(fixture)
     assert read_state(fixture.state_path)["configuredRoles"] == ["general"]
+
+
+def test_a_run_whose_coordinator_has_no_role_at_all_still_triages(tmp_path) -> None:
+    # The seat that answered `general` was still a ROLE, so `ensure_role_in_roster`
+    # always had something to validate. A specialist roster with no architect has a
+    # coordinator with no role at all: passing that to `require_configured_role`
+    # would raise on the very run this path exists to serve.
+    fixture = roleless_run(
+        tmp_path,
+        "roleless-triage",
+        [task("T1", "Build it", "developer")],
+        roles=("developer", "tester"),
+    )
+    block_task(fixture, "T1", agent_id="developer-1")
+
+    triaged = fixture.cli.run("triage", "needs-input", "--id", COORDINATOR)
+
+    assert [entry["id"] for entry in triaged["tasks"]] == ["T1"]
+    assert "You are the Sprint Engine coordinator" in triaged["prompt"]
+    # No architect was conjured onto the roster to hold the seat.
+    assert read_state(fixture.state_path)["configuredRoles"] == ["developer", "tester"]
+    assert "architect" not in worker_roles(fixture)
+
+    joined = fixture.cli.run("join", "--role", "developer", "--id", COORDINATOR)
+    assert joined["action"] == "needs_input_triage"
+    # A worker that is not the coordinator is not handed the triage directive.
+    assert fixture.cli.run("join", "--role", "developer", "--id", "developer-2")["action"] != "needs_input_triage"
 
 
 def test_an_architect_run_still_triages_exactly_as_before(tmp_path) -> None:
@@ -98,24 +128,24 @@ def test_an_architect_run_still_triages_exactly_as_before(tmp_path) -> None:
 
 
 def test_planner_kind_alias_stores_the_canonical_kind(tmp_path) -> None:
-    # `planner` is the vocabulary a general-only run reaches for. It is accepted and
+    # `planner` is the vocabulary a run with no architect reaches for. It is accepted and
     # folded to the canonical wire kind, so it routes like any planner-routed block
     # and the renderer (which reads `architect`) keeps working.
-    fixture = general_run(tmp_path, "planner-alias", [task("T1", "Build it", "general")])
+    fixture = roleless_run(tmp_path, "planner-alias", [task("T1", "Build it", "general")])
 
     block_task(fixture, "T1", kind="planner")
 
     blocked = read_state(fixture.state_path)["tasks"][0]
     assert blocked["needsInput"]["kind"] == "architect"
-    assert fixture.cli.run("join", "--role", "general", "--id", "general")["action"] == "needs_input_triage"
+    assert fixture.cli.run("join", "--role", "general", "--id", COORDINATOR)["action"] == "needs_input_triage"
 
 
-def test_a_generals_note_is_typed_as_planner_feedback(tmp_path) -> None:
-    # A general planning its own run wrote `user_note`, so its direction to a worker
-    # read as if a human had typed it.
-    fixture = general_run(tmp_path, "general-note", [task("T1", "Build it", "general")])
+def test_a_roleless_coordinators_note_is_typed_as_planner_feedback(tmp_path) -> None:
+    # A run planning itself with no architect wrote `user_note`, so its direction to
+    # a worker read as if a human had typed it.
+    fixture = roleless_run(tmp_path, "general-note", [task("T1", "Build it", "general")])
 
-    fixture.cli.run("task", "note", "--task-id", "T1", "--id", "general", "--note", "Use the existing helper.")
+    fixture.cli.run("task", "note", "--task-id", "T1", "--id", COORDINATOR, "--note", "Use the existing helper.")
 
     comments = read_state(fixture.state_path)["tasks"][0]["comments"]
     assert [comment["type"] for comment in comments] == ["architect_feedback"]
@@ -141,12 +171,12 @@ def test_a_non_planner_note_stays_a_user_note(tmp_path) -> None:
     assert [comment["type"] for comment in comments] == ["user_note", "architect_feedback"]
 
 
-def test_an_artifact_review_block_routes_to_the_general_planner(tmp_path) -> None:
+def test_an_artifact_review_block_routes_to_the_roleless_coordinator(tmp_path) -> None:
     # `mark_task_needs_input_for_artifact` wrote the planner-routed kind but the
-    # ROUTING resolved it to a literal architect, so on a general-only run a readied
+    # ROUTING resolved it to a literal architect, so on a run with no architect a readied
     # artifact parked its task against an agent that cannot exist. The block must
-    # reach the general — the only agent able to adjudicate it.
-    fixture = general_run(tmp_path, "general-artifact-block", [task("T1", "Draft the notes", "general")])
+    # reach the coordinator — the only agent able to adjudicate it.
+    fixture = roleless_run(tmp_path, "general-artifact-block", [task("T1", "Draft the notes", "general")])
     (fixture.team_dir / "notes.md").write_text("# Design notes\n", encoding="utf-8")
 
     fixture.cli.run(
@@ -160,10 +190,10 @@ def test_an_artifact_review_block_routes_to_the_general_planner(tmp_path) -> Non
     assert blocked["status"] == "needs_input"
     assert blocked["needsInput"]["reason"] == "artifact_review"
 
-    # It lands in the lane the general is routed to, and triage reaches it.
-    triaged = fixture.cli.run("triage", "needs-input", "--id", "general")
+    # It lands in the lane the coordinator is routed to, and triage reaches it.
+    triaged = fixture.cli.run("triage", "needs-input", "--id", COORDINATOR)
     assert [entry["id"] for entry in triaged["tasks"]] == ["T1"]
-    # No architect worker was conjured to adjudicate it — only the general can.
+    # No architect worker was conjured to adjudicate it — only the coordinator can.
     assert "architect" not in worker_roles(fixture)
     assert read_state(fixture.state_path)["configuredRoles"] == ["general"]
 
