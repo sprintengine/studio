@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Tooltip } from './Tooltip'
 import { FOCUS_RING_CLASS } from './tokens'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
@@ -6,10 +7,29 @@ import type { HighlightColor } from '../../types/workspace'
 
 // Pointer-positioned context menu. Unlike Popover (anchored to a trigger
 // element), this surface opens at viewport coordinates — a right-click point
-// or a kebab button corner — and clamps itself inside the viewport. It is
-// rendered in place (no portal) with `position: fixed`, matching the
-// workspace-sidebar menus it was extracted from; zIndex 60 keeps it above
-// the z-50 Popover/Tooltip layer the same way the bespoke menus did.
+// or a kebab button corner — and clamps itself inside the viewport. zIndex 60
+// keeps it above the z-50 Popover/Tooltip layer.
+//
+// PORTALLED to document.body. It used to render in place with `position:
+// fixed`, on the assumption that fixed always resolves against the viewport.
+// It does not: any ancestor with `transform`, `filter`, `perspective`,
+// `contain`, `backdrop-filter`, or `will-change` on those becomes the
+// containing block for fixed descendants, and its `overflow` then clips the
+// menu. That is not hypothetical here — `.drawer-panel` and
+// `.settings-overlay-panel` carry `transform: translate3d(…)` AND
+// `will-change: transform` permanently, including at rest
+// (assets/index.css:2140-2148, :2185-2194), so a menu opened inside one was
+// clipped at the panel edge (the horizon rail's kebab showed `Ma… Rev… Del…`).
+// Positioning is unchanged — `useClampedMenuPosition` already measures against
+// the viewport, which is exactly what the portal now makes true.
+//
+// Only the ROOT surface portals. `MenuFlyoutItem`'s nested surface must stay
+// inside this menu's DOM (see its comment) so the outside-pointerdown check
+// below treats flyout clicks as inside clicks — and because the root has left
+// the clipping ancestor, the flyout inside it is out too.
+//
+// React events still bubble to the React parent through a portal, so callers
+// that relied on propagation (or on stopPropagation) are unaffected.
 //
 // Contract: role="menu" surface with an accessible name, Escape closes and
 // restores focus to the previously focused element, outside pointerdown
@@ -158,7 +178,7 @@ export function ContextMenu({ x, y, ariaLabel, onClose, children, surfaceClassNa
     }
   }, [onClose, restoreFocus])
 
-  return (
+  return createPortal(
     <div
       ref={ref}
       role="menu"
@@ -170,7 +190,8 @@ export function ContextMenu({ x, y, ariaLabel, onClose, children, surfaceClassNa
       className={`${MENU_SURFACE_CLASS} focus:outline-none ${surfaceClassName ?? ''}`}
     >
       {children}
-    </div>
+    </div>,
+    document.body,
   )
 }
 
