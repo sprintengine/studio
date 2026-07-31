@@ -702,9 +702,9 @@ export function AutomationEditor({
             <>
               {/* Agent and Model (§.duo): who runs it, and on what. Both resolve
                   to something real on an automation with neither set — the
-                  specialist reads "General agent", the runtime reads the CLI the
-                  launch would actually fall back to — because an enabled
-                  automation showing an empty picker reads broken. */}
+                  agent reads "No role", the runtime reads the CLI the launch
+                  would actually fall back to — because an enabled automation
+                  showing an empty picker reads broken. */}
               {showAgentPicker ? (
                 <div className="grid gap-3 @[520px]:grid-cols-2 @[520px]:items-start">
                   <div className="flex min-w-0 flex-col gap-1.5">
@@ -736,10 +736,10 @@ export function AutomationEditor({
                           </span>
                           <span className="min-w-0">
                             <span className="block truncate text-meta font-medium text-[color:var(--text-strong)]">
-                              {selectedSpecialist ? selectedSpecialist.shortLabel : 'General agent'}
+                              {selectedSpecialist ? selectedSpecialist.shortLabel : 'No role'}
                             </span>
-                            {/* A role's own description; a general agent gets no
-                                second line, because the aside's Agent fact
+                            {/* A role's own description; a roleless agent gets
+                                no second line, because the aside's Agent fact
                                 already says what it is. */}
                             {selectedSpecialist ? (
                               <span className="block truncate text-micro text-[color:var(--text-subtle)]">

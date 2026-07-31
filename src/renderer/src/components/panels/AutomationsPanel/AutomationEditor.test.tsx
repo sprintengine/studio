@@ -317,7 +317,7 @@ console.log('AutomationEditor family render tests passed')
 // ---------------------------------------------------------------------------
 // Agent block — the reused spawn picker (select mode) replaces the old flat
 // Specialist / CLI / Model selects. A spawn-agent action whose schema carries a
-// `cli` field renders the embedded picker trigger (default General agent), the
+// `cli` field renders the embedded picker trigger (default: no role), the
 // CliModelPickerButton runtime row, and the permission summary; it must NOT
 // render the retired flat Specialist/Model select help text.
 // ---------------------------------------------------------------------------
@@ -349,8 +349,9 @@ const agentBlockMarkup = renderToStaticMarkup(
   />,
 )
 
-assert.match(agentBlockMarkup, /General agent/, 'the agent block defaults to General agent (no specialist) in the picker trigger')
-// The trigger carries the identity; what a general agent IS is the aside's own
+assert.match(agentBlockMarkup, /No role/, 'the agent block defaults to no role (no specialist) in the picker trigger')
+assert.doesNotMatch(agentBlockMarkup, /General agent/, 'there is no "General agent" — an agent either has a role or does not')
+// The trigger carries the identity; what a roleless agent IS is the aside's own
 // "Agent — Plain — no role, no soul" fact rather than a second line saying it
 // again beside the control (MC-2035 trim).
 assert.match(agentBlockMarkup, /Plain — no role, no soul/, 'the aside states the agent as a fact of the run')

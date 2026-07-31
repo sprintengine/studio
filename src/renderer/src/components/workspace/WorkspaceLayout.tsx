@@ -1267,11 +1267,13 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
           .filter(Boolean)
           .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
           .join(' ')
+      // An agent with neither a specialist nor a sprint role has no role at all,
+      // and the card's own Model and Runtime rows already name what it runs.
       const roleLabel = specialist
         ? `${specialist.shortLabel} specialist`
         : sprintEngineRole
           ? `${prettyRole(sprintEngineRole)} · sprint`
-          : 'General agent'
+          : 'No role'
       // Paused wins its own self-contained label (with elapsed time) so the
       // popout reads "Paused · 13m" without leaning on the tab's recency chip.
       // Otherwise mirror the tab dot, then sprint lifecycle, then the honest
