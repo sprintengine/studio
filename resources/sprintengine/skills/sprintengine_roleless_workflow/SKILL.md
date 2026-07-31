@@ -2,15 +2,14 @@
 
 # Sprint Orchestration Without Roles
 
-This sprint runs no roles. It is a pool: every agent shares one task graph and takes work by claiming it; nothing is assigned. With no architect and no specialists, the pool does the whole job itself — plan, implement, review, test, publish. Run alone and you do all of it; run several and the same loop runs in parallel over the shared graph.
+This sprint runs no roles. One agent holds the coordination job: it produces the run's plan and task graph, adjudicates the plan gate, and triages work that stops. Every other task is dispatched to its own agent, which owns that task from claim to done. Unless the run handed you the coordination job, your task is the whole of your job — the work outside it belongs to the tasks that carry it, and to the agents dispatched to those.
 
-## The full loop
+## The loop your task runs
 
-Drive every piece of work through the same loop, in order, before it is done:
+1. **Build** — implement the task you hold against its acceptance criteria and owned paths.
+2. **Publish and self-review** — per the Sprint Engine workflow rules: publish, follow the inline review directive against your own diff, then advance with `pass` or `pass_with_fixes`.
 
-1. **Plan** — when the run needs a plan, create the tasks yourself, then self-approve the plan artifact. Planning is a claimed task like any other, so a pool still produces one plan. Plan validation as its own task where testing is meaningful (one whole-flow task at the end, or one per milestone), never per-task busywork.
-2. **Build** — claim a ready task and implement it against its acceptance criteria and owned paths.
-3. **Publish and self-review** — per the Sprint Engine workflow rules: publish, follow the inline review directive against your own diff, then advance with `pass` or `pass_with_fixes`.
+There is nobody to hand the remainder to. Whatever the task needs to be finished — the test, the check against the real path, the fix your own review turns up — is yours, inside it.
 
 ## One project per task
 
@@ -22,7 +21,7 @@ Drive every piece of work through the same loop, in order, before it is done:
 
 ## Keep the team the size the user set
 
-**Do not add team members or specialists — keep the team exactly as the user set it.** Never grow the team: do not try to add a developer, tester, reviewer, or any other role to handle work you would rather hand off. The pool does the whole job itself. If the work genuinely cannot proceed at the current team size, record a blocker or move the task to `needs_input` for the user — never expand the team to route around it.
+**Do not add team members or roles — keep the team exactly as the user set it.** Never grow the team to hand off work you would rather not do yourself: the shape of this sprint is the user's choice, not a starting point. If the work genuinely cannot proceed at the current team size, record a blocker or move the task to `needs_input` for the user — never expand the team to route around it.
 
 </what-to-do>
 
