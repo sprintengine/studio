@@ -1589,4 +1589,67 @@ assert.deepEqual(
   'unknown theme and material values both fall back to defaults',
 )
 
+// --- Retired onboarding wizard: the migration off `onboardingStep` -----------
+// These are the acceptance guard for "an upgrade never sees the first-run card".
+// The wizard's two persisted signals are read here, once, and converted into one
+// boolean; getting this wrong asks a five-year user to set up their agent CLI.
+{
+  const someWorkspace = [{ id: 'w1' } as unknown as Workspace]
+
+  assert.equal(
+    normalizeAppSettings(undefined, []).firstRunCliCardDismissed,
+    false,
+    'a genuinely fresh profile has not dismissed anything',
+  )
+  assert.equal(
+    normalizeAppSettings({}, someWorkspace).firstRunCliCardDismissed,
+    true,
+    'a profile with workspaces was already in use — never ask it',
+  )
+  assert.equal(
+    normalizeAppSettings({ modulesChosen: true }, []).firstRunCliCardDismissed,
+    true,
+    'the legacy modulesChosen signal marks a returning profile',
+  )
+  assert.equal(
+    normalizeAppSettings({ onboardingStep: 'complete' } as never, []).firstRunCliCardDismissed,
+    true,
+    'a profile that finished the wizard is a returning profile',
+  )
+  assert.equal(
+    normalizeAppSettings({ onboardingStep: 'modules' } as never, []).firstRunCliCardDismissed,
+    true,
+    'a profile part-way through the wizard was already in use',
+  )
+  // The deliberate exception: this profile installed the app, saw the very first
+  // screen, quit, and upgraded. It never used anything — it is the fresh user
+  // the card exists for, and treating it as returning would hide the card from
+  // exactly the person who needs it.
+  assert.equal(
+    normalizeAppSettings({ onboardingStep: 'welcome' } as never, []).firstRunCliCardDismissed,
+    false,
+    'a profile parked at welcome with no workspaces is fresh, not returning',
+  )
+  // An explicit persisted value always wins, in both directions.
+  assert.equal(
+    normalizeAppSettings({ firstRunCliCardDismissed: true }, []).firstRunCliCardDismissed,
+    true,
+  )
+  assert.equal(
+    normalizeAppSettings({ firstRunCliCardDismissed: false }, someWorkspace).firstRunCliCardDismissed,
+    false,
+    'a user who has not dismissed the card keeps not having dismissed it',
+  )
+
+  // Adoption is offered once. An existing install already had its chance through
+  // the wizard's card, so it is never re-run against their project.
+  assert.equal(normalizeAppSettings(undefined, []).hasAdoptedAgentConfig, false)
+  assert.equal(normalizeAppSettings({}, someWorkspace).hasAdoptedAgentConfig, true)
+  assert.equal(
+    normalizeAppSettings({ hasAdoptedAgentConfig: false }, someWorkspace).hasAdoptedAgentConfig,
+    false,
+    'an explicit persisted value wins over the returning-profile default',
+  )
+}
+
 console.log('settingsSlice.test.ts: ok')

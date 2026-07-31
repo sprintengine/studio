@@ -530,6 +530,9 @@ export default function WorkspaceManager() {
   const newChatPanelOpen = newChatPanelState !== null
   const [tipModalOpen, setTipModalOpen] = useState(false)
   const tipModalDecidedRef = useRef(false)
+  // Guards the async adoption against a second workspace creation landing before
+  // the persisted `hasAdoptedAgentConfig` flag has been written.
+  const adoptionInFlightRef = useRef(false)
   const showTipsOnStartup = useWorkspaceStore((s) => s.appSettings.learning?.showTipsOnStartup ?? true)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const [showPalette, setShowPalette] = useState(false)
@@ -1744,69 +1747,77 @@ export default function WorkspaceManager() {
       // that already adopted should not probe the user's home directory again on
       // every workspace it ever creates.
       if (hasAdoptedAgentConfig) return
+      // The persisted flag is only set once the adopt IPC returns, so two creates
+      // in quick succession would both pass the check above and adopt twice. The
+      // ref closes that window synchronously.
+      if (adoptionInFlightRef.current) return
+      adoptionInFlightRef.current = true
       void (async () => {
-        let detected: { mcpServerKeys: string[]; skillKeys: string[] } | null = null
         try {
-          const detection = await window.api.detectExistingAgentConfig()
-          if (detection.ok) {
+          let detected: { mcpServerKeys: string[]; skillKeys: string[] } | null = null
+          try {
+            const detection = await window.api.detectExistingAgentConfig()
+            if (!detection.ok) {
+              // Detection itself failed. Report it and leave the profile
+              // un-adopted so the next workspace creation tries again — claiming
+              // "adopted" here would bury a real failure under a flag.
+              setAgentConfigAdoptionResult({ status: 'failed', message: detection.message })
+              return
+            }
             detected = {
               mcpServerKeys: detection.mcpServers.map((server) => server.key),
               // Non-adoptable skills (custom ones) are visible in Settings but
               // never travel through this path.
               skillKeys: detection.skills.filter((skill) => skill.adoptable).map((skill) => skill.key),
             }
-          } else {
-            // Detection itself failed. Report it and leave the profile
-            // un-adopted so the next workspace creation tries again — claiming
-            // "adopted" here would bury a real failure under a flag.
-            setAgentConfigAdoptionResult({ status: 'failed', message: detection.message })
+          } catch (error) {
+            setAgentConfigAdoptionResult({
+              status: 'failed',
+              message: error instanceof Error ? error.message : String(error),
+            })
             return
           }
-        } catch (error) {
-          setAgentConfigAdoptionResult({
-            status: 'failed',
-            message: error instanceof Error ? error.message : String(error),
-          })
-          return
-        }
 
-        const plan = planAgentConfigAdoption({ hasAdoptedAgentConfig, workspaceRoot, detected })
-        if (plan.kind === 'skip') return
-        if (plan.kind === 'nothing-detected') {
-          // A real answer, and a silent one: a user who never had Claude Code or
-          // Codex has nothing to be told about. The profile is still marked so
-          // the detect probe does not run again.
-          markAgentConfigAdopted()
-          return
-        }
-        if (plan.kind === 'missing-root') {
-          setAgentConfigAdoptionResult(plan.result)
-          return
-        }
-
-        setAgentConfigAdoptionResult({ status: 'adopting' })
-        try {
-          const result = await window.api.adoptAgentConfig({
-            workspaceRoot: plan.workspaceRoot,
-            mcpServerKeys: plan.mcpServerKeys,
-            skillKeys: plan.skillKeys,
-          })
-          if (result.ok) {
+          const plan = planAgentConfigAdoption({ hasAdoptedAgentConfig, workspaceRoot, detected })
+          if (plan.kind === 'skip') return
+          if (plan.kind === 'nothing-detected') {
+            // A real answer, and a silent one: a user who never had Claude Code
+            // or Codex has nothing to be told about. The profile is still marked
+            // so the detect probe never runs again.
             markAgentConfigAdopted()
-            setAgentConfigAdoptionResult({
-              status: 'adopted',
-              mcpServerCount: result.adoptedMcpServers.length,
-              skillCount: result.adoptedSkills.length,
-              warnings: result.warnings,
-            })
-          } else {
-            setAgentConfigAdoptionResult({ status: 'failed', message: result.message })
+            return
           }
-        } catch (error) {
-          setAgentConfigAdoptionResult({
-            status: 'failed',
-            message: error instanceof Error ? error.message : String(error),
-          })
+          if (plan.kind === 'missing-root') {
+            setAgentConfigAdoptionResult(plan.result)
+            return
+          }
+
+          setAgentConfigAdoptionResult({ status: 'adopting' })
+          try {
+            const result = await window.api.adoptAgentConfig({
+              workspaceRoot: plan.workspaceRoot,
+              mcpServerKeys: plan.mcpServerKeys,
+              skillKeys: plan.skillKeys,
+            })
+            if (result.ok) {
+              markAgentConfigAdopted()
+              setAgentConfigAdoptionResult({
+                status: 'adopted',
+                mcpServerCount: result.adoptedMcpServers.length,
+                skillCount: result.adoptedSkills.length,
+                warnings: result.warnings,
+              })
+            } else {
+              setAgentConfigAdoptionResult({ status: 'failed', message: result.message })
+            }
+          } catch (error) {
+            setAgentConfigAdoptionResult({
+              status: 'failed',
+              message: error instanceof Error ? error.message : String(error),
+            })
+          }
+        } finally {
+          adoptionInFlightRef.current = false
         }
       })()
     },
