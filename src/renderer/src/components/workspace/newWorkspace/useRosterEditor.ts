@@ -284,9 +284,8 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
       [role]: current[role] ?? resolveAvailableAgentCli('claude-code', cliOptions, 'claude-code'),
     }))
     setRoleCounts((current) => {
-      // Floor against the current counts so a planning role (architect/general)
-      // can only drop to 0 while the other planner is staffed — the roster
-      // never loses its last planning-capable agent. Counts are an enabled-set
+      // Floor against the current counts so the roles table never loses its
+      // last planning-capable agent (the architect). Counts are an enabled-set
       // encoding (MC-1450): every role is 0 or 1; parallelism comes from the
       // max-parallel-agents knob + mint-on-demand, not headcounts.
       const min = sprintEngineRosterRoleFloor(role, current)

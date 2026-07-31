@@ -5031,6 +5031,19 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
     'continuation prompt does not instruct the agent to run a sprintengine CLI command'
   )
 
+  // A roleless task's wake prompt must never render `String(undefined)` — not in
+  // the prose, and not as a `role` in the claim payload (MC-2057). The engine's
+  // `optional_configured_role` reads an omitted role as "no role"; a stand-in
+  // string would be rejected as an unconfigured role.
+  const rolelessWake = buildSprintEngineContinuationPrompt(
+    task({ id: 'T9', title: 'Roleless work', role: undefined }),
+    'agent-1',
+  )
+  assert.ok(!/undefined/u.test(rolelessWake), 'a roleless wake prompt never stringifies undefined')
+  assert.ok(!rolelessWake.includes('"role"'), 'a roleless claim payload omits role rather than sending a stand-in')
+  assert.ok(rolelessWake.includes('"id": "agent-1"'), 'a roleless claim payload still carries the agent id')
+  assert.ok(rolelessWake.includes('T9 - Roleless work'), 'and still names the task')
+
   const continuationNoState = buildSprintEngineContinuationPrompt(readyTask, 'developer-1')
   assert.ok(
     !continuationNoState.includes('"statePath"'),

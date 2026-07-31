@@ -4,6 +4,7 @@ import {
   applyUserDisabledSprintEngineRoleCounts,
   bracketedTerminalPaste,
   buildSprintEngineAgentRoster,
+  buildSprintEngineRosterCommandArgs,
   buildSprintEngineAgentRosterFromRuntimeAgents,
   buildSprintEngineRoleRegistry,
   getNextSprintEngineAgentId,
@@ -411,6 +412,19 @@ assert.equal(
   )
   assert.equal(isSprintEngineCoordinationTask(gate, { artifacts: [] }), false, 'no plan artifact, no coordination task')
   assert.equal(isSprintEngineCoordinationTask(gate, undefined), false, 'no state, no coordination task')
+}
+
+// `--agent role:id` never carries the string `undefined` (MC-2057): a roleless
+// seat sends an EMPTY role prefix, which the engine's `split(":", 1)[0]` reads
+// as no role while the run still records `rosterConfigured`.
+{
+  const rolelessArgs = buildSprintEngineRosterCommandArgs({ architect: 0 })
+  assert.deepEqual(rolelessArgs, [':coordinator'], 'a roleless seat sends an empty role prefix, not `undefined:`')
+  assert.deepEqual(
+    buildSprintEngineRosterCommandArgs({ architect: 1 }),
+    ['architect:architect'],
+    'a named seat is byte-identical to before',
+  )
 }
 
 // MC-1450: run.roleRuntimes (run.yaml per-role {model, cli}) rides the

@@ -248,8 +248,8 @@ const SOURCE_BUNDLE_KIND_OPTIONS: Array<{ value: SprintEngineSourceBundleKind; l
 // keep the wizard's local vocabulary.
 const initialSprintEngineRoleCliDefaults = DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS
 
-// The plain-agents create/spawn roster (MC-1585): a single `general` planner
-// seat. Module-level in savedRosters.ts (moved there by MC-1875) so its
+// The plain-agents create/spawn roster: staffs no role at all, so the run seats
+// the roleless coordinator. Module-level in savedRosters.ts (MC-1875) so its
 // reference is stable across renders — the effective roster derivations below
 // hand it to memoized consumers (seInitialSpawnRoles) — and so the wizard and
 // the plan-sourced launch path share one constant.
@@ -755,19 +755,18 @@ export default function NewWorkspacePanel({
     return filtered
   }, [seExistingTeam, visibleSprintEngineRoleCounts, seRoleRegistry, effectiveSprintEngineDisabledRoleIds])
 
-  // MC-1585: the plain-agents default is a general-only run. seRoleCounts still
-  // holds the specialist roster behind the collapsed disclosure (so toggling it
-  // on restores those rows), so creation must NOT read it in plain mode — it
-  // stages exactly one `general` planner seat, and the pool grows by
-  // mint-on-demand up to the concurrency cap. Never applies to an existing team
+  // The plain-agents default is a ROLELESS run. seRoleCounts still holds the
+  // specialist roster behind the collapsed disclosure (so toggling it on
+  // restores those rows), so creation must NOT read it in plain mode — it stages
+  // no role at all, and the pool grows by mint-on-demand up to the concurrency cap. Never applies to an existing team
   // (its canonical roster is fixed and the disclosure is not offered).
   const sprintEnginePlainAgents = !seExistingTeam && !seUseSpecialistRoles
   const sprintEngineEffectiveCreateRoleCounts = sprintEnginePlainAgents
     ? PLAIN_AGENT_ROLE_COUNTS
     : sprintEngineCreateRoleCounts
-  // Spawn-at-start follows the planner (general here, architect in specialist
-  // mode), so the launch bootstrap reads the effective counts, not the hidden
-  // specialist roster.
+  // Spawn-at-start follows the coordinator seat (roleless here, architect in
+  // specialist mode), so the launch bootstrap reads the effective counts, not
+  // the hidden specialist roster.
   const sprintEngineEffectiveVisibleRoleCounts = sprintEnginePlainAgents
     ? PLAIN_AGENT_ROLE_COUNTS
     : visibleSprintEngineRoleCounts
@@ -1371,15 +1370,15 @@ export default function NewWorkspacePanel({
       : seTeamName.trim().length > 0 && seGoal.trim().length > 0)
   const sprintEngineTeamReady =
     sprintEngineAccess.allowed && sePlanReady && seTeamDetailsReady
-  // A new roster needs at least one agent AND at least one planning-capable
-  // agent (architect or general); existing teams were already validated when
-  // created. The stepper floors prevent dropping the last planner interactively,
-  // so this is the defensive gate for loaded/saved counts.
+  // A new roster in ROLES mode needs at least one agent AND a planning-capable
+  // one (the architect); existing teams were already validated when created. The
+  // stepper floors prevent dropping the last planner interactively, so this is
+  // the defensive gate for loaded/saved counts.
   const sprintEngineRosterReady =
     sprintEngineAccess.allowed
     && (seExistingTeam != null
-      // A plain agent pool always stages its one general planner seat, so the
-      // Team page can never block create in pool mode.
+      // A plain agent pool staffs no role at all and coordinates through the
+      // roleless seat, so the Team page can never block create in pool mode.
       || !seUseSpecialistRoles
       || (totalAgents > 0 && sprintEngineRosterHasPlanningRole(visibleSprintEngineRoleCounts)))
   // The resolved seed source for the design-system preset. Null means blank
@@ -4661,7 +4660,7 @@ function getStepBlockingMessage(args: {
     case 'sprintengine-roster':
       if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
       if (seExistingTeam) return 'Ready to load team.'
-      // A plain agent pool always stages its general planner seat.
+      // A plain agent pool needs no staffed role: it seats the roleless coordinator.
       if (sePlainAgents) return 'Ready to create.'
       if (totalAgents === 0) return 'Turn on at least one role.'
       return 'Ready to create.'

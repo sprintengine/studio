@@ -2087,7 +2087,12 @@ export function buildSprintEngineRosterCommandArgs(
   const roster = stateInput
     ? buildSprintEngineAgentRosterForState(stateInput)
     : buildSprintEngineAgentRoster(normalizeSprintEngineRoleCounts(sprintEngineState as Partial<SprintEngineRoleCounts> | null | undefined))
-  return roster.map((agent) => `${agent.role}:${agent.id}`)
+  // `--agent role:id` marks the run roster-configured and, on legacy stores with
+  // no `configuredRoles`, is split on the first `:` for its role. A roleless seat
+  // has no role to put in front of it, so it sends an EMPTY prefix rather than
+  // the string `undefined` — the engine reads that as no role, and the run still
+  // records `rosterConfigured` exactly as it does today.
+  return roster.map((agent) => `${agent.role ?? ''}:${agent.id}`)
 }
 
 export function createInitialSprintEngineState(config: SprintEngineMockConfig): SprintEngineState {

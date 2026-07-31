@@ -74,8 +74,9 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
 export type PlanSourcedSprintEngineWorkspaceResult = {
   workspaceId: WorkspaceId
   sprintEngineContext: SprintEngineWorkspaceContext
-  // The run's planner seat: the general in a general-default run, the architect
-  // when the selection staffs one. Carries the startup handoff prompt.
+  // The run's coordinator seat: the roleless `coordinator` when the selection
+  // staffs no architect, the architect when it does. Carries the startup
+  // handoff prompt.
   plannerAgentId: string
 }
 

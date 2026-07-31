@@ -206,6 +206,16 @@ export function sprintEngineWorkerRepoId(
   return DEFAULT_SPRINTENGINE_TASK_REPO
 }
 
+/**
+ * How an agent is NAMED in prose — diagnostics, notifications, prompts. Its role
+ * when it has one, its own id otherwise (MC-2057). Every one of these strings
+ * used to interpolate `role` directly, which renders `undefined` on a roleless
+ * run — the exact "never `String(undefined)`" failure the item calls out.
+ */
+function describeSprintEngineActor(role: SprintEngineRoleId | undefined, agentId: string): string {
+  return role ?? agentId
+}
+
 /** The task fields a demand key may read: the (role, repo) pair it groups by. */
 export type SprintEngineDemandKeyInput = Pick<SprintEngineTask, 'role' | 'repo'>
 
@@ -319,7 +329,7 @@ export function artifactApprovalMessageKey(workspace: SprintEngineWorkspaceView,
 export function describeNeedsInputAutoApprovalState(sprintEngineState: SprintEngineState): string[] {
   const needsInputTasks = sprintEngineState.tasks
     .filter((task) => task.status === 'needs_input')
-    .map((task) => `${task.id} (${task.role}) owner=${task.ownerAgentId ?? 'none'}`)
+    .map((task) => `${task.id} (${task.role ?? 'no role'}) owner=${task.ownerAgentId ?? 'none'}`)
   const readyArtifacts = sprintEngineState.artifacts
     .filter((artifact) => artifact.status === 'ready_for_review')
     .map((artifact) => `${artifact.id} kind=${artifact.kind} task=${artifact.taskId || 'none'} createdBy=${artifact.createdBy || 'none'} path=${artifact.path || 'none'}`)
@@ -537,10 +547,12 @@ export function getSprintEngineWakeCandidateTasks(
  * Task-scoped wake restriction (MC-1444): a live implementation agent that has
  * owned a task may only be woken for that same task (e.g. after it is released
  * back to `ready`); new tasks go to fresh sessions so cross-task context never
- * accumulates in one terminal. Planning roles (architect/general) run whole
- * sprints in one terminal and are exempt, as is an agent that never owned a
- * task. Returns the task id the agent is restricted to, or null when
- * unrestricted. A disposed agent is unaffected: respawns start a fresh session,
+ * accumulates in one terminal. The architect runs a whole sprint in one
+ * terminal and is exempt, as is an agent that never owned a task. A minted
+ * ROLELESS worker is NOT exempt — it is an ordinary task-scoped worker that
+ * happens to carry no role (MC-2057).
+ *
+ * Returns the task id the agent is restricted to, or null when unrestricted. A disposed agent is unaffected: respawns start a fresh session,
  * so the spawn path may hand its roster id any task.
  */
 export function sprintEngineWakeRestrictionTaskId(
@@ -1076,10 +1088,10 @@ function planSprintEngineClaimedWorkRespawns(
       data: respawnData,
       diagnostic: {
         title: 'Respawned a sprint agent for claimed work',
-        message: `${claim.role} owns in-progress task ${claim.taskId} but its terminal is not running. Respawning the terminal so the claim can resume.`,
+        message: `${describeSprintEngineActor(claim.role, claim.agentId)} owns in-progress task ${claim.taskId} but its terminal is not running. Respawning the terminal so the claim can resume.`,
         details: [
           `Workspace: ${workspace.name}`,
-          `Agent: ${claim.agentId} (${claim.role})`,
+          `Agent: ${claim.agentId}${claim.role ? ` (${claim.role})` : ''}`,
           `Task: ${claim.taskId}`,
           `Respawn attempts before this one: ${previous?.attempts ?? 0}`,
         ].join('\n'),
@@ -1181,11 +1193,11 @@ function planSprintEngineDepartedOwnerRevivals(
       && (claimableWakeTaskIds.has(ownTaskId) || taskAwaitsOwner(ownTaskId, agentId))
       ? ownTaskId
       : null
-    // Planning roles (architect/general) are persistent, not task-scoped: one
-    // architect drives the whole sprint, so a departed planner is revived under
-    // its SAME id for the NEXT ready task of its role, not only its own task
-    // (MC-1454). Keeps the id stable across sequential planning tasks so no
-    // architect-N is minted while it is away.
+    // The architect is persistent, not task-scoped: it drives the whole sprint,
+    // so a departed architect is revived under its SAME id for the NEXT ready
+    // task of its role, not only its own task (MC-1454). Keeps the id stable
+    // across sequential planning tasks so no architect-N is minted while it is
+    // away. A roleless worker is task-scoped and never revived this way.
     if (!reviveTaskId && isSprintEnginePlanningRole(runtimeAgent.role)) {
       // Skip work whose group already has a live agent: a planner following its
       // role across repos (MC-1610) must be revived for a tree that has nobody
@@ -1637,7 +1649,7 @@ export function planSprintEngineDispatch(input: {
               message: 'A live assigned agent has not recorded sprint activity after two continuation prompts. Automatic rescue has stopped for this assignment.',
               details: [
                 `Workspace: ${workspace.name}`,
-                `Agent: ${assignment.agentId} (${assignment.role})`,
+                `Agent: ${assignment.agentId}${assignment.role ? ` (${assignment.role})` : ''}`,
                 `Task: ${assignment.task.id} - ${assignment.task.title}`,
                 `Last sprint activity: ${new Date(activityAt).toISOString()}`,
                 `Continuation prompts attempted: ${previous?.attempts ?? 0}`,
@@ -1705,10 +1717,10 @@ export function planSprintEngineDispatch(input: {
         data: { agentId, role: runtimeAgent.role, taskId: task.id, attempts: previous.attempts ?? 0 },
         diagnostic: {
           title: 'Restarted a stalled sprint agent',
-          message: `${runtimeAgent.role} had ready work on ${task.id} but its terminal stayed idle and stopped responding to wake prompts. Restarting it so the work can be claimed.`,
+          message: `${describeSprintEngineActor(runtimeAgent.role, agentId)} had ready work on ${task.id} but its terminal stayed idle and stopped responding to wake prompts. Restarting it so the work can be claimed.`,
           details: [
             `Workspace: ${workspace.name}`,
-            `Agent: ${agentId} (${runtimeAgent.role})`,
+            `Agent: ${agentId}${runtimeAgent.role ? ` (${runtimeAgent.role})` : ''}`,
             `Task: ${task.id} - ${task.title}`,
             `Wake prompts attempted before restart: ${previous.attempts ?? 0}`,
           ].join('\n'),
@@ -1896,10 +1908,10 @@ export function planSprintEngineDispatch(input: {
           },
           diagnostic: {
             title: 'Closed a finished sprint worker',
-            message: `${runtimeAgent.role} finished ${restrictToTaskId}, so its panel was closed. Re-open the role from its group to resume that conversation; new work spawns a fresh session.`,
+            message: `${describeSprintEngineActor(runtimeAgent.role, agentId)} finished ${restrictToTaskId}, so its panel was closed. Re-open it from its group to resume that conversation; new work spawns a fresh session.`,
             details: [
               `Workspace: ${workspace.name}`,
-              `Agent: ${agentId} (${runtimeAgent.role})`,
+              `Agent: ${agentId}${runtimeAgent.role ? ` (${runtimeAgent.role})` : ''}`,
               `Completed task: ${restrictToTaskId}`,
               'One agent session per task keeps worker context small; the recorded session resumes on re-open, and new ready work spawns a fresh session.',
             ].join('\n'),
@@ -1931,12 +1943,12 @@ export function planSprintEngineDispatch(input: {
         data: { agentId, role: runtimeAgent.role, idleMs: now - since, reason: 'idle_window', retainResumeState: ownerStillHoldsTask },
         diagnostic: {
           title: 'Retired an idle sprint terminal',
-          message: `${runtimeAgent.role} had no claimable work for ${idleMinutes} minute${idleMinutes === 1 ? '' : 's'}, so its terminal was closed. The role respawns automatically when work is ready.`,
+          message: `${describeSprintEngineActor(runtimeAgent.role, agentId)} had no claimable work for ${idleMinutes} minute${idleMinutes === 1 ? '' : 's'}, so its terminal was closed. It respawns automatically when work is ready.`,
           details: [
             `Workspace: ${workspace.name}`,
-            `Agent: ${agentId} (${runtimeAgent.role})`,
+            `Agent: ${agentId}${runtimeAgent.role ? ` (${runtimeAgent.role})` : ''}`,
             `Idle for: ${idleMinutes} minute${idleMinutes === 1 ? '' : 's'}`,
-            'Lazy spawning revives this role as soon as claimable work appears.',
+            'Lazy spawning revives it as soon as claimable work appears.',
           ].join('\n'),
         },
       })
@@ -2058,7 +2070,7 @@ export function buildSprintEngineContinuationPrompt(
   agentId: string
 ): string {
   return [
-    `Sprint Engine roster runner found a wake candidate for a ready ${task.role} task in this available terminal.`,
+    `Sprint Engine roster runner found a wake candidate for a ready ${task.role ? `${task.role} ` : ''}task in this available terminal.`,
     `Task: ${task.id} - ${task.title}`,
     buildSprintEngineClaimInstructionBlock('sprintengine.task.next', task.role, agentId),
   ].join('\n')
@@ -2301,9 +2313,9 @@ export function pickNextAutoRuns(
   // Both routes call spawnAutoRunCandidate, which resumes the retained
   // conversation, so owner affinity is preserved.
 
-  // Persistent planning identity (MC-1454): planning roles (architect/general)
-  // are NOT task-scoped — one planner drives the whole sprint, so its id is
-  // reused across sequential planning tasks instead of minting `<planner>-N`.
+  // Persistent planning identity (MC-1454): the architect is NOT task-scoped —
+  // one planner drives the whole sprint, so its id is reused across sequential
+  // planning tasks instead of minting `<planner>-N`.
   // The task-scoped mint above would hand each planning task a fresh id, so
   // planning roles route here instead: reuse an eligible seated planning id
   // regardless of its retained lastOwnedTaskId, else target the deterministic

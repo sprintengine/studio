@@ -279,7 +279,11 @@ export default function AgentComposerPopover({
                     id={optionId(row)}
                     selected={rowMatchesSelection(row, selection)}
                     persisted={Boolean(persisted)}
-                    icon={rowIcon(row, composer.cliForSelection(target))}
+                    // The roleless row's mark is its engine's brand, so in select
+                    // mode it must be the caller's engine — the same one that
+                    // names the row — not this surface's remembered default,
+                    // which the saved automation will never launch.
+                    icon={rowIcon(row, selectMode && action.kind === 'select' ? action.cli : composer.cliForSelection(target))}
                     label={label}
                     description={rowDescription(row)}
                     engineChip={

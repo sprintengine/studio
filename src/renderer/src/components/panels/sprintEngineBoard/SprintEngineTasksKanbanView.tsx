@@ -116,45 +116,50 @@ export function SprintEngineTasksKanbanView({
                         : undefined
                     }
                     justMovedClassName={justMoved ? 'card-just-moved-gold' : undefined}
+                    // The task's execution model/cli (MC-1448) stays metadata
+                    // only — surfaced in the inspector, never as card chrome
+                    // (a per-card model chip crowded every column).
+                    // A card with neither glyph passes NO trailing slot: the
+                    // card row is a `gap-2` flex, so an empty slot would leave
+                    // dead space on every card of a roleless run (MC-2057).
                     trailing={
-                      // The task's execution model/cli (MC-1448) stays metadata
-                      // only — surfaced in the inspector, never as card chrome
-                      // (a per-card model chip crowded every column).
-                      <span className="flex items-center gap-1.5">
-                        {task.kind ? (
-                          <Tooltip
-                            content={
-                              task.kind === 'integration_review'
-                                ? 'Integration review — proves the pieces work together'
-                                : "Review — audits other tasks' work"
-                            }
-                          >
-                            <span
-                              className="text-[color:var(--text-muted)]"
-                              aria-label={
+                      task.kind || task.role ? (
+                        <span className="flex items-center gap-1.5">
+                          {task.kind ? (
+                            <Tooltip
+                              content={
                                 task.kind === 'integration_review'
-                                  ? 'Integration review task'
-                                  : 'Review task'
+                                  ? 'Integration review — proves the pieces work together'
+                                  : "Review — audits other tasks' work"
                               }
-                              role="img"
                             >
-                              <SprintEngineIntegrationIcon className="icon-sm" />
-                            </span>
-                          </Tooltip>
-                        ) : null}
-                        {task.role ? (
-                          <Tooltip content={getSprintEngineRoleLabel(task.role)}>
-                            <span
-                              // design-tokens-allow: role glyph is the one place per the redesign where role tones are retained.
-                              style={{ color: getSprintEngineRoleAccent(task.role) }}
-                              aria-label={`Role: ${getSprintEngineRoleLabel(task.role)}`}
-                              role="img"
-                            >
-                              <SprintEngineRoleIcon role={task.role} className="icon-sm" />
-                            </span>
-                          </Tooltip>
-                        ) : null}
-                      </span>
+                              <span
+                                className="text-[color:var(--text-muted)]"
+                                aria-label={
+                                  task.kind === 'integration_review'
+                                    ? 'Integration review task'
+                                    : 'Review task'
+                                }
+                                role="img"
+                              >
+                                <SprintEngineIntegrationIcon className="icon-sm" />
+                              </span>
+                            </Tooltip>
+                          ) : null}
+                          {task.role ? (
+                            <Tooltip content={getSprintEngineRoleLabel(task.role)}>
+                              <span
+                                // design-tokens-allow: role glyph is the one place per the redesign where role tones are retained.
+                                style={{ color: getSprintEngineRoleAccent(task.role) }}
+                                aria-label={`Role: ${getSprintEngineRoleLabel(task.role)}`}
+                                role="img"
+                              >
+                                <SprintEngineRoleIcon role={task.role} className="icon-sm" />
+                              </span>
+                            </Tooltip>
+                          ) : null}
+                        </span>
+                      ) : undefined
                     }
                   />
                 )

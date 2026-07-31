@@ -333,9 +333,10 @@ async function createPlanSourcedSprint(
   if (!resolved.ok) return resolved.response
   const roster = resolved.roster
   // MC-1875: formation decides what actually staffs the run. A 'pool' ("no
-  // roles") roster launches the plain-agent seed — one `general` planner, then
-  // one agent minted per task up to the run's max-concurrency setting — NOT the
-  // specialist counts it may still be carrying behind the wizard's disclosure.
+  // roles") roster launches the plain-agent seed — no staffed role, so the
+  // roleless coordinator seat plus one agent minted per task up to the run's
+  // max-concurrency setting — NOT the specialist counts it may still be carrying
+  // behind the wizard's disclosure.
   // Before this, Horizon could never start a pool run at all: it passed
   // roleCounts and nothing else, so formation was unexpressible.
   const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.mode, roster.roleCounts)
