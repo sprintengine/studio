@@ -148,6 +148,29 @@ def test_worker_role_reports_roleless_ids_as_roleless() -> None:
     assert worker_role(roleless, "developer-2") == ""
 
 
+def test_the_roleless_id_guard_never_overrides_the_run_s_own_records() -> None:
+    """Roles are plugin-extensible, so `coordinator` and `agent` can legitimately BE
+    installed roles. The guard suppresses the minted-id GUESS, never a fact: a lease
+    or an owned task that names a role still types its worker."""
+    leased: dict = {
+        "configuredRoles": ["coordinator"],
+        "tasks": [{
+            "id": "T1",
+            "role": "coordinator",
+            "status": "in_progress",
+            "ownerAgentId": "coordinator",
+            "lease": {"workerId": "coordinator", "role": "coordinator"},
+        }],
+    }
+    assert worker_role(leased, "coordinator") == "coordinator"
+
+    # An enabled role also wins the guess itself — it is not a guess when the run
+    # enabled exactly that role.
+    assert worker_role({"configuredRoles": ["coordinator"], "tasks": []}, "coordinator") == "coordinator"
+    # But with no such role enabled, the id is read as roleless.
+    assert worker_role({"configuredRoles": ["developer"], "tasks": []}, "coordinator") == ""
+
+
 # --- role boundaries ----------------------------------------------------------
 
 
@@ -229,6 +252,38 @@ def test_a_stored_general_run_opens_as_a_roleless_run_with_its_graph_intact(tmp_
     run = folder_store.load_run_yaml(team_dir)
     assert run["schemaVersion"] == folder_store.RUN_SCHEMA_VERSION
     assert folder_store.state_from_folder_store(team_dir)["configuredRoles"] == []
+
+
+def test_the_dispatch_ledger_ids_move_with_the_lease(tmp_path: Path) -> None:
+    """`derive_worker_views` rebuilds `currentDispatch` from the ledger keyed by
+    (agentId, taskId), so a rename that misses the ledger silently drops it."""
+    team_dir = seed_v4_general_store(tmp_path, "v4-general-dispatch")
+    dispatch_path = team_dir / folder_store.DISPATCH_FILE
+    folder_store.atomic_write_text(
+        dispatch_path,
+        "".join(
+            json.dumps(record, sort_keys=True) + "\n"
+            for record in (
+                {"id": "D1", "agentId": "general", "role": "general", "target": {"kind": "task", "taskId": "T0"},
+                 "reason": "task_claimed", "outcome": "dispatched", "timestamp": "2026-07-30T00:00:00Z"},
+                {"id": "D2", "agentId": "general-2", "role": "general", "target": {"kind": "task", "taskId": "T1"},
+                 "reason": "task_claimed", "outcome": "dispatched", "timestamp": "2026-07-30T00:01:00Z"},
+            )
+        ),
+    )
+
+    folder_store.state_from_folder_store(team_dir)
+
+    records = folder_store.read_jsonl_file(dispatch_path)
+    # EVERY record moves, not just the first — the rewrite must not short-circuit.
+    assert [record["agentId"] for record in records] == ["coordinator", "agent-2"]
+    assert all("role" not in record for record in records)
+
+    # `currentDispatch` still resolves, and carries no role rather than an empty one.
+    projection = folder_store.build_projection(team_dir)
+    dispatch = projection["workers"]["agent-2"]["currentDispatch"]
+    assert dispatch["taskId"] == "T1"
+    assert "role" not in dispatch
 
 
 def test_the_projection_path_migrates_too(tmp_path: Path) -> None:

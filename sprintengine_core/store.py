@@ -368,6 +368,26 @@ def migrate_run_store(team_dir: Path, run: dict[str, Any]) -> dict[str, Any]:
             task = read_json_file(path)
             if _migrate_roleless_record(task):
                 atomic_write_json(path, task)
+
+    # The dispatch ledger is keyed by (agentId, taskId) — `derive_worker_views`
+    # rebuilds each worker's `currentDispatch` from it — so its ids must move with
+    # the lease's or a migrated in-flight worker would show no dispatch at all.
+    # `events.jsonl` is deliberately NOT migrated: it is pure history whose ids
+    # live inside human-readable messages, and rewriting one without the other
+    # would leave each record contradicting itself.
+    dispatch_path = team_dir / DISPATCH_FILE
+    if dispatch_path.exists():
+        records = read_jsonl_file(dispatch_path)
+        # Materialize before testing: `any()` over a generator would short-circuit
+        # on the first changed record and leave the rest of the ledger unmigrated.
+        changed = [_migrate_roleless_record(record) for record in records]
+        if any(changed):
+            # Same encoding as `append_jsonl`, so a migrated ledger is byte-identical
+            # to one this build would have written.
+            atomic_write_text(
+                dispatch_path,
+                "".join(f"{json.dumps(record, sort_keys=True)}\n" for record in records),
+            )
     return migrated
 
 
@@ -478,18 +498,22 @@ def append_event(team_dir: Path, event: dict[str, Any]) -> Path:
 
 
 def normalize_current_dispatch(raw: Any) -> dict[str, Any] | None:
+    # `role` is NOT required (MC-2057). A roleless run dispatches tasks that carry
+    # no role, so requiring one here would make `currentDispatch` permanently null
+    # for every worker on such a run — the board would show nobody doing anything.
+    # It is omitted rather than emitted as '', like every other absent role.
     if not isinstance(raw, dict):
         return None
     dispatch_id = str(raw.get("dispatchId") or raw.get("id") or "").strip()
     target_kind = str(raw.get("targetKind") or raw.get("kind") or "").strip()
     role = str(raw.get("role") or "").strip()
     reason = str(raw.get("reason") or "").strip()
-    if not dispatch_id or not target_kind or not role or not reason:
+    if not dispatch_id or not target_kind or not reason:
         return None
     dispatch = {
         "dispatchId": dispatch_id,
         "targetKind": target_kind,
-        "role": role,
+        **({"role": role} if role else {}),
         "reason": reason,
     }
     for key in ("taskId", "assignedAt"):

@@ -760,8 +760,9 @@ def is_roleless_agent_id(agent_id: str) -> bool:
 
     `coordinator` for the seat, `agent-1`/`agent-2`/… for its workers. These
     encode no role BY DESIGN, so they must never be fed to the minted-id role
-    guess below — `agent-1` would otherwise match a registry role called `agent`
-    and a roleless worker would be typed as a specialist it is not.
+    guess in `worker_role` — roles are plugin-extensible, so an installed role
+    called `agent` or `coordinator` would otherwise type a roleless worker as a
+    specialist it is not. It says nothing about ids the run's own records explain.
     """
     clean = str(agent_id or "").strip()
     if clean == COORDINATOR_AGENT_ID:
@@ -781,12 +782,10 @@ def worker_role(state: Dict[str, Any], worker_id: str) -> str:
     to have none. The two are not the same thing on the wire — a roleless task
     OMITS its role key — but this function's job is display typing, and "show no
     role" is the same answer for both. What matters is that a roleless id never
-    falls through to a GUESS: an unconfigured run matches against the whole
-    registry, so `agent-1` in that run could otherwise resolve to some installed
-    role by prefix.
+    falls through to a GUESS.
     """
     clean = str(worker_id or "").strip()
-    if not clean or is_roleless_agent_id(clean):
+    if not clean:
         return ""
     role = worker_active_lease_role(state, clean)
     if role:
@@ -805,6 +804,13 @@ def worker_role(state: Dict[str, Any], worker_id: str) -> str:
     # has no roles to match, and must not borrow the registry's.
     configured = configured_role_set(state)
     known = set(configured_role_ids()) if configured is None else configured
+    # This is the GUESS, and the only step a roleless id must not reach. It sits
+    # after the record-derived lookups deliberately: if a lease or an owned task
+    # names a role, that is a fact about this run and it wins even for an id that
+    # happens to match a roleless shape (roles are plugin-extensible, so `agent`
+    # or `coordinator` can legitimately BE a role someone installed and enabled).
+    if is_roleless_agent_id(clean) and clean not in known:
+        return ""
     for role in sorted(known, key=len, reverse=True):
         if clean == role or clean.startswith(f"{role}-"):
             return role
@@ -957,7 +963,9 @@ def queue_dispatch_record(
     record = {
         "timestamp": timestamp,
         "agentId": agent_id,
-        "role": role,
+        # Omitted for a roleless dispatch, never '' (MC-2057) — the ledger record
+        # and the task record spell absence the same way.
+        **({"role": role} if str(role or "").strip() else {}),
         "target": target,
         "reason": reason,
         "state": {"taskStatus": task_status},
