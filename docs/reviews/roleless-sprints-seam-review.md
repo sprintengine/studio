@@ -172,6 +172,8 @@ auto-run-cycle.ts:2403 log-filter only                       — benign
 
 ## Findings
 
+F1–F8 below are filed as run findings `T11-F1` … `T11-F8`, same numbering.
+
 ### F1 — A roleless run's architect-kind `needs_input` work is never triaged *(high)*
 
 `signalPlannerForNeedsInputTriage` (`src/shared/sprintengine/auto-run-cycle.ts:1985`)
@@ -429,8 +431,9 @@ confirm the roster can be mutated.
 `sprintEngineInitArgs` (`src/main/sprintengine-artifacts.ts:588-592`) emits one
 `--agent <role>:<id>` per seeded agent **only when the agent has a non-empty
 role**. A roleless run seeds exactly one seat and it has no role, so **no
-`--agent` reaches init**, and `commands/run.py:217` sets
-`rosterConfigured = bool(args.agent)` → `false`.
+`--agent` reaches init**, and `commands/run.py:217`/`:333` set
+`rosterConfigured = bool(args.agent)` (with `:346` flipping it true only when
+`args.agent` is non-empty) → `false`.
 
 This defeats a stated intent elsewhere: `buildSprintEngineRosterCommandArgs`
 (`state.ts:2147`) deliberately emits `':coordinator'` with an empty prefix, with a
@@ -467,7 +470,7 @@ one task in a roleless run ever routes to the coordinator.**
 
 This is in tension with three places that assume plural:
 
-- The epic (line 20) says the coordinating agent *"adjudicates the plan gate,
+- The epic's roleless bullet says the coordinating agent *"adjudicates the plan gate,
   triages blocked work, **signs off**"*. A sign-off task in a roleless run carries
   no role and is not plan-bound, so it dispatches to a fresh `agent-N` with none of
   the run's context.
