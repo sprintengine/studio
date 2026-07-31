@@ -13,6 +13,7 @@ from sprintengine_core.tool.constants import VALID_TASK_PHASES
 from sprintengine_core.tool.paths import now_iso, sprintengine_state_path_for
 from sprintengine_core.tool.plans import (
     actor_is_coordinator,
+    apply_coordinator_brief_to_task,
     build_run_summary,
     default_swarm_name_for_state,
     ensure_plan_approval_gate,
@@ -599,6 +600,10 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             ]
             apply_source_context_to_task(plan_task, state, state_path)
             refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
+        # Last word on the gate's card: each source-shape branch above rewrites the
+        # description wholesale, so a roleless run's coordinator brief is layered on
+        # after them (a no-op on every run whose seat has a role).
+        apply_coordinator_brief_to_task(plan_gate["task"], state, state_path)
         recompute_phase(state)
         return {
             "ok": True,

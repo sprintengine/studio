@@ -407,6 +407,69 @@ def task_is_coordination(state: Dict[str, Any], state_path: Path, task_id: str) 
     artifact = find_plan_artifact(state, state_path)
     return artifact is not None and str(artifact.get("taskId") or "").strip() == clean
 
+COORDINATOR_BRIEF_HEADING = "Coordinating this sprint:"
+
+def coordinator_brief_block(state: Dict[str, Any], state_path: Path) -> str:
+    """What coordinating this sprint means, for a coordinator with NO role.
+
+    A roleless seat gets no role directive — that is the point of it — so the one
+    agent holding the coordination job would otherwise infer the job from this
+    task's acceptance criteria alone. This is the whole instruction layer, and it
+    says only what to PRODUCE: the criteria already say what a good plan looks
+    like, and `sprintengine_workflow` owns the task mechanics, so neither is
+    restated. It states no identity either — a run with no roles must not be
+    handed a stand-in persona to reach the seat.
+
+    Source documents are named by path in the block `apply_source_context_to_task`
+    already applies to this same card; this points at that block rather than
+    deriving the paths a second time. A run with no source documents plans from
+    its goal instead, so the line says that rather than pointing at nothing.
+    """
+    starting_point = (
+        "- Start from the documents this card lists as incoming source context: read each in "
+        "full, and create one task per backlog item."
+        if source_context_reference_lines(state, state_path)
+        else "- Start from this run's goal: create one task for each piece of work it names."
+    )
+    return "\n".join([
+        COORDINATOR_BRIEF_HEADING,
+        "You are coordinating this sprint. What you produce is its plan and its task graph.",
+        starting_point,
+        "- Read the modules those tasks will touch before you order them.",
+        "- Work out the dependency order they can run in, and build the task graph.",
+        "- Plan the final verification task that proves the pieces fit together. It is ordinary "
+        "work with its own owner, not coordination.",
+    ])
+
+def apply_coordinator_brief_to_task(task: Dict[str, Any], state: Dict[str, Any], state_path: Path) -> None:
+    """Layer the coordinator brief onto this run's coordination task.
+
+    A no-op on every other task and on every run whose coordinator seat has a
+    role: an architect already carries its role directive and the
+    `sprintengine_architect_workflow` host skill, and its card is unchanged.
+
+    Appended last and stripped by heading, so it is idempotent and survives the
+    init branches that rewrite the gate's card wholesale for a given source shape
+    (`commands/run.py`) — those re-apply it after they rebuild the description. A
+    completed gate is left alone: its card is the record of a plan already
+    approved, not a brief anyone is still working from.
+    """
+    if resolve_coordinator_seat(state)["role"] is not None:
+        return
+    if task.get("status") == "done":
+        return
+    if not task_is_coordination(state, state_path, str(task.get("id") or "")):
+        return
+    description = str(task.get("description") or "").rstrip()
+    # Cut from the heading itself, not from the blank line before it: a card whose
+    # whole description IS the brief has no separator to match on, and would grow a
+    # second copy on every re-apply.
+    previous_brief = description.find(COORDINATOR_BRIEF_HEADING)
+    if previous_brief != -1:
+        description = description[:previous_brief].rstrip()
+    block = coordinator_brief_block(state, state_path)
+    task["description"] = f"{description}\n\n{block}" if description else block
+
 def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
     plan_artifact = find_plan_artifact(state, state_path)
     plan_task = find_task_by_id(state, plan_artifact.get("taskId")) if plan_artifact else None
@@ -678,6 +741,10 @@ def ensure_plan_approval_gate(
         plan_artifact.setdefault("reviewHistory", [])
         plan_artifact.setdefault("recommendedTasks", [])
         plan_artifact.setdefault("createdAt", now_iso())
+
+    # After the artifact exists: the brief is layered onto the run's coordination
+    # task, and it is the artifact's binding that identifies which task that is.
+    apply_coordinator_brief_to_task(plan_task, state, state_path)
 
     return {"task": plan_task, "artifact": plan_artifact}
 

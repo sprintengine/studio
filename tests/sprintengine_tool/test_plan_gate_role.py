@@ -104,7 +104,9 @@ def test_a_roleless_roster_seeds_a_plan_gate_with_no_role_noun(tmp_path) -> None
     assert plan_task is not None and plan_artifact is not None
 
     assert plan_task["title"] == "Review the plan"
-    assert plan_task["description"] == (
+    # The gate's own copy is the first paragraph; a roleless card then carries the
+    # coordinator brief (MC-2054, pinned in test_coordinator_brief.py).
+    assert plan_task["description"].startswith(
         f"Active team plan at {plan_path_value} and task graph approval gate. "
         "Use this exact path; do not read, copy, or overwrite another team's plan.md."
     )
