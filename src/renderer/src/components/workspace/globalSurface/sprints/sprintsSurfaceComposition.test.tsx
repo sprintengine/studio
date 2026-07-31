@@ -99,7 +99,7 @@ function projection(input: {
   name: string
   repos: RepoSpec[]
   /** taskId → [repo id, dependsOn] — the cross-repo edges merge order derives from. */
-  tasks: Array<{ id: string; repo: string; dependsOn: string[]; status?: string; role?: string }>
+  tasks: Array<{ id: string; repo: string; dependsOn: string[]; status?: string; role?: string | null }>
   /**
    * The run's legal role set, which the Agents tab reads and enabling a role
    * grows. An EMPTY list is a roleless run — an explicit "no roles", which the
@@ -139,9 +139,9 @@ function projection(input: {
     tasks: input.tasks.map((task) => ({
       id: task.id,
       title: `Task ${task.id}`,
-      // A roleless run's work carries no role at all, so the key is ABSENT
-      // rather than holding a stand-in.
-      ...(task.role === undefined ? { role: 'developer' } : task.role ? { role: task.role } : {}),
+      // `role: null` is a ROLELESS task — the key is absent rather than holding
+      // a stand-in. Omitted is the ordinary role-based fixture.
+      ...(task.role === null ? {} : { role: task.role ?? 'developer' }),
       status: task.status ?? 'done',
       repo: task.repo,
       dependsOn: task.dependsOn,
@@ -1220,7 +1220,7 @@ async function main(): Promise<void> {
     projection({
       name: 'roleless-run',
       repos: [{ id: 'primary', root: '.', pr: null, state: null }],
-      tasks: [{ id: 'T1', repo: 'primary', dependsOn: [], status: 'in_progress', role: '' }],
+      tasks: [{ id: 'T1', repo: 'primary', dependsOn: [], status: 'in_progress', role: null }],
       configuredRoles: [],
       roster: { coordinator: { status: 'running', currentTaskId: 'T1' } },
     }),
@@ -1322,7 +1322,7 @@ async function main(): Promise<void> {
     projection({
       name: 'roleless-resident',
       repos: [{ id: 'primary', root: '.', pr: null, state: null }],
-      tasks: [{ id: 'T1', repo: 'primary', dependsOn: [], status: 'in_progress', role: '' }],
+      tasks: [{ id: 'T1', repo: 'primary', dependsOn: [], status: 'in_progress', role: null }],
       configuredRoles: [],
       roster: { coordinator: { status: 'running', currentTaskId: 'T1' } },
     }),
