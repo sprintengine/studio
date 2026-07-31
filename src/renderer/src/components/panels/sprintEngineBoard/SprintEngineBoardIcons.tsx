@@ -78,3 +78,22 @@ export function SprintEngineIntegrationIcon({ className }: { className?: string 
     </svg>
   )
 }
+
+// A hub with spokes: the coordination mark (MC-2055 §2/§3). It marks the one
+// task that plans the run and adjudicates its plan gate, and the one seat that
+// holds it. Deliberately not a role glyph — coordination is a job on the task,
+// so the same mark reads on a card and on an agent row in a run that has no
+// roles at all to draw.
+export function SprintEngineCoordinationIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="2.25" stroke="currentColor" strokeWidth="1.25" />
+      <path
+        d="M8 1.75V3.5M8 12.5v1.75M1.75 8H3.5M12.5 8h1.75"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}

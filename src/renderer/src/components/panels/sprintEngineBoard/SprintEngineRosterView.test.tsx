@@ -354,4 +354,111 @@ assert.ok(
   'the run-level control explains its own, narrower reason',
 )
 
+// ── A roleless run (MC-2055) ────────────────────────────────────────────────
+// The run configures no roles, so its agents carry none. Nothing may render a
+// role, a band, or a stand-in for one: the seats sit flat, the census and the
+// add control speak for the whole run, and the seat that holds the plan is
+// marked on its own row.
+const rolelessState = {
+  roleCounts: {},
+  configuredRoles: [],
+  roleRuntimes: { '(roleless)': { cli: 'claude-code', model: 'claude-opus-4-8' } },
+  tasks: [{ id: 'T1', title: 'Plan the sprint', status: 'in_progress' }],
+  sprintEngineAgents: {
+    coordinator: { status: 'running', currentTaskId: 'T1', lastOwnedTaskId: 'T1' },
+    'agent-2': { status: 'idle', currentTaskId: null, lastOwnedTaskId: null },
+  },
+} as unknown as SprintEngineState
+
+const rolelessRoster: SprintEngineAgentRosterItem[] = [
+  { id: 'coordinator', label: 'Coordinator' },
+  { id: 'agent-2', label: 'Agent 2' },
+]
+
+const rolelessHtml = renderToStaticMarkup(
+  <SprintEngineRosterView
+    sprintEngineState={rolelessState}
+    roster={rolelessRoster}
+    agents={{}}
+    runtimeAgents={[
+      { agentId: 'coordinator', status: 'running', currentTaskId: 'T1' },
+      { agentId: 'agent-2', status: 'idle', currentTaskId: null },
+    ] as unknown as RuntimeAgentView[]}
+    onEnableRole={() => {}}
+    onAddAgent={() => {}}
+    addMemberOptions={[
+      { role: 'developer', label: 'Developer', summary: 'Builds.', activeForRole: 0, openTasksForRole: 0 },
+    ]}
+    isAgentTerminalLive={(agentId) => agentId === 'coordinator'}
+    willResumeAgent={() => false}
+    cliOptions={cliOptions}
+    roleRuntimeCli={() => 'claude-code' as AgentCli}
+    roleRuntimeModel={() => undefined}
+    onSelectRoleCli={() => {}}
+    onSelectRoleModel={() => {}}
+    agentRuntimeCli={() => 'claude-code' as AgentCli}
+    effectiveModelForAgent={() => undefined}
+    onSelectAgentCli={() => {}}
+    onSelectAgentModel={() => {}}
+    onOpenAgent={() => {}}
+    onSpawnAgent={() => {}}
+    onRestartAgent={() => {}}
+    onKillAgent={() => {}}
+  />,
+)
+
+// No role, and nothing standing in for one.
+assert.ok(!/No role|Unknown role|General|\(roleless\)/i.test(rolelessHtml), 'no role placeholder renders anywhere')
+assert.ok(!/configured role/.test(rolelessHtml), 'the census does not count roles this run does not have')
+assert.ok(!rolelessHtml.includes('Add a role'), 'a run with no roles is not asked to add one')
+// The run-level facts, in the header.
+assert.ok(/1 of 2 active/.test(rolelessHtml), 'the census reads across the run')
+assert.ok(rolelessHtml.includes('Add an agent'), 'the header adds an agent directly — there is no role to pick')
+// Flat seats, both of them, named by their own ids.
+assert.ok(rolelessHtml.includes('aria-label="Agents"'), 'seats are one flat list')
+assert.ok(!/aria-label="[^"]+ agents"/.test(rolelessHtml), 'no per-role agent list, because there is no role')
+assert.ok(rolelessHtml.includes('Coordinator') && rolelessHtml.includes('Agent 2'), 'every seat renders')
+// The plan-holder is marked, and only it.
+assert.equal(
+  (rolelessHtml.match(/aria-label="Coordinates this run"/g) ?? []).length,
+  1,
+  'exactly one seat carries the coordination mark',
+)
+
+// An empty roleless run keys its empty state off the agents, never the roles.
+const rolelessEmptyHtml = renderToStaticMarkup(
+  <SprintEngineRosterView
+    sprintEngineState={rolelessState}
+    roster={[]}
+    agents={{}}
+    runtimeAgents={[]}
+    onEnableRole={() => {}}
+    onAddAgent={() => {}}
+    addMemberOptions={[]}
+    isAgentTerminalLive={() => false}
+    willResumeAgent={() => false}
+    cliOptions={cliOptions}
+    roleRuntimeCli={() => 'claude-code' as AgentCli}
+    roleRuntimeModel={() => undefined}
+    onSelectRoleCli={() => {}}
+    onSelectRoleModel={() => {}}
+    agentRuntimeCli={() => 'claude-code' as AgentCli}
+    effectiveModelForAgent={() => undefined}
+    onSelectAgentCli={() => {}}
+    onSelectAgentModel={() => {}}
+    onOpenAgent={() => {}}
+    onSpawnAgent={() => {}}
+    onRestartAgent={() => {}}
+    onKillAgent={() => {}}
+  />,
+)
+assert.ok(
+  rolelessEmptyHtml.includes('No agents yet — one starts when there is work.'),
+  'the empty state speaks about agents, not roles',
+)
+assert.ok(
+  !rolelessEmptyHtml.includes('No roles configured yet'),
+  'and never claims a roleless run forgot to configure its roles',
+)
+
 console.log('SprintEngineRosterView.test.tsx: ok')

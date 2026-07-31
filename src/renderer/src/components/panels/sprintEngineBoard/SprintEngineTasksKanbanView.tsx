@@ -1,13 +1,15 @@
 import type { MouseEvent } from 'react'
 import { BoardLane, LifecycleGlyph, TaskCard, Tooltip, type Tone } from '../../ui'
 import { SprintEngineRoleIcon } from '../../AppIcons'
-import { SprintEngineIntegrationIcon } from './SprintEngineBoardIcons'
+import { SprintEngineCoordinationIcon, SprintEngineIntegrationIcon } from './SprintEngineBoardIcons'
 import type { SprintEngineState, SprintEngineTask, SprintEngineTaskBoardColumn } from '../../../types/workspace'
 import {
   getSprintEngineKanbanEmptyMessage,
   getSprintEngineRoleAccent,
   getSprintEngineRoleLabel,
   getSprintEngineTaskBoardColumn,
+  isSprintEngineCoordinationTask,
+  sprintEngineCoordinatorSeat,
   taskBoardColumnToLifecycle,
 } from '../../../utils/sprintengine'
 
@@ -34,6 +36,10 @@ export function SprintEngineTasksKanbanView({
   onTaskContextMenu,
   recentlyMovedTaskIds,
 }: Props) {
+  // Who is expected to fill this board. A run that staffs an architect names it;
+  // a roleless run has no role to name, so the empty state speaks about the plan
+  // itself rather than inventing an agent for the sentence (MC-2055).
+  const plannedByArchitect = sprintEngineCoordinatorSeat(sprintEngineState).role === 'architect'
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto px-1.5 py-2">
@@ -41,10 +47,12 @@ export function SprintEngineTasksKanbanView({
           <div className="flex h-full min-h-[320px] w-full items-center justify-center p-6 text-center">
             <div className="max-w-xl">
               <div className="text-body font-semibold text-[color:var(--text-strong)]">
-                Waiting for the architect plan
+                {plannedByArchitect ? 'Waiting for the architect plan' : 'Waiting for the plan'}
               </div>
               <p className="mt-2 text-meta leading-5 text-[color:var(--text-muted)]">
-                The board will populate as the architect adds tasks through the Sprint Engine tool.
+                {plannedByArchitect
+                  ? 'The board will populate as the architect adds tasks through the Sprint Engine tool.'
+                  : 'The board will populate as tasks are added through the Sprint Engine tool.'}
               </p>
             </div>
           </div>
@@ -82,6 +90,10 @@ export function SprintEngineTasksKanbanView({
                 const taskSelected = selectedTaskId === task.id
                 const justMoved = recentlyMovedTaskIds.has(task.id)
                 const needsInput = sprintEngineNeedsInputCardSummary(task)
+                // Coordination is a job on the TASK, not a role (MC-2053), so it
+                // is marked on every run — a roleless run's plan task is the only
+                // card that carries anything in the trailing slot at all.
+                const coordination = isSprintEngineCoordinationTask(task, sprintEngineState)
                 // The lane header already states the column's status (its
                 // lifecycle glyph), so the card carries no leading mark — it would
                 // just repeat the column and eat horizontal space.
@@ -123,8 +135,19 @@ export function SprintEngineTasksKanbanView({
                     // card row is a `gap-2` flex, so an empty slot would leave
                     // dead space on every card of a roleless run (MC-2057).
                     trailing={
-                      task.kind || task.role ? (
+                      task.kind || coordination || task.role ? (
                         <span className="flex items-center gap-1.5">
+                          {coordination ? (
+                            <Tooltip content="Coordination — plans this run and adjudicates its plan.">
+                              <span
+                                className="text-[color:var(--text-muted)]"
+                                aria-label="Coordination task"
+                                role="img"
+                              >
+                                <SprintEngineCoordinationIcon className="icon-sm" />
+                              </span>
+                            </Tooltip>
+                          ) : null}
                           {task.kind ? (
                             <Tooltip
                               content={
