@@ -688,6 +688,13 @@ async function testRolelessCoordinatorGetsTheAutonomousPlanningOverride(): Promi
 
   const workerSpawn = workerCaptured.spawns.find((spawn) => spawn.agentId !== 'coordinator')
   assert.ok(workerSpawn, `the ready work task mints a worker; spawns=${JSON.stringify(workerCaptured.spawns.map((s) => s.agentId))}`)
+  // Assert the prompt EXISTS before asserting what it lacks: `undefined?.includes(x)`
+  // is `undefined`, so a negative-only check would pass on a spawn that carried
+  // no startup prompt at all.
+  assert.ok(
+    workerSpawn?.initialPrompt?.includes('## First MCP Calls'),
+    `the worker is spawned with a real startup prompt; prompt=${JSON.stringify(workerSpawn?.initialPrompt?.slice(0, 200))}`,
+  )
   assert.ok(
     !workerSpawn?.initialPrompt?.includes('## Autonomous Planning Override'),
     `a task-scoped worker gets no planning override; agentId=${workerSpawn?.agentId}`,
