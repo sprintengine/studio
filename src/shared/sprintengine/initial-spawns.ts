@@ -9,31 +9,29 @@
  * re-export shim, so every existing import site and test keeps working
  * unchanged.
  */
-import type { SprintEngineRoleId, SprintEngineState } from './run-types'
-import { isSprintEngineTaskLaunchable } from './state'
+import type { SprintEngineState } from './run-types'
+import type { SprintEngineAgentRosterItem } from './state'
+import { isSprintEngineCoordinatorAgent, isSprintEngineTaskLaunchable } from './state'
 
-// The role that owns run bootstrap and may start before any claimable role
-// work exists. Now a single definition (the renderer carried an independent
-// copy) and a single role: `general` is gone, and "no role" no longer has to be
-// smuggled in AS a role to reach the coordination path — a roleless run
-// coordinates through `sprintEngineCoordinatorSeat`, which this predicate
-// cannot express. MC-2057 leaves it here only until T4 replaces the four
-// dispatch sites and `canLaunchSprintEngineInitialSpawn` below with that seat
-// question; nothing new should call it.
-export function isSprintEnginePlanningRole(role: SprintEngineRoleId | undefined): boolean {
-  return role === 'architect'
-}
+// `isSprintEnginePlanningRole` lived here and answered "may this agent start the
+// run?" by comparing a role to `architect` (and, before MC-2057, to `general`).
+// It is gone: coordination is a seat, not a role, so bootstrap, dispatch, wake,
+// revival, and the launch gate below all ask `isSprintEngineCoordinatorAgent`
+// instead — a roleless run's coordinator has no role for a predicate like that
+// to match on, and MC-2050 is the last of its call sites.
 
 export function canLaunchSprintEngineInitialSpawn(
-  role: SprintEngineRoleId | undefined,
+  // The roster row, not its role: the agent that may start before any claimable
+  // work exists is the COORDINATOR SEAT, which a roleless run identifies by id.
+  agent: Pick<SprintEngineAgentRosterItem, 'id' | 'role'>,
   sprintEngineState: SprintEngineState,
 ): boolean {
-  if (isSprintEnginePlanningRole(role)) return true
+  if (isSprintEngineCoordinatorAgent(agent.id, sprintEngineState)) return true
 
   // Single-owner tasks (MC-1542): a role only has launchable work when a task
   // assigned to it is claimable. There is no second, reviewer-shaped source of
   // work any more — the task's own owner walks its review phase.
   return sprintEngineState.tasks.some((task) =>
-    task.role === role && isSprintEngineTaskLaunchable(task, sprintEngineState)
+    task.role === agent.role && isSprintEngineTaskLaunchable(task, sprintEngineState)
   )
 }

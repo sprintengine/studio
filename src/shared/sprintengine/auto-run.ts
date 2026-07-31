@@ -34,12 +34,13 @@ import {
   getSprintEngineArtifactAutoApprovalEligibility,
   getSprintEngineArtifactsByTaskId,
   isSprintEngineArtifactAutoApprovableKind,
+  isSprintEngineCoordinatorAgent,
   isSprintEngineTaskLaunchable,
   sprintEngineAutoApprovalBlockingSiblingsAllReviewable,
-  sprintEngineCoordinatorAgentId,
+  sprintEngineCoordinatorSeat,
   sprintEngineRoleKey,
+  sprintEngineTaskRoutesToCoordinator,
 } from './state'
-import { isSprintEnginePlanningRole } from './initial-spawns'
 import { pathJoin, samePath } from '../paths'
 
 /**
@@ -547,19 +548,24 @@ export function getSprintEngineWakeCandidateTasks(
  * Task-scoped wake restriction (MC-1444): a live implementation agent that has
  * owned a task may only be woken for that same task (e.g. after it is released
  * back to `ready`); new tasks go to fresh sessions so cross-task context never
- * accumulates in one terminal. The architect runs a whole sprint in one
- * terminal and is exempt, as is an agent that never owned a task. A minted
- * ROLELESS worker is NOT exempt — it is an ordinary task-scoped worker that
- * happens to carry no role (MC-2057).
+ * accumulates in one terminal. The COORDINATOR runs a whole sprint in one
+ * terminal and is exempt, as is an agent that never owned a task.
+ *
+ * The exemption is the seat, not a role name (MC-2050): a minted roleless
+ * worker carries no role, exactly like the roleless coordinator, so a role
+ * comparison would read it as exempt and wake it for another task's work —
+ * precisely the cross-task context accumulation MC-1444 removed.
  *
  * Returns the task id the agent is restricted to, or null when unrestricted. A disposed agent is unaffected: respawns start a fresh session,
  * so the spawn path may hand its roster id any task.
  */
 export function sprintEngineWakeRestrictionTaskId(
-  runtimeAgent: SprintEngineState['sprintEngineAgents'][string] | undefined
+  agentId: string,
+  runtimeAgent: SprintEngineState['sprintEngineAgents'][string] | undefined,
+  sprintEngineState: Pick<SprintEngineState, 'configuredRoles'>
 ): string | null {
   if (!runtimeAgent?.lastOwnedTaskId) return null
-  if (isSprintEnginePlanningRole(runtimeAgent.role)) return null
+  if (isSprintEngineCoordinatorAgent(agentId, sprintEngineState)) return null
   return runtimeAgent.lastOwnedTaskId
 }
 
@@ -1193,17 +1199,21 @@ function planSprintEngineDepartedOwnerRevivals(
       && (claimableWakeTaskIds.has(ownTaskId) || taskAwaitsOwner(ownTaskId, agentId))
       ? ownTaskId
       : null
-    // The architect is persistent, not task-scoped: it drives the whole sprint,
-    // so a departed architect is revived under its SAME id for the NEXT ready
-    // task of its role, not only its own task (MC-1454). Keeps the id stable
-    // across sequential planning tasks so no architect-N is minted while it is
-    // away. A roleless worker is task-scoped and never revived this way.
-    if (!reviveTaskId && isSprintEnginePlanningRole(runtimeAgent.role)) {
-      // Skip work whose group already has a live agent: a planner following its
-      // role across repos (MC-1610) must be revived for a tree that has nobody
-      // in it, not for one another planning session is already serving.
+    // The coordinator is persistent, not task-scoped: it drives the whole
+    // sprint, so a departed coordinator is revived under its SAME id for the
+    // NEXT ready task that ROUTES TO IT, not only its own task (MC-1454). Keeps
+    // the id stable across sequential coordination tasks so no `<role>-N` is
+    // minted while it is away. Both halves ask the seat, never a role name
+    // (MC-2050): a minted roleless worker carries no role and would otherwise
+    // read as the roleless coordinator and be revived onto another task's work,
+    // and the roleless coordinator itself would be revived onto ordinary work
+    // that belongs to a task-scoped agent.
+    if (!reviveTaskId && isSprintEngineCoordinatorAgent(agentId, sprintEngineState)) {
+      // Skip work whose group already has a live agent: a coordinator following
+      // its role across repos (MC-1610) must be revived for a tree that has
+      // nobody in it, not for one another coordination session is already serving.
       reviveTaskId = sprintEngineState.tasks.find((candidate) =>
-        candidate.role === runtimeAgent.role
+        sprintEngineTaskRoutesToCoordinator(candidate, sprintEngineState)
         && claimableWakeTaskIds.has(candidate.id)
         && !liveDemandKeys.has(sprintEngineDemandKey(candidate))
       )?.id ?? null
@@ -1271,10 +1281,10 @@ function planSprintEngineDepartedOwnerRevivals(
       data: respawnData,
       diagnostic: {
         title: 'Revived a departed sprint agent for its own task',
-        message: `${role} still has work to finish on ${work.taskId} but its terminal is not running. Reviving the id that last owned the task so its session resumes.`,
+        message: `${describeSprintEngineActor(role, reviveAgentId)} still has work to finish on ${work.taskId} but its terminal is not running. Reviving the id that last owned the task so its session resumes.`,
         details: [
           `Workspace: ${workspace.name}`,
-          `Agent: ${reviveAgentId} (${role})`,
+          `Agent: ${reviveAgentId}${role ? ` (${role})` : ''}`,
           `Task: ${work.taskId}`,
           `Revive attempts before this one: ${previous?.attempts ?? 0}`,
         ].join('\n'),
@@ -1545,7 +1555,7 @@ export function planSprintEngineDispatch(input: {
         runtimeAgent.role,
         agentId,
         reservedWakeCandidateTaskIds,
-        sprintEngineWakeRestrictionTaskId(runtimeAgent),
+        sprintEngineWakeRestrictionTaskId(agentId, runtimeAgent, sprintEngineState),
         sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId))
       )
       if (!task) continue
@@ -1698,7 +1708,7 @@ export function planSprintEngineDispatch(input: {
         runtimeAgent.role,
         agentId,
         new Set(),
-        sprintEngineWakeRestrictionTaskId(runtimeAgent),
+        sprintEngineWakeRestrictionTaskId(agentId, runtimeAgent, sprintEngineState),
         sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId))
       )
       if (!task) continue
@@ -1833,7 +1843,7 @@ export function planSprintEngineDispatch(input: {
       // claimable-work skip below no longer parks them on unrelated ready tasks
       // — a completed worker retires even while its role has a full queue; fresh
       // sessions take the queue.
-      const restrictToTaskId = sprintEngineWakeRestrictionTaskId(runtimeAgent)
+      const restrictToTaskId = sprintEngineWakeRestrictionTaskId(agentId, runtimeAgent, sprintEngineState)
       // Scoped to the agent's own repo (MC-1610): work it cannot claim is not
       // work it is waiting for, so a session whose tree is drained retires even
       // while another repo's queue is full — fresh sessions take that queue.
@@ -1973,16 +1983,21 @@ export type SprintEngineBootstrapDecision =
 
 /**
  * Run-start bootstrap decision. Before a plan exists there are no tasks, so
- * `pickNextAutoRuns` has nothing to select — the run's planning-capable agent
- * (the architect, or a soulless General when no architect is rostered) is
+ * `pickNextAutoRuns` has nothing to select — the run's COORDINATOR SEAT (the
+ * architect on a role-based run, the roleless `coordinator` otherwise) is
  * spawned here, carrying its stored handoff prompt when one exists. Every other
  * spawn is work-driven: ready tasks flow through `pickNextAutoRuns` under the
  * concurrency cap, notification targets through notification delivery, and
  * needs-input triage through the architect triage path.
  *
- * A planner terminal that exited after its startup prompt was delivered is not
- * respawned blindly (a broken CLI would spawn/exit loop); that pre-plan stall is
- * reported as a decision so the supervisor can surface it once.
+ * The seat is resolved by id, not by matching a planning ROLE (MC-2050): a
+ * roleless run staffs a coordinator with no role, which no role match can find,
+ * and this site — not dispatch — is where such a run would otherwise stall
+ * `no_planner` before dispatch is ever reached.
+ *
+ * A coordinator terminal that exited after its startup prompt was delivered is
+ * not respawned blindly (a broken CLI would spawn/exit loop); that pre-plan
+ * stall is reported as a decision so the supervisor can surface it once.
  */
 export function pickSprintEngineBootstrapCandidate(
   workspace: SprintEngineWorkspaceView,
@@ -1993,12 +2008,17 @@ export function pickSprintEngineBootstrapCandidate(
   }
 ): SprintEngineBootstrapDecision {
   const runHasTasks = sprintEngineState.tasks.length > 0
+  const seat = sprintEngineCoordinatorSeat(sprintEngineState)
   const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
-  // Prefer the architect when one is rostered; otherwise a General plans the
-  // run itself. Either is a planning-capable bootstrap candidate.
+  // The rostered coordinator seat: the deterministic id creation seeds, else any
+  // id the seat answers for — a NAMED seat also answers for `architect-1`, which
+  // is how older rosters seat their architect, and `isSprintEngineCoordinatorAgent`
+  // is what stops that second lookup from matching a minted roleless worker.
+  // `no_planner` survives for the state it was written for: a roster that seats
+  // no coordinator at all, which is a broken store rather than a roleless run.
   const planner =
-    roster.find((candidate) => candidate.role === 'architect')
-    ?? roster.find((candidate) => isSprintEnginePlanningRole(candidate.role))
+    roster.find((candidate) => candidate.id === seat.agentId)
+    ?? roster.find((candidate) => isSprintEngineCoordinatorAgent(candidate.id, sprintEngineState))
   if (!planner) {
     return runHasTasks ? { kind: 'none' } : { kind: 'stall', reason: 'no_planner' }
   }
@@ -2313,23 +2333,29 @@ export function pickNextAutoRuns(
   // Both routes call spawnAutoRunCandidate, which resumes the retained
   // conversation, so owner affinity is preserved.
 
-  // Persistent planning identity (MC-1454): the architect is NOT task-scoped —
-  // one planner drives the whole sprint, so its id is reused across sequential
-  // planning tasks instead of minting `<planner>-N`.
-  // The task-scoped mint above would hand each planning task a fresh id, so
-  // planning roles route here instead: reuse an eligible seated planning id
-  // regardless of its retained lastOwnedTaskId, else target the deterministic
-  // bare `<role>` persistent planning id (the id creation seeds for the
-  // architect). Never a seat: a busy planner is filtered by `addCandidate`'s
+  // Persistent coordination identity (MC-1454): the coordinator is NOT
+  // task-scoped — one seat drives the whole sprint, so its id is reused across
+  // sequential coordination tasks instead of minting `<role>-N`. The task-scoped
+  // mint above would hand each of them a fresh id, so coordinator-routed work
+  // targets the seat's deterministic id instead — `architect` on a role-based
+  // run, `coordinator` on a roleless one, in both cases the id creation seeds
+  // (`buildSprintEngineAgentRoster`) rather than an invented fallback, and
+  // reused regardless of its retained lastOwnedTaskId. Resolving the id is not
+  // reserving it: a busy coordinator is filtered by `addCandidate`'s
   // running/in-flight/selected guards, not by role-wide "someone holds the
   // role, so wait" bookkeeping (MC-1592 review: seat-like waits starve work).
-  const findPlanningRoleAgent = (role: SprintEngineRoleId | undefined): AutoRunCandidate['agentId'] => {
-    const seated = roster.find((candidate) => isEligibleRoleAgent(candidate.id, candidate.role, role))
-    // No seat yet: target the deterministic persistent id. For a named role that
-    // is the bare `<role>` creation seeds; with no role it is the coordinator
-    // seat, which is the same id `buildSprintEngineAgentRoster` would have
-    // seeded — not an invented fallback.
-    return seated?.id ?? role ?? sprintEngineCoordinatorAgentId
+  const coordinatorSeat = sprintEngineCoordinatorSeat(sprintEngineState)
+  const findCoordinatorAgent = (): AutoRunCandidate['agentId'] => {
+    // An already-seated id the seat answers for wins over the deterministic one:
+    // a NAMED seat also answers for `architect-2`, so a run whose bare seat id
+    // was retired still dispatches its coordination work. `isSprintEngineCoordinatorAgent`
+    // is what keeps this off a minted roleless worker, which matches the seat's
+    // absent role but is not the seat.
+    const seated = roster.find((candidate) =>
+      isSprintEngineCoordinatorAgent(candidate.id, sprintEngineState)
+      && isEligibleRoleAgent(candidate.id, candidate.role, coordinatorSeat.role)
+    )
+    return seated?.id ?? coordinatorSeat.agentId
   }
 
   const addCandidate = (
@@ -2482,12 +2508,14 @@ export function pickNextAutoRuns(
         dependsOnCount: task.dependsOn.length,
       })
 
-      // Planning roles keep a persistent identity — reuse the seated planner or
-      // the bare `<role>` seed so sequential planning tasks share one id and no
-      // `<planner>-N` is ever minted. Non-planning work is task-scoped: its
-      // worker id is minted here and the engine binds it at claim.
-      const agentId = isSprintEnginePlanningRole(task.role)
-        ? findPlanningRoleAgent(task.role)
+      // The run's one routing rule (MC-2050), asked of the task rather than of
+      // its role name: coordinator-routed work keeps the seat's persistent id so
+      // sequential coordination tasks share one identity; everything else is
+      // task-scoped, and its worker id is minted here for the engine to bind at
+      // claim. A roleless run's work tasks therefore fan out one agent each
+      // instead of queueing behind the single seat.
+      const agentId = sprintEngineTaskRoutesToCoordinator(task, sprintEngineState)
+        ? findCoordinatorAgent()
         : pickOrMintTaskAgent(task.role)
       const agent = rosterById[agentId] ?? { id: agentId, label: agentId, role: task.role }
 

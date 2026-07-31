@@ -1768,6 +1768,58 @@ export function isSprintEngineCoordinationTask(
 }
 
 /**
+ * Is `agentId` the agent holding this run's coordinator seat?
+ *
+ * MIRRORS `plans.actor_is_coordinator`, and is id-aware for the same reason: a
+ * roleless coordinator has no role to compare, so the seat can only be
+ * recognised by id. A NAMED seat still answers for every id seated into it
+ * (`architect`, `architect-2`), which is what keeps the architect path
+ * unchanged where a role comparison used to stand.
+ */
+export function isSprintEngineCoordinatorAgent(
+  agentId: AgentId | undefined,
+  sprintEngineState: Pick<SprintEngineState, 'configuredRoles'> | null | undefined,
+): boolean {
+  const clean = String(agentId ?? '').trim()
+  if (!clean) return false
+  const seat = sprintEngineCoordinatorSeat(sprintEngineState)
+  if (clean === seat.agentId) return true
+  return seat.role !== undefined && (clean === seat.role || clean.startsWith(`${seat.role}-`))
+}
+
+/**
+ * Does this task route to the persistent coordinator, or to a task-scoped
+ * worker of its own?
+ *
+ * The run's one routing rule (MC-2050), composed from the two seat questions so
+ * every site asks it identically: a task routes to the coordinator when it IS
+ * the coordination job, or when its role equals the coordinator's own role and
+ * that role is NAMED.
+ *
+ * - Role-based run: the seat's role is `architect`, so every architect-assigned
+ *   task — the plan gate and the architect's own sign-off work alike — keeps the
+ *   one warm architect session. Dispatch is unchanged (owner ruling 2026-07-31).
+ * - Roleless run: the seat has no role, so the second clause cannot fire. Only
+ *   the coordination task reaches the seat; work tasks are task-scoped and fan
+ *   out, one agent each.
+ *
+ * The asymmetry is deliberate: a named coordinator is a singleton seat that owns
+ * its speciality's work, while an unnamed one owns only the coordination job,
+ * because every other agent in the run is equally able to take the work.
+ */
+export function sprintEngineTaskRoutesToCoordinator(
+  task: Pick<SprintEngineTask, 'id' | 'role'> | null | undefined,
+  sprintEngineState:
+    | Pick<SprintEngineState, 'artifacts' | 'configuredRoles'>
+    | null
+    | undefined,
+): boolean {
+  if (isSprintEngineCoordinationTask(task, sprintEngineState)) return true
+  const seat = sprintEngineCoordinatorSeat(sprintEngineState)
+  return seat.role !== undefined && task?.role === seat.role
+}
+
+/**
  * What names an agent row. A role names it when it has one; an agent with no
  * role is named by its own id (`coordinator` -> "Coordinator", `agent-2` ->
  * "Agent 2"), which is the only honest source left — it has no role and,
@@ -2364,8 +2416,16 @@ export function normalizeSprintEngineRoleRuntimes(value: unknown): SprintEngineR
 
 // Tolerant read of the run.yaml/projection `configuredRoles` list — the run's
 // enabled role set. Keeps registry-valid role ids, de-duped and order-stable.
-// Returns null when the field is absent or empty so callers can omit it and the
-// roster view falls back to the seated-roster census (legacy runs).
+// Returns null only when the field is ABSENT or is not a list, so callers omit
+// the key and the roster view falls back to the seated-roster census (legacy
+// runs).
+//
+// Like `defaultPhases`, an EMPTY list is meaningful and must survive: it is a
+// roleless run's deliberate "no roles", which `sprintEngineCoordinatorSeat`
+// reads as the roleless coordinator seat, and collapsing it onto absent would
+// hand that run an architect seat it never staffed (MC-2050). A list whose every
+// entry is blank or not a string empties the same way, which is the same
+// statement: the run enabled no role this reader can name.
 export function normalizeSprintEngineConfiguredRoles(value: unknown): SprintEngineRoleId[] | null {
   if (!Array.isArray(value)) return null
   const seen = new Set<SprintEngineRoleId>()
@@ -2376,7 +2436,7 @@ export function normalizeSprintEngineConfiguredRoles(value: unknown): SprintEngi
     seen.add(role)
     result.push(role)
   }
-  return result.length > 0 ? result : null
+  return result
 }
 
 // Tolerant read of run.yaml/projection `defaultPhases` — the run's phase list
