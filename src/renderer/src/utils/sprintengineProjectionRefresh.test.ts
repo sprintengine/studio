@@ -5,6 +5,7 @@ import type {
   BacklogObjectStorePayload,
   BacklogReadResult,
 } from '../../../shared/electron-api'
+import type { BacklogItemStatus } from './backlog'
 import type {
   SprintEngineAutoState,
   SprintEngineAutomationEvent,
@@ -95,11 +96,13 @@ function portsFor(input: {
   applied: SprintEngineState[]
   backlogStore?: BacklogObjectStorePayload
   backlogReadResult?: BacklogReadResult
+  // Widened past `completed` with the port itself (MC-2017): the epic-child
+  // fan-out also writes `in_progress` and the pre-sprint status on cancel.
   backlogMutations?: Array<{
     workspaceRoot: string
     relativePath: string
     link: BacklogItemLinkPayload
-    status?: 'completed'
+    status?: BacklogItemStatus
   }>
   backlogMutationResult?: BacklogMutationResult
   diagnostics?: string[]
@@ -1211,7 +1214,7 @@ type BacklogMutation = {
   workspaceRoot: string
   relativePath: string
   link: BacklogItemLinkPayload
-  status?: string
+  status?: BacklogItemStatus
 }
 
 async function runChildFanoutRefresh(input: {

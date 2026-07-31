@@ -175,7 +175,7 @@ run('an invalid browsed source fails typed with nothing written', async () => {
 
     // A library entry that does not exist.
     const ghost = await attachDesignSystemBundle(
-      { kind: 'library', name: 'ghost', version: '1.0.0' },
+      { kind: 'library', id: 'ghost' },
       workspace,
       libraryPathsFor(libraryRoot),
     )

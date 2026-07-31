@@ -1098,7 +1098,10 @@ test('SEAM: a restart between the merge and the completion write still marks the
   // The PR merged out-of-band (on GitHub, or by the merge that raced the crash);
   // nothing was written to the backlog.
   h.runs.set(statePath, { mode: 'worktree', lifecycle: 'completed', prAllMerged: true })
-  assert.deepEqual(h.statusWrites, [])
+  // Length, not `deepEqual(…, [])`: under `assert/strict` deepEqual carries an
+  // `asserts actual is T` signature, which would narrow statusWrites to never[]
+  // for the rest of this scope and break the real assertion below.
+  assert.equal(h.statusWrites.length, 0)
 
   const afterRestart = createRoadmapOrchestrator(h.ports)
   await afterRestart.reconcile()

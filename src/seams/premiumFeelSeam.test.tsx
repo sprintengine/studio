@@ -1204,7 +1204,7 @@ async function main(): Promise<void> {
               logout: () => {},
               openSettings: () => {},
               settingsOpen: false,
-            } as never)}
+            } as unknown as Parameters<typeof WorkspaceSidebar>[0])}
           />
           {doorOpen ? (
             <ContextRailSlotContext.Provider value={slot}>

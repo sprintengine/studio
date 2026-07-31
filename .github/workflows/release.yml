@@ -131,6 +131,26 @@ jobs:
         run: npx electron-builder ${{ matrix.builderArgs }} --publish ${{ needs.validate.outputs.publish }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Code signing. Every value below is optional: with the secret unset the
+          # variable is empty, electron-builder finds no identity, and it skips
+          # signing exactly as it does today. See build/SIGNING.md for how to
+          # obtain each one.
+          #
+          # ORDER MATTERS on macOS: `build.mac.notarize` is true, so adding
+          # CSC_LINK *without* the APPLE_* credentials produces a signed app that
+          # then fails at the notarize step. Add the certificate and the
+          # notarization credentials in the same change, never one before the other.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # macOS notarization (Apple ID method — plain strings, no key file).
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows Authenticode, when the cert is a .pfx rather than a cloud
+          # signing service. Kept separate from CSC_LINK so the mac and win
+          # certificates never collide on the shared variable.
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4

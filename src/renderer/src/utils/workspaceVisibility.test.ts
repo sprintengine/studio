@@ -6,6 +6,7 @@ import {
   STANDARD_WORKSPACE_MODE,
   SWITCHBOARD_WORKSPACE_MODE,
   REVIEW_WORKSPACE_MODE,
+  REVIEWS_HOST_WORKSPACE_MODE,
   type BundledWorkspaceMode,
 } from '../types/workspace'
 import { isModeHiddenFromRail } from '../../../shared/workspace-mode'
@@ -37,9 +38,11 @@ const EXPECTED_HIDDEN: Record<BundledWorkspaceMode, boolean> = {
   // host workspaces are rail-hidden background runtime containers — never a
   // Projects-list row, switch target, or palette result.
   [AUTOMATIONS_HOST_WORKSPACE_MODE]: true,
-  // Review is an instance-level door surface, but its host workspace is not
-  // rail-hidden (only automations hosts are).
+  // A review workspace is a real project-scoped workspace, so it stays a rail
+  // row — unlike the Reviews *host* below, which is the door's background
+  // container in the same sense as the automations host.
   [REVIEW_WORKSPACE_MODE]: false,
+  [REVIEWS_HOST_WORKSPACE_MODE]: true,
 }
 
 const BUNDLED_MODES = Object.keys(EXPECTED_HIDDEN) as BundledWorkspaceMode[]

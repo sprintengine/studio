@@ -903,24 +903,27 @@ assert.deepEqual(reNormalized, migrated, 'a second load does not re-run the migr
 
 // Key ABSENCE, not emptiness, is the legacy signal — a user who deleted every
 // roster on the new build must not see the pre-rename list resurrected.
-const deletedAllAfterMigration = normalizeAppSettings(
-  {
-    sprintEngineRoleSettings: {
-      enabled: {},
-      savedRosters: [],
-      savedTeams: [
-        {
-          id: 'ghost',
-          name: 'ghost',
-          roleCounts: { architect: 1 },
-          roleCliDefaults: {},
-          createdAt: 1,
-          updatedAt: 1,
-        },
-      ],
-      lastSelectedTeamId: 'ghost',
-    },
+// Hoisted like `legacyBlob` above: `savedTeams` is a pre-rename key that no
+// longer exists on the type, so it only survives as a stored-JSON shape.
+const deletedAllBlob = {
+  sprintEngineRoleSettings: {
+    enabled: {},
+    savedRosters: [],
+    savedTeams: [
+      {
+        id: 'ghost',
+        name: 'ghost',
+        roleCounts: { architect: 1 },
+        roleCliDefaults: {},
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+    lastSelectedTeamId: 'ghost',
   },
+}
+const deletedAllAfterMigration = normalizeAppSettings(
+  deletedAllBlob,
   [],
 ).sprintEngineRoleSettings
 assert.equal(
@@ -1103,7 +1106,9 @@ const modeNormalized = normalizeAppSettings(
       enabled: {},
       savedRosters: [
         { id: 'legacy', name: 'Legacy', roleCounts: { architect: 1 }, roleCliDefaults: {}, createdAt: 1, updatedAt: 1 },
-        { id: 'bogus', name: 'Bogus', mode: 'architect', roleCounts: { architect: 1 }, roleCliDefaults: {}, createdAt: 1, updatedAt: 1 },
+        // `architect` was a real formation before MC-1875 and is now unknown, so
+        // the type can no longer express it — it only exists as stored JSON.
+        { id: 'bogus', name: 'Bogus', mode: 'architect' as never, roleCounts: { architect: 1 }, roleCliDefaults: {}, createdAt: 1, updatedAt: 1 },
       ],
     },
   },

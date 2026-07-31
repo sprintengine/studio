@@ -130,11 +130,11 @@ async function main(): Promise<void> {
     await act(async () => { await Promise.resolve() })
   }
 
-  const wizardOptions = {
+  const wizardOptions: Parameters<typeof useRosterEditor>[0] = {
     cliOptions: [],
     cliAvailabilityStatus: 'idle',
     workspaceRoot: null,
-  } as const
+  }
 
   await check('SEAM: both surfaces drive the real SprintEngineRosterPanel from the hook alone', async () => {
     // The mount inside captureEditor IS the assertion: it renders the real panel

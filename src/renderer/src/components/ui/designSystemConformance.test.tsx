@@ -587,8 +587,8 @@ async function main(): Promise<void> {
   })
 
   await run('2005 Point at a folder is the ONE accent-filled action on the screen', () => {
-    const primaries = Array.from(designContainer.querySelectorAll('button')).filter((button) =>
-      classesOf(button).some((token) => /^bg-\[color:var\(--accent-primary/.test(token)),
+    const primaries = (Array.from(designContainer.querySelectorAll('button')) as Element[]).filter(
+      (button) => classesOf(button).some((token) => /^bg-\[color:var\(--accent-primary/.test(token)),
     )
     assert.equal(primaries.length, 1, 'exactly one accent-filled control')
     assert.match(primaries[0].textContent ?? '', /Point at a folder/)
@@ -607,8 +607,8 @@ async function main(): Promise<void> {
   await run('2005 a card names its system once, in the specimen — never again beneath', () => {
     // The specimen lives inside a sandboxed iframe (srcdoc), so the app-side
     // markup must carry the name only as the accessible label of the card.
-    const cards = Array.from(designContainer.querySelectorAll('button')).filter((button) =>
-      (button.getAttribute('aria-label') ?? '').startsWith('Start from'),
+    const cards = (Array.from(designContainer.querySelectorAll('button')) as Element[]).filter(
+      (button) => (button.getAttribute('aria-label') ?? '').startsWith('Start from'),
     )
     assert.equal(cards.length, 2, 'one per source, plus Empty')
     const seeded = cards[0]

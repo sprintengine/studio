@@ -38,7 +38,6 @@ import {
   AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES,
   type SprintEngineDispatchAttempt,
   type SprintEngineDispatchPath,
-  type SprintEngineDispatchPlan,
 } from './sprintengineAutoRun'
 import { normalizeSprintEngineState, normalizeSprintEngineProjection } from './sprintengine'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode } from './agentPrompt'

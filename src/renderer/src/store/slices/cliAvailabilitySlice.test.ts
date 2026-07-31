@@ -23,6 +23,7 @@ const carrier: CliAvailabilitySliceState = {
   cliAvailability: {},
   cliAvailabilityStatus: 'loading',
   cliAvailabilityError: null,
+  cliAvailabilityCheckedAt: null,
 }
 
 async function main(): Promise<void> {
@@ -61,6 +62,7 @@ async function main(): Promise<void> {
     cliAvailability: availability({ codex: true }),
     cliAvailabilityStatus: 'ready',
     cliAvailabilityError: null,
+    cliAvailabilityCheckedAt: null,
   }
   const failingBackground = createCliAvailabilitySlice((mutator) => mutator(bgCarrier), {
     getApi: () => ({
@@ -92,6 +94,7 @@ async function main(): Promise<void> {
     cliAvailability: {},
     cliAvailabilityStatus: 'loading',
     cliAvailabilityError: null,
+    cliAvailabilityCheckedAt: null,
   }
   const slow = createCliAvailabilitySlice((mutator) => mutator(slowCarrier), {
     getApi: () => ({

@@ -113,6 +113,16 @@ assert.equal(formatElapsed(3 * 86_400_000 + 4 * 3_600_000), '3d 04h')
 /* ---- diff ------------------------------------------------------------- */
 
 {
+  // The capture provenance a real diff carries. Irrelevant to the totals under
+  // test, but required by the type, so it lives in one shared base.
+  const diffBase = {
+    capturedAt: '2026-01-01T00:00:00.000Z',
+    capturedBy: 'developer',
+    source: 'working_tree' as const,
+    binary: false,
+    truncated: false,
+    hunks: [],
+  }
   assert.equal(taskDiffTotals(task()), null, 'no captured diff reads as no diff, never as +0 −0')
   const totals = taskDiffTotals(
     task({
@@ -122,8 +132,8 @@ assert.equal(formatElapsed(3 * 86_400_000 + 4 * 3_600_000), '3d 04h')
         commandsRan: [],
         results: [],
         diffs: [
-          { path: 'a.ts', status: 'modified', additions: 100, deletions: 30, hunks: [] },
-          { path: 'b.ts', status: 'added', additions: 47, deletions: 10, hunks: [] },
+          { ...diffBase, path: 'a.ts', status: 'modified', additions: 100, deletions: 30 },
+          { ...diffBase, path: 'b.ts', status: 'added', additions: 47, deletions: 10 },
         ],
       },
     } as Partial<SprintEngineTask>),

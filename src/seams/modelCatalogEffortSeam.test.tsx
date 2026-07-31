@@ -479,7 +479,7 @@ async function main(): Promise<void> {
     // this is the payload, rendered.
     await usingBundledRegistry(() => {
       const command = buildAgentShellCommand({
-        cli: developer.cli,
+        cli: developer.cli!,
         sessionId: 'seam-session',
         cliModel: developer.cliModel,
         cliReasoning: developer.cliReasoning,
@@ -554,7 +554,7 @@ async function main(): Promise<void> {
     // Same record, rendered: the launched command, not the store.
     await usingBundledRegistry(() => {
       const command = buildAgentShellCommand({
-        cli: architect.cli,
+        cli: architect.cli!,
         sessionId: 'seam-session',
         cliModel: architect.cliModel,
         cliReasoning: architect.cliReasoning,

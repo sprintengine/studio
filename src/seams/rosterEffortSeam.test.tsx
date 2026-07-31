@@ -323,7 +323,7 @@ async function main(): Promise<void> {
           onSetCli={() => {}}
           onSetModel={() => {}}
           roleModelOverrides={{ general: 'gpt-5.6-sol' } as never}
-          {...(props as never)}
+          {...(props as unknown as Partial<Parameters<typeof SprintEngineRosterTable>[0]>)}
         />,
       )
     })
@@ -450,7 +450,7 @@ async function main(): Promise<void> {
           onDeleteRoster={() => {}}
           poolAgentCount={2}
           onChangePoolAgentCount={() => {}}
-          {...(props as never)}
+          {...(props as unknown as Partial<Parameters<typeof SprintEngineRosterPanel>[0]>)}
         />,
       )
     })
