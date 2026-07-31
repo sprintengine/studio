@@ -149,11 +149,6 @@ import {
   runSprintEngineNewTeamCreation,
   runSprintEnginePlanSourcedCreation,
 } from './newWorkspace/controllers'
-import {
-  getSprintEngineAccessState,
-  requireFreshSprintEngineAccess,
-  type PremiumFeatureAccessState,
-} from '../../utils/premiumAccess'
 
 // The shell-owned mode models (chat, standard) and the rail ordering live in
 // newWorkspace/modeModels.ts, shared with the CreationRail contract test.
@@ -387,7 +382,6 @@ export default function NewWorkspacePanel({
   initialState = null,
   chatComposer,
 }: Props) {
-  const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
   const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace)
@@ -1353,8 +1347,6 @@ export default function NewWorkspacePanel({
     return undefined
   }, [isChat, mode])
 
-  const sprintEngineAccess = getSprintEngineAccessState(authState)
-
   // Ready when the workspace is named and the folder field resolves to a usable
   // target: an existing folder (opened as-is) or a structurally valid path we
   // can create. Creation/opening happens on continue (`materializeWorkspaceFolder`).
@@ -1368,19 +1360,17 @@ export default function NewWorkspacePanel({
     || (sePath === 'plan'
       ? seTeamName.trim().length > 0
       : seTeamName.trim().length > 0 && seGoal.trim().length > 0)
-  const sprintEngineTeamReady =
-    sprintEngineAccess.allowed && sePlanReady && seTeamDetailsReady
+  const sprintEngineTeamReady = sePlanReady && seTeamDetailsReady
   // A new roster needs at least one agent AND at least one planning-capable
   // agent (architect or general); existing teams were already validated when
   // created. The stepper floors prevent dropping the last planner interactively,
   // so this is the defensive gate for loaded/saved counts.
   const sprintEngineRosterReady =
-    sprintEngineAccess.allowed
-    && (seExistingTeam != null
-      // A plain agent pool always stages its one general planner seat, so the
-      // Team page can never block create in pool mode.
-      || !seUseSpecialistRoles
-      || (totalAgents > 0 && sprintEngineRosterHasPlanningRole(visibleSprintEngineRoleCounts)))
+    seExistingTeam != null
+    // A plain agent pool always stages its one general planner seat, so the
+    // Team page can never block create in pool mode.
+    || !seUseSpecialistRoles
+    || (totalAgents > 0 && sprintEngineRosterHasPlanningRole(visibleSprintEngineRoleCounts))
   // The resolved seed source for the design-system preset. Null means blank
   // start — either chosen deliberately, or because a seed mode is selected but
   // its source is not resolved yet (folder not picked / demo unavailable), in
@@ -1433,7 +1423,6 @@ export default function NewWorkspacePanel({
     step: hintStep,
     workspaceFolderReady: folderTargetUsable,
     name,
-    sprintEngineAccess,
     sePath,
     sePlanReady,
     seExistingTeam,
@@ -2169,12 +2158,6 @@ export default function NewWorkspacePanel({
     }
 
     if (mode === 'sprintengine') {
-      try {
-        await requireFreshSprintEngineAccess(window.api, setAuthState)
-      } catch (error) {
-        setSePlanError(error instanceof Error ? error.message : 'Sprint access could not be verified.')
-        return
-      }
 
       if (seExistingTeam) {
         const args = buildSprintEngineExistingTeamCreation({
@@ -2462,15 +2445,6 @@ export default function NewWorkspacePanel({
     else goNext()
   }
 
-  const startLogin = async () => {
-    const currentState = await window.api.authGetState().catch(() => null)
-    if (currentState?.authenticated) {
-      setAuthState(currentState)
-      return
-    }
-    await window.api.authLogin(authState.selectedOrganization?.id ?? null)
-  }
-
   const handleGuidedStartBuild = async (
     runtimeState: GuidedBriefRuntimeState,
     runOptions: {
@@ -2489,12 +2463,6 @@ export default function NewWorkspacePanel({
       cliPermissionPreset: runtimeState.buildCliPermissionPreset,
     },
   ) => {
-    try {
-      await requireFreshSprintEngineAccess(window.api, setAuthState)
-    } catch (error) {
-      if (!authState.authenticated) await startLogin()
-      throw new Error(error instanceof Error ? error.message : 'Sprint access could not be verified.')
-    }
     const finalRoleCounts = applyUserDisabledSprintEngineRoleCounts(
       runOptions.roleCounts,
       sprintEngineDisabledRoleIds,
@@ -2765,8 +2733,6 @@ export default function NewWorkspacePanel({
           {step === 'sprintengine-team' ? (
             <ConfigStepSection stepId="sprintengine-team" headingRef={headingRef}>
             <SprintEngineTeamStep
-              access={sprintEngineAccess}
-              onSignIn={() => void startLogin()}
               folderPath={folderPath}
               projectOptions={sprintProjectOptions}
               onSelectProject={handleSelectSprintProject}
@@ -2933,10 +2899,7 @@ export default function NewWorkspacePanel({
               and Review & start — one reading column each. */}
           {step === 'sprintengine-roster' ? (
             <ConfigStepSection stepId="sprintengine-roster" headingRef={headingRef}>
-            {!sprintEngineAccess.allowed ? (
-              <SprintEngineAccessNotice access={sprintEngineAccess} onSignIn={() => void startLogin()} />
-            ) : (
-              <>
+            <>
                 {seExistingTeam != null ? (
                   <p className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-meta leading-5 text-[color:var(--tone-warn)]">
                     Loading <span className="font-semibold">{seExistingTeam.displayName}</span> — team size is read-only; the agent for each role can still be changed before launch.
@@ -2990,16 +2953,12 @@ export default function NewWorkspacePanel({
                   onChangePoolAgentCount={setSeMaxParallelAgents}
                 />
               </>
-            )}
             </ConfigStepSection>
           ) : null}
 
           {step === 'sprintengine-tools' ? (
             <ConfigStepSection stepId="sprintengine-tools" headingRef={headingRef}>
-            {!sprintEngineAccess.allowed ? (
-              <SprintEngineAccessNotice access={sprintEngineAccess} onSignIn={() => void startLogin()} />
-            ) : (
-              <SprintEngineToolsPanel
+            <SprintEngineToolsPanel
                 mcpCatalog={integrationsMcpCatalog}
                 mcpSettings={mcpSettings ?? null}
                 onToggleMcp={toggleMcpInWizard}
@@ -3015,16 +2974,12 @@ export default function NewWorkspacePanel({
                   setAdvancedSetupError(null)
                 }}
               />
-            )}
             </ConfigStepSection>
           ) : null}
 
           {step === 'sprintengine-start' ? (
             <ConfigStepSection stepId="sprintengine-start" headingRef={headingRef}>
-            {!sprintEngineAccess.allowed ? (
-              <SprintEngineAccessNotice access={sprintEngineAccess} onSignIn={() => void startLogin()} />
-            ) : (
-              <SprintEngineStartPanel
+            <SprintEngineStartPanel
                 workspaceName={name}
                 folderPath={folderPath}
                 objective={seGoal.trim()}
@@ -3055,7 +3010,6 @@ export default function NewWorkspacePanel({
                 declaredRepoNames={seDeclaredRepos.map((repo) => repo.displayName)}
                 createError={sePlanError}
               />
-            )}
             </ConfigStepSection>
           ) : null}
 
@@ -3966,36 +3920,6 @@ function GuidedChoiceCard({
   )
 }
 
-function SprintEngineAccessNotice({
-  access,
-  onSignIn,
-}: {
-  access: PremiumFeatureAccessState
-  onSignIn: () => void
-}) {
-  return (
-    <div
-      className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-4 py-4"
-      role="status"
-      aria-live="polite"
-    >
-      <div className="text-body font-semibold text-[color:var(--tone-warn)]">{access.title}</div>
-      <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{access.body}</p>
-      <button
-        type="button"
-        onClick={onSignIn}
-        className="
-          mt-3 inline-flex h-8 items-center justify-center rounded-md bg-[color:var(--text-strong)] px-3
-          text-meta font-semibold text-[color:var(--bg-app)] transition-colors hover:bg-[color:var(--bg-inverted-hover)]
-          focus-visible:focus-ring
-        "
-      >
-        Sign in
-      </button>
-    </div>
-  )
-}
-
 function BacklogPickerNote({ children, tone }: { children: ReactNode; tone?: 'error' }): JSX.Element {
   return (
     <div
@@ -4103,8 +4027,6 @@ function BacklogSourcePicker({
 }
 
 function SprintEngineTeamStep(props: {
-  access: PremiumFeatureAccessState
-  onSignIn: () => void
   folderPath: string | null
   // The project fields (item 1765, mockup §3). `folderPath` above is the primary
   // project — one folder, shared with the workspace step, not a second copy.
@@ -4141,8 +4063,6 @@ function SprintEngineTeamStep(props: {
   onChangeGoal: (value: string) => void
 }) {
   const {
-    access,
-    onSignIn,
     folderPath,
     projectOptions,
     onSelectProject,
@@ -4181,10 +4101,6 @@ function SprintEngineTeamStep(props: {
   useEffect(() => {
     setPlanTypeEditing(false)
   }, [planPath])
-
-  if (!access.allowed) {
-    return <SprintEngineAccessNotice access={access} onSignIn={onSignIn} />
-  }
 
   const backlogItems = backlogScan.items
   const backlogCount = backlogItems.length
@@ -4598,7 +4514,6 @@ function getStepBlockingMessage(args: {
   step: StepId
   workspaceFolderReady: boolean
   name: string
-  sprintEngineAccess: PremiumFeatureAccessState
   sePath: SprintEnginePath
   sePlanReady: boolean
   seExistingTeam: ExistingTeam | null
@@ -4619,7 +4534,6 @@ function getStepBlockingMessage(args: {
     step,
     workspaceFolderReady,
     name,
-    sprintEngineAccess,
     sePath,
     sePlanReady,
     seExistingTeam,
@@ -4650,7 +4564,6 @@ function getStepBlockingMessage(args: {
         ? `Knowledge folder: ${committedKnowledgeRoot} — continue, or change it.`
         : 'Pick a knowledge folder, or skip to set it later in Settings.'
     case 'sprintengine-team':
-      if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
       if (sePath === 'plan' && !sePlanReady) return 'Select a backlog item or source file.'
       if (seExistingTeam) return 'Existing team loaded — continue.'
       if (!seTeamDetailsReady) {
@@ -4658,7 +4571,6 @@ function getStepBlockingMessage(args: {
       }
       return 'Continue to the roster.'
     case 'sprintengine-roster':
-      if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
       if (seExistingTeam) return 'Ready to load team.'
       // A plain agent pool always stages its general planner seat.
       if (sePlainAgents) return 'Ready to create.'
@@ -4667,14 +4579,12 @@ function getStepBlockingMessage(args: {
     // The tools page's hint reports the live selection instead of a readiness
     // gate — the page is optional and can never block create.
     case 'sprintengine-tools':
-      if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
       return toolsSelectedCount === 0
         ? 'No tools selected — the sprint runs without integrations.'
         : `${toolsSelectedCount} tool${toolsSelectedCount === 1 ? '' : 's'} selected.`
     // The review-&-start page is the sprint's last step, so its hint is the one
     // the footer shows next to the Start sprint action.
     case 'sprintengine-start':
-      if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
       if (seExistingTeam) return 'Ready to load team.'
       return 'Ready to create.'
     case 'guided-idea':
