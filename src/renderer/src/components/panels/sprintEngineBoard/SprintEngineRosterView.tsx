@@ -306,10 +306,12 @@ export function SprintEngineRosterView({
   // entries, in canonical role order. Prefer the projected `configuredRoles`
   // (the roles the user actually turned on): under the lazy roster only the
   // architect is seated at start, so a configured reviewer would otherwise be
-  // invisible until it spawns. Legacy runs fall back to the seated census.
+  // invisible until it spawns. Only a LEGACY run — one that records no set at
+  // all — falls back to the seated census; a roleless run's explicit `[]` is an
+  // answer, not a gap, so it is used as given (MC-2057).
   const optionByRole = new Map(addMemberOptions.map((option) => [option.role, option]))
   const enabledRoles = new Set(
-    sprintEngineState.configuredRoles && sprintEngineState.configuredRoles.length > 0
+    Array.isArray(sprintEngineState.configuredRoles)
       ? sprintEngineState.configuredRoles
       : sprintEngineEnabledRoles(sprintEngineState.roleCounts),
   )

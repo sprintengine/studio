@@ -956,6 +956,15 @@ async function testInitializeSprintEngineStateRecordsAnExplicitEmptyRoleSet(): P
       /^configuredRoles: \[\]$/mu,
       'a roleless run records an explicit empty configuredRoles, not an absent key',
     )
+    // The roleless seat still crosses the wire as `--agent :coordinator`, which
+    // is what marks the run roster-configured (MC-2057). Dropping it left a
+    // roleless run reading as never-configured: no roster mutation from the
+    // door, and the board offering to "spawn a team agent".
+    assert.match(
+      runYaml,
+      /^\s*rosterConfigured: true$/mu,
+      'a roleless run records rosterConfigured: true',
+    )
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }
@@ -983,6 +992,14 @@ async function testInitializeSprintEngineStateOmitsAnUnsuppliedRoleSet(): Promis
 
     const runYaml = await readFile(statePath, 'utf-8')
     assert.doesNotMatch(runYaml, /^configuredRoles:/mu, 'an unsupplied role set records no key at all')
+    // ...and its role-less agent is NOT a roleless seat: with no declared role
+    // set the engine seats an architect, so no `--agent` is sent and the run
+    // keeps reading as unconfigured.
+    assert.match(
+      runYaml,
+      /^\s*rosterConfigured: false$/mu,
+      'a run that names no role set stays unconfigured',
+    )
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }

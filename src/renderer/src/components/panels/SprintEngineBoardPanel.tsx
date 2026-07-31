@@ -652,14 +652,16 @@ export function SprintRunBoard({
   const hasResidentWorkspace = workspaceId !== ''
   const sprintEngineState = handle.sprintEngineState
   // Enabling a role is an engine mutation on the run (`roster enable`, routed by
-  // statePath), so it works from the door (MC-1800). A run that publishes no
-  // configured role set has no such route — its team exists only in the
+  // statePath), so it works from the door (MC-1800). A legacy run that records no
+  // configured role set at all has no such route — its team exists only in the
   // workspace record — so on a door mount that run offers no roster mutation at
-  // all. Same predicate the enable path itself uses below.
+  // all. PRESENCE, not length: a roleless run publishes an explicit `[]`, which
+  // is a role set with nothing in it yet, not a missing one (MC-2057). Same
+  // predicate the enable path itself uses below.
   const canMutateRunRoster =
     hasResidentWorkspace
     || (sprintEngineState.rosterConfigured === true
-      && (sprintEngineState.configuredRoles?.length ?? 0) > 0)
+      && Array.isArray(sprintEngineState.configuredRoles))
   const workspace = useWorkspaceStore((s) =>
     handle.workspaceId ? s.workspaces.find((w) => w.id === handle.workspaceId) ?? null : null,
   )
@@ -1906,8 +1908,12 @@ export function SprintRunBoard({
  // plan.add_task / roster runtime all hard-reject a non-configured role.
  // The user's own board action is the sanctioned writer (`roster enable`,
  // additive, --actor ui) — agents never grow the set themselves.
- const configuredRoles = sprintEngineState.configuredRoles ?? []
- const roleNeedsEnable = role !== undefined && configuredRoles.length > 0 && !configuredRoles.includes(role)
+ // Presence, not length (MC-2057): a roleless run's explicit `[]` names no
+ // role, so every role picked here still needs the engine write. Only a legacy
+ // run that records no set at all has nothing to grow.
+ const configuredRoles = sprintEngineState.configuredRoles
+ const roleNeedsEnable =
+ role !== undefined && Array.isArray(configuredRoles) && !configuredRoles.includes(role)
  // Door mount: enabling the role in the engine is the WHOLE action. There is
  // no workspace to mint a display agent in and no terminal to start, so a
  // role the run already configures has nothing left to write — say so rather

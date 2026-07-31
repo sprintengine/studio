@@ -99,17 +99,22 @@ function projection(input: {
   name: string
   repos: RepoSpec[]
   /** taskId → [repo id, dependsOn] — the cross-repo edges merge order derives from. */
-  tasks: Array<{ id: string; repo: string; dependsOn: string[]; status?: string }>
-  /** The run's legal role set, which the Agents tab reads and enabling a role grows. */
+  tasks: Array<{ id: string; repo: string; dependsOn: string[]; status?: string; role?: string }>
+  /**
+   * The run's legal role set, which the Agents tab reads and enabling a role
+   * grows. An EMPTY list is a roleless run — an explicit "no roles", which the
+   * app must not read as a run that named no set at all — so this branches on
+   * presence, never truthiness.
+   */
   configuredRoles?: string[]
   /** Seated workers, keyed by agent id — one roster row each on the Agents tab. */
-  roster?: Record<string, { role: string; status: string; currentTaskId: string | null }>
+  roster?: Record<string, { role?: string; status: string; currentTaskId: string | null }>
 }): Record<string, unknown> {
   return {
     run: {
       name: input.name,
       goal: 'A goal',
-      ...(input.configuredRoles
+      ...(input.configuredRoles !== undefined
         ? { rosterConfigured: true, configuredRoles: input.configuredRoles }
         : {}),
       vcs: {
@@ -134,7 +139,9 @@ function projection(input: {
     tasks: input.tasks.map((task) => ({
       id: task.id,
       title: `Task ${task.id}`,
-      role: 'developer',
+      // A roleless run's work carries no role at all, so the key is ABSENT
+      // rather than holding a stand-in.
+      ...(task.role === undefined ? { role: 'developer' } : task.role ? { role: task.role } : {}),
       status: task.status ?? 'done',
       repo: task.repo,
       dependsOn: task.dependsOn,
@@ -1192,11 +1199,189 @@ async function main(): Promise<void> {
   )
   console.log('ok - a link path spelled with foreign separators still opens its own run')
 
+  // ── A roleless run can still be given a role from the door (MC-2057) ─────
+  // `configuredRoles: []` is an EXPLICIT empty role set, not a missing one. The
+  // door's roster gate used to test its LENGTH, so the sprint kind this epic
+  // makes the default offered no roster mutation at all — a user could not add
+  // a role to it. Mounted and clicked through, not reasoned about: the run with
+  // the empty set reaches the engine, and the legacy run that records no set at
+  // all still does not.
+  await act(async () => {
+    root4.unmount()
+  })
+  const rolelessStatePath = statePathOf(projectRoot, 'roleless-run')
+  const legacyStatePath = statePathOf(projectRoot, 'legacy-run')
+  listed = [
+    summary({ teamSlug: 'roleless-run', runtimeState: 'running' }),
+    summary({ teamSlug: 'legacy-run', runtimeState: 'running' }),
+  ]
+  projections.set(
+    rolelessStatePath,
+    projection({
+      name: 'roleless-run',
+      repos: [{ id: 'primary', root: '.', pr: null, state: null }],
+      tasks: [{ id: 'T1', repo: 'primary', dependsOn: [], status: 'in_progress', role: '' }],
+      configuredRoles: [],
+      roster: { coordinator: { status: 'running', currentTaskId: 'T1' } },
+    }),
+  )
+  // The legacy shape: no `configuredRoles` key, no `rosterConfigured` — its team
+  // lives in a workspace record the door cannot reach.
+  projections.set(
+    legacyStatePath,
+    projection({
+      name: 'legacy-run',
+      repos: [{ id: 'primary', root: '.', pr: null, state: null }],
+      tasks: [{ id: 'T1', repo: 'primary', dependsOn: [], status: 'in_progress' }],
+    }),
+  )
+  const root5 = createRoot(container)
+  await act(async () => {
+    root5.render(surface())
+  })
+  await settle()
+  await selectRailRun('roleless-run')
+  assert.equal(
+    useWorkspaceStore.getState().workspaces.some((ws) => ws.sprintEngineContext?.statePath === rolelessStatePath),
+    false,
+    'the roleless run has no resident workspace either — this is the door mount',
+  )
+  await openBoardOverflow()
+  const rolelessMoreRoles = overflowItem('More roles')
+  assert.ok(rolelessMoreRoles, 'the board overflow carries the add-a-role route')
+  assert.equal(
+    rolelessMoreRoles.disabled,
+    false,
+    'a roleless run offers roster mutation: its empty role set is one the engine can grow',
+  )
+  assert.equal(
+    rolelessMoreRoles.textContent?.trim(),
+    'More roles',
+    'and it claims no unavailability',
+  )
+  await act(async () => {
+    rolelessMoreRoles.click()
+  })
+  await settle(3)
+  const addRoleDialog = dom.window.document.getElementById('add-member-dialog-title')
+  assert.equal(addRoleDialog?.textContent, 'Add a role', 'the door adds a role, not an agent it cannot start')
+  const rolelessRoleOption = ([...dom.window.document.querySelectorAll('button[aria-pressed]')] as HTMLButtonElement[])
+    .find((candidate) => candidate.textContent?.includes('Tester'))
+  assert.ok(rolelessRoleOption, 'every role is offered — this run configures none of them yet')
+  await act(async () => {
+    rolelessRoleOption.click()
+  })
+  await settle(2)
+  const confirmAddRole = ([...dom.window.document.querySelectorAll('button')] as HTMLButtonElement[])
+    .find((candidate) => candidate.textContent?.trim() === 'Add Tester')
+  assert.ok(confirmAddRole, 'the dialog confirms on the picked role')
+  await act(async () => {
+    confirmAddRole.click()
+  })
+  await settle(8)
+  assert.deepEqual(
+    enableRoleCalls[enableRoleCalls.length - 1],
+    { statePath: rolelessStatePath, role: 'tester' },
+    'the role reaches the engine on the roleless run’s own state path',
+  )
+
+  await selectRailRun('legacy-run')
+  await openBoardOverflow()
+  const legacyMoreRoles = overflowItem('More roles')
+  assert.ok(legacyMoreRoles, 'the legacy run carries the same menu row')
+  assert.equal(
+    legacyMoreRoles.disabled,
+    true,
+    'a run that records no role set at all has no engine route — its team is workspace-only',
+  )
+  assert.match(
+    legacyMoreRoles.textContent ?? '',
+    /workspace is closed/u,
+    'and the disabled row says what would make it available',
+  )
+  const enableCallsBefore = enableRoleCalls.length
+  await act(async () => {
+    dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  await settle(2)
+  assert.equal(enableRoleCalls.length, enableCallsBefore, 'and nothing was written for it')
+  console.log('ok - a roleless run can be given a role from the door; a legacy run still cannot')
+
+  // ── …and on its own workspace it reads as a configured run (MC-2057) ─────
+  // A roleless run seeds one roleless seat, and that seat now crosses the init
+  // wire, so the run records `rosterConfigured: true`. The dialog's title is
+  // what that flag reaches the user as: "Add an agent", not the pre-roster
+  // "Spawn a team agent" a run whose team predates run-level agents gets.
+  await act(async () => {
+    root5.unmount()
+  })
+  const residentRolelessStatePath = statePathOf(projectRoot, 'roleless-resident')
+  listed = [summary({ teamSlug: 'roleless-resident', runtimeState: 'running' })]
+  projections.set(
+    residentRolelessStatePath,
+    projection({
+      name: 'roleless-resident',
+      repos: [{ id: 'primary', root: '.', pr: null, state: null }],
+      tasks: [{ id: 'T1', repo: 'primary', dependsOn: [], status: 'in_progress', role: '' }],
+      configuredRoles: [],
+      roster: { coordinator: { status: 'running', currentTaskId: 'T1' } },
+    }),
+  )
+  useWorkspaceStore.setState({
+    workspaces: [
+      { id: 'w1', name: 'multicode', mode: 'standard', folderPath: projectRoot, agents: {}, openFiles: [], createdAt: 1 },
+      {
+        id: 'w4',
+        name: 'roleless-resident',
+        mode: 'sprintengine',
+        folderPath: projectRoot,
+        agents: {},
+        openFiles: [],
+        createdAt: 4,
+        sprintEngineContext: {
+          teamName: 'roleless-resident',
+          teamSlug: 'roleless-resident',
+          teamDirectoryPath: `${projectRoot}/.multi-code/sprintengine/roleless-resident`,
+          statePath: residentRolelessStatePath,
+        },
+        sprintEngineState: normalizeSprintEngineProjection(
+          projections.get(residentRolelessStatePath),
+          'roleless-resident',
+        ),
+      },
+    ],
+    activeWorkspaceId: 'w1',
+    activeGlobalSurface: 'sprints',
+  } as never)
+  const root6 = createRoot(container)
+  await act(async () => {
+    root6.render(surface())
+  })
+  await settle()
+  await selectRailRun('roleless-resident')
+  await openBoardOverflow()
+  const residentMoreRoles = overflowItem('More roles')
+  assert.equal(residentMoreRoles?.disabled, false, 'the resident mount offers it too')
+  await act(async () => {
+    ;(residentMoreRoles as HTMLButtonElement).click()
+  })
+  await settle(3)
+  assert.equal(
+    dom.window.document.getElementById('add-member-dialog-title')?.textContent,
+    'Add an agent',
+    'a roleless run reads as roster-configured, so it adds an agent rather than spawning a team one',
+  )
+  await act(async () => {
+    dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  await settle(2)
+  console.log('ok - a roleless run reads as roster-configured on its own workspace')
+
   assert.ok(listCalls >= 1, 'the index was actually read over IPC')
   // Tear the surface down so the door's projection-refresh driver (and its
   // interval) is disposed — a leaked driver would keep this process alive.
   await act(async () => {
-    root4.unmount()
+    root6.unmount()
   })
   console.log('all Sprints surface composition tests passed')
 }

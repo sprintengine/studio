@@ -584,12 +584,21 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   for (const repo of payload.repos) {
     args.push('--repo', `${repo.id}=${repo.root}`)
   }
+  // One `--agent <role>:<id>` per seeded agent — the flag that records
+  // `rosterConfigured`. A seat with NO role sends an EMPTY prefix
+  // (`:coordinator`) instead of being dropped, so a roleless run still records
+  // itself as roster-configured (MC-2057); same wire form
+  // `buildSprintEngineRosterCommandArgs` already produces. Only a run that
+  // declares its role set can have a known-roleless seat: with `configuredRoles`
+  // absent the engine seats an architect, so a legacy caller's role-less agent
+  // stays skipped and that run keeps reading as unconfigured.
+  const declaresRoleSet = payload.enabledRoles !== null
   for (const [agentId, agent] of Object.entries(payload.agents)) {
     if (!agent || typeof agent !== 'object' || Array.isArray(agent)) continue
     const role = (agent as Record<string, unknown>).role
-    if (typeof role === 'string' && role.trim()) {
-      args.push('--agent', `${role.trim()}:${agentId}`)
-    }
+    const roleId = typeof role === 'string' ? role.trim() : ''
+    if (roleId) args.push('--agent', `${roleId}:${agentId}`)
+    else if (declaresRoleSet) args.push('--agent', `:${agentId}`)
   }
   if (Object.keys(payload.roleRuntimes).length > 0) {
     args.push('--role-runtimes-json', JSON.stringify(payload.roleRuntimes))
