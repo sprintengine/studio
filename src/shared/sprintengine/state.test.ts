@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import {
   buildSprintEngineAgentRosterForState,
   deriveSprintEngineRepoMergeRollup,
   isCompletedSprintEngineRun,
+  isSprintEngineCoordinationTask,
+  isSprintEngineCoordinatorAgent,
   normalizeSprintEngineProjection,
   normalizeSprintEngineRoleRuntimes,
   resolveSprintEngineAgentRuntime,
   resolveSprintEngineRoleRuntime,
+  sprintEngineCoordinatorSeat,
 } from './state'
 import type { SprintEngineTask, SprintEngineVcs } from './run-types'
 
@@ -636,3 +641,93 @@ function testAgentRuntimeLayersReasoningLikeModel(): void {
 testRoleRuntimeResolvesReasoningLevel()
 testAgentRuntimeLayersReasoningLikeModel()
 console.log('sprintengine seat reasoning tests passed')
+
+// --- MC-2053: the coordinator-seat contract, against the shared matrix -------
+
+/**
+ * The TypeScript half of the cross-language differential. Its Python twin is
+ * `tests/sprintengine_tool/test_coordinator_seat_differential.py`; both answer
+ * the SAME recorded matrix, so `sprintEngineCoordinatorSeat` /
+ * `resolve_coordinator_seat`, `isSprintEngineCoordinatorAgent` /
+ * `actor_is_coordinator`, and `isSprintEngineCoordinationTask` /
+ * `task_is_coordination` cannot drift apart again the way T11-F3 found them.
+ *
+ * The matrix is data, not a second implementation: an intended change is
+ * written into the fixture, and the other half then holds the other language to
+ * it. See the file's own `about` for the contract it records.
+ */
+type CoordinatorSeatMatrix = {
+  team: string
+  seatCases: { name: string, state: Record<string, unknown>, seat: { role: string | null, agentId: string } }[]
+  actorIds: string[]
+  actorIsCoordinator: Record<string, Record<string, boolean>>
+  coordinationCases: {
+    name: string
+    artifacts: Record<string, unknown>[]
+    askTask: Record<string, unknown>
+    isCoordination: boolean
+  }[]
+}
+
+const coordinatorSeatMatrix = JSON.parse(
+  readFileSync(join(process.cwd(), 'tests', 'fixtures', 'coordinator-seat-matrix.json'), 'utf8'),
+) as CoordinatorSeatMatrix
+
+function testCoordinatorSeatMatchesTheSharedMatrix(): void {
+  for (const seatCase of coordinatorSeatMatrix.seatCases) {
+    const seat = sprintEngineCoordinatorSeat(seatCase.state as never)
+    assert.deepEqual(
+      { role: seat.role ?? null, agentId: seat.agentId },
+      seatCase.seat,
+      `seat case ${seatCase.name}`,
+    )
+  }
+}
+
+function testActorIsCoordinatorMatchesTheSharedMatrix(): void {
+  // Every actor id against every seat. The two id shapes that matter both
+  // behave: a named seat answers for `architect-2`, and a minted roleless
+  // worker (`agent-1`) is never mistaken for the roleless seat.
+  for (const [caseName, expected] of Object.entries(coordinatorSeatMatrix.actorIsCoordinator)) {
+    const seatCase = coordinatorSeatMatrix.seatCases.find((candidate) => candidate.name === caseName)
+    assert.ok(seatCase, `matrix names an unknown seat case: ${caseName}`)
+    assert.deepEqual(Object.keys(expected).sort(), [...coordinatorSeatMatrix.actorIds].sort(), 'the matrix covers every actor id')
+    for (const [actorId, isCoordinator] of Object.entries(expected)) {
+      assert.equal(
+        isSprintEngineCoordinatorAgent(actorId, seatCase.state as never),
+        isCoordinator,
+        `${caseName}: actor ${JSON.stringify(actorId)}`,
+      )
+    }
+  }
+}
+
+function testCoordinationTaskMatchesTheSharedMatrix(): void {
+  // The whole task is passed, `role` and `kind` included, precisely because
+  // this side COULD read them and its Python twin structurally cannot: the
+  // predicate takes a task while `task_is_coordination` takes a task id.
+  for (const coordinationCase of coordinatorSeatMatrix.coordinationCases) {
+    assert.equal(
+      isSprintEngineCoordinationTask(
+        coordinationCase.askTask as never,
+        { artifacts: coordinationCase.artifacts } as never,
+      ),
+      coordinationCase.isCoordination,
+      `coordination case ${coordinationCase.name}`,
+    )
+  }
+}
+
+function testTheMatrixIsTheSizeTheSeamReviewSpecified(): void {
+  // A shrunk matrix is a silently weakened guard, so the shape is asserted:
+  // 8 seat cases, 8 actor ids, 11 coordination cases.
+  assert.equal(coordinatorSeatMatrix.seatCases.length, 8)
+  assert.equal(coordinatorSeatMatrix.actorIds.length, 8)
+  assert.equal(coordinatorSeatMatrix.coordinationCases.length, 11)
+}
+
+testCoordinatorSeatMatchesTheSharedMatrix()
+testActorIsCoordinatorMatchesTheSharedMatrix()
+testCoordinationTaskMatchesTheSharedMatrix()
+testTheMatrixIsTheSizeTheSeamReviewSpecified()
+console.log('sprintengine coordinator-seat differential tests passed')

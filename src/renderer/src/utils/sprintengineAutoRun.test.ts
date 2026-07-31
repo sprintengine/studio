@@ -336,6 +336,17 @@ function sprintEngineStateFixture(overrides: Partial<SprintEngineState> = {}): S
   } as SprintEngineState
 }
 
+/**
+ * The run context `findSprintEngineWakeCandidateTaskForAgent` bounds its answer
+ * by (MC-2050): a role-based run, where no id below holds the coordinator seat
+ * and no task is the coordination job, so every case there is decided by the
+ * role comparison exactly as it was before the routing rule reached wake.
+ */
+const roleBasedWakeState: Pick<SprintEngineState, 'artifacts' | 'configuredRoles'> = {
+  artifacts: [],
+  configuredRoles: ['architect', 'developer'],
+}
+
 function mutableRef<T>(initial: T): { current: T } {
   return { current: initial }
 }
@@ -1981,7 +1992,8 @@ function testTaskScopedLifecycleExemptsPlanningRoles(): void {
       'developer-1',
       new Set(),
       'T-x',
-      'primary'
+      'primary',
+      roleBasedWakeState
     ),
     undefined,
     'the restriction excludes every task but the agent\'s own'
@@ -2182,16 +2194,16 @@ function testWakeOnlyOffersWorkTheSessionCanClaim(): void {
     task({ id: 'T-desktop', role: 'developer', repo: 'primary', status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
   ]
   assert.equal(
-    findSprintEngineWakeCandidateTaskForAgent(wakeTasks, 'developer', 'developer-1', new Set(), null, 'mobile')?.id,
+    findSprintEngineWakeCandidateTaskForAgent(wakeTasks, 'developer', 'developer-1', new Set(), null, 'mobile', roleBasedWakeState)?.id,
     'T-mobile',
   )
   assert.equal(
-    findSprintEngineWakeCandidateTaskForAgent(wakeTasks, 'developer', 'developer-1', new Set(), null, 'primary')?.id,
+    findSprintEngineWakeCandidateTaskForAgent(wakeTasks, 'developer', 'developer-1', new Set(), null, 'primary', roleBasedWakeState)?.id,
     'T-desktop',
   )
   // A tree with no work for the role offers nothing, rather than another tree's task.
   assert.equal(
-    findSprintEngineWakeCandidateTaskForAgent([wakeTasks[0]], 'developer', 'developer-1', new Set(), null, 'primary'),
+    findSprintEngineWakeCandidateTaskForAgent([wakeTasks[0]], 'developer', 'developer-1', new Set(), null, 'primary', roleBasedWakeState),
     undefined,
   )
 }

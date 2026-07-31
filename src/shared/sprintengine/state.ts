@@ -1746,12 +1746,29 @@ export function sprintEngineCoordinatorSeat(
 }
 
 /**
+ * The run's own plan file, in the team-relative form `plans.plan_path_artifact_value`
+ * produces. Compared through {@link isSameSprintEngineArtifactFile}, so the
+ * equivalent full-prefix spelling (`.multi-code/sprintengine/<team>/plan.md`)
+ * that `sprintengine.init` actually records resolves to the same file.
+ */
+const SPRINT_ENGINE_PLAN_ARTIFACT_PATH = 'plan.md'
+
+/**
  * Is this task the run's coordination job — planning and plan adjudication?
  *
- * MIRRORS `plans.task_is_coordination`: answered by the live plan artifact's
+ * MIRRORS `plans.task_is_coordination`: answered by the LIVE PLAN ARTIFACT's
  * `taskId` binding alone. The gate's `role` is on its way out and its `kind`
  * never marked it — the gate carries no `kind` exactly like ordinary work — so
  * the binding is the only honest signal.
+ *
+ * "The live plan artifact" is all three conditions `plans.find_plan_artifact`
+ * applies, the path one included (MC-2053): `kind: 'architect_plan'` is
+ * registrable by any agent through `sprintengine.artifact.add` against any
+ * path, with no uniqueness constraint, and the workflow prompt tells agents to
+ * use that kind for plan-approval work. Without the path condition a second
+ * live `architect_plan` bound to another task made the APP treat that task as
+ * coordination — routing it to the persistent seat and rendering it as
+ * coordination — while the engine did not. One question must have one answer.
  */
 export function isSprintEngineCoordinationTask(
   task: Pick<SprintEngineTask, 'id'> | null | undefined,
@@ -1763,6 +1780,7 @@ export function isSprintEngineCoordinationTask(
     (artifact) =>
       artifact?.kind === 'architect_plan'
       && artifact.status !== 'superseded'
+      && isSameSprintEngineArtifactFile(String(artifact.path ?? ''), SPRINT_ENGINE_PLAN_ARTIFACT_PATH)
       && String(artifact.taskId ?? '').trim() === taskId,
   )
 }

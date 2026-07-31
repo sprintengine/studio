@@ -11,6 +11,7 @@
  */
 import assert from 'node:assert/strict'
 import type {
+  SprintEngineRoleId,
   SprintEngineRuntimeAgent,
   SprintEngineState,
   SprintEngineTask,
@@ -18,6 +19,8 @@ import type {
 } from './run-types'
 import {
   computeSprintEngineDemand,
+  findSprintEngineWakeCandidateTaskForAgent,
+  getSprintEngineWakeCandidateTasks,
   pickNextAutoRuns,
   pickSprintEngineBootstrapCandidate,
   planSprintEngineDispatch,
@@ -27,6 +30,7 @@ import {
   sprintEngineWakeRestrictionTaskId,
   sprintEngineWorkerRepoId,
 } from './auto-run'
+import { sprintEngineTaskRoutesToCoordinator } from './state'
 
 function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
   return {
@@ -489,9 +493,13 @@ function rolelessStateFixture(overrides: Partial<SprintEngineState> = {}): Sprin
   return stateFixture({ configuredRoles: [], ...overrides })
 }
 
-/** The live plan artifact whose `taskId` binding IS the coordination marker. */
+/**
+ * The live plan artifact whose `taskId` binding IS the coordination marker.
+ * `path` is load-bearing (MC-2053): the predicate mirrors `find_plan_artifact`,
+ * which counts only an `architect_plan` pointing at the run's OWN plan.md.
+ */
 function planArtifact(taskId: string): SprintEngineState['artifacts'][number] {
-  return { id: 'A-plan', kind: 'architect_plan', title: 'Plan', taskId, status: 'approved' } as never
+  return { id: 'A-plan', kind: 'architect_plan', title: 'Plan', path: 'plan.md', taskId, status: 'approved' } as never
 }
 
 function rolelessAgent(overrides: Record<string, unknown> = {}): SprintEngineRuntimeAgent {
@@ -725,6 +733,130 @@ function testDepartedCoordinatorIsRevivedOnlyForCoordinatorRoutedWork(): void {
   )
 }
 
+// --- MC-2050: wake asks the same routing rule dispatch does -----------------
+
+/**
+ * What wake asked before the routing rule reached it: role equality, with the
+ * seat left unrestricted. Kept here as an executable statement of the old
+ * behaviour so "the architect path is unchanged" is asserted against it rather
+ * than against a remembered claim.
+ */
+function legacyWakeMatch(candidate: SprintEngineTask, role: SprintEngineRoleId | undefined): boolean {
+  return candidate.role === role
+}
+
+function testRolelessWakeOffersTheSeatOnlyCoordinationWork(): void {
+  // F2: on a roleless run the seat and every work task both carry NO role, so
+  // `absent === absent` matched and the (deliberately unrestricted) seat was
+  // offered ordinary work that dispatch fans out to task-scoped workers. The
+  // work task is listed FIRST so a role-equality match would return it.
+  const work = task({ id: 'T-work', role: undefined, ownedPaths: ['src/a'] })
+  const gate = task({ id: 'T-gate', role: undefined, ownedPaths: [] })
+  const state = rolelessStateFixture({
+    tasks: [work, gate],
+    artifacts: [planArtifact('T-gate')],
+    sprintEngineAgents: {
+      coordinator: rolelessAgent({ lastOwnedTaskId: 'T-earlier' }),
+      'agent-1': rolelessAgent(),
+    },
+  })
+  const wakeTasks = getSprintEngineWakeCandidateTasks(state)
+  assert.deepEqual(wakeTasks.map((candidate) => candidate.id), ['T-work', 'T-gate'], 'both tasks are claimable wake work')
+
+  const seatWake = (tasks: SprintEngineTask[]): string | undefined =>
+    findSprintEngineWakeCandidateTaskForAgent(tasks, undefined, 'coordinator', new Set(), null, 'primary', state)?.id
+
+  assert.equal(
+    seatWake([work]),
+    undefined,
+    'the idle roleless coordinator is offered NO wake candidate for an unowned ordinary task',
+  )
+  assert.equal(legacyWakeMatch(work, undefined), true, 'and role equality is exactly what used to offer it')
+  assert.equal(seatWake(wakeTasks), 'T-gate', 'it is still offered the coordination task, listed second')
+  assert.equal(
+    sprintEngineWakeRestrictionTaskId('coordinator', state.sprintEngineAgents.coordinator, state),
+    null,
+    'the seat stays unrestricted — MC-1454 revival for the next coordination task is untouched',
+  )
+
+  // The mirror image: coordination work is the seat's alone, so a minted worker
+  // is never woken onto it. Wake now answers exactly what dispatch answers.
+  const workerWake = (tasks: SprintEngineTask[]): string | undefined =>
+    findSprintEngineWakeCandidateTaskForAgent(tasks, undefined, 'agent-1', new Set(), null, 'primary', state)?.id
+  assert.equal(workerWake(wakeTasks), 'T-work', 'a minted roleless worker is offered the ordinary task')
+  assert.equal(workerWake([gate]), undefined, 'and never the coordination task the seat owns')
+  for (const candidate of wakeTasks) {
+    assert.equal(
+      seatWake([candidate]) !== undefined,
+      sprintEngineTaskRoutesToCoordinator(candidate, state),
+      `wake and dispatch agree on ${candidate.id}`,
+    )
+  }
+}
+
+function testRolelessCoordinatorIsNotWokenForOrdinaryWorkEndToEnd(): void {
+  // The planner-level statement of the same thing: the symptom F2 reported was a
+  // wake PASTE landing in the persistent seat's terminal for another task's work.
+  // The shape is a run mid-flight — the gate is done, its plan artifact still
+  // live, and the seat idle beside ready implementation work.
+  const now = Date.now()
+  const state = rolelessStateFixture({
+    tasks: [
+      task({ id: 'T-gate', role: undefined, status: 'done', boardColumn: 'done' }),
+      task({ id: 'T-work', role: undefined, ownedPaths: ['src/a'] }),
+    ],
+    artifacts: [planArtifact('T-gate')],
+    sprintEngineAgents: { coordinator: rolelessAgent({ lastOwnedTaskId: 'T-earlier' }) },
+  })
+  const plan = planSprintEngineDispatch({
+    workspace: workspaceFixture({ agents: { coordinator: { id: 'coordinator', name: 'Coordinator' } } } as never),
+    sprintEngineState: state,
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(['coordinator']),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['task_wake'] as const) as never,
+  })
+  assert.deepEqual(
+    plan.pastes.map((paste) => paste.agentId),
+    [],
+    `no wake paste re-serialises ordinary work onto the seat; pastes=${JSON.stringify(plan.pastes)}`,
+  )
+}
+
+function testArchitectRunWakeIsUnchanged(): void {
+  // Acceptance: the architect path answers exactly as it did before, asserted
+  // against `legacyWakeMatch` rather than against re-stated expectations. The
+  // named clause is what makes the two agree there — the seat's role IS
+  // `architect`, so role equality and the routing rule select the same work.
+  const signoff = task({ id: 'T-signoff', role: 'architect', ownedPaths: ['docs'] })
+  const work = task({ id: 'T-work', role: 'developer', ownedPaths: ['src'] })
+  const state = stateFixture({
+    configuredRoles: ['architect', 'developer'],
+    tasks: [signoff, work],
+    artifacts: [planArtifact('T0')],
+    sprintEngineAgents: {
+      architect: { role: 'architect', status: 'idle', currentTaskId: null, lastOwnedTaskId: 'T0' } as SprintEngineRuntimeAgent,
+      'developer-1': { role: 'developer', status: 'idle', currentTaskId: null } as SprintEngineRuntimeAgent,
+    },
+  })
+  const agents: [string, SprintEngineRoleId | undefined][] = [
+    ['architect', 'architect'],
+    ['architect-2', 'architect'],
+    ['developer-1', 'developer'],
+  ]
+  for (const [agentId, role] of agents) {
+    for (const candidate of [signoff, work]) {
+      assert.equal(
+        findSprintEngineWakeCandidateTaskForAgent([candidate], role, agentId, new Set(), null, 'primary', state) !== undefined,
+        legacyWakeMatch(candidate, role),
+        `${agentId} on ${candidate.id} answers exactly as the pre-change role comparison did`,
+      )
+    }
+  }
+}
+
 // --- MC-2057: coordinator engagement asks the seat, not the role name -------
 
 /**
@@ -860,6 +992,9 @@ function main(): void {
   testArchitectRunDispatchIsUnchanged()
   testRolelessRunBootstrapsItsCoordinatorSeat()
   testMintedRolelessWorkerIsTaskScopedForWakeAndRevival()
+  testRolelessWakeOffersTheSeatOnlyCoordinationWork()
+  testRolelessCoordinatorIsNotWokenForOrdinaryWorkEndToEnd()
+  testArchitectRunWakeIsUnchanged()
   testDepartedCoordinatorIsRevivedOnlyForCoordinatorRoutedWork()
   testRolelessCoordinatorIsNotRetiredWhileTriageWorkIsPending()
   testArchitectSeatRetirementSkipIsUnchanged()

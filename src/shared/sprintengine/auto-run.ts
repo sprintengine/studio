@@ -569,9 +569,40 @@ export function sprintEngineWakeRestrictionTaskId(
   return runtimeAgent.lastOwnedTaskId
 }
 
+/**
+ * Wake asks the run's ONE routing rule, exactly as dispatch does — MC-2050's
+ * defect reaching a second path.
+ *
+ * A role comparison alone answered the same question differently on the two
+ * paths. On a role-based run it agreed by construction — the seat's role is
+ * `architect`, so role equality offered it exactly the architect work
+ * `sprintEngineTaskRoutesToCoordinator`'s named clause also routes there. On a
+ * ROLELESS run the seat and every work task both carry no role, so
+ * `absent === absent` matched and the (deliberately unrestricted, MC-1454) seat
+ * was offered ordinary work that dispatch fans out to task-scoped workers —
+ * re-serialising the graph onto the one persistent session, which is the
+ * accumulation MC-1444 and MC-2050 removed.
+ *
+ * So the pairing is the rule, not the role: coordinator-routed work is offered
+ * to the seat and to nobody else, and everything else is offered to a matching
+ * non-seat worker. `sprintEngineWakeRestrictionTaskId` is untouched — the
+ * seat's exemption from MC-1444 task-scoping is what lets a departed seat be
+ * revived for the NEXT coordination task, and it was never the defect; its
+ * BOUND was.
+ */
+function sprintEngineWakeCandidateMatchesAgent(
+  candidate: SprintEngineTask,
+  role: SprintEngineRoleId | undefined,
+  agentIsCoordinator: boolean,
+  sprintEngineState: Pick<SprintEngineState, 'artifacts' | 'configuredRoles'>
+): boolean {
+  if (sprintEngineTaskRoutesToCoordinator(candidate, sprintEngineState)) return agentIsCoordinator
+  // Absent matches absent: a roleless worker is offered roleless work only.
+  return !agentIsCoordinator && candidate.role === role
+}
+
 export function findSprintEngineWakeCandidateTaskForAgent(
   wakeTasks: SprintEngineTask[],
-  // Absent matches absent: a roleless agent is offered roleless work only.
   role: SprintEngineRoleId | undefined,
   agentId: string,
   reservedTaskIds: ReadonlySet<string>,
@@ -584,10 +615,15 @@ export function findSprintEngineWakeCandidateTaskForAgent(
   // offers that session its own tree's work — so waking it for another repo's
   // task produces an agent that reports "no ready tasks" while the board shows
   // work. Pass sprintEngineWorkerRepoId(state, agentId).
-  repoId: string
+  repoId: string,
+  // Required for the same reason again: the routing rule is a property of the
+  // RUN (its seat and its live plan artifact), so it cannot be derived from a
+  // task and an id alone.
+  sprintEngineState: Pick<SprintEngineState, 'artifacts' | 'configuredRoles'>
 ): SprintEngineTask | undefined {
+  const agentIsCoordinator = isSprintEngineCoordinatorAgent(agentId, sprintEngineState)
   return wakeTasks.find((candidate) =>
-    candidate.role === role
+    sprintEngineWakeCandidateMatchesAgent(candidate, role, agentIsCoordinator, sprintEngineState)
     && sprintEngineSessionRepoId(candidate.repo) === repoId
     && !reservedTaskIds.has(candidate.id)
     // An owned task is never wake-able by another agent: single-owner tasks stay
@@ -1202,8 +1238,11 @@ function planSprintEngineDepartedOwnerRevivals(
     // The coordinator is persistent, not task-scoped: it drives the whole
     // sprint, so a departed coordinator is revived under its SAME id for the
     // NEXT ready task that ROUTES TO IT, not only its own task (MC-1454). Keeps
-    // the id stable across sequential coordination tasks so no `<role>-N` is
-    // minted while it is away. Both halves ask the seat, never a role name
+    // the id stable across the seat's ABSENCE, so a run whose coordinator ended
+    // its session re-engages that same id rather than minting a `<role>-N`
+    // beside it. (Not "across sequential coordination tasks": a run has at most
+    // one, since the live plan artifact binds to exactly one task — ruled
+    // correct as designed, MC-2053.) Both halves ask the seat, never a role name
     // (MC-2050): a minted roleless worker carries no role and would otherwise
     // read as the roleless coordinator and be revived onto another task's work,
     // and the roleless coordinator itself would be revived onto ordinary work
@@ -1556,7 +1595,8 @@ export function planSprintEngineDispatch(input: {
         agentId,
         reservedWakeCandidateTaskIds,
         sprintEngineWakeRestrictionTaskId(agentId, runtimeAgent, sprintEngineState),
-        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId))
+        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId)),
+        sprintEngineState
       )
       if (!task) continue
       const key = continuationMessageKey(workspace, task.id, agentId)
@@ -1709,7 +1749,8 @@ export function planSprintEngineDispatch(input: {
         agentId,
         new Set(),
         sprintEngineWakeRestrictionTaskId(agentId, runtimeAgent, sprintEngineState),
-        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId))
+        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId)),
+        sprintEngineState
       )
       if (!task) continue
       // Any engagement planned this pass (wake, dispatch, notification) supersedes
@@ -1858,7 +1899,8 @@ export function planSprintEngineDispatch(input: {
         agentId,
         new Set(),
         restrictToTaskId,
-        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId))
+        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId)),
+        sprintEngineState
       )) {
         skipRetire('wake-candidate-available')
         continue
