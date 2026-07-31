@@ -830,24 +830,33 @@ function testArchitectRunWakeIsUnchanged(): void {
   // against `legacyWakeMatch` rather than against re-stated expectations. The
   // named clause is what makes the two agree there — the seat's role IS
   // `architect`, so role equality and the routing rule select the same work.
+  // The GATE is in the matrix too, and it is the one shape where the two rules
+  // could disagree: a coordination task routes to the seat whatever role it
+  // wears, so a plan-bound task wearing `developer` would be offered to the
+  // architect where role equality would not have offered it. That state is
+  // unreachable — `ensure_plan_approval_gate` writes the gate with the SEAT's
+  // role, which on an architect run is `architect` — so the gate is pinned here
+  // in the shape the engine actually produces.
+  const gate = task({ id: 'T-gate', role: 'architect', ownedPaths: [] })
   const signoff = task({ id: 'T-signoff', role: 'architect', ownedPaths: ['docs'] })
   const work = task({ id: 'T-work', role: 'developer', ownedPaths: ['src'] })
   const state = stateFixture({
     configuredRoles: ['architect', 'developer'],
-    tasks: [signoff, work],
-    artifacts: [planArtifact('T0')],
+    tasks: [gate, signoff, work],
+    artifacts: [planArtifact('T-gate')],
     sprintEngineAgents: {
       architect: { role: 'architect', status: 'idle', currentTaskId: null, lastOwnedTaskId: 'T0' } as SprintEngineRuntimeAgent,
       'developer-1': { role: 'developer', status: 'idle', currentTaskId: null } as SprintEngineRuntimeAgent,
     },
   })
+  assert.equal(sprintEngineTaskRoutesToCoordinator(gate, state), true, 'the gate is the coordination task on this run')
   const agents: [string, SprintEngineRoleId | undefined][] = [
     ['architect', 'architect'],
     ['architect-2', 'architect'],
     ['developer-1', 'developer'],
   ]
   for (const [agentId, role] of agents) {
-    for (const candidate of [signoff, work]) {
+    for (const candidate of [gate, signoff, work]) {
       assert.equal(
         findSprintEngineWakeCandidateTaskForAgent([candidate], role, agentId, new Set(), null, 'primary', state) !== undefined,
         legacyWakeMatch(candidate, role),
