@@ -720,7 +720,8 @@ function TaskImplementerRow({
   terminalActionsUnavailable,
 }: {
   entry: SprintEngineTaskImplementerEntry
-  fallbackRole: SprintEngineRoleId
+  /** The task's own role, used when a comment recorded none. Absent on a roleless run. */
+  fallbackRole?: SprintEngineRoleId
   onOpenAgentTerminal: (agentId: string) => void
   terminalActionsUnavailable?: string
 }) {
@@ -780,7 +781,7 @@ function TaskImplementerTimeline({
 }) {
   const entries = getSprintEngineTaskImplementerTimeline(task, runtimeAgents)
   if (entries.length === 0) {
-    const label = task.status === 'done' ? getSprintEngineRoleLabel(task.role) : 'No active worker'
+    const label = task.status === 'done' && task.role ? getSprintEngineRoleLabel(task.role) : 'No active worker'
     return (
       <div className="flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
         <RoleAvatar role={task.role} size="sm" ariaLabel="" />
@@ -2686,7 +2687,7 @@ export function SprintEngineInspectorPanel({
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">
                 <RoleAvatar role={agent.role} size="sm" ariaLabel="" />
-                <span>{getSprintEngineRoleLabel(agent.role)}</span>
+                <span>{agent.role ? getSprintEngineRoleLabel(agent.role) : 'No role'}</span>
                 <span>·</span>
                 <span className="flex items-center gap-1.5">
                   {runtimeStatus === 'running' ? <Spinner size={12} /> : null}

@@ -5,7 +5,7 @@ import type {
   SprintEngineRoleCounts,
   SprintEngineRoster,
 } from '../../../types/workspace'
-import { sprintEnginePlannerRole } from '../../../../../shared/sprintengine/state'
+import { sprintEngineCoordinatorSeatForRoleCounts } from '../../../../../shared/sprintengine/state'
 import {
   NO_ROLES_ROSTER,
   NO_ROLES_ROSTER_ID,
@@ -294,11 +294,11 @@ const DEFAULT_CLIS = {
   )
 }
 
-// An explicitly-saved roles formation survives even when nothing but `general`
-// is staffed — the mirror case, where the guess would have said 'pool'.
+// An explicitly-saved roles formation survives even when nothing is staffed —
+// the mirror case, where the guess would have said 'pool'.
 {
   const resolved = resolveInitialSprintEngineRoster({
-    savedRosters: [team({ id: 'r', mode: 'roles', roleCounts: { general: 1 } })],
+    savedRosters: [team({ id: 'r', mode: 'roles', roleCounts: {} })],
     lastSelectedRosterId: 'r',
     savedRoster: null,
     defaultRoleCounts: DEFAULT_COUNTS,
@@ -320,13 +320,13 @@ const DEFAULT_CLIS = {
   assert.equal(legacySpecialist.mode, 'roles', 'a legacy roster staffing specialists still opens on roles')
 
   const legacyPlain = resolveInitialSprintEngineRoster({
-    savedRosters: [team({ id: 'l', roleCounts: { general: 1 } })],
+    savedRosters: [team({ id: 'l', roleCounts: {} })],
     lastSelectedRosterId: 'l',
     savedRoster: null,
     defaultRoleCounts: DEFAULT_COUNTS,
     defaultRoleCliDefaults: DEFAULT_CLIS,
   })
-  assert.equal(legacyPlain.mode, 'pool', 'a legacy general-only roster still opens on the pool')
+  assert.equal(legacyPlain.mode, 'pool', 'a legacy roster staffing no role still opens on the pool')
 }
 
 // A fresh install (no saved source at all) opens on the pool even though the
@@ -415,29 +415,28 @@ const DEFAULT_CLIS = {
   )
 
   // The acceptance criterion in full: a pool launch seats NO architect, and the
-  // agent it spawns first is a plain general.
+  // agent it spawns first carries no role.
   const poolLaunch = sprintEngineLaunchRoleCounts('pool', specialistCounts)
   assert.equal(poolLaunch.architect ?? 0, 0, 'a no-roles run has no architect seat')
-  assert.equal(
-    sprintEnginePlannerRole(poolLaunch),
-    'general',
-    'the initial spawn for a no-roles run is a plain general agent',
+  assert.deepEqual(
+    sprintEngineCoordinatorSeatForRoleCounts(poolLaunch),
+    { agentId: 'coordinator' },
+    'the initial spawn for a no-roles run is the roleless coordinator seat',
   )
-  assert.equal(
-    sprintEnginePlannerRole(sprintEngineLaunchRoleCounts('roles', specialistCounts)),
-    'architect',
+  assert.deepEqual(
+    sprintEngineCoordinatorSeatForRoleCounts(sprintEngineLaunchRoleCounts('roles', specialistCounts)),
+    { role: 'architect', agentId: 'architect' },
     'a roles run still spawns its architect first',
   )
 
-  // WHY the line above is load-bearing, pinned against the item's own (wrong)
-  // claim that sprintEnginePlannerRole "picks general over architect when
-  // general is staffed". It does NOT — architect wins whenever it is staffed.
-  // The pool result is correct only because the seed contains no architect. If
-  // that ever changes, a "no roles" run silently gets an architect planner.
-  assert.equal(
-    sprintEnginePlannerRole({ architect: 1, general: 1 }),
-    'architect',
-    'architect outranks general when both are staffed — so the pool seed must never carry one',
+  // WHY the line above is load-bearing: the seat is architect whenever an
+  // architect is CONFIGURED, so the pool result is correct only because the seed
+  // staffs nothing. If that ever changes, a "no roles" run silently gets an
+  // architect coordinator.
+  assert.deepEqual(
+    sprintEngineCoordinatorSeatForRoleCounts({ architect: 1, developer: 1 }),
+    { role: 'architect', agentId: 'architect' },
+    'a staffed architect always takes the seat — so the pool seed must never carry one',
   )
 }
 
@@ -588,10 +587,10 @@ const DEFAULT_CLIS = {
   const launched = sprintEngineLaunchRoleCounts(defaultResolved.mode, defaultResolved.roleCounts)
   assert.deepEqual(launched, PLAIN_AGENT_ROLE_COUNTS, 'both paths must launch the plain-agent seed')
   assert.equal(launched.architect ?? 0, 0, 'and therefore seat no architect')
-  assert.equal(
-    sprintEnginePlannerRole(launched),
-    'general',
-    'so the first agent spawned is a plain general, not the hardcoded architect',
+  assert.deepEqual(
+    sprintEngineCoordinatorSeatForRoleCounts(launched),
+    { agentId: 'coordinator' },
+    'so the first agent spawned carries no role, not the hardcoded architect',
   )
 }
 

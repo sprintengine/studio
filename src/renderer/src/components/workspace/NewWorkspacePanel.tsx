@@ -55,6 +55,7 @@ import {
   countSprintEngineAgents,
   getSprintEngineRoleLabel,
   getUserDisabledSprintEngineRoleIds,
+  sprintEngineRoleKey,
   sprintEngineRoleOrder,
 } from '../../utils/sprintengine'
 import MulticodeMark from '../brand/MulticodeMark'
@@ -323,7 +324,7 @@ function cliSelectionForExistingSprintEngineTeam(
       const cli = matchingWorkspace.agents[agentId]?.cli
       if (typeof cli === 'string' && cli.trim()) {
         const trimmed = cli.trim()
-        roleDefaults[runtimeAgent.role] = trimmed
+        roleDefaults[sprintEngineRoleKey(runtimeAgent.role)] = trimmed
         agentOverrides[agentId] = trimmed
       }
     }

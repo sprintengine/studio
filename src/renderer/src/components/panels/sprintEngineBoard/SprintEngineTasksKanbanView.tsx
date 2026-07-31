@@ -142,16 +142,18 @@ export function SprintEngineTasksKanbanView({
                             </span>
                           </Tooltip>
                         ) : null}
-                        <Tooltip content={getSprintEngineRoleLabel(task.role)}>
-                          <span
-                            // design-tokens-allow: role glyph is the one place per the redesign where role tones are retained.
-                            style={{ color: getSprintEngineRoleAccent(task.role) }}
-                            aria-label={`Role: ${getSprintEngineRoleLabel(task.role)}`}
-                            role="img"
-                          >
-                            <SprintEngineRoleIcon role={task.role} className="icon-sm" />
-                          </span>
-                        </Tooltip>
+                        {task.role ? (
+                          <Tooltip content={getSprintEngineRoleLabel(task.role)}>
+                            <span
+                              // design-tokens-allow: role glyph is the one place per the redesign where role tones are retained.
+                              style={{ color: getSprintEngineRoleAccent(task.role) }}
+                              aria-label={`Role: ${getSprintEngineRoleLabel(task.role)}`}
+                              role="img"
+                            >
+                              <SprintEngineRoleIcon role={task.role} className="icon-sm" />
+                            </span>
+                          </Tooltip>
+                        ) : null}
                       </span>
                     }
                   />

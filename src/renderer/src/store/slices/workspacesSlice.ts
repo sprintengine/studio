@@ -14,7 +14,7 @@ import {
   removeEditorBuffersForPath,
   setEditorBuffer,
 } from '../../utils/editorBuffers'
-import { resolveSprintEngineRoleRuntime } from '../../../../shared/sprintengine/state'
+import { resolveSprintEngineRoleRuntime, sprintEngineRoleKey } from '../../../../shared/sprintengine/state'
 import { detectLanguage } from '../../utils/files'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
 import { shouldAutoArchiveWorkspace } from '../../utils/workspaceAutoArchive'
@@ -491,16 +491,16 @@ function normalizeWindowAssignments(state: WorkspacesSliceCarrier): void {
 
 function resolveSprintEngineRoleCli(
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>,
-  role: SprintEngineRoleId
+  role: SprintEngineRoleId | undefined
 ): AgentCli {
-  const cli = roleCliDefaults[role]
+  const cli = roleCliDefaults[sprintEngineRoleKey(role)]
   if (typeof cli === 'string' && cli.trim()) return cli.trim()
   // SprintEngineRoleId is open-ended (custom/user-defined roles), so a role
   // missing from the defaults map must never throw here: addWorkspace runs
   // AFTER initializeSprintEngineState has already written run.yaml and (in
   // worktree mode) created the git worktree+branch, so a throw orphans a real
-  // on-disk run with no workspace. Fall back to the team's architect CLI
-  // (always present after normalization), else the universal default.
+  // on-disk run with no workspace. Fall back to the team's architect CLI when
+  // one is configured, else the universal default.
   return roleCliDefaults.architect?.trim() || 'claude-code'
 }
 
@@ -1124,7 +1124,7 @@ export function createWorkspacesSlice(
               : resolveSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role)
             // An explicit roster model choice wins; null or absent means the
             // user picked the CLI default (no model flag).
-            const modelOverride = options?.sprintEngineRoleModelOverrides?.[agent.role]
+            const modelOverride = options?.sprintEngineRoleModelOverrides?.[sprintEngineRoleKey(agent.role)]
             const rosterModel = modelOverride === null
               ? undefined
               : modelOverride?.trim() || undefined
@@ -1156,7 +1156,7 @@ export function createWorkspacesSlice(
                 ? { cliRuntimeOverride: { cli: overrideCli.trim() } }
                 : {}),
             }
-            if (initialSpawnRoles.has(agent.role)) initialSpawnAgentIds.push(agent.id)
+            if (initialSpawnRoles.has(sprintEngineRoleKey(agent.role))) initialSpawnAgentIds.push(agent.id)
           })
         } else if (options?.seedAgent?.terminal) {
           // Terminal seed: the lone agent tab is swapped for a terminal tab in

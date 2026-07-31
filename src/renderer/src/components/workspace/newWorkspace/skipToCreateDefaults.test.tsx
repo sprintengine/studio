@@ -67,9 +67,9 @@ type SprintWizardState = {
   roleCliDefaults: typeof initialRoster.roleCliDefaults
   roleModelOverrides: typeof initialRoster.roleModelOverrides
   useSpecialistRoles: boolean
-  // What create actually stages for the run. In the plain-agents default this is
-  // a single `general` planner seat, NOT the specialist roster held (collapsed)
-  // in `roleCounts` — the pool grows by mint-on-demand up to the concurrency cap.
+  // What create actually stages for the run. In the plain-agents default this
+  // staffs NO role, NOT the specialist roster held (collapsed) in `roleCounts` —
+  // the pool grows by mint-on-demand up to the concurrency cap.
   effectiveCreateRoleCounts: typeof initialRoster.roleCounts
   startRunner: boolean
   autoApproveArtifacts: boolean
@@ -85,11 +85,11 @@ const UNTOUCHED: SprintWizardState = {
   roleCounts: initialRoster.roleCounts,
   roleCliDefaults: initialRoster.roleCliDefaults,
   roleModelOverrides: initialRoster.roleModelOverrides,
-  // MC-1585: a fresh install opens on plain agents — the Team page's segmented
-  // control sits on "Plain agent pool", and create stages exactly one `general`
-  // planner.
+  // A fresh install opens on plain agents — the Team page's segmented control
+  // sits on "Plain agent pool", and create stages a roster with no role at all
+  // (MC-2057; it used to stage one `general` seat).
   useSpecialistRoles: false,
-  effectiveCreateRoleCounts: { general: 1 },
+  effectiveCreateRoleCounts: {},
   // Automation defaults ON (run agents + approve eligible artifacts): a
   // skipped run continues on its own, matching the product default. Loading an
   // existing team is the exception (derived to manual; asserted below).
@@ -105,11 +105,11 @@ const UNTOUCHED: SprintWizardState = {
 
 // MC-1585: the resolved initial roster still holds the balanced specialist team
 // behind the pool segment (so switching to "Pick roles yourself" restores it),
-// but a fresh install opens on plain agents and creates a `general` run.
+// but a fresh install opens on plain agents and creates a roleless run.
 assert.deepEqual(UNTOUCHED.roleCounts, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, 'the specialist roster held behind the pool segment is the default team')
 assert.ok(UNTOUCHED.roleCounts.architect >= 1 && UNTOUCHED.roleCounts.developer >= 1, 'that specialist roster can plan and implement once revealed')
 assert.equal(UNTOUCHED.useSpecialistRoles, false, 'a fresh install opens on the plain agent pool')
-assert.deepEqual(UNTOUCHED.effectiveCreateRoleCounts, { general: 1 }, 'and stages exactly one general planner seat')
+assert.deepEqual(UNTOUCHED.effectiveCreateRoleCounts, {}, 'and stages no role at all — the coordinator seat carries none')
 
 // Source contracts: each default is established at mount, in the panel body.
 for (const [what, pattern] of [
@@ -152,8 +152,8 @@ for (const [what, pattern] of [
 // the wizard and the plan-sourced launch cannot drift to two different seeds.
 assert.match(
   savedRostersSource,
-  /export const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = \{ general: 1 \}/,
-  'plain-agents create stages a lone general planner',
+  /export const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = \{\}/,
+  'plain-agents create stages no role — "no roles" means no roles',
 )
 
 // The refinement pages can never block create — that is what lets skip appear
@@ -322,8 +322,8 @@ function creationArgsFor(state: SprintWizardState) {
     folderPath: '/repo',
     teamName: 'Sprint Roster',
     goal: 'Ship the thing',
-    // Plain-agents default: create stages the effective general seat, not the
-    // specialist roster the pool segment holds collapsed.
+    // Plain-agents default: create stages the roleless seed, not the specialist
+    // roster the pool segment holds collapsed.
     roleCounts: state.effectiveCreateRoleCounts,
     visibleRoleCounts: state.effectiveCreateRoleCounts,
     maxParallelAgents: state.maxParallelAgents,
@@ -345,11 +345,15 @@ assert.deepEqual(
   'skipping from the team page creates the same roster and run settings as walking every page and changing nothing',
 )
 
-// And the run those defaults produce is the one the footer promises: a plain
-// general run, the default agent cap, no worktrees, automation on (run agents
-// + approve eligible artifacts), and no workflow init keys — an untouched run
-// keeps every engine default.
-assert.equal(skippedCreate.sprintEngineState?.roleCounts.general, 1, 'the skipped run stages the general planner seat')
+// And the run those defaults produce is the one the footer promises: a roleless
+// run, the default agent cap, no worktrees, automation on (run agents + approve
+// eligible artifacts), and no workflow init keys — an untouched run keeps every
+// engine default.
+assert.deepEqual(
+  Object.entries(skippedCreate.sprintEngineState?.roleCounts ?? {}).filter(([, count]) => (count ?? 0) > 0),
+  [],
+  'the skipped run staffs no role — it is a roleless run',
+)
 assert.equal(skippedCreate.sprintEngineState?.roleCounts.architect ?? 0, 0, 'and seats no specialist architect')
 assert.equal(skippedCreate.sprintEngineState?.useWorktrees, undefined, 'the skipped run does not turn worktrees on')
 assert.equal(skippedCreate.sprintEngineAutoState?.maxConcurrentAgents, 2, 'the skipped run keeps the plain-agents default cap of 2')

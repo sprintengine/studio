@@ -139,11 +139,11 @@ function taskGraphNodeStatusLabel(
 
 function taskGraphNodeStyle(
  task: SprintEngineTask,
- ownerRole: SprintEngineRoleId | null,
+ ownerRole: SprintEngineRoleId | null | undefined,
  focused: boolean,
  selected: boolean
 ): React.CSSProperties {
- const roleAccent = getSprintEngineRoleAccent(ownerRole ?? task.role)
+ const roleAccent = getSprintEngineRoleAccent(ownerRole ?? task.role ?? null)
  const statusAccent =
  task.status === 'done'
  ? 'var(--tone-good)'

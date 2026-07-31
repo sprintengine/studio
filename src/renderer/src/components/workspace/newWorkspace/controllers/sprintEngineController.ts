@@ -2,8 +2,9 @@ import { createSprintEngineTemplate } from '../../../../modules/sprint-engine-wo
 import {
   createInitialSprintEngineState,
   normalizeSprintEngineProjection,
+  sprintEngineCoordinatorSeatForRoleCounts,
   sprintEngineEnabledRoles,
-  sprintEnginePlannerRole,
+  sprintEngineRoleKey,
 } from '../../../../utils/sprintengine'
 import {
   sprintEngineAutomationInitialStateForMode,
@@ -80,13 +81,15 @@ export function buildSprintEngineEffectiveSpawnAtStartRoles(input: {
   existingTeam: boolean
   visibleRoleCounts: SprintEngineRoleCounts
 }): Partial<Record<SprintEngineRoleId, boolean>> {
-  // Lazy roster: only the planner carries a start-at-launch intent — the general
-  // in a general-default run, the architect when the selection staffs one. Worker
-  // ids are minted task-scoped and reviewer ids register on first gate, so there
-  // is no per-role "Start now" toggle — the planner just bootstraps a non-manual
+  // Lazy roster: only the coordinator seat carries a start-at-launch intent —
+  // the architect when the selection staffs one, otherwise the roleless seat,
+  // keyed by `sprintEngineRoleKey` because it has no role to key on. Worker ids
+  // are minted task-scoped and reviewer ids register on first gate, so there is
+  // no per-role "Start now" toggle — the seat just bootstraps a non-manual
   // new-team run so an agent is awake to plan it.
   if (input.automationMode !== 'manual' && !input.existingTeam) {
-    return { [sprintEnginePlannerRole(input.visibleRoleCounts)]: true }
+    const seat = sprintEngineCoordinatorSeatForRoleCounts(input.visibleRoleCounts)
+    return { [sprintEngineRoleKey(seat.role)]: true }
   }
   return {}
 }

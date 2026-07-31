@@ -245,7 +245,9 @@ export default function SprintEngineRunSummaryPanel({
   // activity timeline's lane labels.
   const rolesByAgent = useMemo(() => {
     const map: Record<string, SprintEngineRoleId> = {}
-    if (report) for (const row of report.agentRows) map[row.agentId] = row.role
+    // A roleless agent contributes no entry: the lane then renders the neutral
+    // glyph rather than being labelled with someone else's role.
+    if (report) for (const row of report.agentRows) if (row.role) map[row.agentId] = row.role
     return map
   }, [report])
   const activityTimeline = useMemo(
@@ -543,7 +545,7 @@ const NUM_HEADER = `${HEADER_BASE} px-3 text-right`
 const AGENT_HEADER = `${HEADER_BASE} pr-3 text-left whitespace-nowrap`
 const COL_SEP = 'border-l border-[color:var(--border-subtle)]'
 
-function AgentName({ role, agentId, idle }: { role: SprintEngineRoleId; agentId: string; idle?: boolean }) {
+function AgentName({ role, agentId, idle }: { role?: SprintEngineRoleId; agentId: string; idle?: boolean }) {
   return (
     <span className="inline-flex items-baseline gap-2 whitespace-nowrap pl-[20px]">
       <RoleGlyph role={role} size="sm" className="translate-y-[2px]" />

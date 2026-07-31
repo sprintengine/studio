@@ -36,6 +36,8 @@ import {
   isSprintEngineArtifactAutoApprovableKind,
   isSprintEngineTaskLaunchable,
   sprintEngineAutoApprovalBlockingSiblingsAllReviewable,
+  sprintEngineCoordinatorAgentId,
+  sprintEngineRoleKey,
 } from './state'
 import { isSprintEnginePlanningRole } from './initial-spawns'
 import { pathJoin, samePath } from '../paths'
@@ -76,7 +78,8 @@ export const NEEDS_INPUT_AUTO_APPROVAL_STATUSES = new Set<SprintEngineArtifact['
 export type AutoRunCandidate = {
   agentId: string
   label: string
-  role: SprintEngineRoleId
+  /** Absent when the task carries no role (MC-2057). */
+  role?: SprintEngineRoleId
   taskId: string
   startupPromptOverride?: string
 }
@@ -217,10 +220,16 @@ export type SprintEngineDemandKeyInput = Pick<SprintEngineTask, 'role' | 'repo'>
  * stays global and is applied across all groups by the picker. A single-repo
  * run keys every task to the same `<role>` group it always did, so its
  * grouping — and therefore its spawning — is unchanged.
+ *
+ * Roleless work groups under its own stable key (MC-2057), separate from every
+ * named role: a run staffing `developer` alone carries both kinds of task, and
+ * merging them would spawn a developer session to serve work no developer is
+ * meant to take.
  */
 export function sprintEngineDemandKey(task: SprintEngineDemandKeyInput): string {
   const repo = sprintEngineSessionRepoId(task.repo)
-  return repo === DEFAULT_SPRINTENGINE_TASK_REPO ? task.role : `${task.role}@${repo}`
+  const role = sprintEngineRoleKey(task.role)
+  return repo === DEFAULT_SPRINTENGINE_TASK_REPO ? role : `${role}@${repo}`
 }
 
 /**
@@ -271,15 +280,23 @@ export type SprintEngineClaimToolName = Extract<
  */
 export function buildSprintEngineClaimInstructionBlock(
   tool: SprintEngineClaimToolName,
-  role: SprintEngineRoleId | string,
+  // Absent on a roleless run: the claim payload then carries only the agent id,
+  // because `role` is not a field the engine can be given an honest value for.
+  role: SprintEngineRoleId | string | undefined,
   agentId: string
 ): string {
   // The managed Sprint Engine MCP server resolves run and workspace routing
   // from the HTTP run context. Agents do not pass statePath or
   // workspaceRoot in tool payloads.
+  // A roleless claim omits `role` entirely rather than sending a stand-in:
+  // `optional_configured_role` (roles.py) reads absent as "no role" and still
+  // rejects a role that is named but unconfigured.
+  const claimRole = String(role ?? '').trim()
   const payload: Record<string, string> = tool === 'sprintengine.triage.needs_input'
     ? { id: agentId }
-    : { role: String(role), id: agentId }
+    : claimRole
+      ? { role: claimRole, id: agentId }
+      : { id: agentId }
   return [
     `Call \`${tool}\` once to claim or resume this work:`,
     `\`${tool}\``,
@@ -475,7 +492,7 @@ export function architectTriageMessageKey(workspace: SprintEngineWorkspaceView, 
 }
 
 export function buildSprintEngineDispatchPrompt(input: {
-  role: SprintEngineRoleId
+  role?: SprintEngineRoleId
   agentId: string
   dispatch: SprintEngineCurrentDispatch
 }): string {
@@ -536,7 +553,8 @@ export function sprintEngineWakeRestrictionTaskId(
 
 export function findSprintEngineWakeCandidateTaskForAgent(
   wakeTasks: SprintEngineTask[],
-  role: SprintEngineRoleId,
+  // Absent matches absent: a roleless agent is offered roleless work only.
+  role: SprintEngineRoleId | undefined,
   agentId: string,
   reservedTaskIds: ReadonlySet<string>,
   // Required (no default) so a call site can never silently drop the
@@ -685,7 +703,7 @@ export type SprintEngineDispatchRestartAction = {
 export type SprintEngineDispatchRespawnAction = {
   agentId: string
   label: string
-  role: SprintEngineRoleId
+  role?: SprintEngineRoleId
   taskId: string
   key: string
   data: Record<string, unknown>
@@ -972,7 +990,7 @@ function getSprintEngineAssignmentActivityAt(
 
 // An in-progress claim whose owner may need recovering: the (agent, role, task)
 // triple the recovery pass groups its work by.
-type SprintEngineRecoveryClaim = { agentId: string; role: SprintEngineRoleId; taskId: string }
+type SprintEngineRecoveryClaim = { agentId: string; role?: SprintEngineRoleId; taskId: string }
 
 // The shared context the recovery pass (claimed-work respawns + departed-owner
 // revivals) reads. Both halves share one `respawn:` ledger, cap, and sweep, so
@@ -1142,7 +1160,7 @@ function planSprintEngineDepartedOwnerRevivals(
   // storm safety; a same-role second departed owner is recovered on a later
   // pass (once the first is live). Collected first so the sweep below knows
   // which revival keys are active.
-  const revivalTargets: Array<{ role: SprintEngineRoleId; work: { taskId: string }; agentId: string }> = []
+  const revivalTargets: Array<{ role?: SprintEngineRoleId; work: { taskId: string }; agentId: string }> = []
   // One revival per demand group per pass, not per role: a mobile revival must
   // not consume the pass's only slot for a departed desktop owner, since
   // neither can ever claim the other's work.
@@ -1548,7 +1566,7 @@ export function planSprintEngineDispatch(input: {
     const activeKeys = new Set<string>()
     const activeAssignments: Array<{
       agentId: string
-      role: SprintEngineRoleId
+      role?: SprintEngineRoleId
       task: SprintEngineTask
     }> = []
     for (const task of sprintEngineState.tasks) {
@@ -2228,8 +2246,10 @@ export function pickNextAutoRuns(
 
   const isEligibleRoleAgent = (
     candidateId: string,
-    candidateRole: SprintEngineRoleId,
-    role: SprintEngineRoleId
+    // Absent matches absent: a roleless task is only eligible for a roleless
+    // agent, never for a named specialist that happens to be idle.
+    candidateRole: SprintEngineRoleId | undefined,
+    role: SprintEngineRoleId | undefined
   ): boolean => {
     const runtime = sprintEngineState.sprintEngineAgents[candidateId]
     return candidateRole === role
@@ -2247,7 +2267,7 @@ export function pickNextAutoRuns(
   // when none is reusable the spawner MINTS the task-scoped id itself and the
   // engine binds it at claim. A used id (one that has ever owned a task) is
   // never eligible for a new claim; its only reuse is the owner-keyed respawn.
-  const pickOrMintTaskAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] => {
+  const pickOrMintTaskAgent = (role: SprintEngineRoleId | undefined): AutoRunCandidate['agentId'] => {
     const reusable = roster.find((candidate) =>
       isEligibleRoleAgent(candidate.id, candidate.role, role)
       && !sprintEngineState.sprintEngineAgents[candidate.id]?.lastOwnedTaskId
@@ -2291,9 +2311,13 @@ export function pickNextAutoRuns(
   // architect). Never a seat: a busy planner is filtered by `addCandidate`'s
   // running/in-flight/selected guards, not by role-wide "someone holds the
   // role, so wait" bookkeeping (MC-1592 review: seat-like waits starve work).
-  const findPlanningRoleAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] => {
+  const findPlanningRoleAgent = (role: SprintEngineRoleId | undefined): AutoRunCandidate['agentId'] => {
     const seated = roster.find((candidate) => isEligibleRoleAgent(candidate.id, candidate.role, role))
-    return seated?.id ?? role
+    // No seat yet: target the deterministic persistent id. For a named role that
+    // is the bare `<role>` creation seeds; with no role it is the coordinator
+    // seat, which is the same id `buildSprintEngineAgentRoster` would have
+    // seeded — not an invented fallback.
+    return seated?.id ?? role ?? sprintEngineCoordinatorAgentId
   }
 
   const addCandidate = (

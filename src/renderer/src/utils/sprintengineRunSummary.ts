@@ -12,6 +12,7 @@ import type {
   SprintEngineTaskFeedbackScores,
   SprintEngineTaskStatus,
 } from '../types/workspace'
+import { sprintEngineRoleKey } from './sprintengine'
 
 export const feedbackScoreLabels: Array<{ key: keyof SprintEngineTaskFeedback['scores']; label: string }> = [
   { key: 'directiveClarityPct', label: 'Directive clarity' },
@@ -308,7 +309,8 @@ export type SprintEngineRunFinding = {
 
 export type SprintEngineAgentRow = {
   agentId: string
-  role: SprintEngineRoleId
+  /** Absent on a roleless run's agents (MC-2057). */
+  role?: SprintEngineRoleId
   status: SprintEngineRuntimeAgentStatus | 'idle'
   tasksDone: number
   /** Null when the agent has no recorded feedback (renders as "—"). */
@@ -335,13 +337,13 @@ export type SprintEngineRunReport = {
   statusCounts: Partial<Record<SprintEngineTaskStatus, number>>
   runDurationMs: number | null
   quality: SprintEngineRunQuality
-  needsInput: Array<{ taskId: string; role: SprintEngineRoleId; reason: string }>
+  needsInput: Array<{ taskId: string; role?: SprintEngineRoleId; reason: string }>
   openQuestions: Array<{ taskId: string; note: string }>
   remaining: Array<{
     id: string
     title: string
     status: SprintEngineTaskStatus
-    role: SprintEngineRoleId
+    role?: SprintEngineRoleId
   }>
   findings: SprintEngineRunFinding[]
   findingSeverityCounts: Record<SprintEngineTaskFeedbackFindingSeverity, number>
@@ -478,7 +480,7 @@ export type SprintEngineActivitySegment = {
 // One agent's lane in the activity timeline.
 export type SprintEngineAgentActivityRow = {
   agentId: string
-  role: SprintEngineRoleId
+  role?: SprintEngineRoleId
   segments: SprintEngineActivitySegment[]
   /** Total task-assignment time across all segments — for the row summary and sort. */
   activeMs: number
@@ -723,8 +725,10 @@ export function buildAgentRows(
   })
 
   return rows.sort((a, b) => {
-    const orderA = agentRoleOrder.indexOf(a.role)
-    const orderB = agentRoleOrder.indexOf(b.role)
+    // A roleless agent has no place in the role order, so it ranks with the
+    // custom/unknown roles and then sorts by id like every other tie.
+    const orderA = a.role ? agentRoleOrder.indexOf(a.role) : -1
+    const orderB = b.role ? agentRoleOrder.indexOf(b.role) : -1
     const rankA = orderA === -1 ? agentRoleOrder.length : orderA
     const rankB = orderB === -1 ? agentRoleOrder.length : orderB
     if (rankA !== rankB) return rankA - rankB
@@ -945,7 +949,7 @@ export function agentWorkType(row: SprintEngineAgentRow): SprintEngineWorkType {
   // its own manifest that the map has always called a builder.
   // A planner is never re-bucketed: the Planning table is about the plan, not
   // the diff, and the architect's estimation accuracy has nowhere else to go.
-  const mapped = roleWorkType[row.role]
+  const mapped = row.role ? roleWorkType[row.role] : undefined
   if (row.metrics?.peerReview && mapped !== 'planning') return 'review'
   return mapped ?? 'implementation'
 }
@@ -1102,9 +1106,10 @@ export function buildAgentTypeSummary(
   const roleGroups = new Map<string, SprintEngineAgentRow[]>()
   const cliGroups = new Map<string, SprintEngineAgentRow[]>()
   for (const row of implRows) {
-    const roleGroup = roleGroups.get(row.role) ?? []
+    const roleKey = sprintEngineRoleKey(row.role)
+    const roleGroup = roleGroups.get(roleKey) ?? []
     roleGroup.push(row)
-    roleGroups.set(row.role, roleGroup)
+    roleGroups.set(roleKey, roleGroup)
     const cli = cliByAgent[row.agentId]
     if (cli) {
       const cliGroup = cliGroups.get(cli) ?? []

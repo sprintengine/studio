@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict'
 import { normalizeSprintEngineProjection } from './sprintengine'
-import { pickSprintEngineBootstrapCandidate } from './sprintengineAutoRun'
-import type { Workspace } from '../types/workspace'
 import { canLaunchSprintEngineInitialSpawn } from './sprintengineInitialSpawns'
 
 const DEFAULT_ROSTER: Record<string, Record<string, unknown>> = {
@@ -71,28 +69,9 @@ assert.equal(
   'non-architect roles cannot launch against an initialized run with no claimable role work',
 )
 assert.equal(
-  canLaunchSprintEngineInitialSpawn('general', emptyState),
-  true,
-  'general is a planning-capable role and may bootstrap a soulless-General run before any task work exists',
-)
-
-// A fresh one-General run (no architect) bootstraps the General itself instead
-// of stalling on a missing planner.
-const oneGeneralState = normalizeSprintEngineProjection(
-  projection([], { general: { role: 'general', status: 'idle', currentTaskId: null } }),
-  'Initial Spawn Run',
-)
-assert.ok(oneGeneralState)
-const generalWorkspace = { id: 'workspace-1', agents: {} } as unknown as Workspace
-const bootstrap = pickSprintEngineBootstrapCandidate(generalWorkspace, oneGeneralState, {
-  runningAgentIds: new Set<string>(),
-  inFlightSpawnKeys: new Set<string>(),
-})
-assert.equal(bootstrap.kind, 'spawn', 'a fresh one-General run bootstraps rather than stalling')
-assert.equal(
-  bootstrap.kind === 'spawn' ? bootstrap.candidate.role : null,
-  'general',
-  'the General is the bootstrap planner when no architect is rostered',
+  canLaunchSprintEngineInitialSpawn(undefined, emptyState),
+  false,
+  'an agent with no role does not launch off the planning-role predicate — the coordinator seat answers that, and wiring it into bootstrap is MC-2050',
 )
 
 const productReadyState = normalizeSprintEngineProjection(projection([

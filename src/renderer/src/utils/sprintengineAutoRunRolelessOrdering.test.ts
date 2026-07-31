@@ -16,9 +16,9 @@ function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
     id: 'T1',
     title: 'Task',
     description: '',
-    role: 'general',
+    role: undefined,
     status: 'review',
-    ownerAgentId: 'general-1',
+    ownerAgentId: 'agent-1',
     dependsOn: [],
     ownedPaths: [],
     acceptanceCriteria: [],
@@ -44,7 +44,7 @@ function readyTask(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask 
   })
 }
 
-function agent(role: string, overrides: Partial<SprintEngineRuntimeAgent> = {}): SprintEngineRuntimeAgent {
+function agent(role: string | undefined, overrides: Partial<SprintEngineRuntimeAgent> = {}): SprintEngineRuntimeAgent {
   return { role, status: 'idle', currentTaskId: null, ...overrides } as SprintEngineRuntimeAgent
 }
 
@@ -90,18 +90,19 @@ function bootstrapOptions(): Parameters<typeof pickSprintEngineBootstrapCandidat
 
 // (1) Single-owner tasks (MC-1542): a task in `review` still belongs to the agent
 // that published it — the picker never re-dispatches it (its owner finishes it
-// through the dispatch/respawn paths). The idle General takes the ready task.
+// through the dispatch/respawn paths). The idle roleless agent takes the ready
+// task, and carries no role into the candidate.
 function testOwnedReviewTaskIsNotRedispatchedAndReadyTaskIsTaken(): void {
-  const reviewTask = task({ id: 'T-review', status: 'review', boardColumn: 'review', ownerAgentId: 'general-1' })
+  const reviewTask = task({ id: 'T-review', status: 'review', boardColumn: 'review', ownerAgentId: 'agent-1' })
   const candidates = pickNextAutoRuns(
     workspace(),
-    state({ tasks: [readyTask(), reviewTask], sprintEngineAgents: { 'general-1': agent('general') } }),
+    state({ tasks: [readyTask(), reviewTask], sprintEngineAgents: { 'agent-1': agent(undefined) } }),
     pickInput()
   )
-  assert.equal(candidates.length, 1, 'the single General is routed to exactly one piece of work')
+  assert.equal(candidates.length, 1, 'the single roleless agent is routed to exactly one piece of work')
   assert.equal(candidates[0].taskId, 'T-ready', 'the owner-held review task is not re-dispatched')
-  assert.equal(candidates[0].role, 'general')
-  assert.equal(candidates[0].agentId, 'general-1')
+  assert.equal(candidates[0].role, undefined, 'roleless work dispatches with no role, never a stand-in')
+  assert.equal(candidates[0].agentId, 'agent-1')
 }
 
 // (2) Specialist runs: each role's ready task goes to its own idle agent, one
@@ -129,18 +130,20 @@ function testSpecialistReadyTasksSplitAcrossRoles(): void {
   assert.equal(testerCandidate!.agentId, 'tester-1')
 }
 
-// (Bootstrap) A fresh one-General run plans itself: the General bootstraps
-// instead of stalling, and a roster with no planner at all stalls 'no_planner'.
-function testOneGeneralRunBootstrapsTheGeneral(): void {
+// (Bootstrap) A fresh architect run plans itself. Bootstrapping a ROLELESS run
+// off the coordinator seat is MC-2050's change to this same call; today the
+// bootstrap still matches on a planning role, so a roster with no architect
+// stalls 'no_planner'.
+function testArchitectRunBootstrapsItsArchitect(): void {
   const decision = pickSprintEngineBootstrapCandidate(
     workspace(),
-    state({ sprintEngineAgents: { 'general-1': agent('general') } }),
+    state({ sprintEngineAgents: { architect: agent('architect') } }),
     bootstrapOptions()
   )
-  assert.equal(decision.kind, 'spawn', 'a fresh one-General run bootstraps instead of stalling')
+  assert.equal(decision.kind, 'spawn', 'a fresh architect run bootstraps instead of stalling')
   if (decision.kind === 'spawn') {
-    assert.equal(decision.candidate.role, 'general')
-    assert.equal(decision.candidate.agentId, 'general-1')
+    assert.equal(decision.candidate.role, 'architect')
+    assert.equal(decision.candidate.agentId, 'architect')
   }
 
   const stall = pickSprintEngineBootstrapCandidate(
@@ -148,11 +151,11 @@ function testOneGeneralRunBootstrapsTheGeneral(): void {
     state({ sprintEngineAgents: { 'tester-1': agent('tester') } }),
     bootstrapOptions()
   )
-  assert.deepEqual(stall, { kind: 'stall', reason: 'no_planner' }, 'no architect and no General stalls as no_planner')
+  assert.deepEqual(stall, { kind: 'stall', reason: 'no_planner' }, 'a roster with no architect stalls as no_planner')
 }
 
 testOwnedReviewTaskIsNotRedispatchedAndReadyTaskIsTaken()
 testSpecialistReadyTasksSplitAcrossRoles()
-testOneGeneralRunBootstrapsTheGeneral()
+testArchitectRunBootstrapsItsArchitect()
 
-console.log('sprintengineAutoRunGeneralOrdering.test.ts: ok')
+console.log('sprintengineAutoRunRolelessOrdering.test.ts: ok')

@@ -197,7 +197,8 @@ export function SprintEngineRoleIcon({
   registry,
   className,
 }: IconProps & {
-  role: SprintEngineRoleId
+  // Absent for an agent or task with no role — falls through to the neutral disc.
+  role?: SprintEngineRoleId
   // Optional registry metadata so unknown configured roles can opt into a
   // bundled glyph (via the registry `icon` field) without indexing the
   // static role-icon switch directly. When omitted, custom roles fall back

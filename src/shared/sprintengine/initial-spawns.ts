@@ -12,15 +12,20 @@
 import type { SprintEngineRoleId, SprintEngineState } from './run-types'
 import { isSprintEngineTaskLaunchable } from './state'
 
-// The planning roles that own run bootstrap and may start before any claimable
-// role work exists: the architect, or a soulless General that plans the run
-// itself when no architect is rostered.
-export function isSprintEnginePlanningRole(role: SprintEngineRoleId): boolean {
-  return role === 'architect' || role === 'general'
+// The role that owns run bootstrap and may start before any claimable role
+// work exists. Now a single definition (the renderer carried an independent
+// copy) and a single role: `general` is gone, and "no role" no longer has to be
+// smuggled in AS a role to reach the coordination path — a roleless run
+// coordinates through `sprintEngineCoordinatorSeat`, which this predicate
+// cannot express. MC-2057 leaves it here only until T4 replaces the four
+// dispatch sites and `canLaunchSprintEngineInitialSpawn` below with that seat
+// question; nothing new should call it.
+export function isSprintEnginePlanningRole(role: SprintEngineRoleId | undefined): boolean {
+  return role === 'architect'
 }
 
 export function canLaunchSprintEngineInitialSpawn(
-  role: SprintEngineRoleId,
+  role: SprintEngineRoleId | undefined,
   sprintEngineState: SprintEngineState,
 ): boolean {
   if (isSprintEnginePlanningRole(role)) return true

@@ -31,7 +31,8 @@ const SIZE_CLASS: Record<RoleGlyphSize, string> = {
 }
 
 type RoleGlyphProps = {
-  role: SprintEngineRoleId
+  /** Absent for an agent with no role (MC-2057) — renders the neutral glyph. */
+  role?: SprintEngineRoleId
   size?: RoleGlyphSize
   /** Override the auto-generated "Role: <label>" accessible name. */
   ariaLabel?: string
@@ -43,7 +44,9 @@ type RoleGlyphProps = {
 }
 
 export function RoleGlyph({ role, size = 'md', ariaLabel, className, registry }: RoleGlyphProps) {
-  const label = ariaLabel ?? `Role: ${getSprintEngineRoleLabel(role, registry)}`
+  // "No role" is a statement, not a failure: `getSprintEngineRoleLabel` would
+  // say "Unknown role", which is what the app says about an id it cannot resolve.
+  const label = ariaLabel ?? (role ? `Role: ${getSprintEngineRoleLabel(role, registry)}` : 'No role')
   return (
     <span
       role="img"

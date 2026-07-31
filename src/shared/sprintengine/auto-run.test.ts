@@ -215,6 +215,25 @@ function testDemandKeyIsRoleAndRepo(): void {
   assert.equal(sprintEngineDemandKey(task({ role: 'developer', repo: 'primary' })), 'developer')
   assert.equal(sprintEngineDemandKey(task({ role: 'developer', repo: '' })), 'developer')
   assert.equal(sprintEngineDemandKey({ role: 'developer' } as SprintEngineTask), 'developer')
+
+  // A roleless task keys to its own stable group (MC-2057). It must never be
+  // `String(undefined)`, and it must never merge with a named role's group — a
+  // run staffing `developer` alone carries both kinds of task, and merging them
+  // would spawn a developer session to serve work no developer is meant to take.
+  const rolelessKey = sprintEngineDemandKey(task({ role: undefined, repo: 'primary' }))
+  assert.equal(rolelessKey.includes('undefined'), false, 'the roleless key never stringifies undefined')
+  assert.notEqual(rolelessKey, '', 'the roleless key is not the empty string that `worker_role` uses for "unknown"')
+  assert.notEqual(rolelessKey, 'developer', 'the roleless key does not collide with a role id')
+  assert.equal(
+    sprintEngineDemandKey(task({ role: undefined, repo: '' })),
+    rolelessKey,
+    'the roleless key is stable across repo spellings of primary',
+  )
+  assert.equal(
+    sprintEngineDemandKey(task({ role: undefined, repo: 'mobile' })),
+    `${rolelessKey}@mobile`,
+    'roleless work still groups per repo',
+  )
 }
 
 function testComputeDemandGroupsReadyUnownedWorkByKey(): void {

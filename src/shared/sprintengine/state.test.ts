@@ -104,17 +104,24 @@ function testBoardConsumersRenderUnchangedFromV3(): void {
   assert.deepEqual(fromWorkers, fromRosterOnly)
 }
 
-function testWorkersOrphanRolelessEntriesDropped(): void {
+// A worker with no role is a ROLELESS run's worker (MC-2057), not a malformed
+// entry. Dropping it here — which is what this used to assert — emptied the
+// whole roster of a roleless run, taking the board, the tabs, and the layout
+// with it. It survives normalization carrying no role at all.
+function testWorkersRolelessEntriesSurvive(): void {
   const projection = v3Projection({
     workers: {
       'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T2', currentDispatch: null },
-      'ghost-1': { status: 'idle', currentTaskId: null, currentDispatch: null },
+      coordinator: { status: 'idle', currentTaskId: null, currentDispatch: null },
+      'agent-1': { status: 'running', currentTaskId: 'T3', currentDispatch: null },
     },
   })
   const state = normalizeSprintEngineProjection(projection)
   assert.ok(state?.workers)
-  assert.ok(state.workers['developer-1'], 'roled worker kept')
-  assert.equal(state.workers['ghost-1'], undefined, 'roleless worker dropped')
+  assert.equal(state.workers['developer-1']?.role, 'developer', 'a named worker keeps its role')
+  assert.ok(state.workers.coordinator, 'the roleless coordinator seat survives normalization')
+  assert.equal('role' in (state.workers.coordinator ?? {}), false, 'and carries no role key at all, not role: undefined')
+  assert.equal(state.workers['agent-1']?.currentTaskId, 'T3', 'a minted roleless worker survives with its lease')
 }
 
 function testVcsReposRoundTripWithoutFieldLoss(): void {
@@ -529,7 +536,7 @@ testWorkersViewPopulatedFromProjectionWorkers()
 testWorkersFallBackToRosterBridgeWhenAbsent()
 testRosterBuilderDerivesFromWorkers()
 testBoardConsumersRenderUnchangedFromV3()
-testWorkersOrphanRolelessEntriesDropped()
+testWorkersRolelessEntriesSurvive()
 testVcsReposRoundTripWithoutFieldLoss()
 testVcsFlatBlockReadsBackAsOneEntryRepoList()
 testVcsPrimaryPullRequestReadsBackOnBothShapes()

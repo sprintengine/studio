@@ -26,8 +26,10 @@ import type {
   SprintEngineTask,
 } from '../../../types/workspace'
 import {
+  SPRINT_ENGINE_ROLELESS_KEY,
   getSprintEngineRoleLabel,
   sprintEngineEnabledRoles,
+  sprintEngineRoleKey,
   sprintEngineRoleOrder,
   type SprintEngineAgentRosterItem,
 } from '../../../utils/sprintengine'
@@ -275,12 +277,15 @@ export function SprintEngineRosterView({
 
   // Group roster entries by role, newest first: the roster arrives ascending,
   // reversing each group puts the most recently minted session on top with the
-  // persistent bare `<role>` id settling to the stable bottom.
+  // persistent bare `<role>` id settling to the stable bottom. A roleless run's
+  // agents group under the reserved roleless key — the same key their CLI/model
+  // runtime is stored under — so they get a band instead of vanishing.
   const entriesByRole = new Map<SprintEngineRoleId, SprintEngineAgentRosterItem[]>()
   for (const agent of roster) {
-    const list = entriesByRole.get(agent.role)
+    const key = sprintEngineRoleKey(agent.role)
+    const list = entriesByRole.get(key)
     if (list) list.push(agent)
-    else entriesByRole.set(agent.role, [agent])
+    else entriesByRole.set(key, [agent])
   }
   for (const list of entriesByRole.values()) list.reverse()
 
@@ -296,6 +301,7 @@ export function SprintEngineRosterView({
       : sprintEngineEnabledRoles(sprintEngineState.roleCounts),
   )
   const rolePriority = (role: SprintEngineRoleId): number => {
+    if (role === SPRINT_ENGINE_ROLELESS_KEY) return -1
     const index = sprintEngineRoleOrder.indexOf(role as SprintEngineRole)
     return index >= 0 ? index : sprintEngineRoleOrder.length
   }
@@ -304,7 +310,9 @@ export function SprintEngineRosterView({
   )
 
   const roleLabelFor = (role: SprintEngineRoleId): string =>
-    optionByRole.get(role)?.label ?? getSprintEngineRoleLabel(role)
+    role === SPRINT_ENGINE_ROLELESS_KEY
+      ? 'No role'
+      : optionByRole.get(role)?.label ?? getSprintEngineRoleLabel(role)
 
   // Header census: how many agents are actually working, and how many roles the
   // run configures. Both derive from the workers view + configuredRoles — never

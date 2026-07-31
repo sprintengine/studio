@@ -6,6 +6,7 @@ import { CliModelPickerButton, Popover, RoleAvatar, Tooltip } from '../../ui'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
+  isSprintEnginePlanningRole,
   listSprintEngineWizardRoles,
 } from '../../../utils/sprintengineRoleOptions'
 import type {
@@ -58,10 +59,6 @@ interface RosterTableProps {
    *  presentation. */
   workTypes?: boolean
 }
-
-// Planning roles are marked so the row can badge them; the panel's enable
-// handler keeps at least one planner on the team (`sprintEngineRosterRoleFloor`).
-const PLANNER_ROLE_IDS: ReadonlySet<string> = new Set(['architect', 'general'])
 
 export function SprintEngineRosterTable({
   roleCounts,
@@ -154,7 +151,11 @@ export function SprintEngineRosterTable({
                   <span className={`truncate text-meta font-medium ${isAdded ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
                     {label}
                   </span>
-                  {PLANNER_ROLE_IDS.has(role) ? (
+                  {/* Planning roles are badged; the panel's enable handler keeps one
+                      on the team (`sprintEngineRosterRoleFloor`). The predicate has
+                      ONE definition in shared — this file used to carry a third
+                      independent copy of the role-name list. */}
+                  {isSprintEnginePlanningRole(role) ? (
                     <span className="shrink-0 rounded border border-[color:var(--border-default)] px-1.5 text-micro font-semibold text-[color:var(--text-subtle)]">
                       Planner
                     </span>

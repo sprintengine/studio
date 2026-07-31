@@ -71,7 +71,7 @@ async function main(): Promise<void> {
   testKeyHelpersAreStableAndScoped()
   testStartupPromptIsMcpNative()
   testArchitectInitStartupPromptIsMcpNative()
-  testGeneralStartupPromptIsMcpNative()
+  testRolelessStartupPromptIsMcpNative()
   testArchitectWakeStartupPromptCarriesConfiguredRoles()
   testPromptBuildersIncludeAgentIdAndCommand()
   testAgentNotificationPromptCompactsLongResolutionText()
@@ -1930,26 +1930,29 @@ function testTaskScopedWakeRestrictionBlocksCrossTaskReuse(): void {
 }
 
 function testTaskScopedLifecycleExemptsPlanningRoles(): void {
-  // General owns a whole sprint solo; architect orchestrates. Both keep
-  // today's reuse-preferring lifecycle.
+  // The architect orchestrates a whole sprint, so it keeps the reuse-preferring
+  // lifecycle. A MINTED ROLELESS worker does NOT: it is an ordinary task-scoped
+  // worker that happens to carry no role, so it is never handed a second task
+  // (MC-2057 — `general` used to be exempt here purely because the predicate
+  // read it as a planning role).
   const now = Date.parse('2026-07-02T12:00:00Z')
   const workspace = workspaceFixture()
   const state = sprintEngineStateFixture({
     tasks: [
-      task({ id: 'T-finished', role: 'general', status: 'done', boardColumn: 'done', ownerAgentId: null }),
-      task({ id: 'T-next', role: 'general', status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
+      task({ id: 'T-finished', role: undefined, status: 'done', boardColumn: 'done', ownerAgentId: null }),
+      task({ id: 'T-next', role: undefined, status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
     ],
     sprintEngineAgents: {
-      'general-1': runtimeAgent('general', { lastOwnedTaskId: 'T-finished' }),
+      'agent-1': runtimeAgent(undefined, { lastOwnedTaskId: 'T-finished' }),
     },
   })
-  const wakePlan = taskScopedPlanInput({ workspace, state, now, idleAgentIds: ['general-1'], paths: ['task_wake'] })
-  assert.equal(wakePlan.pastes.length, 1, 'a General is rewoken for the next task in the same terminal')
-  assert.equal(wakePlan.pastes[0].agentId, 'general-1')
-
-  const freshClock = new Map([[sprintEngineIdleClockKey(workspace, 'general-1'), now - 1_000]])
-  const retirePlan = taskScopedPlanInput({ workspace, state, now, idleAgentIds: ['general-1'], paths: ['idle_retire'], idleClock: freshClock })
-  assert.equal(retirePlan.retirements.length, 0, 'a General with claimable work is never task-scope retired')
+  const wakePlan = taskScopedPlanInput({ workspace, state, now, idleAgentIds: ['agent-1'], paths: ['task_wake'] })
+  assert.equal(wakePlan.pastes.length, 0, 'a used roleless worker is never woken for another task')
+  assert.equal(
+    sprintEngineWakeRestrictionTaskId(runtimeAgent(undefined, { lastOwnedTaskId: 'T-finished' })),
+    'T-finished',
+    'a used roleless worker is restricted to its own task, exactly like a named worker'
+  )
 
   assert.equal(
     sprintEngineWakeRestrictionTaskId(runtimeAgent('architect', { lastOwnedTaskId: 'T-x' })),
@@ -4928,38 +4931,42 @@ function testArchitectInitStartupPromptIsMcpNative(): void {
   )
 }
 
-function testGeneralStartupPromptIsMcpNative(): void {
-  const prompt = buildSprintEngineStartupPrompt('general', 'general', 'Ship the sprint', {
+function testRolelessStartupPromptIsMcpNative(): void {
+  const prompt = buildSprintEngineStartupPrompt(undefined, 'coordinator', 'Ship the sprint', {
     executionCwd: '/tmp/workspace',
     workspaceRoot: '/tmp/workspace',
     sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
     commandMode: 'join',
   })
 
-  // Joins as general, claims directly, and never initializes the run (init stays app-owned).
-  assert.ok(prompt.includes('sprintengine.agent.join'), 'general startup prompt joins via MCP')
-  assert.ok(prompt.includes('"role": "general"'), 'general join payload carries role general')
-  assert.ok(prompt.includes('"agentId": "general"'), 'general join payload carries the agent id')
-  assert.ok(prompt.includes('"id": "general"'), 'general claim payload carries the agent id')
-  assert.ok(prompt.includes('sprintengine.task.next'), 'general startup prompt claims work directly')
-  assert.ok(!prompt.includes('sprintengine.init'), 'a General does not call sprintengine.init')
-  // Drives the full single-agent loop and assigns planning to the General when no plan exists.
-  assert.ok(/plan/iu.test(prompt), 'general startup prompt drives planning')
-  assert.ok(/build/iu.test(prompt), 'general startup prompt drives the build step')
-  assert.ok(/review/iu.test(prompt), 'general startup prompt drives self-review')
-  assert.ok(/test/iu.test(prompt), 'general startup prompt drives testing')
-  assert.ok(/publish/iu.test(prompt), 'general startup prompt drives publishing')
-  assert.ok(prompt.includes('you are the planner'), 'general becomes the planner when the run has no task graph')
-  assert.ok(/roles are user config/iu.test(prompt), 'general startup prompt routes role wishes to needs_input, never self-service growth')
-  assert.ok(/needs_input/u.test(prompt), 'general startup prompt names the needs_input escalation path')
+  // Joins with NO role, claims directly, and never initializes the run (init stays app-owned).
+  assert.ok(prompt.includes('sprintengine.agent.join'), 'roleless startup prompt joins via MCP')
+  assert.ok(!prompt.includes('"role"'), 'a roleless join/claim payload omits `role` rather than sending a stand-in')
+  assert.ok(!/general/iu.test(prompt), '"General" is not a thing the app says any more')
+  assert.ok(prompt.includes('"agentId": "coordinator"'), 'roleless join payload carries the agent id')
+  assert.ok(prompt.includes('"id": "coordinator"'), 'roleless claim payload carries the agent id')
+  assert.ok(prompt.includes('sprintengine.task.next'), 'roleless startup prompt claims work directly')
+  assert.ok(!prompt.includes('sprintengine.init'), 'a roleless agent does not call sprintengine.init')
+  // Drives the full loop and assigns planning to it when no plan exists.
+  assert.ok(/plan/iu.test(prompt), 'roleless startup prompt drives planning')
+  assert.ok(/build/iu.test(prompt), 'roleless startup prompt drives the build step')
+  assert.ok(/review/iu.test(prompt), 'roleless startup prompt drives self-review')
+  assert.ok(/test/iu.test(prompt), 'roleless startup prompt drives testing')
+  assert.ok(/publish/iu.test(prompt), 'roleless startup prompt drives publishing')
+  assert.ok(prompt.includes('you are the planner'), 'a roleless agent becomes the planner when the run has no task graph')
+  assert.ok(/roles are user config/iu.test(prompt), 'roleless startup prompt routes role wishes to needs_input, never self-service growth')
+  assert.ok(/needs_input/u.test(prompt), 'roleless startup prompt names the needs_input escalation path')
+  // The boundary is stated as absence, not as a role named `undefined`.
+  assert.ok(prompt.includes('You have no role.'), 'the work boundary says the agent has no role')
+  assert.ok(!/undefined/u.test(prompt), 'no stringified undefined reaches the prompt')
   // Same no-statePath/workspaceRoot routing invariant as every other startup prompt.
-  assert.ok(!prompt.includes('"statePath"'), 'general startup prompt must not embed statePath in the MCP payload')
-  assert.ok(!prompt.includes('"workspaceRoot"'), 'general startup prompt must not embed workspaceRoot in the MCP payload')
-  assert.ok(!prompt.includes('/tmp/workspace/.multi-code/sprintengine/team/run.yaml'), 'general startup prompt does not expose the run state path')
-  assert.ok(prompt.includes('sprintengine-studio'), 'general startup prompt names the managed MCP server entry')
+  assert.ok(!prompt.includes('"statePath"'), 'roleless startup prompt must not embed statePath in the MCP payload')
+  assert.ok(!prompt.includes('"workspaceRoot"'), 'roleless startup prompt must not embed workspaceRoot in the MCP payload')
+  assert.ok(!prompt.includes('/tmp/workspace/.multi-code/sprintengine/team/run.yaml'), 'roleless startup prompt does not expose the run state path')
+  assert.ok(prompt.includes('sprintengine-studio'), 'roleless startup prompt names the managed MCP server entry')
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
-    'general startup prompt does not instruct the agent to run any sprintengine CLI command'
+    'roleless startup prompt does not instruct the agent to run any sprintengine CLI command'
   )
 }
 
@@ -5607,7 +5614,7 @@ function testGetPendingAgentNotificationEventsFiltersDeliveredAndSent(): void {
   )
 }
 
-function runtimeAgent(role: SprintEngineRoleId, overrides: Partial<SprintEngineRuntimeAgent> = {}): SprintEngineRuntimeAgent {
+function runtimeAgent(role: SprintEngineRoleId | undefined, overrides: Partial<SprintEngineRuntimeAgent> = {}): SprintEngineRuntimeAgent {
   return { role, status: 'idle', currentTaskId: null, ...overrides }
 }
 
@@ -5754,7 +5761,7 @@ function testBootstrapStallsInsteadOfSpawningWithoutArchitectOrAfterPrePlanExit(
   assert.deepEqual(
     noArchitect,
     { kind: 'stall', reason: 'no_planner' },
-    'no tasks and no planner (architect or general) is a visible stall, not a silent no-op'
+    'no tasks and no architect seat on the roster is a visible stall, not a silent no-op'
   )
 
   const noArchitectWithTasks = pickSprintEngineBootstrapCandidate(

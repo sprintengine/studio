@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { basename } from '../../utils/paths'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { sprintEnginePlannerRole } from '../../utils/sprintengine'
+import { sprintEngineCoordinatorSeatForRoleCounts, sprintEngineRoleKey } from '../../utils/sprintengine'
 import { backlogIssueLinkIndex } from './backlogTrackerPickerModel'
 import { matchProxyItemByIssue } from '../../utils/sprintengineTrackerSeeding'
 import { startTrackerProxySprint } from '../../utils/sprintengineWorkspaceCreation'
@@ -141,7 +141,7 @@ export function useBacklogTrackerSeeding(params: {
           roleCounts: launchRoleCounts,
           roleCliDefaults: roster.roleCliDefaults,
           roleModelOverrides: roster.roleModelOverrides,
-          initialSpawnRoles: [sprintEnginePlannerRole(launchRoleCounts)],
+          initialSpawnRoles: [sprintEngineRoleKey(sprintEngineCoordinatorSeatForRoleCounts(launchRoleCounts).role)],
           sprintEngineAutoState: {
             ...sprintEngineAutomationInitialStateForMode(automationMode),
             cliPermissionPreset: 'default',

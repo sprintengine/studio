@@ -18,9 +18,8 @@ import type {
   SprintEngineRoster,
   SprintEngineRosterMode,
 } from '../../../types/workspace'
-import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
+import { SPRINT_ENGINE_ROLELESS_KEY, getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
-  SPRINT_ENGINE_GENERAL_ROLE_ID,
   getSprintEngineWizardRoleSummary,
   isSprintEnginePlanningRole,
   listSprintEngineWizardRoles,
@@ -168,16 +167,16 @@ export function SprintEngineRosterPanel({
           <PlainAgentsPanel
             agentCount={poolAgentCount}
             onChangeAgentCount={onChangePoolAgentCount}
-            cli={roleCliDefaults[SPRINT_ENGINE_GENERAL_ROLE_ID] ?? cliOptions[0]?.value ?? 'claude-code'}
+            cli={roleCliDefaults[SPRINT_ENGINE_ROLELESS_KEY] ?? cliOptions[0]?.value ?? 'claude-code'}
             cliOptions={cliOptions}
-            effectiveModel={effectiveRoleModel(SPRINT_ENGINE_GENERAL_ROLE_ID, roleModelOverrides)}
-            onSetCli={(cli) => onSetRoleCli(SPRINT_ENGINE_GENERAL_ROLE_ID, cli)}
-            onSetModel={(model) => onSetRoleModel(SPRINT_ENGINE_GENERAL_ROLE_ID, model)}
+            effectiveModel={effectiveRoleModel(SPRINT_ENGINE_ROLELESS_KEY, roleModelOverrides)}
+            onSetCli={(cli) => onSetRoleCli(SPRINT_ENGINE_ROLELESS_KEY, cli)}
+            onSetModel={(model) => onSetRoleModel(SPRINT_ENGINE_ROLELESS_KEY, model)}
             {...(onSetRoleReasoning
               ? {
-                  effectiveReasoning: effectiveRoleReasoning(SPRINT_ENGINE_GENERAL_ROLE_ID, roleReasoningOverrides),
+                  effectiveReasoning: effectiveRoleReasoning(SPRINT_ENGINE_ROLELESS_KEY, roleReasoningOverrides),
                   onSetReasoning: (reasoning: string | null) =>
-                    onSetRoleReasoning(SPRINT_ENGINE_GENERAL_ROLE_ID, reasoning),
+                    onSetRoleReasoning(SPRINT_ENGINE_ROLELESS_KEY, reasoning),
                 }
               : {})}
           />

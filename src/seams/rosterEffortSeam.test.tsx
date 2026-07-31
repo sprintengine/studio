@@ -47,7 +47,7 @@ async function main(): Promise<void> {
   const { runSprintEngineNewTeamCreation } = await import(
     '../renderer/src/components/workspace/newWorkspace/controllers/sprintEngineController'
   )
-  const { normalizeSprintEngineRoleRuntimes, resolveSprintEngineAgentRuntime } = await import(
+  const { buildSprintEngineRoleRegistry, normalizeSprintEngineRoleRuntimes, resolveSprintEngineAgentRuntime } = await import(
     '../shared/sprintengine/state'
   )
   const { renderAgentLaunchArgv } = await import('../main/agent-launch-render')
@@ -275,6 +275,13 @@ async function main(): Promise<void> {
   //
   // Codex declares levels; Kimi Code declares none. Shapes mirror the real
   // manifests so "declares no levels" is a genuine case, not a stub.
+  // Post un-ship, a wizard surface offers only roles the registry resolves — and
+  // `general` is no longer spliced in on top (MC-2057), so these mounts must
+  // carry a registry or they render no rows at all.
+  const SEAM_REGISTRY = buildSprintEngineRoleRegistry({
+    roles: [{ id: 'developer', label: 'Developer', aliases: [], source: { layer: 'workspace' } }],
+  }) as never
+
   const CLI_OPTIONS = [
     {
       value: 'codex',
@@ -312,17 +319,17 @@ async function main(): Promise<void> {
     await act(async () => {
       root.render(
         <SprintEngineRosterTable
-          roleCounts={{ general: 1 } as never}
-          roleCliDefaults={{ general: 'codex' } as never}
+          roleCounts={{ developer: 1 } as never}
+          roleCliDefaults={{ developer: 'codex' } as never}
           cliOptions={CLI_OPTIONS}
-          registry={null}
+          registry={SEAM_REGISTRY}
           disabledRoleIds={null}
           countDisabled={false}
           cliDisabled={false}
           onSetCount={() => {}}
           onSetCli={() => {}}
           onSetModel={() => {}}
-          roleModelOverrides={{ general: 'gpt-5.6-sol' } as never}
+          roleModelOverrides={{ developer: 'gpt-5.6-sol' } as never}
           {...(props as never)}
         />,
       )
@@ -357,10 +364,10 @@ async function main(): Promise<void> {
   await check('SEAM: the dense roster table renders T5’s picker, one line tall and never wrapping', async () => {
     const written: Array<[string, string | null]> = []
     const view = await mountTable({
-      roleReasoningOverrides: { general: 'high' },
+      roleReasoningOverrides: { developer: 'high' },
       onSetReasoning: (role: string, reasoning: string | null) => written.push([role, reasoning]),
     })
-    await view.open('General agent runtime')
+    await view.open('Developer agent runtime')
     assert.equal(view.pickers().length, 1, 'exactly one picker, on the selected row')
 
     // The table's layout is denser than the panel's, so the single-line contract
@@ -396,24 +403,24 @@ async function main(): Promise<void> {
     await act(async () => {
       low.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     })
-    assert.deepEqual(written, [['general', 'low']], 'the pick is written against the row’s role')
+    assert.deepEqual(written, [['developer', 'low']], 'the pick is written against the row’s role')
     view.unmount()
   })
 
   await check('SEAM: a CLI that declares no levels renders no picker in either wizard surface', async () => {
     const noLevels = {
-      roleCliDefaults: { general: 'kimi-code' },
-      roleModelOverrides: { general: 'kimi-k3' },
+      roleCliDefaults: { developer: 'kimi-code' },
+      roleModelOverrides: { developer: 'kimi-k3' },
       roleReasoningOverrides: {},
     }
     const table = await mountTable({ ...noLevels, onSetReasoning: () => {} })
-    await table.open('General agent runtime')
+    await table.open('Developer agent runtime')
     assert.ok(table.rows().length > 0, 'the runtime list is open')
     assert.equal(table.pickers().length, 0, 'no levels declared means no control — not greyed, not empty')
     table.unmount()
 
     const panel = await mountPanel({ ...noLevels, onSetRoleReasoning: () => {} })
-    await panel.open('General agent runtime')
+    await panel.open('Developer agent runtime')
     assert.ok(panel.rows().length > 0, 'the panel row’s runtime list is open')
     assert.equal(panel.pickers().length, 0, 'and the panel withholds it for the same reason')
     panel.unmount()
@@ -428,14 +435,14 @@ async function main(): Promise<void> {
       root.render(
         <SprintEngineRosterPanel
           rosterMode="roles"
-          roleCounts={{ general: 1 } as never}
-          roleCliDefaults={{ general: 'codex' } as never}
-          roleModelOverrides={{ general: 'gpt-5.6-sol' } as never}
+          roleCounts={{ developer: 1 } as never}
+          roleCliDefaults={{ developer: 'codex' } as never}
+          roleModelOverrides={{ developer: 'gpt-5.6-sol' } as never}
           onSetRoleCount={() => {}}
           onSetRoleCli={() => {}}
           onSetRoleModel={() => {}}
           cliOptions={CLI_OPTIONS}
-          registry={null}
+          registry={SEAM_REGISTRY}
           registryStatus="ready"
           disabledRoleIds={null}
           rosterDisabled={false}
@@ -481,10 +488,10 @@ async function main(): Promise<void> {
   await check('SEAM: the roster panel’s role row renders the picker and writes through it', async () => {
     const written: Array<[string, string | null]> = []
     const view = await mountPanel({
-      roleReasoningOverrides: { general: 'high' },
+      roleReasoningOverrides: { developer: 'high' },
       onSetRoleReasoning: (role: string, reasoning: string | null) => written.push([role, reasoning]),
     })
-    await view.open('General agent runtime')
+    await view.open('Developer agent runtime')
     assert.equal(view.pickers().length, 1, 'the selected row carries exactly one picker')
     for (const row of view.rows()) {
       assert.ok(!row.className.includes('flex-wrap'), 'the panel’s rows stay one line too')
@@ -492,7 +499,7 @@ async function main(): Promise<void> {
     const trigger = view.pickers()[0]
     assert.equal(
       trigger.getAttribute('aria-label'),
-      'Reasoning for General agent runtime: High',
+      'Reasoning for Developer agent runtime: High',
       'the stored level rides the control’s accessible name',
     )
     await act(async () => {
@@ -511,7 +518,7 @@ async function main(): Promise<void> {
     await act(async () => {
       medium.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     })
-    assert.deepEqual(written, [['general', 'medium']], 'the pick reaches the wizard’s own setter')
+    assert.deepEqual(written, [['developer', 'medium']], 'the pick reaches the wizard’s own setter')
     view.unmount()
   })
 
@@ -519,7 +526,7 @@ async function main(): Promise<void> {
     // Both surfaces with the props omitted entirely — the saved-roster manager
     // and an existing run land here, and both must show nothing.
     const table = await mountTable({})
-    await table.open('General agent runtime')
+    await table.open('Developer agent runtime')
     // The list being OPEN is what makes the absence meaningful: a closed
     // popover would report zero pickers while proving nothing.
     assert.ok(table.rows().length > 0, 'the runtime list is open')
@@ -527,7 +534,7 @@ async function main(): Promise<void> {
     table.unmount()
 
     const panel = await mountPanel({})
-    await panel.open('General agent runtime')
+    await panel.open('Developer agent runtime')
     assert.ok(panel.rows().length > 0, 'the panel row’s runtime list is open')
     assert.equal(panel.pickers().length, 0, 'the panel offers no effort control without a producer either')
     panel.unmount()
