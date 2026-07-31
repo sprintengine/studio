@@ -2279,8 +2279,10 @@ export function SprintRunBoard({
  const rosterAgent = rosterById[agentId]
  if (getLiveAgentTerminalSession(agentId)) return true
  if (!rosterAgent) return false
- if (rosterAgent.role === 'architect') return true
- return canLaunchSprintEngineInitialSpawn(rosterAgent.role, sprintEngineState)
+ // The coordinator seat may start before claimable work exists; every other
+ // agent waits for a task assigned to its role. Asked of the seat by id
+ // (MC-2050), so a roleless run's coordinator answers it too.
+ return canLaunchSprintEngineInitialSpawn(rosterAgent, sprintEngineState)
  })
  if (readyAgentIds.length === 0) return
  const agentIds = consumeSprintEngineInitialSpawns(workspaceId, readyAgentIds)
