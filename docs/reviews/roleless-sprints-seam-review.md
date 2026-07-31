@@ -21,6 +21,25 @@ repair). Each carries severity, impact, the smallest fix, an owner role, and the
 verification that would close it. F1, F2, F4, and F5 are the ones that change
 behaviour on the default sprint kind.
 
+## Disposition
+
+Every finding was triaged by the architect on 2026-07-31 and is now either filed
+as a task or ruled on. **The verdict above stands as written** — it was accurate
+at the time of review, and the tasks it produced are the record of what happens
+next.
+
+| Finding | Disposition |
+|---|---|
+| F1 *(high)*, F5 | **T13** (developer) — coordinator engagement asks the seat: triage lookup, spawn role, triage payload id, retirement skip, planning override. Also extends `sprint-engine.md:61` to cover the coordinator-engagement surface. |
+| F2 *(high)*, F3 | **T14** (developer), serialized behind T13 — the wake bound and the predicate mismatch, plus the `auto-run.ts:1205` comment. This review's differential harness becomes a permanent test here. |
+| F4 | **T15** (developer) — skill rewrite. Prompt-layer ruling made: `coordinator_brief_block` owns the planning and self-approval instruction, the skill owns only the shape of the run, duplicated copy deleted outright. |
+| F6, F7 | **T16** (frontend) — filed rather than deferred: F6 means a roleless run mounted through the door offers no roster mutation at all, and roleless is now the default kind. F7 pinned to emitting `--agent :<agentId>` from `sprintEngineInitArgs`. |
+| F8 | **Ruled — not a defect.** A run has at most one coordination task, as designed; no coordination marker is added. Routing sign-off back onto the seat would re-serialise work onto it, which is what MC-1444 and MC-2050 removed, and `coordinator_brief_block` (`plans.py:441-442`) already has the coordinator plan the final verification task as *ordinary work with its own owner*. The epic's *"signs off"* wording is the defect: T12 corrects the epic and the plural routing-rule prose, T14 the `auto-run.ts:1205` comment. |
+
+T12's sign-off gate depends on all four tasks. The architect re-verified F1, F2,
+F3, and F5 at source before filing rather than taking this review's probes on
+trust; all were confirmed as reported.
+
 ---
 
 ## What was read, per seam
@@ -279,17 +298,37 @@ agents shared the role `general`, so the same code produced the same result but
 that *was* the (broken) intended behaviour. Now dispatch and wake give different
 answers to one question.
 
-**Smallest fix.** In `sprintEngineWakeRestrictionTaskId`, return `null` only for a
-seat whose role is **named**; a roleless coordinator should be restricted to
-`lastOwnedTaskId` like any other agent. Equivalently, filter wake candidates for
-the coordinator through `sprintEngineTaskRoutesToCoordinator` so one rule answers
-on both paths.
+**The exemption itself is deliberate and pinned — the defect is its bound.**
+Corrected during this task's own review pass, after the first draft of this
+finding proposed a fix that would have broken T4's intent.
+`testMintedRolelessWorkerIsTaskScopedForWakeAndRevival`
+(`src/shared/sprintengine/auto-run.test.ts:655`) asserts
+`sprintEngineWakeRestrictionTaskId('coordinator', …) === null` with the comment
+*"the seat is unrestricted — the only difference from the worker above is its
+id"*, and the suite passes (`npm run test:shared:sprintengine-auto-run-planner`
+→ `all tests passed`). That exemption is correct and load-bearing: it is what
+lets a departed seat be revived for the **next** coordination task rather than
+only its own (MC-1454).
+
+What is unintended is that the exemption used to be *bounded* by the role filter
+in `findSprintEngineWakeCandidateTaskForAgent`. On a named seat that filter still
+bounds it to architect work, which the routing rule routes to the seat anyway. On
+a roleless seat the filter evaporates (`absent === absent`), so "unrestricted"
+silently widens from *coordination work* to *all work*.
+
+**Smallest fix.** Bound the seat's wake candidates by the routing rule — filter
+them through `sprintEngineTaskRoutesToCoordinator` — so one rule answers on both
+paths. **Do not** instead restrict the seat in
+`sprintEngineWakeRestrictionTaskId`: that was this review's first suggestion and
+it is wrong, because it would break MC-1454's revival intent and fail the pinned
+test above.
 
 **Owner.** `developer`.
 
 **Verification.** Assert that on a roleless run an idle coordinator is offered no
-wake candidate for an unowned ordinary task, and that an architect run's wake
-behaviour is byte-identical to before.
+wake candidate for an unowned **ordinary** task but is still offered a
+coordination one, that `sprintEngineWakeRestrictionTaskId('coordinator', …)`
+still returns `null`, and that an architect run's wake behaviour is unchanged.
 
 ---
 
@@ -497,6 +536,17 @@ plan deliberately rejected `kind` for this purpose because the gate carries none
 
 **Owner.** `architect`.
 
+**Ruled (2026-07-31): (a).** One coordination task per run is correct as
+designed; no marker is added. Routing sign-off back onto the persistent seat
+would re-serialise work onto it — the thing MC-1444 and MC-2050 removed — and the
+engine already states the intended shape in place: `coordinator_brief_block`
+(`plans.py:441-442`) has the coordinator plan the final verification task as
+*ordinary work with its own owner, not coordination*. So the epic's *"signs off"*
+wording is the defect, not the implementation. T12 corrects the epic and the
+plural routing-rule prose; T14 corrects the `auto-run.ts:1205` comment. This
+review's reading that the MC-1454 asymmetry is correct-as-designed and not a
+defect is what makes it a wording fix rather than a feature.
+
 ---
 
 ## Knowledge Graph
@@ -516,11 +566,23 @@ those land.
 
 ## Residual risk and what this review did not verify
 
-- **T10's executed proof is not in evidence.** T11 does not depend on T10, and at
-  review time T10 was still `in_progress` with an empty evidence record, so the
-  epic's other review half — dispatch-ledger assertions for a roleless run, a
-  role-based run, and a migrated store — is **unverified by this audit**. Every
-  behavioural claim above rests on this review's own probes, not on T10.
+- **T10's executed proof landed after this audit was written; it does not
+  overturn anything above.** At the time of review T10 was `in_progress` with an
+  empty evidence record. It has since published 12 permanent tests
+  (`tests/sprintengine_tool/test_roleless_whole_flow.py`), mutation-checked, plus
+  a measured pre-epic ledger comparison (`git archive 631ccff7`) showing
+  role-based dispatch byte-identical. Re-checked against these findings: T10's
+  fan-out proof is **dispatch**, and its task-scoping proof covers a minted
+  roleless **worker** — its own scope note delegates wake/revival to
+  `auto-run.test.ts`, which pins the seat's exemption but not its bound. So F2,
+  which is about the **seat** on the **wake** path, is covered by neither and
+  stands.
+- **T10 independently found a related defect worth reading beside F1/F2**: `task.publish`
+  has no owner guard, so any agent can publish another's `in_progress` task and
+  take ownership. Pre-existing and byte-identical at `631ccff7`, but newly
+  *reachable* because a roleless run can now have more than one agent — the same
+  "correct before, exposed by fan-out" shape as F1 and F2. Filed on T10 as its
+  C1/C2; not duplicated here.
 - **No live sprint was run.** All divergence findings are executed against the
   real functions with synthesised state, not observed in `dispatch.jsonl`. F1 and
   F2 in particular predict runtime behaviour from the planner's inputs.
