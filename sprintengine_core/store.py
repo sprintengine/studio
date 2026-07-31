@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -77,9 +78,18 @@ RUN_SOURCE_KEYS = ("source", "sourceBundle")
 # on the task record and the projection derives its workers/roster view from tasks.
 # v4 (MC-1611, multi-repo runs): a run declares `sprintengine.vcs.repos` and every
 # task targets one entry of it; the dead `vcs.repoRoot` field is gone.
-# Pre-release clean break — an older store is REJECTED, never migrated
-# (`assert_store_is_current`); the remedy is deleting the team dir.
-RUN_SCHEMA_VERSION = 4
+# v5 (MC-2057, roleless runs): a task's `role` is optional and the fake `general`
+# role is deleted. This is the ONE version step that migrates rather than rejects
+# (`migrate_run_store`): `general` was a stand-in for "no role", so a v4 run that
+# used it describes a run this build can still read — it only spells absence
+# differently. Every OTHER step stays the pre-release clean break: a store older
+# than v4 is REJECTED (`assert_store_is_current`) and the remedy is deleting the
+# team dir.
+RUN_SCHEMA_VERSION = 5
+# The one version this build upgrades in place, and the shape it upgrades from.
+MIGRATABLE_RUN_SCHEMA_VERSION = 4
+# The fake role v5 deletes, and what each of its stored spellings becomes.
+_LEGACY_ROLELESS_ROLE = "general"
 
 # Post-implementation phase vocabulary. `review` is the only shipped phase; the
 # list shape is kept so a future phase slots in without a schema change.
@@ -234,6 +244,13 @@ class RunStoreVersionError(ValueError):
     """A run store written before the current schema version."""
 
 
+def run_schema_version(run: dict[str, Any]) -> int:
+    try:
+        return int(run.get("schemaVersion") or 1)
+    except (TypeError, ValueError):
+        return 1
+
+
 def assert_store_is_current(run: dict[str, Any], team_dir: Path) -> None:
     """Reject an out-of-date run store loudly, at every surface that reads one.
 
@@ -241,14 +258,17 @@ def assert_store_is_current(run: dict[str, Any], team_dir: Path) -> None:
     are never migrated. The remedy is deleting the team folder. Raising here — in
     the one function both `state_from_folder_store` and `build_projection` call —
     means the board, wizard, backlog links, and CLI all get the same readable
-    message instead of a silent crash or a blank board. v4 (MC-1611) is the
-    current break: a run now declares a list of repos, so a v3 store — whose one
+    message instead of a silent crash or a blank board. v4 (MC-1611) broke on
+    multi-repo: a run now declares a list of repos, so a v3 store — whose one
     repo is described by fields this build no longer writes — cannot be read.
+
+    v5 (MC-2057) is the exception and stays one: a v4 store is UPGRADED by
+    `migrate_run_store` before it reaches here, because `general` was only ever a
+    stand-in for "no role" and such a run is fully describable in v5. Callers run
+    the migration first; anything still below v5 at this point genuinely cannot
+    be read.
     """
-    try:
-        version = int(run.get("schemaVersion") or 1)
-    except (TypeError, ValueError):
-        version = 1
+    version = run_schema_version(run)
     if version >= RUN_SCHEMA_VERSION:
         return
     raise RunStoreVersionError(
@@ -258,6 +278,97 @@ def assert_store_is_current(run: dict[str, Any], team_dir: Path) -> None:
         "and is never migrated. "
         f"Delete `{team_dir}` and re-run the sprint."
     )
+
+
+def _migrated_roleless_agent_id(agent_id: Any) -> str:
+    """v4 -> v5: an id that encoded the fake role becomes one that encodes none.
+
+    `general` was the seat, `general-N` its workers, so they map onto the ids a
+    roleless run mints today: `coordinator` and `agent-N`. Any other id is left
+    exactly as it is — a role-based run's ids are untouched by this migration.
+    """
+    clean = str(agent_id or "").strip()
+    if clean == _LEGACY_ROLELESS_ROLE:
+        return "coordinator"
+    if re.fullmatch(rf"{_LEGACY_ROLELESS_ROLE}-(\d+)", clean):
+        return f"agent-{clean.split('-', 1)[1]}"
+    return clean
+
+
+def _migrate_roleless_record(record: dict[str, Any]) -> bool:
+    """Strip the fake role from one task/lease/ledger record. True when changed.
+
+    `role: general` becomes an OMITTED key, never `''` or null — the pinned v5
+    representation of absent. Agent ids on the record move with it so the task's
+    ownership and lease survive the rename.
+    """
+    changed = False
+    if str(record.get("role") or "").strip() == _LEGACY_ROLELESS_ROLE:
+        record.pop("role")
+        changed = True
+    for field in ("ownerAgentId", "lastImplementedByAgentId", "agentId", "workerId"):
+        current = str(record.get(field) or "").strip()
+        if not current:
+            continue
+        migrated = _migrated_roleless_agent_id(current)
+        if migrated != current:
+            record[field] = migrated
+            changed = True
+    lease = record.get("lease")
+    if isinstance(lease, dict) and _migrate_roleless_record(lease):
+        changed = True
+    return changed
+
+
+def migrate_run_store(team_dir: Path, run: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade a v4 store to v5 in place, or return `run` untouched (MC-2057).
+
+    The only migrating version step this engine has (see RUN_SCHEMA_VERSION).
+    A v4 run that used `general` was a roleless run spelling absence with a
+    stand-in role, so it reads forward exactly: `configuredRoles: ['general']`
+    becomes the empty list a roleless run records, every `role: general` key is
+    dropped, and `general`/`general-N` ids become `coordinator`/`agent-N`. The
+    task graph, dependencies, ownership, evidence, and lease state are otherwise
+    untouched — nothing is rebuilt, only the deleted role is removed.
+
+    Idempotent and version-guarded, so the read paths can call it unconditionally
+    and it does no disk work on the store it has already upgraded. A v4 run that
+    never used `general` (every role-based run on disk) is stamped v5 and nothing
+    else about it changes.
+    """
+    if run_schema_version(run) != MIGRATABLE_RUN_SCHEMA_VERSION:
+        return run
+
+    migrated = copy.deepcopy(run)
+    configured = migrated.get("configuredRoles")
+    if isinstance(configured, list):
+        migrated["configuredRoles"] = [
+            role for role in configured if str(role or "").strip() != _LEGACY_ROLELESS_ROLE
+        ]
+    # The per-role runtime map is keyed by role, so its `general` entry becomes
+    # unreachable the moment the role is gone. Drop it rather than leave a key
+    # nothing can look up.
+    runtimes = migrated.get("roleRuntimes")
+    if isinstance(runtimes, dict):
+        runtimes.pop(_LEGACY_ROLELESS_ROLE, None)
+    for entry in migrated.get("tasks") or []:
+        if isinstance(entry, dict):
+            _migrate_roleless_record(entry)
+    migrated["schemaVersion"] = RUN_SCHEMA_VERSION
+    atomic_write_yaml(team_dir / RUN_FILE, migrated)
+
+    # The materialized task files are the semantic record (run.yaml carries only
+    # the graph), so they carry the same rename. Written per file, in place, so a
+    # task keeps its status folder and queue position.
+    for status in TASK_STATUSES:
+        folder = team_dir / "tasks" / status
+        if not folder.exists():
+            continue
+        for path in sorted(folder.glob("*.json")):
+            task = read_json_file(path)
+            if _migrate_roleless_record(task):
+                atomic_write_json(path, task)
+    return migrated
 
 
 def _bool_value(value: Any, default: bool) -> bool:
@@ -635,7 +746,10 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
                 {
                     "id": task.get("id"),
                     "status": task.get("status"),
-                    "role": task.get("role"),
+                    # Omitted when the task carries no role (MC-2057) — the same
+                    # absent-is-an-omitted-key rule the task record itself holds,
+                    # so run.yaml never persists a null role for a roleless run.
+                    **({"role": task["role"]} if str(task.get("role") or "").strip() else {}),
                     "dependsOn": [str(dep) for dep in task.get("dependsOn", []) or []],
                     "needsTriage": _bool_value(task.get("needsTriage"), False),
                 }
@@ -868,6 +982,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     run = load_run_yaml(team_dir)
     if not run:
         raise FileNotFoundError(team_dir / RUN_FILE)
+    run = migrate_run_store(team_dir, run)
     assert_store_is_current(run, team_dir)
 
     sprintengine = run.get("sprintengine") if isinstance(run.get("sprintengine"), dict) else {}
@@ -1229,7 +1344,7 @@ def build_projection(
     folder_store_ready = (team_dir / RUN_FILE).exists() and (team_dir / "tasks").exists()
     if folder_store_ready:
         source = "folder_store"
-        run = load_run_yaml(team_dir)
+        run = migrate_run_store(team_dir, load_run_yaml(team_dir))
         assert_store_is_current(run, team_dir)
         raw_tasks = _tasks_from_folder_store(team_dir)
         tasks = [_normalize_projection_task(task, board_column=str(task.get("folderStatus") or task.get("status") or "todo")) for task in raw_tasks]

@@ -44,13 +44,21 @@ VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "
 # The wire value stays `architect` deliberately: it is read by the renderer, the
 # agent prompts, and every run.yaml already on disk, none of which this change
 # owns. `planner` is accepted as an input alias and normalized to it, so agents in
-# a general-only run can escalate in the vocabulary their prompt gives them.
+# a roleless run can escalate in the vocabulary their prompt gives them.
 VALID_NEEDS_INPUT_KINDS = {"architect", "user"}
 # `planner` is the one alias, and it is live rather than legacy: an agent on a
-# general-only run is given the planner vocabulary and reasonably escalates in it.
+# roleless run is given the planner vocabulary and reasonably escalates in it.
 # The read-side entries for stores that predate the current kinds are gone —
-# schema v4 rejects those stores outright (`assert_store_is_current`).
+# schema v4 and older are rejected outright (`assert_store_is_current`).
 LEGACY_NEEDS_INPUT_KIND_MAP = {"planner": "architect"}
+
+# Ids minted for a run whose agents carry no role (MC-2057). A role-based run
+# still mints `<role>` / `<role>-N`, so these two shapes are the whole of "an id
+# that encodes no role" and the only ids `worker_role` must refuse to guess at.
+# The seat id matches `plans.resolve_coordinator_seat`; the worker prefix is what
+# `getNextSprintEngineAgentId` mints on the app side.
+COORDINATOR_AGENT_ID = "coordinator"
+ROLELESS_WORKER_ID_PREFIX = "agent"
 VALID_NEEDS_INPUT_REASONS = {
     "task_scope",
     "artifact_review",

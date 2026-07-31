@@ -80,7 +80,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "role": {
           "type": "string",
-          "description": "Canonical Sprint Engine role id, after registry alias resolution."
+          "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles."
         }
       }
     }
@@ -91,7 +91,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
     "inputSchema": {
       "type": "object",
       "required": [
-        "role",
         "agentId"
       ],
       "additionalProperties": true,
@@ -102,7 +101,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "role": {
           "type": "string",
-          "description": "Canonical Sprint Engine role id, after registry alias resolution."
+          "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles."
         },
         "agentId": {
           "type": "string",
@@ -135,7 +134,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "role": {
           "type": "string",
-          "description": "Canonical Sprint Engine role id, after registry alias resolution."
+          "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles."
         },
         "reason": {
           "type": "string"
@@ -611,7 +610,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "role": {
           "type": "string",
-          "description": "Canonical Sprint Engine role id, after registry alias resolution."
+          "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles."
         },
         "agentId": {
           "type": "string",
@@ -664,7 +663,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
     "inputSchema": {
       "type": "object",
       "required": [
-        "role",
         "id"
       ],
       "additionalProperties": true,
@@ -675,7 +673,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "role": {
           "type": "string",
-          "description": "Canonical Sprint Engine role id, after registry alias resolution."
+          "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles."
         },
         "id": {
           "type": "string",
@@ -717,8 +715,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
     "inputSchema": {
       "type": "object",
       "required": [
-        "title",
-        "role"
+        "title"
       ],
       "additionalProperties": true,
       "properties": {
@@ -739,7 +736,8 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "type": "string"
         },
         "role": {
-          "type": "string"
+          "type": "string",
+          "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles."
         },
         "repo": {
           "type": "string",
@@ -1073,7 +1071,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "roleId": {
           "type": "string",
-          "description": "Canonical Sprint Engine role id, after registry alias resolution."
+          "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles."
         },
         "pluginRegistryRoots": {
           "type": "array",
@@ -1321,7 +1319,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "roleId": {
           "type": "string",
-          "description": "Canonical Sprint Engine role id, after registry alias resolution."
+          "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles."
         },
         "runId": {
           "type": "string"
@@ -1760,7 +1758,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "role": {
           "type": "string",
-          "description": "Canonical Sprint Engine role id, after registry alias resolution."
+          "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles."
         },
         "status": {
           "type": "string"
@@ -1863,7 +1861,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
     "inputSchema": {
       "type": "object",
       "required": [
-        "role",
         "id"
       ],
       "additionalProperties": true,
@@ -1873,7 +1870,8 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "description": "Run state path; server-resolved, agents normally omit it."
         },
         "role": {
-          "type": "string"
+          "type": "string",
+          "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles."
         },
         "id": {
           "type": "string"

@@ -331,7 +331,9 @@ def apply_source_context_to_task(task: Dict[str, Any], state: Dict[str, Any], st
     ]
     add_unique_values(task, "implementationNotes", notes)
 
-COORDINATOR_AGENT_ID = "coordinator"
+# `COORDINATOR_AGENT_ID` lives in `constants` (re-exported here by the star
+# import) alongside the roleless worker id prefix: `state.worker_role` has to
+# recognise both id shapes and cannot import this module without a cycle.
 
 def resolve_coordinator_seat(state: Dict[str, Any]) -> Dict[str, Optional[str]]:
     """The one seat that plans this run, adjudicates its plan gate, and triages it.
@@ -575,11 +577,6 @@ def ensure_plan_approval_gate(
     plan_authorship = f"{role.capitalize()}-authored active team plan" if role else "Active team plan"
     plan_artifact_title = f"{role.capitalize()} Plan" if role else "Plan"
     role_prefix = f"{role} " if role else ""
-    # Until a task's `role` becomes optional, every task must carry a
-    # registry-known role, so a roleless coordinator's gate falls back to the
-    # soulless `general` id purely to satisfy the schema. Nothing routes on it:
-    # the artifact binding identifies the gate and the seat identifies its owner.
-    task_role = role or "general"
     existing_gate = find_architect_plan_gate(state, state_path)
     plan_task = existing_gate["task"]
     plan_artifact = existing_gate["artifact"]
@@ -592,7 +589,11 @@ def ensure_plan_approval_gate(
             "id": task_id,
             "title": f"Review {role} plan artifact" if role else "Review the plan",
             "description": f"{plan_authorship} at {plan_path_value} and task graph approval gate. Use this exact path; do not read, copy, or overwrite another team's plan.md.",
-            "role": task_role,
+            # The gate carries the seat's role when the seat has one, and NO role
+            # when it does not (MC-2057). Nothing routes on it either way: the
+            # artifact binding identifies the gate (`task_is_coordination`) and the
+            # seat identifies its owner (`actor_is_coordinator`).
+            **({"role": role} if role else {}),
             "status": "in_progress" if start_active else "todo",
             "ownerAgentId": actor if start_active else None,
             "dependsOn": [depends_on] if depends_on else [],
@@ -637,7 +638,7 @@ def ensure_plan_approval_gate(
         apply_source_context_to_task(plan_task, state, state_path)
 
     if plan_task.get("status") in ACTIVE_TASK_STATUSES:
-        mint_lease(plan_task, actor, task_role)
+        mint_lease(plan_task, actor, role)
         stamp_task_execution_identity(state, plan_task)
 
     if plan_artifact is None:

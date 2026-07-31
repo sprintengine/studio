@@ -34,7 +34,7 @@ from sprintengine_core.tool.phase_prompts import (
     build_rework_prompt,
 )
 from sprintengine_core.tool.plans import actor_is_coordinator
-from sprintengine_core.tool.roles import require_configured_role
+from sprintengine_core.tool.roles import optional_configured_role
 from sprintengine_core.tool.shell import commit_task_changes_if_needed
 from sprintengine_core.tool.state import (
     active_module_conflict,
@@ -53,6 +53,7 @@ from sprintengine_core.tool.state import (
     refuse_if_run_canceled,
     release_expired_agent_targets,
     run_is_canceled,
+    task_is_claimable_by_role,
     worker_has_active_lease,
     worker_view,
     with_locked_state,
@@ -98,8 +99,7 @@ def _task_checkout_roots(state: Dict[str, Any], state_path: Any, task: Dict[str,
 
 
 def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
-    if getattr(args, "role", None):
-        args.role = require_configured_role(args.role, context="Task list")
+    args.role = optional_configured_role(getattr(args, "role", None), context="Task list")
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ready_ids = read_ready_task_ids(state)
@@ -113,9 +113,15 @@ def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
             t = tasks_by_id.get(task_id)
             if not t:
                 continue
-            if getattr(args, "role", None) and t.get("role") != args.role:
+            if args.role is not None and not task_is_claimable_by_role(t, args.role):
                 continue
-            ready.append({"id": t.get("id"), "title": t.get("title"), "role": t.get("role"), "status": t.get("status"), "dependsOn": t.get("dependsOn", [])})
+            ready.append({
+                "id": t.get("id"),
+                "title": t.get("title"),
+                **({"role": t.get("role")} if t.get("role") else {}),
+                "status": t.get("status"),
+                "dependsOn": t.get("dependsOn", []),
+            })
         return {"ok": True, "readyTasks": ready, "write": False}
     return with_locked_state(args.state, run)
 
@@ -140,7 +146,7 @@ def _resolve_execution_identity(args: argparse.Namespace) -> Tuple[Optional[str]
 
 
 def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
-    args.role = require_configured_role(args.role, context="Task")
+    args.role = optional_configured_role(args.role, context="Task")
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         # A canceled run dispatches nothing: report it as canceled rather than the
@@ -223,7 +229,7 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
             candidates = []
             for task_id in ready_ids:
                 t = tasks_by_id.get(task_id)
-                if not t or t.get("role") != args.role or not task_is_ready(state, t):
+                if not t or not task_is_claimable_by_role(t, args.role) or not task_is_ready(state, t):
                     continue
                 if session_repo and folder_store.task_repo(t) != session_repo:
                     continue
@@ -325,7 +331,8 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                     "write": runtime["dirty"] or phase_dirty or expired["dirty"],
                 }
             scope = f" in {session_repo}" if session_repo else ""
-            return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks{scope}. Stop.", "releasedExpired": expired["released"], "write": runtime["dirty"] or phase_dirty or expired["dirty"]}
+            lane = f"{args.role} " if args.role else ""
+            return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {lane}tasks{scope}. Stop.", "releasedExpired": expired["released"], "write": runtime["dirty"] or phase_dirty or expired["dirty"]}
 
     return with_locked_state(args.state, run)
 
@@ -624,7 +631,7 @@ def cmd_task_release(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def planner_actionable_needs_input_tasks(state: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """needs_input tasks the run's PLANNER must triage — architect or general."""
+    """needs_input tasks the run's PLANNER must triage — its coordinator seat."""
     tasks = []
     for task in state.get("tasks", []):
         if task.get("status") != "needs_input":
@@ -638,7 +645,7 @@ def planner_actionable_needs_input_tasks(state: Dict[str, Any]) -> List[Dict[str
 
 
 # Legacy alias: the old name asserted the triager is an architect, which is what
-# left general-only runs unable to triage anything.
+# left runs with no architect unable to triage anything.
 architect_actionable_needs_input_tasks = planner_actionable_needs_input_tasks
 
 

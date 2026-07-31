@@ -269,8 +269,11 @@ function testDescribeUnsupportedStoreOnlyJudgesRealProjections(): void {
   assert.equal(describeUnsupportedSprintEngineStore(null, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ tasks: [] }, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ run: [] }, '/team'), null)
+  assert.equal(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 5 } }, '/team'), null)
+  // v4 is readable because the engine migrates it in place on read (MC-2057), so a
+  // projection still stamped v4 must NOT tell the user to delete the sprint.
   assert.equal(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 4 } }, '/team'), null)
-  // v4 is current; v3, v2 and v1 are rejected (MC-1611 / MC-1591 / MC-1542: never migrate).
+  // v3, v2 and v1 are still rejected (MC-1611 / MC-1591 / MC-1542: never migrate).
   assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 3 } }, '/team'))
   assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 2 } }, '/team'))
   assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 1 } }, '/team'))

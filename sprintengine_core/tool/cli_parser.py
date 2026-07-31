@@ -349,7 +349,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # join
     p = sub.add_parser("join", help="Join Sprint Engine as worker, returns full role prompt.")
-    p.add_argument("--role", required=True)
+    p.add_argument("--role", help="Your role. Omit on a roleless run, whose agents carry no role.")
     p.add_argument("--id", required=True, help="Stable agent id, e.g. developer-1.")
     p.set_defaults(handler=run_commands.join)
 
@@ -432,7 +432,7 @@ def build_parser() -> argparse.ArgumentParser:
     task_sub = task_p.add_subparsers(dest="action", required=True)
 
     p = task_sub.add_parser("next", help="Claim the next ready task for your role.")
-    p.add_argument("--role", required=True)
+    p.add_argument("--role", help="Your role. Omit on a roleless run; a roleless claim takes tasks that carry no role.")
     p.add_argument("--id", required=True)
     p.add_argument("--model", help="CLI model to record on the claimed task. Overrides MULTICODE_AGENT_MODEL; Multicode injects that env at launch, so this is for headless/non-Multicode CLI use.")
     p.add_argument("--cli", help="CLI the recorded model belongs to. Overrides MULTICODE_AGENT_CLI.")
@@ -569,7 +569,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--task-id")
     p.add_argument("--title", required=True)
     p.add_argument("--description", default="", help="Concrete task brief for the worker: what changes, target behavior, boundary, non-goals.")
-    p.add_argument("--role", required=True)
+    p.add_argument("--role", help="Role this task is for, from the sprint's enabled roles. Omit on a roleless sprint, or to let any agent take it.")
     p.add_argument("--repo", help="Project this task works in, from the ones the sprint declares. Omit for the sprint's main project.")
     p.add_argument("--depends-on", action="append", default=[])
     p.add_argument("--path", action="append", default=[], help="A module this task owns: a directory relative to the task's project root. Tasks own directories, never files; an entry naming an existing file is refused. Tasks whose modules overlap never run at the same time.")

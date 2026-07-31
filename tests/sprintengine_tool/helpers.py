@@ -104,7 +104,7 @@ class SwarmTeamFixture:
 def task(
     task_id: str,
     title: str,
-    role: str,
+    role: str | None = None,
     status: str = "todo",
     depends_on: list[str] | None = None,
     owner: str | None = None,
@@ -114,7 +114,9 @@ def task(
         "id": task_id,
         "title": title,
         "description": title,
-        "role": role,
+        # Absent role is an OMITTED key (MC-2057), never '' or null, so fixtures
+        # exercise the same wire shape a roleless run actually persists.
+        **({"role": role} if role else {}),
         "status": status,
         "ownerAgentId": owner,
         "dependsOn": depends_on or [],

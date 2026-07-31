@@ -154,8 +154,7 @@ def test_no_roles_formation_plans_through_a_roleless_coordinator(tmp_path) -> No
         "init",
         "--name", "pool-formation",
         "--goal", "Plain agent pool",
-        "--agent", "general:general",
-        "--configured-roles-json", json.dumps(["general"]),
+        "--configured-roles-json", json.dumps([]),
     )
 
     state = read_state(state_path)
@@ -164,8 +163,8 @@ def test_no_roles_formation_plans_through_a_roleless_coordinator(tmp_path) -> No
 
     joined = SprintEngineMcpServer(allowed_roots=[root]).call_tool(
         "sprintengine.agent.join",
-        {"statePath": str(state_path), "role": "general", "agentId": "general"},
-        {"id": "general", "role": "general", "mcpAuthorized": True},
+        {"statePath": str(state_path), "agentId": "coordinator"},
+        {"id": "coordinator", "role": "", "mcpAuthorized": True},
     )
-    assert joined["ok"] is True
-    assert joined["result"]["run"]["configuredRoles"] == ["general"]
+    assert joined["ok"] is True, joined.get("error")
+    assert joined["result"]["run"]["configuredRoles"] == []

@@ -68,9 +68,7 @@ def test_resolve_coordinator_seat_matrix(tmp_path) -> None:
     roleless_seat = {"role": None, "agentId": "coordinator"}
 
     assert resolve_coordinator_seat(roster_state(fixture, "architect", "developer")) == architect_seat
-    # Every roster with no architect coordinates through a seat with NO role —
-    # including a plain-agent run, which used to have to answer `general`.
-    assert resolve_coordinator_seat(roster_state(fixture, "general")) == roleless_seat
+    # Every roster with no architect coordinates through a seat with NO role.
     assert resolve_coordinator_seat(roster_state(fixture, "developer", "tester")) == roleless_seat
     # A recorded EMPTY set is a deliberate choice of no roles…
     assert resolve_coordinator_seat(roster_state(fixture)) == roleless_seat
@@ -185,24 +183,24 @@ def test_architect_plan_gate_is_byte_for_byte_unchanged(tmp_path) -> None:
 
 
 def test_dependency_free_tasks_root_on_a_roleless_plan_gate(tmp_path) -> None:
-    fixture = create_team(tmp_path, "gen-plan-dep", [])
-    state = seed_plan_gate(fixture, "general")
+    fixture = create_team(tmp_path, "roleless-plan-dep", [])
+    state = seed_plan_gate(fixture)
     assert resolve_coordinator_seat(state)["role"] is None
     gate_task_id = find_architect_plan_gate(state, fixture.state_path)["task"]["id"]
 
-    new_task = {"id": "T9", "role": "general", "dependsOn": []}
+    new_task = {"id": "T9", "dependsOn": []}
     apply_plan_gate_dependency(new_task, state, fixture.state_path)
     assert new_task["dependsOn"] == [gate_task_id]
 
     # A task with explicit dependencies is left alone (covered transitively).
-    pre_dep = {"id": "T8", "role": "general", "dependsOn": ["T9"]}
+    pre_dep = {"id": "T8", "dependsOn": ["T9"]}
     apply_plan_gate_dependency(pre_dep, state, fixture.state_path)
     assert pre_dep["dependsOn"] == ["T9"]
 
 
-def test_a_plain_agent_run_self_approves_its_plan_gate(tmp_path) -> None:
-    fixture = create_team(tmp_path, "gen-plan-selfapprove", [])
-    state = seed_plan_gate(fixture, "general")
+def test_a_roleless_run_self_approves_its_plan_gate(tmp_path) -> None:
+    fixture = create_team(tmp_path, "roleless-plan-selfapprove", [])
+    state = seed_plan_gate(fixture)
     plan_task = find_architect_plan_gate(state, fixture.state_path)["task"]
     plan_artifact = get_artifact(state, "A1")
     assert plan_task["id"] == "T0" and plan_artifact["kind"] == "architect_plan"
@@ -215,15 +213,15 @@ def test_a_plain_agent_run_self_approves_its_plan_gate(tmp_path) -> None:
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
     approved = server.call_tool(
         "sprintengine.artifact.approve",
-        {"statePath": str(fixture.state_path), "artifactId": "A1", "id": "general-1"},
-        actor("general-1", "general"),
+        {"statePath": str(fixture.state_path), "artifactId": "A1", "id": "coordinator"},
+        actor("coordinator", ""),
     )
     assert approved["ok"] is True, approved.get("error")
     assert approved["result"]["taskCompleted"] is True
 
     final_state = read_state(fixture.state_path)
     assert get_task(final_state, "T0")["status"] == "done"
-    assert get_artifact(final_state, "A1")["approvedBy"] == "general-1"
+    assert get_artifact(final_state, "A1")["approvedBy"] == "coordinator"
 
 
 def test_the_plan_gate_holds_the_run_until_the_user_approves_the_plan(tmp_path) -> None:

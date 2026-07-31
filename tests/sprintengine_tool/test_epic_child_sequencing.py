@@ -10,7 +10,7 @@ Three engine-side pieces make that possible, and are what these tests pin:
   mockups sharing the bundle, and neither the directive nor the coverage warning
   can count.
 - **the directive.** The plan gate — owned by whichever role plans this run, so
-  a general-only run reads identically — tells the planner one task per child,
+  a roleless run reads identically — tells the planner one task per child,
   title from the item, empty card, modules never files, edges for overlapping
   modules and for authored `dependsOn`.
 - **the coverage warning.** Plan approval names a seeded child no task delivers.
@@ -234,13 +234,13 @@ def test_a_run_with_no_architect_gets_the_same_directive(tmp_path) -> None:
     """`resolve_coordinator_seat` already answers "who coordinates"; the directive
     rides the plan gate, so a run with no architect reads identically."""
     _cli, _state_path, architect_run = _init_epic_run(tmp_path / "architect", roles=["architect", "developer"])
-    _cli, _state_path, general_run = _init_epic_run(tmp_path / "general", roles=["general"])
+    _cli, _state_path, roleless_run = _init_epic_run(tmp_path / "roleless", roles=[])
 
-    assert general_run["planTask"]["role"] == "general"
+    # The roleless gate carries no role at all; the architect gate is unchanged.
+    assert "role" not in roleless_run["planTask"]
     assert architect_run["planTask"]["role"] == "architect"
-    assert general_run["planTask"]["title"] == architect_run["planTask"]["title"]
-    assert general_run["planTask"]["acceptanceCriteria"] == architect_run["planTask"]["acceptanceCriteria"]
-    assert general_run["planTask"]["implementationNotes"] == architect_run["planTask"]["implementationNotes"]
+    assert roleless_run["planTask"]["acceptanceCriteria"] == architect_run["planTask"]["acceptanceCriteria"]
+    assert roleless_run["planTask"]["implementationNotes"] == architect_run["planTask"]["implementationNotes"]
 
 
 # --- the coverage warning -----------------------------------------------------

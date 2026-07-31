@@ -12,7 +12,7 @@ from sprintengine_core.tool.plans import (
     actor_is_coordinator,
     apply_plan_gate_dependency,
 )
-from sprintengine_core.tool.roles import require_configured_role
+from sprintengine_core.tool.roles import optional_configured_role, require_configured_role
 from sprintengine_core.tool.merge_graph import assert_no_repo_dependency_cycle
 from sprintengine_core.tool.state import (
     append_event,
@@ -41,7 +41,7 @@ from sprintengine_core.tool.tasks import (
 )
 
 def cmd_plan_add_task(args: argparse.Namespace) -> Dict[str, Any]:
-    args.role = require_configured_role(args.role, context="Plan task")
+    args.role = optional_configured_role(args.role, context="Plan task")
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ensure_role_in_roster(state, args.role)

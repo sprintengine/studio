@@ -6,7 +6,7 @@ Visibility and authorization share one capability table
 match the table exactly so the two can never drift apart.
 
 MC-1542 collapsed the `reviewer` classification into `owner`. The classifications
-are now `operator | architect | general | owner`, and there is no tool a reviewer
+are now `operator | architect | roleless | owner`, and there is no tool a reviewer
 needs that an owner must not have: one agent owns a task from claim to `done`,
 closing its own phases with `sprintengine.task.advance`. These tests pin that the
 owner surface is exactly `AGENT_COMMON_TOOLS`, that a reviewer role gets the same
@@ -30,6 +30,7 @@ from sprintengine_mcp.capabilities import (
     PLANNING_TOOLS,
     allowed_tools_for_classification,
     classify_role,
+    classify_session,
     clear_role_classification_cache,
 )
 from sprintengine_mcp.http_server import SESSION_HEADER, SprintEngineHttpMcpServer
@@ -161,27 +162,36 @@ def test_listing_matches_capability_table_per_role(tmp_path) -> None:
     assert listed_names(server, None) == set(TOOL_SCHEMAS)
 
 
-def test_general_and_architect_share_one_planning_surface(tmp_path) -> None:
-    """A soulless General plans, builds, and reviews a run by itself. MC-1591
-    deleted the roster-growth tools that were the sole difference between the
-    General and the architect surface, so the two now converge exactly: leases
-    replaced the roster, so there is no team to grow and no fence to enforce. The
-    General needs no registry manifest, and architect classification is unchanged."""
+def test_a_roleless_session_and_architect_share_one_planning_surface(tmp_path) -> None:
+    """A roleless agent plans, builds, and reviews a run by itself. MC-1591 deleted
+    the roster-growth tools that were the sole difference between it and the
+    architect surface, so the two converge exactly: leases replaced the roster, so
+    there is no team to grow and no fence to enforce.
+
+    The discriminator is the SESSION, not the role name (MC-2057): a session with a
+    bound agent id and no role is roleless, while a session with neither is the
+    operator. Collapsing those two would hand every roleless worker the operator
+    surface — `sprintengine.init`, `handover`, `recover` included."""
     clear_role_classification_cache()
-    fixture = create_team(tmp_path, "cap-general", [task("T1", "Work", "developer")])
+    fixture = create_team(tmp_path, "cap-roleless", [task("T1", "Work", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    assert classify_role("general", workspace_root=tmp_path) == "general"
-    # No manifest exists for `general`; recognition is by id alone.
+    assert classify_session(bound_role="", bound_agent_id="agent-1") == "roleless"
+    assert classify_session(bound_role="", bound_agent_id="") == "operator"
     assert classify_role("architect", workspace_root=tmp_path) == "architect"
+    # The deleted fake role no longer classifies as anything special.
+    assert classify_role("general", workspace_root=tmp_path) == "owner"
 
     expected = AGENT_COMMON_TOOLS | PLANNING_TOOLS
-    general = listed_names(server, make_context(fixture, tmp_path, role="general"))
-    architect = listed_names(server, make_context(fixture, tmp_path, role="architect"))
-    assert general == allowed_tools_for_classification("general", TOOL_SCHEMAS)
-    assert general == expected
+    roleless = listed_names(server, make_context(fixture, tmp_path, agent_id="agent-1"))
+    architect = listed_names(server, make_context(fixture, tmp_path, role="architect", agent_id="architect"))
+    assert roleless == allowed_tools_for_classification("roleless", TOOL_SCHEMAS)
+    assert roleless == expected
     # The convergence: identical surfaces, no roster-growth tools on either.
-    assert general == architect
+    assert roleless == architect
+    # And it is NOT the operator surface: run administration stays out.
+    assert roleless != set(TOOL_SCHEMAS)
+    assert "sprintengine.join" not in roleless
 
     # Planning + lifecycle + artifact adjudication surface is present.
     for granted in (
@@ -189,7 +199,7 @@ def test_general_and_architect_share_one_planning_surface(tmp_path) -> None:
         "sprintengine.task.advance",
         "sprintengine.artifact.request_changes",
     ):
-        assert granted in general, granted
+        assert granted in roleless, granted
     # The deleted roster tools are gone from every surface, not merely hidden:
     # MC-1591 took growth/list, MC-1889 took `configure` with the formation.
     for retired in (
@@ -198,35 +208,40 @@ def test_general_and_architect_share_one_planning_surface(tmp_path) -> None:
         "sprintengine.roster.list",
         "sprintengine.roster.configure",
     ):
-        assert retired not in general, retired
+        assert retired not in roleless, retired
         assert retired not in architect, retired
         assert retired not in TOOL_SCHEMAS, retired
 
 
-def test_general_can_plan_and_a_deleted_roster_tool_is_unknown(tmp_path) -> None:
+def test_a_roleless_session_can_plan_and_a_deleted_roster_tool_is_unknown(tmp_path) -> None:
     clear_role_classification_cache()
-    fixture = create_team(tmp_path, "cap-general-calls", [task("T1", "Work", "developer")])
+    fixture = create_team(tmp_path, "cap-roleless-calls", [task("T1", "Work", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    context = make_context(fixture, tmp_path, agent_id="agent-1")
 
     # The roster-growth tools are deleted, not merely withheld: a call to one is an
-    # unknown tool for anyone, general included (leases replaced the roster).
+    # unknown tool for anyone (leases replaced the roster).
     unknown = server.call_tool(
         "sprintengine.roster.add",
-        {"statePath": str(fixture.state_path), "role": "developer"},
-        actor("general-a", "general"),
+        {"role": "developer"},
+        actor("agent-1", ""),
+        context=context,
     )
     assert unknown["ok"] is False
     assert unknown["error"]["code"] == "unknown_tool"
 
-    # The planning surface is reachable for a General: plan.add_task passes the
-    # capability gate and creates the task (recognising `general` as a *task*
-    # role is later work, so this plans a rostered developer task).
+    # The planning surface is reachable for a roleless agent, and the task it plans
+    # may itself carry no role.
     planned = server.call_tool(
         "sprintengine.plan.add_task",
-        {"statePath": str(fixture.state_path), "title": "Planned by General", "role": "developer"},
-        actor("general-a", "general"),
+        {"title": "Planned with no role"},  # statePath comes from the bound session
+        actor("agent-1", ""),
+        context=context,
     )
-    assert planned["ok"] is True
+    assert planned["ok"] is True, planned.get("error")
+    # `plan.add_task` acks rather than echoing the card, so read what it persisted.
+    added = [t for t in read_state(fixture.state_path)["tasks"] if t["title"] == "Planned with no role"]
+    assert len(added) == 1 and "role" not in added[0]
 
 
 def test_hidden_tools_fail_when_called_by_name(tmp_path) -> None:

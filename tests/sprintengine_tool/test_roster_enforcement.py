@@ -70,12 +70,28 @@ def test_ensure_role_in_roster_noop_when_configured_roles_absent() -> None:
     ensure_role_in_roster(state, "security")
 
 
-def test_ensure_role_in_roster_noop_when_configured_roles_empty() -> None:
-    # An explicit empty enabled set cannot be the whole allowed set, so it is
-    # treated as unenforced rather than "admit nothing".
+def test_an_empty_enabled_set_is_a_roleless_run_that_admits_no_named_role() -> None:
+    # MC-2057 inverted this. An explicit empty list is a ROLELESS run — a
+    # deliberate choice of no roles — not an unenforced one. Collapsing it into
+    # None (what it used to do) made a roleless run indistinguishable from a
+    # legacy one and silently stopped rejecting a mistyped role.
     state = configured_state([])
-    ensure_role_in_roster(state, "security")
-    assert configured_role_set(state) is None
+    assert configured_role_set(state) == set()
+
+    # Absent is legal: a roleless task/agent carries no role to validate.
+    ensure_role_in_roster(state, None)
+    ensure_role_in_roster(state, "")
+
+    # Wrong is not: a named role is rejected because the run enables none.
+    with pytest.raises(SystemExit) as error:
+        ensure_role_in_roster(state, "security")
+    assert "not enabled for this run" in str(error.value)
+
+
+def test_absent_role_noops_on_a_role_based_run_too() -> None:
+    # A roleless task in a role-based run means "any agent may take this"; it is
+    # not a role, so there is nothing for the roster boundary to check.
+    ensure_role_in_roster(configured_state(["architect", "developer"]), None)
 
 
 # --- leases: the assignment-uniqueness cap that replaced the seat -------------
