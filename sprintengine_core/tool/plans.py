@@ -420,14 +420,15 @@ def coordinator_brief_block(state: Dict[str, Any], state_path: Path) -> str:
     restated. It states no identity either — a run with no roles must not be
     handed a stand-in persona to reach the seat.
 
-    Source documents are named by path in the block `apply_source_context_to_task`
-    already applies to this same card; this points at that block rather than
-    deriving the paths a second time. A run with no source documents plans from
-    its goal instead, so the line says that rather than pointing at nothing.
+    The starting documents are named by path in the block
+    `apply_source_context_to_task` builds, which the caller appends directly under
+    this one — the paths are never derived a second time here. A run with no source
+    documents plans from its goal instead, so the line says that rather than
+    introducing a list that is not coming.
     """
     starting_point = (
-        "- Start from the documents this card lists as incoming source context: read each in "
-        "full, and create one task per backlog item."
+        "- Start from the source documents listed below: read each in full, and create one "
+        "task per backlog item."
         if source_context_reference_lines(state, state_path)
         else "- Start from this run's goal: create one task for each piece of work it names."
     )
@@ -448,11 +449,12 @@ def apply_coordinator_brief_to_task(task: Dict[str, Any], state: Dict[str, Any],
     role: an architect already carries its role directive and the
     `sprintengine_architect_workflow` host skill, and its card is unchanged.
 
-    Appended last and stripped by heading, so it is idempotent and survives the
-    init branches that rewrite the gate's card wholesale for a given source shape
-    (`commands/run.py`) — those re-apply it after they rebuild the description. A
-    completed gate is left alone: its card is the record of a plan already
-    approved, not a brief anyone is still working from.
+    Call it LAST on the card: it owns the tail — the brief, then the source list
+    the brief introduces — and rebuilds that tail from the card's own copy every
+    time, so it is idempotent and survives the init branches that rewrite the
+    description wholesale for a given source shape (`commands/run.py`), which
+    re-apply it once they have rebuilt it. A completed gate is left alone: its card
+    is the record of a plan already approved, not a brief anyone works from.
     """
     if resolve_coordinator_seat(state)["role"] is not None:
         return
@@ -461,14 +463,27 @@ def apply_coordinator_brief_to_task(task: Dict[str, Any], state: Dict[str, Any],
     if not task_is_coordination(state, state_path, str(task.get("id") or "")):
         return
     description = str(task.get("description") or "").rstrip()
-    # Cut from the heading itself, not from the blank line before it: a card whose
-    # whole description IS the brief has no separator to match on, and would grow a
-    # second copy on every re-apply.
-    previous_brief = description.find(COORDINATOR_BRIEF_HEADING)
-    if previous_brief != -1:
-        description = description[:previous_brief].rstrip()
+    # Cut back to the card's own copy: everything from the first of the two
+    # appended blocks onward, whichever came first. Cutting at the headings rather
+    # than the blank line before them matters for a card whose whole description IS
+    # an appended block — there is no separator there to match on, and it would
+    # grow a second copy on every re-apply.
+    appended = [
+        index
+        for index in (
+            description.find(COORDINATOR_BRIEF_HEADING),
+            description.find(SOURCE_CONTEXT_HEADING),
+        )
+        if index != -1
+    ]
+    if appended:
+        description = description[:min(appended)].rstrip()
     block = coordinator_brief_block(state, state_path)
     task["description"] = f"{description}\n\n{block}" if description else block
+    # The source list is what the line above it introduces, so it is written back
+    # directly under the brief by the one helper that builds it. A run with no
+    # source documents is a no-op there, and the brief says so instead.
+    apply_source_context_to_task(task, state, state_path)
 
 def find_architect_plan_gate(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
     plan_artifact = find_plan_artifact(state, state_path)

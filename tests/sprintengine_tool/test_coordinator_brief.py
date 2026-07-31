@@ -158,10 +158,14 @@ def test_the_brief_survives_the_epic_branch_and_points_at_the_source_documents(t
     description = initialized["planTask"]["description"]
     assert description.startswith("Every open child item of the epic is one task.")
     brief = brief_of(description)
-    assert "this card lists as incoming source context" in brief
-    # Those documents are named by path on the same card, project-root-relative.
-    assert "backlog/epics/auth-revamp.md" in description
-    assert "backlog/login-form.md" in description
+    # The brief introduces the source list, and the list itself follows directly:
+    # one block, written by `apply_source_context_to_task`, never a second copy.
+    assert "Start from the source documents listed below" in brief
+    assert brief.count("Incoming source context for this run:") == 1
+    assert brief.index("Start from the source") < brief.index("Incoming source context")
+    # Project-root-relative paths, never a machine path.
+    assert "- Root handoff (Epic): read `backlog/epics/auth-revamp.md`." in brief
+    assert "- Epic child item (Context): read `backlog/login-form.md`." in brief
     assert str(root) not in description
 
     # A second init (the app re-inits an existing run) neither drops nor doubles it.
