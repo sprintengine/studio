@@ -79,12 +79,12 @@ def load_roleless_soul_prompt(
     An agent with no role carries no role-personality Soul. It still receives the
     full Sprint Engine quality bar — the same universal norm + Multicode product
     skills every dispatched agent gets (product skills gated per run, like a
-    specialist render) — plus the full-loop orchestration skill that drives one
-    agent through plan -> build -> self-review -> test -> publish. There is no
-    manifest to render, so this composes the layer skills directly (in the same
-    ``<skill>`` envelope a soul render uses). Composing it deliberately is what
-    stops the universal norms from being dropped the way a manifest-less role
-    otherwise would fall through to the no-soul fallback.
+    specialist render) — plus the orchestration skill that describes the shape of
+    a roleless run and drives one agent through build -> self-review -> publish.
+    There is no manifest to render, so this composes the layer skills directly
+    (in the same ``<skill>`` envelope a soul render uses). Composing it
+    deliberately is what stops the universal norms from being dropped the way a
+    manifest-less role otherwise would fall through to the no-soul fallback.
 
     ``registry`` lets a workspace-scoped caller (the MCP join) reuse its already
     discovered registry so workspace skill overrides apply, exactly as they do for
