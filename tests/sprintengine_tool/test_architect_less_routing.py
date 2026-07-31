@@ -126,6 +126,13 @@ def test_an_architect_run_still_triages_exactly_as_before(tmp_path) -> None:
     assert [entry["id"] for entry in triaged["tasks"]] == ["T1"]
     assert "You are the Sprint Engine architect" in triaged["prompt"]
 
+    # The join directive is now asked of the AGENT, not its declared role, so the
+    # named seat must still answer for every id the spawner mints into it.
+    for agent_id in ("architect", "architect-2"):
+        joined = fixture.cli.run("join", "--role", "architect", "--id", agent_id)
+        assert joined["action"] == "needs_input_triage", agent_id
+    assert fixture.cli.run("join", "--role", "developer", "--id", "developer-2")["action"] != "needs_input_triage"
+
 
 def test_planner_kind_alias_stores_the_canonical_kind(tmp_path) -> None:
     # `planner` is the vocabulary a run with no architect reaches for. It is accepted and
