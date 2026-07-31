@@ -78,10 +78,7 @@ import { type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTab
 import { SprintEngineRosterPanel } from './newWorkspace/SprintEngineRosterPanel'
 import { SprintEngineToolsPanel } from './newWorkspace/SprintEngineToolsPanel'
 import { SprintEngineStartPanel } from './newWorkspace/SprintEngineStartPanel'
-import {
-  listSprintEngineWizardRoles,
-  sprintEngineRosterHasPlanningRole,
-} from '../../utils/sprintengineRoleOptions'
+import { listSprintEngineWizardRoles } from '../../utils/sprintengineRoleOptions'
 import { mcpServerDisplayName } from '../../utils/mcpDisplayName'
 import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
 import { useBacklogScan } from './newWorkspace/useBacklogScan'
@@ -1370,17 +1367,18 @@ export default function NewWorkspacePanel({
       : seTeamName.trim().length > 0 && seGoal.trim().length > 0)
   const sprintEngineTeamReady =
     sprintEngineAccess.allowed && sePlanReady && seTeamDetailsReady
-  // A new roster in ROLES mode needs at least one agent AND a planning-capable
-  // one (the architect); existing teams were already validated when created. The
-  // stepper floors prevent dropping the last planner interactively, so this is
-  // the defensive gate for loaded/saved counts.
+  // A new roster in ROLES mode needs at least one role staffed — that mode IS
+  // picking roles, so an empty one would silently create the roleless run the
+  // other segment already offers. WHICH roles is entirely the user's: no role is
+  // required, and the run's coordination is a seat rather than a staffed planner
+  // (MC-2055). Existing teams were already validated when created.
   const sprintEngineRosterReady =
     sprintEngineAccess.allowed
     && (seExistingTeam != null
-      // A plain agent pool staffs no role at all and coordinates through the
-      // roleless seat, so the Team page can never block create in pool mode.
+      // A roleless sprint staffs no role at all and coordinates through its own
+      // seat, so the Team page can never block create in that mode.
       || !seUseSpecialistRoles
-      || (totalAgents > 0 && sprintEngineRosterHasPlanningRole(visibleSprintEngineRoleCounts)))
+      || totalAgents > 0)
   // The resolved seed source for the design-system preset. Null means blank
   // start — either chosen deliberately, or because a seed mode is selected but
   // its source is not resolved yet (folder not picked / demo unavailable), in

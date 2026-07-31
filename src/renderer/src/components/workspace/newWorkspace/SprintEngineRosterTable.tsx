@@ -6,7 +6,6 @@ import { CliModelPickerButton, Popover, RoleAvatar, Tooltip } from '../../ui'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
-  isSprintEnginePlanningRole,
   listSprintEngineWizardRoles,
 } from '../../../utils/sprintengineRoleOptions'
 import type {
@@ -147,19 +146,11 @@ export function SprintEngineRosterTable({
             >
               <RoleAvatar role={role} registry={registry} size="md" ariaLabel="" className={isAdded ? undefined : 'opacity-55'} />
               <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2">
-                  <span className={`truncate text-meta font-medium ${isAdded ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
-                    {label}
-                  </span>
-                  {/* Planning roles are badged; the panel's enable handler keeps one
-                      on the team (`sprintEngineRosterRoleFloor`). The predicate has
-                      ONE definition in shared — this file used to carry a third
-                      independent copy of the role-name list. */}
-                  {isSprintEnginePlanningRole(role) ? (
-                    <span className="shrink-0 rounded border border-[color:var(--border-default)] px-1.5 text-micro font-semibold text-[color:var(--text-subtle)]">
-                      Planner
-                    </span>
-                  ) : null}
+                {/* No role is badged as the one that plans: every sprint
+                    coordinates through a seat, so there is nothing to mark
+                    here and nothing floored on (MC-2055). */}
+                <span className={`block truncate text-meta font-medium ${isAdded ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
+                  {label}
                 </span>
                 <span className="mt-0.5 block truncate text-meta text-[color:var(--text-muted)]">{summary}</span>
               </span>

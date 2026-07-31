@@ -1,7 +1,7 @@
 // The sprint wizard's Roster step (MC-1646, mockup §1). One reading column:
-// a segmented control chooses how the roster is formed (pick roles yourself /
-// plain agent pool), the roster is a single dense hairline list summarized by
-// an overlapping glyph stack, and saved rosters collapse into a quiet
+// a segmented control chooses the sprint kind (no roles / pick roles), the
+// roster is a single dense hairline list summarized by an overlapping glyph
+// stack, and saved rosters collapse into a quiet
 // "Roster: <name>" menu instead of a permanent rail. Replaces the old
 // "Your AI team" screen's banner, checkbox card, option cards, and boxed rail.
 
@@ -21,9 +21,7 @@ import type {
 import { SPRINT_ENGINE_ROLELESS_KEY, getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
-  isSprintEnginePlanningRole,
   listSprintEngineWizardRoles,
-  sprintEngineRosterRoleFloor,
 } from '../../../utils/sprintengineRoleOptions'
 import { CheckIcon, ChevronDownIcon } from '../../AppIcons'
 import { CliModelPickerButton, Field, Popover, PrimaryButton, RoleAvatar, SegmentedControl, Switch } from '../../ui'
@@ -40,9 +38,12 @@ import {
 // here so every existing call site's import is unchanged.
 export type { SprintEngineRosterMode }
 
+// The sprint kind, in the user's terms. Roleless is the default and reads
+// first; nothing here asks for a planner, because every sprint coordinates
+// through a seat rather than a staffed role (MC-2055).
 const ROSTER_MODE_HELP: Record<SprintEngineRosterMode, string> = {
-  roles: 'You choose the roles and models below. The architect plans within them.',
-  pool: 'No specialist roles. A pool of plain agents shares one task graph.',
+  pool: 'Agents share one task graph. One of them holds the plan.',
+  roles: 'You choose the roles and models below.',
 }
 
 // Effective launch model for a role: explicit override (string), otherwise the
@@ -146,12 +147,15 @@ export function SprintEngineRosterPanel({
       {onChangeRosterMode ? (
         <>
           <SegmentedControl<SprintEngineRosterMode>
-            ariaLabel="How the roster is formed"
+            ariaLabel="How this sprint is staffed"
             ariaDescribedBy={formationHelpId}
             className="self-start"
             items={[
-              { value: 'roles', label: 'Pick roles yourself' },
-              { value: 'pool', label: 'Plain agent pool' },
+              // Roleless first, because it is the default. Its label is the same
+              // words as the built-in roster pinned first in the saved-rosters
+              // menu — one axis, so one name for it.
+              { value: 'pool', label: 'No roles' },
+              { value: 'roles', label: 'Pick roles' },
             ]}
             value={rosterMode}
             onChange={onChangeRosterMode}
@@ -211,7 +215,6 @@ export function SprintEngineRosterPanel({
                 key={role}
                 role={role}
                 isOn={(roleCounts[role] ?? 0) > 0}
-                floored={sprintEngineRosterRoleFloor(role, roleCounts) > 0}
                 registry={registry}
                 cliOptions={cliOptions}
                 roleCliDefaults={roleCliDefaults}
@@ -231,7 +234,7 @@ export function SprintEngineRosterPanel({
   )
 }
 
-// Overlapping avatar stack summarizing the staffed roles, planner first-class.
+// Overlapping avatar stack summarizing the staffed roles.
 function RoleGlyphStack({
   roles,
   registry,
@@ -256,13 +259,14 @@ function RoleGlyphStack({
   )
 }
 
-// One dense roster row: glyph · name (+ Planner chip) over a full, untruncated
-// description · full-width model chip · switch. Off roles stay visible but
-// muted, with the runtime chip withheld (invisible keeps the columns aligned).
+// One dense roster row: glyph · name over a full, untruncated description ·
+// full-width model chip · switch. Off roles stay visible but muted, with the
+// runtime chip withheld (invisible keeps the columns aligned). Every role
+// switches off freely — no role is floored on, and none is badged as the one
+// that plans (MC-2055).
 function RosterRoleRow({
   role,
   isOn,
-  floored,
   registry,
   cliOptions,
   roleCliDefaults,
@@ -276,8 +280,6 @@ function RosterRoleRow({
 }: {
   role: SprintEngineRoleId
   isOn: boolean
-  /** The roster's last planner cannot be switched off (see sprintEngineRosterRoleFloor). */
-  floored: boolean
   registry: SprintEngineRoleRegistry | null
   cliOptions: SprintEngineCliOption[]
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
@@ -296,19 +298,12 @@ function RosterRoleRow({
     <div className="flex items-center gap-3 border-b border-[color:var(--border-subtle)] py-2">
       <RoleAvatar role={role} registry={registry} size="md" ariaLabel="" className={isOn ? undefined : 'opacity-55'} />
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span
-            className={`text-body ${
-              isOn ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'
-            }`}
-          >
-            {label}
-          </span>
-          {isSprintEnginePlanningRole(role) ? (
-            <span className="shrink-0 rounded border border-[color:var(--border-default)] px-1.5 text-micro font-semibold text-[color:var(--text-subtle)]">
-              Planner
-            </span>
-          ) : null}
+        <span
+          className={`block text-body ${
+            isOn ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'
+          }`}
+        >
+          {label}
         </span>
         <span
           className={`mt-0.5 block text-micro leading-4 ${
@@ -345,7 +340,7 @@ function RosterRoleRow({
       <Switch
         ariaLabel={label}
         checked={isOn}
-        disabled={rosterDisabled || (isOn && floored)}
+        disabled={rosterDisabled}
         onChange={(next) => onSetRoleCount(role, next ? 1 : 0)}
       />
     </div>
@@ -627,7 +622,7 @@ function PlainAgentsPanel({
           <span className="min-w-0">
             <span className="block text-body font-semibold text-[color:var(--text-strong)]">How many agents</span>
             <span className="mt-0.5 block text-micro leading-4 text-[color:var(--text-muted)]">
-              They share one task graph — each plans, builds, reviews, and tests its own work. More agents run at once and finish faster.
+              More agents run at once and finish faster.
             </span>
           </span>
           <div className="flex shrink-0 items-center gap-1">

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { getSprintEngineStartupCommandMode } from './agentPrompt'
 import {
   applyUserDisabledSprintEngineRoleCounts,
@@ -65,8 +67,6 @@ import {
   getSprintEngineWizardRoleSummary,
   listSprintEngineAddableRoles,
   listSprintEngineWizardRoles,
-  sprintEngineRosterHasPlanningRole,
-  sprintEngineRosterRoleFloor,
 } from './sprintengineRoleOptions'
 import {
   buildSprintEnginePlanRevisionForNewMemberPrompt,
@@ -1908,17 +1908,17 @@ const INSTALLED_SPECIALIST_PACK_REGISTRY: SprintEngineRoleRegistry = buildSprint
   assert.deepEqual(listSprintEngineWizardRoles(), [], 'no pack installed means no roster choice')
 }
 
-// Planning-role floor: with `general` deleted, `architect` is the only
-// planning-capable role, so the wizard's remaining "staff a planner" policy
-// reduces to it. Removing that policy outright is MC-2062's (it changes what
-// the wizard asks); this pins what it means today.
+// The planner floor is GONE (MC-2055): the wizard no longer asks anyone to
+// staff a planner, so the module exports neither the predicate nor the floor.
+// Pinned by absence, because a re-added floor would silently pin the architect
+// back on and re-break a roster the user meant to empty.
 {
-  assert.equal(sprintEngineRosterHasPlanningRole({ architect: 1 }), true, 'architect satisfies the planner requirement')
-  assert.equal(sprintEngineRosterHasPlanningRole({ developer: 3 }), false, 'a roster of only workers has no planner')
-  assert.equal(sprintEngineRosterHasPlanningRole({}), false, 'an empty roster has no planner')
-
-  assert.equal(sprintEngineRosterRoleFloor('architect', { architect: 1 }), 1, 'architect floors at 1')
-  assert.equal(sprintEngineRosterRoleFloor('developer', { architect: 1 }), 0, 'worker roles always floor at 0')
+  const roleOptionsSource = readFileSync(
+    join(process.cwd(), 'src/renderer/src/utils/sprintengineRoleOptions.ts'),
+    'utf8',
+  )
+  assert.doesNotMatch(roleOptionsSource, /export function sprintEngineRosterHasPlanningRole/, 'the "must staff a planner" predicate is deleted')
+  assert.doesNotMatch(roleOptionsSource, /export function sprintEngineRosterRoleFloor/, 'the roster role floor is deleted')
 }
 
 // ---------------------------------------------------------------------------

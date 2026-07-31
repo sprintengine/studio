@@ -10,16 +10,12 @@ import {
   orderSprintEngineRosterRoles,
   type SprintEngineAgentRosterItem,
 } from './sprintengine'
-import { isSprintEnginePlanningRole } from './sprintengineInitialSpawns'
 
-// This module used to carry an independent SECOND definition of
-// `isSprintEnginePlanningRole`, keyed off a `SPRINT_ENGINE_PLANNING_ROLE_IDS`
-// constant that also doubled as the wizard's planner floor — the fusion MC-2058
-// removes. The predicate now has one definition, in
-// `shared/sprintengine/initial-spawns.ts`, re-exported here so the wizard's
-// roster surfaces keep one import site. The constant, the `general` role id, and
-// its wizard summary are deleted with `general` itself.
-export { isSprintEnginePlanningRole }
+// This module used to carry the wizard's planner policy — the floor that pinned
+// the architect at 1, the "you must staff a planner" rejection, and the
+// predicate the "Planner" badges read. All of it is gone (MC-2055): a sprint
+// coordinates through a seat rather than a staffed role, so a roster may staff
+// any set of roles or none, and no role is badged as the one that plans.
 
 // Roles the host bundle can resolve with no specialist pack installed. Post
 // un-ship this is empty: every specialist role — architect included — now
@@ -63,24 +59,6 @@ export const BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES: Record<SprintEngineRol
 }
 
 const WIZARD_CUSTOM_REGISTRY_ROLE_SUMMARY = 'Custom registry role.'
-
-// True when the roster staffs a planning-capable agent. A roster that staffs
-// none is a roleless run, which coordinates through its own seat rather than a
-// role — the wizard's remaining "staff a planner" policy is MC-2062's to remove.
-export function sprintEngineRosterHasPlanningRole(
-  roleCounts: Partial<Record<SprintEngineRoleId, number>>,
-): boolean {
-  return (roleCounts.architect ?? 0) > 0
-}
-
-// Minimum count for a role in the wizard roster: the architect floors at 1
-// while it is the only planning-capable role, every other role floors at 0.
-export function sprintEngineRosterRoleFloor(
-  role: SprintEngineRoleId,
-  _roleCounts: Partial<Record<SprintEngineRoleId, number>>,
-): number {
-  return isSprintEnginePlanningRole(role) ? 1 : 0
-}
 
 // Resolve the wizard summary for a role. Bundled roles use the wizard copy;
 // custom registry roles fall back to their registry `description` if present,

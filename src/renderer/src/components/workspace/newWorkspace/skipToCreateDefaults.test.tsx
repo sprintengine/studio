@@ -268,7 +268,10 @@ assert.deepEqual(mutations, [], 'rendering the skipped pages changes no wizard s
 // The plain-agents team page is the stepper + one agent picker, not the
 // specialist roster list.
 assert.ok(teamPage.includes('How many agents'), 'the team page opens on the plain agents stepper')
-assert.ok(teamPage.includes('Plain agent pool'), 'and the segmented control names the pool segment')
+assert.ok(teamPage.includes('How this sprint is staffed'), 'and offers the sprint-kind choice')
+// The roleless segment is the SELECTED one, not merely present: a default that
+// renders the choice but preselects "Pick roles" would pass a presence check.
+assert.match(teamPage, /aria-checked="true"[^>]*>No roles</, 'whose roleless segment is preselected')
 // The agent count the stepper shows IS the default create sends (the plain
 // stepper drives the concurrency cap), so a page showing something else would be
 // showing a value the skipped create never had.
