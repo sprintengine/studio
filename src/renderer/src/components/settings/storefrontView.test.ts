@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import type { MarketplaceRegistryReadResult } from '../../../../shared/electron-api'
 import type { MarketplaceIndex, MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import {
+  componentKindLabels,
   deriveBrowseView,
   externalSourceHref,
   filterPlugins,
@@ -258,6 +259,29 @@ assert.equal(deriveBrowseView({ status: 'unsupported' }, '').status, 'unsupporte
   // carry no source and must show no link).
   assert.equal(externalSourceHref(undefined), undefined)
   assert.equal(externalSourceHref('not a url'), undefined)
+}
+
+{
+  // MC-1531: a module-carrying entry flows through Browse like any other
+  // plugin. Its index name/summary ARE the module manifest's displayName +
+  // summary (the shared authoring projection derives them), so the card leads
+  // with what the module adds — never bundle mechanics — its kind label reads
+  // "Module", and it groups under its own category.
+  const calendar = plugin({
+    id: 'multicode-calendar',
+    name: 'Calendar',
+    summary: 'Adds a calendar workspace type: time-block notes and schedule Backlog items.',
+    category: 'Orchestration',
+    provides: ['module'],
+  })
+  assert.deepEqual(componentKindLabels(calendar.provides), ['Module'])
+  const view = deriveBrowseView(result(okResult([plugin(), calendar])), '')
+  assert.equal(view.status, 'ready')
+  if (view.status !== 'ready') throw new Error('unreachable')
+  const group = view.groups.find((entry) => entry.category === 'Orchestration')
+  assert.ok(group)
+  assert.deepEqual(group!.plugins.map((entry) => entry.name), ['Calendar'])
+  assert.equal(group!.plugins[0].summary, 'Adds a calendar workspace type: time-block notes and schedule Backlog items.')
 }
 
 console.log('storefrontView.test.ts passed')

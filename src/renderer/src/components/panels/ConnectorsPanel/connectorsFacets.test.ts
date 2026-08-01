@@ -406,4 +406,34 @@ assert.deepEqual(sectionConnectors([], 'All'), [])
   assert.ok(moduleEntry.plugin)
 }
 
+// --- module-first card copy + launch exclusion (MC-1531) --------------------
+// A module entry's row fields come straight from the index entry, whose
+// name/summary ARE the module manifest's displayName + summary (the shared
+// authoring projection derives them) — the card leads with what the module
+// adds, never bundle mechanics. Module-only plugins never reach the Featured
+// (launchable) rail, never count toward it, and never enter the connector grid.
+{
+  const calendar = plugin({
+    id: 'multicode-calendar',
+    name: 'Calendar',
+    summary: 'Adds a calendar workspace type: time-block notes and schedule Backlog items.',
+    category: 'Productivity',
+    provides: ['module'],
+  })
+  const [entry] = registryEntriesForKinds([calendar], ['module'])
+  assert.equal(entry.name, 'Calendar')
+  assert.equal(entry.summary, 'Adds a calendar workspace type: time-block notes and schedule Backlog items.')
+  assert.deepEqual(entry.componentLabels, ['Module'])
+  assert.equal(entry.canLaunch, false)
+  assert.deepEqual(filterByFacet([entry], 'Featured'), [])
+  assert.equal(facetCounts([entry]).Featured, 0)
+  assert.deepEqual(buildConnectorEntries([], [calendar], new Set()), [])
+  // A mixed bundle (mcp + module) is a connector too, but its connector row
+  // never launches from the registry side — install still gates launch.
+  const mixed = plugin({ id: 'suite', name: 'Suite', provides: ['mcp', 'module'] })
+  const gridRows = buildConnectorEntries([], [mixed], new Set())
+  assert.deepEqual(gridRows.map((row) => row.id), ['suite'])
+  assert.equal(gridRows[0].canLaunch, false)
+}
+
 console.log('connectors-facets guard passed')

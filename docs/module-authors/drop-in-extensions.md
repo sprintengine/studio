@@ -47,6 +47,51 @@ const result = await workspaces.create({ name: 'Scratch', folderPath: '/abs/path
 The promise resolves only after the workspace is confirmed on the
 workspace-sync bus, so a returned id is always a real workspace.
 
+### Publishing a module to the marketplace
+
+Folder install (above) is the developer loop. To let other users discover and
+install your module from the **Extensions door → Modules** shelf, publish it to
+the marketplace registry as a signed plugin bundle:
+
+1. **Sign the module.** `multicode-module keygen` once, then
+   `multicode-module sign <module-dir> --key <key.pem>` and
+   `multicode-module verify <module-dir>`. Keep the private key out of the
+   module directory and out of version control; modules are code-bearing, so
+   an unsigned module bundle is hard-blocked from install.
+2. **Wrap it in a plugin bundle.**
+   `multicode-module plugin scaffold <plugin-id> --component module`, replace
+   the `module/` placeholder with your packed module
+   (`multicode-module pack <module-dir> --out <staging>`), and fill in
+   `plugin.json` — id, displayName, summary, category, and the same
+   `permissions` your module manifest declares (they are what the install
+   trust prompt shows).
+3. **Sign and check the bundle.**
+   `multicode-module plugin sign <plugin-dir> --key <key.pem>` writes
+   per-component file digests into `plugin.json` and signs it — component
+   bytes can't change afterwards without failing verification. Then
+   `multicode-module plugin verify <plugin-dir>` runs the exact check the app
+   runs at install.
+4. **Open a registry PR.** Add `plugins/<plugin-id>/` (your signed bundle), an
+   `icons/<plugin-id>.svg`, and a `marketplace.json` entry whose
+   `name`/`latest`/`provides`/`signature` match your `plugin.json`
+   byte-for-byte, with a `source` URL on an allowlisted HTTPS host
+   (`github.com` / `raw.githubusercontent.com`). Registry CI runs the same
+   verifier the app build runs (`verify:marketplace-registry`). The full
+   command walkthrough, including the registry-entry shape, lives in
+   [`docs/plugin-authors/README.md`](../plugin-authors/README.md). Registry
+   entries reach the app through the published catalogue snapshot — the app's
+   bundled index is generated from it, so listing follows the next snapshot
+   release rather than the PR merge alone.
+
+What users then see: your module on the Extensions door's **Modules** shelf
+(card copy comes from your module's `displayName` + `summary` — say what it
+adds: workspace type, panels, commands), a trust prompt listing the REAL
+permissions from your verified manifest at install time, and the module in
+Settings → Modules once installed. Signed community bundles install through
+that trust prompt; a publisher key fingerprint listed in
+`trusted-publishers.json` installs without one; unsigned module bundles are
+rejected outright.
+
 ## CLI plugins (BYO CLI)
 
 A CLI plugin adds a new agent CLI (claude-code, codex, opencode, your own). It
