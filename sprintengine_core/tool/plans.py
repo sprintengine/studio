@@ -20,12 +20,13 @@ SOURCE_KIND_LABELS = {
     "design_notes": "Design notes",
     "plan_overview": "Plan overview",
     "generic_context": "Context",
+    "selection": "Selection",
     "unknown": "Source context",
 }
 
 SOURCE_CONTEXT_HEADING = "Incoming source context for this run:"
 
-# A source-bundle entry that IS one of the launched epic's child items, rather
+# A source-bundle entry that IS one of a launched epic's child items, rather
 # than supporting reading material (a mockup, a design system note). Set by the
 # launch paths (backlog item 2018): the desktop panel marks each child it seeds,
 # and an `--source-plan-kind epic` handover marks every `--source` it is given,
@@ -35,6 +36,30 @@ SOURCE_CONTEXT_HEADING = "Incoming source context for this run:"
 EPIC_CHILD_KEY = "epicChild"
 
 EPIC_CHILD_SOURCE_LABEL = "Epic child item"
+
+# The plain-item counterpart on a `selection` run (backlog item 2061): a bundle
+# entry that IS a directly-selected backlog item — a unit of work, but not a
+# child of any selected epic. A directly-selected child of an UNSELECTED epic is
+# a plain item here: `normalize_selection_bundle` settles which marker each work
+# entry honestly carries by reading the item's own `epic:` frontmatter, the same
+# membership signal the live grep uses.
+SELECTED_ITEM_KEY = "selectedItem"
+
+SELECTED_ITEM_SOURCE_LABEL = "Selected item"
+
+# On a selected-epic child entry, the slug of the epic whose membership seeded
+# it — recorded at classification time so the per-epic coverage warning groups
+# without re-reading files at approval.
+EPIC_CHILD_SLUG_KEY = "epicSlug"
+
+# Bundle kinds that are attachments by definition. On a `--source-plan-kind
+# selection` handover every other `--source` entry is a selected work item —
+# the flag combination means "the bundle is the selection", exactly as `epic`
+# means "the bundle is the children".
+SELECTION_READING_KINDS = {"html_mockup", "design_notes", "plan_overview"}
+
+# Root plan kinds whose bundle carries an enumerable work list.
+WORK_LIST_PLAN_KINDS = {"epic", "selection"}
 
 def plan_path_artifact_value(state_path: Path) -> str:
     return normalize_artifact_path(state_path, "plan.md")["path"]
@@ -66,32 +91,119 @@ def source_bundle_items(state: Dict[str, Any], kind: Optional[str] = None) -> Li
     return [item for item in items if item.get("kind") == kind]
 
 def epic_child_source_items(state: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The launched epic's child items, in seed order — the sprint's work list.
+    """Seeded epic-child items, in seed order — part of the sprint's work list.
 
-    Only meaningful on an epic-sourced run: the root plan kind is what makes the
-    bundle a list of children rather than a reading list, so a marked entry on
-    any other run is ignored rather than silently promoted.
+    Only meaningful when the root plan kind carries a work list (`epic`, or a
+    `selection` whose bundle includes epics): the plan kind is what makes the
+    bundle a list of work rather than a reading list, so a marked entry on any
+    other run is ignored rather than silently promoted.
     """
-    if source_plan_kind(state) != "epic":
+    if source_plan_kind(state) not in WORK_LIST_PLAN_KINDS:
         return []
     return [item for item in source_bundle_items(state) if item.get(EPIC_CHILD_KEY) is True]
 
 def epic_child_source_paths(state: Dict[str, Any]) -> List[str]:
     return unique_strings([str(item.get("path") or "") for item in epic_child_source_items(state)])
 
-def epic_child_coverage_warnings(state: Dict[str, Any]) -> List[str]:
-    """Advisory: a seeded child item that no task delivers (backlog item 2018).
-
-    One task per child is the planning contract, and `backlogRef` is the only
-    field that records "this task IS that item" — so an unreferenced child means
-    either work nobody planned or a pointer nobody set. Advisory, never a block:
-    a docs-only or deliberately partial plan is legitimate, and the point is that
-    the gap is a visible decision rather than an accident. Canceled tasks do not
-    count as coverage.
-    """
-    children = epic_child_source_paths(state)
-    if not children:
+def selected_item_source_items(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Directly-selected plain items on a `selection` run (backlog item 2061)."""
+    if source_plan_kind(state) != "selection":
         return []
+    return [item for item in source_bundle_items(state) if item.get(SELECTED_ITEM_KEY) is True]
+
+def selected_item_source_paths(state: Dict[str, Any]) -> List[str]:
+    return unique_strings([str(item.get("path") or "") for item in selected_item_source_items(state)])
+
+def selection_work_entry_paths(state: Dict[str, Any]) -> List[str]:
+    """Every seeded work entry, deduped by path: one minted task per entry."""
+    return unique_strings([*epic_child_source_paths(state), *selected_item_source_paths(state)])
+
+def selected_epic_source_items(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The selected epics themselves — membership scopes, never work entries."""
+    if source_plan_kind(state) != "selection":
+        return []
+    return source_bundle_items(state, "epic")
+
+def selected_epic_slugs(state: Dict[str, Any]) -> List[str]:
+    return unique_strings([
+        Path(str(item.get("path") or "")).stem for item in selected_epic_source_items(state)
+    ])
+
+def backlog_item_epic_slug(path: Path) -> str:
+    """The `epic:` frontmatter value of a backlog item file, or empty.
+
+    The same membership signal as the live pass (`grep -l "^epic: <slug>$"`),
+    read once at classification time.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return ""
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        match = re.match(r"^epic:\s*(\S+)\s*$", line)
+        if match:
+            return match.group(1)
+    return ""
+
+def normalize_selection_bundle(state: Dict[str, Any], state_path: Path) -> None:
+    """Settle a `selection` bundle's work entries: dedupe, then classify.
+
+    Runs on both launch paths (handover-built bundles and app-seeded
+    `--source-bundle-json`) and is idempotent. Work entries are deduped by
+    normalized path — a selection containing an epic AND one of its own
+    children must not list that child twice (`assert_backlog_ref_unclaimed`
+    refuses the double mint at write time; the dedupe keeps the planner's
+    enumerable list from asking for it). Each surviving work entry then gets
+    exactly one honest marker: `epicChild` (+ `epicSlug`) when its own `epic:`
+    frontmatter names a selected epic, `selectedItem` otherwise — so a
+    directly-selected child of an unselected epic reads as the plain item it
+    is here. Unmarked entries are reading material and are left alone.
+    """
+    if source_plan_kind(state) != "selection":
+        return
+    bundle = source_bundle_items(state)
+    if not bundle:
+        return
+    slugs = set(selected_epic_slugs(state))
+    deduped: List[Dict[str, Any]] = []
+    by_path: Dict[str, Dict[str, Any]] = {}
+    for item in bundle:
+        path_value = str(item.get("path") or "").replace("\\", "/")
+        kept = by_path.get(path_value) if path_value else None
+        if kept is None:
+            by_path[path_value] = item
+            deduped.append(item)
+            continue
+        # A duplicate contributes only its work-ness; the first entry stays.
+        if item.get(EPIC_CHILD_KEY) is True or item.get(SELECTED_ITEM_KEY) is True:
+            kept[SELECTED_ITEM_KEY] = True
+    for item in deduped:
+        if item.get("kind") == "epic":
+            # A selected epic is a membership scope, not a work entry.
+            item.pop(EPIC_CHILD_KEY, None)
+            item.pop(SELECTED_ITEM_KEY, None)
+            item.pop(EPIC_CHILD_SLUG_KEY, None)
+            continue
+        if not (item.get(EPIC_CHILD_KEY) is True or item.get(SELECTED_ITEM_KEY) is True):
+            continue
+        path_value = str(item.get("path") or "")
+        slug = backlog_item_epic_slug(source_item_absolute_path(state_path, item, path_value))
+        if slug and slug in slugs:
+            item[EPIC_CHILD_KEY] = True
+            item[EPIC_CHILD_SLUG_KEY] = slug
+            item.pop(SELECTED_ITEM_KEY, None)
+        else:
+            item[SELECTED_ITEM_KEY] = True
+            item.pop(EPIC_CHILD_KEY, None)
+            item.pop(EPIC_CHILD_SLUG_KEY, None)
+    state["sourceBundle"] = deduped
+
+def _delivered_backlog_paths(state: Dict[str, Any]) -> set[str]:
     delivered: set[str] = set()
     for task in state.get("tasks", []) or []:
         if not isinstance(task, dict) or task.get("status") == "canceled":
@@ -99,15 +211,64 @@ def epic_child_coverage_warnings(state: Dict[str, Any]) -> List[str]:
         backlog_ref = task.get("backlogRef")
         if isinstance(backlog_ref, dict):
             delivered.add(str(backlog_ref.get("projectRelativePath") or ""))
-    uncovered = [path for path in children if path not in delivered]
-    if not uncovered:
+    return delivered
+
+def epic_child_coverage_warnings(state: Dict[str, Any]) -> List[str]:
+    """Advisory: a seeded work item that no task delivers (items 2018, 2061).
+
+    One task per item is the planning contract, and `backlogRef` is the only
+    field that records "this task IS that item" — so an unreferenced item means
+    either work nobody planned or a pointer nobody set. Advisory, never a block:
+    a docs-only or deliberately partial plan is legitimate, and the point is that
+    the gap is a visible decision rather than an accident. Canceled tasks do not
+    count as coverage. An epic-sourced run keeps its single aggregate warning; a
+    selection warns per selected epic, plus once for uncovered plain items.
+    """
+    plan_kind = source_plan_kind(state)
+    if plan_kind == "epic":
+        children = epic_child_source_paths(state)
+        if not children:
+            return []
+        delivered = _delivered_backlog_paths(state)
+        uncovered = [path for path in children if path not in delivered]
+        if not uncovered:
+            return []
+        return [
+            "epic_child_uncovered: child item(s) "
+            f"{', '.join(uncovered)} are seeded on this run but no task carries them as its "
+            "backlogRef. Mint one task per child item and point it at the item, or record in "
+            "plan.md why that child is not delivered by this sprint."
+        ]
+    if plan_kind != "selection":
         return []
-    return [
-        "epic_child_uncovered: child item(s) "
-        f"{', '.join(uncovered)} are seeded on this run but no task carries them as its "
-        "backlogRef. Mint one task per child item and point it at the item, or record in "
-        "plan.md why that child is not delivered by this sprint."
-    ]
+    delivered = _delivered_backlog_paths(state)
+    warnings: List[str] = []
+    children = epic_child_source_items(state)
+    for slug in [*selected_epic_slugs(state), ""]:
+        uncovered = unique_strings([
+            str(item.get("path") or "")
+            for item in children
+            if str(item.get(EPIC_CHILD_SLUG_KEY) or "") == slug
+            and str(item.get("path") or "") not in delivered
+        ])
+        if not uncovered:
+            continue
+        epic_clause = f"epic `{slug}` child item(s)" if slug else "child item(s)"
+        warnings.append(
+            f"epic_child_uncovered: {epic_clause} "
+            f"{', '.join(uncovered)} are seeded on this run but no task carries them as its "
+            "backlogRef. Mint one task per child item and point it at the item, or record in "
+            "plan.md why that child is not delivered by this sprint."
+        )
+    uncovered_plain = [path for path in selected_item_source_paths(state) if path not in delivered]
+    if uncovered_plain:
+        warnings.append(
+            "selected_item_uncovered: selected item(s) "
+            f"{', '.join(uncovered_plain)} are seeded on this run but no task carries them as its "
+            "backlogRef. Mint one task per selected item and point it at the item, or record in "
+            "plan.md why that item is not delivered by this sprint."
+        )
+    return warnings
 
 def state_has_source_kind(state: Dict[str, Any], kind: str) -> bool:
     if source_bundle_items(state, kind):
@@ -291,8 +452,10 @@ def source_context_reference_lines(state: Dict[str, Any], state_path: Path) -> L
         # replaces. The document kind is kept in parentheses — a child that is a
         # product plan still reads as one.
         label = SOURCE_KIND_LABELS.get(kind, kind.replace("_", " ").title())
-        if item.get(EPIC_CHILD_KEY) is True and source_plan_kind(state) == "epic":
+        if item.get(EPIC_CHILD_KEY) is True and source_plan_kind(state) in WORK_LIST_PLAN_KINDS:
             label = f"{EPIC_CHILD_SOURCE_LABEL} ({label})"
+        elif item.get(SELECTED_ITEM_KEY) is True and source_plan_kind(state) == "selection":
+            label = f"{SELECTED_ITEM_SOURCE_LABEL} ({label})"
         source_path = (
             source_context_display_path(state_path, item.get("originalPath"))
             or source_context_display_path(state_path, item.get("path"))

@@ -214,7 +214,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
             "goal": {"type": "string"},
             "handoverPath": {"type": "string", "description": "Markdown handoff file to import into the canonical handover.md (or reference in place when reference is true)."},
             "handoverText": {"type": "string", "description": "Inline markdown handoff context to write into the canonical handover.md."},
-            "sourcePlanKind": {"type": "string", "enum": ["unknown", "product_plan", "architect_plan", "epic"]},
+            "sourcePlanKind": {"type": "string", "enum": ["unknown", "product_plan", "architect_plan", "epic", "selection"]},
             "reference": {
                 "type": "boolean",
                 "description": "When true, record handoverPath and every sourceBundle item as project-root-relative references instead of copying them into the run store. The originals stay canonical and are read and updated in place. Used for backlog-sourced sprints (e.g. an epic and its child design documents).",
@@ -226,7 +226,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
                     "properties": {
                         "kind": {
                             "type": "string",
-                            "enum": ["unknown", "product_plan", "architect_plan", "html_mockup", "design_notes", "plan_overview", "generic_context"],
+                            "enum": ["unknown", "product_plan", "architect_plan", "epic", "html_mockup", "design_notes", "plan_overview", "generic_context"],
                         },
                         "sourcePath": {"type": "string"},
                     },

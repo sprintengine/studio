@@ -132,13 +132,18 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
         "--source",
         action="append",
         default=[],
-        help="Additional source bundle item as kind:path. Repeat for product_plan, architect_plan, html_mockup, design_notes, or generic_context.",
+        help="Additional source bundle item as kind:path. Repeat for product_plan, architect_plan, epic, html_mockup, design_notes, or generic_context.",
     )
     p.add_argument(
         "--source-plan-kind",
         default="unknown",
         choices=sorted(VALID_SOURCE_PLAN_KINDS),
-        help="Meaning of the markdown source: unknown, product_plan, architect_plan, or epic.",
+        help=(
+            "Meaning of the markdown source: unknown, product_plan, architect_plan, epic, or selection. "
+            "On `selection` the bundle IS the selection and needs no --handover root: `epic`-kind entries are "
+            "the selected epics, mockup/design-notes entries are reading material, and every other entry is a "
+            "selected work item."
+        ),
     )
     p.add_argument(
         "--reference-sources",

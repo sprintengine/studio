@@ -100,11 +100,16 @@ VALID_ARTIFACT_STATUSES = {"draft", "recorded", "ready_for_review", "approved", 
 # artifact approved before this field existed simply omits it and reads as plain
 # approved.
 VALID_APPROVAL_MODES = {"manual", "policy"}
-# `epic` is a root plan kind only (a backlog epic launched as a reference-based
-# sprint). Children of the epic are recorded as bundle items with their own leaf
-# kinds, never `epic`, so `epic` is deliberately excluded from the bundle kinds.
-VALID_SOURCE_PLAN_KINDS = {"unknown", "product_plan", "architect_plan", "epic"}
-VALID_SOURCE_BUNDLE_KINDS = {"unknown", "product_plan", "architect_plan", "html_mockup", "design_notes", "generic_context"}
+# `epic` is a root plan kind for a single backlog epic launched as a
+# reference-based sprint: the epic is the root source and its children are
+# bundle items with their own leaf kinds. `selection` is the general shape of
+# which that launch is a special case (backlog item 2061): several plain items
+# and several epics seeded into one sprint. A selection has no single root
+# document, so the selected epics ride the bundle as `epic`-kind entries —
+# which is why `epic` IS a valid bundle kind, unlike on an epic launch where
+# the root carries it.
+VALID_SOURCE_PLAN_KINDS = {"unknown", "product_plan", "architect_plan", "epic", "selection"}
+VALID_SOURCE_BUNDLE_KINDS = {"unknown", "product_plan", "architect_plan", "epic", "html_mockup", "design_notes", "generic_context"}
 APPROVAL_BLOCKING_ARTIFACT_STATUSES = VALID_ARTIFACT_STATUSES - {"superseded"}
 FEEDBACK_SCHEMA_VERSION = 4
 FEEDBACK_SCORE_FIELDS = [

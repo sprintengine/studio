@@ -537,7 +537,8 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
             "unknown",
             "product_plan",
             "architect_plan",
-            "epic"
+            "epic",
+            "selection"
           ]
         },
         "reference": {
@@ -555,6 +556,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
                   "unknown",
                   "product_plan",
                   "architect_plan",
+                  "epic",
                   "html_mockup",
                   "design_notes",
                   "plan_overview",

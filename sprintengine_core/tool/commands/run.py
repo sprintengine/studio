@@ -22,7 +22,13 @@ from sprintengine_core.tool.plans import (
     apply_source_context_to_task,
     EPIC_CHILD_KEY,
     EPIC_CHILD_SOURCE_LABEL,
+    SELECTED_ITEM_KEY,
+    SELECTED_ITEM_SOURCE_LABEL,
+    SELECTION_READING_KINDS,
     epic_child_source_paths,
+    normalize_selection_bundle,
+    selected_epic_slugs,
+    selection_work_entry_paths,
     handover_path_for_state,
     import_source_to_team_file,
     parse_source_bundle_arg,
@@ -174,7 +180,22 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
     # children are the sources). Marking them here is what lets the planner
     # enumerate them one-to-one and the coverage warning count them, on the
     # CLI/mobile launch path exactly as on the desktop one (backlog item 2018).
-    bundle_is_epic_children = str(getattr(args, "source_plan_kind", "") or "").strip() == "epic"
+    # On a selection handover the bundle IS the selection (backlog item 2061):
+    # `epic`-kind entries are the selected epics, attachment kinds are reading
+    # material, and every other entry is a selected work item. The marker set
+    # here is provisional — `normalize_selection_bundle` settles each work
+    # entry's honest flavor (epic child vs plain item) from its own `epic:`
+    # frontmatter before the state is written.
+    handover_plan_kind = str(getattr(args, "source_plan_kind", "") or "").strip()
+    bundle_is_epic_children = handover_plan_kind == "epic"
+    bundle_is_selection = handover_plan_kind == "selection"
+
+    def bundle_work_marker(kind: str) -> Dict[str, Any]:
+        if bundle_is_epic_children:
+            return {EPIC_CHILD_KEY: True}
+        if bundle_is_selection and kind != "epic" and kind not in SELECTION_READING_KINDS:
+            return {SELECTED_ITEM_KEY: True}
+        return {}
     if source_specs:
         source_dir: Optional[Path] = None
         used_names: set[str] = set()
@@ -193,7 +214,7 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
                     "origin": "reference",
                     "path": project_relative_display_path(state_path, original_path),
                     "capturedAt": captured_at,
-                    **({EPIC_CHILD_KEY: True} if bundle_is_epic_children else {}),
+                    **bundle_work_marker(spec["kind"]),
                 })
             else:
                 assert source_dir is not None
@@ -206,7 +227,7 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
                     "path": project_relative_display_path(state_path, copied_path),
                     "originalPath": project_relative_display_path(state_path, original_path),
                     "capturedAt": captured_at,
-                    **({EPIC_CHILD_KEY: True} if bundle_is_epic_children else {}),
+                    **bundle_work_marker(spec["kind"]),
                 })
 
     initial: Dict[str, Any] = {
@@ -233,8 +254,19 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
     if source_metadata and (handover_text.strip() or root_is_reference):
         source_metadata["planKind"] = args.source_plan_kind
         initial["source"] = source_metadata
+    elif bundle_is_selection:
+        # A selection has no single root document — the bundle IS the selection.
+        # Record a rootless source so the run still carries its plan kind, which
+        # is what routes init into the selection intake.
+        initial["source"] = {
+            "kind": "selection",
+            "origin": "selection",
+            "planKind": "selection",
+            "capturedAt": captured_at,
+        }
     if source_bundle:
         initial["sourceBundle"] = source_bundle
+    normalize_selection_bundle(initial, state_path)
     # Register the root handoff artifact for a written copy or an in-place
     # reference. References point the approved artifact at the canonical original
     # and carry no fingerprint (there is no snapshot to drift from).
@@ -357,6 +389,10 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             getattr(args, "source_json", None),
             getattr(args, "source_bundle_json", None),
         )
+        # A selection bundle is settled here as well as at handover, so the
+        # app-seeded path (--source-json/--source-bundle-json) gets the same
+        # dedupe and honest per-entry classification. Idempotent.
+        normalize_selection_bundle(state, state_path)
         sprintengine = state.setdefault("sprintengine", {})
         if not sprintengine.get("name"):
             sprintengine["name"] = default_name
@@ -394,6 +430,11 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         # and builds the task graph. It is `epic` only as the root planKind — its
         # children carry their own leaf kinds in the source bundle.
         has_epic_source = source_plan_kind(state) == "epic"
+        # A selection root (backlog item 2061) is the general bundle shape —
+        # several plain items, several epics, one sprint — of which the epic
+        # launch is the single-epic special case. A selection of exactly one
+        # epic still arrives as `epic` and takes the branch above this one.
+        has_selection_source = source_plan_kind(state) == "selection"
         existing_plan_gate = find_architect_plan_gate(state, state_path)
         if existing_plan_gate["task"] and not any(
             isinstance(task, dict) and task.get("role") == "product"
@@ -424,12 +465,12 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             has_product_reviewer = (
                 "product" in seeded_roles if seeded_roles else not roster_is_configured(state)
             )
-        # An epic source only opens a product intake gate when a child is itself a
-        # product plan; otherwise the architect plans directly from the epic's
-        # design docs. Non-epic behavior is unchanged.
+        # An epic or selection source only opens a product intake gate when a
+        # seeded document is itself a product plan; otherwise the planner works
+        # directly from the seeded design docs. Non-epic behavior is unchanged.
         should_create_product_gate = has_product_reviewer and (
             has_product_plan_source
-            or (not has_architect_plan_source and not has_epic_source)
+            or (not has_architect_plan_source and not has_epic_source and not has_selection_source)
         )
         product_gate = (
             ensure_product_intake_gate(state, state_path, "sprintengine")
@@ -596,6 +637,70 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 # wrong on both timing and reversibility: it stamps `completed` onto
                 # a branch that has not merged, and once an item reads `completed`
                 # neither the landing pass nor the cancel restore will touch it again.
+                *source_bundle_reference_notes(state, state_path),
+            ]
+            apply_source_context_to_task(plan_task, state, state_path)
+            refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
+        elif has_selection_source:
+            # Reference-based mixed-selection launch (backlog item 2061): the
+            # selected backlog items and epics are the canonical plan, the
+            # general shape of which the single-epic branch above is the special
+            # case. Same posture as that branch: plan.md is a thin manifest, the
+            # items are the specs, the planner SEQUENCES the selection into a
+            # task graph — one task per selected work item (a plain item, or an
+            # open child of a selected epic), deduped, the item staying the spec.
+            plan_task = plan_gate["task"]
+            epic_slugs = selected_epic_slugs(state)
+            plan_task["title"] = "Sequence the selected items into a task graph"
+            plan_task["description"] = (
+                "Every selected work item is one task — a selected backlog item, or an open child "
+                "item of a selected epic. Review every referenced document against the current "
+                "codebase, update stale or incomplete design content in the backlog files "
+                f"themselves, then write {plan_path_artifact_value(state_path)} as a manifest that "
+                "references each source document (project-root-relative), and mint exactly one task "
+                "per selected work item. Spend your planning effort on the graph — ordering, "
+                "concurrency, dependencies — not on rewriting content the items already carry."
+            )
+            plan_task["acceptanceCriteria"] = [
+                *([
+                    "Every open child item of every selected epic is enumerated (children are the backlog items whose `epic:` frontmatter names the epic slug) and each is read in full; directly-selected items are a fixed list and each is read in full.",
+                ] if epic_slugs else [
+                    "Every selected item is read in full; the selection is a fixed list with no epic membership to enumerate.",
+                ]),
+                "Exactly one task is minted per selected work item: no item is split across tasks, no task covers two items, and an item that is both selected directly and a child of a selected epic is minted once.",
+                "Every minted task carries its work item as its backlogRef (--backlog-ref) and as its sourceDocs entry (--source-doc), and takes its title from the item.",
+                "Minted tasks carry no description and no acceptance criteria: the item is the spec, and the card is the execution record.",
+                "Every minted task declares the modules it works in (--path, directory paths); no minted task declares a file path.",
+                "Tasks whose modules overlap carry an ordering edge between them; tasks with disjoint modules carry none, so they run concurrently.",
+                "An item's `dependsOn` frontmatter is reproduced as a dependency edge between the tasks minted for those items.",
+                "Each work item is verified against the current codebase; stale, missing, or incorrect design content is updated in the backlog files themselves, not re-authored into plan.md.",
+                "plan.md is a manifest: it references every source document by project-root-relative path with a per-document verification note, and adds only cross-cutting decisions, risks, and the task graph summary.",
+                "The plan artifact is marked ready for user approval after review.",
+            ]
+            membership_greps = "; ".join(
+                f"`grep -l \"^epic: {slug}$\" backlog/*.md`" for slug in epic_slugs
+            )
+            plan_task["implementationNotes"] = [
+                *([
+                    f"This task's incoming source context lists every selected work item as `{EPIC_CHILD_SOURCE_LABEL}` or `{SELECTED_ITEM_SOURCE_LABEL}`; mint exactly one task per entry so labelled. Entries with any other label are reading material, not work."
+                ] if selection_work_entry_paths(state) else []),
+                # Membership is re-read for exactly the selected epics — twice,
+                # as on the epic launch: before the graph is finished, and again
+                # at close via the terminal task. Directly-selected items are a
+                # fixed list and get no membership pass.
+                *([
+                    "Re-check live membership of each selected epic before you finish — nothing about an epic is frozen at launch: "
+                    f"{membership_greps}. A child added since launch is minted like any other. "
+                    "Directly-selected items are a fixed list and get no membership pass.",
+                    "Write the same live-membership pass into the acceptance of the run's terminal integration-review task, so it runs again at close: re-read `epic:` membership for each selected epic named above, and file a task for any child that appeared after the graph was approved or state that none did. Fold it into that task — do not add a separate mechanism.",
+                ] if epic_slugs else []),
+                "Take each task's title from its item. Leave the description and acceptance criteria empty: --source-doc injects the item into the worker's claim prompt as read-in-full context, so restating it in the card only creates a second version to drift.",
+                "Cross-task contracts, decisions, and risks belong in the plan.md manifest, not in the minted cards.",
+                "Infer each task's modules from its item — package or directory level, never a file. A loose, honest guess is the target; this does not need to be precise.",
+                "Serialize tasks whose modules overlap with a dependency edge. A task's commit sweeps everything dirty inside its modules, so two tasks sharing one never run at the same time; the edge records the order you intend instead of leaving the engine to pick one.",
+                "In worktree-mode runs, edit the copies of the backlog files in their own project's worktree so design updates ride that project's run branch and pull request.",
+                "Do not copy valid design prose into plan.md; the manifest only references the design documents and records verification, decisions, risks, and the task graph summary.",
+                "Additional relevant documents (design systems, mockups, Knowledge Graph notes) may be added to the manifest as project-root-relative references.",
                 *source_bundle_reference_notes(state, state_path),
             ]
             apply_source_context_to_task(plan_task, state, state_path)
