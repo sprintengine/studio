@@ -30,7 +30,6 @@ import {
   buildSprintEngineRoleRegistry,
   getUserDisabledSprintEngineRoleIds,
 } from '../../../utils/sprintengine'
-import { sprintEngineRosterRoleFloor } from '../../../utils/sprintengineRoleOptions'
 import {
   resolveAvailableAgentCli,
   type AgentCliCatalogOption,
@@ -283,18 +282,14 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
       // uninstalled agent on a machine that lacks it.
       [role]: current[role] ?? resolveAvailableAgentCli('claude-code', cliOptions, 'claude-code'),
     }))
-    setRoleCounts((current) => {
-      // Floor against the current counts so a planning role (architect/general)
-      // can only drop to 0 while the other planner is staffed — the roster
-      // never loses its last planning-capable agent. Counts are an enabled-set
-      // encoding (MC-1450): every role is 0 or 1; parallelism comes from the
-      // max-parallel-agents knob + mint-on-demand, not headcounts.
-      const min = sprintEngineRosterRoleFloor(role, current)
-      return {
-        ...current,
-        [role]: Math.max(min, Math.min(1, Math.floor(count))),
-      }
-    })
+    setRoleCounts((current) => ({
+      ...current,
+      // Counts are an enabled-set encoding (MC-1450): every role is 0 or 1;
+      // parallelism comes from the max-parallel-agents knob + mint-on-demand,
+      // not headcounts. No role is floored on — a roster staffing nothing is a
+      // roleless sprint, not an invalid one (MC-2055).
+      [role]: Math.max(0, Math.min(1, Math.floor(count))),
+    }))
   }, [cliOptions, onDetachFromExistingRun])
 
   const onSetRoleCli = useCallback((role: SprintEngineRoleId, cli: AgentCli) => {

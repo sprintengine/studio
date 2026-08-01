@@ -10,8 +10,20 @@
 // single-owner tasks) deleted quality gates and the
 // `changes_requested`/`testing`/`product` statuses; v3 (MC-1591, leases replace
 // the roster) removed the persistent `agents` map from run.yaml; v4 (MC-1611,
-// multi-repo runs) made `vcs.repos` the run's declared repo list.
-export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 4
+// multi-repo runs) made `vcs.repos` the run's declared repo list; v5 (MC-2057,
+// roleless runs) made a task's `role` optional and deleted the `general` role.
+// v5 is the one step the engine MIGRATES rather than rejects (`migrate_run_store`),
+// so a v4 store is upgraded on read and never reaches this guard.
+export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 5
+
+// MIRRORS `MIGRATABLE_RUN_SCHEMA_VERSION` in sprintengine_core/store.py: the
+// oldest store this build can still OPEN, because the engine upgrades it in place
+// on read. It is deliberately a separate constant from the version above — the
+// renderer reads `projection.json` off disk, and a projection still stamped v4
+// (written before the engine re-projected) describes a run that opens fine. Judging
+// it by the current version alone would tell the user to delete a sprint that is
+// merely one read away from being migrated.
+export const SPRINT_ENGINE_MIN_READABLE_RUN_SCHEMA_VERSION = 4
 
 /**
  * Reject an out-of-date run store, returning a readable message (or null when the
@@ -23,6 +35,10 @@ export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 4
  * disk without going through Python, so this guard — not the Python loader — is
  * what stops the board, wizard, backlog links, run index, and module mount from
  * silently rendering gate-era data.
+ *
+ * The floor is `SPRINT_ENGINE_MIN_READABLE_RUN_SCHEMA_VERSION`, not the current
+ * version: the one step the engine migrates rather than rejects (v4 -> v5) must not
+ * be reported here as an unopenable store.
  *
  * A projection carrying a `run` object with no `schemaVersion` predates the field
  * and is therefore version 1. A payload with no `run` object at all is not a
@@ -36,7 +52,7 @@ export function describeUnsupportedSprintEngineStore(projection: unknown, teamDi
   if (!run || typeof run !== 'object' || Array.isArray(run)) return null
   const rawVersion = (run as { schemaVersion?: unknown }).schemaVersion
   const version = typeof rawVersion === 'number' && Number.isFinite(rawVersion) ? rawVersion : 1
-  if (version >= SPRINT_ENGINE_RUN_SCHEMA_VERSION) return null
+  if (version >= SPRINT_ENGINE_MIN_READABLE_RUN_SCHEMA_VERSION) return null
   return (
     `This sprint was created by an older version of Multicode (run store v${version}, ` +
     `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Sprints can now span more ` +

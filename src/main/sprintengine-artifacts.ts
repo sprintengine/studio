@@ -135,7 +135,10 @@ type SerializableSprintEngineStatePayload = {
    */
   baseStartPoint: string | null
   roleRuntimes: Record<string, { model?: string | null; cli?: string | null; reasoning?: string | null }>
-  enabledRoles: string[]
+  // `null` = the caller named no role set (legacy/headless; every role boundary
+  // no-ops); `[]` = an explicit roleless run. The engine separates the two by
+  // the PRESENCE of `configuredRoles`, so this flag must too (MC-2057).
+  enabledRoles: string[] | null
   // `null` = absent (engine default applies); `[]` = an explicit no-review run.
   defaultPhases: string[] | null
   source: SprintEngineStateInitializeSource | null
@@ -495,12 +498,15 @@ function resolveInitSourceBundle(
     .filter((item): item is SprintEngineStateInitializeSourceBundleItem => item !== null)
 }
 
-// The enabled role ids (architect always included) forwarded to Python init as
-// `configuredRoles`. Trim, drop empties, and dedupe while preserving order so
-// the run.yaml list is stable; an empty result sends no flag (the architect
-// then seats the team itself under the lazy roster).
-function resolveEnabledRoles(input: SprintEngineStateInitializeInput['enabledRoles']): string[] {
-  if (!Array.isArray(input)) return []
+// The enabled role ids forwarded to Python init as `configuredRoles`. Trim,
+// drop empties, and dedupe while preserving order so the run.yaml list is
+// stable. A caller that passed NO array gets `null` (no flag, so the run records
+// no role set at all); a caller that passed an EMPTY one keeps `[]` and the flag
+// IS sent — that is a roleless run, and collapsing it into "unconfigured" would
+// seat an architect it never staffed and stop every role boundary rejecting a
+// mistyped role.
+function resolveEnabledRoles(input: SprintEngineStateInitializeInput['enabledRoles']): string[] | null {
+  if (!Array.isArray(input)) return null
   const seen = new Set<string>()
   const out: string[] = []
   for (const role of input) {
@@ -578,17 +584,28 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   for (const repo of payload.repos) {
     args.push('--repo', `${repo.id}=${repo.root}`)
   }
+  // One `--agent <role>:<id>` per seeded agent — the flag that records
+  // `rosterConfigured`. A seat with NO role sends an EMPTY prefix
+  // (`:coordinator`) instead of being dropped, so a roleless run still records
+  // itself as roster-configured (MC-2057); same wire form
+  // `buildSprintEngineRosterCommandArgs` already produces. Only a run that
+  // declares its role set can have a known-roleless seat: with `configuredRoles`
+  // absent the engine seats an architect, so a legacy caller's role-less agent
+  // stays skipped and that run keeps reading as unconfigured.
+  const declaresRoleSet = payload.enabledRoles !== null
   for (const [agentId, agent] of Object.entries(payload.agents)) {
     if (!agent || typeof agent !== 'object' || Array.isArray(agent)) continue
     const role = (agent as Record<string, unknown>).role
-    if (typeof role === 'string' && role.trim()) {
-      args.push('--agent', `${role.trim()}:${agentId}`)
-    }
+    const roleId = typeof role === 'string' ? role.trim() : ''
+    if (roleId) args.push('--agent', `${roleId}:${agentId}`)
+    else if (declaresRoleSet) args.push('--agent', `:${agentId}`)
   }
   if (Object.keys(payload.roleRuntimes).length > 0) {
     args.push('--role-runtimes-json', JSON.stringify(payload.roleRuntimes))
   }
-  if (payload.enabledRoles.length > 0) {
+  // `[]` must reach the engine (an explicit roleless run), so this branches on
+  // presence, not truthiness, exactly like `defaultPhases` below.
+  if (payload.enabledRoles !== null) {
     args.push('--configured-roles-json', JSON.stringify(payload.enabledRoles))
   }
   // `[]` must reach the engine (an explicit no-review run), so this branches on

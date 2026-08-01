@@ -11,19 +11,26 @@
  */
 import assert from 'node:assert/strict'
 import type {
+  SprintEngineRoleId,
+  SprintEngineRuntimeAgent,
   SprintEngineState,
   SprintEngineTask,
   SprintEngineWorkspaceView,
 } from './run-types'
 import {
   computeSprintEngineDemand,
+  findSprintEngineWakeCandidateTaskForAgent,
+  getSprintEngineWakeCandidateTasks,
   pickNextAutoRuns,
+  pickSprintEngineBootstrapCandidate,
   planSprintEngineDispatch,
   resolveSprintEngineSessionCwd,
   sprintEngineDemandKey,
   sprintEngineRepoIdForSessionCwd,
+  sprintEngineWakeRestrictionTaskId,
   sprintEngineWorkerRepoId,
 } from './auto-run'
+import { sprintEngineRoleKey, sprintEngineTaskRoutesToCoordinator } from './state'
 
 function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
   return {
@@ -215,6 +222,25 @@ function testDemandKeyIsRoleAndRepo(): void {
   assert.equal(sprintEngineDemandKey(task({ role: 'developer', repo: 'primary' })), 'developer')
   assert.equal(sprintEngineDemandKey(task({ role: 'developer', repo: '' })), 'developer')
   assert.equal(sprintEngineDemandKey({ role: 'developer' } as SprintEngineTask), 'developer')
+
+  // A roleless task keys to its own stable group (MC-2057). It must never be
+  // `String(undefined)`, and it must never merge with a named role's group — a
+  // run staffing `developer` alone carries both kinds of task, and merging them
+  // would spawn a developer session to serve work no developer is meant to take.
+  const rolelessKey = sprintEngineDemandKey(task({ role: undefined, repo: 'primary' }))
+  assert.equal(rolelessKey.includes('undefined'), false, 'the roleless key never stringifies undefined')
+  assert.notEqual(rolelessKey, '', 'the roleless key is not the empty string that `worker_role` uses for "unknown"')
+  assert.notEqual(rolelessKey, 'developer', 'the roleless key does not collide with a role id')
+  assert.equal(
+    sprintEngineDemandKey(task({ role: undefined, repo: '' })),
+    rolelessKey,
+    'the roleless key is stable across repo spellings of primary',
+  )
+  assert.equal(
+    sprintEngineDemandKey(task({ role: undefined, repo: 'mobile' })),
+    `${rolelessKey}@mobile`,
+    'roleless work still groups per repo',
+  )
 }
 
 function testComputeDemandGroupsReadyUnownedWorkByKey(): void {
@@ -258,7 +284,7 @@ function testComputeDemandHonoursACustomKeyFunction(): void {
       task({ id: 'D2', role: 'developer', repo: 'mobile' }),
     ],
   })
-  const oneGroup = computeSprintEngineDemand(state, (t) => t.role)
+  const oneGroup = computeSprintEngineDemand(state, (t) => sprintEngineRoleKey(t.role))
   assert.deepEqual([...oneGroup.keys()], ['developer'], 'a role-only key collapses both repos into one group')
 }
 
@@ -278,7 +304,7 @@ function testDemandKeyChangesSpawnGrouping(): void {
     ],
   })
 
-  const byRole = pickNextAutoRuns(workspaceFixture(), state, pickOptions({ limit: 2, demandKeyFn: (t) => t.role }))
+  const byRole = pickNextAutoRuns(workspaceFixture(), state, pickOptions({ limit: 2, demandKeyFn: (t) => sprintEngineRoleKey(t.role) }))
   assert.deepEqual(byRole.map((run) => run.taskId), ['A1', 'A2'], 'role key: one group, oldest two tasks covered')
 
   const byRepo = pickNextAutoRuns(workspaceFixture(), state, pickOptions({ limit: 2 }))
@@ -460,6 +486,498 @@ function testFinishedTaskScopedWorkerIsTornDownOnFirstIdleTick(): void {
   assert.equal((plan.retirements[0].data as { reason?: string }).reason, 'task_scoped_terminal_state')
 }
 
+// --- MC-2050: dispatch routes on coordination, not on the role name ---------
+
+/** A run that staffs NO roles: its coordinator seat carries no role at all. */
+function rolelessStateFixture(overrides: Partial<SprintEngineState> = {}): SprintEngineState {
+  return stateFixture({ configuredRoles: [], ...overrides })
+}
+
+/**
+ * The live plan artifact whose `taskId` binding IS the coordination marker.
+ * `path` is load-bearing (MC-2053): the predicate mirrors `find_plan_artifact`,
+ * which counts only an `architect_plan` pointing at the run's OWN plan.md.
+ */
+function planArtifact(taskId: string): SprintEngineState['artifacts'][number] {
+  return { id: 'A-plan', kind: 'architect_plan', title: 'Plan', path: 'plan.md', taskId, status: 'approved' } as never
+}
+
+function rolelessAgent(overrides: Record<string, unknown> = {}): SprintEngineRuntimeAgent {
+  return { status: 'idle', currentTaskId: null, ...overrides } as SprintEngineRuntimeAgent
+}
+
+function testRolelessReadyTasksFanOutOneWorkerEach(): void {
+  // The MC-2050 defect: on a roleless run every task carried the same (absent)
+  // role as the coordinator, so every one took the coordination branch, resolved
+  // to the single seated agent, and the whole graph ran strictly sequentially
+  // (`first-run-without-a-wizard`: four independent tasks, five dispatches, all
+  // to one id). Owned modules are DISJOINT on purpose — overlapping ownedPaths
+  // serialise legitimately at claim time, which would prove nothing here.
+  const state = rolelessStateFixture({
+    tasks: [
+      task({ id: 'T0', role: undefined, status: 'done', boardColumn: 'done' }),
+      task({ id: 'T1', role: undefined, ownedPaths: ['src/a'] }),
+      task({ id: 'T2', role: undefined, ownedPaths: ['src/b'] }),
+      task({ id: 'T3', role: undefined, ownedPaths: ['src/c'] }),
+    ],
+    artifacts: [planArtifact('T0')],
+    sprintEngineAgents: { coordinator: rolelessAgent({ lastOwnedTaskId: 'T0' }) },
+  })
+
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickOptions())
+  assert.deepEqual(
+    candidates.map((candidate) => candidate.taskId).sort(),
+    ['T1', 'T2', 'T3'],
+    `every ready task is dispatched this pass; candidates=${JSON.stringify(candidates)}`,
+  )
+  assert.equal(
+    new Set(candidates.map((candidate) => candidate.agentId)).size,
+    3,
+    `one distinct worker per task, not one id repeated; candidates=${JSON.stringify(candidates)}`,
+  )
+  assert.equal(
+    candidates.some((candidate) => candidate.agentId === 'coordinator'),
+    false,
+    'work never queues behind the coordinator seat',
+  )
+  assert.equal(
+    candidates.every((candidate) => candidate.role === undefined),
+    true,
+    'roleless work dispatches with no role, never a stand-in',
+  )
+}
+
+function testRolelessCoordinationTaskKeepsThePersistentSeat(): void {
+  // MC-1454 preserved for the right reason: the coordination task routes to the
+  // seat because it IS the coordination job, so sequential coordination tasks
+  // share one id — even though the seat has already owned a task, which is what
+  // excludes an ordinary worker from a new claim.
+  const state = rolelessStateFixture({
+    tasks: [
+      task({ id: 'T-gate', role: undefined, ownedPaths: [] }),
+      task({ id: 'T-work', role: undefined, ownedPaths: ['src/a'] }),
+    ],
+    artifacts: [planArtifact('T-gate')],
+    sprintEngineAgents: { coordinator: rolelessAgent({ lastOwnedTaskId: 'T-earlier' }) },
+  })
+
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickOptions())
+  assert.equal(
+    candidates.find((candidate) => candidate.taskId === 'T-gate')?.agentId,
+    'coordinator',
+    `the coordination task keeps the persistent seat; candidates=${JSON.stringify(candidates)}`,
+  )
+  assert.notEqual(
+    candidates.find((candidate) => candidate.taskId === 'T-work')?.agentId,
+    'coordinator',
+    'ordinary work beside it is still task-scoped',
+  )
+}
+
+function testArchitectRunDispatchIsUnchanged(): void {
+  // The named-role clause is what keeps a role-based run byte-identical: an
+  // architect-assigned task that is NOT the plan gate still routes to the one
+  // warm architect, never `architect-N`. Real runs on disk carry exactly that
+  // shape (multi-repo-sprints T5/T11/T14, backlog-sourced-sprints T12).
+  const state = stateFixture({
+    configuredRoles: ['architect', 'developer'],
+    tasks: [
+      task({ id: 'T-signoff', role: 'architect', ownedPaths: ['docs'] }),
+      task({ id: 'T-work', role: 'developer', ownedPaths: ['src'] }),
+    ],
+    artifacts: [planArtifact('T0')],
+    sprintEngineAgents: {
+      architect: { role: 'architect', status: 'idle', currentTaskId: null, lastOwnedTaskId: 'T0' } as SprintEngineRuntimeAgent,
+    },
+  })
+
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickOptions())
+  assert.equal(
+    candidates.find((candidate) => candidate.taskId === 'T-signoff')?.agentId,
+    'architect',
+    `a non-gate architect task stays on the warm architect; candidates=${JSON.stringify(candidates)}`,
+  )
+  assert.equal(
+    candidates.find((candidate) => candidate.taskId === 'T-work')?.agentId,
+    'developer-1',
+    'specialist work is task-scoped and mints its own worker',
+  )
+}
+
+function testRolelessRunBootstrapsItsCoordinatorSeat(): void {
+  // The load-bearing fourth site: the bootstrap used to resolve its planner by
+  // role, so a run staffing none stalled `no_planner` before dispatch was ever
+  // reached — the epic would have appeared to fail for an unrelated reason.
+  const bootstrapOptions = { runningAgentIds: new Set<string>(), inFlightSpawnKeys: new Set<string>() }
+  const roleless = pickSprintEngineBootstrapCandidate(
+    workspaceFixture(),
+    rolelessStateFixture({ sprintEngineAgents: { coordinator: rolelessAgent() } }),
+    bootstrapOptions,
+  )
+  assert.equal(roleless.kind, 'spawn', `a roleless run bootstraps rather than stalling; decision=${JSON.stringify(roleless)}`)
+  if (roleless.kind === 'spawn') {
+    assert.equal(roleless.candidate.agentId, 'coordinator')
+    assert.equal(roleless.candidate.role, undefined, 'the seat carries no role into the spawn')
+  }
+
+  // A store that recorded no role set at all is legacy/headless, not roleless:
+  // it keeps its architect seat.
+  const legacy = pickSprintEngineBootstrapCandidate(
+    workspaceFixture(),
+    stateFixture({
+      sprintEngineAgents: {
+        architect: { role: 'architect', status: 'idle', currentTaskId: null } as SprintEngineRuntimeAgent,
+      },
+    }),
+    bootstrapOptions,
+  )
+  assert.equal(legacy.kind, 'spawn')
+  if (legacy.kind === 'spawn') assert.equal(legacy.candidate.agentId, 'architect')
+
+  // A roster that seats its architect under a SUFFIXED id still bootstraps: a
+  // named seat answers for `architect-1` too, which is why the lookup falls back
+  // to the seat question rather than requiring the deterministic id.
+  const suffixed = pickSprintEngineBootstrapCandidate(
+    workspaceFixture(),
+    stateFixture({
+      configuredRoles: ['architect'],
+      sprintEngineAgents: {
+        'architect-1': { role: 'architect', status: 'idle', currentTaskId: null } as SprintEngineRuntimeAgent,
+      },
+    }),
+    bootstrapOptions,
+  )
+  assert.equal(suffixed.kind, 'spawn', `a suffixed architect seat bootstraps; decision=${JSON.stringify(suffixed)}`)
+  if (suffixed.kind === 'spawn') assert.equal(suffixed.candidate.agentId, 'architect-1')
+
+  // A roster with neither is the broken store `no_planner` was written for.
+  const noSeat = pickSprintEngineBootstrapCandidate(
+    workspaceFixture(),
+    rolelessStateFixture({
+      sprintEngineAgents: { 'agent-1': rolelessAgent() },
+    }),
+    bootstrapOptions,
+  )
+  assert.deepEqual(noSeat, { kind: 'stall', reason: 'no_planner' }, 'a minted worker never bootstraps in the seat\'s place')
+}
+
+function testMintedRolelessWorkerIsTaskScopedForWakeAndRevival(): void {
+  // A minted roleless worker carries no role, exactly like the roleless
+  // coordinator — so only the SEAT (asked by id) may be exempt from MC-1444
+  // task-scoping, or the worker would be woken for, and revived onto, work it
+  // never owned.
+  const state = rolelessStateFixture({
+    tasks: [
+      task({ id: 'T1', role: undefined, status: 'done', boardColumn: 'done' }),
+      task({ id: 'T2', role: undefined, ownedPaths: ['src/b'] }),
+    ],
+    artifacts: [planArtifact('T0')],
+    sprintEngineAgents: { 'agent-1': rolelessAgent({ lastOwnedTaskId: 'T1' }) },
+  })
+  assert.equal(
+    sprintEngineWakeRestrictionTaskId('agent-1', state.sprintEngineAgents['agent-1'], state),
+    'T1',
+    'a used roleless worker is restricted to its own task',
+  )
+  assert.equal(
+    sprintEngineWakeRestrictionTaskId('coordinator', rolelessAgent({ lastOwnedTaskId: 'T1' }), state),
+    null,
+    'the seat is unrestricted — the only difference from the worker above is its id',
+  )
+
+  const plan = planSprintEngineDispatch({
+    workspace: workspaceFixture({ agents: { 'agent-1': { id: 'agent-1', name: 'agent-1' } } } as never),
+    sprintEngineState: state,
+    now: Date.now(),
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn'] as const) as never,
+  })
+  assert.deepEqual(
+    plan.respawns.map((respawn) => respawn.agentId),
+    [],
+    `a departed roleless worker is not revived onto another task's work; respawns=${JSON.stringify(plan.respawns)}`,
+  )
+}
+
+function testDepartedCoordinatorIsRevivedOnlyForCoordinatorRoutedWork(): void {
+  // The seat keeps its persistent revival (MC-1454) — and only for work that
+  // routes to it. A role comparison would have revived the roleless coordinator
+  // onto the first ready task of "its role", which on a roleless run is every
+  // task in the graph.
+  const state = rolelessStateFixture({
+    tasks: [
+      task({ id: 'T-work', role: undefined, ownedPaths: ['src/a'] }),
+      task({ id: 'T-gate', role: undefined, ownedPaths: [] }),
+    ],
+    artifacts: [planArtifact('T-gate')],
+    sprintEngineAgents: { coordinator: rolelessAgent({ lastOwnedTaskId: 'T-earlier' }) },
+  })
+
+  const plan = planSprintEngineDispatch({
+    workspace: workspaceFixture({ agents: { coordinator: { id: 'coordinator', name: 'Coordinator' } } } as never),
+    sprintEngineState: state,
+    now: Date.now(),
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn'] as const) as never,
+  })
+  assert.deepEqual(
+    plan.respawns.map((respawn) => [respawn.agentId, respawn.taskId]),
+    [['coordinator', 'T-gate']],
+    `the seat is revived for the coordination task, never for the work task listed before it; respawns=${JSON.stringify(plan.respawns)}`,
+  )
+}
+
+// --- MC-2050: wake asks the same routing rule dispatch does -----------------
+
+/**
+ * What wake asked before the routing rule reached it: role equality, with the
+ * seat left unrestricted. Kept here as an executable statement of the old
+ * behaviour so "the architect path is unchanged" is asserted against it rather
+ * than against a remembered claim.
+ */
+function legacyWakeMatch(candidate: SprintEngineTask, role: SprintEngineRoleId | undefined): boolean {
+  return candidate.role === role
+}
+
+function testRolelessWakeOffersTheSeatOnlyCoordinationWork(): void {
+  // F2: on a roleless run the seat and every work task both carry NO role, so
+  // `absent === absent` matched and the (deliberately unrestricted) seat was
+  // offered ordinary work that dispatch fans out to task-scoped workers. The
+  // work task is listed FIRST so a role-equality match would return it.
+  const work = task({ id: 'T-work', role: undefined, ownedPaths: ['src/a'] })
+  const gate = task({ id: 'T-gate', role: undefined, ownedPaths: [] })
+  const state = rolelessStateFixture({
+    tasks: [work, gate],
+    artifacts: [planArtifact('T-gate')],
+    sprintEngineAgents: {
+      coordinator: rolelessAgent({ lastOwnedTaskId: 'T-earlier' }),
+      'agent-1': rolelessAgent(),
+    },
+  })
+  const wakeTasks = getSprintEngineWakeCandidateTasks(state)
+  assert.deepEqual(wakeTasks.map((candidate) => candidate.id), ['T-work', 'T-gate'], 'both tasks are claimable wake work')
+
+  const seatWake = (tasks: SprintEngineTask[]): string | undefined =>
+    findSprintEngineWakeCandidateTaskForAgent(tasks, undefined, 'coordinator', new Set(), null, 'primary', state)?.id
+
+  assert.equal(
+    seatWake([work]),
+    undefined,
+    'the idle roleless coordinator is offered NO wake candidate for an unowned ordinary task',
+  )
+  assert.equal(legacyWakeMatch(work, undefined), true, 'and role equality is exactly what used to offer it')
+  assert.equal(seatWake(wakeTasks), 'T-gate', 'it is still offered the coordination task, listed second')
+  assert.equal(
+    sprintEngineWakeRestrictionTaskId('coordinator', state.sprintEngineAgents.coordinator, state),
+    null,
+    'the seat stays unrestricted — MC-1454 revival for the next coordination task is untouched',
+  )
+
+  // The mirror image: coordination work is the seat's alone, so a minted worker
+  // is never woken onto it. Wake now answers exactly what dispatch answers.
+  const workerWake = (tasks: SprintEngineTask[]): string | undefined =>
+    findSprintEngineWakeCandidateTaskForAgent(tasks, undefined, 'agent-1', new Set(), null, 'primary', state)?.id
+  assert.equal(workerWake(wakeTasks), 'T-work', 'a minted roleless worker is offered the ordinary task')
+  assert.equal(workerWake([gate]), undefined, 'and never the coordination task the seat owns')
+  for (const candidate of wakeTasks) {
+    assert.equal(
+      seatWake([candidate]) !== undefined,
+      sprintEngineTaskRoutesToCoordinator(candidate, state),
+      `wake and dispatch agree on ${candidate.id}`,
+    )
+  }
+}
+
+function testRolelessCoordinatorIsNotWokenForOrdinaryWorkEndToEnd(): void {
+  // The planner-level statement of the same thing: the symptom F2 reported was a
+  // wake PASTE landing in the persistent seat's terminal for another task's work.
+  // The shape is a run mid-flight — the gate is done, its plan artifact still
+  // live, and the seat idle beside ready implementation work.
+  const now = Date.now()
+  const state = rolelessStateFixture({
+    tasks: [
+      task({ id: 'T-gate', role: undefined, status: 'done', boardColumn: 'done' }),
+      task({ id: 'T-work', role: undefined, ownedPaths: ['src/a'] }),
+    ],
+    artifacts: [planArtifact('T-gate')],
+    sprintEngineAgents: { coordinator: rolelessAgent({ lastOwnedTaskId: 'T-earlier' }) },
+  })
+  const plan = planSprintEngineDispatch({
+    workspace: workspaceFixture({ agents: { coordinator: { id: 'coordinator', name: 'Coordinator' } } } as never),
+    sprintEngineState: state,
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(['coordinator']),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['task_wake'] as const) as never,
+  })
+  assert.deepEqual(
+    plan.pastes.map((paste) => paste.agentId),
+    [],
+    `no wake paste re-serialises ordinary work onto the seat; pastes=${JSON.stringify(plan.pastes)}`,
+  )
+}
+
+function testArchitectRunWakeIsUnchanged(): void {
+  // Acceptance: the architect path answers exactly as it did before, asserted
+  // against `legacyWakeMatch` rather than against re-stated expectations. The
+  // named clause is what makes the two agree there — the seat's role IS
+  // `architect`, so role equality and the routing rule select the same work.
+  // The GATE is in the matrix too, and it is the one shape where the two rules
+  // could disagree: a coordination task routes to the seat whatever role it
+  // wears, so a plan-bound task wearing `developer` would be offered to the
+  // architect where role equality would not have offered it. That state is
+  // unreachable — `ensure_plan_approval_gate` writes the gate with the SEAT's
+  // role, which on an architect run is `architect` — so the gate is pinned here
+  // in the shape the engine actually produces.
+  const gate = task({ id: 'T-gate', role: 'architect', ownedPaths: [] })
+  const signoff = task({ id: 'T-signoff', role: 'architect', ownedPaths: ['docs'] })
+  const work = task({ id: 'T-work', role: 'developer', ownedPaths: ['src'] })
+  const state = stateFixture({
+    configuredRoles: ['architect', 'developer'],
+    tasks: [gate, signoff, work],
+    artifacts: [planArtifact('T-gate')],
+    sprintEngineAgents: {
+      architect: { role: 'architect', status: 'idle', currentTaskId: null, lastOwnedTaskId: 'T0' } as SprintEngineRuntimeAgent,
+      'developer-1': { role: 'developer', status: 'idle', currentTaskId: null } as SprintEngineRuntimeAgent,
+    },
+  })
+  assert.equal(sprintEngineTaskRoutesToCoordinator(gate, state), true, 'the gate is the coordination task on this run')
+  const agents: [string, SprintEngineRoleId | undefined][] = [
+    ['architect', 'architect'],
+    ['architect-2', 'architect'],
+    ['developer-1', 'developer'],
+  ]
+  for (const [agentId, role] of agents) {
+    for (const candidate of [gate, signoff, work]) {
+      assert.equal(
+        findSprintEngineWakeCandidateTaskForAgent([candidate], role, agentId, new Set(), null, 'primary', state) !== undefined,
+        legacyWakeMatch(candidate, role),
+        `${agentId} on ${candidate.id} answers exactly as the pre-change role comparison did`,
+      )
+    }
+  }
+}
+
+// --- MC-2057: coordinator engagement asks the seat, not the role name -------
+
+/**
+ * The idle_retire skip that keeps the triage seat alive. Returns the plan for a
+ * run whose only blocker is one architect-KIND `needs_input` task, with
+ * `seatAgentId` live, idle, unclaimed, and well past the 5-minute window.
+ */
+function triageRetirementPlan(input: {
+  configuredRoles?: string[]
+  seatAgentId: string
+  seatRole?: string
+}): ReturnType<typeof planSprintEngineDispatch> {
+  const now = Date.now()
+  const state = stateFixture({
+    ...(input.configuredRoles ? { configuredRoles: input.configuredRoles as never } : {}),
+    tasks: [
+      task({
+        id: 'T-blocked',
+        role: undefined,
+        status: 'needs_input',
+        boardColumn: 'needs_input',
+        ownerAgentId: 'worker-1',
+        needsInput: { kind: 'architect', reason: 'plan ambiguity' },
+      } as never),
+    ],
+    sprintEngineAgents: {
+      [input.seatAgentId]: {
+        ...(input.seatRole ? { role: input.seatRole } : {}),
+        status: 'idle',
+        currentTaskId: null,
+        currentDispatch: null,
+      },
+    } as never,
+  })
+  const workspace = workspaceFixture({
+    agents: { [input.seatAgentId]: { id: input.seatAgentId, name: input.seatAgentId } },
+  } as never)
+
+  return planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: state,
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set([input.seatAgentId]),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    idleClock: new Map([[`${workspace.sprintEngineContext?.statePath}:${input.seatAgentId}`, now - 60 * 60_000]]),
+    retirementCooldown: new Map(),
+    taskScopedRetirementTaskIds: new Map(),
+    paths: new Set(['idle_retire'] as const) as never,
+  })
+}
+
+function testRolelessCoordinatorIsNotRetiredWhileTriageWorkIsPending(): void {
+  // The F1 gap: the skip was `runtimeAgent.role === 'architect'`, so a roleless
+  // coordinator was retired WHILE its own architect-KIND blocker waited. A
+  // needs_input task carries an owner, so nothing re-engages anyone afterwards
+  // — the blocker stuck permanently.
+  const plan = triageRetirementPlan({ configuredRoles: [], seatAgentId: 'coordinator' })
+
+  assert.deepEqual(
+    plan.retirements.map((retirement) => retirement.agentId),
+    [],
+    `the roleless seat survives its own pending triage; retirements=${JSON.stringify(plan.retirements)}`,
+  )
+  assert.ok(
+    plan.skips.some((skip) => (skip.data as { agentId?: string; reason?: string }).reason === 'architect-triage-work'),
+    `and states why; skips=${JSON.stringify(plan.skips)}`,
+  )
+}
+
+function testArchitectSeatRetirementSkipIsUnchanged(): void {
+  // The named seat answers the same on both id shapes it is seated into, which
+  // is what the role comparison used to cover.
+  for (const agentId of ['architect', 'architect-2']) {
+    const plan = triageRetirementPlan({
+      configuredRoles: ['architect', 'developer'],
+      seatAgentId: agentId,
+      seatRole: 'architect',
+    })
+    assert.deepEqual(
+      plan.retirements.map((retirement) => retirement.agentId),
+      [],
+      `${agentId} still holds its triage work; retirements=${JSON.stringify(plan.retirements)}`,
+    )
+  }
+
+  // A task-scoped worker on the same run is NOT the seat and is still retired.
+  const workerPlan = triageRetirementPlan({
+    configuredRoles: ['architect', 'developer'],
+    seatAgentId: 'developer-1',
+    seatRole: 'developer',
+  })
+  assert.deepEqual(
+    workerPlan.retirements.map((retirement) => retirement.agentId),
+    ['developer-1'],
+    `a non-seat idle worker is unaffected by pending triage; skips=${JSON.stringify(workerPlan.skips)}`,
+  )
+}
+
+function testMintedRolelessWorkerIsRetiredWhileTriageWorkIsPending(): void {
+  // The mistake the id-aware seat test exists to prevent: `agent-1` must never
+  // read as the roleless seat, or every idle worker on a blocked run would be
+  // kept alive forever.
+  const plan = triageRetirementPlan({ configuredRoles: [], seatAgentId: 'agent-1' })
+  assert.deepEqual(
+    plan.retirements.map((retirement) => retirement.agentId),
+    ['agent-1'],
+    `a minted roleless worker is not mistaken for the seat; skips=${JSON.stringify(plan.skips)}`,
+  )
+}
+
 function main(): void {
   testResolveSessionCwdWorktreeMode()
   testResolveSessionCwdCurrentWorkspaceWhenNoWorktree()
@@ -478,6 +996,18 @@ function main(): void {
   testReleasedTaskGetsAFreshMint()
   testUnownedNeedsInputTaskIsNotARevivalTarget()
   testFinishedTaskScopedWorkerIsTornDownOnFirstIdleTick()
+  testRolelessReadyTasksFanOutOneWorkerEach()
+  testRolelessCoordinationTaskKeepsThePersistentSeat()
+  testArchitectRunDispatchIsUnchanged()
+  testRolelessRunBootstrapsItsCoordinatorSeat()
+  testMintedRolelessWorkerIsTaskScopedForWakeAndRevival()
+  testRolelessWakeOffersTheSeatOnlyCoordinationWork()
+  testRolelessCoordinatorIsNotWokenForOrdinaryWorkEndToEnd()
+  testArchitectRunWakeIsUnchanged()
+  testDepartedCoordinatorIsRevivedOnlyForCoordinatorRoutedWork()
+  testRolelessCoordinatorIsNotRetiredWhileTriageWorkIsPending()
+  testArchitectSeatRetirementSkipIsUnchanged()
+  testMintedRolelessWorkerIsRetiredWhileTriageWorkIsPending()
   console.log('auto-run.test.ts: all tests passed')
 }
 

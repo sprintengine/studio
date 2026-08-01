@@ -37,7 +37,8 @@ export { formatTimestamp }
 export type RuntimeAgentView = {
   agentId: string
   label: string
-  role: SprintEngineRoleId
+  /** Absent on a roleless run's agents (MC-2057). */
+  role?: SprintEngineRoleId
   status: string
   currentTaskId: string | null
 }

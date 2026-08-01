@@ -158,6 +158,21 @@ async function main(): Promise<void> {
     assert.deepEqual(wizard().roleCounts, manager().roleCounts)
   })
 
+  await check('SEAM: the architect switches off — no role is floored on', async () => {
+    const wizard = await captureEditor(wizardOptions)
+    // Precondition: the specialist roster held behind the pool segment staffs it.
+    assert.equal(wizard().roleCounts.architect, 1, 'precondition: the architect starts on')
+
+    await act(async () => { wizard().onSetRoleCount('architect', 0) })
+    await settle()
+
+    // MC-2055 deleted `sprintEngineRosterRoleFloor`, which pinned this to 1 and
+    // made the switch inert. A roster staffing nothing is a roleless sprint, not
+    // an invalid one, so the count must actually reach 0 — the source-absence
+    // pin in sprintengine.test.ts cannot show that the switch now works.
+    assert.equal(wizard().roleCounts.architect, 0, 'the architect can be switched off')
+  })
+
   await check('SEAM: a roster saved in one surface reaches the other, live', async () => {
     const author = await captureEditor(wizardOptions)
     const reader = await captureEditor(wizardOptions)

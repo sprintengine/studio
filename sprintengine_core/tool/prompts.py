@@ -15,7 +15,7 @@ from sprintengine_core.role_registry import (
     normalize_role_id,
 )
 from sprintengine_core.skill_layers import (
-    SPRINTENGINE_GENERAL_WORKFLOW_SKILL,
+    SPRINTENGINE_ROLELESS_WORKFLOW_SKILL,
     SPRINTENGINE_NORM_SKILLS,
     knowledge_root_is_configured,
     multicode_layer_skills_for_run,
@@ -28,7 +28,7 @@ SPRINTENGINE_IMPLEMENTATION_ROLES = {"blog_writer", "creative", "developer", "de
 
 
 def load_soul_prompt(
-    role: str,
+    role: Optional[str],
     *,
     backlog_sourced: bool = True,
     knowledge_root_configured: Optional[bool] = None,
@@ -41,11 +41,12 @@ def load_soul_prompt(
     # for CLI/stdio composition, overridden by the HTTP run context.
     if knowledge_root_configured is None:
         knowledge_root_configured = knowledge_root_is_configured()
-    if normalize_role_id(role) == "general":
-        # `general` has no role manifest; render its soulless layer (norms +
-        # orchestration) so this shared chokepoint never drops the norms for a
-        # General on the CLI-join or plan-review composition paths.
-        return load_general_soul_prompt(
+    if not str(role or "").strip():
+        # No role at all (MC-2057). There is no manifest to render, so render the
+        # roleless layer (norms + orchestration) instead — this shared chokepoint
+        # must never drop the norms for a roleless agent on the CLI-join or
+        # plan-review composition paths.
+        return load_roleless_soul_prompt(
             backlog_sourced=backlog_sourced,
             knowledge_root_configured=knowledge_root_configured,
         )
@@ -67,23 +68,23 @@ def load_soul_prompt(
         return None
 
 
-def load_general_soul_prompt(
+def load_roleless_soul_prompt(
     registry: Optional[RegistryDiscovery] = None,
     *,
     backlog_sourced: bool = True,
     knowledge_root_configured: Optional[bool] = None,
 ) -> Optional[str]:
-    """Render the soulless General's quality + orchestration layer.
+    """Render a roleless agent's quality + orchestration layer.
 
-    A General carries no role-personality Soul. It still receives the full Sprint
-    Engine quality bar — the same universal norm + Multicode product skills every
-    dispatched agent gets (product skills gated per run, like a specialist render) —
-    plus the full-loop orchestration skill that drives one agent through plan ->
-    build -> self-review -> test -> publish. The General role has no manifest, so
-    this composes the layer skills directly (in the same ``<skill>`` envelope a
-    soul render uses) instead of rendering a soul. Composing it deliberately is
-    what stops the universal norms from being dropped the way a manifest-less role
-    otherwise would fall through to the no-soul fallback.
+    An agent with no role carries no role-personality Soul. It still receives the
+    full Sprint Engine quality bar — the same universal norm + Multicode product
+    skills every dispatched agent gets (product skills gated per run, like a
+    specialist render) — plus the orchestration skill that describes the shape of
+    a roleless run and drives one agent through build -> self-review -> publish.
+    There is no manifest to render, so this composes the layer skills directly
+    (in the same ``<skill>`` envelope a soul render uses). Composing it
+    deliberately is what stops the universal norms from being dropped the way a
+    manifest-less role otherwise would fall through to the no-soul fallback.
 
     ``registry`` lets a workspace-scoped caller (the MCP join) reuse its already
     discovered registry so workspace skill overrides apply, exactly as they do for
@@ -92,8 +93,8 @@ def load_general_soul_prompt(
     registry = registry if registry is not None else discover_role_registry()
     if knowledge_root_configured is None:
         knowledge_root_configured = knowledge_root_is_configured()
-    general_skills = (
-        SPRINTENGINE_GENERAL_WORKFLOW_SKILL,
+    roleless_skills = (
+        SPRINTENGINE_ROLELESS_WORKFLOW_SKILL,
         *multicode_layer_skills_for_run(
             backlog_sourced=backlog_sourced,
             knowledge_root_configured=knowledge_root_configured,
@@ -101,7 +102,7 @@ def load_general_soul_prompt(
         *SPRINTENGINE_NORM_SKILLS,
     )
     parts: list[str] = []
-    for raw_skill in general_skills:
+    for raw_skill in roleless_skills:
         skill_id = normalize_role_id(raw_skill)
         entry = registry.skills.get(skill_id)
         if entry is None or not isinstance(entry.value, SkillDocument):
@@ -121,7 +122,7 @@ def load_sprintengine_runtime_skill(skill_id: str) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-def sprintengine_runtime_skill_ids(role: str) -> list[str]:
+def sprintengine_runtime_skill_ids(role: Optional[str]) -> list[str]:
     skill_ids = ["sprintengine_workflow"]
     if role == "architect":
         skill_ids.append("sprintengine_architect_workflow")
@@ -130,11 +131,26 @@ def sprintengine_runtime_skill_ids(role: str) -> list[str]:
     return skill_ids
 
 
-def generic_role_swarm_prompt(role: str) -> str:
+def generic_role_swarm_prompt(role: Optional[str]) -> str:
     # Role identity + the claim payload shape only. Claim/publish/advance,
     # owned-path, evidence, and quality mechanics are owned by the
     # `sprintengine_workflow` runtime skill and the shared norm skills — never
     # restate them here (prompt-layer policy: one behavior, one layer).
+    if not str(role or "").strip():
+        # No role to name and no role to filter by (MC-2057). Deliberately states
+        # no identity: this sprint has no roles, so inventing one here would put
+        # back the stand-in the engine just deleted.
+        return "\n\n".join([
+            "# Sprint Agent",
+            "",
+            (
+                "This sprint runs no roles. Follow the Sprint Engine coordination rules for all task, "
+                "artifact, evidence, and handoff mechanics. Claim work with `sprintengine.task.next` "
+                "using `{ id: \"<your-id>\" }`; it resumes your active task or claims the next ready "
+                "one, and every ready task is claimable by any agent. Do not run `sprintengine` shell "
+                "commands for autonomous work — the CLI is reserved for human and debug operators."
+            ),
+        ])
     return "\n\n".join([
         f"# {role.replace('_', ' ').title()}",
         "",
@@ -143,15 +159,15 @@ def generic_role_swarm_prompt(role: str) -> str:
             "domain judgment and the Sprint Engine coordination rules for all task, artifact, "
             "evidence, and handoff mechanics. Claim work with `sprintengine.task.next` using "
             f"`{{ role: \"{role}\", id: \"<your-id>\" }}`; it resumes your active task or claims the "
-            "next ready one, and you work only tasks assigned exactly to your role. Do not run "
-            "`sprintengine` shell commands for autonomous work — the CLI is reserved for human and "
-            "debug operators."
+            "next ready one, and you work tasks assigned to your role plus tasks carrying no role. "
+            "Do not run `sprintengine` shell commands for autonomous work — the CLI is reserved for "
+            "human and debug operators."
         ),
     ])
 
 
 def architect_role_catalog(
-    role: str,
+    role: Optional[str],
     staffed_roles: Iterable[str],
     *,
     discovery: Optional[RegistryDiscovery] = None,
@@ -161,10 +177,10 @@ def architect_role_catalog(
     Only the architect picks who does what, so only its brief carries this. A
     role's capabilities are prose (MC-1831): the manifest `description` is
     rendered verbatim and nothing in the engine derives behaviour from its text.
-    A staffed id with no manifest (`general`, a pack the user removed) is skipped
-    rather than guessed at.
+    A staffed id with no manifest (a pack the user removed) is skipped rather than
+    guessed at.
     """
-    if normalize_role_id(role) != "architect":
+    if normalize_role_id(str(role or "")) != "architect":
         return None
     resolved = discovery if discovery is not None else discover_role_registry()
     seen: set[str] = set()
@@ -197,9 +213,16 @@ def architect_role_catalog(
     ])
 
 
-def load_sprintengine_coordination_prompt(role: str, *, role_catalog: Optional[str] = None) -> str:
-    path = PROMPTS_DIR / f"{role}.md"
-    role_prompt = path.read_text(encoding="utf-8").strip() if path.exists() else generic_role_swarm_prompt(role)
+def load_sprintengine_coordination_prompt(role: Optional[str], *, role_catalog: Optional[str] = None) -> str:
+    # A roleless dispatch has no per-role prompt file to look up; it composes the
+    # generic swarm prompt directly rather than probing the filesystem for `None.md`.
+    clean_role = str(role or "").strip()
+    path = PROMPTS_DIR / f"{clean_role}.md" if clean_role else None
+    role_prompt = (
+        path.read_text(encoding="utf-8").strip()
+        if path is not None and path.exists()
+        else generic_role_swarm_prompt(clean_role)
+    )
     runtime_skills = [
         load_sprintengine_runtime_skill(skill_id) for skill_id in sprintengine_runtime_skill_ids(role)
     ]
@@ -325,7 +348,7 @@ def compose_prompt(
 
 
 def load_prompt(
-    role: str,
+    role: Optional[str],
     *,
     backlog_sourced: bool = True,
     knowledge_root_configured: Optional[bool] = None,

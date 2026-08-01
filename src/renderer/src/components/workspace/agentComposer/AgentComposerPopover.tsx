@@ -195,14 +195,22 @@ export default function AgentComposerPopover({
 
   // "Claude Code · Fable 5" for a row's remembered engine, for chip tooltips.
   const engineLabel = (target: AgentComposerSelection): string => {
-    const cli = composer.cliForSelection(target)
-    const option = composer.agentCliOptions.find((entry) => entry.value === cli)
-    const cliLabel = option?.label ?? cli
-    const model = composer.modelForSelection(target, cli)
-    if (!model) return cliLabel
-    const modelLabel = option?.modelSelection?.options.find((entry) => entry.id === model)?.label ?? model
-    return `${cliLabel} · ${modelLabel}`
+    const { cliLabel, modelLabel } = composer.engineNamesFor(target)
+    return modelLabel ? `${cliLabel} · ${modelLabel}` : cliLabel
   }
+
+  // What names the roleless row. It has no role, so on a spawn surface its
+  // bound engine is the only honest name: the model it launches, or the CLI
+  // when no model is picked. Resolved once, from the roleless row's own engine
+  // — never from the highlighted selection, so hovering the roster cannot
+  // repaint it. In select mode the engine belongs to the caller (the automation
+  // owns it), so the row is named by what it is instead: naming it after this
+  // surface's remembered engine would show a runtime that automation never runs.
+  const rolelessLabel = ((): string => {
+    if (selectMode) return 'No role'
+    const { cliLabel, modelLabel } = composer.engineNamesFor({ kind: 'general' })
+    return modelLabel ?? cliLabel
+  })()
 
   return (
     <div className="flex max-h-[520px] w-[300px] flex-col overflow-hidden">
@@ -260,6 +268,7 @@ export default function AgentComposerPopover({
             // Terminal has no runtime; Conversation picks its model in the chat
             // composer; select mode's engine is owned by the caller.
             const engineEditable = !selectMode && row.kind !== 'terminal' && row.kind !== 'conversation'
+            const label = rowLabel(row, rolelessLabel)
             return (
               <React.Fragment key={row.key}>
                 {startsSpecialistSection && index > 0 ? (
@@ -270,8 +279,12 @@ export default function AgentComposerPopover({
                     id={optionId(row)}
                     selected={rowMatchesSelection(row, selection)}
                     persisted={Boolean(persisted)}
-                    icon={rowIcon(row, composer.cliForSelection(target))}
-                    label={rowLabel(row)}
+                    // The roleless row's mark is its engine's brand, so in select
+                    // mode it must be the caller's engine — the same one that
+                    // names the row — not this surface's remembered default,
+                    // which the saved automation will never launch.
+                    icon={rowIcon(row, selectMode && action.kind === 'select' ? action.cli : composer.cliForSelection(target))}
+                    label={label}
                     description={rowDescription(row)}
                     engineChip={
                       engineEditable ? (
@@ -279,7 +292,7 @@ export default function AgentComposerPopover({
                           <span
                             role="button"
                             tabIndex={-1}
-                            aria-label={`Agent runtime for ${rowLabel(row)}: ${engineLabel(target)}`}
+                            aria-label={`Agent runtime for ${label}: ${engineLabel(target)}`}
                             onClick={(event) => {
                               event.stopPropagation()
                               setEngineFlyoutRowKey((current) => (current === row.key ? null : row.key))
@@ -303,7 +316,7 @@ export default function AgentComposerPopover({
                     // primitive-duplication-allow: nested engine flyout inside the picker's floating surface; the surrounding surface owns outside-click and focus restoration.
                     <div
                       data-chip-popover="true"
-                      aria-label={`Agent runtime for ${rowLabel(row)}`}
+                      aria-label={`Agent runtime for ${label}`}
                       // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
                       className="fixed z-50 overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
                     >
@@ -312,7 +325,7 @@ export default function AgentComposerPopover({
                           — so the two controls stack: models above, reasoning
                           and context window on the surface's trailing row. */}
                       <CliModelPopoverSurface
-                        ariaLabel={`Agent runtime for ${rowLabel(row)}`}
+                        ariaLabel={`Agent runtime for ${label}`}
                         options={row.kind === 'general' ? composer.generalCliOptions : composer.agentCliOptions}
                         currentCli={composer.cliForSelection(target)}
                         effectiveModelFor={(cli) => composer.modelForSelection(target, cli)}
@@ -441,15 +454,17 @@ export default function AgentComposerPopover({
 function rowDescription(row: ComposerRow): string {
   if (row.kind === 'terminal') return "A plain shell in this project's folder — no agent, no model."
   if (row.kind === 'general') {
-    return 'A general-purpose agent with no role prompt — it runs your instructions as written.'
+    return 'Runs your instructions as written.'
   }
   if (row.kind === 'conversation') return 'A chat agent — pick the provider model in the composer.'
   return row.action.description
 }
 
-function rowLabel(row: ComposerRow): string {
+// `rolelessLabel` names the row with no role — see the resolver of that name
+// above, which reads the row's own engine rather than the highlighted one's.
+function rowLabel(row: ComposerRow, rolelessLabel: string): string {
   if (row.kind === 'terminal') return 'Terminal'
-  if (row.kind === 'general') return 'General agent'
+  if (row.kind === 'general') return rolelessLabel
   if (row.kind === 'conversation') return 'Conversation agent'
   return row.action.shortLabel
 }

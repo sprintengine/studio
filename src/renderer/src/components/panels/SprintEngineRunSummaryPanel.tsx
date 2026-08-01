@@ -50,6 +50,7 @@ import type {
   SprintEngineTokenUsageReport,
 } from '../../../../shared/sprintengine-token-usage'
 import {
+  SPRINT_ENGINE_ROLELESS_KEY,
   deriveSprintEngineRepoMergeRollup,
   deriveSprintEngineRunGlyph,
   formatSprintEngineLockAge,
@@ -245,7 +246,9 @@ export default function SprintEngineRunSummaryPanel({
   // activity timeline's lane labels.
   const rolesByAgent = useMemo(() => {
     const map: Record<string, SprintEngineRoleId> = {}
-    if (report) for (const row of report.agentRows) map[row.agentId] = row.role
+    // A roleless agent contributes no entry: the lane then renders the neutral
+    // glyph rather than being labelled with someone else's role.
+    if (report) for (const row of report.agentRows) if (row.role) map[row.agentId] = row.role
     return map
   }, [report])
   const activityTimeline = useMemo(
@@ -543,10 +546,12 @@ const NUM_HEADER = `${HEADER_BASE} px-3 text-right`
 const AGENT_HEADER = `${HEADER_BASE} pr-3 text-left whitespace-nowrap`
 const COL_SEP = 'border-l border-[color:var(--border-subtle)]'
 
-function AgentName({ role, agentId, idle }: { role: SprintEngineRoleId; agentId: string; idle?: boolean }) {
+function AgentName({ role, agentId, idle }: { role?: SprintEngineRoleId; agentId: string; idle?: boolean }) {
   return (
     <span className="inline-flex items-baseline gap-2 whitespace-nowrap pl-[20px]">
-      <RoleGlyph role={role} size="sm" className="translate-y-[2px]" />
+      {/* An agent with no role gets no glyph: the neutral fallback is for a role
+          that will not resolve, not for one that is absent (MC-2055). */}
+      {role ? <RoleGlyph role={role} size="sm" className="translate-y-[2px]" /> : null}
       <span className="font-mono text-meta text-[color:var(--text-strong)]">{agentId}</span>
       {idle ? <span className="text-micro text-[color:var(--text-disabled)]">idle</span> : null}
     </span>
@@ -978,7 +983,7 @@ function AgentRow({
   const identity = (
     <>
       {chevron}
-      <RoleGlyph role={row.role} size="sm" className="translate-y-[2px]" />
+      {row.role ? <RoleGlyph role={row.role} size="sm" className="translate-y-[2px]" /> : null}
       <span className="font-mono text-meta text-[color:var(--text-strong)]">{row.agentId}</span>
       {idle ? <span className="text-micro text-[color:var(--text-disabled)]">idle</span> : null}
     </>
@@ -1290,7 +1295,7 @@ function WhatsLeftSection({
             <SubHead label="Needs your input" count={report.needsInput.length} />
             <ul>
               {report.needsInput.map((item) => (
-                <LeftRow key={item.taskId} tone="error" id={item.taskId} title={item.reason} meta={getSprintEngineRoleLabel(item.role)} />
+                <LeftRow key={item.taskId} tone="error" id={item.taskId} title={item.reason} meta={item.role ? getSprintEngineRoleLabel(item.role) : undefined} />
               ))}
             </ul>
           </>
@@ -1324,7 +1329,7 @@ function WhatsLeftSection({
                   }
                   id={task.id}
                   title={task.title}
-                  meta={getSprintEngineRoleLabel(task.role)}
+                  meta={task.role ? getSprintEngineRoleLabel(task.role) : undefined}
                 />
               ))}
             </ul>
@@ -1590,9 +1595,17 @@ function TypeStatCell({ stat }: { stat: SprintEngineTypeStat }) {
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
+        {/* The group of agents that have no role names nothing: its key is a map
+            key, never a role, and printing it would leak the reserved token to
+            the user (MC-2055). The score, the counts and the CLIs still read —
+            in a roleless run this is the run's one delivery cell. */}
         <span className="inline-flex items-center gap-1.5 truncate text-meta text-[color:var(--text-default)]">
-          <RoleGlyph role={stat.key as SprintEngineRoleId} size="sm" />
-          <TruncatedText as="span" text={getSprintEngineRoleLabel(stat.key)} />
+          {stat.key === SPRINT_ENGINE_ROLELESS_KEY ? null : (
+            <>
+              <RoleGlyph role={stat.key as SprintEngineRoleId} size="sm" />
+              <TruncatedText as="span" text={getSprintEngineRoleLabel(stat.key)} />
+            </>
+          )}
         </span>
         {stat.clis.length > 0 ? (
           <span className="inline-flex flex-none items-center gap-1">

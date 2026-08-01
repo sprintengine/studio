@@ -37,20 +37,28 @@ VALID_PHASE_OUTCOMES = {"pass", "pass_with_fixes", "escalate"}
 VALID_TASK_SOURCE_TYPES = {"local", "github", "jira", "linear"}
 VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "conflict"}
 # Two lanes, not three (MC-1585): `architect` is the PLANNER-ROUTED lane — it means
-# "the role that plans this run", which `plans.resolve_planning_role` answers
-# (architect if rostered, else general). A general-only run therefore needs no
-# `general` lane of its own; widening what the existing kind MEANS beats adding a
-# parallel enum value that every consumer would have to learn.
+# "whoever coordinates this run", which `plans.resolve_coordinator_seat` answers as a
+# SEAT (an `architect` seat when one is rostered, a roleless seat otherwise). A run
+# with no architect therefore needs no lane of its own; widening what the existing
+# kind MEANS beats adding a parallel enum value that every consumer would have to learn.
 # The wire value stays `architect` deliberately: it is read by the renderer, the
 # agent prompts, and every run.yaml already on disk, none of which this change
 # owns. `planner` is accepted as an input alias and normalized to it, so agents in
-# a general-only run can escalate in the vocabulary their prompt gives them.
+# a roleless run can escalate in the vocabulary their prompt gives them.
 VALID_NEEDS_INPUT_KINDS = {"architect", "user"}
 # `planner` is the one alias, and it is live rather than legacy: an agent on a
-# general-only run is given the planner vocabulary and reasonably escalates in it.
+# roleless run is given the planner vocabulary and reasonably escalates in it.
 # The read-side entries for stores that predate the current kinds are gone —
-# schema v4 rejects those stores outright (`assert_store_is_current`).
+# schema v4 and older are rejected outright (`assert_store_is_current`).
 LEGACY_NEEDS_INPUT_KIND_MAP = {"planner": "architect"}
+
+# Ids minted for a run whose agents carry no role (MC-2057). A role-based run
+# still mints `<role>` / `<role>-N`, so these two shapes are the whole of "an id
+# that encodes no role" and the only ids `worker_role` must refuse to guess at.
+# The seat id matches `plans.resolve_coordinator_seat`; the worker prefix is what
+# `getNextSprintEngineAgentId` mints on the app side.
+COORDINATOR_AGENT_ID = "coordinator"
+ROLELESS_WORKER_ID_PREFIX = "agent"
 VALID_NEEDS_INPUT_REASONS = {
     "task_scope",
     "artifact_review",
@@ -67,9 +75,9 @@ NEEDS_INPUT_KIND_DEFAULT_REASONS = {
 # to what is STORED (`VALID_NEEDS_INPUT_KINDS`). `planner` is the only alias, and
 # `normalize_needs_input_kind` folds it to the canonical `architect`.
 NEEDS_INPUT_KIND_INPUT_CHOICES = sorted(VALID_NEEDS_INPUT_KINDS | set(LEGACY_NEEDS_INPUT_KIND_MAP))
-# The needs_input kinds that route to the run's PLANNER (not literally to an
+# The needs_input kinds that route to the run's COORDINATOR (not literally to an
 # architect — see the lane note above). Resolve the actor with
-# `plans.resolve_planning_role`, never by comparing a role to "architect".
+# `plans.actor_is_coordinator`, never by comparing a role to "architect".
 PLANNER_ROUTED_NEEDS_INPUT_KINDS = {"architect"}
 VALID_ARTIFACT_KINDS = {
     "architect_plan",

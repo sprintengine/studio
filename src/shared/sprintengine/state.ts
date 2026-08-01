@@ -376,7 +376,8 @@ export function deriveSprintEngineRunGlyph(input: {
 export type SprintEngineAgentRosterItem = {
   id: AgentId
   label: string
-  role: SprintEngineRoleId
+  /** Absent for a roleless run's agents, which carry no role (MC-2057). */
+  role?: SprintEngineRoleId
 }
 
 // A roster role is "new to the run" only when no current member and no
@@ -564,14 +565,14 @@ export const sprintEngineRoleOrder: SprintEngineRole[] = [
   'security',
 ]
 
-// Architect is the minimum role Sprint Engine planning depends on. Treat it
-// as an always-enabled member of any roster so a stale or hostile user
-// setting cannot strand a new workspace without a planner.
-export const protectedSprintEngineRoleId: SprintEngineRoleId = 'architect'
+// No role is protected any more (MC-2057). `architect` used to be pinned on
+// because planning was a role and a roster without one had nobody to plan; a
+// run whose roster staffs no architect now coordinates through the roleless
+// seat (`sprintEngineCoordinatorSeat`), so turning architect off strands
+// nothing. The roster is exactly the user's selection.
 
 // Settings.role enablement is a future-roster filter, never a runtime
-// dispatch policy. Returns the role ids the user has explicitly turned off,
-// excluding `architect` which cannot be disabled.
+// dispatch policy. Returns the role ids the user has explicitly turned off.
 export function getUserDisabledSprintEngineRoleIds(
   settings: SprintEngineRoleSettings | null | undefined,
 ): ReadonlySet<SprintEngineRoleId> {
@@ -580,7 +581,6 @@ export function getUserDisabledSprintEngineRoleIds(
   if (!entries || typeof entries !== 'object') return disabled
   for (const [roleId, enabled] of Object.entries(entries)) {
     if (enabled !== false) continue
-    if (roleId === protectedSprintEngineRoleId) continue
     if (!normalizeSprintEngineRoleId(roleId)) continue
     disabled.add(roleId)
   }
@@ -591,7 +591,8 @@ export function getUserDisabledSprintEngineRoleIds(
 // workspace roster table and the guided-brief handoff roster. Bundled roles
 // come first (in their canonical order), custom registry roles follow
 // alphabetically. Manifest-disabled registry roles and user-disabled roles
-// are filtered out; `architect` always remains.
+// are filtered out — including `architect`, which stopped being protected when
+// coordination stopped being a role.
 export function orderSprintEngineRosterRoles(
   registry?: SprintEngineRoleRegistry | null,
   disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
@@ -599,12 +600,12 @@ export function orderSprintEngineRosterRoles(
   const disabled = disabledRoleIds ?? new Set<SprintEngineRoleId>()
   const ids = new Set<SprintEngineRoleId>()
   for (const role of sprintEngineRoleOrder) {
-    if (role !== protectedSprintEngineRoleId && disabled.has(role)) continue
+    if (disabled.has(role)) continue
     ids.add(role)
   }
   for (const role of Object.values(registry?.roles ?? {}) as SprintEngineRoleRegistryMetadata[]) {
     if (role.enabled === false) continue
-    if (role.id !== protectedSprintEngineRoleId && disabled.has(role.id)) continue
+    if (disabled.has(role.id)) continue
     ids.add(role.id)
   }
   return [...ids].sort((a, b) => {
@@ -619,7 +620,7 @@ export function orderSprintEngineRosterRoles(
 
 // Zero out counts for user-disabled roles before workspace creation so a
 // stale local count from a prior selection cannot leak a disabled role into
-// the new roster. Architect is preserved.
+// the new roster.
 export function applyUserDisabledSprintEngineRoleCounts(
   roleCounts: SprintEngineRoleCounts,
   disabledRoleIds: ReadonlySet<SprintEngineRoleId>,
@@ -1621,15 +1622,19 @@ function normalizeSprintEngineArtifacts(value: unknown): SprintEngineArtifact[] 
   })
 }
 
-// The zero roster: nobody staffed but the architect, which every run needs to
-// plan at all. There is deliberately NO "starter team" here. A staffed role is
-// a user decision (the wizard's roster rows); anything this module seeds on its
-// own is a role the user never
-// chose, and the architect will plan work for it. See the regression note on
+// The zero roster: nobody staffed. There is deliberately NO "starter team"
+// here. A staffed role is a user decision (the wizard's roster rows); anything
+// this module seeds on its own is a role the user never chose, and the
+// architect will plan work for it. See the regression note on
 // `normalizeSprintEngineRoleCounts`.
+//
+// Empty means empty (MC-2057). This used to seed `architect: 1` because a run
+// with no architect had nobody to plan it; a run that staffs no role now
+// coordinates through the roleless seat, so a selection of nothing is a legal,
+// runnable roleless run rather than a state to be repaired.
 export function createEmptySprintEngineRoleCounts(): SprintEngineRoleCounts {
   return {
-    architect: 1,
+    architect: 0,
     product: 0,
     developer: 0,
     frontend: 0,
@@ -1684,14 +1689,167 @@ export function normalizeSprintEngineRoleCounts(
     if (!normalizeSprintEngineRoleId(role)) continue
     result[role] = Math.floor(Number(rawCount ?? 0) || 0) > 0 ? 1 : 0
   }
-  // Architect is no longer force-seated. A general-default run plans with its
-  // `general` seat, so honor the selection: architect stays enabled only when
-  // the user picked it, or as the planner floor when nothing else can plan. A
-  // run that staffs neither still normalizes to a lone architect, matching the
-  // pre-general contract for every existing preset (none of which carry general).
-  const architectSelected = Math.floor(Number(roleCounts.architect ?? 0) || 0) > 0
-  result.architect = architectSelected || !(result.general > 0) ? 1 : 0
+  // Architect is not force-seated and has no floor: the selection IS the
+  // roster. A selection that staffs no architect coordinates through the
+  // roleless seat, which is a run kind, not a malformed roster to be repaired.
   return result
+}
+
+/**
+ * The reserved key that stands in for "no role" in role-keyed maps and grouping
+ * keys (MC-2057) — the per-role runtime map, dispatch demand grouping.
+ *
+ * Never `String(undefined)`, and never collides with a role id: every role id is
+ * a trimmed non-empty string and no registry emits parenthesised ids. This is a
+ * MAP KEY only. It is never written to a task's or an agent's `role`, which
+ * stays genuinely absent — a stand-in role on the wire is the thing MC-2057
+ * deletes.
+ */
+export const SPRINT_ENGINE_ROLELESS_KEY = '(roleless)'
+
+/** A role as a map key, with absent folded onto {@link SPRINT_ENGINE_ROLELESS_KEY}. */
+export function sprintEngineRoleKey(role: SprintEngineRoleId | undefined): string {
+  return role ?? SPRINT_ENGINE_ROLELESS_KEY
+}
+
+// Ids a roleless run mints (MC-2057). MIRRORS `COORDINATOR_AGENT_ID` and
+// `ROLELESS_WORKER_ID_PREFIX` in `sprintengine_core/tool/constants.py`: the app
+// is the id authority and Python's `worker_role` recognises exactly these two
+// shapes, so a drift here makes a roleless worker read as an unknown role.
+export const sprintEngineCoordinatorAgentId: AgentId = 'coordinator'
+export const sprintEngineRolelessWorkerIdPrefix = 'agent'
+
+/** The one seat that plans a run, adjudicates its plan gate, and triages it. */
+export type SprintEngineCoordinatorSeat = {
+  /** Named only when the run staffs an architect; absent on a roleless run. */
+  role?: SprintEngineRoleId
+  agentId: AgentId
+}
+
+/**
+ * Who coordinates this run — a SEAT, not a role.
+ *
+ * MIRRORS `plans.resolve_coordinator_seat`. Authority is `configuredRoles` (the
+ * run's legal role set), so this answers before any worker has claimed, and the
+ * PRESENCE of the key separates the two empty cases: a run that never recorded
+ * one is a legacy/headless store that keeps its architect seat, while a
+ * recorded EMPTY set is a deliberate choice of no roles.
+ */
+export function sprintEngineCoordinatorSeat(
+  sprintEngineState: Pick<SprintEngineState, 'configuredRoles'> | null | undefined,
+): SprintEngineCoordinatorSeat {
+  const configured = sprintEngineState?.configuredRoles
+  if (!Array.isArray(configured)) return { role: 'architect', agentId: 'architect' }
+  const roles = new Set(configured.map((role) => String(role ?? '').trim()).filter(Boolean))
+  if (roles.has('architect')) return { role: 'architect', agentId: 'architect' }
+  return { agentId: sprintEngineCoordinatorAgentId }
+}
+
+/**
+ * The run's own plan file, in the team-relative form `plans.plan_path_artifact_value`
+ * produces. Compared through {@link isSameSprintEngineArtifactFile}, so the
+ * equivalent full-prefix spelling (`.multi-code/sprintengine/<team>/plan.md`)
+ * that `sprintengine.init` actually records resolves to the same file.
+ */
+const SPRINT_ENGINE_PLAN_ARTIFACT_PATH = 'plan.md'
+
+/**
+ * Is this task the run's coordination job — planning and plan adjudication?
+ *
+ * MIRRORS `plans.task_is_coordination`: answered by the LIVE PLAN ARTIFACT's
+ * `taskId` binding alone. The gate's `role` is on its way out and its `kind`
+ * never marked it — the gate carries no `kind` exactly like ordinary work — so
+ * the binding is the only honest signal.
+ *
+ * "The live plan artifact" is all three conditions `plans.find_plan_artifact`
+ * applies, the path one included (MC-2053): `kind: 'architect_plan'` is
+ * registrable by any agent through `sprintengine.artifact.add` against any
+ * path, with no uniqueness constraint, and the workflow prompt tells agents to
+ * use that kind for plan-approval work. Without the path condition a second
+ * live `architect_plan` bound to another task made the APP treat that task as
+ * coordination — routing it to the persistent seat and rendering it as
+ * coordination — while the engine did not. One question must have one answer.
+ */
+export function isSprintEngineCoordinationTask(
+  task: Pick<SprintEngineTask, 'id'> | null | undefined,
+  sprintEngineState: Pick<SprintEngineState, 'artifacts'> | null | undefined,
+): boolean {
+  const taskId = String(task?.id ?? '').trim()
+  if (!taskId) return false
+  return (sprintEngineState?.artifacts ?? []).some(
+    (artifact) =>
+      artifact?.kind === 'architect_plan'
+      && artifact.status !== 'superseded'
+      && isSameSprintEngineArtifactFile(String(artifact.path ?? ''), SPRINT_ENGINE_PLAN_ARTIFACT_PATH)
+      && String(artifact.taskId ?? '').trim() === taskId,
+  )
+}
+
+/**
+ * Is `agentId` the agent holding this run's coordinator seat?
+ *
+ * MIRRORS `plans.actor_is_coordinator`, and is id-aware for the same reason: a
+ * roleless coordinator has no role to compare, so the seat can only be
+ * recognised by id. A NAMED seat still answers for every id seated into it
+ * (`architect`, `architect-2`), which is what keeps the architect path
+ * unchanged where a role comparison used to stand.
+ */
+export function isSprintEngineCoordinatorAgent(
+  agentId: AgentId | undefined,
+  sprintEngineState: Pick<SprintEngineState, 'configuredRoles'> | null | undefined,
+): boolean {
+  const clean = String(agentId ?? '').trim()
+  if (!clean) return false
+  const seat = sprintEngineCoordinatorSeat(sprintEngineState)
+  if (clean === seat.agentId) return true
+  return seat.role !== undefined && (clean === seat.role || clean.startsWith(`${seat.role}-`))
+}
+
+/**
+ * Does this task route to the persistent coordinator, or to a task-scoped
+ * worker of its own?
+ *
+ * The run's one routing rule (MC-2050), composed from the two seat questions so
+ * every site asks it identically: a task routes to the coordinator when it IS
+ * the coordination job, or when its role equals the coordinator's own role and
+ * that role is NAMED.
+ *
+ * - Role-based run: the seat's role is `architect`, so every architect-assigned
+ *   task — the plan gate and the architect's own sign-off work alike — keeps the
+ *   one warm architect session. Dispatch is unchanged (owner ruling 2026-07-31).
+ * - Roleless run: the seat has no role, so the second clause cannot fire. Only
+ *   the coordination task reaches the seat; work tasks are task-scoped and fan
+ *   out, one agent each.
+ *
+ * The asymmetry is deliberate: a named coordinator is a singleton seat that owns
+ * its speciality's work, while an unnamed one owns only the coordination job,
+ * because every other agent in the run is equally able to take the work.
+ */
+export function sprintEngineTaskRoutesToCoordinator(
+  task: Pick<SprintEngineTask, 'id' | 'role'> | null | undefined,
+  sprintEngineState:
+    | Pick<SprintEngineState, 'artifacts' | 'configuredRoles'>
+    | null
+    | undefined,
+): boolean {
+  if (isSprintEngineCoordinationTask(task, sprintEngineState)) return true
+  const seat = sprintEngineCoordinatorSeat(sprintEngineState)
+  return seat.role !== undefined && task?.role === seat.role
+}
+
+/**
+ * What names an agent row. A role names it when it has one; an agent with no
+ * role is named by its own id (`coordinator` -> "Coordinator", `agent-2` ->
+ * "Agent 2"), which is the only honest source left — it has no role and,
+ * deliberately, no persona. Never "Unknown role": absent is known.
+ */
+export function sprintEngineAgentRowLabel(
+  agentId: AgentId,
+  role: SprintEngineRoleId | undefined,
+  registry?: SprintEngineRoleRegistry | null,
+): string {
+  if (role) return getSprintEngineRoleLabel(role, registry)
+  return humanizeSprintEngineRoleId(agentId)
 }
 
 // A bare `<role>` id (no positional suffix) counts as index 1. Creation seeds the
@@ -1709,7 +1867,7 @@ function roleAgentIndex(agentId: string, role: SprintEngineRoleId): number {
 }
 
 export function getNextSprintEngineAgentId(
-  role: SprintEngineRoleId,
+  role: SprintEngineRoleId | undefined,
   sprintEngineAgents: Record<AgentId, SprintEngineRuntimeAgent>
 ): AgentId {
   // Task-scoped workers are always suffixed: the first minted worker of a role
@@ -1719,72 +1877,79 @@ export function getNextSprintEngineAgentId(
   // The spawner is the sole id authority under MC-1591 leases: there is no Python
   // allocator to mirror or drift against — the engine treats a minted id as an
   // opaque actor label and binds it to a task only at claim.
+  //
+  // A roleless run has no role to interpolate, so it mints `agent-1`, `agent-2`,
+  // … from the same allocator (MC-2057) — an id that encodes no role rather than
+  // one that names a fake one.
+  const base = role ?? sprintEngineRolelessWorkerIdPrefix
   const usedIds = new Set(Object.keys(sprintEngineAgents))
 
   let nextIndex = 1
   for (const [agentId, agent] of Object.entries(sprintEngineAgents)) {
     if (agent.role !== role) continue
-    const index = roleAgentIndex(agentId, role)
-    if (Number.isFinite(index)) nextIndex = Math.max(nextIndex, index + 1)
+    // An id that does not follow the `<base>`/`<base>-N` shape reports
+    // MAX_SAFE_INTEGER ("sorts last"), never an index — the roleless
+    // `coordinator` seat is exactly that, and treating it as an index would
+    // push the next mint to `agent-9007199254740992`.
+    const index = roleAgentIndex(agentId, base)
+    if (index !== Number.MAX_SAFE_INTEGER) nextIndex = Math.max(nextIndex, index + 1)
   }
 
-  let candidate = `${role}-${nextIndex}`
+  let candidate = `${base}-${nextIndex}`
   while (usedIds.has(candidate)) {
     nextIndex += 1
-    candidate = `${role}-${nextIndex}`
+    candidate = `${base}-${nextIndex}`
   }
   return candidate
 }
 
-// The single planning seat a fresh run seeds, and the run's guaranteed planner.
-// Planner-ness is a property of the seat, not one fixed role: a general-default
-// run plans with a bare `general` seat; a specialist run plans with the
-// `architect`. Architect wins when a selection somehow staffs both (the two
-// wizard modes are mutually exclusive, so this only matters as a tie-break), and
-// it is the floor when the selection named no planner at all — every run needs one.
-export function sprintEnginePlannerRole(roleCounts: SprintEngineRoleCounts): SprintEngineRoleId {
-  if ((roleCounts.architect ?? 0) > 0) return 'architect'
-  if ((roleCounts.general ?? 0) > 0) return 'general'
-  return 'architect'
+// The coordinator seat a roster staffing `roleCounts` would resolve to, asked
+// before the run exists (creation) rather than off a stored `configuredRoles`.
+// Same rule, one definition: the counts become the enabled-role set the run
+// would be initialized with, and `sprintEngineCoordinatorSeat` answers.
+export function sprintEngineCoordinatorSeatForRoleCounts(
+  roleCounts: SprintEngineRoleCounts,
+): SprintEngineCoordinatorSeat {
+  return sprintEngineCoordinatorSeat({ configuredRoles: sprintEngineEnabledRoles(roleCounts) })
 }
 
 export function buildSprintEngineAgentRoster(
   roleCounts: SprintEngineRoleCounts,
   registry?: SprintEngineRoleRegistry | null,
 ): SprintEngineAgentRosterItem[] {
-  // Lazy roster: creation seeds ONLY the single planning seat. Worker ids are
+  // Lazy roster: creation seeds ONLY the coordinator seat. Worker ids are
   // minted task-scoped on demand by the Python assignment op, so no worker
-  // record exists at creation. Which planner is seated follows the staffed
-  // selection: a general-default run seeds a bare `general` seat, a specialist
-  // run seeds the `architect`. enabledRoles/roleCounts still gate which roles
-  // participate (forwarded to Python init as `configuredRoles`) but only the
-  // planner materializes a seat here.
-  const planner = sprintEnginePlannerRole(roleCounts)
-  return [{ id: planner, label: getSprintEngineRoleLabel(planner, registry), role: planner }]
+  // record exists at creation. A run staffing an architect seats it under its
+  // own role; a roleless run seats a `coordinator` carrying no role at all.
+  // enabledRoles/roleCounts still gate which roles participate (forwarded to
+  // Python init as `configuredRoles`) but only the seat materializes here.
+  const seat = sprintEngineCoordinatorSeatForRoleCounts(roleCounts)
+  const label = sprintEngineAgentRowLabel(seat.agentId, seat.role, registry)
+  // Absent role means the key is ABSENT, not present-and-undefined: the
+  // runtime-agent roster builder emits the same shape, and a row that carries
+  // `role: undefined` compares unequal to one that omits it.
+  return [seat.role ? { id: seat.agentId, label, role: seat.role } : { id: seat.agentId, label }]
 }
 
 // The enabled role set the roster staffs — exactly the user's selection.
 // Forwarded to Python init as `configuredRoles` (the run's legal role set that
 // `plan.add_task` and seat creation enforce), even though the lazy roster seeds
-// only the planner. Architect is NOT unconditional: it enters only when the
-// selection staffs it, or as the planner floor below. A general-default run's
-// configuredRoles is `['general']`; claiming an architect the run never staffed
-// would be a lie about its legal role set. The roster IS the user's
-// configuration — a role they did not staff must not become plannable, or the
-// architect will schedule work nobody asked for (the design-wizard-premium
-// regression).
+// only the seat. Architect is NOT unconditional: it enters only when the
+// selection staffs it. Claiming an architect the run never staffed would be a
+// lie about its legal role set. The roster IS the user's configuration — a role
+// they did not staff must not become plannable, or the architect will schedule
+// work nobody asked for (the design-wizard-premium regression).
+//
+// An EMPTY result is meaningful and must be persisted as an explicit `[]`: it
+// is a roleless run, which the engine distinguishes from a legacy run that
+// recorded no set at all (`configured_role_set`, `state.py`). Collapsing the
+// two makes every role boundary stop rejecting a mistyped role.
 export function sprintEngineEnabledRoles(
   roleCounts: SprintEngineRoleCounts,
 ): SprintEngineRoleId[] {
   const roles = new Set<SprintEngineRoleId>()
   for (const [role, count] of Object.entries(roleCounts)) {
     if ((count ?? 0) > 0 && normalizeSprintEngineRoleId(role)) roles.add(role as SprintEngineRoleId)
-  }
-  // Enforce >= 1 planner: a run with neither architect nor general has nobody
-  // who can plan. The wizard's roster floor already guarantees a planner at the
-  // UI layer, so this only ever fires on a malformed selection.
-  if (!roles.has('architect') && !roles.has('general')) {
-    roles.add(sprintEnginePlannerRole(roleCounts))
   }
   return [...roles]
 }
@@ -1805,30 +1970,41 @@ export function buildSprintEngineAgentRosterFromRuntimeAgents(
   }
 
   const seenByRole = new Map<SprintEngineRoleId, number>()
-  const rolePriority = (role: SprintEngineRoleId): number => {
+  // Roleless agents lead: on a roleless run the coordinator seat is the first
+  // row for the same reason the architect is on a role-based one, and the two
+  // kinds do mix (a run staffing `developer` alone coordinates rolelessly).
+  const rolePriority = (role: SprintEngineRoleId | undefined): number => {
+    if (!role) return -1
     const bundled = sprintEngineRoleOrder.indexOf(role as SprintEngineRole)
     // Bundled order first, then unknown/custom roles sorted alphabetically
     // after the bundled block so the roster has a stable layout regardless
     // of registry source layer.
     return bundled >= 0 ? bundled : sprintEngineRoleOrder.length
   }
+  // Within the roleless block: the seat, then its minted workers in mint order.
+  const rolelessIndex = (agentId: AgentId): number =>
+    agentId === sprintEngineCoordinatorAgentId ? 0 : roleAgentIndex(agentId, sprintEngineRolelessWorkerIdPrefix)
 
   return Object.entries(sprintEngineAgents)
-    .filter((entry): entry is [AgentId, SprintEngineRuntimeAgent] => Boolean(entry[1]?.role))
+    .filter((entry): entry is [AgentId, SprintEngineRuntimeAgent] => Boolean(entry[1]))
     .sort(([aId, a], [bId, b]) => {
       const roleDelta = rolePriority(a.role) - rolePriority(b.role)
       if (roleDelta !== 0) return roleDelta
+      if (!a.role || !b.role) {
+        const indexDelta = rolelessIndex(aId) - rolelessIndex(bId)
+        return indexDelta !== 0 ? indexDelta : aId.localeCompare(bId)
+      }
       const roleNameDelta = a.role.localeCompare(b.role)
       if (roleNameDelta !== 0) return roleNameDelta
       return roleAgentIndex(aId, a.role) - roleAgentIndex(bId, b.role)
     })
     .map(([id, agent]) => {
+      if (!agent.role) return { id, label: sprintEngineAgentRowLabel(id, undefined, registry) }
       const seen = (seenByRole.get(agent.role) ?? 0) + 1
       seenByRole.set(agent.role, seen)
       const total = roleTotals.get(agent.role) ?? 1
       const suffix = total > 1 ? ` ${seen}` : ''
-      const baseLabel = getSprintEngineRoleLabel(agent.role, registry)
-      return { id, label: `${baseLabel}${suffix}`, role: agent.role }
+      return { id, label: `${sprintEngineAgentRowLabel(id, agent.role, registry)}${suffix}`, role: agent.role }
     })
 }
 
@@ -1872,7 +2048,8 @@ export type SprintEngineRuntimeAgentEffectiveStatus =
 
 export type SprintEngineFocusAgent = {
   agentId: AgentId
-  role: SprintEngineRoleId
+  /** Absent on a roleless run's agents (MC-2057). */
+  role?: SprintEngineRoleId
   status: SprintEngineRuntimeAgentEffectiveStatus
   currentTaskId: string | null
 }
@@ -1980,7 +2157,12 @@ export function buildSprintEngineRosterCommandArgs(
   const roster = stateInput
     ? buildSprintEngineAgentRosterForState(stateInput)
     : buildSprintEngineAgentRoster(normalizeSprintEngineRoleCounts(sprintEngineState as Partial<SprintEngineRoleCounts> | null | undefined))
-  return roster.map((agent) => `${agent.role}:${agent.id}`)
+  // `--agent role:id` marks the run roster-configured and, on legacy stores with
+  // no `configuredRoles`, is split on the first `:` for its role. A roleless seat
+  // has no role to put in front of it, so it sends an EMPTY prefix rather than
+  // the string `undefined` — the engine reads that as no role, and the run still
+  // records `rosterConfigured` exactly as it does today.
+  return roster.map((agent) => `${agent.role ?? ''}:${agent.id}`)
 }
 
 export function createInitialSprintEngineState(config: SprintEngineMockConfig): SprintEngineState {
@@ -2252,8 +2434,16 @@ export function normalizeSprintEngineRoleRuntimes(value: unknown): SprintEngineR
 
 // Tolerant read of the run.yaml/projection `configuredRoles` list — the run's
 // enabled role set. Keeps registry-valid role ids, de-duped and order-stable.
-// Returns null when the field is absent or empty so callers can omit it and the
-// roster view falls back to the seated-roster census (legacy runs).
+// Returns null only when the field is ABSENT or is not a list, so callers omit
+// the key and the roster view falls back to the seated-roster census (legacy
+// runs).
+//
+// Like `defaultPhases`, an EMPTY list is meaningful and must survive: it is a
+// roleless run's deliberate "no roles", which `sprintEngineCoordinatorSeat`
+// reads as the roleless coordinator seat, and collapsing it onto absent would
+// hand that run an architect seat it never staffed (MC-2050). A list whose every
+// entry is blank or not a string empties the same way, which is the same
+// statement: the run enabled no role this reader can name.
 export function normalizeSprintEngineConfiguredRoles(value: unknown): SprintEngineRoleId[] | null {
   if (!Array.isArray(value)) return null
   const seen = new Set<SprintEngineRoleId>()
@@ -2264,7 +2454,7 @@ export function normalizeSprintEngineConfiguredRoles(value: unknown): SprintEngi
     seen.add(role)
     result.push(role)
   }
-  return result.length > 0 ? result : null
+  return result
 }
 
 // Tolerant read of run.yaml/projection `defaultPhases` — the run's phase list
@@ -2313,13 +2503,16 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     const latestOpenFeedback = normalizeSprintEngineTaskComments(taskRecord.latestOpenFeedback)
     const recordedArtifacts = normalizeSprintEngineRecordedArtifacts(taskRecord.recordedArtifacts)
     // Preserve any registry-keyed role id (bundled or custom) so projection
-    // normalization never drops a custom-role task into `developer`.
-    const taskRole = normalizeSprintEngineRoleId(task.role) ?? 'developer'
+    // normalization never drops a custom-role task into `developer`. A task
+    // that carries NO role keeps carrying none (MC-2057): defaulting it to
+    // `developer` would invent an assignment the engine never made, and on a
+    // roleless run that is every task on the board.
+    const taskRole = normalizeSprintEngineRoleId(task.role)
     return {
       id: task.id ?? `task-${index + 1}`,
       title: task.title ?? `Task ${index + 1}`,
       description: task.description ?? '',
-      role: taskRole,
+      ...(taskRole ? { role: taskRole } : {}),
       repo: optionalTrimmedString(task.repo) ?? DEFAULT_SPRINTENGINE_TASK_REPO,
       status,
       // Both charter markers survive projection. Whitelisting only
@@ -2571,12 +2764,13 @@ function coerceSprintEngineRuntimeAgentStatus(value: unknown): SprintEngineRunti
 
 // Shared base for the roster bridge and the canonical workers view: both carry
 // the runtime-agent fields the board reads. Accepts any registry-keyed role id
-// (bundled or custom); an entry with a fully missing/empty role is dropped.
-function normalizeRuntimeAgentRecord(record: Record<string, unknown>): SprintEngineRuntimeAgent | null {
+// (bundled or custom), and an entry with NO role — that is a roleless run's
+// agent (MC-2057), which used to be dropped here because every agent was
+// assumed to have one, taking the whole roster with it.
+function normalizeRuntimeAgentRecord(record: Record<string, unknown>): SprintEngineRuntimeAgent {
   const roleId = normalizeSprintEngineRoleId(record.role)
-  if (!roleId) return null
   return {
-    role: roleId,
+    ...(roleId ? { role: roleId } : {}),
     status: coerceSprintEngineRuntimeAgentStatus(record.status),
     currentTaskId: typeof record.currentTaskId === 'string' ? record.currentTaskId : null,
     ...(typeof record.lastOwnedTaskId === 'string' && record.lastOwnedTaskId
@@ -2591,8 +2785,7 @@ function normalizeProjectionRoster(value: unknown): Record<string, SprintEngineR
   const result: Record<string, SprintEngineRuntimeAgent> = {}
   for (const [agentId, agent] of Object.entries(value as Record<string, unknown>)) {
     if (!agent || typeof agent !== 'object') continue
-    const base = normalizeRuntimeAgentRecord(agent as Record<string, unknown>)
-    if (base) result[agentId] = base
+    result[agentId] = normalizeRuntimeAgentRecord(agent as Record<string, unknown>)
   }
   return result
 }
@@ -2609,7 +2802,6 @@ function normalizeProjectionWorkers(value: unknown): Record<string, SprintEngine
     if (!worker || typeof worker !== 'object') continue
     const record = worker as Record<string, unknown>
     const base = normalizeRuntimeAgentRecord(record)
-    if (!base) continue
     const sessionId = optionalTrimmedString(record.sessionId)
     const repo = optionalTrimmedString(record.repo)
     const ownedTaskIds = Array.isArray(record.ownedTaskIds)
@@ -2909,7 +3101,7 @@ export function hexToRgba(hex: string, alpha: number): string {
 
 export type SprintEngineBoardRuntimeAgentView = {
   agentId: string
-  role: SprintEngineRoleId
+  role?: SprintEngineRoleId
   status: string
 }
 
@@ -2950,7 +3142,10 @@ export function getSprintEngineTaskOwnerLabel(
   if (ownerId) {
     return rosterById[ownerId]?.label ?? ownerId
   }
-  return task.status === 'done' ? getSprintEngineRoleLabel(task.role) : 'No active worker'
+  // A done task with no recorded worker falls back to its role. With no role
+  // there is nothing left to name, so say what is true rather than "Unknown role".
+  if (task.status === 'done' && task.role) return getSprintEngineRoleLabel(task.role)
+  return 'No active worker'
 }
 
 /** One row in the task inspector's implementer timeline. */
@@ -2973,7 +3168,7 @@ export type SprintEngineTaskImplementerEntry = {
 export type SprintEngineImplementerRuntimeAgent = {
   agentId: string
   label: string
-  role: SprintEngineRoleId
+  role?: SprintEngineRoleId
   status: string
 }
 
@@ -3164,9 +3359,11 @@ export function resolveSprintEngineArtifactEditorPath(
  */
 export function resolveSprintEngineRoleRuntime(
   roleRuntimes: SprintEngineRoleRuntimes | undefined,
-  role: SprintEngineRoleId
+  // A roleless agent resolves its runtime under the reserved roleless key — the
+  // one the pool roster's own CLI/model picker writes — never another role's.
+  role: SprintEngineRoleId | undefined
 ): { cli?: AgentCli; cliModel?: string; cliReasoning?: string } | null {
-  const runtime = roleRuntimes?.[role]
+  const runtime = roleRuntimes?.[sprintEngineRoleKey(role)]
   if (!runtime) return null
   return {
     cli: typeof runtime.cli === 'string' && runtime.cli.trim() ? runtime.cli.trim() : undefined,
@@ -3196,7 +3393,7 @@ export function resolveSprintEngineRoleRuntime(
  */
 export function resolveSprintEngineAgentRuntime(
   roleRuntimes: SprintEngineRoleRuntimes | undefined,
-  role: SprintEngineRoleId,
+  role: SprintEngineRoleId | undefined,
   current: Pick<AgentState, 'cli' | 'cliModel' | 'cliReasoning' | 'cliRuntimeOverride'> | undefined,
 ): { cli?: AgentCli; cliModel?: string; cliReasoning?: string } {
   const config = resolveSprintEngineRoleRuntime(roleRuntimes, role)

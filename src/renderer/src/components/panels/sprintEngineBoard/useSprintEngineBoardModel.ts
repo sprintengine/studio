@@ -84,8 +84,8 @@ export function useSprintEngineBoardModel(input: SprintEngineBoardModelInput): S
   // Registry-authoritative add-member options. The Sprint Engine role registry
   // for the workspace is the source of addable specialist roles; user-disabled
   // roles are filtered out. Post un-ship, a role that the registry cannot
-  // resolve is never offered, so with no pack installed only the plain
-  // `general` agent renders here.
+  // resolve is never offered, so with no pack installed NO role renders here —
+  // which is a roleless run, not a broken picker (MC-2057).
   const addMemberOptions = useMemo<SprintEngineAddMemberOption[]>(
     () =>
       buildSprintEngineAddMemberOptions({

@@ -18,6 +18,7 @@ import type {
 import type { StepId } from './creationStepFlows'
 import type { SprintEngineCliOption } from './SprintEngineRosterTable'
 import type { SprintEngineRosterMode } from './SprintEngineRosterPanel'
+import { SPRINT_ENGINE_ROLELESS_KEY } from '../../../utils/sprintengine'
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
 import { listSprintEngineWizardRoles } from '../../../utils/sprintengineRoleOptions'
 import { RoleAvatar, Select, Switch } from '../../ui'
@@ -110,9 +111,11 @@ export function SprintEngineStartPanel({
     : rosterMode === 'pool'
       ? {
           text: `Agent pool · ${poolAgentCount} agent${poolAgentCount === 1 ? '' : 's'}`,
+          // The pool's runtime lives under the reserved roleless key — the same
+          // one its own CLI/model picker writes (MC-2057; it was `general`).
           crumb: runtimeLabelFor(
-            roleCliDefaults.general,
-            roleModelOverrides.general,
+            roleCliDefaults[SPRINT_ENGINE_ROLELESS_KEY],
+            roleModelOverrides[SPRINT_ENGINE_ROLELESS_KEY],
             cliOptions,
           ) ?? undefined,
         }

@@ -143,6 +143,11 @@ export default function AgentComposer({
         : getSpecialistAction(selection.specialistId)
       : null
   const quickRows = visibleRows.filter((row) => row.kind === 'terminal' || row.kind === 'general')
+  // The roleless row has no role to name it, so it wears its own bound engine:
+  // the model it launches, or the CLI when no model is picked. Resolved from
+  // that row's engine, never the highlighted row's — browsing must not repaint it.
+  const generalEngine = composer.engineNamesFor({ kind: 'general' })
+  const generalLabel = generalEngine.modelLabel ?? generalEngine.cliLabel
   const specialistRows = visibleRows.filter(
     (row): row is Extract<ComposerRow, { kind: 'specialist' }> => row.kind === 'specialist',
   )
@@ -222,12 +227,10 @@ export default function AgentComposer({
                           row.kind === 'terminal' ? (
                             <TerminalSessionIcon className="h-4 w-4" />
                           ) : (
-                            // The General row wears its own bound CLI, never the
-                            // highlighted row's — browsing must not repaint it.
                             <CliIcon cli={composer.cliForSelection({ kind: 'general' })} className="h-4 w-4" />
                           )
                         }
-                        label={row.kind === 'terminal' ? 'Terminal' : 'General agent'}
+                        label={row.kind === 'terminal' ? 'Terminal' : generalLabel}
                         onSelect={() => composer.setSelection(selectionForRow(row))}
                         onConfirm={() => commit(selectionForRow(row))}
                       />
@@ -274,6 +277,7 @@ export default function AgentComposer({
           <ComposerConfig
             selection={selection}
             activeSpecialist={activeSpecialist}
+            generalLabel={generalLabel}
             selectionCli={composer.selectionCli}
             agentCliOptions={composer.agentCliOptions}
             generalCliOptions={composer.generalCliOptions}
@@ -560,6 +564,7 @@ function GetSpecialistsRow({ onOpenMarketplace }: { onOpenMarketplace: () => voi
 function ComposerConfig({
   selection,
   activeSpecialist,
+  generalLabel,
   selectionCli,
   agentCliOptions,
   generalCliOptions,
@@ -575,6 +580,8 @@ function ComposerConfig({
 }: {
   selection: AgentComposerSelection
   activeSpecialist: SpecialistAction | null
+  // The roleless agent's name: its bound engine, resolved by the caller.
+  generalLabel: string
   selectionCli: AgentCli
   agentCliOptions: ReturnType<typeof selectAgentCliCatalog>
   generalCliOptions: ReturnType<typeof selectAgentCliCatalog>
@@ -603,10 +610,10 @@ function ComposerConfig({
   }
 
   const isSpecialist = selection.kind === 'specialist' && activeSpecialist !== null
-  const name = isSpecialist ? activeSpecialist!.shortLabel : 'General agent'
+  const name = isSpecialist ? activeSpecialist!.shortLabel : generalLabel
   const description = isSpecialist
     ? activeSpecialist!.description
-    : 'A general-purpose agent with no role prompt — it runs your instructions as written.'
+    : 'Runs your instructions as written.'
   const icon = isSpecialist ? (
     <SpecialistActionIcon icon={activeSpecialist!.icon} className="size-icon-md text-[color:var(--text-strong)]" />
   ) : (

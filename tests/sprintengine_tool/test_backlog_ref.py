@@ -223,10 +223,9 @@ def test_normalize_task_posix_normalizes_and_rejects_an_empty_path() -> None:
 
 
 def test_the_field_is_additive_so_a_store_written_before_it_still_loads(tmp_path: Path) -> None:
-    """No migration and no schema bump: a task carrying no pointer round-trips."""
-    from sprintengine_core import store as folder_store
-
-    assert folder_store.RUN_SCHEMA_VERSION == 4
+    """No migration and no schema bump for THIS field: a task carrying no pointer
+    round-trips. (The store version has since moved for unrelated reasons; what
+    this pins is that `backlogRef` never forced one.)"""
 
     fixture = rostered_team(tmp_path, "backlogref-additive")
     task_id = fixture.cli.run(

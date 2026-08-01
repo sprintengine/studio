@@ -13,12 +13,14 @@ because roles are plugin-extensible:
   IPC actor, the human/debug CLI, and stdio sessions. Full surface.
 - ``architect`` — the system planning role (registry-normalized id
   ``architect``): full agent surface including plan/run-level tools.
-- ``general`` — the soulless ``general`` identity that plans, builds, reviews,
-  and tests a sprint by itself: the full planning surface, identical to the
-  architect's. MC-1591 deleted the roster-growth tools (leases replaced
-  membership, so there is no team to expand), and those tools were the only
-  thing that set a General apart, so the two classifications now converge. No
-  registry manifest required.
+- ``roleless`` — an agent session that carries NO role (MC-2057): the pool that
+  plans, builds, reviews, and tests a roleless sprint by itself. Full planning
+  surface, identical to the architect's — MC-1591 deleted the roster-growth
+  tools (leases replaced membership, so there is no team to expand), which were
+  the only tools that set the two apart. Recognised by the session having an
+  agent id and no role, NOT by the absence of a role alone: a session with
+  neither is the operator, and collapsing the two would hand every roleless
+  worker the operator surface.
 - ``owner`` — every other resolvable role, and the conservative fallback for
   roles the registry cannot resolve (such a role cannot join anyway).
 
@@ -42,7 +44,7 @@ from sprintengine_core.role_registry import (
     session_registry_roots_from_env,
 )
 
-RoleClassification = str  # "operator" | "architect" | "general" | "owner"
+RoleClassification = str  # "operator" | "architect" | "roleless" | "owner"
 
 # Tools every joined agent needs to receive, work, evidence, and finish a task
 # or stop safely (self-retirement near context capacity is `agent.leave`, which
@@ -145,9 +147,9 @@ PERMITTED_ALTERNATIVES: dict[str, str] = {
 def allowed_tools_for_classification(classification: RoleClassification, all_tools: Iterable[str]) -> frozenset[str]:
     if classification == "operator":
         return frozenset(all_tools)
-    # architect and general share one planning surface: roster growth was the
+    # architect and roleless share one planning surface: roster growth was the
     # only tool difference and MC-1591 deleted it.
-    if classification in ("architect", "general"):
+    if classification in ("architect", "roleless"):
         return AGENT_COMMON_TOOLS | PLANNING_TOOLS
     return AGENT_COMMON_TOOLS
 
@@ -202,10 +204,6 @@ def _classify_registry_role(
     registry_roots_key: str,
     user_root: str | None,
 ) -> RoleClassification:
-    # `general` is a built-in soulless identity, recognised by id without a
-    # registry manifest, so short-circuit before discovery.
-    if normalized_role == "general":
-        return "general"
     try:
         registry = discover_role_registry(
             workspace_root=Path(workspace_root) if workspace_root else None,
@@ -221,6 +219,34 @@ def _classify_registry_role(
         return "architect"
     # A reviewer role is an owner like any other: same tools, same lifecycle.
     return "owner"
+
+
+def classify_session(
+    *,
+    bound_role: str,
+    bound_agent_id: str,
+    fallback_role: str = "",
+    workspace_root: Path | str | None = None,
+    plugin_registry_roots: tuple[Any, ...] = (),
+    user_root: Path | str | None = None,
+) -> RoleClassification:
+    """Classify ONE session, which is not the same question as classifying a role.
+
+    `classify_role` reads "no role" as the operator, because that is what a
+    run-scoped, IPC, or stdio session is. A roleless run's agents also carry no
+    role (MC-2057), and they are emphatically not operators — so the session's
+    bound agent id is the discriminator: an agent-scoped registration binds one,
+    an operator session binds none. Every role-bound session classifies exactly
+    as before.
+    """
+    if str(bound_agent_id or "").strip() and not str(bound_role or "").strip():
+        return "roleless"
+    return classify_role(
+        bound_role or fallback_role,
+        workspace_root=workspace_root,
+        plugin_registry_roots=plugin_registry_roots,
+        user_root=user_root,
+    )
 
 
 def permitted_alternative(tool_name: str) -> str | None:

@@ -556,7 +556,8 @@ export type SprintEngineCurrentDispatch = {
 }
 
 export type SprintEngineRuntimeAgent = {
-  role: SprintEngineRoleId
+  /** Absent on a roleless run's agents, which carry no role at all (MC-2057). */
+  role?: SprintEngineRoleId
   status: SprintEngineRuntimeAgentStatus
   currentTaskId: string | null
   /**
@@ -728,7 +729,16 @@ export type SprintEngineTask = {
   id: string
   title: string
   description?: string | null
-  role: SprintEngineRoleId
+  /**
+   * What KIND of agent should do this task — a role, and only that. Absent
+   * means any agent may take it, which is what a roleless run writes on every
+   * task (MC-2057). Whether this is the run's COORDINATION job is a separate
+   * question, answered by `isSprintEngineCoordinationTask`; the two used to be
+   * fused into this one field, and `general` existed only to smuggle "no role"
+   * through it. Absent is not `''` — the engine's `worker_role` returns `''`
+   * for "could not establish", which is a different statement.
+   */
+  role?: SprintEngineRoleId
   /**
    * Id of the declared repo this task works in — one task, one git tree, always.
    * `ownedPaths` and every evidence path stay relative to THAT repo's root, so a

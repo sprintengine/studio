@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict'
 import { normalizeSprintEngineProjection } from './sprintengine'
-import { pickSprintEngineBootstrapCandidate } from './sprintengineAutoRun'
-import type { Workspace } from '../types/workspace'
 import { canLaunchSprintEngineInitialSpawn } from './sprintengineInitialSpawns'
 
 const DEFAULT_ROSTER: Record<string, Record<string, unknown>> = {
@@ -13,6 +11,9 @@ const DEFAULT_ROSTER: Record<string, Record<string, unknown>> = {
 function projection(
   tasks: Array<Record<string, unknown>>,
   roster: Record<string, Record<string, unknown>> = DEFAULT_ROSTER,
+  // The run's enabled role set. Absent (the default) is a legacy/headless store,
+  // which keeps the architect seat; an explicit `[]` is a deliberate no-roles run.
+  configuredRoles?: string[],
 ) {
   return {
     ok: true,
@@ -27,6 +28,7 @@ function projection(
       status: 'executing',
       rosterConfigured: true,
       updatedAt: '2026-06-16T11:00:00Z',
+      ...(configuredRoles ? { configuredRoles } : {}),
     },
     roster,
     tasks,
@@ -61,38 +63,32 @@ function task(overrides: Record<string, unknown>) {
 const emptyState = normalizeSprintEngineProjection(projection([]), 'Initial Spawn Run')
 assert.ok(emptyState)
 assert.equal(
-  canLaunchSprintEngineInitialSpawn('architect', emptyState),
+  canLaunchSprintEngineInitialSpawn({ id: 'architect', role: 'architect' }, emptyState),
   true,
-  'architect may start as the bootstrap/orchestration role before claimable role work exists',
+  'the architect holds the coordinator seat, so it may start before claimable role work exists',
 )
 assert.equal(
-  canLaunchSprintEngineInitialSpawn('tester', emptyState),
+  canLaunchSprintEngineInitialSpawn({ id: 'tester-1', role: 'tester' }, emptyState),
   false,
-  'non-architect roles cannot launch against an initialized run with no claimable role work',
-)
-assert.equal(
-  canLaunchSprintEngineInitialSpawn('general', emptyState),
-  true,
-  'general is a planning-capable role and may bootstrap a soulless-General run before any task work exists',
+  'a specialist cannot launch against an initialized run with no claimable role work',
 )
 
-// A fresh one-General run (no architect) bootstraps the General itself instead
-// of stalling on a missing planner.
-const oneGeneralState = normalizeSprintEngineProjection(
-  projection([], { general: { role: 'general', status: 'idle', currentTaskId: null } }),
+// A ROLELESS run (MC-2050): the seat is `coordinator`, answered by id because it
+// has no role to match on, and a minted roleless worker is not it.
+const rolelessEmptyState = normalizeSprintEngineProjection(
+  projection([], { coordinator: { status: 'idle', currentTaskId: null } }, []),
   'Initial Spawn Run',
 )
-assert.ok(oneGeneralState)
-const generalWorkspace = { id: 'workspace-1', agents: {} } as unknown as Workspace
-const bootstrap = pickSprintEngineBootstrapCandidate(generalWorkspace, oneGeneralState, {
-  runningAgentIds: new Set<string>(),
-  inFlightSpawnKeys: new Set<string>(),
-})
-assert.equal(bootstrap.kind, 'spawn', 'a fresh one-General run bootstraps rather than stalling')
+assert.ok(rolelessEmptyState)
 assert.equal(
-  bootstrap.kind === 'spawn' ? bootstrap.candidate.role : null,
-  'general',
-  'the General is the bootstrap planner when no architect is rostered',
+  canLaunchSprintEngineInitialSpawn({ id: 'coordinator' }, rolelessEmptyState),
+  true,
+  'the roleless coordinator starts the run without matching a planning role',
+)
+assert.equal(
+  canLaunchSprintEngineInitialSpawn({ id: 'agent-1' }, rolelessEmptyState),
+  false,
+  'a minted roleless worker waits for claimable work, exactly like a named specialist',
 )
 
 const productReadyState = normalizeSprintEngineProjection(projection([
@@ -100,12 +96,12 @@ const productReadyState = normalizeSprintEngineProjection(projection([
 ]), 'Initial Spawn Run')
 assert.ok(productReadyState)
 assert.equal(
-  canLaunchSprintEngineInitialSpawn('product', productReadyState),
+  canLaunchSprintEngineInitialSpawn({ id: 'product-1', role: 'product' }, productReadyState),
   true,
   'a non-architect role can launch when its implementation task is claimable',
 )
 assert.equal(
-  canLaunchSprintEngineInitialSpawn('tester', productReadyState),
+  canLaunchSprintEngineInitialSpawn({ id: 'tester-1', role: 'tester' }, productReadyState),
   false,
   'unrelated roster roles still wait',
 )

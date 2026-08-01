@@ -11,7 +11,7 @@ from sprintengine_core.tool.comments import *  # noqa: F403,F401
 from sprintengine_core.tool.common import unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso, workspace_root_for_state_path
-from sprintengine_core.tool.roles import require_configured_role
+from sprintengine_core.tool.roles import optional_configured_role, require_configured_role
 from sprintengine_core.tool.merge_graph import assert_no_repo_dependency_cycle
 from sprintengine_core.tool.shell import worktree_for_task
 from sprintengine_core.tool.state import *  # noqa: F403,F401
@@ -626,7 +626,7 @@ def backlog_ref_from_args(args: argparse.Namespace) -> Optional[Dict[str, str]]:
 def normalize_needs_input_kind(kind: Optional[str]) -> Optional[str]:
     """Resolve a needs_input kind alias to its canonical wire value.
 
-    `planner` is the vocabulary a general-only run's agents are given (the lane is
+    `planner` is the vocabulary a roleless run's agents are given (the lane is
     named for the architect but MEANS the run's planner), so accept it on input and
     store the canonical kind. One place applies the alias map; the CLI arg paths and
     the state normalizer both come through here.
@@ -778,12 +778,15 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         raise SystemExit("Each task must be an object.")
     task_id = str(raw.get("id", "")).strip()
     title = str(raw.get("title", "")).strip()
-    role = str(raw.get("role", "")).strip()
     if not task_id:
         raise SystemExit("Each task must have a non-empty id.")
     if not title:
         raise SystemExit(f"Task {task_id} must have a non-empty title.")
-    role = require_configured_role(role, context=f"Task {task_id}")
+    # A task's role is OPTIONAL (MC-2057). Absent means "any agent may take this",
+    # which is every task in a roleless run; a role that is named must still
+    # resolve. Legality against the run's own enabled set is `ensure_role_in_roster`
+    # at creation and claim — `normalize_task` has no state to check it against.
+    role = optional_configured_role(raw.get("role"), context=f"Task {task_id}")
     status = str(raw.get("status", "todo")).strip() or "todo"
     if status not in VALID_TASK_STATUSES:
         raise SystemExit(f"Task {task_id} has invalid status {status!r}.")
@@ -796,7 +799,9 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         "id": task_id,
         "title": title,
         "description": str(raw.get("description", "")).strip(),
-        "role": role,
+        # Omitted, never `''` or null, when the task carries no role — the pinned
+        # wire representation of absent (MC-2057).
+        **({"role": role} if role else {}),
         # Which of the run's declared repos this task works in. Shape only here —
         # `normalize_task` has no state to check membership against, so the run's
         # declared set is enforced at creation and claim by ensure_task_repo_declared.

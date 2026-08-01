@@ -35,7 +35,7 @@ import {
 } from '../components/workspace/newWorkspace/helpers'
 import { launchPlanSourcedSprint } from '../utils/sprintengineWorkspaceCreation'
 import { normalizeCliPermissionPreset } from '../store/slices/settingsSlice'
-import { sprintEnginePlannerRole } from '../utils/sprintengine'
+import { sprintEngineCoordinatorSeatForRoleCounts, sprintEngineRoleKey } from '../utils/sprintengine'
 import {
   sprintEngineAutomationInitialStateForMode,
   sprintEngineAutomationModeForRunOptions,
@@ -253,12 +253,12 @@ async function createSprint(
         roleCliDefaults: roster.roleCliDefaults,
         roleModelOverrides: roster.roleModelOverrides,
         // Only a non-manual run carries a start-at-launch intent; a manual run
-        // deliberately sits idle until a person opens it. The planner follows
-        // the staffed counts rather than being hardcoded to `architect`: for a
-        // roles roster that still resolves to the architect (byte-identical to
-        // before), and for a no-roles roster it is a plain `general`.
+        // deliberately sits idle until a person opens it. The coordinator seat
+        // follows the staffed counts rather than being hardcoded to `architect`:
+        // a roles roster still resolves to the architect (byte-identical to
+        // before), a no-roles roster to the roleless seat.
         initialSpawnRoles: request.startRunner === true
-          ? [sprintEnginePlannerRole(launchRoleCounts)]
+          ? [sprintEngineRoleKey(sprintEngineCoordinatorSeatForRoleCounts(launchRoleCounts).role)]
           : null,
         startRunner: request.startRunner === true,
         autoApproveArtifacts: request.autoApproveArtifacts === true,
@@ -333,9 +333,10 @@ async function createPlanSourcedSprint(
   if (!resolved.ok) return resolved.response
   const roster = resolved.roster
   // MC-1875: formation decides what actually staffs the run. A 'pool' ("no
-  // roles") roster launches the plain-agent seed — one `general` planner, then
-  // one agent minted per task up to the run's max-concurrency setting — NOT the
-  // specialist counts it may still be carrying behind the wizard's disclosure.
+  // roles") roster launches the plain-agent seed — no staffed role, so the
+  // roleless coordinator seat plus one agent minted per task up to the run's
+  // max-concurrency setting — NOT the specialist counts it may still be carrying
+  // behind the wizard's disclosure.
   // Before this, Horizon could never start a pool run at all: it passed
   // roleCounts and nothing else, so formation was unexpressible.
   const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.mode, roster.roleCounts)
@@ -382,10 +383,12 @@ async function createPlanSourcedSprint(
       roleCounts: launchRoleCounts,
       roleCliDefaults: roster.roleCliDefaults,
       roleModelOverrides: roster.roleModelOverrides,
-      // `sprintEnginePlannerRole` already prefers `general` over `architect`
-      // when general is staffed, so pool mode needs no special case here once
-      // the counts are right — pinned by a test rather than assumed.
-      initialSpawnRoles: startRunner ? [sprintEnginePlannerRole(launchRoleCounts)] : null,
+      // `sprintEngineCoordinatorSeatForRoleCounts` already answers the seat from
+      // the counts, so pool mode needs no special case here once the counts are
+      // right — pinned by a test rather than assumed.
+      initialSpawnRoles: startRunner
+        ? [sprintEngineRoleKey(sprintEngineCoordinatorSeatForRoleCounts(launchRoleCounts).role)]
+        : null,
       sprintEngineAutoState: {
         ...sprintEngineAutomationInitialStateForMode(automationMode),
         // Plan-sourced launches are horizon/automation-orchestrated: nobody is

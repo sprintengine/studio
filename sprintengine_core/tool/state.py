@@ -11,7 +11,11 @@ from typing import Any, Dict, List, Optional
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso
-from sprintengine_core.tool.roles import configured_role_ids, require_configured_role
+from sprintengine_core.tool.roles import (
+    configured_role_ids,
+    optional_configured_role,
+    require_configured_role,
+)
 from sprintengine_core.tool.repo_model import get_run_vcs, vcs_repos
 
 
@@ -162,39 +166,71 @@ def roster_is_configured(state: Dict[str, Any]) -> bool:
     return bool(state.get("sprintengine", {}).get("rosterConfigured"))
 
 
-# Who PLANS is not a set here: `plans.resolve_planning_role` is the single source
-# (architect if rostered, else general). There is deliberately no PLANNING_ROLE_IDS
-# constant — it used to double as the seat cap, which is what capped a general-only
-# run at one agent (MC-1585). Keep the two questions apart.
+# Who COORDINATES is not a set here, and is not a role: `plans.resolve_coordinator_seat`
+# is the single source (an `architect` seat when one is rostered, a roleless seat
+# otherwise). There is deliberately no PLANNING_ROLE_IDS constant — it used to double
+# as the seat cap, which is what capped a run of plain agents at one agent (MC-1585).
+# Keep the two questions apart.
 
 def configured_role_set(state: Dict[str, Any]) -> Optional[set[str]]:
-    """The run's enforced enabled-role set, or None when unconfigured.
+    """The run's enforced enabled-role set, or None when it recorded none.
 
     Read inline here rather than through the folder store to avoid a
     state->store import cycle. `configuredRoles` is stored canonical, so callers
-    membership-test canonical role ids directly. An absent key or an empty/blank
-    list returns None so the roster boundary no-ops for legacy/headless runs.
+    membership-test canonical role ids directly.
+
+    PRESENCE of the key is the whole signal (MC-2057): a key that is absent or
+    not a list returns None, which is the legacy/headless "this run never
+    recorded a role set, so every role boundary no-ops" case. A list that IS
+    present returns its set — **including the empty set**, which is a roleless
+    run deliberately enabling no roles. Collapsing `[]` into None (what this
+    used to do) would make a roleless run indistinguishable from a legacy one
+    and silently stop rejecting a mistyped role.
+
+    Callers must therefore test `is None`, never truthiness: `configured_role_set(state) or X`
+    reads a roleless run as unconfigured and falls back to the whole registry.
     """
     raw = state.get("configuredRoles")
     if not isinstance(raw, list):
         return None
-    roles = {str(role).strip() for role in raw if str(role or "").strip()}
-    return roles or None
+    return {str(role).strip() for role in raw if str(role or "").strip()}
 
 
-def ensure_role_in_roster(state: Dict[str, Any], role: str) -> None:
+def ensure_role_in_roster(state: Dict[str, Any], role: Optional[str]) -> None:
     """Validate `role` against the run's configuredRoles (its legal role set).
 
     Post-lease authority: run membership is `configuredRoles`, not a seated
     roster. A run with zero live workers of a role still admits its planned
     tasks, so a lazy (architect-only) roster plans work for every enabled role.
-    No-ops when configuredRoles is absent/blank (legacy/headless runs)."""
-    role = require_configured_role(role, context="Role")
+    No-ops when configuredRoles is absent (legacy/headless runs).
+
+    An ABSENT role no-ops too (MC-2057): a roleless run's tasks and agents carry
+    no role, and "any agent may take this" is not a role to validate. A role
+    that IS named still has to resolve and still has to be enabled — so in a
+    roleless run (`configuredRoles: []`) every named role is rejected, which is
+    exactly "absent is legal, wrong is not"."""
+    canonical = optional_configured_role(role, context="Role")
+    if canonical is None:
+        return
     configured = configured_role_set(state)
-    if configured is not None and role not in configured:
+    if configured is not None and canonical not in configured:
         raise SystemExit(
-            f"Role {role!r} is not enabled for this run; ask the user to add it to the roster."
+            f"Role {canonical!r} is not enabled for this run; ask the user to add it to the roster."
         )
+
+
+def task_is_claimable_by_role(task: Dict[str, Any], role: Optional[str]) -> bool:
+    """May a worker with `role` (possibly none) take this task? (MC-2057)
+
+    A task that NAMES a role wants that specialist and nobody else — the
+    role-based routing every existing run relies on. A task with no role means
+    "any agent may take this", which is every task in a roleless run and is why
+    a pool of plain agents shares one graph without inventing a role to route on.
+    """
+    task_role = str(task.get("role") or "").strip()
+    if not task_role:
+        return True
+    return task_role == str(role or "").strip()
 
 
 def declared_repo_ids(state: Dict[str, Any]) -> List[str]:
@@ -612,9 +648,13 @@ def mint_lease(task: Dict[str, Any], worker_id: str, role: Optional[str] = None)
     clean_id = str(worker_id or "").strip()
     existing = task_lease(task) or {}
     same_worker = str(existing.get("workerId") or "").strip() == clean_id and clean_id != ""
+    # The lease lives ON the task record, so it carries the task's own role
+    # representation: named when there is one, key OMITTED when there is not
+    # (MC-2057). Never `''` — that is `worker_role`'s "could not establish".
+    lease_role = str(role or existing.get("role") or task.get("role") or "").strip()
     lease: Dict[str, Any] = {
         "workerId": clean_id,
-        "role": str(role or existing.get("role") or task.get("role") or "").strip(),
+        **({"role": lease_role} if lease_role else {}),
         # The tree this assignment works in (MC-1611). Taken from the task, never
         # the caller, so the queue filter that selected the worker, the worktree the
         # commit lands in, and the diff evidence captured from it all name one repo.
@@ -715,14 +755,34 @@ def worker_active_lease_role(state: Dict[str, Any], worker_id: str) -> str:
     return ""
 
 
+def is_roleless_agent_id(agent_id: str) -> bool:
+    """Is this one of the ids a roleless run mints (MC-2057)?
+
+    `coordinator` for the seat, `agent-1`/`agent-2`/… for its workers. These
+    encode no role BY DESIGN, so they must never be fed to the minted-id role
+    guess in `worker_role` — roles are plugin-extensible, so an installed role
+    called `agent` or `coordinator` would otherwise type a roleless worker as a
+    specialist it is not. It says nothing about ids the run's own records explain.
+    """
+    clean = str(agent_id or "").strip()
+    if clean == COORDINATOR_AGENT_ID:
+        return True
+    return bool(re.fullmatch(rf"{re.escape(ROLELESS_WORKER_ID_PREFIX)}-\d+", clean))
+
+
 def worker_role(state: Dict[str, Any], worker_id: str) -> str:
     """Best-effort role for a worker id, for display typing — never authority.
 
     The agents-map role is gone as an authority, so this derives the role from the
     run's own records: an active lease first, then any task the worker owns or last
     implemented, then the minted-id convention (`<role>` / `<role>-<n>`, how the
-    spawner names workers) validated against the run's configured roles. Returns ''
-    when the role cannot be established.
+    spawner names workers) validated against the run's configured roles.
+
+    Returns '' when the role cannot be established AND for a worker that is known
+    to have none. The two are not the same thing on the wire — a roleless task
+    OMITS its role key — but this function's job is display typing, and "show no
+    role" is the same answer for both. What matters is that a roleless id never
+    falls through to a GUESS.
     """
     clean = str(worker_id or "").strip()
     if not clean:
@@ -738,9 +798,19 @@ def worker_role(state: Dict[str, Any], worker_id: str) -> str:
             if role:
                 return role
     # Minted-id convention: `<role>` or `<role>-<suffix>`. Match against the run's
-    # configured roles (or the registry when unconfigured), longest first, so a
-    # hyphenated role id (`cross-platform-1`) resolves whole rather than truncated.
-    known = configured_role_set(state) or set(configured_role_ids())
+    # configured roles (or the registry when the run recorded none), longest first,
+    # so a hyphenated role id (`cross-platform-1`) resolves whole rather than
+    # truncated. `is None`, not truthiness: a roleless run records an EMPTY set and
+    # has no roles to match, and must not borrow the registry's.
+    configured = configured_role_set(state)
+    known = set(configured_role_ids()) if configured is None else configured
+    # This is the GUESS, and the only step a roleless id must not reach. It sits
+    # after the record-derived lookups deliberately: if a lease or an owned task
+    # names a role, that is a fact about this run and it wins even for an id that
+    # happens to match a roleless shape (roles are plugin-extensible, so `agent`
+    # or `coordinator` can legitimately BE a role someone installed and enabled).
+    if is_roleless_agent_id(clean) and clean not in known:
+        return ""
     for role in sorted(known, key=len, reverse=True):
         if clean == role or clean.startswith(f"{role}-"):
             return role
@@ -893,7 +963,9 @@ def queue_dispatch_record(
     record = {
         "timestamp": timestamp,
         "agentId": agent_id,
-        "role": role,
+        # Omitted for a roleless dispatch, never '' (MC-2057) — the ledger record
+        # and the task record spell absence the same way.
+        **({"role": role} if str(role or "").strip() else {}),
         "target": target,
         "reason": reason,
         "state": {"taskStatus": task_status},

@@ -34,10 +34,13 @@ import {
   getSprintEngineArtifactAutoApprovalEligibility,
   getSprintEngineArtifactsByTaskId,
   isSprintEngineArtifactAutoApprovableKind,
+  isSprintEngineCoordinatorAgent,
   isSprintEngineTaskLaunchable,
   sprintEngineAutoApprovalBlockingSiblingsAllReviewable,
+  sprintEngineCoordinatorSeat,
+  sprintEngineRoleKey,
+  sprintEngineTaskRoutesToCoordinator,
 } from './state'
-import { isSprintEnginePlanningRole } from './initial-spawns'
 import { pathJoin, samePath } from '../paths'
 
 /**
@@ -76,7 +79,8 @@ export const NEEDS_INPUT_AUTO_APPROVAL_STATUSES = new Set<SprintEngineArtifact['
 export type AutoRunCandidate = {
   agentId: string
   label: string
-  role: SprintEngineRoleId
+  /** Absent when the task carries no role (MC-2057). */
+  role?: SprintEngineRoleId
   taskId: string
   startupPromptOverride?: string
 }
@@ -203,6 +207,16 @@ export function sprintEngineWorkerRepoId(
   return DEFAULT_SPRINTENGINE_TASK_REPO
 }
 
+/**
+ * How an agent is NAMED in prose — diagnostics, notifications, prompts. Its role
+ * when it has one, its own id otherwise (MC-2057). Every one of these strings
+ * used to interpolate `role` directly, which renders `undefined` on a roleless
+ * run — the exact "never `String(undefined)`" failure the item calls out.
+ */
+function describeSprintEngineActor(role: SprintEngineRoleId | undefined, agentId: string): string {
+  return role ?? agentId
+}
+
 /** The task fields a demand key may read: the (role, repo) pair it groups by. */
 export type SprintEngineDemandKeyInput = Pick<SprintEngineTask, 'role' | 'repo'>
 
@@ -217,10 +231,16 @@ export type SprintEngineDemandKeyInput = Pick<SprintEngineTask, 'role' | 'repo'>
  * stays global and is applied across all groups by the picker. A single-repo
  * run keys every task to the same `<role>` group it always did, so its
  * grouping — and therefore its spawning — is unchanged.
+ *
+ * Roleless work groups under its own stable key (MC-2057), separate from every
+ * named role: a run staffing `developer` alone carries both kinds of task, and
+ * merging them would spawn a developer session to serve work no developer is
+ * meant to take.
  */
 export function sprintEngineDemandKey(task: SprintEngineDemandKeyInput): string {
   const repo = sprintEngineSessionRepoId(task.repo)
-  return repo === DEFAULT_SPRINTENGINE_TASK_REPO ? task.role : `${task.role}@${repo}`
+  const role = sprintEngineRoleKey(task.role)
+  return repo === DEFAULT_SPRINTENGINE_TASK_REPO ? role : `${role}@${repo}`
 }
 
 /**
@@ -271,15 +291,23 @@ export type SprintEngineClaimToolName = Extract<
  */
 export function buildSprintEngineClaimInstructionBlock(
   tool: SprintEngineClaimToolName,
-  role: SprintEngineRoleId | string,
+  // Absent on a roleless run: the claim payload then carries only the agent id,
+  // because `role` is not a field the engine can be given an honest value for.
+  role: SprintEngineRoleId | string | undefined,
   agentId: string
 ): string {
   // The managed Sprint Engine MCP server resolves run and workspace routing
   // from the HTTP run context. Agents do not pass statePath or
   // workspaceRoot in tool payloads.
+  // A roleless claim omits `role` entirely rather than sending a stand-in:
+  // `optional_configured_role` (roles.py) reads absent as "no role" and still
+  // rejects a role that is named but unconfigured.
+  const claimRole = String(role ?? '').trim()
   const payload: Record<string, string> = tool === 'sprintengine.triage.needs_input'
     ? { id: agentId }
-    : { role: String(role), id: agentId }
+    : claimRole
+      ? { role: claimRole, id: agentId }
+      : { id: agentId }
   return [
     `Call \`${tool}\` once to claim or resume this work:`,
     `\`${tool}\``,
@@ -302,7 +330,7 @@ export function artifactApprovalMessageKey(workspace: SprintEngineWorkspaceView,
 export function describeNeedsInputAutoApprovalState(sprintEngineState: SprintEngineState): string[] {
   const needsInputTasks = sprintEngineState.tasks
     .filter((task) => task.status === 'needs_input')
-    .map((task) => `${task.id} (${task.role}) owner=${task.ownerAgentId ?? 'none'}`)
+    .map((task) => `${task.id} (${task.role ?? 'no role'}) owner=${task.ownerAgentId ?? 'none'}`)
   const readyArtifacts = sprintEngineState.artifacts
     .filter((artifact) => artifact.status === 'ready_for_review')
     .map((artifact) => `${artifact.id} kind=${artifact.kind} task=${artifact.taskId || 'none'} createdBy=${artifact.createdBy || 'none'} path=${artifact.path || 'none'}`)
@@ -475,7 +503,7 @@ export function architectTriageMessageKey(workspace: SprintEngineWorkspaceView, 
 }
 
 export function buildSprintEngineDispatchPrompt(input: {
-  role: SprintEngineRoleId
+  role?: SprintEngineRoleId
   agentId: string
   dispatch: SprintEngineCurrentDispatch
 }): string {
@@ -520,23 +548,62 @@ export function getSprintEngineWakeCandidateTasks(
  * Task-scoped wake restriction (MC-1444): a live implementation agent that has
  * owned a task may only be woken for that same task (e.g. after it is released
  * back to `ready`); new tasks go to fresh sessions so cross-task context never
- * accumulates in one terminal. Planning roles (architect/general) run whole
- * sprints in one terminal and are exempt, as is an agent that never owned a
- * task. Returns the task id the agent is restricted to, or null when
- * unrestricted. A disposed agent is unaffected: respawns start a fresh session,
+ * accumulates in one terminal. The COORDINATOR runs a whole sprint in one
+ * terminal and is exempt, as is an agent that never owned a task.
+ *
+ * The exemption is the seat, not a role name (MC-2050): a minted roleless
+ * worker carries no role, exactly like the roleless coordinator, so a role
+ * comparison would read it as exempt and wake it for another task's work —
+ * precisely the cross-task context accumulation MC-1444 removed.
+ *
+ * Returns the task id the agent is restricted to, or null when unrestricted. A disposed agent is unaffected: respawns start a fresh session,
  * so the spawn path may hand its roster id any task.
  */
 export function sprintEngineWakeRestrictionTaskId(
-  runtimeAgent: SprintEngineState['sprintEngineAgents'][string] | undefined
+  agentId: string,
+  runtimeAgent: SprintEngineState['sprintEngineAgents'][string] | undefined,
+  sprintEngineState: Pick<SprintEngineState, 'configuredRoles'>
 ): string | null {
   if (!runtimeAgent?.lastOwnedTaskId) return null
-  if (isSprintEnginePlanningRole(runtimeAgent.role)) return null
+  if (isSprintEngineCoordinatorAgent(agentId, sprintEngineState)) return null
   return runtimeAgent.lastOwnedTaskId
+}
+
+/**
+ * Wake asks the run's ONE routing rule, exactly as dispatch does — MC-2050's
+ * defect reaching a second path.
+ *
+ * A role comparison alone answered the same question differently on the two
+ * paths. On a role-based run it agreed by construction — the seat's role is
+ * `architect`, so role equality offered it exactly the architect work
+ * `sprintEngineTaskRoutesToCoordinator`'s named clause also routes there. On a
+ * ROLELESS run the seat and every work task both carry no role, so
+ * `absent === absent` matched and the (deliberately unrestricted, MC-1454) seat
+ * was offered ordinary work that dispatch fans out to task-scoped workers —
+ * re-serialising the graph onto the one persistent session, which is the
+ * accumulation MC-1444 and MC-2050 removed.
+ *
+ * So the pairing is the rule, not the role: coordinator-routed work is offered
+ * to the seat and to nobody else, and everything else is offered to a matching
+ * non-seat worker. `sprintEngineWakeRestrictionTaskId` is untouched — the
+ * seat's exemption from MC-1444 task-scoping is what lets a departed seat be
+ * revived for the NEXT coordination task, and it was never the defect; its
+ * BOUND was.
+ */
+function sprintEngineWakeCandidateMatchesAgent(
+  candidate: SprintEngineTask,
+  role: SprintEngineRoleId | undefined,
+  agentIsCoordinator: boolean,
+  sprintEngineState: Pick<SprintEngineState, 'artifacts' | 'configuredRoles'>
+): boolean {
+  if (sprintEngineTaskRoutesToCoordinator(candidate, sprintEngineState)) return agentIsCoordinator
+  // Absent matches absent: a roleless worker is offered roleless work only.
+  return !agentIsCoordinator && candidate.role === role
 }
 
 export function findSprintEngineWakeCandidateTaskForAgent(
   wakeTasks: SprintEngineTask[],
-  role: SprintEngineRoleId,
+  role: SprintEngineRoleId | undefined,
   agentId: string,
   reservedTaskIds: ReadonlySet<string>,
   // Required (no default) so a call site can never silently drop the
@@ -548,10 +615,15 @@ export function findSprintEngineWakeCandidateTaskForAgent(
   // offers that session its own tree's work — so waking it for another repo's
   // task produces an agent that reports "no ready tasks" while the board shows
   // work. Pass sprintEngineWorkerRepoId(state, agentId).
-  repoId: string
+  repoId: string,
+  // Required for the same reason again: the routing rule is a property of the
+  // RUN (its seat and its live plan artifact), so it cannot be derived from a
+  // task and an id alone.
+  sprintEngineState: Pick<SprintEngineState, 'artifacts' | 'configuredRoles'>
 ): SprintEngineTask | undefined {
+  const agentIsCoordinator = isSprintEngineCoordinatorAgent(agentId, sprintEngineState)
   return wakeTasks.find((candidate) =>
-    candidate.role === role
+    sprintEngineWakeCandidateMatchesAgent(candidate, role, agentIsCoordinator, sprintEngineState)
     && sprintEngineSessionRepoId(candidate.repo) === repoId
     && !reservedTaskIds.has(candidate.id)
     // An owned task is never wake-able by another agent: single-owner tasks stay
@@ -685,7 +757,7 @@ export type SprintEngineDispatchRestartAction = {
 export type SprintEngineDispatchRespawnAction = {
   agentId: string
   label: string
-  role: SprintEngineRoleId
+  role?: SprintEngineRoleId
   taskId: string
   key: string
   data: Record<string, unknown>
@@ -972,7 +1044,7 @@ function getSprintEngineAssignmentActivityAt(
 
 // An in-progress claim whose owner may need recovering: the (agent, role, task)
 // triple the recovery pass groups its work by.
-type SprintEngineRecoveryClaim = { agentId: string; role: SprintEngineRoleId; taskId: string }
+type SprintEngineRecoveryClaim = { agentId: string; role?: SprintEngineRoleId; taskId: string }
 
 // The shared context the recovery pass (claimed-work respawns + departed-owner
 // revivals) reads. Both halves share one `respawn:` ledger, cap, and sweep, so
@@ -1058,10 +1130,10 @@ function planSprintEngineClaimedWorkRespawns(
       data: respawnData,
       diagnostic: {
         title: 'Respawned a sprint agent for claimed work',
-        message: `${claim.role} owns in-progress task ${claim.taskId} but its terminal is not running. Respawning the terminal so the claim can resume.`,
+        message: `${describeSprintEngineActor(claim.role, claim.agentId)} owns in-progress task ${claim.taskId} but its terminal is not running. Respawning the terminal so the claim can resume.`,
         details: [
           `Workspace: ${workspace.name}`,
-          `Agent: ${claim.agentId} (${claim.role})`,
+          `Agent: ${claim.agentId}${claim.role ? ` (${claim.role})` : ''}`,
           `Task: ${claim.taskId}`,
           `Respawn attempts before this one: ${previous?.attempts ?? 0}`,
         ].join('\n'),
@@ -1142,7 +1214,7 @@ function planSprintEngineDepartedOwnerRevivals(
   // storm safety; a same-role second departed owner is recovered on a later
   // pass (once the first is live). Collected first so the sweep below knows
   // which revival keys are active.
-  const revivalTargets: Array<{ role: SprintEngineRoleId; work: { taskId: string }; agentId: string }> = []
+  const revivalTargets: Array<{ role?: SprintEngineRoleId; work: { taskId: string }; agentId: string }> = []
   // One revival per demand group per pass, not per role: a mobile revival must
   // not consume the pass's only slot for a departed desktop owner, since
   // neither can ever claim the other's work.
@@ -1163,17 +1235,24 @@ function planSprintEngineDepartedOwnerRevivals(
       && (claimableWakeTaskIds.has(ownTaskId) || taskAwaitsOwner(ownTaskId, agentId))
       ? ownTaskId
       : null
-    // Planning roles (architect/general) are persistent, not task-scoped: one
-    // architect drives the whole sprint, so a departed planner is revived under
-    // its SAME id for the NEXT ready task of its role, not only its own task
-    // (MC-1454). Keeps the id stable across sequential planning tasks so no
-    // architect-N is minted while it is away.
-    if (!reviveTaskId && isSprintEnginePlanningRole(runtimeAgent.role)) {
-      // Skip work whose group already has a live agent: a planner following its
-      // role across repos (MC-1610) must be revived for a tree that has nobody
-      // in it, not for one another planning session is already serving.
+    // The coordinator is persistent, not task-scoped: it drives the whole
+    // sprint, so a departed coordinator is revived under its SAME id for the
+    // NEXT ready task that ROUTES TO IT, not only its own task (MC-1454). Keeps
+    // the id stable across the seat's ABSENCE, so a run whose coordinator ended
+    // its session re-engages that same id rather than minting a `<role>-N`
+    // beside it. (Not "across sequential coordination tasks": a run has at most
+    // one, since the live plan artifact binds to exactly one task — ruled
+    // correct as designed, MC-2053.) Both halves ask the seat, never a role name
+    // (MC-2050): a minted roleless worker carries no role and would otherwise
+    // read as the roleless coordinator and be revived onto another task's work,
+    // and the roleless coordinator itself would be revived onto ordinary work
+    // that belongs to a task-scoped agent.
+    if (!reviveTaskId && isSprintEngineCoordinatorAgent(agentId, sprintEngineState)) {
+      // Skip work whose group already has a live agent: a coordinator following
+      // its role across repos (MC-1610) must be revived for a tree that has
+      // nobody in it, not for one another coordination session is already serving.
       reviveTaskId = sprintEngineState.tasks.find((candidate) =>
-        candidate.role === runtimeAgent.role
+        sprintEngineTaskRoutesToCoordinator(candidate, sprintEngineState)
         && claimableWakeTaskIds.has(candidate.id)
         && !liveDemandKeys.has(sprintEngineDemandKey(candidate))
       )?.id ?? null
@@ -1241,10 +1320,10 @@ function planSprintEngineDepartedOwnerRevivals(
       data: respawnData,
       diagnostic: {
         title: 'Revived a departed sprint agent for its own task',
-        message: `${role} still has work to finish on ${work.taskId} but its terminal is not running. Reviving the id that last owned the task so its session resumes.`,
+        message: `${describeSprintEngineActor(role, reviveAgentId)} still has work to finish on ${work.taskId} but its terminal is not running. Reviving the id that last owned the task so its session resumes.`,
         details: [
           `Workspace: ${workspace.name}`,
-          `Agent: ${reviveAgentId} (${role})`,
+          `Agent: ${reviveAgentId}${role ? ` (${role})` : ''}`,
           `Task: ${work.taskId}`,
           `Revive attempts before this one: ${previous?.attempts ?? 0}`,
         ].join('\n'),
@@ -1515,8 +1594,9 @@ export function planSprintEngineDispatch(input: {
         runtimeAgent.role,
         agentId,
         reservedWakeCandidateTaskIds,
-        sprintEngineWakeRestrictionTaskId(runtimeAgent),
-        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId))
+        sprintEngineWakeRestrictionTaskId(agentId, runtimeAgent, sprintEngineState),
+        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId)),
+        sprintEngineState
       )
       if (!task) continue
       const key = continuationMessageKey(workspace, task.id, agentId)
@@ -1548,7 +1628,7 @@ export function planSprintEngineDispatch(input: {
     const activeKeys = new Set<string>()
     const activeAssignments: Array<{
       agentId: string
-      role: SprintEngineRoleId
+      role?: SprintEngineRoleId
       task: SprintEngineTask
     }> = []
     for (const task of sprintEngineState.tasks) {
@@ -1619,7 +1699,7 @@ export function planSprintEngineDispatch(input: {
               message: 'A live assigned agent has not recorded sprint activity after two continuation prompts. Automatic rescue has stopped for this assignment.',
               details: [
                 `Workspace: ${workspace.name}`,
-                `Agent: ${assignment.agentId} (${assignment.role})`,
+                `Agent: ${assignment.agentId}${assignment.role ? ` (${assignment.role})` : ''}`,
                 `Task: ${assignment.task.id} - ${assignment.task.title}`,
                 `Last sprint activity: ${new Date(activityAt).toISOString()}`,
                 `Continuation prompts attempted: ${previous?.attempts ?? 0}`,
@@ -1668,8 +1748,9 @@ export function planSprintEngineDispatch(input: {
         runtimeAgent.role,
         agentId,
         new Set(),
-        sprintEngineWakeRestrictionTaskId(runtimeAgent),
-        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId))
+        sprintEngineWakeRestrictionTaskId(agentId, runtimeAgent, sprintEngineState),
+        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId)),
+        sprintEngineState
       )
       if (!task) continue
       // Any engagement planned this pass (wake, dispatch, notification) supersedes
@@ -1687,10 +1768,10 @@ export function planSprintEngineDispatch(input: {
         data: { agentId, role: runtimeAgent.role, taskId: task.id, attempts: previous.attempts ?? 0 },
         diagnostic: {
           title: 'Restarted a stalled sprint agent',
-          message: `${runtimeAgent.role} had ready work on ${task.id} but its terminal stayed idle and stopped responding to wake prompts. Restarting it so the work can be claimed.`,
+          message: `${describeSprintEngineActor(runtimeAgent.role, agentId)} had ready work on ${task.id} but its terminal stayed idle and stopped responding to wake prompts. Restarting it so the work can be claimed.`,
           details: [
             `Workspace: ${workspace.name}`,
-            `Agent: ${agentId} (${runtimeAgent.role})`,
+            `Agent: ${agentId}${runtimeAgent.role ? ` (${runtimeAgent.role})` : ''}`,
             `Task: ${task.id} - ${task.title}`,
             `Wake prompts attempted before restart: ${previous.attempts ?? 0}`,
           ].join('\n'),
@@ -1740,10 +1821,10 @@ export function planSprintEngineDispatch(input: {
     // bootstrap and the all-tasks-done closure own those terminals.
     //
     // Triage (signalPlannerForNeedsInputTriage) runs outside this plan and
-    // re-engages the architect whenever architect-actionable needs_input tasks
-    // exist. Retiring that architect here would make triage respawn it next
-    // tick and idle_retire retire it again — an unbounded kill/respawn storm.
-    // The architect owns that triage work, so it is not "parked": skip it.
+    // re-engages the coordinator seat whenever architect-KIND needs_input tasks
+    // exist. Retiring that seat here would make triage respawn it next tick and
+    // idle_retire retire it again — an unbounded kill/respawn storm. The seat
+    // owns that triage work, so it is not "parked": skip it.
     const hasArchitectTriageWork =
       getArchitectActionableNeedsInputTasks(sprintEngineState).length > 0
     for (const agentId of input.idleAgentIds) {
@@ -1795,7 +1876,12 @@ export function planSprintEngineDispatch(input: {
         skipRetire('not-unclaimed-idle')
         continue
       }
-      if (runtimeAgent.role === 'architect' && hasArchitectTriageWork) {
+      // The seat, not the role name (MC-2057): the agent kept alive for pending
+      // `architect`-KIND triage is whoever holds the coordinator seat. Under the
+      // role comparison a roleless coordinator was retired WHILE its own triage
+      // work waited, and a needs_input task carries an owner so no dispatch,
+      // wake, or revival path re-engages anyone — the blocker stuck for good.
+      if (isSprintEngineCoordinatorAgent(agentId, sprintEngineState) && hasArchitectTriageWork) {
         skipRetire('architect-triage-work')
         continue
       }
@@ -1803,7 +1889,7 @@ export function planSprintEngineDispatch(input: {
       // claimable-work skip below no longer parks them on unrelated ready tasks
       // — a completed worker retires even while its role has a full queue; fresh
       // sessions take the queue.
-      const restrictToTaskId = sprintEngineWakeRestrictionTaskId(runtimeAgent)
+      const restrictToTaskId = sprintEngineWakeRestrictionTaskId(agentId, runtimeAgent, sprintEngineState)
       // Scoped to the agent's own repo (MC-1610): work it cannot claim is not
       // work it is waiting for, so a session whose tree is drained retires even
       // while another repo's queue is full — fresh sessions take that queue.
@@ -1813,7 +1899,8 @@ export function planSprintEngineDispatch(input: {
         agentId,
         new Set(),
         restrictToTaskId,
-        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId))
+        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId)),
+        sprintEngineState
       )) {
         skipRetire('wake-candidate-available')
         continue
@@ -1878,10 +1965,10 @@ export function planSprintEngineDispatch(input: {
           },
           diagnostic: {
             title: 'Closed a finished sprint worker',
-            message: `${runtimeAgent.role} finished ${restrictToTaskId}, so its panel was closed. Re-open the role from its group to resume that conversation; new work spawns a fresh session.`,
+            message: `${describeSprintEngineActor(runtimeAgent.role, agentId)} finished ${restrictToTaskId}, so its panel was closed. Re-open it from its group to resume that conversation; new work spawns a fresh session.`,
             details: [
               `Workspace: ${workspace.name}`,
-              `Agent: ${agentId} (${runtimeAgent.role})`,
+              `Agent: ${agentId}${runtimeAgent.role ? ` (${runtimeAgent.role})` : ''}`,
               `Completed task: ${restrictToTaskId}`,
               'One agent session per task keeps worker context small; the recorded session resumes on re-open, and new ready work spawns a fresh session.',
             ].join('\n'),
@@ -1913,12 +2000,12 @@ export function planSprintEngineDispatch(input: {
         data: { agentId, role: runtimeAgent.role, idleMs: now - since, reason: 'idle_window', retainResumeState: ownerStillHoldsTask },
         diagnostic: {
           title: 'Retired an idle sprint terminal',
-          message: `${runtimeAgent.role} had no claimable work for ${idleMinutes} minute${idleMinutes === 1 ? '' : 's'}, so its terminal was closed. The role respawns automatically when work is ready.`,
+          message: `${describeSprintEngineActor(runtimeAgent.role, agentId)} had no claimable work for ${idleMinutes} minute${idleMinutes === 1 ? '' : 's'}, so its terminal was closed. It respawns automatically when work is ready.`,
           details: [
             `Workspace: ${workspace.name}`,
-            `Agent: ${agentId} (${runtimeAgent.role})`,
+            `Agent: ${agentId}${runtimeAgent.role ? ` (${runtimeAgent.role})` : ''}`,
             `Idle for: ${idleMinutes} minute${idleMinutes === 1 ? '' : 's'}`,
-            'Lazy spawning revives this role as soon as claimable work appears.',
+            'Lazy spawning revives it as soon as claimable work appears.',
           ].join('\n'),
         },
       })
@@ -1943,16 +2030,21 @@ export type SprintEngineBootstrapDecision =
 
 /**
  * Run-start bootstrap decision. Before a plan exists there are no tasks, so
- * `pickNextAutoRuns` has nothing to select — the run's planning-capable agent
- * (the architect, or a soulless General when no architect is rostered) is
+ * `pickNextAutoRuns` has nothing to select — the run's COORDINATOR SEAT (the
+ * architect on a role-based run, the roleless `coordinator` otherwise) is
  * spawned here, carrying its stored handoff prompt when one exists. Every other
  * spawn is work-driven: ready tasks flow through `pickNextAutoRuns` under the
  * concurrency cap, notification targets through notification delivery, and
  * needs-input triage through the architect triage path.
  *
- * A planner terminal that exited after its startup prompt was delivered is not
- * respawned blindly (a broken CLI would spawn/exit loop); that pre-plan stall is
- * reported as a decision so the supervisor can surface it once.
+ * The seat is resolved by id, not by matching a planning ROLE (MC-2050): a
+ * roleless run staffs a coordinator with no role, which no role match can find,
+ * and this site — not dispatch — is where such a run would otherwise stall
+ * `no_planner` before dispatch is ever reached.
+ *
+ * A coordinator terminal that exited after its startup prompt was delivered is
+ * not respawned blindly (a broken CLI would spawn/exit loop); that pre-plan
+ * stall is reported as a decision so the supervisor can surface it once.
  */
 export function pickSprintEngineBootstrapCandidate(
   workspace: SprintEngineWorkspaceView,
@@ -1963,12 +2055,17 @@ export function pickSprintEngineBootstrapCandidate(
   }
 ): SprintEngineBootstrapDecision {
   const runHasTasks = sprintEngineState.tasks.length > 0
+  const seat = sprintEngineCoordinatorSeat(sprintEngineState)
   const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
-  // Prefer the architect when one is rostered; otherwise a General plans the
-  // run itself. Either is a planning-capable bootstrap candidate.
+  // The rostered coordinator seat: the deterministic id creation seeds, else any
+  // id the seat answers for — a NAMED seat also answers for `architect-1`, which
+  // is how older rosters seat their architect, and `isSprintEngineCoordinatorAgent`
+  // is what stops that second lookup from matching a minted roleless worker.
+  // `no_planner` survives for the state it was written for: a roster that seats
+  // no coordinator at all, which is a broken store rather than a roleless run.
   const planner =
-    roster.find((candidate) => candidate.role === 'architect')
-    ?? roster.find((candidate) => isSprintEnginePlanningRole(candidate.role))
+    roster.find((candidate) => candidate.id === seat.agentId)
+    ?? roster.find((candidate) => isSprintEngineCoordinatorAgent(candidate.id, sprintEngineState))
   if (!planner) {
     return runHasTasks ? { kind: 'none' } : { kind: 'stall', reason: 'no_planner' }
   }
@@ -2040,7 +2137,7 @@ export function buildSprintEngineContinuationPrompt(
   agentId: string
 ): string {
   return [
-    `Sprint Engine roster runner found a wake candidate for a ready ${task.role} task in this available terminal.`,
+    `Sprint Engine roster runner found a wake candidate for a ready ${task.role ? `${task.role} ` : ''}task in this available terminal.`,
     `Task: ${task.id} - ${task.title}`,
     buildSprintEngineClaimInstructionBlock('sprintengine.task.next', task.role, agentId),
   ].join('\n')
@@ -2114,19 +2211,31 @@ export function buildAgentNotificationPrompt(
   ].filter((line): line is string => line !== null).join('\n')
 }
 
+/**
+ * The triage prompt pasted into (or spawned onto) the coordinator's terminal.
+ *
+ * `architect` in the name and the copy is the needs_input KIND — a wire value
+ * this epic deliberately does not rename. The AGENT is whoever holds the
+ * coordinator seat, so its id is threaded in rather than hardcoded: the
+ * hardcoded `architect` named an id that does not exist on a roleless run, and
+ * the triage tool resolves the actor from it. Mirrors the join-time directive
+ * in `sprintengine_core/tool/commands/run.py`, which interpolates the same id.
+ */
 export function buildArchitectNeedsInputTriagePrompt(input: {
   workspaceFolderPath: string
   sprintEngineStatePath: string
+  agentId: string
   taskIds: string[]
 }): string {
   // The managed Sprint Engine MCP server resolves run routing from the HTTP
   // run context.
   const triagePayload = {
-    id: 'architect',
+    id: input.agentId,
   }
   return [
-    'Fetch the canonical Sprint Engine architect triage instructions from the managed Sprint Engine MCP server.',
+    'Fetch the canonical Sprint Engine triage instructions from the managed Sprint Engine MCP server.',
     `Worker cwd: ${input.workspaceFolderPath}`,
+    `You are agent \`${input.agentId}\`, this run's coordinator.`,
     `Architect-actionable needs_input tasks detected: ${input.taskIds.join(', ')}.`,
     'Call the triage tool through MCP:',
     ['`sprintengine.triage.needs_input`', '```json', JSON.stringify(triagePayload, null, 2), '```'].join('\n'),
@@ -2228,8 +2337,10 @@ export function pickNextAutoRuns(
 
   const isEligibleRoleAgent = (
     candidateId: string,
-    candidateRole: SprintEngineRoleId,
-    role: SprintEngineRoleId
+    // Absent matches absent: a roleless task is only eligible for a roleless
+    // agent, never for a named specialist that happens to be idle.
+    candidateRole: SprintEngineRoleId | undefined,
+    role: SprintEngineRoleId | undefined
   ): boolean => {
     const runtime = sprintEngineState.sprintEngineAgents[candidateId]
     return candidateRole === role
@@ -2247,7 +2358,7 @@ export function pickNextAutoRuns(
   // when none is reusable the spawner MINTS the task-scoped id itself and the
   // engine binds it at claim. A used id (one that has ever owned a task) is
   // never eligible for a new claim; its only reuse is the owner-keyed respawn.
-  const pickOrMintTaskAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] => {
+  const pickOrMintTaskAgent = (role: SprintEngineRoleId | undefined): AutoRunCandidate['agentId'] => {
     const reusable = roster.find((candidate) =>
       isEligibleRoleAgent(candidate.id, candidate.role, role)
       && !sprintEngineState.sprintEngineAgents[candidate.id]?.lastOwnedTaskId
@@ -2281,19 +2392,29 @@ export function pickNextAutoRuns(
   // Both routes call spawnAutoRunCandidate, which resumes the retained
   // conversation, so owner affinity is preserved.
 
-  // Persistent planning identity (MC-1454): planning roles (architect/general)
-  // are NOT task-scoped — one planner drives the whole sprint, so its id is
-  // reused across sequential planning tasks instead of minting `<planner>-N`.
-  // The task-scoped mint above would hand each planning task a fresh id, so
-  // planning roles route here instead: reuse an eligible seated planning id
-  // regardless of its retained lastOwnedTaskId, else target the deterministic
-  // bare `<role>` persistent planning id (the id creation seeds for the
-  // architect). Never a seat: a busy planner is filtered by `addCandidate`'s
+  // Persistent coordination identity (MC-1454): the coordinator is NOT
+  // task-scoped — one seat drives the whole sprint, so its id is reused across
+  // sequential coordination tasks instead of minting `<role>-N`. The task-scoped
+  // mint above would hand each of them a fresh id, so coordinator-routed work
+  // targets the seat's deterministic id instead — `architect` on a role-based
+  // run, `coordinator` on a roleless one, in both cases the id creation seeds
+  // (`buildSprintEngineAgentRoster`) rather than an invented fallback, and
+  // reused regardless of its retained lastOwnedTaskId. Resolving the id is not
+  // reserving it: a busy coordinator is filtered by `addCandidate`'s
   // running/in-flight/selected guards, not by role-wide "someone holds the
   // role, so wait" bookkeeping (MC-1592 review: seat-like waits starve work).
-  const findPlanningRoleAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] => {
-    const seated = roster.find((candidate) => isEligibleRoleAgent(candidate.id, candidate.role, role))
-    return seated?.id ?? role
+  const coordinatorSeat = sprintEngineCoordinatorSeat(sprintEngineState)
+  const findCoordinatorAgent = (): AutoRunCandidate['agentId'] => {
+    // An already-seated id the seat answers for wins over the deterministic one:
+    // a NAMED seat also answers for `architect-2`, so a run whose bare seat id
+    // was retired still dispatches its coordination work. `isSprintEngineCoordinatorAgent`
+    // is what keeps this off a minted roleless worker, which matches the seat's
+    // absent role but is not the seat.
+    const seated = roster.find((candidate) =>
+      isSprintEngineCoordinatorAgent(candidate.id, sprintEngineState)
+      && isEligibleRoleAgent(candidate.id, candidate.role, coordinatorSeat.role)
+    )
+    return seated?.id ?? coordinatorSeat.agentId
   }
 
   const addCandidate = (
@@ -2446,12 +2567,14 @@ export function pickNextAutoRuns(
         dependsOnCount: task.dependsOn.length,
       })
 
-      // Planning roles keep a persistent identity — reuse the seated planner or
-      // the bare `<role>` seed so sequential planning tasks share one id and no
-      // `<planner>-N` is ever minted. Non-planning work is task-scoped: its
-      // worker id is minted here and the engine binds it at claim.
-      const agentId = isSprintEnginePlanningRole(task.role)
-        ? findPlanningRoleAgent(task.role)
+      // The run's one routing rule (MC-2050), asked of the task rather than of
+      // its role name: coordinator-routed work keeps the seat's persistent id so
+      // sequential coordination tasks share one identity; everything else is
+      // task-scoped, and its worker id is minted here for the engine to bind at
+      // claim. A roleless run's work tasks therefore fan out one agent each
+      // instead of queueing behind the single seat.
+      const agentId = sprintEngineTaskRoutesToCoordinator(task, sprintEngineState)
+        ? findCoordinatorAgent()
         : pickOrMintTaskAgent(task.role)
       const agent = rosterById[agentId] ?? { id: agentId, label: agentId, role: task.role }
 

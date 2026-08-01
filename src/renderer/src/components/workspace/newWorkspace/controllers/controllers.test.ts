@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { SPRINT_ENGINE_ROLELESS_KEY } from '../../../../../../shared/sprintengine/state'
 import type {
   GuidedBriefRuntimeState,
   SprintEngineState,
@@ -548,8 +549,9 @@ async function testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs(): Promise<
 
 function testSprintEngineEffectiveSpawnAtStartRoles(): void {
   const visibleRoleCounts = { architect: 1, product: 1, frontend: 1, developer: 0, performance: 0, cross_platform: 0, tester: 1, security: 0 }
-  // Lazy roster: only the planner carries a start-at-launch intent — the general
-  // in a general-default run, the architect when staffed. The per-role "Start
+  // Lazy roster: only the coordinator seat carries a start-at-launch intent —
+  // the architect when staffed, otherwise the roleless seat, keyed by
+  // `sprintEngineRoleKey` because it has no role to key on. The per-role "Start
   // now" toggle is retired, so no other role is materialized.
   assert.deepEqual(
     buildSprintEngineEffectiveSpawnAtStartRoles({
@@ -564,10 +566,10 @@ function testSprintEngineEffectiveSpawnAtStartRoles(): void {
     buildSprintEngineEffectiveSpawnAtStartRoles({
       automationMode: 'run_agents',
       existingTeam: false,
-      visibleRoleCounts: { general: 1 },
+      visibleRoleCounts: {},
     }),
-    { general: true },
-    'a general-only run bootstraps its general planner — an agent is awake to plan',
+    { [SPRINT_ENGINE_ROLELESS_KEY]: true },
+    'a roleless run bootstraps its roleless coordinator seat — an agent is awake to plan',
   )
   assert.deepEqual(
     buildSprintEngineEffectiveSpawnAtStartRoles({

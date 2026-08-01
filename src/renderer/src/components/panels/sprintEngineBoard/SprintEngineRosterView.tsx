@@ -26,11 +26,15 @@ import type {
   SprintEngineTask,
 } from '../../../types/workspace'
 import {
+  SPRINT_ENGINE_ROLELESS_KEY,
   getSprintEngineRoleLabel,
+  isSprintEngineCoordinatorAgent,
   sprintEngineEnabledRoles,
+  sprintEngineRoleKey,
   sprintEngineRoleOrder,
   type SprintEngineAgentRosterItem,
 } from '../../../utils/sprintengine'
+import { SprintEngineCoordinationIcon } from './SprintEngineBoardIcons'
 import {
   type SprintEngineAddMemberOption,
 } from '../../../utils/sprintengineRoleOptions'
@@ -130,6 +134,14 @@ type RosterEntryDescriptor = {
 // run configures; the header controls "Add a role" (enables another role in the
 // run config) and "Add an agent" (raises the concurrent-agent count and spawns
 // one now) replace the old single seat-grammar "Add member" menu.
+//
+// A run that configures NO roles (MC-2055) drops the bands entirely — there is
+// no role to label, count, or pick a model for — and its seats sit flat under a
+// header that carries those facts for the whole run: the live/total census and
+// "Add an agent", which needs no role menu. The seat that holds the plan is
+// marked on its own row. Nothing anywhere prints a stand-in for the absent role.
+// (The run-level model picker the design asks for is not here yet; the header
+// below says why, and the per-agent picker carries it meanwhile.)
 export function SprintEngineRosterView({
   sprintEngineState,
   roster,
@@ -165,8 +177,9 @@ export function SprintEngineRosterView({
   // roleRuntimes via the host). Its band appears immediately.
   onEnableRole: (role: SprintEngineRole) => void
   // Raise the run's concurrent-agent count and mint + spawn one agent of the
-  // chosen configured role now (writes maxConcurrentAgents via the host).
-  onAddAgent: (role: SprintEngineRole) => void
+  // chosen configured role now (writes maxConcurrentAgents via the host). A
+  // roleless run passes no role: there is none to choose and none to mint from.
+  onAddAgent: (role?: SprintEngineRole) => void
   isAgentTerminalLive: (agentId: string) => boolean
   willResumeAgent: (agentId: string) => boolean
   cliOptions: CliRuntimeOption[]
@@ -275,12 +288,17 @@ export function SprintEngineRosterView({
 
   // Group roster entries by role, newest first: the roster arrives ascending,
   // reversing each group puts the most recently minted session on top with the
-  // persistent bare `<role>` id settling to the stable bottom.
+  // persistent bare `<role>` id settling to the stable bottom. Agents with no
+  // role group under the reserved roleless key — the same key their CLI/model
+  // runtime is stored under — and that group renders WITHOUT a band (MC-2055):
+  // a band names a role, and naming this one would print the placeholder the
+  // roleless design deletes.
   const entriesByRole = new Map<SprintEngineRoleId, SprintEngineAgentRosterItem[]>()
   for (const agent of roster) {
-    const list = entriesByRole.get(agent.role)
+    const key = sprintEngineRoleKey(agent.role)
+    const list = entriesByRole.get(key)
     if (list) list.push(agent)
-    else entriesByRole.set(agent.role, [agent])
+    else entriesByRole.set(key, [agent])
   }
   for (const list of entriesByRole.values()) list.reverse()
 
@@ -288,10 +306,12 @@ export function SprintEngineRosterView({
   // entries, in canonical role order. Prefer the projected `configuredRoles`
   // (the roles the user actually turned on): under the lazy roster only the
   // architect is seated at start, so a configured reviewer would otherwise be
-  // invisible until it spawns. Legacy runs fall back to the seated census.
+  // invisible until it spawns. Only a LEGACY run — one that records no set at
+  // all — falls back to the seated census; a roleless run's explicit `[]` is an
+  // answer, not a gap, so it is used as given (MC-2057).
   const optionByRole = new Map(addMemberOptions.map((option) => [option.role, option]))
   const enabledRoles = new Set(
-    sprintEngineState.configuredRoles && sprintEngineState.configuredRoles.length > 0
+    Array.isArray(sprintEngineState.configuredRoles)
       ? sprintEngineState.configuredRoles
       : sprintEngineEnabledRoles(sprintEngineState.roleCounts),
   )
@@ -299,21 +319,39 @@ export function SprintEngineRosterView({
     const index = sprintEngineRoleOrder.indexOf(role as SprintEngineRole)
     return index >= 0 ? index : sprintEngineRoleOrder.length
   }
-  const roleOrder = [...new Set<SprintEngineRoleId>([...enabledRoles, ...entriesByRole.keys()])].sort(
-    (a, b) => rolePriority(a) - rolePriority(b) || a.localeCompare(b),
-  )
+  // Named roles only. The roleless group is never a section, so it never joins
+  // this order — its seats are listed above the bands instead.
+  const roleOrder = [...new Set<SprintEngineRoleId>([...enabledRoles, ...entriesByRole.keys()])]
+    .filter((role) => role !== SPRINT_ENGINE_ROLELESS_KEY)
+    .sort((a, b) => rolePriority(a) - rolePriority(b) || a.localeCompare(b))
+  const rolelessEntries = entriesByRole.get(SPRINT_ENGINE_ROLELESS_KEY) ?? []
 
   const roleLabelFor = (role: SprintEngineRoleId): string =>
     optionByRole.get(role)?.label ?? getSprintEngineRoleLabel(role)
 
+  // A run that configures no roles at all: its whole team is roleless, so the
+  // per-role facts the bands carried (census, model) become run-level facts and
+  // move into the header (MC-2055 §3). A run that staffs even one role keeps the
+  // role header — its bands still own those facts.
+  const rolelessRun = enabledRoles.size === 0 && roleOrder.length === 0
+
   // Header census: how many agents are actually working, and how many roles the
   // run configures. Both derive from the workers view + configuredRoles — never
-  // a headcount of durable seats.
+  // a headcount of durable seats. With no roles to count, the census reads
+  // across the run's agents instead — the same live/total shape the bands used.
   const allDescriptors = roster.map(describeEntry)
   const workingCount = allDescriptors.filter(
     (entry) => entry.statusKey === 'running' || entry.statusKey === 'planning',
   ).length
+  const liveAgentCount = allDescriptors.filter((entry) => entry.hasLiveTerminal).length
   const configuredRoleCount = enabledRoles.size
+
+  // The seat that holds the plan wears the same coordination mark its task wears
+  // on the board — on EVERY run, because coordination is a job, not a role
+  // (MC-2053; the design's role-based panel marks `architect-1` too). Asked by
+  // id, so a suffixed seat (`architect-1`) answers as well as a bare one.
+  const isCoordinatorRow = (agentId: string): boolean =>
+    isSprintEngineCoordinatorAgent(agentId, sprintEngineState)
 
   // "Add a role" lists the roles the run does not yet configure; picking one
   // routes through the host's enable-role path (a genuinely new role prompts
@@ -328,15 +366,41 @@ export function SprintEngineRosterView({
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-4">
         <h3 className="text-body font-semibold text-[color:var(--text-strong)]">Agents</h3>
         <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">
-          {workingCount} working · {configuredRoleCount} configured{' '}
-          {configuredRoleCount === 1 ? 'role' : 'roles'}
+          {rolelessRun ? (
+            `${liveAgentCount} of ${roster.length} active`
+          ) : (
+            <>
+              {workingCount} working · {configuredRoleCount} configured{' '}
+              {configuredRoleCount === 1 ? 'role' : 'roles'}
+            </>
+          )}
         </span>
         <span className="flex-1" />
-        {addableRoleOptions.length > 0 && roleConfigUnavailable ? (
+        {/* The mockup's run-level model picker is NOT here, and deliberately so:
+            a run-level runtime edit is written by `roster runtime --role`, which
+            both the main-process role validator and the engine's
+            `require_configured_role` reject for a run whose legal role set is
+            empty. A control that can only fail is worse than no control — the
+            per-agent picker (right-click / ⋮) writes the same runtime and does
+            work, so it carries this until the run-level write has a roleless
+            route. */}
+        {rolelessRun ? (
+          // No role to pick, so the control is the action itself rather than a
+          // menu of one.
+          <OutlineButton
+            size="xs"
+            disabled={Boolean(terminalActionsUnavailable)}
+            aria-label={unavailableLabel('Add an agent')}
+            onClick={() => onAddAgent()}
+          >
+            <span aria-hidden="true">＋</span> Add an agent
+          </OutlineButton>
+        ) : null}
+        {!rolelessRun && addableRoleOptions.length > 0 && roleConfigUnavailable ? (
           <OutlineButton size="xs" disabled aria-label={labelWithReason('Add a role', roleConfigUnavailable)}>
             <span aria-hidden="true">＋</span> Add a role
           </OutlineButton>
-        ) : addableRoleOptions.length > 0 ? (
+        ) : !rolelessRun && addableRoleOptions.length > 0 ? (
           <Popover
             open={addRoleOpen}
             onOpenChange={setAddRoleOpen}
@@ -408,9 +472,21 @@ export function SprintEngineRosterView({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {roleOrder.length === 0 ? (
+        {/* Agents with no role: seats on the same left edge as a band's rows,
+            with nothing above them. In a roleless run this is the whole list. */}
+        {rolelessEntries.length > 0 ? (
+          <ol aria-label="Agents">
+            {rolelessEntries.map((agent) => renderAgentRow(describeEntry(agent)))}
+          </ol>
+        ) : null}
+
+        {roleOrder.length === 0 && rolelessEntries.length === 0 ? (
           <div className="px-4 py-6 text-meta leading-5 text-[color:var(--text-subtle)]">
-            No roles configured yet. Add a role to staff this run.
+            {/* A roleless run's team is never "unconfigured": it has no roles by
+                design, so the empty state keys off the agents, not the roles. */}
+            {rolelessRun
+              ? 'No agents yet — one starts when there is work.'
+              : 'No roles configured yet. Add a role to staff this run.'}
           </div>
         ) : (
           roleOrder.map((role) => {
@@ -585,8 +661,21 @@ export function SprintEngineRosterView({
               />
             )}
           </span>
-          <span className="w-[148px] shrink-0 truncate text-body font-medium text-[color:var(--text-default)]">
-            {displayName}
+          <span className="flex w-[148px] shrink-0 items-center gap-1.5 truncate text-body font-medium text-[color:var(--text-default)]">
+            <span className="truncate">{displayName}</span>
+            {/* Which agent holds the plan — the same mark its coordination task
+                wears on the board. */}
+            {isCoordinatorRow(agent.id) ? (
+              <Tooltip content="Coordinates this run — plans it and adjudicates the plan.">
+                <span
+                  className="text-[color:var(--text-muted)]"
+                  aria-label="Coordinates this run"
+                  role="img"
+                >
+                  <SprintEngineCoordinationIcon className="icon-sm" />
+                </span>
+              </Tooltip>
+            ) : null}
           </span>
           <span className="sr-only">{statusLabel}</span>
           <TruncatedText

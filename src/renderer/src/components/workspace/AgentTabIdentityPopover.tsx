@@ -9,7 +9,7 @@ import type { AgentCli } from '../../types/workspace'
 // agent record + runtime state so this component stays presentational.
 export type AgentTabIdentity = {
   name: string
-  /** e.g. "General agent", "Design specialist", "Nuclear reviewer · sprint". */
+  /** e.g. "No role", "Design specialist", "Nuclear reviewer · sprint". */
   roleLabel: string
   /** The launch model id (e.g. `claude-opus-4-8`); null → the CLI's own default. */
   model: string | null

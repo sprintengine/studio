@@ -51,17 +51,20 @@ SPRINTENGINE_SOUL_EXTRA_SKILLS: tuple[str, ...] = (
     *SPRINTENGINE_NORM_SKILLS,
 )
 
-# The full-loop orchestration skill that stands in for a role-personality Soul on
-# a soulless General. It drives one agent through plan -> build -> self-review ->
-# test -> publish and holds the team at the size the user set.
-SPRINTENGINE_GENERAL_WORKFLOW_SKILL: str = "sprintengine_general_workflow"
+# The orchestration skill that stands in for a role-personality Soul on an agent
+# with NO role. It describes the SHAPE of a roleless run — one agent holds the
+# coordination job, every other task is dispatched to its own agent that owns it
+# claim-to-done — drives that agent through build -> self-review -> publish, and
+# holds the team at the size the user set. It is rendered for the coordinator and
+# every worker alike, so the seat's own instructions live in `coordinator_brief_block`.
+SPRINTENGINE_ROLELESS_WORKFLOW_SKILL: str = "sprintengine_roleless_workflow"
 
-# The UNGATED full skill list for a soulless General: the orchestration skill
-# (in place of a role soul) plus the universal norm + Multicode product layer.
-# `load_general_soul_prompt` composes the gated equivalent per run; this
+# The UNGATED full skill list for a roleless agent: the orchestration skill (in
+# place of a role soul) plus the universal norm + Multicode product layer.
+# `load_roleless_soul_prompt` composes the gated equivalent per run; this
 # constant remains the contract/reference list (tests assert against it).
-SPRINTENGINE_GENERAL_SKILLS: tuple[str, ...] = (
-    SPRINTENGINE_GENERAL_WORKFLOW_SKILL,
+SPRINTENGINE_ROLELESS_SKILLS: tuple[str, ...] = (
+    SPRINTENGINE_ROLELESS_WORKFLOW_SKILL,
     *SPRINTENGINE_SOUL_EXTRA_SKILLS,
 )
 

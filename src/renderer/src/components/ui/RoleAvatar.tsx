@@ -37,7 +37,8 @@ const SIZE: Record<RoleAvatarSize, { disc: string; icon: string; alpha: number }
 }
 
 type RoleAvatarProps = {
-  role: SprintEngineRoleId
+  /** Absent for an agent or task with no role (MC-2057). */
+  role?: SprintEngineRoleId
   size?: RoleAvatarSize
   /** Optional class extras (margins, alignment). Don't pass colour or sizing
    *  — the primitive owns both. */

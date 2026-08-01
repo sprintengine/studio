@@ -15,7 +15,7 @@ import {
   NO_ROLES_ROSTER_NAME,
   isNoRolesRosterRef,
 } from '../../../../../shared/sprintengine/run-types'
-import { SPRINT_ENGINE_GENERAL_ROLE_ID } from '../../../utils/sprintengineRoleOptions'
+import { SPRINT_ENGINE_ROLELESS_KEY } from '../../../../../shared/sprintengine/state'
 
 // Re-exported so the wizard, the Horizon picker (MC-1880) and the launch path
 // all import the built-in from one place. Defined in shared — see the comment
@@ -45,24 +45,27 @@ export const DEFAULT_SPRINT_ENGINE_ROLE_COUNTS: SprintEngineRoleCounts = {
   cross_platform: 0,
   tester: 0,
   security: 0,
-  // `general` is NOT staffed by default (count 0): a fresh run opens on plain
-  // agents whose count is `maxConcurrentAgents`, not a roster headcount, so
-  // seeding `{ general: 2 }` here would only write config the roster layer
-  // discards. It joins the key set purely so the Required<> CLI seed map below
-  // derives a stock CLI for it — otherwise the plain-agents picker (and the
-  // specialist table's General row) would have no CLI default. See MC-1585.
-  general: 0,
+  // The roleless key is never STAFFED (count 0, and it names no role): a
+  // roleless run's agent count is `maxConcurrentAgents`, not a roster headcount.
+  // It joins the key set purely so the Required<> CLI seed map below derives a
+  // stock CLI for it — otherwise the plain-agents picker would have no CLI
+  // default, and a roleless run would silently launch on the CLI's own default.
+  [SPRINT_ENGINE_ROLELESS_KEY]: 0,
 }
 
-// What a NO-ROLES ('pool') run stages: one plain `general` planner seat. After
-// that, agents are minted PER TASK up to the run's max-concurrency setting —
-// this is a seed, never a headcount, and there is deliberately no roster-level
-// agent count anywhere (owner ruling 2026-07-26).
+// What a NO-ROLES ('pool') run stages: nothing. It staffs no role, so it seats
+// the roleless coordinator and mints agents PER TASK up to the run's
+// max-concurrency setting — a seed, never a headcount, and there is
+// deliberately no roster-level agent count anywhere (owner ruling 2026-07-26).
+//
+// This used to be `{ general: 1 }`: "no roles" had to name a role to reach the
+// coordination path at all (MC-2057). It is now literally empty, which the
+// engine reads as a deliberate empty `configuredRoles` — distinct from a legacy
+// run that recorded none.
 //
 // Lives here rather than in NewWorkspacePanel so the wizard and the
-// plan-sourced launch path (useAutomationRequests) share one constant instead
-// of each spelling `{ general: 1 }` (MC-1875).
-export const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = { general: 1 }
+// plan-sourced launch path (useAutomationRequests) share one constant.
+export const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = {}
 
 // The built-in "No roles" (non-)roster as a `SprintEngineRoster`, so every
 // consumer that renders or resolves a roster can treat it uniformly. It is
@@ -228,10 +231,10 @@ export function resolveSprintEngineRosterMode(
 //
 // A 'pool' roster launches the plain-agent seed, NOT the specialist counts it
 // may still be carrying behind the wizard's collapsed disclosure. That the seed
-// contains NO `architect` is load-bearing: `sprintEnginePlannerRole` prefers
-// architect over general whenever architect is staffed, so a pool run that
-// leaked an architect count would silently seat an architect as its planner —
-// the exact thing "no roles" means to exclude. Pinned in savedRosters.test.ts.
+// staffs NO role is load-bearing: `sprintEngineCoordinatorSeat` seats an
+// architect whenever one is configured, so a pool run that leaked an architect
+// count would silently seat an architect as its coordinator — the exact thing
+// "no roles" means to exclude. Pinned in savedRosters.test.ts.
 export function sprintEngineLaunchRoleCounts(
   mode: SprintEngineRosterMode,
   roleCounts: SprintEngineRoleCounts,
@@ -243,13 +246,13 @@ export function activeSprintEngineRoleIds(counts: SprintEngineRoleCounts): Sprin
   return (Object.keys(counts) as SprintEngineRoleId[]).filter((role) => (counts[role] ?? 0) > 0)
 }
 
-// True when a roster staffs any role other than the plain `general` agent — an
-// architect, a developer, a reviewer, any specialist. The wizard opens its
-// "Use specialist roles" disclosure pre-expanded for a saved team that staffs
-// specialists (so it round-trips visibly), and keeps it collapsed for a plain
-// general-only team or a fresh install. A general-only roster is NOT specialist.
+// True when a roster staffs any role at all — an architect, a developer, a
+// reviewer, any specialist. The wizard opens its "Use specialist roles"
+// disclosure pre-expanded for a saved team that staffs specialists (so it
+// round-trips visibly), and keeps it collapsed for a roleless team or a fresh
+// install. Every staffed role is a specialist now that `general` is gone.
 export function sprintEngineRosterStaffsSpecialists(counts: SprintEngineRoleCounts): boolean {
-  return activeSprintEngineRoleIds(counts).some((role) => role !== SPRINT_ENGINE_GENERAL_ROLE_ID)
+  return activeSprintEngineRoleIds(counts).length > 0
 }
 
 // Keep only CLI defaults for roles actually in the roster (count > 0). The

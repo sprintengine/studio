@@ -12,6 +12,8 @@ from sprintengine_core.tool.artifacts import artifacts_for_task, file_fingerprin
 from sprintengine_core.tool.constants import VALID_TASK_PHASES
 from sprintengine_core.tool.paths import now_iso, sprintengine_state_path_for
 from sprintengine_core.tool.plans import (
+    actor_is_coordinator,
+    apply_coordinator_brief_to_task,
     build_run_summary,
     default_swarm_name_for_state,
     ensure_plan_approval_gate,
@@ -24,7 +26,7 @@ from sprintengine_core.tool.plans import (
     handover_path_for_state,
     import_source_to_team_file,
     parse_source_bundle_arg,
-    resolve_planning_role,
+    resolve_coordinator_seat,
     plan_path_artifact_value,
     plan_path_for_state,
     product_intake_path_artifact_value,
@@ -40,7 +42,7 @@ from sprintengine_core.tool.plans import (
 )
 from sprintengine_core.skill_layers import run_is_backlog_sourced
 from sprintengine_core.tool.prompts import artifact_registration_instruction, completion_reality_instruction, load_prompt
-from sprintengine_core.tool.roles import require_configured_role
+from sprintengine_core.tool.roles import optional_configured_role
 from sprintengine_core.tool.phase_prompts import worker_execution_workspace_block
 from sprintengine_core.tool.repo_model import get_run_vcs, parse_repo_declarations
 from sprintengine_core.tool.shell import ensure_run_worktree
@@ -62,6 +64,7 @@ from sprintengine_core.tool.state import (
     release_expired_agent_targets,
     roster_is_configured,
     run_is_canceled,
+    task_is_claimable_by_role,
     with_locked_state,
 )
 from sprintengine_core.tool.tasks import (
@@ -597,6 +600,10 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             ]
             apply_source_context_to_task(plan_task, state, state_path)
             refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
+        # Last word on the gate's card: each source-shape branch above rewrites the
+        # description wholesale, so a roleless run's coordinator brief is layered on
+        # after them (a no-op on every run whose seat has a role).
+        apply_coordinator_brief_to_task(plan_gate["task"], state, state_path)
         recompute_phase(state)
         return {
             "ok": True,
@@ -632,7 +639,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     import sys
     from sprintengine_core.tool.commands.task import planner_actionable_needs_input_tasks
 
-    args.role = require_configured_role(args.role, context="Join")
+    args.role = optional_configured_role(args.role, context="Join")
     print(f"[sprintengine] reading state from: {args.state}", file=sys.stderr)
 
     def completion_instruction() -> str:
@@ -657,15 +664,32 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         )
 
     def role_boundary_instruction() -> str:
+        # A roleless run has no lane to police: every task is claimable by any
+        # agent, so the boundary is the task lease, not a role match.
+        if not args.role:
+            return (
+                "This sprint runs no roles. Every ready task is claimable by any agent, so take work "
+                "with `sprintengine task next` and carry each task you claim through to `done` before "
+                "claiming another. Do not mutate a task another agent holds; you may inspect any task "
+                "read-only to diagnose blockers. If nothing is ready, stop and report the blocker id if "
+                "one is visible."
+            )
         return (
             f"You are assigned role `{args.role}`. Only claim and work tasks whose Sprint Engine "
-            f"`task.role` exactly matches `{args.role}`. When instructed to keep picking up ready tasks, "
-            f"interpret that as ready `{args.role}` tasks only. Do not run `sprintengine task claim`, "
-            f"`sprintengine task status`, `sprintengine artifact ready`, `sprintengine plan`, or similar "
-            f"mutating commands for another role's task unless the user explicitly changes your assigned role. "
-            f"You may inspect other roles read-only to diagnose blockers. If no task is ready for `{args.role}`, "
-            f"stop and report the blocker id if one is visible."
+            f"`task.role` exactly matches `{args.role}`, plus tasks that carry no role at all. When "
+            f"instructed to keep picking up ready tasks, interpret that as those tasks only. Do not run "
+            f"`sprintengine task claim`, `sprintengine task status`, `sprintengine artifact ready`, "
+            f"`sprintengine plan`, or similar mutating commands for another role's task unless the user "
+            f"explicitly changes your assigned role. You may inspect other roles read-only to diagnose "
+            f"blockers. If no task is ready for you, stop and report the blocker id if one is visible."
         )
+
+    role_suffix = f" with role `{args.role}`" if args.role else ""
+    claim_command = (
+        f"sprintengine task next --role {args.role} --id {args.id}"
+        if args.role
+        else f"sprintengine task next --id {args.id}"
+    )
 
     def runner_policy(state: Dict[str, Any]) -> Dict[str, Any]:
         return folder_store.normalize_runner_policy(state.get("runner"))
@@ -685,7 +709,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         if run_is_canceled(state):
             return {
                 "ok": True,
-                "role": args.role,
+                **({"role": args.role} if args.role else {}),
                 "agentId": args.id,
                 "action": "canceled",
                 "runner": runner_policy(state),
@@ -696,7 +720,10 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
         runtime = reconcile_worker(state, args.id, args.role)
         active = runtime["activeTask"]
-        ready = [t for t in state.get("tasks", []) if t.get("role") == args.role and task_is_ready(state, t)]
+        ready = [
+            t for t in state.get("tasks", [])
+            if task_is_claimable_by_role(t, args.role) and task_is_ready(state, t)
+        ]
 
         prompt = load_prompt(
             args.role,
@@ -721,7 +748,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                     message = f"{message} Question: {question}"
                 return {
                     "ok": True,
-                    "role": args.role,
+                    **({"role": args.role} if args.role else {}),
                     "agentId": args.id,
                     "action": "blocked",
                     "task": active,
@@ -746,9 +773,9 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             directive = (
                 f"\n\n---\n"
                 f"## Your First Action\n"
-                f"You are agent `{args.id}` with role `{args.role}`.\n"
+                f"You are agent `{args.id}`{role_suffix}.\n"
                 f"You already have active task `{task_id}`: {task_title}.\n\n"
-                f"Run:\n```\nsprintengine task next --role {args.role} --id {args.id}\n```\n\n"
+                f"Run:\n```\n{claim_command}\n```\n\n"
                 f"{resume_note}\n\n"
                 f"{role_boundary_instruction()}\n\n"
                 f"{worker_execution_workspace_block(state, args.state)}\n\n"
@@ -761,16 +788,18 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "resume", "task": active, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
+            return {"ok": True, **({"role": args.role} if args.role else {}), "agentId": args.id, "action": "resume", "task": active, "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
-        # Planner-routed, not architect-routed: in a general-only run the general IS
-        # the planner, and gating this on the literal role meant it never received the
-        # triage directive — architect-kind needs_input work queued forever.
-        if args.role == resolve_planning_role(state) and planner_actionable_needs_input_tasks(state):
+        # Planner-routed, not architect-routed: triage belongs to the run's
+        # coordinator seat, and gating this on a literal role meant a run without an
+        # architect never received the directive — architect-kind needs_input work
+        # queued forever. Asked of the joining AGENT, because a roleless coordinator
+        # has no role to compare.
+        if actor_is_coordinator(state, args.id) and planner_actionable_needs_input_tasks(state):
             directive = (
                 f"\n\n---\n"
                 f"## Your First Action\n"
-                f"You are agent `{args.id}` with role `architect`.\n"
+                f"You are agent `{args.id}`, this run's coordinator.\n"
                 "Architect-actionable needs_input work is queued.\n\n"
                 f"Run:\n```\nsprintengine triage needs-input --id {args.id}\n```\n\n"
                 "Follow the returned triage prompt. Resolve task-card, scope, artifact-review, tooling, or verification blockers through Sprint Engine commands. Do not edit application source in triage mode.\n\n"
@@ -778,7 +807,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "needs_input_triage", "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
+            return {"ok": True, **({"role": args.role} if args.role else {}), "agentId": args.id, "action": "needs_input_triage", "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
         if not active and not ready:
             if all_tasks_done(state):
@@ -788,7 +817,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 # summary. There is no backstop commit and no finalization here.
                 return {
                     "ok": True,
-                    "role": args.role,
+                    **({"role": args.role} if args.role else {}),
                     "agentId": args.id,
                     "action": "complete",
                     "runner": policy,
@@ -796,14 +825,14 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                     "releasedExpired": expired["released"],
                     "write": runtime["dirty"] or expired["dirty"],
                 }
-            return {"ok": True, "role": args.role, "agentId": args.id, "action": "idle", "runner": policy, "message": f"No tasks are currently ready for the '{args.role}' role.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
+            return {"ok": True, **({"role": args.role} if args.role else {}), "agentId": args.id, "action": "idle", "runner": policy, "message": (f"No tasks are currently ready for the '{args.role}' role." if args.role else "No tasks are currently ready."), "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
         directive = (
             f"\n\n---\n"
             f"## Your First Action\n"
-            f"You are agent `{args.id}` with role `{args.role}`.\n"
-            f"There are **{len(ready)} task(s)** ready for your role.\n\n"
-            f"Run:\n```\nsprintengine task next --role {args.role} --id {args.id}\n```\n\n"
+            f"You are agent `{args.id}`{role_suffix}.\n"
+            f"There are **{len(ready)} task(s)** ready for you.\n\n"
+            f"Run:\n```\n{claim_command}\n```\n\n"
             f"Complete the claimed task and log evidence.\n\n"
             f"{role_boundary_instruction()}\n\n"
             f"{worker_execution_workspace_block(state, args.state)}\n\n"
@@ -816,7 +845,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
             "All updates must go through the Sprint Engine tool.**"
         )
-        return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
+        return {"ok": True, **({"role": args.role} if args.role else {}), "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
     return with_locked_state(args.state, run)
 
@@ -1355,15 +1384,20 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         from sprintengine_core.tool.commands.task import normalized_needs_input_for_routing, planner_actionable_needs_input_tasks
 
-        # Triage belongs to whoever PLANS this run. Hardcoding "architect" forced an
-        # architect role onto a general-only run on the first triage call, which the
-        # roster boundary then rejected as off-roster — the blocked task could never
-        # be triaged by anyone. Validate against configuredRoles instead.
-        planning_role = resolve_planning_role(state)
-        ensure_role_in_roster(state, planning_role)
+        # Triage belongs to whoever COORDINATES this run. Hardcoding "architect"
+        # forced an architect role onto a run without one on the first triage call,
+        # which the roster boundary then rejected as off-roster — the blocked task
+        # could never be triaged by anyone. The seat's role is validated against
+        # configuredRoles when it has one; a roleless seat has nothing to validate,
+        # and passing an absent role to require_configured_role would raise on the
+        # very run this path exists to serve.
+        seat = resolve_coordinator_seat(state)
+        coordinator_noun = seat["role"] or "coordinator"
+        if seat["role"]:
+            ensure_role_in_roster(state, seat["role"])
         tasks = planner_actionable_needs_input_tasks(state)
         prompt_lines = [
-            f"You are the Sprint Engine {planning_role} triaging planner-actionable needs_input tasks.",
+            f"You are the Sprint Engine {coordinator_noun} triaging planner-actionable needs_input tasks.",
             "",
             "Goal:",
             str(state.get("sprintengine", {}).get("goal") or state.get("goal") or ""),

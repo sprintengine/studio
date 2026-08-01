@@ -35,11 +35,11 @@ def command_payload_to_namespace(
             force=bool(payload.get("force", False)),
         )
     elif tool_name == "sprintengine.join":
-        base.update(role=payload["role"], id=payload["id"])
+        base.update(role=payload.get("role"), id=payload["id"])
     elif tool_name == "sprintengine.triage.needs_input":
         base.update(id=payload["id"])
     elif tool_name == "sprintengine.task.next":
-        base.update(role=payload["role"], id=payload["id"], repo=payload.get("repo"))
+        base.update(role=payload.get("role"), id=payload["id"], repo=payload.get("repo"))
     elif tool_name == "sprintengine.task.claim":
         base.update(task_id=payload["taskId"], id=payload["id"])
     elif tool_name == "sprintengine.task.status":
@@ -119,7 +119,7 @@ def command_payload_to_namespace(
             task_id=payload.get("taskId"),
             title=payload["title"],
             description=payload.get("description", ""),
-            role=payload["role"],
+            role=payload.get("role"),
             depends_on=_string_list(payload.get("dependsOn")),
             path=_string_list(payload.get("path")),
             acceptance=_string_list(payload.get("acceptance")),

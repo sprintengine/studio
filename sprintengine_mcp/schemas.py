@@ -35,7 +35,7 @@ AGENT_ID_PROPERTY = {
 
 ROLE_PROPERTY = {
     "type": "string",
-    "description": "Canonical Sprint Engine role id, after registry alias resolution.",
+    "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles.",
 }
 
 PLUGIN_REGISTRY_ROOTS_PROPERTY = {
@@ -241,7 +241,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     "sprintengine.init": object_schema(["statePath"], {"goal": {"type": "string"}, "useWorktrees": {"type": "boolean"}, "agent": {"type": "array", "items": {"type": "string"}}}),
     "sprintengine.recover": object_schema(["statePath"], {}),
     "sprintengine.agent.join": object_schema(
-        ["statePath", "role", "agentId"],
+        ["statePath", "agentId"],
         {
             "role": ROLE_PROPERTY,
             "agentId": AGENT_ID_PROPERTY,
@@ -251,7 +251,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     "sprintengine.agent.heartbeat": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "role": ROLE_PROPERTY}),
     "sprintengine.agent.leave": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "role": ROLE_PROPERTY, "reason": {"type": "string"}}),
     "sprintengine.join": object_schema(
-        ["statePath", "role", "id"],
+        ["statePath", "id"],
         {
             "role": ROLE_PROPERTY,
             "id": AGENT_ID_PROPERTY,
@@ -266,9 +266,9 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     "sprintengine.skill.get": object_schema(["workspaceRoot", "skillId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "skillId": {"type": "string"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
     "sprintengine.task.get": object_schema(["statePath", "taskId"], {"taskId": TASK_ID_PROPERTY, "include": {"type": "array", "items": {"type": "string", "enum": ["activity", "comments", "evidence_log", "diffs"]}, "description": "Deep-read sections to add to the slim task card."}}),
     "sprintengine.task.next": object_schema(
-        ["statePath", "role", "id"],
+        ["statePath", "id"],
         {
-            "role": {"type": "string"},
+            "role": ROLE_PROPERTY,
             "id": {"type": "string"},
             "repo": {
                 "type": "string",
@@ -302,7 +302,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
             **FEEDBACK_PROPERTIES,
         },
     ),
-    "sprintengine.plan.add_task": object_schema(["statePath", "title", "role"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "repo": REPO_PROPERTY, "dependsOn": {"type": "array"}, "path": OWNED_MODULES_PROPERTY, "acceptance": {"type": "array"}, "note": {"type": "array"}, "sourceDocs": {"type": "array", "description": "Project-root-relative canonical source documents this task implements (e.g. the backlog item on a reference-sourced run). Workers are directed to read each in full on claim; keep the task card the delta, never a restatement."}, "backlogRef": BACKLOG_REF_PROPERTY, "taskNote": {"type": "array"}, "producesImplementation": {"type": "boolean"}, "kind": {"type": "string", "enum": ["work", "review", "integration_review"], "description": "Charter marker: review = a planned review of other tasks' work; integration_review = the terminal task proving the pieces work together. Both run like any other task."}, "fromFinding": {"type": "object", "description": "The structured finding this task was filed to answer: {taskId, findingId}. Set it when triaging a reviewer escalation into a new task, so the finding chain survives the run."}, "needsTriage": {"type": "boolean"}, "phases": PHASES_PROPERTY, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
+    "sprintengine.plan.add_task": object_schema(["statePath", "title"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": ROLE_PROPERTY, "repo": REPO_PROPERTY, "dependsOn": {"type": "array"}, "path": OWNED_MODULES_PROPERTY, "acceptance": {"type": "array"}, "note": {"type": "array"}, "sourceDocs": {"type": "array", "description": "Project-root-relative canonical source documents this task implements (e.g. the backlog item on a reference-sourced run). Workers are directed to read each in full on claim; keep the task card the delta, never a restatement."}, "backlogRef": BACKLOG_REF_PROPERTY, "taskNote": {"type": "array"}, "producesImplementation": {"type": "boolean"}, "kind": {"type": "string", "enum": ["work", "review", "integration_review"], "description": "Charter marker: review = a planned review of other tasks' work; integration_review = the terminal task proving the pieces work together. Both run like any other task."}, "fromFinding": {"type": "object", "description": "The structured finding this task was filed to answer: {taskId, findingId}. Set it when triaging a reviewer escalation into a new task, so the finding chain survives the run."}, "needsTriage": {"type": "boolean"}, "phases": PHASES_PROPERTY, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
     "sprintengine.plan.update_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "repo": REPO_PROPERTY, "path": OWNED_MODULES_PROPERTY, "acceptance": {"type": "array"}, "note": {"type": "array"}, "sourceDocs": {"type": "array", "description": "Replace the task's canonical source documents with this list of project-root-relative paths."}, "clearSourceDocs": {"type": "boolean"}, "backlogRef": BACKLOG_REF_PROPERTY, "clearBacklogRef": {"type": "boolean"}, "taskNote": {"type": "array"}, "clearTaskNotes": {"type": "boolean"}, "producesImplementation": {"type": "boolean"}, "kind": {"type": "string", "enum": ["work", "review", "integration_review"], "description": "Set or clear the charter marker; work clears it."}, "needsTriage": {"type": "boolean"}, "clearNeedsTriage": {"type": "boolean"}, "phases": PHASES_PROPERTY, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
     "sprintengine.plan.delete_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "unlinkDependents": {"type": "boolean"}}),
     "sprintengine.plan.add_dependency": object_schema(["statePath", "taskId", "dependsOn"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "dependsOn": {"type": "array"}}),

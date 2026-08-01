@@ -830,7 +830,7 @@ export function WorkspaceActions({
                 placement="bottom"
                 content={
                   standardSpawnIsGeneral
-                    ? `Spawn General agent with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`
+                    ? `Spawn an agent with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`
                     : withShortcut(
                         `Spawn ${selectedSpecialistAction.label} specialist with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`,
                         getSpecialistCommandId(selectedSpecialistAction.id)
@@ -850,14 +850,18 @@ export function WorkspaceActions({
                   disabled={!activeWorkspaceId}
                   className={`inline-flex h-8 w-8 items-center justify-center rounded-l-[5px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
                   aria-label={
+                    // The roleless spawn has no role to name it, so its
+                    // accessible name is the engine it launches — which is also
+                    // the glyph on the button, and how the composer's own
+                    // roleless row reads.
                     standardSpawnIsGeneral
-                      ? 'Spawn General agent'
+                      ? `Spawn an agent with ${triggerCliOption.label}`
                       : `Spawn ${selectedSpecialistAction.label} specialist`
                   }
                 >
                   {standardSpawnIsGeneral ? (
-                    // The General agent has no specialist glyph; mirror the
-                    // composer's General row, which wears its bound CLI icon.
+                    // A roleless agent has no specialist glyph; mirror the
+                    // composer's roleless row, which wears its bound CLI icon.
                     <CliIcon cli={triggerCli} className="size-icon-md" />
                   ) : (
                     <SpecialistActionIcon

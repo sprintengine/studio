@@ -28,12 +28,6 @@ def canonical_role_id(role: str, discovery: RegistryDiscovery | None = None) -> 
     clean_role = str(role or "").strip()
     if not clean_role:
         raise KeyError("Role cannot be empty.")
-    if normalize_role_id(clean_role) == "general":
-        # `general` is a built-in soulless identity recognised by id without a
-        # registry manifest (see capabilities classification and join
-        # composition). It is a valid dispatch/task role even though no Soul
-        # manifest defines it, so role validation must accept it everywhere.
-        return "general"
     resolved = discovery if discovery is not None else discover_role_registry()
     return resolved.get_role(clean_role).normalized_id
 
@@ -53,3 +47,18 @@ def require_configured_role(role: str, *, context: str = "role", discovery: Regi
         known = ", ".join(sorted(configured_role_ids(discovery)))
         detail = f" Known roles: {known}." if known else ""
         raise SystemExit(f"{context} has unknown role {role!r}.{detail}") from exc
+
+
+def optional_configured_role(
+    role: str | None, *, context: str = "role", discovery: RegistryDiscovery | None = None
+) -> str | None:
+    """The canonical role, or None when no role was given (MC-2057).
+
+    Absent is legal, wrong is not: a roleless run's tasks and agents carry no
+    role at all, while a role that IS named must still resolve to the registry.
+    This is the one place that distinction is made, so callers never spell it as
+    `role or "<some fallback>"` and reintroduce a stand-in role.
+    """
+    if not str(role or "").strip():
+        return None
+    return require_configured_role(str(role), context=context, discovery=discovery)

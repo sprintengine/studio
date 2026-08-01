@@ -315,7 +315,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label
       ? currentAgent.name
       : ''
-    return customName ? prependAgentIdentifier(basePrompt, customName, getSprintEngineRoleLabel(rosterAgent.role)) : basePrompt
+    // A renamed agent is introduced by its name, then its role — when it has
+    // one. An agent with no role is introduced by its name alone; appending
+    // "Unknown role" would tell it something false about itself (MC-2055).
+    const roleLabel = rosterAgent.role ? getSprintEngineRoleLabel(rosterAgent.role) : undefined
+    return customName ? prependAgentIdentifier(basePrompt, customName, roleLabel) : basePrompt
   })
   const startupPromptRef = useRef<string | null>(startupPrompt)
 

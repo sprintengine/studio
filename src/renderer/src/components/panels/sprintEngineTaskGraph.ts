@@ -317,6 +317,13 @@ export function taskGraphEdgePath(from: TaskGraphLayoutNode, to: TaskGraphLayout
   ].join(' ')
 }
 
+// An edge has to be drawn, so a task with no role gives it a chrome tone rather
+// than the neutral role accent — the line says "these tasks depend on each
+// other", never anything about a role the task does not have (MC-2055).
+function taskGraphLineColor(task: SprintEngineTask): string {
+  return task.role ? getSprintEngineRoleAccent(task.role) : 'var(--border-strong)'
+}
+
 export function taskGraphEdgeStyle(
   dependency: SprintEngineTask,
   dependent: SprintEngineTask,
@@ -324,10 +331,10 @@ export function taskGraphEdgeStyle(
   const dependencyDone = dependency.status === 'done'
   const active = dependent.status === 'in_progress' || dependent.status === 'needs_input'
   const color = active
-    ? getSprintEngineRoleAccent(dependent.role)
+    ? taskGraphLineColor(dependent)
     : dependencyDone
       ? 'var(--tone-good)'
-      : getSprintEngineRoleAccent(dependency.role)
+      : taskGraphLineColor(dependency)
 
   return {
     color,
@@ -341,7 +348,7 @@ export function taskGraphEndEdgeStyle(
   task: SprintEngineTask,
 ): Omit<TaskGraphLayoutEdge, 'id' | 'fromId' | 'toId'> {
   return {
-    color: task.status === 'done' ? 'var(--tone-good)' : getSprintEngineRoleAccent(task.role),
+    color: task.status === 'done' ? 'var(--tone-good)' : taskGraphLineColor(task),
     opacity: task.status === 'done' ? 0.58 : 0.32,
     weight: task.status === 'done' ? 2 : 1.5,
     dashed: false,

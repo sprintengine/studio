@@ -16,6 +16,7 @@ import {
   resolveCliReasoning,
   resolveSurfaceModel,
   selectAgentCliCatalog,
+  type AgentCliCatalogOption,
 } from '../newWorkspace/cliRuntimeOptions'
 import { normalizeSelectedCli } from '../../../store/slices/settingsSlice'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -96,6 +97,26 @@ export function resolveInitialSelection(
   if (rows.some((row) => rowMatchesSelection(row, preferred))) return preferred
   const first = rows.find((row) => row.kind === 'specialist') ?? rows[0]
   return first ? selectionForRow(first) : preferred
+}
+
+// What an agent's engine is called on screen: the runtime ("Claude Code") and
+// the model picked on it ("Fable 5"), or null when the agent launches on that
+// runtime's own default model.
+export type EngineNames = { cliLabel: string; modelLabel: string | null }
+
+// The engine's display names, from the catalog that produced the option. A
+// model id with no catalog row keeps its id rather than borrowing a neighbour's
+// label — an unlabelled model is shown as what it is, never renamed.
+export function engineNames(
+  options: AgentCliCatalogOption[],
+  cli: AgentCli,
+  model: string | undefined,
+): EngineNames {
+  const option = options.find((entry) => entry.value === cli)
+  return {
+    cliLabel: option?.label ?? cli,
+    modelLabel: model ? (option?.modelSelection?.options.find((entry) => entry.id === model)?.label ?? model) : null,
+  }
 }
 
 type UseAgentComposerOptions = {
@@ -195,30 +216,6 @@ export function useAgentComposer({
     initialConnector ?? null,
   )
 
-  const trimmedQuery = query.trim().toLowerCase()
-  const visibleRows = React.useMemo(() => {
-    if (!trimmedQuery) return allRows
-    return allRows.filter((row) => {
-      if (row.kind === 'terminal') return 'terminal'.includes(trimmedQuery)
-      if (row.kind === 'general') return 'general agent'.includes(trimmedQuery)
-      if (row.kind === 'conversation') return 'conversation agent'.includes(trimmedQuery)
-      return (
-        row.action.label.toLowerCase().includes(trimmedQuery) ||
-        row.action.shortLabel.toLowerCase().includes(trimmedQuery) ||
-        row.action.description.toLowerCase().includes(trimmedQuery)
-      )
-    })
-  }, [allRows, trimmedQuery])
-
-  // Keep the selection pointed at a visible row: a search that filters out the
-  // current pick moves selection to the first match, so Enter always has a target.
-  React.useEffect(() => {
-    if (visibleRows.length === 0) return
-    if (!visibleRows.some((row) => rowMatchesSelection(row, selection))) {
-      setSelection(selectionForRow(visibleRows[0]))
-    }
-  }, [visibleRows, selection])
-
   const resolvePickerCli = React.useCallback(
     (cli: AgentCli): AgentCli => resolveAvailableAgentCli(cli, agentCliOptions, agentCliOptions[0]?.value ?? cli),
     [agentCliOptions],
@@ -246,6 +243,46 @@ export function useAgentComposer({
     },
     [specialistModelDefaults],
   )
+
+  // Display names for a selection's remembered engine. Resolved from the
+  // TARGET's engine, so a caller naming one row never picks up another row's.
+  const engineNamesFor = React.useCallback(
+    (target: AgentComposerSelection): EngineNames => {
+      const cli = cliForSelection(target)
+      return engineNames(agentCliOptions, cli, modelForSelection(target, cli))
+    },
+    [cliForSelection, agentCliOptions, modelForSelection],
+  )
+
+  const trimmedQuery = query.trim().toLowerCase()
+  const visibleRows = React.useMemo(() => {
+    if (!trimmedQuery) return allRows
+    return allRows.filter((row) => {
+      if (row.kind === 'terminal') return 'terminal'.includes(trimmedQuery)
+      if (row.kind === 'general') {
+        // The roleless row wears its bound engine on spawn surfaces and reads
+        // "No role" where the engine belongs to the caller, so search answers
+        // to both — typing the name on the row always finds the row.
+        const { cliLabel, modelLabel } = engineNamesFor({ kind: 'general' })
+        return `${cliLabel} ${modelLabel ?? ''} no role`.toLowerCase().includes(trimmedQuery)
+      }
+      if (row.kind === 'conversation') return 'conversation agent'.includes(trimmedQuery)
+      return (
+        row.action.label.toLowerCase().includes(trimmedQuery) ||
+        row.action.shortLabel.toLowerCase().includes(trimmedQuery) ||
+        row.action.description.toLowerCase().includes(trimmedQuery)
+      )
+    })
+  }, [allRows, trimmedQuery, engineNamesFor])
+
+  // Keep the selection pointed at a visible row: a search that filters out the
+  // current pick moves selection to the first match, so Enter always has a target.
+  React.useEffect(() => {
+    if (visibleRows.length === 0) return
+    if (!visibleRows.some((row) => rowMatchesSelection(row, selection))) {
+      setSelection(selectionForRow(visibleRows[0]))
+    }
+  }, [visibleRows, selection])
 
   // Effort reads through the same per-surface selection the model does, guarded
   // per-CLI by resolveCliReasoning so a level chosen for one CLI never surfaces
@@ -342,6 +379,7 @@ export function useAgentComposer({
     selectionCli,
     cliForSelection,
     modelForSelection,
+    engineNamesFor,
     reasoningForSelection,
     moveSelection,
     buildConfirm,

@@ -45,7 +45,7 @@ from sprintengine_core.skill_layers import (
 from sprintengine_core.tool.prompts import (
     architect_role_catalog,
     compose_prompt,
-    load_general_soul_prompt,
+    load_roleless_soul_prompt,
     load_sprintengine_coordination_prompt,
 )
 from sprintengine_core.tool.state import (
@@ -66,7 +66,7 @@ from .capabilities import (
     CALLER_REPO_PAYLOAD_TOOLS,
     CALLER_ROLE_PAYLOAD_TOOLS,
     allowed_tools_for_classification,
-    classify_role,
+    classify_session,
     permitted_alternative,
 )
 from .payloads import command_payload_to_namespace
@@ -147,9 +147,9 @@ class SprintEngineMcpServer:
         and stdio debug sessions see the full surface.
         """
         schemas = list_tool_schemas()
-        role = (context.role if context else "") or ""
-        classification = classify_role(
-            role,
+        classification = classify_session(
+            bound_role=(context.role if context else "") or "",
+            bound_agent_id=(context.agent_id if context else "") or "",
             workspace_root=context.workspace_root if context else None,
             plugin_registry_roots=context.plugin_registry_roots if context else (),
             user_root=context.user_root if context else None,
@@ -291,18 +291,35 @@ class SprintEngineMcpServer:
         return self._with_progress_context(tool_name, result)
 
     def _help(self, payload: dict[str, Any]) -> dict[str, Any]:
-        role = str(payload.get("role") or "<role>").strip() or "<role>"
-        agent_id = str(payload.get("agentId") or "<agent-id>").strip() or "<agent-id>"
+        # A roleless caller (MC-2057) names no role. `<role>` is the placeholder
+        # for a caller that simply did not say which one it is, so the two cases
+        # are told apart by the SESSION, exactly as the capability check does —
+        # otherwise a roleless coordinator would be shown the owner surface and
+        # never learn it may triage.
+        context = self._request_context()
+        bound_agent_id = (context.agent_id if context else "") or ""
+        bound_role = (context.role if context else "") or ""
+        payload_role = str(payload.get("role") or "").strip()
+        roleless_session = bool(bound_agent_id) and not bound_role and not payload_role
+        role = "" if roleless_session else (payload_role or bound_role or "<role>")
+        agent_id = str(payload.get("agentId") or "").strip() or bound_agent_id or "<agent-id>"
         topic = str(payload.get("topic") or "agent_workflow").strip() or "agent_workflow"
         if topic not in {"agent_workflow", "tools", "needs_input", "artifacts", "phases"}:
             raise McpToolError("invalid_payload", "topic must be one of agent_workflow, tools, needs_input, artifacts, or phases.")
         help_tools = allowed_tools_for_classification(
-            classify_role(role, workspace_root=None), TOOL_SCHEMAS
+            classify_session(
+                bound_role=bound_role or ("" if roleless_session else role),
+                bound_agent_id=bound_agent_id,
+                fallback_role=role,
+                workspace_root=context.workspace_root if context else None,
+            ),
+            TOOL_SCHEMAS,
         )
+        claim_payload = f'{{role: "{role}", id: "{agent_id}"}}' if role else f'{{id: "{agent_id}"}}'
 
         sections = {
             "agent_workflow": [
-                "After this help call, call sprintengine.agent.join, then claim work with sprintengine.task.next using {role, id}.",
+                f"After this help call, call sprintengine.agent.join, then claim work with sprintengine.task.next using {claim_payload}.",
                 "Work what the claim returns; it resumes your active task or claims the next ready one.",
                 "If the claim returns no work, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.",
                 "You own your task from claim to done. Implement, then sprintengine.task.publish. In worktree-mode runs that also commits your task-scoped changes in your task's project worktree, under that project's commit lock.",
@@ -313,11 +330,11 @@ class SprintEngineMcpServer:
             # The triage line is filtered by the CAPABILITY TABLE, not by a role
             # name: help must never direct a role at a tool outside its surface,
             # and must never hide one inside it. Triage belongs to whoever plans
-            # the run — the architect, or the general on a general-only run, which
+            # the run — the architect, or the coordinator seat on a roleless run, which
             # a literal `role == "architect"` check silently locked out of the
             # blockers it was the only agent able to clear.
             "tools": [
-                f"Claim next ready role work: sprintengine.task.next with {{role: \"{role}\", id: \"{agent_id}\"}}.",
+                f"Claim next ready work: sprintengine.task.next with {claim_payload}.",
                 *(
                     [f"Planner-actionable triage: sprintengine.triage.needs_input with {{id: \"{agent_id}\"}}."]
                     if "sprintengine.triage.needs_input" in help_tools
@@ -332,7 +349,7 @@ class SprintEngineMcpServer:
             ],
             "needs_input": [
                 "Move a task to needs_input with sprintengine.task.status and {taskId, id, status: \"needs_input\", needsInputKind, needsInputReason, needsInputQuestion, needsInputArtifactId?, needsInputSuggestedResolution?}.",
-                "needsInputKind: architect (alias: planner) when Sprint Engine should route automatic triage to the role that plans this run — the architect, or the general on a run with no architect; user when the human operator must answer before the owner resumes.",
+                "needsInputKind: architect (alias: planner) when Sprint Engine should route automatic triage to the role that plans this run — the architect, or the coordinator on a run with no architect; user when the human operator must answer before the owner resumes.",
                 "needsInputReason: task_scope, artifact_review, tooling, verification, product_decision, or blocked_other.",
                 "needsInputQuestion is shown verbatim to a person. When needsInputKind is user, write it for the human operator, not for another agent: plain language, and no tool names, command flags, code symbols, file paths, or acceptance-criteria shorthand unless it is essential and you explain it.",
                 "Structure a user question so it is scannable: open with one line naming the decision or action you need, then short '- ' bullet lines covering what is blocked, why you cannot resolve it yourself, and the concrete options or steps the user can take (recommended option first). End with the single thing you need back. Use line breaks and bullets, never one dense paragraph.",
@@ -358,7 +375,7 @@ class SprintEngineMcpServer:
         return {
             "ok": True,
             "topic": topic,
-            "role": role,
+            **({"role": role} if role else {}),
             "agentId": agent_id,
             "markdown": "\n\n".join(markdown_parts),
             "sections": {name: sections[name] for name in ordered_topics},
@@ -371,15 +388,16 @@ class SprintEngineMcpServer:
             plugin_roots=self._plugin_registry_roots(payload),
             user_root=self._effective_user_root(),
         )
-        if normalize_role_id(str(payload["role"])) == "general":
-            # `general` is a built-in soulless identity with no role manifest
-            # (recognised by id in capabilities). Accept the join and compose its
-            # manifest-less prompt instead of rejecting it as an unknown role.
-            role = "general"
+        # `role` is OPTIONAL (MC-2057): a roleless run's agents have none, and
+        # absent is legal where wrong still is not — a role that IS named must
+        # resolve to the registry.
+        requested_role = str(payload.get("role") or "").strip()
+        if not requested_role:
+            role = ""
             role_entry = None
         else:
             try:
-                role_entry = registry.role_entry(str(payload["role"]))
+                role_entry = registry.role_entry(requested_role)
             except KeyError as exc:
                 raise McpToolError("unknown_role", str(exc)) from exc
             role_manifest = role_entry.value
@@ -412,7 +430,7 @@ class SprintEngineMcpServer:
             }
 
         lifecycle = with_locked_state(state_path, mutate)
-        role_payload = _general_role_manifest_payload() if role_entry is None else _role_payload(role_entry)
+        role_payload = None if role_entry is None else _role_payload(role_entry)
         prompt = _compose_registry_prompt(
             registry,
             role,
@@ -429,18 +447,20 @@ class SprintEngineMcpServer:
         # `legacyJoin` (the cmd_join prose containing CLI-laden directives) is intentionally
         # omitted from the MCP response. Agents are MCP-native: they read `prompt` and then
         # call the claim tool their startup/wake prompt names.
+        # A roleless join omits `role` and `roleManifest` rather than sending an
+        # empty string or a stand-in manifest — absent is an absent key here too.
         return {
             "ok": True,
             "agentId": agent_id,
-            "role": role,
+            **({"role": role} if role else {}),
             "agent": lifecycle["agent"],
             "currentDispatch": (lifecycle["agent"] or {}).get("currentDispatch"),
             "run": lifecycle["run"],
-            "roleManifest": role_payload,
+            **({"roleManifest": role_payload} if role_payload else {}),
             "prompt": prompt,
             "promptContext": {
                 "format": "composed_soul_coordination_prompt",
-                "role": role,
+                **({"role": role} if role else {}),
                 "length": len(prompt),
             },
         }
@@ -900,8 +920,10 @@ class SprintEngineMcpServer:
                 workspace_root = raw_workspace_root
             elif state_path is not None:
                 workspace_root = _default_workspace_root(state_path)
-        classification = classify_role(
-            effective_role,
+        classification = classify_session(
+            bound_role=bound_role,
+            bound_agent_id=(context.agent_id if context else "") or "",
+            fallback_role=effective_role,
             workspace_root=workspace_root,
             plugin_registry_roots=context.plugin_registry_roots if context else self.plugin_registry_roots,
             user_root=(context.user_root if context else None) or self.user_root,
@@ -1168,13 +1190,13 @@ def _compose_registry_prompt(
     knowledge_root_configured: bool = True,
     staffed_roles: Sequence[str] = (),
 ) -> str:
-    if normalize_role_id(role) == "general":
-        # The soulless General has no role manifest, so it would otherwise fall
+    if not str(role or "").strip():
+        # A roleless agent has no manifest to render, so it would otherwise fall
         # through the render_soul fallback below and silently lose the universal
-        # norms. Compose its layer deliberately: no role-personality Soul, but the
-        # full norm + Multicode product layer plus the orchestration skill. Reuse
-        # the workspace-scoped registry so skill overrides apply as for a soul.
-        soul_prompt = load_general_soul_prompt(
+        # norms. Compose its layer deliberately: no role personality, but the full
+        # norm + Multicode product layer plus the orchestration skill. Reuse the
+        # workspace-scoped registry so skill overrides apply as for a soul.
+        soul_prompt = load_roleless_soul_prompt(
             registry,
             backlog_sourced=backlog_sourced,
             knowledge_root_configured=knowledge_root_configured,
@@ -1219,23 +1241,6 @@ def _role_payload(entry: RegistryEntry, *, include_shadowed: bool = False) -> di
     if include_shadowed:
         payload["shadowedSources"] = [_source_payload(source.layer.name) for source in entry.shadowed]
     return payload
-
-
-def _general_role_manifest_payload() -> dict[str, Any]:
-    # `general` has no registry manifest; describe the built-in soulless identity
-    # so the join response keeps the same `roleManifest` shape as a real role.
-    return {
-        "id": "general",
-        "label": "General",
-        "aliases": [],
-        "description": "Soulless General agent that plans, builds, reviews, and tests a sprint by itself. Staff it when one agent should run the whole sprint instead of a specialist team.",
-        "icon": None,
-        # `general` composes its brief from SPRINTENGINE_GENERAL_SKILLS, not a
-        # manifest, so it carries no directive packs. The key is still present so
-        # the payload shape matches a real v2 manifest.
-        "directives": {},
-        "source": _source_payload("builtin"),
-    }
 
 
 _role_manifest_payload = role_manifest_payload

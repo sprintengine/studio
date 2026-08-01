@@ -720,7 +720,8 @@ function TaskImplementerRow({
   terminalActionsUnavailable,
 }: {
   entry: SprintEngineTaskImplementerEntry
-  fallbackRole: SprintEngineRoleId
+  /** The task's own role, used when a comment recorded none. Absent on a roleless run. */
+  fallbackRole?: SprintEngineRoleId
   onOpenAgentTerminal: (agentId: string) => void
   terminalActionsUnavailable?: string
 }) {
@@ -728,7 +729,9 @@ function TaskImplementerRow({
   const relativeTime = entry.isActive ? null : formatRelativeTime(entry.lastActivityAt)
   const identityCluster = (
     <>
-      <RoleAvatar role={role} size="sm" ariaLabel="" />
+      {/* No role, no disc: the avatar's neutral fallback exists for a role that
+          cannot be resolved, and must not stand in for one that is absent. */}
+      {role ? <RoleAvatar role={role} size="sm" ariaLabel="" /> : null}
       <span className={entry.isActive ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'}>
         {entry.label}
       </span>
@@ -780,10 +783,10 @@ function TaskImplementerTimeline({
 }) {
   const entries = getSprintEngineTaskImplementerTimeline(task, runtimeAgents)
   if (entries.length === 0) {
-    const label = task.status === 'done' ? getSprintEngineRoleLabel(task.role) : 'No active worker'
+    const label = task.status === 'done' && task.role ? getSprintEngineRoleLabel(task.role) : 'No active worker'
     return (
       <div className="flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
-        <RoleAvatar role={task.role} size="sm" ariaLabel="" />
+        {task.role ? <RoleAvatar role={task.role} size="sm" ariaLabel="" /> : null}
         <span>{label}</span>
       </div>
     )
@@ -1458,14 +1461,24 @@ function FeedbackDetail({
   const confidence = feedback.scores.confidencePct
   const hallucination = feedback.scores.hallucinationRiskPct
   const roleFit = feedback.scores.roleFitPct
+  const reporterRoleId = feedback.role?.trim()
+  const reporterLabel = reporterRoleId
+    ? getSprintEngineRoleLabel(reporterRoleId)
+    : feedback.agentId?.trim() || ''
   return (
     <div className="mt-2 space-y-2 pl-3 text-meta leading-5">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-disabled)]">
         <span>{sourceLabel}</span>
-        <span>·</span>
-        <span className="font-mono text-[color:var(--text-muted)]">
-          {getSprintEngineRoleLabel(feedback.role)}
-        </span>
+        {/* Who reported it: the role when the reporter had one, else the agent
+            id it recorded under — never "Unknown role" for an agent that
+            legitimately has none (MC-2055). The engine writes an empty role for
+            a roleless worker, so an empty string is absence, not a bad id. */}
+        {reporterLabel ? (
+          <>
+            <span>·</span>
+            <span className="font-mono text-[color:var(--text-muted)]">{reporterLabel}</span>
+          </>
+        ) : null}
       </div>
       {(typeof confidence === 'number'
         || typeof hallucination === 'number'
@@ -2685,9 +2698,16 @@ export function SprintEngineInspectorPanel({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">
-                <RoleAvatar role={agent.role} size="sm" ariaLabel="" />
-                <span>{getSprintEngineRoleLabel(agent.role)}</span>
-                <span>·</span>
+                {/* An agent with no role is its id and its status, and the id is
+                    the heading right below. Nothing stands in for the role, and
+                    no separator is left where one would have gone (MC-2055). */}
+                {agent.role ? (
+                  <>
+                    <RoleAvatar role={agent.role} size="sm" ariaLabel="" />
+                    <span>{getSprintEngineRoleLabel(agent.role)}</span>
+                    <span>·</span>
+                  </>
+                ) : null}
                 <span className="flex items-center gap-1.5">
                   {runtimeStatus === 'running' ? <Spinner size={12} /> : null}
                   {runtimeStatus}

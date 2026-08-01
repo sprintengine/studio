@@ -206,7 +206,8 @@ type SyncState = {
 // intent, not roster state — the worker becomes canonical once it claims.
 type PendingRosterMemberSpawn = {
  agentId: string
- role: SprintEngineRoleId
+ /** Absent on a roleless run's agents, which carry no role at all (MC-2057). */
+ role?: SprintEngineRoleId
  name?: string
  cli?: AgentCli
  // string = explicit model id, null = explicit CLI default, undefined = keep
@@ -651,14 +652,16 @@ export function SprintRunBoard({
   const hasResidentWorkspace = workspaceId !== ''
   const sprintEngineState = handle.sprintEngineState
   // Enabling a role is an engine mutation on the run (`roster enable`, routed by
-  // statePath), so it works from the door (MC-1800). A run that publishes no
-  // configured role set has no such route — its team exists only in the
+  // statePath), so it works from the door (MC-1800). A legacy run that records no
+  // configured role set at all has no such route — its team exists only in the
   // workspace record — so on a door mount that run offers no roster mutation at
-  // all. Same predicate the enable path itself uses below.
+  // all. PRESENCE, not length: a roleless run publishes an explicit `[]`, which
+  // is a role set with nothing in it yet, not a missing one (MC-2057). Same
+  // predicate the enable path itself uses below.
   const canMutateRunRoster =
     hasResidentWorkspace
     || (sprintEngineState.rosterConfigured === true
-      && (sprintEngineState.configuredRoles?.length ?? 0) > 0)
+      && Array.isArray(sprintEngineState.configuredRoles))
   const workspace = useWorkspaceStore((s) =>
     handle.workspaceId ? s.workspaces.find((w) => w.id === handle.workspaceId) ?? null : null,
   )
@@ -1878,9 +1881,15 @@ export function SprintRunBoard({
  })
  }
 
- const confirmAddMember = async (role = addMemberRole) => {
+ // `role` is absent only for a roleless run, whose agents carry no role at all
+ // (MC-2057): the id is minted from the roleless allocator, there is no role to
+ // enable in the engine, and no architect to notify about the plan.
+ // TAKEN EXPLICITLY, never defaulted: passing `undefined` to a default
+ // parameter would resolve back to `addMemberRole` and mint a `developer-1`
+ // onto a run that has no roles at all. The dialog passes its own selection.
+ const confirmAddMember = async (role: SprintEngineRole | undefined) => {
  const memberName = normalizeAgentIdentifier(addMemberName)
- const memberCli = addMemberCli ?? addMemberRoleDefaultCli(role)
+ const memberCli = addMemberCli ?? (role ? addMemberRoleDefaultCli(role) : lastSelectedCli)
 
  if (sprintEngineState.rosterConfigured) {
  if (!sprintEngineContext) return
@@ -1899,19 +1908,25 @@ export function SprintRunBoard({
  // plan.add_task / roster runtime all hard-reject a non-configured role.
  // The user's own board action is the sanctioned writer (`roster enable`,
  // additive, --actor ui) — agents never grow the set themselves.
- const configuredRoles = sprintEngineState.configuredRoles ?? []
- const roleNeedsEnable = configuredRoles.length > 0 && !configuredRoles.includes(role)
+ // Presence, not length (MC-2057): a roleless run's explicit `[]` names no
+ // role, so every role picked here still needs the engine write. Only a legacy
+ // run that records no set at all has nothing to grow.
+ const configuredRoles = sprintEngineState.configuredRoles
+ const roleNeedsEnable =
+ role !== undefined && Array.isArray(configuredRoles) && !configuredRoles.includes(role)
  // Door mount: enabling the role in the engine is the WHOLE action. There is
  // no workspace to mint a display agent in and no terminal to start, so a
  // role the run already configures has nothing left to write — say so rather
  // than close the dialog on a no-op (MC-1800).
  if (!hasResidentWorkspace && !roleNeedsEnable) {
  setAddMemberError(
- `${getSprintEngineRoleLabel(role, roleRegistry)} is already part of this run. Its agents start from the sprint’s workspace.`,
+ role
+ ? `${getSprintEngineRoleLabel(role, roleRegistry)} is already part of this run. Its agents start from the sprint’s workspace.`
+ : 'This sprint’s workspace is closed, so its agents start from there.',
  )
  return
  }
- if (roleNeedsEnable) {
+ if (role !== undefined && roleNeedsEnable) {
  const enabled = await window.api.enableSprintEngineRole({
  statePath: sprintEngineContext.statePath,
  role,
@@ -1964,13 +1979,16 @@ export function SprintRunBoard({
  // Only ask the architect to revisit the plan when a genuinely new role
  // joins the run. Adding more members of a role the team already has is
  // reinforcement for existing task cards — it does not change the plan or
- // task graph, so it must not interrupt the architect.
- const roleIsNewToRun = isNewSprintEngineRoleForRun({
+ // task graph, so it must not interrupt the architect. A roleless run
+ // brings no role and has no architect: nothing to revise, no one to ask.
+ const roleIsNewToRun = role !== undefined && isNewSprintEngineRoleForRun({
  role,
  roster,
- pendingRoles: pendingRosterMemberSpawns.map((pending) => pending.role),
+ pendingRoles: pendingRosterMemberSpawns
+ .map((pending) => pending.role)
+ .filter((pendingRole): pendingRole is SprintEngineRoleId => pendingRole !== undefined),
  })
- if (hasPlannedTasks && roleIsNewToRun) {
+ if (hasPlannedTasks && role !== undefined && roleIsNewToRun) {
  void notifyArchitectPlanRevision(agentId, role)
  }
  setAddMemberOpen(false)
@@ -1986,6 +2004,13 @@ export function SprintRunBoard({
  // writing through the `''` sentinel.
  if (!hasResidentWorkspace) {
  setAddMemberError('This sprint’s workspace is closed, so an agent cannot be added to it here.')
+ return
+ }
+
+ // Every roleless run configures its roster, so this legacy path is only ever
+ // reached with a role. Say so rather than invent one for the store.
+ if (!role) {
+ setAddMemberError('This sprint predates run-level agents, so an agent cannot be added to it here.')
  return
  }
 
@@ -2011,8 +2036,9 @@ export function SprintRunBoard({
  // "Add an agent" from the Agents header: raise the run's concurrent-agent
  // count (so the pool keeps this puller running) and mint + spawn one agent of
  // the chosen configured role now. Minting is local (no engine registration);
- // the engine binds the worker to a task at claim (MC-1591 leases).
- const addSprintEngineAgentForRole = (role: SprintEngineRole) => {
+ // the engine binds the worker to a task at claim (MC-1591 leases). A roleless
+ // run passes no role — its header offers the action itself, not a role menu.
+ const addSprintEngineAgentForRole = (role?: SprintEngineRole) => {
  // Both halves live in the workspace record — the concurrent-agent count and
  // the terminal the agent starts in — so with none resident there is nothing
  // to raise and nothing to start. The Agents header disables the control;
@@ -2279,8 +2305,10 @@ export function SprintRunBoard({
  const rosterAgent = rosterById[agentId]
  if (getLiveAgentTerminalSession(agentId)) return true
  if (!rosterAgent) return false
- if (rosterAgent.role === 'architect') return true
- return canLaunchSprintEngineInitialSpawn(rosterAgent.role, sprintEngineState)
+ // The coordinator seat may start before claimable work exists; every other
+ // agent waits for a task assigned to its role. Asked of the seat by id
+ // (MC-2050), so a roleless run's coordinator answers it too.
+ return canLaunchSprintEngineInitialSpawn(rosterAgent, sprintEngineState)
  })
  if (readyAgentIds.length === 0) return
  const agentIds = consumeSprintEngineInitialSpawns(workspaceId, readyAgentIds)
@@ -2460,8 +2488,12 @@ export function SprintRunBoard({
  title: 'Focus active agent is unavailable',
  message: !hasResidentWorkspace
  ? 'This sprint’s workspace is closed, so its agent terminals aren’t running.'
+ // Named by its role when it has one, else by the id that is its whole
+ // identity — never "Unknown role" (MC-2055).
+ : focusAgent && focusAgentRole
+ ? `The ${getSprintEngineRoleLabel(focusAgentRole)} agent already has a role-task launch on the panel; use that instead.`
  : focusAgent
- ? `The ${getSprintEngineRoleLabel(focusAgent.role)} agent already has a role-task launch on the panel; use that instead.`
+ ? `${focusAgentRoster?.label ?? focusAgent.agentId} already has a task launch on the panel; use that instead.`
  : 'No agent is currently running or waiting for input.',
  ...(hasResidentWorkspace ? { workspaceId, workspaceName: workspace?.name } : {}),
  ...(focusAgent?.agentId ? { agentId: focusAgent.agentId } : {}),
@@ -3397,7 +3429,7 @@ export function SprintRunBoard({
  <ModalButton
  variant="primary"
  disabled={addMemberBusy}
- onClick={() => void confirmAddMember()}
+ onClick={() => void confirmAddMember(addMemberRole)}
  >
  {addMemberBusy ? 'Adding…' : `Add ${getSprintEngineRoleLabel(addMemberRole)}`}
  </ModalButton>

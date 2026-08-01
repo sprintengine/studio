@@ -335,7 +335,13 @@ def test_sprintengine_auto_approval_marks_architect_startup_as_autonomous() -> N
     # Both spawn paths derive the override from the automation helpers instead
     # of reading autoApproveArtifacts directly: the reconciler's spawn path and
     # the manual TerminalView launch.
-    assert "autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState)" in cycle_source
+    # The reconciler asks the SEAT, not the role name (MC-2057): a roleless
+    # coordinator is the planning seat of the default sprint kind, and under the
+    # role comparison it was the one kind that never received the override.
+    assert (
+        "isSprintEngineCoordinatorAgent(nextRun.agentId, sprintEngineState)\n"
+        "          && sprintEngineArtifactApprovalDesired(autoState)"
+    ) in cycle_source
     assert "rosterAgent.role === 'architect'" in terminal_view_source
     assert (
         "deriveSprintEngineAutomationDesiredMode(workspace.sprintEngineAutoState) === 'run_agents_and_approve_artifacts'"

@@ -139,11 +139,11 @@ function taskGraphNodeStatusLabel(
 
 function taskGraphNodeStyle(
  task: SprintEngineTask,
- ownerRole: SprintEngineRoleId | null,
+ ownerRole: SprintEngineRoleId | null | undefined,
  focused: boolean,
  selected: boolean
 ): React.CSSProperties {
- const roleAccent = getSprintEngineRoleAccent(ownerRole ?? task.role)
+ const roleAccent = getSprintEngineRoleAccent(ownerRole ?? task.role ?? null)
  const statusAccent =
  task.status === 'done'
  ? 'var(--tone-good)'
@@ -459,7 +459,11 @@ export function SprintEngineTaskGraphView({
  top: (node.y - node.height / 2) * minimapScale,
  width: Math.max(3, node.width * minimapScale),
  height: Math.max(3, node.height * minimapScale),
- backgroundColor: hexToRgba(getSprintEngineRoleAccent(node.task.role), 0.55),
+ // A dot has to be drawn to mark the node's position; with no role to
+ // tint it, it takes a chrome tone rather than the neutral role accent.
+ backgroundColor: node.task.role
+ ? hexToRgba(getSprintEngineRoleAccent(node.task.role), 0.55)
+ : 'var(--text-subtle)',
  }}
  />
  )
@@ -535,6 +539,9 @@ export function SprintEngineTaskGraphView({
  minHeight: node.height,
  }}
  >
+ {/* The node's role band, swatch and label are the role itself: a task
+ with none renders neither, rather than a neutral stand-in (MC-2055). */}
+ {task.role ? (
  <span
  aria-hidden="true"
  className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full"
@@ -542,11 +549,14 @@ export function SprintEngineTaskGraphView({
  backgroundColor: getSprintEngineRoleAccent(task.role),
  }}
  />
+ ) : null}
  <div className="flex items-start justify-between gap-3 pl-2">
  <div className="min-w-0">
  <TruncatedText as="div" multiline text={task.title} className="line-clamp-2 text-sm font-semibold leading-5 text-[color:var(--text-strong)]" />
  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-micro text-[color:var(--text-disabled)]">
  <span>{task.id}</span>
+ {task.role ? (
+ <>
  {/* design-tokens-allow: role accent swatch on the task-graph node label — role color is the documented exception. */}
  <span
  className="h-1.5 w-1.5 shrink-0 rounded-full"
@@ -557,6 +567,8 @@ export function SprintEngineTaskGraphView({
  <span className="min-w-0 truncate" style={{ color: getSprintEngineRoleAccent(task.role) }}>
  {getSprintEngineRoleLabel(task.role)}
  </span>
+ </>
+ ) : null}
  </div>
  </div>
  <span
@@ -581,10 +593,15 @@ export function SprintEngineTaskGraphView({
  <span>
  {task.acceptanceCriteria.length} checks
  </span>
- {ownerLabel && ownerRole ? (
+ {/* The owner is named whether or not it has a role; only the role
+ tint is conditional on there being a role to tint with. */}
+ {ownerLabel ? (
  <>
  <span className="text-[color:var(--text-disabled)]">/</span>
- <span className="max-w-full truncate" style={{ color: getSprintEngineRoleAccent(ownerRole) }}>
+ <span
+ className="max-w-full truncate"
+ style={ownerRole ? { color: getSprintEngineRoleAccent(ownerRole) } : undefined}
+ >
  {ownerLabel}
  </span>
  </>

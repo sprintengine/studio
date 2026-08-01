@@ -231,7 +231,9 @@ export function AgentActivityTimeline({
         {timeline.rows.map((row) => {
           const dimmed = soloAgentId !== null && soloAgentId !== row.agentId
           const soloed = soloAgentId === row.agentId
-          const roleLabel = getSprintEngineRoleLabel(row.role)
+          // The row is the agent; its role only prefixes the spoken label when
+          // it has one, so a roleless agent is never announced as "Unknown role".
+          const roleLabel = row.role ? getSprintEngineRoleLabel(row.role) : null
           const activeLabel = formatRunDuration(row.activeMs) ?? '< 1m'
           const taskCount = row.segments.length
           return (
@@ -243,10 +245,10 @@ export function AgentActivityTimeline({
                 type="button"
                 onClick={() => setSoloAgentId((current) => (current === row.agentId ? null : row.agentId))}
                 aria-pressed={soloed}
-                aria-label={`${roleLabel} ${row.agentId}: ${taskCount} task${taskCount === 1 ? '' : 's'}, ${activeLabel} on tasks${soloed ? ' — filtered' : ''}`}
+                aria-label={`${roleLabel ? `${roleLabel} ` : ''}${row.agentId}: ${taskCount} task${taskCount === 1 ? '' : 's'}, ${activeLabel} on tasks${soloed ? ' — filtered' : ''}`}
                 className={`group inline-flex min-w-0 items-baseline gap-2 rounded-sm text-left ${FOCUS_RING_CLASS}`}
               >
-                <RoleGlyph role={row.role} size="sm" className="translate-y-[2px]" />
+                {row.role ? <RoleGlyph role={row.role} size="sm" className="translate-y-[2px]" /> : null}
                 <span className="truncate font-mono text-meta text-[color:var(--text-strong)]">{row.agentId}</span>
               </button>
               <div className="relative h-4">

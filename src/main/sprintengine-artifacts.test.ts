@@ -38,6 +38,8 @@ async function main(): Promise<void> {
   await testInitializeSprintEngineStatePreservesDisplayName()
   await testInitializeSprintEngineStateRecordsRoleRuntimes()
   await testInitializeSprintEngineStateRecordsConfiguredRoles()
+  await testInitializeSprintEngineStateRecordsAnExplicitEmptyRoleSet()
+  await testInitializeSprintEngineStateOmitsAnUnsuppliedRoleSet()
   await testRunnerModeCliInvocationUsesSprintEngineTool()
   await testMergePullRequestSurfacesTheEnginesRefusal()
   await testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads()
@@ -269,8 +271,11 @@ function testDescribeUnsupportedStoreOnlyJudgesRealProjections(): void {
   assert.equal(describeUnsupportedSprintEngineStore(null, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ tasks: [] }, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ run: [] }, '/team'), null)
+  assert.equal(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 5 } }, '/team'), null)
+  // v4 is readable because the engine migrates it in place on read (MC-2057), so a
+  // projection still stamped v4 must NOT tell the user to delete the sprint.
   assert.equal(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 4 } }, '/team'), null)
-  // v4 is current; v3, v2 and v1 are rejected (MC-1611 / MC-1591 / MC-1542: never migrate).
+  // v3, v2 and v1 are still rejected (MC-1611 / MC-1591 / MC-1542: never migrate).
   assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 3 } }, '/team'))
   assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 2 } }, '/team'))
   assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 1 } }, '/team'))
@@ -917,6 +922,84 @@ async function testInitializeSprintEngineStateRecordsConfiguredRoles(): Promise<
     assert.match(block, /- developer\b/u)
     assert.match(block, /- tester\b/u)
     assert.equal((block.match(/- developer\b/gu) ?? []).length, 1, 'duplicate role is deduped')
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// An EMPTY enabled-role set is a roleless run and must reach the engine as an
+// explicit `configuredRoles: []` (MC-2057). If it were collapsed into "no flag",
+// the engine would read the run as legacy/unconfigured: `resolve_coordinator_seat`
+// would seat an ARCHITECT the run never staffed, and every role boundary would
+// stop rejecting a mistyped role.
+async function testInitializeSprintEngineStateRecordsAnExplicitEmptyRoleSet(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-roleless-'))
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const handlers = createHandlers(async () => {
+    throw new Error('init must use the Sprint Engine CLI bridge')
+  })
+
+  try {
+    const init = await handlers.initializeSprintEngineState({
+      statePath,
+      name: 'Roleless run',
+      goal: 'Staff no role at all',
+      agents: { coordinator: {} },
+      enabledRoles: [],
+    })
+    assert.equal(init.ok, true, init.ok ? undefined : init.message)
+    if (!init.ok) return
+
+    const runYaml = await readFile(statePath, 'utf-8')
+    assert.match(
+      runYaml,
+      /^configuredRoles: \[\]$/mu,
+      'a roleless run records an explicit empty configuredRoles, not an absent key',
+    )
+    // The roleless seat still crosses the wire as `--agent :coordinator`, which
+    // is what marks the run roster-configured (MC-2057). Dropping it left a
+    // roleless run reading as never-configured: no roster mutation from the
+    // door, and the board offering to "spawn a team agent".
+    assert.match(
+      runYaml,
+      /^\s*rosterConfigured: true$/mu,
+      'a roleless run records rosterConfigured: true',
+    )
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// A caller that names NO role set at all is the legacy/headless shape: the key
+// stays absent so every role boundary no-ops, which is the case the empty list
+// above must stay distinguishable from.
+async function testInitializeSprintEngineStateOmitsAnUnsuppliedRoleSet(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-unconfigured-'))
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const handlers = createHandlers(async () => {
+    throw new Error('init must use the Sprint Engine CLI bridge')
+  })
+
+  try {
+    const init = await handlers.initializeSprintEngineState({
+      statePath,
+      name: 'Unconfigured run',
+      goal: 'Name no role set',
+      agents: { coordinator: {} },
+    })
+    assert.equal(init.ok, true, init.ok ? undefined : init.message)
+    if (!init.ok) return
+
+    const runYaml = await readFile(statePath, 'utf-8')
+    assert.doesNotMatch(runYaml, /^configuredRoles:/mu, 'an unsupplied role set records no key at all')
+    // ...and its role-less agent is NOT a roleless seat: with no declared role
+    // set the engine seats an architect, so no `--agent` is sent and the run
+    // keeps reading as unconfigured.
+    assert.match(
+      runYaml,
+      /^\s*rosterConfigured: false$/mu,
+      'a run that names no role set stays unconfigured',
+    )
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }

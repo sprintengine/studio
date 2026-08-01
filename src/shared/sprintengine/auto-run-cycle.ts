@@ -55,8 +55,10 @@ import {
   getSprintEngineRoleLabel,
   isCanceledSprintEngineRun,
   isCompletedSprintEngineRun,
+  isSprintEngineCoordinatorAgent,
   normalizeSprintEngineProjection,
   resolveSprintEngineAgentRuntime,
+  sprintEngineCoordinatorSeat,
 } from './state'
 import {
   AUTO_RUN_ROLE_CONTINUATION_RETRY_MS,
@@ -1689,7 +1691,15 @@ export async function spawnAutoRunCandidate(
         rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
         configuredRoles: sprintEngineState.configuredRoles,
         commandMode: getSprintEngineStartupCommandMode(nextRun.role, nextRun.agentId, sprintEngineState),
-        autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState),
+        // Asked of the SEAT, not the role name (MC-2057): the override tells the
+        // agent that plans this run to proceed with conservative defaults under
+        // artifact-approval automation. Gated on `role === 'architect'`, a
+        // roleless coordinator — the planning seat of the default sprint kind —
+        // never received it and stopped on exactly the questions that mode
+        // exists to suppress. A named seat still answers for `architect-2`.
+        autonomousPlanningOverride:
+          isSprintEngineCoordinatorAgent(nextRun.agentId, sprintEngineState)
+          && sprintEngineArtifactApprovalDesired(autoState),
         useWorktrees: sprintEngineState.useWorktrees === true,
       }),
       nextRun.label,
@@ -1982,47 +1992,61 @@ async function signalPlannerForNeedsInputTriage(
   if (architectBlockers.length === 0) return 'none'
 
   const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
-  const architect = roster.find((candidate) => candidate.role === 'architect')
-  if (!architect) return 'none'
+  // The SEAT, not the role name (MC-2057). This lookup used to be
+  // `candidate.role === 'architect'`, which a roleless roster can never satisfy
+  // — so `architect`-KIND blockers on a roleless run were never triaged, and
+  // because a needs_input task carries an owner, no dispatch/wake/revival path
+  // re-engaged anyone either. Same two-step lookup the bootstrap path uses: the
+  // deterministic seat id first, then any id the seat answers for, which is how
+  // an older roster's `architect-2` still matches while a minted roleless
+  // worker (`agent-1`) does not.
+  const seat = sprintEngineCoordinatorSeat(sprintEngineState)
+  const coordinator =
+    roster.find((candidate) => candidate.id === seat.agentId)
+    ?? roster.find((candidate) => isSprintEngineCoordinatorAgent(candidate.id, sprintEngineState))
+  if (!coordinator) return 'none'
 
   // Triage lives outside the reconcile plan, so it must honour the plan's
-  // per-agent dedup itself: an architect the plan engaged this pass (wake,
+  // per-agent dedup itself: a coordinator the plan engaged this pass (wake,
   // dispatch, notification, …) gets no triage prompt this tick, or the same
   // terminal would receive two contradictory instructions back to back.
-  if (engagedThisPass.has(architect.id)) {
-    logPerfEvent('SprintEngineAutoRun', 'architect-triage-deferred-engaged-architect', {
+  if (engagedThisPass.has(coordinator.id)) {
+    logPerfEvent('SprintEngineAutoRun', 'architect-triage-deferred-engaged-coordinator', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
-      agentId: architect.id,
+      agentId: coordinator.id,
       taskIds: architectBlockers.map((task) => task.id),
     })
     return 'none'
   }
 
-  const spawnKey = `${workspace.id}:${architect.id}`
+  const spawnKey = `${workspace.id}:${coordinator.id}`
   const taskIds = architectBlockers.map((task) => task.id)
+  // `architect` in these names and payloads is the needs_input KIND — a wire
+  // value this epic deliberately does not rename — never the agent's role.
   const triagePrompt = buildArchitectNeedsInputTriagePrompt({
     workspaceFolderPath: workspace.folderPath,
     sprintEngineStatePath: workspace.sprintEngineContext.statePath,
+    agentId: coordinator.id,
     taskIds,
   })
-  const messageKey = architectTriageMessageKey(workspace, taskIds, architect.id)
+  const messageKey = architectTriageMessageKey(workspace, taskIds, coordinator.id)
   const previous = sentArchitectTriageMessages.current.get(messageKey)
   const retryPending = previous && Date.now() - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS
   const retryLimitReached = promptRetryLimitReached(previous)
 
-  if (runningAgentIds.has(architect.id)) {
+  if (runningAgentIds.has(coordinator.id)) {
     ports.applyTerminalRevealPolicy(
       workspace.id,
-      architect.id,
-      workspace.agents[architect.id]?.name ?? architect.label,
+      coordinator.id,
+      workspace.agents[coordinator.id]?.name ?? coordinator.label,
       'background'
     )
     if (retryLimitReached) {
       logPerfEvent('SprintEngineAutoRun', 'architect-triage-prompt-retry-limit-reached', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
-        agentId: architect.id,
+        agentId: coordinator.id,
         taskIds,
         attempts: previous?.attempts ?? 0,
         maxRetries: AUTO_RUN_MAX_PROMPT_RETRIES,
@@ -2031,7 +2055,7 @@ async function signalPlannerForNeedsInputTriage(
     }
     if (retryPending) return 'none'
 
-    const session = await findRunningAgentSession(ports, workspace, architect.id)
+    const session = await findRunningAgentSession(ports, workspace, coordinator.id)
     if (!session) return 'none'
 
     await writeBracketedPrompt(ports, session.sessionId, triagePrompt)
@@ -2039,7 +2063,7 @@ async function signalPlannerForNeedsInputTriage(
     logPerfEvent('SprintEngineAutoRun', 'architect-triage-prompt-sent', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
-      agentId: architect.id,
+      agentId: coordinator.id,
       taskIds,
       sessionId: session.sessionId,
     })
@@ -2053,9 +2077,11 @@ async function signalPlannerForNeedsInputTriage(
     workspace,
     sprintEngineState,
     {
-      agentId: architect.id,
-      label: workspace.agents[architect.id]?.name ?? architect.label,
-      role: 'architect',
+      agentId: coordinator.id,
+      label: workspace.agents[coordinator.id]?.name ?? coordinator.label,
+      // The seat's role, absent on a roleless run — never the literal, which
+      // spawned a roleless coordinator wearing a role it does not have.
+      role: seat.role,
       taskId: architectBlockers[0].id,
       startupPromptOverride: triagePrompt,
     },
@@ -2066,7 +2092,7 @@ async function signalPlannerForNeedsInputTriage(
   )
   if (result === 'failed') return 'failed'
   if (result === 'started') {
-    runningAgentIds.add(architect.id)
+    runningAgentIds.add(coordinator.id)
     return 'started'
   }
   // 'skipped'/'missing_cli' → 'none': the tick re-attempts next pass, and the

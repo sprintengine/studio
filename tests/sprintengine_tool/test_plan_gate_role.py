@@ -1,10 +1,10 @@
-"""Plan-approval gate is owned by the run's planning role.
+"""Plan-approval gate is owned by the run's coordinator seat.
 
 The plan-approval "gate" survives MC-1542: it is an ARTIFACT-approval task (the
 user approves `plan.md`), not a quality gate, so deleting quality gates left it
-untouched. The architect owns it on every architect/specialist run (those stay
-byte-for-byte identical); a roster of soulless Generals with no architect plans
-the run itself, so it is a `general` plan gate the General self-approves.
+untouched. The architect fills the seat on every architect/specialist run (those
+stay byte-for-byte identical); a run that staffs no architect coordinates through
+a seat with NO role, and its gate copy carries no role noun.
 
 Also pinned here: no artifact may stay `draft` while its task is `done`. The gate
 placeholder is seeded as `draft` at run creation, and a gate task can reach `done`
@@ -19,11 +19,13 @@ import subprocess
 
 from helpers import create_team, get_artifact, get_task, read_state, task, write_state
 from sprintengine_core.tool.plans import (
+    actor_is_coordinator,
     apply_plan_gate_dependency,
     ensure_plan_approval_gate,
     find_architect_plan_gate,
     plan_path_artifact_value,
-    resolve_planning_role,
+    resolve_coordinator_seat,
+    task_is_coordination,
 )
 from sprintengine_mcp import SprintEngineMcpServer
 
@@ -33,9 +35,9 @@ def actor(agent_id: str, role: str) -> dict[str, object]:
 
 
 def roster_state(fixture, *roles: str) -> dict:
-    # Planning authority is `configuredRoles`, the run's enabled-role set, not a
-    # seated roster (MC-1591 deleted the agents map). `resolve_planning_role` reads
-    # it, so the enabled roles decide the planner at init, before anyone claims.
+    # Coordination authority is `configuredRoles`, the run's enabled-role set, not a
+    # seated roster (MC-1591 deleted the agents map). `resolve_coordinator_seat`
+    # reads it, so the enabled roles decide the seat at init, before anyone claims.
     state = read_state(fixture.state_path)
     state.setdefault("sprintengine", {})["rosterConfigured"] = True
     state["configuredRoles"] = list(roles)
@@ -60,34 +62,96 @@ def start_plan_task(fixture, state: dict, owner: str) -> dict:
     return plan_task
 
 
-def test_resolve_planning_role_matrix(tmp_path) -> None:
+def test_resolve_coordinator_seat_matrix(tmp_path) -> None:
     fixture = create_team(tmp_path, "plan-role-matrix", [])
-    assert resolve_planning_role(roster_state(fixture, "architect", "developer")) == "architect"
-    assert resolve_planning_role(roster_state(fixture, "general")) == "general"
-    # Architect wins when both are somehow present; a planner-less roster stays
-    # on the architect path so existing runs are unaffected.
-    assert resolve_planning_role(roster_state(fixture, "architect", "general")) == "architect"
-    assert resolve_planning_role(roster_state(fixture, "developer", "tester")) == "architect"
+    architect_seat = {"role": "architect", "agentId": "architect"}
+    roleless_seat = {"role": None, "agentId": "coordinator"}
+
+    assert resolve_coordinator_seat(roster_state(fixture, "architect", "developer")) == architect_seat
+    # Every roster with no architect coordinates through a seat with NO role.
+    assert resolve_coordinator_seat(roster_state(fixture, "developer", "tester")) == roleless_seat
+    # A recorded EMPTY set is a deliberate choice of no roles…
+    assert resolve_coordinator_seat(roster_state(fixture)) == roleless_seat
+    # …while a store that never recorded the set at all is legacy or headless: it
+    # predates roleless runs and keeps the architect seat.
+    assert resolve_coordinator_seat(read_state(fixture.state_path)) == architect_seat
 
 
-def test_general_roster_seeds_a_general_plan_gate(tmp_path) -> None:
-    fixture = create_team(tmp_path, "gen-plan-gate", [])
+def test_actor_is_coordinator_answers_by_id_for_both_seats(tmp_path) -> None:
+    fixture = create_team(tmp_path, "coordinator-actor", [])
+    architect_run = roster_state(fixture, "architect", "developer")
+    roleless_run = roster_state(fixture, "developer", "tester")
+
+    # A named seat answers for every worker the spawner mints into it.
+    assert actor_is_coordinator(architect_run, "architect") is True
+    assert actor_is_coordinator(architect_run, "architect-2") is True
+    assert actor_is_coordinator(architect_run, "developer-1") is False
+    assert actor_is_coordinator(architect_run, "coordinator") is False
+    # A roleless seat has no role to interpolate, so only its id answers.
+    assert actor_is_coordinator(roleless_run, "coordinator") is True
+    assert actor_is_coordinator(roleless_run, "developer-1") is False
+    assert actor_is_coordinator(roleless_run, "") is False
+
+
+def test_a_roleless_roster_seeds_a_plan_gate_with_no_role_noun(tmp_path) -> None:
+    fixture = create_team(tmp_path, "roleless-plan-gate", [])
     plan_path_value = plan_path_artifact_value(fixture.state_path)
-    state = seed_plan_gate(fixture, "general")
+    state = seed_plan_gate(fixture, "developer", "tester")
 
     gate = find_architect_plan_gate(state, fixture.state_path)
     plan_task = gate["task"]
     plan_artifact = gate["artifact"]
     assert plan_task is not None and plan_artifact is not None
 
-    assert plan_task["role"] == "general"
-    assert plan_task["title"] == "Review general plan artifact"
-    assert plan_task["description"].startswith(f"General-authored active team plan at {plan_path_value}")
-    assert plan_task["acceptanceCriteria"][0] == "General plan describes the execution approach and task graph."
+    assert plan_task["title"] == "Review the plan"
+    # The gate's own copy is the first paragraph; a roleless card then carries the
+    # coordinator brief (MC-2054, pinned in test_coordinator_brief.py).
+    assert plan_task["description"].startswith(
+        f"Active team plan at {plan_path_value} and task graph approval gate. "
+        "Use this exact path; do not read, copy, or overwrite another team's plan.md."
+    )
+    assert plan_task["acceptanceCriteria"][0] == "Plan describes the execution approach and task graph."
+    # No role noun survives anywhere in the card the coordinator reads.
+    card = " ".join([plan_task["title"], plan_task["description"], *plan_task["acceptanceCriteria"]])
+    assert "Architect" not in card and "General" not in card
     # The canonical plan-artifact kind is shared (renderer/find depend on it);
-    # only the title/owner mark the general variant.
+    # only the title/owner differ.
     assert plan_artifact["kind"] == "architect_plan"
-    assert plan_artifact["title"] == "General Plan"
+    assert plan_artifact["title"] == "Plan"
+
+
+def test_the_plan_artifact_binding_is_what_marks_the_coordination_task(tmp_path) -> None:
+    """The gate is identified by the binding alone — not its `role`, not its `kind`."""
+    fixture = create_team(tmp_path, "coordination-marker", [])
+    state = seed_plan_gate(fixture, "architect", "developer")
+    gate = find_architect_plan_gate(state, fixture.state_path)
+    gate_id = gate["task"]["id"]
+
+    # The gate looks exactly like ordinary work on both fields that might have
+    # marked it, which is why neither can be the marker.
+    assert gate["task"].get("kind") is None
+    assert task_is_coordination(state, fixture.state_path, gate_id) is True
+    assert task_is_coordination(state, fixture.state_path, "T9") is False
+    assert task_is_coordination(state, fixture.state_path, "") is False
+
+    # Rebinding the artifact moves the answer with it; the task's role does not.
+    gate["artifact"]["taskId"] = "T9"
+    assert task_is_coordination(state, fixture.state_path, gate_id) is False
+    assert task_is_coordination(state, fixture.state_path, "T9") is True
+
+
+def test_a_legacy_store_with_no_binding_still_finds_its_gate_at_t0(tmp_path) -> None:
+    """The T0 fallback carries stores written before the artifact binding existed."""
+    fixture = create_team(tmp_path, "legacy-gate-fallback", [])
+    state = seed_plan_gate(fixture, "architect", "developer")
+    assert find_architect_plan_gate(state, fixture.state_path)["task"]["id"] == "T0"
+
+    state["artifacts"] = []
+    state.pop("configuredRoles", None)
+
+    fallback = find_architect_plan_gate(state, fixture.state_path)
+    assert fallback["artifact"] is None
+    assert fallback["task"]["id"] == "T0"
 
 
 def test_architect_plan_gate_is_byte_for_byte_unchanged(tmp_path) -> None:
@@ -120,45 +184,46 @@ def test_architect_plan_gate_is_byte_for_byte_unchanged(tmp_path) -> None:
     assert plan_artifact["title"] == "Architect Plan"
 
 
-def test_dependency_free_tasks_root_on_the_general_plan_gate(tmp_path) -> None:
-    fixture = create_team(tmp_path, "gen-plan-dep", [])
-    state = seed_plan_gate(fixture, "general")
+def test_dependency_free_tasks_root_on_a_roleless_plan_gate(tmp_path) -> None:
+    fixture = create_team(tmp_path, "roleless-plan-dep", [])
+    state = seed_plan_gate(fixture)
+    assert resolve_coordinator_seat(state)["role"] is None
     gate_task_id = find_architect_plan_gate(state, fixture.state_path)["task"]["id"]
 
-    new_task = {"id": "T9", "role": "general", "dependsOn": []}
+    new_task = {"id": "T9", "dependsOn": []}
     apply_plan_gate_dependency(new_task, state, fixture.state_path)
     assert new_task["dependsOn"] == [gate_task_id]
 
     # A task with explicit dependencies is left alone (covered transitively).
-    pre_dep = {"id": "T8", "role": "general", "dependsOn": ["T9"]}
+    pre_dep = {"id": "T8", "dependsOn": ["T9"]}
     apply_plan_gate_dependency(pre_dep, state, fixture.state_path)
     assert pre_dep["dependsOn"] == ["T9"]
 
 
-def test_general_self_approves_its_plan_gate(tmp_path) -> None:
-    fixture = create_team(tmp_path, "gen-plan-selfapprove", [])
-    state = seed_plan_gate(fixture, "general")
+def test_a_roleless_run_self_approves_its_plan_gate(tmp_path) -> None:
+    fixture = create_team(tmp_path, "roleless-plan-selfapprove", [])
+    state = seed_plan_gate(fixture)
     plan_task = find_architect_plan_gate(state, fixture.state_path)["task"]
     plan_artifact = get_artifact(state, "A1")
     assert plan_task["id"] == "T0" and plan_artifact["kind"] == "architect_plan"
 
-    # The General has written and readied its plan; it now approves it itself.
+    # The run has written and readied its plan; it now approves it itself.
     plan_artifact["status"] = "ready_for_review"
     write_state(fixture.state_path, state)
-    (fixture.team_dir / "plan.md").write_text("# General Plan\n", encoding="utf-8")
+    (fixture.team_dir / "plan.md").write_text("# Plan\n", encoding="utf-8")
 
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
     approved = server.call_tool(
         "sprintengine.artifact.approve",
-        {"statePath": str(fixture.state_path), "artifactId": "A1", "id": "general-1"},
-        actor("general-1", "general"),
+        {"statePath": str(fixture.state_path), "artifactId": "A1", "id": "coordinator"},
+        actor("coordinator", ""),
     )
     assert approved["ok"] is True, approved.get("error")
     assert approved["result"]["taskCompleted"] is True
 
     final_state = read_state(fixture.state_path)
     assert get_task(final_state, "T0")["status"] == "done"
-    assert get_artifact(final_state, "A1")["approvedBy"] == "general-1"
+    assert get_artifact(final_state, "A1")["approvedBy"] == "coordinator"
 
 
 def test_the_plan_gate_holds_the_run_until_the_user_approves_the_plan(tmp_path) -> None:

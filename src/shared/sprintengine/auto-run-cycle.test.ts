@@ -22,7 +22,7 @@ import type { AutoRunCandidate, SprintEngineDispatchAttempt } from './auto-run'
 import { createSprintEngineAutoRunCycleState, spawnAutoRunCandidate, superviseWorkspace } from './auto-run-cycle'
 
 type Captured = {
-  spawns: Array<{ sessionId: string; agentId?: string }>
+  spawns: Array<{ sessionId: string; agentId?: string; initialPrompt?: string }>
   diagnostics: Array<{ title?: string; details?: string }>
   writes: Array<{ sessionId: string; data: string }>
 }
@@ -78,7 +78,11 @@ function makePorts(
     terminalKill: async () => {},
     terminalStatus: async () => ({ processAlive: false }),
     terminalSpawn: async (args) => {
-      captured.spawns.push({ sessionId: args.sessionId, agentId: (args.metadata as { agentId?: string })?.agentId })
+      captured.spawns.push({
+        sessionId: args.sessionId,
+        agentId: (args.metadata as { agentId?: string })?.agentId,
+        initialPrompt: args.initialPrompt,
+      })
       return { ok: true, sessionId: args.sessionId }
     },
     pathExists: async () => true,
@@ -585,6 +589,118 @@ async function testGhostSessionIsReapedAfterBootAllowance(): Promise<void> {
   assert.deepEqual(teardowns, ['ghost-1'], `the aged ghost is torn down; teardowns=${JSON.stringify(teardowns)}`)
 }
 
+// --- MC-2057: coordinator engagement asks the seat, not the role name -------
+
+/** A roleless run: `configuredRoles: []`, one seat id, everything else absent. */
+function rolelessState(over: Record<string, unknown>): SprintEngineState {
+  return {
+    name: 'team', goal: '', roleCounts: {}, configuredRoles: [],
+    roleRuntimes: { '(roleless)': { cli: 'claude-code' } },
+    sprintEngineAgents: {}, events: [], artifacts: [],
+    tasks: [],
+    ...over,
+  } as unknown as SprintEngineState
+}
+
+async function testRolelessTriageEngagesTheCoordinatorSeat(): Promise<void> {
+  // F1: the engagement lookup was `candidate.role === 'architect'`, which a
+  // roleless roster can never satisfy — so an architect-KIND blocker on the new
+  // default sprint kind was never triaged, by anyone, ever. The blocker carries
+  // an owner, so no dispatch/wake/revival path covers for it either.
+  const state = rolelessState({
+    sprintEngineAgents: { coordinator: { status: 'running', currentTaskId: null } },
+    tasks: [
+      poolTask('T-blocked', {
+        role: undefined, status: 'needs_input', boardColumn: 'needs_input', ownerAgentId: 'agent-1',
+        needsInput: { kind: 'architect', reason: 'plan ambiguity' },
+      }),
+    ],
+  })
+  const workspace = poolWorkspace(state, 'Roleless triage workspace')
+  ;(workspace as { agents: Record<string, unknown> }).agents = {
+    coordinator: { ...viewAgent('coordinator'), cliSessionId: 'session-coordinator' },
+  }
+
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  const ports = makePorts(captured, workspace, [agentSession('coordinator')])
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+
+  await superviseWorkspace(...superviseArgs(ports, workspace, cliRuntimes))
+
+  const triageWrite = captured.writes.find((write) => write.data.includes('sprintengine.triage.needs_input'))
+  assert.ok(
+    triageWrite,
+    `the roleless seat is engaged for triage; writes=${JSON.stringify(captured.writes.map((w) => w.sessionId))}`,
+  )
+  assert.equal(triageWrite?.sessionId, 'session-coordinator', 'triage lands in the coordinator terminal')
+  assert.ok(
+    triageWrite?.data.includes('"id": "coordinator"'),
+    `the triage payload carries the seat's own id; prompt=${JSON.stringify(triageWrite?.data.slice(0, 400))}`,
+  )
+  assert.ok(!triageWrite?.data.includes('"id": "architect"'), 'and never the architect literal')
+  assert.ok(triageWrite?.data.includes('T-blocked'), 'and names the blocked task')
+}
+
+async function testRolelessCoordinatorGetsTheAutonomousPlanningOverride(): Promise<void> {
+  // F5: the override was gated on `nextRun.role === 'architect'`, so the
+  // planning seat of the default sprint kind was the one seat that could not
+  // plan autonomously under `run_agents_and_approve_artifacts` — it stopped on
+  // exactly the plan-review questions that mode exists to suppress.
+  const state = rolelessState({ tasks: [] })
+  const workspace = poolWorkspace(state, 'Roleless planning workspace')
+  ;(workspace as { sprintEngineAutoState: SprintEngineAutoState }).sprintEngineAutoState = {
+    ...autoState(),
+    desiredMode: 'run_agents_and_approve_artifacts',
+  }
+  ;(workspace as { agents: Record<string, unknown> }).agents = { coordinator: viewAgent('coordinator') }
+
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  const ports = makePorts(captured, workspace, [])
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+
+  // No tasks yet: bootstrap spawns the seat with its generated startup prompt.
+  await superviseWorkspace(...superviseArgs(ports, workspace, cliRuntimes))
+
+  const seatSpawn = captured.spawns.find((spawn) => spawn.agentId === 'coordinator')
+  assert.ok(seatSpawn, `the roleless seat is bootstrapped; spawns=${JSON.stringify(captured.spawns)}`)
+  assert.ok(
+    seatSpawn?.initialPrompt?.includes('## Autonomous Planning Override'),
+    `the seat's startup prompt carries the override; prompt=${JSON.stringify(seatSpawn?.initialPrompt?.slice(0, 300))}`,
+  )
+
+  // A task-scoped worker on the same run is not the seat and must not get it.
+  const workerState = rolelessState({
+    sprintEngineAgents: { coordinator: { status: 'running', currentTaskId: 'T-gate' } },
+    artifacts: [{ id: 'A-plan', kind: 'architect_plan', title: 'Plan', taskId: 'T-gate', status: 'approved' }],
+    tasks: [
+      poolTask('T-gate', { role: undefined, status: 'in_progress', boardColumn: 'in_progress', ownerAgentId: 'coordinator' }),
+      poolTask('T-work', { role: undefined }),
+    ],
+  })
+  const workerWorkspace = poolWorkspace(workerState, 'Roleless worker workspace')
+  ;(workerWorkspace as { sprintEngineAutoState: SprintEngineAutoState }).sprintEngineAutoState = {
+    ...autoState(),
+    desiredMode: 'run_agents_and_approve_artifacts',
+  }
+  const workerCaptured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  const workerPorts = makePorts(workerCaptured, workerWorkspace, [agentSession('coordinator')])
+  await superviseWorkspace(...superviseArgs(workerPorts, workerWorkspace, cliRuntimes))
+
+  const workerSpawn = workerCaptured.spawns.find((spawn) => spawn.agentId !== 'coordinator')
+  assert.ok(workerSpawn, `the ready work task mints a worker; spawns=${JSON.stringify(workerCaptured.spawns.map((s) => s.agentId))}`)
+  // Assert the prompt EXISTS before asserting what it lacks: `undefined?.includes(x)`
+  // is `undefined`, so a negative-only check would pass on a spawn that carried
+  // no startup prompt at all.
+  assert.ok(
+    workerSpawn?.initialPrompt?.includes('## First MCP Calls'),
+    `the worker is spawned with a real startup prompt; prompt=${JSON.stringify(workerSpawn?.initialPrompt?.slice(0, 200))}`,
+  )
+  assert.ok(
+    !workerSpawn?.initialPrompt?.includes('## Autonomous Planning Override'),
+    `a task-scoped worker gets no planning override; agentId=${workerSpawn?.agentId}`,
+  )
+}
+
 async function main(): Promise<void> {
   await testAThrowingStageDoesNotPreventSpawning()
   await testTriageActingDoesNotSuppressPoolSpawning()
@@ -594,6 +710,8 @@ async function main(): Promise<void> {
   await testConcurrencyCapHoldsAcrossTicksWhileSessionsBoot()
   await testBootingSessionIsNotDoubleCoveredForTheSameDemand()
   await testGhostSessionIsReapedAfterBootAllowance()
+  await testRolelessTriageEngagesTheCoordinatorSeat()
+  await testRolelessCoordinatorGetsTheAutonomousPlanningOverride()
   console.log('auto-run-cycle.test.ts: all tests passed')
 }
 

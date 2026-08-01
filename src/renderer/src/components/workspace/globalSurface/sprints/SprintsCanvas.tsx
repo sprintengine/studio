@@ -322,7 +322,11 @@ function RunRollupPanel({ model }: { model: SprintRunCanvasModel }): JSX.Element
       <RollupRow
         label="Agents"
         value={rosterLine(
-          roster.map((member) => getSprintEngineRoleLabel(member.role)),
+          // A role names the agent when it has one; an agent with none is named
+          // by its own row label, which is its id (MC-2055). Never "Unknown
+          // role", which is what the accessor says about an id it cannot
+          // resolve — absence is known.
+          roster.map((member) => (member.role ? getSprintEngineRoleLabel(member.role) : member.label)),
           working,
           // Why "Open agents" is disabled, in plain sight rather than on hover:
           // the run's terminals live in its workspace, and that workspace is gone.

@@ -25,8 +25,8 @@ import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
   createInitialSprintEngineState,
+  sprintEngineCoordinatorSeatForRoleCounts,
   sprintEngineEnabledRoles,
-  sprintEnginePlannerRole,
 } from './sprintengine'
 import { buildPlanFileSprintEngineHandoffPrompt } from './sprintengineHandoff'
 import { buildRunWorkspaceContext } from './runWorkspaceCreation'
@@ -74,8 +74,9 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
 export type PlanSourcedSprintEngineWorkspaceResult = {
   workspaceId: WorkspaceId
   sprintEngineContext: SprintEngineWorkspaceContext
-  // The run's planner seat: the general in a general-default run, the architect
-  // when the selection staffs one. Carries the startup handoff prompt.
+  // The run's coordinator seat: the roleless `coordinator` when the selection
+  // staffs no architect, the architect when it does. Carries the startup
+  // handoff prompt.
   plannerAgentId: string
 }
 
@@ -230,11 +231,10 @@ export async function createPlanSourcedSprintEngineWorkspace({
   if (useWorktrees === true) {
     sprintEngineState.useWorktrees = true
   }
-  // The lazy roster seeds exactly one seat: the run's planner (general in a
-  // general-default run, the architect when staffed). Grab it by the same rule
-  // the roster used to seat it — a general-only run no longer has an architect.
-  const plannerRole = sprintEnginePlannerRole(sprintEngineState.roleCounts)
-  const planner = buildSprintEngineAgentRosterForState(sprintEngineState).find((agent) => agent.role === plannerRole)
+  // The lazy roster seeds exactly one seat: the run's coordinator. Grab it by
+  // ID rather than by role — a roleless run's seat has no role to match on.
+  const seat = sprintEngineCoordinatorSeatForRoleCounts(sprintEngineState.roleCounts)
+  const planner = buildSprintEngineAgentRosterForState(sprintEngineState).find((agent) => agent.id === seat.agentId)
   if (!planner) throw new PlanSourcedSprintEngineWorkspaceError('missing-planner')
 
   // The run's legal role set: forwarded to Python init as `configuredRoles`,
@@ -242,7 +242,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   // state so wake prompts built before the first projection refresh carry the
   // same list (the projection then overwrites it with the identical canonical
   // copy). Never derive this from roster seats — the lazy roster seats only
-  // the planner.
+  // the coordinator.
   const enabledRoles = sprintEngineEnabledRoles(sprintEngineState.roleCounts)
   sprintEngineState.configuredRoles = enabledRoles
 
