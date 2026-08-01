@@ -32,6 +32,16 @@ function testMarketplaceMappingRequiresModuleKindAndPrefix(): void {
   assert.equal(marketplaceModuleForComponent('calendar', PLUGINS), null, 'un-namespaced ids stay generic')
   assert.equal(marketplaceModuleForComponent('.hidden', PLUGINS), null)
   assert.equal(marketplaceModuleForComponent('unknown.panel', PLUGINS), null)
+  assert.equal(
+    marketplaceModuleForComponent('calendar.board', PLUGINS, () => true),
+    null,
+    'a stale panel id of a PRESENT module never claims the module is missing'
+  )
+  assert.deepEqual(
+    marketplaceModuleForComponent('calendar.board', PLUGINS, () => false),
+    { id: 'calendar', name: 'Calendar' },
+    'an absent module still maps'
+  )
 }
 
 function testNotInstalledSurfaceNamesTheModuleAndOffersInstall(): void {

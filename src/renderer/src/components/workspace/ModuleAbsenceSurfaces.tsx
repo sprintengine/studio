@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
 
 import type { MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
-import { COMING_SOON_MODULE_MANIFESTS } from '../../modules'
+import { ACTIVE_RENDERER_MODULE_MANIFESTS, COMING_SOON_MODULE_MANIFESTS } from '../../modules'
+import { getThirdPartyRendererLoadState } from '../../modules/third-party-loader'
 import { PrimaryButton } from '../ui'
 
 // Explicit absence surfaces for module-owned UI (MC-1532). A workspace whose
@@ -44,18 +45,30 @@ export function ModuleNotInstalledSurface({
   )
 }
 
+// True when the module id is present in this session — a bundled module active
+// in this build, or a third-party module the loader evaluated cleanly. A tab
+// whose module is present is stale chrome (an old panel id), not a missing
+// install, and must never claim "isn't installed".
+function isModulePresent(moduleId: string): boolean {
+  if (ACTIVE_RENDERER_MODULE_MANIFESTS.some((manifest) => manifest.id === moduleId)) return true
+  return getThirdPartyRendererLoadState(moduleId)?.status === 'loaded'
+}
+
 // A layout tab whose owning module is missing: host panel component ids are
 // namespaced `<moduleId>.<panel>`, so the prefix names the module to offer.
-// Only a prefix matching a known marketplace module entry upgrades to the
-// install affordance; anything else (stale/unknown tabs, non-marketplace ids)
-// keeps the caller's generic fallback.
+// Only a prefix that names an ABSENT module matching a known marketplace
+// module entry upgrades to the install affordance; anything else (stale tabs
+// of present modules, unknown ids, non-marketplace prefixes) keeps the
+// caller's generic fallback.
 export function marketplaceModuleForComponent(
   componentId: string,
-  plugins: ReadonlyArray<Pick<MarketplacePluginEntry, 'id' | 'name' | 'provides'>>
+  plugins: ReadonlyArray<Pick<MarketplacePluginEntry, 'id' | 'name' | 'provides'>>,
+  isPresent: (moduleId: string) => boolean = isModulePresent
 ): { id: string; name: string } | null {
   const dot = componentId.indexOf('.')
   if (dot <= 0) return null
   const moduleId = componentId.slice(0, dot)
+  if (isPresent(moduleId)) return null
   const entry = plugins.find((plugin) => plugin.id === moduleId && plugin.provides.includes('module'))
   return entry ? { id: entry.id, name: entry.name } : null
 }
