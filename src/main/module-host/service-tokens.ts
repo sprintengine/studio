@@ -7,6 +7,7 @@ import type { SwitchboardAutomationFrontDoors } from '../automations/actions/swi
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { RoadmapAppFrontDoor } from '../roadmap-orchestrator'
 import type { ModuleWorkspaceContextService, ModuleWorkspaceService } from '../modules/module-workspace-service'
+import type { ModuleStorageRegistry } from './module-storage'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
 import type { ReviewChangeSetService } from '../review/changeset-service'
 import type { ReviewGuideTerminalService } from '../review/guide-terminal-service'
@@ -81,6 +82,9 @@ export const WorkspaceServiceToken = createServiceToken<ModuleWorkspaceService>(
 // Read-only workspace context (id → root/name/mode). The key MUST equal the
 // SDK's WorkspaceContextToken ('core.workspace-context') for the same reason.
 export const WorkspaceContextToken = createServiceToken<ModuleWorkspaceContextService>('core.workspace-context')
+// Per-module, per-workspace JSON storage. The key mirrors the private token
+// behind the SDK's getModuleStorage helper ('core.module-storage').
+export const ModuleStorageToken = createServiceToken<ModuleStorageRegistry>('core.module-storage')
 // The app-internal companion-agent service (attach workspace-bound background
 // agents). Consumed by first-party surfaces via requireService.
 export const CompanionAgentServiceToken = createServiceToken<CompanionAgentService>(

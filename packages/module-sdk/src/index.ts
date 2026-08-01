@@ -112,6 +112,9 @@ export type CapabilityPermission =
   // Companion Agents service. Unlike the disclosure-only scopes above, the
   // companion service checks this one explicitly at attach time.
   | 'agents:companion'
+  // Persist the module's own data through the SDK's scoped storage service
+  // (host-placed: workspace `.multi-code/modules/<id>/` or per-user app data).
+  | 'storage'
   | (string & {})
 
 export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
@@ -130,6 +133,7 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.link.open',
   'automations.manage',
   'agents:companion',
+  'storage',
 ]
 
 // ── Notifications ────────────────────────────────────────────────────────────
@@ -244,7 +248,10 @@ export type WorkspaceService = {
 
 /**
  * Resolve with `host.requireService(WorkspaceServiceToken)` from a module's
- * `entry.main`. Always available — provided by the always-on agent-runtime core.
+ * `entry.main`. Provided by the agent-runtime core — declare
+ * `dependsOn: ['agent-runtime']` (or a chain reaching it) or resolve inside
+ * handlers rather than at the top of `registerMain`, so registration order
+ * can't race the provider.
  */
 export const WorkspaceServiceToken: ServiceToken<WorkspaceService> =
   createServiceToken<WorkspaceService>('core.workspace')
@@ -284,7 +291,10 @@ export type WorkspaceContextService = {
 
 /**
  * Resolve with `host.requireService(WorkspaceContextToken)` from a module's
- * `entry.main`. Always available — provided by the always-on agent-runtime core.
+ * `entry.main`. Provided by the agent-runtime core — declare
+ * `dependsOn: ['agent-runtime']` (or a chain reaching it) or resolve inside
+ * handlers rather than at the top of `registerMain`, so registration order
+ * can't race the provider.
  */
 export const WorkspaceContextToken: ServiceToken<WorkspaceContextService> =
   createServiceToken<WorkspaceContextService>('core.workspace-context')
@@ -753,6 +763,73 @@ export function getCompanionAgentsService(host: MainHost): CompanionAgentsServic
   const moduleId = host.moduleId
   return {
     attach: (spec) => registry.attach(moduleId, spec),
+  }
+}
+
+// ── Module storage (host-provided, consumed via the service bridge) ──────────
+
+export type ModuleStorageErrorCode =
+  | 'invalid_key'
+  | 'invalid_value'
+  | 'value_too_large'
+  | 'invalid_workspace_root'
+  | 'io_error'
+
+export type ModuleStorageResult<T> =
+  | ({ ok: true } & T)
+  | { ok: false; code: ModuleStorageErrorCode; message: string }
+
+/**
+ * Per-module, per-workspace JSON storage, scoped to your module by
+ * `getModuleStorage(host)`. The host owns file placement — workspace-scoped
+ * keys live in the workspace folder (`.multi-code/modules/<moduleId>/`),
+ * global keys under the app's per-user data — so modules stop inventing
+ * locations (home-dir files, raw localStorage). Keys match
+ * `^[a-z0-9][a-z0-9._-]{0,63}$`; values must be JSON-serializable and at most
+ * 1 MB; writes are atomic (write-then-rename). Pass `workspaceRoot` (absolute;
+ * resolve it via the workspace context) for workspace-scoped keys, omit it for
+ * the module's global store. Declare the `storage` permission (install-time
+ * disclosure). Renderer panels reach storage through the module's own
+ * `host.invoke` channels.
+ */
+export type ModuleStorageService = {
+  /** `found: false` (with `value: undefined`) when the key has never been set. */
+  get(input: { key: string; workspaceRoot?: string }): Promise<ModuleStorageResult<{ value: unknown; found: boolean }>>
+  set(input: { key: string; value: unknown; workspaceRoot?: string }): Promise<ModuleStorageResult<object>>
+  delete(input: { key: string; workspaceRoot?: string }): Promise<ModuleStorageResult<{ deleted: boolean }>>
+  /** Keys in the scope, sorted; an empty store lists `[]`, never an error. */
+  list(input?: { workspaceRoot?: string }): Promise<ModuleStorageResult<{ keys: string[] }>>
+}
+
+// The moduleId-first registry the app provides; derived from the published
+// service so the two shapes cannot drift.
+type ModuleStorageRegistry = {
+  [K in keyof ModuleStorageService]: (
+    moduleId: string,
+    ...args: Parameters<ModuleStorageService[K]>
+  ) => ReturnType<ModuleStorageService[K]>
+}
+
+const moduleStorageToken: ServiceToken<ModuleStorageRegistry> =
+  createServiceToken<ModuleStorageRegistry>('core.module-storage')
+
+/**
+ * The scoped storage service for `host`'s module. The raw host registry takes
+ * a module id on every call; this helper closes over `host.moduleId` exactly
+ * like `getAutomationsService`. Provided by the agent-runtime core — declare
+ * `dependsOn: ['agent-runtime']` (a chain that reaches it, e.g.
+ * `['automations']`, also works) so your `entry.main` registers after the
+ * provider; without the dependency edge, load order is alphabetical and a
+ * top-of-registerMain call can race the provider and fail your module's load.
+ */
+export function getModuleStorage(host: MainHost): ModuleStorageService {
+  const registry = host.requireService(moduleStorageToken)
+  const moduleId = host.moduleId
+  return {
+    get: (input) => registry.get(moduleId, input),
+    set: (input) => registry.set(moduleId, input),
+    delete: (input) => registry.delete(moduleId, input),
+    list: (input) => registry.list(moduleId, input),
   }
 }
 

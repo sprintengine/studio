@@ -77,6 +77,9 @@ export type CapabilityPermission =
   // companion service DOES check this one explicitly at attach time (there is no
   // shared runtime gate to inherit), so a module must declare it to attach.
   | 'agents:companion'
+  // Persist the module's own data through the SDK's scoped storage service
+  // (host-placed: workspace `.multi-code/modules/<id>/` or per-user app data).
+  | 'storage'
   // Extensible: unknown scopes validate structurally but are flagged as unknown
   // so the consent UI can warn rather than silently grant something opaque.
   | (string & {})
@@ -97,6 +100,7 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.link.open',
   'automations.manage',
   'agents:companion',
+  'storage',
 ]
 
 // Plain, sentence-case descriptions for the install/trust consent prompt.
@@ -118,6 +122,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'backlog.link.open': 'Open links and targets attached to Backlog items',
   'automations.manage': 'Create and manage its own scheduled automations',
   'agents:companion': 'Run its own background agents inside the workspace',
+  storage: 'Save its own data in the workspace folder and app data',
 }
 
 export function isKnownCapabilityPermission(value: string): boolean {

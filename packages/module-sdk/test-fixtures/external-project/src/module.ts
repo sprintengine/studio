@@ -9,6 +9,7 @@ import {
   createServiceToken,
   getAutomationsService,
   getCompanionAgentsService,
+  getModuleStorage,
   hasFileDropData,
   readFileDropPayload,
   registerAutomationAction,
@@ -36,7 +37,7 @@ export const manifest: CapabilityManifest = {
   summary: 'Forecast panel and quick-check command.',
   defaultEnabled: true,
   source: 'third-party',
-  permissions: ['network', 'ipc:workspace-read', 'ipc:invoke', 'automations.manage', 'backlog.read', 'agents:companion'],
+  permissions: ['network', 'ipc:workspace-read', 'ipc:invoke', 'automations.manage', 'backlog.read', 'agents:companion', 'storage'],
   dependsOn: ['automations', 'agent-runtime'],
   entry: {
     main: 'dist/main.cjs',
@@ -96,6 +97,27 @@ export const registerMain: RegisterMain = (host) => {
     const workspaces = host.requireService(WorkspaceContextToken)
     const view = await workspaces.get(workspaceId)
     return { folderPath: view?.folderPath ?? null }
+  })
+  // Scoped module storage composed with the workspace context: resolve the
+  // root, persist under it (host-placed), read back. Declare `storage`.
+  host.registerIpc('weather-deck:save-preferences', async (_event, input: unknown) => {
+    const { workspaceId, preferences } = (input ?? {}) as { workspaceId?: unknown; preferences?: unknown }
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('weather-deck:save-preferences requires a workspace id.')
+    }
+    const view = await host.requireService(WorkspaceContextToken).get(workspaceId)
+    // Not-yet-resolvable (null view) is a transient state — fail the save so
+    // the caller retries, rather than silently writing to a scope the data
+    // would later appear "lost" from. A RESOLVED workspace without a folder
+    // is genuinely folderless: its data lives in the global per-user store.
+    if (!view) throw new Error(`Workspace "${workspaceId}" is not resolvable yet — retry the save.`)
+    const storage = getModuleStorage(host)
+    const scope = view.folderPath ? { workspaceRoot: view.folderPath } : {}
+    const saved = await storage.set({ ...scope, key: 'preferences', value: preferences ?? {} })
+    if (!saved.ok) throw new Error(`${saved.code}: ${saved.message}`)
+    const roundTrip = await storage.get({ ...scope, key: 'preferences' })
+    if (!roundTrip.ok) throw new Error(`${roundTrip.code}: ${roundTrip.message}`)
+    return { found: roundTrip.found, value: roundTrip.value }
   })
   // Owned-automation CRUD through the scoped service. Idempotent via the fixed
   // id: a second call finds the existing record in list() and skips creation.

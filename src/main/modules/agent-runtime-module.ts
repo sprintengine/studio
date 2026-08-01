@@ -1,3 +1,5 @@
+import { app } from 'electron'
+
 import type { AppServices } from '../app-services'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import {
@@ -5,6 +7,7 @@ import {
   CompanionAgentServiceToken,
   CompanionAgentsModuleServiceToken,
   GitHubTokenStoreToken,
+  ModuleStorageToken,
   MulticodeAuthToken,
   SprintEngineArtifactsToken,
   SprintEngineAutomationServiceToken,
@@ -17,6 +20,7 @@ import {
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
+import { createModuleStorageRegistry } from '../module-host/module-storage'
 import {
   createCompanionAgentService,
   createCompanionAgentsModuleRegistry,
@@ -87,6 +91,11 @@ export function createAgentRuntimeModule(
         createModuleWorkspaceContextService({
           getWorkspaceSyncSnapshot: () => services.workspaceSyncService.getSnapshot(),
         })
+      )
+      // Per-module, per-workspace JSON storage (SDK getModuleStorage): the
+      // host owns file placement so modules stop inventing locations.
+      host.provideService(ModuleStorageToken, () =>
+        createModuleStorageRegistry({ userDataDir: () => app.getPath('userData') })
       )
       // Companion agents: workspace-bound background agents driven through the
       // shared conversation runtime. The core service is app-internal

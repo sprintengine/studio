@@ -63,6 +63,16 @@ import type {
 import type { MainHost as AppMainHost, SidecarSpec as AppSidecarSpec } from '../../../src/main/module-host/main-host'
 import type { ModuleWorkspaceContextService as AppModuleWorkspaceContextService } from '../../../src/main/modules/module-workspace-service'
 import type {
+  ModuleStorageErrorCode as AppModuleStorageErrorCode,
+  ModuleStorageRegistry as AppModuleStorageRegistry,
+  ModuleStorageResult as AppModuleStorageResult,
+} from '../../../src/main/module-host/module-storage'
+import {
+  ModuleStorageToken as AppModuleStorageToken,
+  WorkspaceContextToken as AppWorkspaceContextToken,
+  WorkspaceServiceToken as AppWorkspaceServiceToken,
+} from '../../../src/main/module-host/service-tokens'
+import type {
   BacklogItemAction as AppBacklogItemAction,
   BacklogItemActionContext as AppBacklogItemActionContext,
   BacklogLinkProvider as AppBacklogLinkProvider,
@@ -125,6 +135,9 @@ import type {
   ModuleNotifyInput as SdkModuleNotifyInput,
   ModuleSignature as SdkModuleSignature,
   ModuleSource as SdkModuleSource,
+  ModuleStorageErrorCode as SdkModuleStorageErrorCode,
+  ModuleStorageResult as SdkModuleStorageResult,
+  ModuleStorageService as SdkModuleStorageService,
   ModuleTrustStatus as SdkModuleTrustStatus,
   ModuleWorkspaceView as SdkModuleWorkspaceView,
   WorkspaceContextService as SdkWorkspaceContextService,
@@ -176,6 +189,19 @@ expectType<IsExact<AppSettingsSectionProps, SdkSettingsSectionProps>>()
 // provided under WorkspaceContextToken must match the SDK's contract.
 expectType<IsExact<AppModuleWorkspaceView, SdkModuleWorkspaceView>>()
 expectType<IsExact<AppModuleWorkspaceContextService, SdkWorkspaceContextService>>()
+// Module storage: the SDK publishes the scoped service (getModuleStorage);
+// the app provides the moduleId-first registry under 'core.module-storage'.
+// The registry the app serves must accept exactly what the SDK helper
+// forwards, and the shared result/error shapes must mirror exactly.
+expectType<IsExact<AppModuleStorageErrorCode, SdkModuleStorageErrorCode>>()
+expectType<IsExact<AppModuleStorageResult<{ found: boolean }>, SdkModuleStorageResult<{ found: boolean }>>>()
+type SdkExpectedStorageRegistry = {
+  [K in keyof SdkModuleStorageService]: (
+    moduleId: string,
+    ...args: Parameters<SdkModuleStorageService[K]>
+  ) => ReturnType<SdkModuleStorageService[K]>
+}
+expectType<Extends<AppModuleStorageRegistry, SdkExpectedStorageRegistry>>()
 expectType<IsExact<AppPreviewSlot, SdkPreviewSlot>>()
 expectType<IsExact<AppJsonSchema, SdkJsonSchema>>()
 expectType<IsExact<AppAutomationStatus, SdkAutomationStatus>>()
@@ -227,6 +253,13 @@ assert.deepEqual(
 )
 assert.equal(SDK_FILE_DROP_MIME, APP_FILE_DROP_MIME, 'MULTICODE_FILE_DROP_MIME drifted between SDK and app')
 
+// Service-token keys the SDK mirrors as private literals: pin the app side to
+// the documented strings so an accidental key edit fails here instead of
+// silently unresolving every module's requireService at runtime.
+assert.equal(AppWorkspaceServiceToken.key, 'core.workspace', 'WorkspaceServiceToken key drifted')
+assert.equal(AppWorkspaceContextToken.key, 'core.workspace-context', 'WorkspaceContextToken key drifted')
+assert.equal(AppModuleStorageToken.key, 'core.module-storage', 'ModuleStorageToken key drifted')
+
 // The published surface must not contain `any` (the source is also compiled
 // with strict settings; this guards the emitted declarations the tarball ships).
 // test:sdk:drift runs from the repo root (the script builds dist first).
@@ -250,6 +283,16 @@ assert.equal(
   publicTypes.includes('AutomationsModuleRegistry'),
   false,
   'SDK public surface must not expose the raw moduleId-first Automations service registry'
+)
+assert.equal(
+  publicTypes.includes('ModuleStorageRegistry'),
+  false,
+  'SDK public surface must not expose the raw moduleId-first storage registry'
+)
+assert.equal(
+  publicTypes.includes('moduleStorageToken'),
+  false,
+  'SDK public surface must not expose the raw storage registry token'
 )
 
 console.log('module-sdk drift guard passed')

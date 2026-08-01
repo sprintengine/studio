@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Per-module, per-workspace storage: `getModuleStorage(host)` →
+  `{ get, set, delete, list }` scoped to your module, with host-owned file
+  placement (workspace `.multi-code/modules/<moduleId>/<key>.json`, or
+  per-user app data for global keys). JSON values with a 1 MB cap, keys
+  `^[a-z0-9][a-z0-9._-]{0,63}$`, atomic write-then-rename, honest errors
+  (`invalid_key` / `invalid_value` / `value_too_large` /
+  `invalid_workspace_root` / `io_error`; a corrupt record reads as
+  `io_error`, never silently missing). New `storage` disclosure permission.
+  Main-side only in v1 — renderer access rides the module's own
+  `host.invoke` channels.
 - `BacklogItemLink` mirror caught up with the app: `target.taskId?` (the task
   inside a run target that owns the item), `priorStatus?` (item status to
   restore if the linked work is abandoned), and the `pending` value in

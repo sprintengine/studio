@@ -67,6 +67,16 @@ contracts, so a published version always matches the app version it ships with.
   Automations registry using the current `host.moduleId`. Declare
   `dependsOn: ['automations']` so the registry service exists before your
   `entry.main` runs.
+- **Module storage**: `getModuleStorage(host)` → scoped
+  `get`/`set`/`delete`/`list`, keyed per module and (optionally) per
+  workspace. The host owns file placement — workspace-scoped keys under the
+  workspace's `.multi-code/modules/<moduleId>/`, global keys under per-user
+  app data — so modules stop hand-rolling home-dir files or raw
+  localStorage. JSON values (1 MB cap), locked-down keys, atomic writes.
+  Declare the `storage` permission and `dependsOn: ['agent-runtime']` (or a
+  chain reaching it) so your `entry.main` registers after the provider;
+  renderer panels reach storage through the module's own `host.invoke`
+  channels.
 - **React**: panels, icons, and settings sections are React components. The
   app provides React at runtime; compile against `@types/react` 18 (declared
   as an optional peer dependency) and bundle your renderer entry as ESM with
