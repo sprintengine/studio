@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Module command scopes + availability (MC-1533): `CommandScope` and
+  `CommandAvailability` are open at the type level (`(string & {})`) — the
+  shell derives a module's `panel:<moduleId>` scope from the workspace-type
+  registry and activates it while a workspace of that module's mode is
+  active. `ModuleCommandDefinition.availability` now also accepts a predicate
+  over the published `ModuleCommandContext`
+  (`{ activeWorkspaceId, activeWorkspaceMode }`) — "offer this only when…"
+  without a shell enum change; predicate commands fail closed when no context
+  is wired. Panel-targeted dispatch stays the module bus pattern (a
+  `multicode:panel-command` CustomEvent from the command's `run()`), now the
+  documented convention. In-tree proof: Switchboard/Watchtower's built-in
+  commands are registered through this path.
 - Per-module, per-workspace storage: `getModuleStorage(host)` →
   `{ get, set, delete, list }` scoped to your module, with host-owned file
   placement (workspace `.multi-code/modules/<moduleId>/<key>.json`, or

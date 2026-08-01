@@ -340,4 +340,71 @@ assert.equal(
   'a built-in keeps priority over a module command bound to the same keys',
 )
 
+// Predicate-gated module command: matches only when the published module
+// context satisfies the predicate; with no context wired it never matches
+// (fail closed), and a module-derived panel scope gets panel specificity.
+const predicateCommand: CommandContribution = {
+  id: 'calendar.open.settings',
+  title: 'Calendar Settings',
+  category: 'Calendar',
+  scopes: ['panel:calendar'],
+  defaultKeybindings: ['Primary+9'],
+  availabilityPredicate: (context) => context.activeWorkspaceMode === 'calendar',
+}
+const predicateDispatcher = new RendererCommandDispatcher()
+result = predicateDispatcher.resolve(
+  key({ key: '9', code: 'Digit9', ctrlKey: true }),
+  {
+    activeScopes: ['global', 'workspace', 'panel:calendar'],
+    platform: 'linux',
+    commands: [predicateCommand],
+    moduleContext: { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'calendar' },
+    now: 6000,
+  },
+)
+assert.equal(result.kind, 'matched')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'calendar.open.settings')
+result = predicateDispatcher.resolve(
+  key({ key: '9', code: 'Digit9', ctrlKey: true }),
+  {
+    activeScopes: ['global', 'workspace', 'panel:calendar'],
+    platform: 'linux',
+    commands: [predicateCommand],
+    moduleContext: { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'standard' },
+    now: 6100,
+  },
+)
+assert.equal(result.kind, 'unmatched', 'predicate false refuses the binding')
+result = predicateDispatcher.resolve(
+  key({ key: '9', code: 'Digit9', ctrlKey: true }),
+  {
+    activeScopes: ['global', 'workspace', 'panel:calendar'],
+    platform: 'linux',
+    commands: [predicateCommand],
+    now: 6200,
+  },
+)
+assert.equal(result.kind, 'unmatched', 'no module context wired fails closed')
+
+// Persisted overrides keyed by a migrated command's LEGACY id keep firing the
+// re-namespaced id (Watchtower's module-path migration).
+const migratedCommand: CommandContribution = {
+  id: 'switchboard.watchtower.run.review',
+  title: 'Run review',
+  category: 'Watchtower',
+  scopes: ['panel:watchtower'],
+}
+result = predicateDispatcher.resolve(
+  key({ key: 'r', code: 'KeyR', ctrlKey: true, shiftKey: true }),
+  {
+    activeScopes: ['global', 'workspace', 'panel:watchtower'],
+    platform: 'linux',
+    commands: [migratedCommand],
+    keybindingOverrides: { 'watchtower.run.review': ['Primary+Shift+R'] },
+    now: 6300,
+  },
+)
+assert.equal(result.kind, 'matched', 'legacy-id override still binds')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'switchboard.watchtower.run.review')
+
 console.log('command dispatcher module command tests passed')

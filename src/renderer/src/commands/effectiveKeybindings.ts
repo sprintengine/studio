@@ -1,5 +1,6 @@
 import { getCommandDefinition, type CommandId } from './commandRegistry'
-import { parseKeybinding, renderKeybinding, type KeybindingPlatform } from './keybindings'
+import { getRendererHost } from '../modules'
+import { LEGACY_COMMAND_ID_ALIASES, parseKeybinding, renderKeybinding, type KeybindingPlatform } from './keybindings'
 import type { CommandContribution } from './types'
 
 export type KeybindingSettingsLike = {
@@ -31,10 +32,17 @@ export function getEffectiveKeybindings(
   settings?: KeybindingSettingsLike | null,
   command?: Pick<CommandContribution, 'defaultKeybindings'> | null,
 ): readonly string[] {
+  const legacyId = LEGACY_COMMAND_ID_ALIASES[commandId]
   if (settings?.disabled?.[commandId] === true) return []
+  if (legacyId && settings?.disabled?.[legacyId] === true) return []
   const override = settings?.overrides?.[commandId]
+    ?? (legacyId ? settings?.overrides?.[legacyId] : undefined)
   if (override && override.length > 0) return override
-  return (command ?? getCommandDefinition(commandId))?.defaultKeybindings ?? []
+  // Module contributions live outside the static registry: resolve their
+  // defaults through the kernel so shortcut labels don't silently vanish for
+  // commands migrated onto the module path.
+  return (command ?? getCommandDefinition(commandId) ?? getRendererHost().getModuleCommand(commandId))
+    ?.defaultKeybindings ?? []
 }
 
 export function getEffectiveKeybindingLabel(

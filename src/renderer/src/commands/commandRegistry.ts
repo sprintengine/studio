@@ -423,64 +423,9 @@ export const COMMAND_REGISTRY = [
     availability: ['sprintengineWorkspace'],
     handlerPath: { kind: 'panel-event', eventId: 'sprintengine.open.settings' },
   }),
-  command({
-    id: 'switchboard.refresh.board',
-    title: 'Switchboard: Refresh Board',
-    category: 'switchboard',
-    scopes: ['panel:switchboard'],
-    availability: ['switchboardWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'switchboard.refresh.board' },
-  }),
-  command({
-    id: 'switchboard.open.runner',
-    title: 'Switchboard: Open Runner',
-    category: 'switchboard',
-    scopes: ['panel:switchboard'],
-    availability: ['switchboardWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'switchboard.open.runner' },
-  }),
-  command({
-    id: 'watchtower.run.review',
-    title: 'Watchtower: Run Review',
-    category: 'watchtower',
-    scopes: ['panel:watchtower'],
-    handlerPath: { kind: 'panel-event', eventId: 'watchtower.run.review' },
-  }),
-  command({
-    id: 'watchtower.triage.inbox',
-    title: 'Watchtower: Triage Inbox',
-    category: 'watchtower',
-    scopes: ['panel:watchtower'],
-    handlerPath: { kind: 'panel-event', eventId: 'watchtower.triage.inbox' },
-  }),
-  command({
-    id: 'watchtower.open.active-review',
-    title: 'Watchtower: Active Review',
-    category: 'watchtower',
-    scopes: ['panel:watchtower'],
-    handlerPath: { kind: 'panel-event', eventId: 'watchtower.open.active-review' },
-  }),
-  command({
-    id: 'watchtower.import.github',
-    title: 'Watchtower: Import From GitHub',
-    category: 'watchtower',
-    scopes: ['panel:watchtower'],
-    handlerPath: { kind: 'panel-event', eventId: 'watchtower.import.github' },
-  }),
-  command({
-    id: 'watchtower.import.jira',
-    title: 'Watchtower: Import From Jira',
-    category: 'watchtower',
-    scopes: ['panel:watchtower'],
-    handlerPath: { kind: 'panel-event', eventId: 'watchtower.import.jira' },
-  }),
-  command({
-    id: 'watchtower.refresh.board',
-    title: 'Watchtower: Refresh',
-    category: 'watchtower',
-    scopes: ['panel:watchtower'],
-    handlerPath: { kind: 'panel-event', eventId: 'watchtower.refresh.board' },
-  }),
+  // Switchboard's and Watchtower's built-in commands are registered through
+  // the module path (switchboard-module.ts, MC-1533) — the in-tree proof that
+  // module-defined command scopes/availability carry a real feature.
 ] as const satisfies readonly CommandDefinition[]
 
 export type CommandId = (typeof COMMAND_REGISTRY)[number]['id']

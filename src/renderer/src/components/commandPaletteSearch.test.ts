@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { commandMatchesQuery, workspaceKeywordsFromDefinition } from './commandPaletteSearch'
+import { createRendererHost } from '../modules/renderer-host'
+import { registerSwitchboardWorkspaceTypes } from '../modules/switchboard-workspace-types'
 
 function run(name: string, body: () => void): void {
   try {
@@ -63,6 +65,20 @@ run('commandMatchesQuery treats an empty query as matching every command', () =>
 run('commandMatchesQuery tolerates a command with no description or keywords', () => {
   assert.equal(commandMatchesQuery({ label: 'New Chat' }, 'chat'), true)
   assert.equal(commandMatchesQuery({ label: 'New Chat' }, 'kanban'), false)
+})
+
+// MC-1533: search modes are registry-derived — the switchboard module's REAL
+// registered workspace type carries the terms the old hardcoded
+// watchtower/switchboard palette entries provided, so behavior for the
+// existing modes is identical with the hardcoded arrays gone.
+run('switchboard mode search terms derive from the live registry registration', () => {
+  const kernel = createRendererHost()
+  registerSwitchboardWorkspaceTypes(kernel.hostFor('switchboard'))
+  const keywords = workspaceKeywordsFromDefinition(kernel.getWorkspaceType('switchboard'), 'switchboard')
+  const row = { label: 'Switch to: Ops board', keywords }
+  assert.equal(commandMatchesQuery(row, 'watchtower'), true)
+  assert.equal(commandMatchesQuery(row, 'switchboard'), true)
+  assert.equal(commandMatchesQuery(row, 'triage'), true)
 })
 
 console.log('commandPaletteSearch: all assertions passed')

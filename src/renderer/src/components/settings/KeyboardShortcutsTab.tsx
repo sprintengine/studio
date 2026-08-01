@@ -10,6 +10,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
+  LEGACY_COMMAND_ID_ALIASES,
   collapseDuplicateKeybindings,
   findKeybindingConflicts,
   keyFromEvent,
@@ -64,8 +65,6 @@ export const CATEGORY_LABELS: Record<CommandCategory, string> = {
   voice: 'Voice',
   editor: 'Editor',
   sprintengine: 'Sprint',
-  watchtower: 'Watchtower',
-  switchboard: 'Switchboard',
   git: 'Git',
   terminal: 'Terminal',
   diagnostics: 'Diagnostics',
@@ -82,10 +81,15 @@ export function buildShortcutRows(
 ): ShortcutRow[] {
   return commands.map((def) => {
     const defaults = collapseDuplicateKeybindings(def.defaultKeybindings ?? [])
+    // A migrated command's persisted override/disable may still live under
+    // its legacy id — read both so this tab shows what dispatch actually does.
+    const legacyId = LEGACY_COMMAND_ID_ALIASES[def.id]
     const rawOverride = keybindings.overrides[def.id]
+      ?? (legacyId ? keybindings.overrides[legacyId] : undefined)
     const collapsedOverride = Array.isArray(rawOverride) ? collapseDuplicateKeybindings(rawOverride) : []
     const overrides = collapsedOverride.length > 0 ? collapsedOverride : null
     const disabled = keybindings.disabled[def.id] === true
+      || (legacyId ? keybindings.disabled[legacyId] === true : false)
     const effective = disabled ? [] : overrides ?? defaults
     return {
       id: def.id,

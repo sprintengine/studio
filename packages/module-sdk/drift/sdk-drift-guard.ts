@@ -85,7 +85,7 @@ import type {
   WorkspacePanelComponent as AppWorkspacePanelComponent,
   WorkspaceTypeDefinition as AppWorkspaceTypeDefinition,
 } from '../../../src/renderer/src/modules/renderer-host'
-import type { CommandAvailability as AppCommandAvailability, CommandScope as AppCommandScope } from '../../../src/renderer/src/commands/types'
+import type { CommandAvailability as AppCommandAvailability, CommandScope as AppCommandScope, ModuleCommandContext as AppModuleCommandContext } from '../../../src/renderer/src/commands/types'
 import type { ModuleWorkspaceView as AppModuleWorkspaceView } from '../../../src/shared/modules/workspace-view'
 import type {
   BacklogItemLink as AppBacklogItemLink,
@@ -128,6 +128,7 @@ import type {
   FileDropPayload as SdkFileDropPayload,
   MainHost as SdkMainHost,
   ModuleBridgeRefusalCode as SdkModuleBridgeRefusalCode,
+  ModuleCommandContext as SdkModuleCommandContext,
   ModuleCommandDefinition as SdkModuleCommandDefinition,
   ModuleEntry as SdkModuleEntry,
   ModuleNotification as SdkModuleNotification,
@@ -180,6 +181,9 @@ expectType<IsExact<AppModuleNotificationSeverity, SdkModuleNotificationSeverity>
 expectType<IsExact<AppSidecarSpec, SdkSidecarSpec>>()
 expectType<IsExact<AppCommandScope, SdkCommandScope>>()
 expectType<IsExact<AppCommandAvailability, SdkCommandAvailability>>()
+// The published view module availability predicates are evaluated against
+// (MC-1533): both processes must agree on its exact shape.
+expectType<IsExact<AppModuleCommandContext, SdkModuleCommandContext>>()
 expectType<IsExact<AppBacklogItemStatus, SdkBacklogItemStatus>>()
 expectType<IsExact<AppBacklogItemLink, SdkBacklogItemLink>>()
 expectType<IsExact<AppBacklogResolvedLink, SdkBacklogResolvedLink>>()

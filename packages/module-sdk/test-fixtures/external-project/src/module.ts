@@ -319,6 +319,20 @@ export const registerRenderer: RegisterRenderer = (host) => {
   host.registerWorkspaceType(forecastWorkspaceType)
   host.registerBacklogItemAction(markChecked)
   host.registerCommand(quickCheck(host))
+  // Workspace-gated command: `panel:weather-deck` is derived by the shell
+  // from the workspace-type registry (active while a weather-deck-mode
+  // workspace is active), and the availability predicate narrows further
+  // against the published context view — no shell enum entry involved.
+  host.registerCommand({
+    id: 'refresh.forecast',
+    title: 'Weather: Refresh forecast',
+    category: 'Weather Deck',
+    scopes: ['panel:weather-deck'],
+    availability: (context) => context.activeWorkspaceMode === 'weather-deck',
+    run: () => {
+      window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id: 'weather-deck.refresh.forecast' } }))
+    },
+  })
   host.registerSettingsSection({
     id: 'weather-deck',
     label: 'Weather Deck',

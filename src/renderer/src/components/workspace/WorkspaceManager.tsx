@@ -13,7 +13,7 @@ import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../
 import { resolveAvailableAgentCli, resolveCliReasoning, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
-import { getRendererHost, selectModuleEnabled } from '../../modules'
+import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import { resolveNotificationActions as resolveNotificationActionsFor } from '../../utils/notificationActions'
 import {
   deriveWorkspaceIdleSince,
@@ -153,8 +153,10 @@ import { collectWorkspaceTypeSupervisors } from '../../modules/workspace-type-su
 import { RendererCommandDispatcher } from '../../commands/commandDispatcher'
 import { getCommandDefinition } from '../../commands/commandRegistry'
 import { getElectronAccelerator } from '../../commands/effectiveKeybindings'
+import { LEGACY_COMMAND_ID_ALIASES } from '../../commands/keybindings'
 import type { CommandAvailabilityContext } from '../../commands/availability'
-import type { CommandScope } from '../../commands/types'
+import type { CommandScope, ModuleCommandContext } from '../../commands/types'
+import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
 import { buildSprintEngineAgentRosterForState, buildSprintEngineRoleRegistry, computeSprintEngineFocusAgentAvailability } from '../../utils/sprintengine'
 import { isGlobalShortcutSuppressedTarget } from '../../utils/keyboard'
 
@@ -596,12 +598,23 @@ export default function WorkspaceManager() {
   // re-render anything on its own, and per-renderer because each BrowserWindow
   // tracks only its own activations.
   const workspaceNavigationHistoryRef = useRef<WorkspaceNavigationHistory>(EMPTY_WORKSPACE_NAVIGATION_HISTORY)
-  const disabledCommandIds = useMemo(
-    () => new Set(Object.entries(keybindingSettings?.disabled ?? {})
-      .filter(([, disabled]) => disabled === true)
-      .map(([commandId]) => commandId)),
-    [keybindingSettings?.disabled]
-  )
+  const disabledCommandIds = useMemo(() => {
+    const disabled = new Set(Object.entries(keybindingSettings?.disabled ?? {})
+      .filter(([, isDisabled]) => isDisabled === true)
+      .map(([commandId]) => commandId))
+    // Persisted disables keyed by a command's legacy id keep suppressing its
+    // migrated id (Watchtower's module-path re-namespacing).
+    for (const [currentId, legacyId] of Object.entries(LEGACY_COMMAND_ID_ALIASES)) {
+      if (disabled.has(legacyId)) disabled.add(currentId)
+    }
+    return disabled
+  }, [keybindingSettings?.disabled])
+  // Third-party renderer modules normally finish loading before the React
+  // root renders, but the boot has a timeout race — when a slow load lands
+  // after first render, this generation bump recomputes the registry-derived
+  // memos so late-registered types still activate scopes and commands.
+  const [moduleRegistryGeneration, setModuleRegistryGeneration] = useState(0)
+  useEffect(() => onThirdPartyRendererModulesLoaded(() => setModuleRegistryGeneration((n) => n + 1)), [])
   const activeCommandScopes = useMemo((): CommandScope[] => {
     const scopes: CommandScope[] = ['global']
     if (!workspaceActionsEnabled) return scopes
@@ -609,11 +622,33 @@ export default function WorkspaceManager() {
     if (activeWorkspace.mode === 'sprintengine' || activeWorkspace.sprintEngineContext) {
       scopes.push('panel:sprintengine')
     }
+    // Generic module panel scope: the active mode's owning module (via the
+    // workspace-type registry) gets `panel:<moduleId>` — this is how module
+    // commands gate on "my workspace is active" without a shell enum arm per
+    // module. Covers switchboard the mode-specific arm used to. Sprint Engine
+    // is excluded: its commands ride the legacy 'panel:sprintengine' literal
+    // pushed by the dedicated arm above, and its module id ('sprint-engine')
+    // differs from the mode id — deriving here would activate a second,
+    // phantom scope name for the same surface.
+    const owningModule = getRendererHost().getWorkspaceTypeModule(activeWorkspace.mode)
+    if (owningModule && owningModule !== 'sprint-engine') {
+      scopes.push(`panel:${owningModule}`)
+    }
+    // Feature-specific extra the registry can't express: Watchtower is a
+    // second surface of the switchboard module with its own shell-pushed scope.
     if (activeWorkspace.mode === 'switchboard') {
-      scopes.push('panel:switchboard', 'panel:watchtower')
+      scopes.push('panel:watchtower')
     }
     return scopes
-  }, [activeWorkspace?.mode, activeWorkspace?.sprintEngineContext, workspaceActionsEnabled])
+    // moduleRegistryGeneration: a late third-party load re-derives the
+    // registry-backed panel scope for the already-active workspace.
+  }, [activeWorkspace?.mode, activeWorkspace?.sprintEngineContext, workspaceActionsEnabled, moduleRegistryGeneration])
+  // The published context view module availability predicates evaluate
+  // against — shared by the dispatcher and the palette so both agree.
+  const moduleCommandContext = useMemo((): ModuleCommandContext => ({
+    activeWorkspaceId: workspaceActionsEnabled ? windowActiveWorkspaceId ?? null : null,
+    activeWorkspaceMode: workspaceActionsEnabled ? activeWorkspace?.mode ?? null : null,
+  }), [workspaceActionsEnabled, windowActiveWorkspaceId, activeWorkspace?.mode])
   // Runtime preconditions for registry commands, derived from the same active
   // scopes the dispatcher uses plus the panels' own availability predicates
   // (architect on roster, focusable agent). The
@@ -647,7 +682,6 @@ export default function WorkspaceManager() {
       const focusAvailability = computeSprintEngineFocusAgentAvailability(sprintEngineState, commandWorkspace?.agents ?? {})
       if (focusAvailability.showFocusAgentAction) context.sprintengineFocusAgentVisible = true
     }
-    if (activeCommandScopes.includes('panel:switchboard')) context.switchboardWorkspace = true
     if (commandWorkspace?.layoutModel && jsonModelHasComponent(commandWorkspace.layoutModel, 'git')) {
       context.gitPanelActive = true
     }
@@ -738,13 +772,13 @@ export default function WorkspaceManager() {
       getRendererHost().getWorkspaceTypes(moduleEnabled),
       ownsGlobalSupervisors,
     )
-  }, [moduleEnablement, ownsGlobalSupervisors])
+  }, [moduleEnablement, ownsGlobalSupervisors, moduleRegistryGeneration])
   // The merge point output for keyboard dispatch: shell registry + enabled
   // module commands. Recomputed when enablement changes, so toggling a module
   // adds/removes its keybindings without a reload.
   const commandContributions = useMemo(
     () => getRendererHost().getCommandContributions((moduleId) => selectModuleEnabled(moduleEnablement, moduleId)),
-    [moduleEnablement],
+    [moduleEnablement, moduleRegistryGeneration],
   )
   // Resolve the active door-routed full-page surface (global-surfaces epic 1704)
   // to its registered component, gated on the owning module's live enablement.
@@ -2463,7 +2497,7 @@ export default function WorkspaceManager() {
   // background workspaces at once) uses it so a destructive command like commit
   // only runs in the active workspace's repo, never a stale background one.
   const dispatchPanelCommand = useCallback((id: string, workspaceId?: string) => {
-    window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id, workspaceId } }))
+    dispatchPanelCommandEvent(id, workspaceId)
   }, [])
 
   const runCommand = useCallback((commandId: string): boolean => {
@@ -2679,11 +2713,10 @@ export default function WorkspaceManager() {
       void moduleCommand.run()
       return true
     }
-    if (
-      commandId.startsWith('sprintengine.')
-      || commandId.startsWith('watchtower.')
-      || commandId.startsWith('switchboard.')
-    ) {
+    // Registry-backed panel-event commands (Sprint Engine's remain in the
+    // shell registry); switchboard/watchtower ids are module commands now and
+    // were handled above.
+    if (commandId.startsWith('sprintengine.')) {
       dispatchPanelCommand(commandId)
       return true
     }
@@ -2725,6 +2758,7 @@ export default function WorkspaceManager() {
         disabledCommandIds,
         keybindingOverrides: keybindingSettings?.overrides,
         availability: commandAvailability,
+        moduleContext: moduleCommandContext,
         isSuppressedTarget: isGlobalShortcutSuppressedTarget,
         platform,
       })
@@ -2748,6 +2782,7 @@ export default function WorkspaceManager() {
     disabledCommandIds,
     keybindingSettings?.overrides,
     commandAvailability,
+    moduleCommandContext,
     runCommand,
   ])
 
@@ -3465,6 +3500,7 @@ export default function WorkspaceManager() {
             activeWorkspaceId={windowActiveWorkspaceId}
             activeScopes={activeCommandScopes}
             commandAvailability={commandAvailability}
+            moduleCommandContext={moduleCommandContext}
           />
         </React.Suspense>
       )}

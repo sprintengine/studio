@@ -18,7 +18,13 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const PALETTE_FILE = resolve(process.cwd(), 'src/renderer/src/components/CommandPalette.tsx')
+// Switchboard/Watchtower palette rows are registered through the module path
+// since MC-1533 (switchboard-module.ts), so their dispatch ids live there;
+// the shell palette carries the Sprint Engine rows.
+const PALETTE_FILES = [
+  'src/renderer/src/components/CommandPalette.tsx',
+  'src/renderer/src/modules/switchboard-module.ts',
+]
 const PANEL_FILES = [
   'src/renderer/src/components/panels/SwitchboardBoardPanel.tsx',
   'src/renderer/src/components/panels/WatchtowerPanel.tsx',
@@ -42,8 +48,11 @@ function extractIds(source) {
 const args = new Set(process.argv.slice(2))
 const REPORT_ONLY = args.has('--report')
 
-const paletteSource = readFileSync(PALETTE_FILE, 'utf8')
-const paletteIds = extractIds(paletteSource)
+const paletteIds = new Set()
+for (const relativePath of PALETTE_FILES) {
+  const source = readFileSync(resolve(process.cwd(), relativePath), 'utf8')
+  for (const id of extractIds(source)) paletteIds.add(id)
+}
 
 const handlerIds = new Set()
 for (const relativePath of PANEL_FILES) {

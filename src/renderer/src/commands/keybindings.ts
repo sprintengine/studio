@@ -195,3 +195,17 @@ export function keybindingToKbdKeys(input: string | KeybindingChord, platform: K
   if (!chord.ok) return []
   return chord.chord.strokes.map((stroke) => renderStrokeKeys(stroke, platform))
 }
+
+// Persisted keybinding overrides / disabled flags are keyed by command id.
+// When a command's id migrates (e.g. Watchtower's commands re-namespaced
+// under the switchboard module by MC-1533), the user's persisted settings
+// keep working through this map. Keys are the CURRENT ids, values the legacy
+// ids they replaced; every read of persisted keybinding state consults it.
+export const LEGACY_COMMAND_ID_ALIASES: Record<string, string> = {
+  'switchboard.watchtower.run.review': 'watchtower.run.review',
+  'switchboard.watchtower.triage.inbox': 'watchtower.triage.inbox',
+  'switchboard.watchtower.open.active-review': 'watchtower.open.active-review',
+  'switchboard.watchtower.import.github': 'watchtower.import.github',
+  'switchboard.watchtower.import.jira': 'watchtower.import.jira',
+  'switchboard.watchtower.refresh.board': 'watchtower.refresh.board',
+}

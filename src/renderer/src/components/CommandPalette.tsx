@@ -14,9 +14,10 @@ import {
   platformKeybindingsFromApiPlatform,
 } from '../commands/effectiveKeybindings'
 import { isCommandEnabled, isCommandIdEnabled, type CommandAvailabilityContext } from '../commands/availability'
-import type { CommandScope } from '../commands/types'
+import type { CommandScope, ModuleCommandContext } from '../commands/types'
 import { getRendererHost, selectModuleEnabled } from '../modules'
 import { commandMatchesQuery, workspaceSearchKeywords } from './commandPaletteSearch'
+import { dispatchPanelCommandEvent } from '../utils/panelCommands'
 import { FOCUS_RING_CLASS, TruncatedText } from './ui'
 
 // The four canonical source groups the global-search palette organizes results
@@ -70,7 +71,7 @@ type UngroupedCommand = Omit<Command, 'group'>
  * overflow item / settings popover row of the same capability.
  */
 function dispatchPanelCommand(id: string) {
-  window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id } }))
+  dispatchPanelCommandEvent(id)
 }
 
 interface Props {
@@ -87,6 +88,9 @@ interface Props {
   // command only when the shortcut path would also run it.
   activeScopes: readonly CommandScope[]
   commandAvailability: CommandAvailabilityContext
+  // The published context view module availability predicates evaluate
+  // against — same object the dispatcher uses, so both stay in agreement.
+  moduleCommandContext: ModuleCommandContext
 }
 
 export default function CommandPalette({
@@ -100,6 +104,7 @@ export default function CommandPalette({
   activeWorkspaceId,
   activeScopes,
   commandAvailability,
+  moduleCommandContext,
 }: Props) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
@@ -206,18 +211,6 @@ export default function CommandPalette({
     // surfaces a real diagnostic if state changed between open and run.
     const panelCommandEnabled = (id: string): boolean =>
       isCommandIdEnabled(id, activeScopes, commandAvailability)
-    const switchboardCommands: UngroupedCommand[] = [
-      { id: 'switchboard.refresh.board', label: 'Switchboard: Refresh board', run: runPanel('switchboard.refresh.board') },
-      { id: 'switchboard.open.runner', label: 'Switchboard: Open runner', run: runPanel('switchboard.open.runner') },
-    ].filter((command) => panelCommandEnabled(command.id))
-    const watchtowerCommands: UngroupedCommand[] = [
-      { id: 'watchtower.run.review', label: 'Watchtower: Run review', run: runPanel('watchtower.run.review') },
-      { id: 'watchtower.triage.inbox', label: 'Watchtower: Triage inbox', run: runPanel('watchtower.triage.inbox') },
-      { id: 'watchtower.open.active-review', label: 'Watchtower: Active review', run: runPanel('watchtower.open.active-review') },
-      { id: 'watchtower.import.github', label: 'Watchtower: Import from GitHub', run: runPanel('watchtower.import.github') },
-      { id: 'watchtower.import.jira', label: 'Watchtower: Import from Jira', run: runPanel('watchtower.import.jira') },
-      { id: 'watchtower.refresh.board', label: 'Watchtower: Refresh', run: runPanel('watchtower.refresh.board') },
-    ].filter((command) => panelCommandEnabled(command.id))
     // verify-progress requires an architect on the roster and focus-agent
     // requires a focusable running/waiting agent; both come through the shared
     // availability context, so a row only appears when the shortcut would run.
@@ -239,7 +232,7 @@ export default function CommandPalette({
     // panel is open, so a selection cannot land on an unmounted handler. They are
     // targeted at the active workspace so commit never fires in a background repo.
     const runGitPanel = (id: string) => () => {
-      window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id, workspaceId: activeWorkspaceId } }))
+      dispatchPanelCommandEvent(id, activeWorkspaceId ?? undefined)
       onClose()
     }
     const gitCommands: UngroupedCommand[] = [
@@ -300,7 +293,7 @@ export default function CommandPalette({
     // groups; the handler is the module's own callback.
     const moduleCommands: UngroupedCommand[] = getRendererHost()
       .getModuleCommands((moduleId) => selectModuleEnabled(moduleEnablement, moduleId))
-      .filter((moduleCommand) => isCommandEnabled(moduleCommand, activeScopes, commandAvailability))
+      .filter((moduleCommand) => isCommandEnabled(moduleCommand, activeScopes, commandAvailability, moduleCommandContext))
       .map((moduleCommand) => ({
         id: moduleCommand.id,
         label: `${moduleCommand.category}: ${moduleCommand.title}`,
@@ -318,8 +311,6 @@ export default function CommandPalette({
     const registryCommands: Command[] = [
       ...panelToggleCommands,
       ...gitCommands,
-      ...switchboardCommands,
-      ...watchtowerCommands,
       ...sprintEngineCommands,
       ...moduleCommands,
     ].map((command) => ({ ...command, group: 'commands' as const }))
@@ -466,7 +457,7 @@ export default function CommandPalette({
         },
       },
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onNewWorkspace, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleEnablement, builtinSkills, installedSkills, specialistActions])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onNewWorkspace, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement, builtinSkills, installedSkills, specialistActions])
 
   // Matches are ordered by group so the arrow keys traverse the same top-to-
   // bottom order the grouped list renders in. With no query each group shows a

@@ -4,7 +4,7 @@ import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../sha
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 import { COMMAND_REGISTRY } from '../commands/commandRegistry'
 import { collapseDuplicateKeybindings } from '../commands/keybindings'
-import type { CommandAvailability, CommandContribution, CommandScope } from '../commands/types'
+import type { CommandAvailability, CommandContribution, CommandScope, ModuleCommandContext } from '../commands/types'
 import type {
   AppNotification,
   DiagnosticSource,
@@ -98,6 +98,17 @@ export type BacklogItemActionContext = {
   addLink(link: BacklogItemLink): Promise<void>
   updateModuleMetadata(moduleId: string, value: unknown): Promise<void>
   startSourcePlan?(source: FuturePlanWorkspaceSource): void
+  /**
+   * Present when the context menu was opened on a multi-selection (MC-2060):
+   * every selected item in list order — `item` is the anchor row and is always
+   * one of them, and all of them are from the row's own project — plus that
+   * project's full scanned item set for epic-membership expansion. Actions
+   * that ignore this field keep their single-item behavior against `item`.
+   */
+  selection?: {
+    items: ReadonlyArray<BacklogItem>
+    projectItems: ReadonlyArray<BacklogItem>
+  }
 }
 
 export type BacklogItemActionState = 'enabled' | 'disabled'
@@ -107,6 +118,8 @@ export type BacklogItemAction = {
   label: string
   category: BacklogItemActionCategory
   order?: number
+  /** Selection-aware display label; falls back to `label` when absent. */
+  getLabel?: (context: BacklogItemActionContext) => string
   isVisible?: (context: BacklogItemActionContext) => boolean
   getState?: (context: BacklogItemActionContext) => BacklogItemActionState
   run: (context: BacklogItemActionContext) => void | Promise<void>
@@ -173,9 +186,18 @@ export type ModuleCommandDefinition = {
   title: string
   /** Grouping label in the palette and Shortcuts settings, e.g. the module's display name. */
   category: string
+  /**
+   * `panel:<moduleId>` gates on "a workspace whose mode belongs to my module
+   * is active" — the shell derives it from the workspace-type registry.
+   */
   scopes: readonly CommandScope[]
   defaultKeybindings?: readonly string[]
-  availability?: readonly CommandAvailability[]
+  /**
+   * Either shell availability preconditions, or a predicate over the
+   * published `ModuleCommandContext` view — the module path for "offer this
+   * only when…" without growing the shell's availability enum per module.
+   */
+  availability?: readonly CommandAvailability[] | ((context: ModuleCommandContext) => boolean)
   allowInEditableTarget?: boolean
   run: () => void | Promise<void>
 }
@@ -549,8 +571,30 @@ export function createRendererHost(): RendererKernel {
           if (definition.scopes.length === 0) {
             throw new Error(`Module command "${commandId}" must declare at least one scope.`)
           }
+          // The shell only ever activates `panel:<moduleId>` for a module's
+          // workspaces (plus specific shell-pushed literals) — a typo'd panel
+          // scope would register cleanly and then be permanently dead, so it
+          // fails loudly here instead. In-tree scar: Watchtower is a second
+          // surface of the switchboard module with its own shell-pushed scope.
+          for (const scope of definition.scopes) {
+            if (!scope.startsWith('panel:')) continue
+            const allowed = scope === `panel:${moduleId}`
+              || (moduleId === 'switchboard' && scope === 'panel:watchtower')
+            if (!allowed) {
+              throw new Error(
+                `Module command "${commandId}" declares scope "${scope}", but the shell only activates "panel:${moduleId}" for module "${moduleId}" — the command would never be offered.`
+              )
+            }
+          }
+          // A function-form availability lands on the shared contribution
+          // shape as `availabilityPredicate`, so the palette and dispatcher
+          // evaluate it through the same gate as enum preconditions.
+          const { availability, ...rest } = definition
           moduleCommands.set(commandId, {
-            ...definition,
+            ...rest,
+            ...(typeof availability === 'function'
+              ? { availabilityPredicate: availability }
+              : { availability }),
             id: commandId,
             moduleId,
             defaultKeybindings: definition.defaultKeybindings

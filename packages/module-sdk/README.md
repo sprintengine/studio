@@ -45,7 +45,11 @@ contracts, so a published version always matches the app version it ships with.
   body?)` (identity stamped by the host, per-module flood-bounded).
 - **Renderer host**: `registerPanel`, `registerWorkspaceType`,
   `registerBacklogItemAction`, `registerBacklogLinkProvider`,
-  `registerCommand` (registered id is namespaced `<moduleId>.<id>`),
+  `registerCommand` (registered id is namespaced `<moduleId>.<id>`; scope
+  `panel:<moduleId>` activates while a workspace of your module's mode is
+  active, and `availability` accepts a predicate over the published
+  `ModuleCommandContext` view; panel-targeted dispatch is a
+  `multicode:panel-command` CustomEvent from your `run()`),
   `registerSettingsSection` (values persist in the module's own
   `module:<id>` settings namespace), `registerSidebarNavEntry` (an
   instance-level door in the workspace sidebar's top-nav cluster — a

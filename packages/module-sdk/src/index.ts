@@ -1038,7 +1038,11 @@ export type CommandScope =
   | 'panel'
   | 'panel:sprintengine'
   | 'panel:watchtower'
-  | 'panel:switchboard'
+  // Open scope family: `panel:<moduleId>` is active while a workspace whose
+  // mode belongs to that module is active — the shell derives it from the
+  // workspace-type registry, so your module's commands can gate on "my
+  // workspace is active" without a shell enum change.
+  | (string & {})
 
 export type CommandAvailability =
   | 'always'
@@ -1048,13 +1052,26 @@ export type CommandAvailability =
   | 'sprintengineWorkspace'
   | 'sprintengineHasArchitect'
   | 'sprintengineFocusAgentVisible'
-  | 'switchboardWorkspace'
   | 'memoryGraphEnabled'
   | 'sprintEngineEnabled'
   | 'gitPanelActive'
   | 'terminalActive'
   | 'diagnosticsEnabled'
   | 'automationsEnabled'
+  // Open at the type level so new shell conditions never break a compiled
+  // module; an unknown condition reads as unsatisfied (fail closed). Prefer
+  // an availability predicate for module-specific gating.
+  | (string & {})
+
+/**
+ * The published context view a module availability predicate is evaluated
+ * against. Deliberately tiny — extended only by demonstrated need; anything a
+ * module knows about its own state it checks inside the predicate itself.
+ */
+export type ModuleCommandContext = {
+  activeWorkspaceId: string | null
+  activeWorkspaceMode: string | null
+}
 
 /**
  * A command contributed by a module. The registered id is namespaced
@@ -1066,9 +1083,19 @@ export type ModuleCommandDefinition = {
   title: string
   /** Grouping label in the palette and Shortcuts settings. */
   category: string
+  /**
+   * `panel:<moduleId>` gates on "a workspace whose mode belongs to my module
+   * is active" — derived by the shell from the workspace-type registry.
+   */
   scopes: readonly CommandScope[]
   defaultKeybindings?: readonly string[]
-  availability?: readonly CommandAvailability[]
+  /**
+   * Either shell availability preconditions, or a predicate over the
+   * published `ModuleCommandContext` view — "offer this only when…" without
+   * a shell enum change. With no context wired (early boot) a
+   * predicate-gated command is unavailable, never a silent no-op.
+   */
+  availability?: readonly CommandAvailability[] | ((context: ModuleCommandContext) => boolean)
   allowInEditableTarget?: boolean
   run: () => void | Promise<void>
 }

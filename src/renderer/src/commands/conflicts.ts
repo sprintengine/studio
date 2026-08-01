@@ -18,18 +18,30 @@ export type KeybindingConflictCandidate = {
   scopes: readonly CommandScope[]
 }
 
+// `panel:*` scopes form one open family that is USUALLY exclusive (module
+// panel scopes derive from the single active workspace's mode), so same-key
+// bindings across two panel scopes warn rather than block. They are not
+// strictly exclusive — switchboard mode activates panel:watchtower too, and
+// feature contexts can ride foreign modes — in which co-active cases the
+// dispatcher resolves the tie by registration order (shell first).
+// Editor/terminal keep their fixed exclusive pair.
 const MUTUALLY_EXCLUSIVE_SCOPE_GROUPS: readonly (readonly CommandScope[])[] = [
-  ['panel:sprintengine', 'panel:watchtower', 'panel:switchboard'],
   ['editor', 'terminal'],
 ]
+
+function isPanelScope(scope: CommandScope): boolean {
+  return scope.startsWith('panel:')
+}
 
 function scopesOverlap(a: readonly CommandScope[], b: readonly CommandScope[]): boolean {
   return a.includes('global') || b.includes('global') || a.some((scope) => b.includes(scope))
 }
 
 function scopesAreMutuallyExclusive(a: readonly CommandScope[], b: readonly CommandScope[]): boolean {
+  if (scopesOverlap(a, b)) return false
+  if (a.some(isPanelScope) && b.some(isPanelScope)) return true
   return MUTUALLY_EXCLUSIVE_SCOPE_GROUPS.some((group) => (
-    a.some((scope) => group.includes(scope)) && b.some((scope) => group.includes(scope)) && !scopesOverlap(a, b)
+    a.some((scope) => group.includes(scope)) && b.some((scope) => group.includes(scope))
   ))
 }
 

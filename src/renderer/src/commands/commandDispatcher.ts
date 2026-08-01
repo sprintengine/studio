@@ -1,7 +1,7 @@
 import { isCommandAvailable, type CommandAvailabilityContext } from './availability'
 import { COMMAND_REGISTRY } from './commandRegistry'
-import { parseKeybinding, type KeybindingPlatform, type KeybindingStroke } from './keybindings'
-import type { CommandContribution, CommandScope } from './types'
+import { LEGACY_COMMAND_ID_ALIASES, parseKeybinding, type KeybindingPlatform, type KeybindingStroke } from './keybindings'
+import type { CommandContribution, CommandScope, ModuleCommandContext } from './types'
 
 export type CommandDispatcherKeyEvent = {
   key: string
@@ -29,6 +29,9 @@ export type CommandDispatcherContext = {
   // declared availability is satisfied, so the dispatcher refuses commands the
   // command palette would hide instead of firing a silent no-op.
   availability?: CommandAvailabilityContext
+  // The published context view module availability predicates evaluate
+  // against; absent, predicate-gated module commands never match.
+  moduleContext?: ModuleCommandContext
   isSuppressedTarget?: (target: EventTarget | null | undefined) => boolean
   platform: KeybindingPlatform
   now?: number
@@ -171,7 +174,8 @@ function commandIsActive(command: CommandContribution, activeScopes: readonly Co
 }
 
 function effectiveKeybindings(command: CommandContribution, overrides?: Readonly<Record<string, readonly string[]>>): readonly string[] {
-  const override = overrides?.[command.id]
+  const legacyId = LEGACY_COMMAND_ID_ALIASES[command.id]
+  const override = overrides?.[command.id] ?? (legacyId ? overrides?.[legacyId] : undefined)
   return override && override.length > 0 ? override : command.defaultKeybindings ?? []
 }
 
@@ -181,7 +185,7 @@ function activeBindings(context: CommandDispatcherContext): ActiveBinding[] {
   commands.forEach((command, order) => {
     if (context.disabledCommandIds?.has(command.id)) return
     if (!commandIsActive(command, context.activeScopes)) return
-    if (!isCommandAvailable(command, context.availability ?? {})) return
+    if (!isCommandAvailable(command, context.availability ?? {}, context.moduleContext)) return
     for (const keybinding of effectiveKeybindings(command, context.keybindingOverrides)) {
       const parsed = parseKeybinding(keybinding)
       if (!parsed.ok) continue

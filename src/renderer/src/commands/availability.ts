@@ -1,5 +1,5 @@
 import { getCommandDefinition } from './commandRegistry'
-import type { CommandAvailability, CommandDefinition, CommandScope } from './types'
+import type { CommandAvailability, CommandDefinition, CommandScope, ModuleCommandContext } from './types'
 
 /**
  * Runtime truth for each availability precondition a command can declare. The
@@ -17,9 +17,24 @@ export type CommandAvailabilityContext = Partial<Record<CommandAvailability, boo
  * Sprint Engine workspace and an architect on the roster.
  */
 export function isCommandAvailable(
-  command: Pick<CommandDefinition, 'availability'>,
+  command: Pick<CommandDefinition, 'availability' | 'availabilityPredicate'>,
   context: CommandAvailabilityContext,
+  moduleContext?: ModuleCommandContext,
 ): boolean {
+  // Module predicate commands: evaluated against the published context view.
+  // No context (early boot, a caller that never wires one) means unavailable —
+  // fail closed rather than firing a command its module cannot gate.
+  if (command.availabilityPredicate) {
+    if (!moduleContext) return false
+    // Third-party code: a throwing predicate fails closed instead of
+    // unwinding the palette render or the keyboard dispatcher.
+    try {
+      return command.availabilityPredicate(moduleContext) === true
+    } catch (error) {
+      console.error('[modules] command availability predicate threw:', error)
+      return false
+    }
+  }
   const conditions = command.availability
   if (!conditions || conditions.length === 0) return true
   return conditions.every((condition) => condition === 'always' || context[condition] === true)
@@ -42,11 +57,12 @@ export function isCommandInScope(
  * offered only when its scope is active and its preconditions are met.
  */
 export function isCommandEnabled(
-  command: Pick<CommandDefinition, 'scopes' | 'availability'>,
+  command: Pick<CommandDefinition, 'scopes' | 'availability' | 'availabilityPredicate'>,
   activeScopes: readonly CommandScope[],
   context: CommandAvailabilityContext,
+  moduleContext?: ModuleCommandContext,
 ): boolean {
-  return isCommandInScope(command, activeScopes) && isCommandAvailable(command, context)
+  return isCommandInScope(command, activeScopes) && isCommandAvailable(command, context, moduleContext)
 }
 
 /**
@@ -58,7 +74,8 @@ export function isCommandIdEnabled(
   commandId: string,
   activeScopes: readonly CommandScope[],
   context: CommandAvailabilityContext,
+  moduleContext?: ModuleCommandContext,
 ): boolean {
   const command = getCommandDefinition(commandId)
-  return command ? isCommandEnabled(command, activeScopes, context) : false
+  return command ? isCommandEnabled(command, activeScopes, context, moduleContext) : false
 }

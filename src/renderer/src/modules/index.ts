@@ -135,17 +135,41 @@ export function getRendererHost(): ReturnType<typeof createRendererHost> {
 // mid-registration stays gated off everywhere).
 let thirdPartyRendererManifests: ReadonlyArray<CapabilityManifest> = []
 
+// Boot normally awaits loadThirdPartyRendererModules before the React root
+// renders, but there is a timeout race: a slow load can land after first
+// render. Registry-derived UI (panel scopes, command contributions)
+// subscribes here so late-registered types still take effect without a reload.
+let thirdPartyRendererModulesLoaded = false
+const thirdPartyLoadedListeners = new Set<() => void>()
+
+export function onThirdPartyRendererModulesLoaded(listener: () => void): () => void {
+  if (thirdPartyRendererModulesLoaded) {
+    listener()
+    return () => undefined
+  }
+  thirdPartyLoadedListeners.add(listener)
+  return () => {
+    thirdPartyLoadedListeners.delete(listener)
+  }
+}
+
 export async function loadThirdPartyRendererModules(): Promise<void> {
-  // Older preload bundles may not carry the bridge yet; treat that as "no
-  // third-party renderer entries" rather than failing the boot.
-  if (typeof window.api?.listThirdPartyRendererEntries !== 'function') return
-  const served = await window.api.listThirdPartyRendererEntries()
-  const { loadThirdPartyRendererEntries } = await import('./third-party-loader')
-  thirdPartyRendererManifests = await loadThirdPartyRendererEntries(rendererHost, served)
-  if (thirdPartyRendererManifests.length > 0) {
-    // The memoized enabled-set is keyed per overrides object; the universe just
-    // changed, so any set resolved before the manifests landed is stale.
-    enabledSetCache = new WeakMap()
+  try {
+    // Older preload bundles may not carry the bridge yet; treat that as "no
+    // third-party renderer entries" rather than failing the boot.
+    if (typeof window.api?.listThirdPartyRendererEntries !== 'function') return
+    const served = await window.api.listThirdPartyRendererEntries()
+    const { loadThirdPartyRendererEntries } = await import('./third-party-loader')
+    thirdPartyRendererManifests = await loadThirdPartyRendererEntries(rendererHost, served)
+    if (thirdPartyRendererManifests.length > 0) {
+      // The memoized enabled-set is keyed per overrides object; the universe just
+      // changed, so any set resolved before the manifests landed is stale.
+      enabledSetCache = new WeakMap()
+    }
+  } finally {
+    thirdPartyRendererModulesLoaded = true
+    for (const listener of [...thirdPartyLoadedListeners]) listener()
+    thirdPartyLoadedListeners.clear()
   }
 }
 
