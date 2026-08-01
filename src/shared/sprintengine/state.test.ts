@@ -517,6 +517,38 @@ function testBacklogRefSurvivesProjectionAndToleratesAbsence(): void {
   )
 }
 
+// The selection bundle's two work markers (MC-2060/2061): the engine settles
+// `epicChild` and `selectedItem` onto the projection's bundle entries, and the
+// board's work-list consumers read them off normalized state — dropping either
+// silently turns a selected work item back into reading material.
+function testSelectionBundleMarkersSurviveProjection(): void {
+  const state = normalizeSprintEngineProjection(
+    v3Projection({
+      run: {
+        name: 'mixed-selection',
+        goal: 'Deliver the selection',
+        status: 'planning',
+        source: {
+          kind: 'markdown', origin: 'reference',
+          path: 'backlog/epics/auth-revamp.md', planKind: 'selection',
+        },
+        sourceBundle: [
+          { kind: 'epic', origin: 'reference', path: 'backlog/epics/auth-revamp.md' },
+          { kind: 'generic_context', origin: 'reference', path: 'backlog/login-form.md', epicChild: true, epicSlug: 'auth-revamp' },
+          { kind: 'generic_context', origin: 'reference', path: 'backlog/search-index.md', selectedItem: true },
+        ],
+      },
+    })
+  )
+  assert.equal(state?.source?.planKind, 'selection')
+  const byPath = new Map((state?.sourceBundle ?? []).map((item) => [item.path, item]))
+  assert.equal(byPath.get('backlog/login-form.md')?.epicChild, true, 'epicChild survives normalization')
+  assert.equal(byPath.get('backlog/search-index.md')?.selectedItem, true, 'selectedItem survives normalization')
+  const epicEntry = byPath.get('backlog/epics/auth-revamp.md')
+  assert.equal(epicEntry?.epicChild, undefined, 'an unmarked entry gains no marker')
+  assert.equal(epicEntry?.selectedItem, undefined, 'an unmarked entry gains no marker')
+}
+
 // Completion is done-or-canceled, mirroring the engine's recompute_phase
 // rollup exactly. Strict every-done here while Python tolerates canceled
 // produced a run whose state said "completed" but whose TS consumers
@@ -537,6 +569,7 @@ testCompletionToleratesCanceledTasks()
 testCategoricalFindingsSurviveNormalization()
 testBothReviewCharterMarkersSurviveProjection()
 testBacklogRefSurvivesProjectionAndToleratesAbsence()
+testSelectionBundleMarkersSurviveProjection()
 testWorkersViewPopulatedFromProjectionWorkers()
 testWorkersFallBackToRosterBridgeWhenAbsent()
 testRosterBuilderDerivesFromWorkers()

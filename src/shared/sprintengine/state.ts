@@ -2701,6 +2701,7 @@ function normalizeSprintEngineSourceBundle(value: unknown): SprintEngineSourceBu
       // Preserved so a surface reading the run can still tell the epic's child
       // items from the reading material that shares the bundle.
       ...(record.epicChild === true ? { epicChild: true } : {}),
+      ...(record.selectedItem === true ? { selectedItem: true } : {}),
     }]
   })
   return items.length > 0 ? items : undefined

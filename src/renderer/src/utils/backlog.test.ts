@@ -690,10 +690,13 @@ run('Sprint Engine contributes Start/Open Backlog actions for run-linked items',
     /id: 'sprint-engine\.open-linked-run',\s*label: 'Open Sprint'/s,
     'the module registers the Open Sprint Backlog action',
   )
+  // MC-2060 made Start selection-aware: the same eligibility runs over every
+  // member of the selection (falling back to the single item), so no linked or
+  // terminal row can ride into the bundle silently.
   assert.match(
     sprintEngineModuleSource,
-    /item\.status !== 'archived'\s*&&\s*item\.status !== 'completed'\s*&&\s*!hasSprintEngineRunLink\(item\)\s*&&\s*!hasAgentLink\(item\)/,
-    'Start is visible only for runnable items without a Sprint Engine run link and without an agent already working it',
+    /\(selection\?\.items \?\? \[item\]\)\.every\(\s*\(candidate\) =>\s*candidate\.status !== 'archived'\s*&&\s*candidate\.status !== 'completed'\s*&&\s*!hasSprintEngineRunLink\(candidate\)\s*&&\s*!hasAgentLink\(candidate\),?\s*\)/,
+    'Start is visible only when every selected item is runnable, without a Sprint Engine run link and without an agent already working it',
   )
   assert.match(
     sprintEngineModuleSource,
@@ -715,7 +718,7 @@ run('completed Backlog items can be marked done manually and do not offer Sprint
   )
   assert.match(
     sprintEngineModuleSource,
-    /item\.status !== 'archived'\s*&&\s*item\.status !== 'completed'\s*&&\s*!hasSprintEngineRunLink\(item\)\s*&&\s*!hasAgentLink\(item\)/,
+    /candidate\.status !== 'archived'\s*&&\s*candidate\.status !== 'completed'\s*&&\s*!hasSprintEngineRunLink\(candidate\)\s*&&\s*!hasAgentLink\(candidate\)/,
     'completed items without a run link hide Start Sprint Engine',
   )
 })

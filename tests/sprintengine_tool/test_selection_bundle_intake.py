@@ -345,6 +345,112 @@ def test_minting_one_task_per_work_entry_and_the_guard_refuses_a_double_mint(tmp
     assert CHILD_LOGIN in refused.stderr + refused.stdout
 
 
+# --- the T3×T4 seam (T7): the renderer's bundle through intake to minting -----
+
+
+def test_seam_a_two_epic_three_item_selection_mints_a_deduped_task_set(tmp_path) -> None:
+    """The AC shape end to end: a bundle of 2 epics + 3 plain items — one of them
+    a selected epic's OWN child, arriving twice (picked directly AND implied by
+    its epic, exactly what MC-2060's builder hands over) — seeded through the
+    real handover path, then minted. The task set must be deduped with each
+    task carrying the right backlogRef."""
+    root, state_path = _selection_workspace(tmp_path)
+    cli = SwarmCli(state_path, cwd=root)
+    _selection_handover(
+        cli, root,
+        ("epic", EPIC_AUTH),
+        ("epic", EPIC_BILLING),
+        ("generic_context", CHILD_LOGIN),   # picked directly…
+        ("generic_context", CHILD_LOGIN),   # …and implied by its selected epic
+        ("generic_context", PLAIN_SEARCH),
+        ("generic_context", PLAIN_EXPORT),
+    )
+    init_payload = cli.run(
+        "init", "--goal", "Deliver the selection",
+        "--configured-roles-json", json.dumps(["architect", "developer"]),
+    )
+    assert init_payload["planTask"]["title"] == "Sequence the selected items into a task graph"
+
+    state = read_state(state_path)
+    assert state["source"]["planKind"] == "selection"
+    child_entries = [item for item in state["sourceBundle"] if item["path"] == CHILD_LOGIN]
+    assert len(child_entries) == 1, "the twice-selected child rides the bundle once"
+    assert child_entries[0]["epicChild"] is True
+    assert child_entries[0]["epicSlug"] == "auth-revamp"
+    work_paths = selection_work_entry_paths(state)
+    assert work_paths == [CHILD_LOGIN, PLAIN_SEARCH, PLAIN_EXPORT]
+
+    minted: dict[str, str] = {}
+    for path in work_paths:
+        payload = cli.run(
+            "plan", "add-task",
+            "--actor", "architect-1",
+            "--title", f"Deliver {path}",
+            "--role", "developer",
+            "--path", "src",
+            "--backlog-ref", path,
+        )
+        minted[path] = payload["task"]["id"]
+        assert payload["task"]["backlogRef"]["projectRelativePath"] == path
+    assert len(set(minted.values())) == 3, "one task per selected work item, no twins"
+
+    refused = cli.run_failure(
+        "plan", "add-task",
+        "--actor", "architect-1",
+        "--title", "Deliver the login form again",
+        "--role", "developer",
+        "--path", "src",
+        "--backlog-ref", CHILD_LOGIN,
+    )
+    assert CHILD_LOGIN in refused.stderr + refused.stdout
+
+
+def test_seam_the_dialog_init_seed_shape_lands_and_gates_identically(tmp_path) -> None:
+    """The desktop dialog (MC-2062) seeds at init with the EXACT shape
+    buildSprintEngineInitSourceSeed emits: source {kind: 'markdown', origin:
+    'reference', path: <anchor>, planKind: 'selection', capturedAt} and bundle
+    entries {kind, origin: 'reference', path, capturedAt, epicChild/selectedItem}
+    — the anchor epic riding the bundle as well as being the root. That byte
+    shape must land as a selection run whose gate sequences the work entries."""
+    root, state_path = _selection_workspace(tmp_path)
+    cli = SwarmCli(state_path, cwd=root)
+    captured_at = "2026-07-31T12:00:00.000Z"
+    init_payload = cli.run(
+        "init",
+        "--name", "mixed-selection",
+        "--goal", "Deliver the selection",
+        "--configured-roles-json", json.dumps(["architect", "developer"]),
+        "--source-json", json.dumps({
+            "kind": "markdown", "origin": "reference", "path": EPIC_AUTH,
+            "planKind": "selection", "capturedAt": captured_at,
+        }),
+        "--source-bundle-json", json.dumps([
+            {"kind": "epic", "origin": "reference", "path": EPIC_AUTH, "capturedAt": captured_at},
+            {"kind": "generic_context", "origin": "reference", "path": CHILD_LOGIN, "capturedAt": captured_at, "epicChild": True},
+            {"kind": "epic", "origin": "reference", "path": EPIC_BILLING, "capturedAt": captured_at},
+            {"kind": "generic_context", "origin": "reference", "path": PLAIN_SEARCH, "capturedAt": captured_at, "selectedItem": True},
+            {"kind": "generic_context", "origin": "reference", "path": PLAIN_EXPORT, "capturedAt": captured_at, "selectedItem": True},
+        ]),
+    )
+
+    state = read_state(state_path)
+    assert state["source"]["planKind"] == "selection"
+    assert state["source"]["path"] == EPIC_AUTH
+    assert epic_child_source_paths(state) == [CHILD_LOGIN]
+    assert selected_item_source_paths(state) == [PLAIN_SEARCH, PLAIN_EXPORT]
+    anchor = next(item for item in state["sourceBundle"] if item["path"] == EPIC_AUTH)
+    assert "epicChild" not in anchor and "selectedItem" not in anchor, "the anchor epic is scope, not work"
+
+    plan_task = init_payload["planTask"]
+    assert plan_task is not None, "the app-seeded init still mints the selection plan gate"
+    assert plan_task["title"] == "Sequence the selected items into a task graph"
+    live_note = next(
+        note for note in plan_task["implementationNotes"] if note.startswith("Re-check live membership")
+    )
+    for slug in ("auth-revamp", "billing-cleanup"):
+        assert f'`grep -l "^epic: {slug}$" backlog/*.md`' in live_note
+
+
 # --- the coverage warning -----------------------------------------------------
 
 
