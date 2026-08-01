@@ -1,0 +1,162 @@
+{
+  "ok": true,
+  "env": {
+    "ELECTRON_RENDERER_URL": "",
+    "MULTICODE_MARKETPLACE_REGISTRY_URL": "https://127.0.0.1:52889/marketplace.json",
+    "MULTICODE_USER_DATA_DIR": "/tmp/multicode-t12-module-platform/user-data",
+    "moduleRoots": {
+      "A": "/tmp/multicode-t12-module-platform/modules-full",
+      "B": "/tmp/multicode-t12-module-platform/modules-full",
+      "C": "/tmp/multicode-t12-module-platform/modules-no-widgets",
+      "D": "/tmp/multicode-t12-module-platform/modules-empty"
+    }
+  },
+  "registryState": {
+    "ok": true,
+    "state": "ok",
+    "source": "network",
+    "stale": false
+  },
+  "checks": [
+    {
+      "name": "A: fixture modules trusted through the real switches",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "4: module creation step pane renders with its own heading",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "4: create is blocked with the blockedHint until the step is ready",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "4: entering a value unblocks create",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "4: entered step value reached the created workspace (tab \"Forecast: Dublin\")",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "4: forecast panel rendered",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "baseline: pw-widgets gauge panel renders while installed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "5: global supervisor mounted at boot",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "5: created workspace persisted with mode pw-deck",
+      "ok": true,
+      "detail": "TDf3FfTPbsX2R5DgcTtY-"
+    },
+    {
+      "name": "5: supervisor observed session state through watchAgentSessions",
+      "ok": true,
+      "detail": "observations: [{\"at\":\"2026-08-01T11:46:00.992Z\",\"workspaceId\":\"TDf3FfTPbsX2R5DgcTtY-\",\"sessionCount\":0,\"liveCount\":0,\"kinds\":[]}]"
+    },
+    {
+      "name": "5: deriveRunGlyph renders in the sidebar row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "2: distrust confirmation appears for a module with dependent workspaces",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "2: confirmation lists the dependent workspace by name",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "2: confirmation states the module-not-installed consequence",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "2: cancel keeps the module trusted",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1b: missing-module tab shows the upgraded surface with the module name",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1b: upgraded tab surface carries the install affordance",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "4: throwing step degrades to the error surface with the exact copy",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "4: create stays available after the degrade (zero-config)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "4: degraded create produced the zero-config workspace without a crash",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1a: absence surface names the module",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1a: absence surface keeps the data-safe promise copy",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1a: install affordance present",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "1a: install affordance routes to the extensions browse surface",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "3: module entry renders in the Modules category",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "3: card copy is module-led (manifest summary verbatim)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "3: module-only row shows no launch affordance (no \"New chat\" on the card)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "3: module row keeps the Get affordance",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}
