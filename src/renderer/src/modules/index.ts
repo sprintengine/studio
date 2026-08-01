@@ -126,6 +126,17 @@ if (typeof window !== 'undefined') {
         const workspace = useWorkspaceStore.getState().workspaces.find((entry) => entry.id === workspaceId)
         return workspace ? toModuleWorkspaceView(workspace) : null
       })
+      // Per-module workspace-state bag (MC-1573): reads come straight off the
+      // store's `Workspace.moduleState`; writes go through the store action so
+      // persistence and cross-window sync see them like any workspace field.
+      rendererHost.setWorkspaceModuleStateStore({
+        get: (workspaceId, moduleId) => {
+          const workspace = useWorkspaceStore.getState().workspaces.find((entry) => entry.id === workspaceId)
+          return workspace?.moduleState?.[moduleId]
+        },
+        set: (workspaceId, moduleId, state) =>
+          useWorkspaceStore.getState().setWorkspaceModuleState(workspaceId, moduleId, state),
+      })
       // Effective working root (MC-1535): the worktree for worktree-backed
       // workspaces, the primary checkout otherwise. Every live-runtime surface
       // below resolves workspace-relative paths against this, never against

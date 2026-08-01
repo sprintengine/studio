@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Per-module workspace state on `RendererHost` (MC-1573):
+  `getWorkspaceModuleState<T>(workspaceId)` /
+  `setWorkspaceModuleState(workspaceId, state)` — your module's own durable
+  entry in the workspace's per-module state bag, scoped to the calling module
+  by the host. Entries persist with the workspace registry and sync across
+  windows like built-in workspace fields; keep them JSON-serializable.
+  null/undefined removes the entry. Read resolves `undefined` and write
+  reports `false` when the workspace id is unknown or the shell hasn't wired
+  workspace state yet (early boot) — retry later; neither is a deletion
+  signal and neither throws. Disclosure: `storage`. The accessor pair is the
+  pinned shape (exact-identity drift-guarded); no watch variant yet — re-read
+  on render until a consumer motivates one.
+
 - Live runtime surfaces on `RendererHost` (MC-1535, the extraction blocker
   set): `watchAgentSessions(workspaceId, cb)` — read-only session views
   (`ModuleAgentSessionView`: sessionId/agentId/name/kind/system/executionId/

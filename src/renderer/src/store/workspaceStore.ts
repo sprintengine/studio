@@ -105,6 +105,7 @@ import {
   normalizeWorkspaceForPartialize,
   preserveNewerSprintEngineAutomationState,
 } from './slices/normalizers'
+import { reconcileWorkspaceModuleState } from './slices/workspaceModuleState'
 import {
   configureWorkspaceSyncClient,
   workspaceSyncClient,
@@ -319,6 +320,12 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setGitPanelState: (id: WorkspaceId, patch: Partial<Omit<WorkspaceGitPanelState, 'commitDraftsByScopeId'>>) => void
   setGitCommitDraft: (id: WorkspaceId, scopeId: string, text: string) => void
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
+  /**
+   * Write one module's entry in a workspace's per-module state bag (MC-1573);
+   * null/undefined removes it. False for an unknown workspace or the reserved
+   * `sprintengine` key (single writer: setSprintEngineState).
+   */
+  setWorkspaceModuleState: (workspaceId: WorkspaceId, moduleId: string, state: unknown) => boolean
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
   removeAgent: (workspaceId: WorkspaceId, agentId: AgentId) => void
   applyAgentTerminalSessionEvent: (apply: AgentTerminalSessionApply) => void
@@ -1049,6 +1056,11 @@ async function attemptBackupRecovery(): Promise<void> {
     envelope.state.workspaces = dedupeAutomationsHostWorkspaces(
       envelope.state.workspaces as Workspace[],
     )
+    // Same migrate-ladder bypass for the MC-1573 module-state bag: reconcile
+    // the bag with the legacy sprintEngineState mirror before re-persisting.
+    envelope.state.workspaces = (envelope.state.workspaces as Workspace[]).map(
+      reconcileWorkspaceModuleState,
+    )
     if (envelope.state.workspaces.length === 0) {
       emitHydrationDiagnostic()
       return
@@ -1215,7 +1227,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces),
             ),
           ),
-        )
+        // The MC-1573 lockstep invariant (moduleState.sprintengine === the
+        // legacy sprintEngineState mirror) is enforced here, not only in the
+        // v71 migration rung, for the same reason as the heals above: merge()
+        // runs on every hydration regardless of envelope version. Persisted
+        // rows carry a null run state (partialize strips both homes), so this
+        // is a reference-preserving no-op on the normal load path.
+        ).map(reconcileWorkspaceModuleState)
         const hydrated = hydrateSprintEngineLocalRunSettings(
           rawWorkspaces,
           normalizeAppSettings(state?.appSettings, rawWorkspaces),

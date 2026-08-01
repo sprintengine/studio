@@ -109,6 +109,35 @@ runStateSlice.setSprintEngineState('ws-direct-run-state', sprintState)
 const directWorkspace = carrier.workspaces[0]
 assert.equal(directWorkspace.mode, 'sprintengine')
 assert.equal(directWorkspace.sprintEngineState?.goal, 'Validate run-state slice')
+// MC-1573 lockstep: the live writer maintains the canonical bag entry beside
+// the legacy mirror — same state object in both homes. The null-write half
+// runs on its own carrier below so this shared fixture's roster/agents state
+// stays untouched for the assertions that follow.
+assert.equal(
+  directWorkspace.moduleState?.sprintengine,
+  directWorkspace.sprintEngineState,
+  'setSprintEngineState writes the bag entry and the mirror in lockstep',
+)
+{
+  const bagCarrier: { workspaces: Workspace[] } = {
+    workspaces: [{
+      ...carrier.workspaces[0],
+      id: 'ws-bag-lockstep',
+      agents: {},
+      // Clone the bag: the null write deletes the entry in place, and a
+      // shared reference would corrupt the fixture workspace above.
+      moduleState: { ...carrier.workspaces[0].moduleState },
+    }],
+  }
+  const bagSlice = createRunStateSlice((mutator) => mutator(bagCarrier))
+  bagSlice.setSprintEngineState('ws-bag-lockstep', null)
+  assert.equal(bagCarrier.workspaces[0].sprintEngineState, null, 'a null write clears the mirror')
+  assert.equal(
+    bagCarrier.workspaces[0].moduleState,
+    undefined,
+    'a null write removes the bag entry, and an emptied bag drops entirely',
+  )
+}
 assert.equal(directWorkspace.sprintEngineContext?.teamSlug, 'run-state-team')
 assert.ok(directWorkspace.agents.specialist, 'specialist agents should survive Sprint Engine roster reconciliation')
 assert.ok(directWorkspace.agents.frontend, 'Sprint Engine roster agents should be reconciled into workspace agents')

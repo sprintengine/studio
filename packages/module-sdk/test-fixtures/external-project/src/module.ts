@@ -216,6 +216,18 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
     }, [workspaceId])
     useEffect(() => {
       let disposed = false
+      // Per-module workspace state (MC-1573): the module's own durable entry
+      // on this workspace — typed read, write-back with the reported result
+      // honored (false = not stored: unknown workspace or early boot; retry
+      // later, never assume success). Scoped to this module by the host.
+      const deckState = host.getWorkspaceModuleState<{ lastCity?: string }>(workspaceId)
+      const stored = host.setWorkspaceModuleState(workspaceId, {
+        lastCity: deckState?.lastCity ?? 'Dublin',
+      })
+      if (!stored) {
+        // Not stored — keep rendering from the in-memory value; the next
+        // visit retries once the shell has wired workspace state.
+      }
       // Workspace context resolution: the supported id → root/name/mode read
       // (replaces deriving the root from drop payloads or backlog paths).
       // Reset per workspace so a switch never renders the previous

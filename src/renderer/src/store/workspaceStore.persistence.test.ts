@@ -1187,5 +1187,177 @@ assert.equal(
   )
 }
 
+// ── MC-1573: per-module state bag in a CURRENT-version envelope ─────────────
+// The v71 rung reconciles bag and mirror on upgrade, but a dev-HMR module swap
+// stamps the current version onto un-migrated state — so merge() must enforce
+// the lockstep invariant (moduleState.sprintengine === sprintEngineState) on
+// EVERY hydration. Existing persisted rows (null run state, no bag) must load
+// unchanged, and a third-party module's bag entry must survive verbatim.
+{
+  const { WORKSPACE_STORE_VERSION } = await import('./slices/persistenceSlice')
+  const { createInitialSprintEngineState } = await import('../utils/sprintengine')
+  const sprintState = createInitialSprintEngineState({
+    goal: 'Validate bag merge',
+    name: 'Bag Merge Team',
+    roleCounts: { frontend: 1 },
+  })
+  const currentEnvelope = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
+  stored['multicode-workspaces'] = JSON.stringify({
+    state: {
+      ...currentEnvelope.state,
+      workspaces: [
+        // The normal persisted shape: null run state, no bag.
+        { ...persistedWorkspace, id: 'ws-plain', sprintEngineState: null },
+        // Ancient pre-strip shape: populated legacy field, no bag.
+        {
+          ...persistedWorkspace,
+          id: 'ws-mirror-only',
+          mode: 'sprintengine',
+          sprintEngineState: sprintState,
+        },
+        // Bag-only shape plus a third-party entry that must ride untouched.
+        {
+          ...persistedWorkspace,
+          id: 'ws-bag-only',
+          mode: 'sprintengine',
+          sprintEngineState: null,
+          moduleState: { sprintengine: sprintState, 'weather-deck': { lastCity: 'Dublin' } },
+        },
+      ],
+      activeWorkspaceId: 'ws-plain',
+    },
+    version: WORKSPACE_STORE_VERSION,
+  })
+  await useWorkspaceStore.persist.rehydrate()
+  const hydrated = useWorkspaceStore.getState().workspaces
+  const plain = hydrated.find((ws) => ws.id === 'ws-plain')
+  assert.ok(plain, 'the normal-shape row hydrates')
+  assert.equal(plain!.sprintEngineState, null, 'a null run state stays null through merge')
+  assert.equal(
+    Boolean(plain!.moduleState && 'sprintengine' in plain!.moduleState),
+    false,
+    'merge never mints a sprintengine bag entry for a null run state',
+  )
+  const mirrorOnly = hydrated.find((ws) => ws.id === 'ws-mirror-only')
+  assert.ok(mirrorOnly?.sprintEngineState, 'a populated legacy field survives merge')
+  assert.equal(
+    mirrorOnly!.moduleState?.sprintengine,
+    mirrorOnly!.sprintEngineState,
+    'merge adopts the legacy field into the bag — both homes hold the same state',
+  )
+  const bagOnly = hydrated.find((ws) => ws.id === 'ws-bag-only')
+  assert.ok(bagOnly?.sprintEngineState, 'merge hoists a bag-only entry onto the mirror')
+  assert.equal(
+    bagOnly!.moduleState?.sprintengine,
+    bagOnly!.sprintEngineState,
+    'the hoisted mirror and the bag entry are the same state',
+  )
+  assert.deepEqual(
+    bagOnly!.moduleState?.['weather-deck'],
+    { lastCity: 'Dublin' },
+    'a third-party module bag entry hydrates verbatim',
+  )
+
+  // Partialize: the sprintengine entry is a projection cache and is stripped
+  // from BOTH homes at persist; other modules' entries persist verbatim.
+  const partialized = normalizeWorkspaceForPartialize(bagOnly!)
+  assert.equal(partialized.sprintEngineState, null, 'partialize nulls the legacy mirror')
+  assert.equal(
+    Boolean(partialized.moduleState && 'sprintengine' in partialized.moduleState),
+    false,
+    'partialize strips the sprintengine bag entry',
+  )
+  assert.deepEqual(
+    partialized.moduleState,
+    { 'weather-deck': { lastCity: 'Dublin' } },
+    'partialize keeps other modules\' durable entries',
+  )
+  const plainPartialized = normalizeWorkspaceForPartialize(plain!)
+  assert.equal(
+    plainPartialized.moduleState,
+    undefined,
+    'a workspace with no module state persists with no bag at all',
+  )
+
+  // Workspace-sync round-trip: the bag rides Workspace whole-object sync like
+  // any sibling field — a created-workspace event delivers it intact.
+  const { applyWorkspaceSyncEvent } = await import('../../../shared/workspace-sync')
+  const syncResult = applyWorkspaceSyncEvent(
+    {
+      workspaces: [],
+      activeWorkspaceId: null,
+      workspaceWindows: [],
+      primaryWorkspaceWindowId: 'primary',
+      lastAppliedWorkspaceSyncSequence: 0,
+    },
+    {
+      id: 'evt-bag-1',
+      type: 'workspace.created',
+      sourceWindowId: 'primary',
+      sequence: 1,
+      createdAt: Date.now(),
+      payload: {
+        workspace: bagOnly!,
+        windowId: 'primary',
+        insert: { kind: 'folder_head', folderPath: bagOnly!.folderPath },
+      },
+    },
+  )
+  assert.equal(syncResult.status, 'applied', 'the created-workspace sync event applies')
+  const syncedWorkspace = syncResult.state.workspaces.find((ws) => ws.id === 'ws-bag-only')
+  assert.deepEqual(
+    syncedWorkspace?.moduleState,
+    bagOnly!.moduleState,
+    'workspace-sync round-trips the module-state bag intact',
+  )
+  assert.equal(
+    syncedWorkspace?.sprintEngineState,
+    bagOnly!.sprintEngineState,
+    'workspace-sync round-trips the legacy mirror alongside the bag',
+  )
+}
+
+// ── MC-1573: the store's generic module-state writer ────────────────────────
+// setWorkspaceModuleState is the SDK setter's backing action: entries write
+// into the bag, null removes, unknown workspaces and the reserved sprintengine
+// key report false (that entry's single writer stays setSprintEngineState).
+{
+  const targetId = useWorkspaceStore.getState().addWorkspace(
+    { ...raceTemplate, id: 'bag-writer' },
+    { name: 'Bag Writer Workspace' },
+  )
+  const store = useWorkspaceStore.getState()
+  assert.equal(
+    store.setWorkspaceModuleState(targetId, 'weather-deck', { lastCity: 'Cork' }),
+    true,
+    'a module entry write on a known workspace reports stored',
+  )
+  assert.deepEqual(
+    useWorkspaceStore.getState().workspaces.find((ws) => ws.id === targetId)?.moduleState,
+    { 'weather-deck': { lastCity: 'Cork' } },
+    'the entry lands in the workspace bag',
+  )
+  assert.equal(
+    store.setWorkspaceModuleState(targetId, 'weather-deck', null),
+    true,
+    'a null write removes the entry and reports stored',
+  )
+  assert.equal(
+    useWorkspaceStore.getState().workspaces.find((ws) => ws.id === targetId)?.moduleState,
+    undefined,
+    'removing the last entry drops the bag entirely',
+  )
+  assert.equal(
+    store.setWorkspaceModuleState('ws-does-not-exist', 'weather-deck', {}),
+    false,
+    'an unknown workspace reports not-stored',
+  )
+  assert.equal(
+    store.setWorkspaceModuleState(targetId, 'sprintengine', {}),
+    false,
+    'the reserved sprintengine key is refused — its single writer is setSprintEngineState',
+  )
+}
+
 console.info = originalInfo
 console.log('workspaceStore.persistence.test.ts: ok')

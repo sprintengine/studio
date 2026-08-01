@@ -380,6 +380,16 @@ export type BacklogReader = {
   watch(workspaceId: string, cb: (items: BacklogItem[]) => void): () => void
 }
 
+// Backing store for the per-module workspace-state accessors (MC-1573). The
+// kernel owns only the seam: modules/index.ts wires it over the workspace
+// store's `Workspace.moduleState` bag, and the scoped host methods route
+// through it with the owning module's id — the kernel never imports the store.
+export type WorkspaceModuleStateStore = {
+  get(workspaceId: string, moduleId: string): unknown
+  /** False when the write was not stored (unknown workspace, reserved key). */
+  set(workspaceId: string, moduleId: string, state: unknown): boolean
+}
+
 export type RendererHost = {
   registerPanel(componentId: string, component: WorkspacePanelComponent): void
   registerWorkspaceType(definition: WorkspaceTypeDefinition): void
@@ -432,6 +442,25 @@ export type RendererHost = {
    * Disclosure permission: `ipc:workspace-read`.
    */
   getWorkspace(workspaceId: string): Promise<ModuleWorkspaceView | null>
+  /**
+   * Your module's entry in the workspace's per-module state bag (MC-1573).
+   * Scoped to the calling module — one module can never read another's entry
+   * through this surface. `undefined` means no state is recorded for this
+   * workspace, the workspace id is unknown, or the shell hasn't wired the
+   * store yet (early boot, tests) — never a throw and never a deletion
+   * signal; retry later instead of discarding state. Entries persist with the
+   * workspace and sync across windows. Disclosure permission: `storage`.
+   */
+  getWorkspaceModuleState<T = unknown>(workspaceId: string): T | undefined
+  /**
+   * Replace your module's entry in the workspace's per-module state bag;
+   * null/undefined removes it. Keep entries JSON-serializable — they persist
+   * into the workspace registry verbatim. False means the write was NOT
+   * stored (unknown workspace id, or the shell hasn't wired the store yet) —
+   * surface it or retry; never assume success. Disclosure permission:
+   * `storage`.
+   */
+  setWorkspaceModuleState(workspaceId: string, state: unknown): boolean
   /**
    * The workspace's *effective working root*: where its live work happens.
    * `ModuleWorkspaceView.folderPath` deliberately reports the durable primary
@@ -562,6 +591,13 @@ export type RendererKernel = {
    */
   setWorkspaceResolver(resolver: (workspaceId: string) => ModuleWorkspaceView | null): void
   /**
+   * Backing store for the per-module workspace-state accessors (MC-1573).
+   * Wired once at boot by modules/index.ts over the workspace store's bag;
+   * absent (early boot, tests) reads resolve undefined and writes report
+   * false. The kernel scopes every call by the owning module's id.
+   */
+  setWorkspaceModuleStateStore(store: WorkspaceModuleStateStore): void
+  /**
    * Working-root source for `RendererHost.getWorkingRoot`. Wired once at boot
    * by modules/index.ts (store + worktree resolution); absent (early boot,
    * tests) every lookup resolves to null.
@@ -603,6 +639,7 @@ export function createRendererHost(): RendererKernel {
   let backlogReader: { moduleId: string; reader: BacklogReader } | null = null
   let moduleEnabledResolver: ((moduleId: string) => boolean) | null = null
   let workspaceResolver: ((workspaceId: string) => ModuleWorkspaceView | null) | null = null
+  let workspaceModuleStateStore: WorkspaceModuleStateStore | null = null
   let workingRootResolver: ((workspaceId: string) => string | null) | null = null
   let workspaceFileWatcher: WorkspaceFileWatcher | null = null
   let agentSessionWatcher: AgentSessionWatcher | null = null
@@ -832,6 +869,16 @@ export function createRendererHost(): RendererKernel {
         async getWorkspace(workspaceId) {
           return workspaceResolver ? workspaceResolver(workspaceId) : null
         },
+        getWorkspaceModuleState<T = unknown>(workspaceId: string): T | undefined {
+          return workspaceModuleStateStore
+            ? (workspaceModuleStateStore.get(workspaceId, moduleId) as T | undefined)
+            : undefined
+        },
+        setWorkspaceModuleState(workspaceId, state) {
+          return workspaceModuleStateStore
+            ? workspaceModuleStateStore.set(workspaceId, moduleId, state)
+            : false
+        },
         async getWorkingRoot(workspaceId) {
           return workingRootResolver ? workingRootResolver(workspaceId) : null
         },
@@ -961,6 +1008,9 @@ export function createRendererHost(): RendererKernel {
     },
     setModuleEnablementResolver(resolver) {
       moduleEnabledResolver = resolver
+    },
+    setWorkspaceModuleStateStore(store) {
+      workspaceModuleStateStore = store
     },
     setWorkspaceResolver(resolver) {
       workspaceResolver = resolver

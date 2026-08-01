@@ -12,6 +12,7 @@ import {
   workspaceFolderKey,
 } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
+import { partializeWorkspaceModuleState } from './workspaceModuleState'
 
 // The retired `roadmap` workspace-mode string (MC-1692). Kept as a local literal
 // rather than a live `WorkspaceMode` constant: it is a legacy value with no
@@ -254,6 +255,10 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
     // durable identity (sprintEngineContext/mode) survives a restart; the live
     // projection rehydrates from disk within one supervisor tick.
     sprintEngineState: null,
+    // Same rationale for the canonical bag entry (MC-1573): the `sprintengine`
+    // key mirrors the field above and is stripped; every OTHER module's entry
+    // is durable state and persists verbatim.
+    moduleState: partializeWorkspaceModuleState(launchSafeWorkspace.moduleState),
     guidedBriefState: normalizeGuidedBriefState(launchSafeWorkspace.guidedBriefState),
     memory: normalizeWorkspaceMemoryConfig(launchSafeWorkspace.memory),
     fileExplorerState: normalizeWorkspaceFileExplorerState(launchSafeWorkspace.fileExplorerState),

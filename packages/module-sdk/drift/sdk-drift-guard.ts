@@ -269,6 +269,12 @@ expectType<IsExact<AppAutomationActionProvider, SdkAutomationActionProvider>>()
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()
 expectType<Extends<AppRendererHost, SdkRendererHost>>()
+// Per-module workspace state (MC-1573): the accessor pair is the pinned SDK
+// shape for module-owned workspace state — exact identity, because the
+// one-directional host assertion above would let an optional-parameter or
+// return-type widening ride through unnoticed.
+expectType<IsExact<AppRendererHost['getWorkspaceModuleState'], SdkRendererHost['getWorkspaceModuleState']>>()
+expectType<IsExact<AppRendererHost['setWorkspaceModuleState'], SdkRendererHost['setWorkspaceModuleState']>>()
 
 // Registrability: every SDK-typed contribution remains valid for the app.
 expectType<Extends<SdkWorkspacePanelComponent, AppWorkspacePanelComponent>>()

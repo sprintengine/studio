@@ -75,6 +75,7 @@ import {
 } from '../../types/workspace'
 import type { ReviewGuideConfig, ReviewWorkspaceState } from '../../types/workspace'
 import { deriveWorkspaceTitle } from '../../../../shared/workspace-title'
+import { SPRINT_ENGINE_MODULE_ID, reconcileWorkspaceModuleState } from './workspaceModuleState'
 // TerminalSessionSnapshot is a global ambient type from src/renderer/src/env.d.ts.
 
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
@@ -343,6 +344,14 @@ export interface WorkspacesSliceActions {
   setGitPanelState: (id: WorkspaceId, patch: Partial<Omit<WorkspaceGitPanelState, 'commitDraftsByScopeId'>>) => void
   setGitCommitDraft: (id: WorkspaceId, scopeId: string, text: string) => void
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
+  /**
+   * Write one module's entry in a workspace's per-module state bag (MC-1573);
+   * null/undefined removes it. False when the workspace is unknown, or for the
+   * reserved `sprintengine` key — that entry's single writer stays
+   * setSprintEngineState, which reconciles mode/agents/layout alongside it.
+   * Declared here AND on the WorkspaceStore interface (dual-declaration).
+   */
+  setWorkspaceModuleState: (workspaceId: WorkspaceId, moduleId: string, state: unknown) => boolean
   importWorkspace: (ws: Workspace) => void
   moveAgentToWorkspace: (
     sourceWorkspaceId: WorkspaceId,
@@ -1258,6 +1267,8 @@ export function createWorkspacesSlice(
           memory: deps.defaultWorkspaceMemoryConfig(),
           editorState: deps.defaultEditorState(),
           fileExplorerState: defaultWorkspaceFileExplorerState(),
+          // Canonical bag entry + legacy mirror together (MC-1573 lockstep).
+          ...(sprintEngineState ? { moduleState: { [SPRINT_ENGINE_MODULE_ID]: sprintEngineState } } : {}),
           sprintEngineState,
           guidedBriefState,
           sprintEngineRoleCliDefaults,
@@ -1469,6 +1480,28 @@ export function createWorkspacesSlice(
         ws.gitPanelState = { ...ws.gitPanelState, commitDraftsByScopeId }
       }),
 
+    setWorkspaceModuleState: (workspaceId, moduleId, moduleStateValue) => {
+      // The sprintengine entry has exactly one writer (setSprintEngineState),
+      // which keeps the legacy mirror, mode, agents, and layout in step with
+      // it; a bag-only write here would silently break that lockstep.
+      if (moduleId === SPRINT_ENGINE_MODULE_ID) return false
+      let updated = false
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === workspaceId)
+        if (!ws) return
+        if (moduleStateValue === undefined || moduleStateValue === null) {
+          if (ws.moduleState && moduleId in ws.moduleState) {
+            delete ws.moduleState[moduleId]
+            if (Object.keys(ws.moduleState).length === 0) delete ws.moduleState
+          }
+        } else {
+          ;(ws.moduleState ??= {})[moduleId] = moduleStateValue
+        }
+        updated = true
+      })
+      return updated
+    },
+
     importWorkspace: (ws) =>
       set((state) => {
         const id = nanoid()
@@ -1485,7 +1518,9 @@ export function createWorkspacesSlice(
             }),
           ])
         )
-        state.workspaces.push({
+        // Reconcile the imported bag with the normalized mirror (an imported
+        // payload can carry either representation) before it enters the store.
+        state.workspaces.push(reconcileWorkspaceModuleState({
           ...ws,
           id,
           name: `${ws.name} (imported)`,
@@ -1502,7 +1537,7 @@ export function createWorkspacesSlice(
           sprintEngineContext: deps.normalizeSprintEngineWorkspaceContext(ws.sprintEngineContext, ws.folderPath, sprintEngineState),
           sprintEngineRoleCliDefaults: deps.normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults),
           sprintEngineAutoState: deps.normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-        } satisfies Workspace)
+        } satisfies Workspace))
         const imported = state.workspaces.at(-1)
         if (imported) {
           Object.assign(imported, deps.migrateSprintEngineLayout(imported))

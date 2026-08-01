@@ -950,6 +950,23 @@ export type ReviewGuideConfig = {
   knowledgeGraph: boolean
 }
 
+/**
+ * Per-module workspace state, keyed by module id (MC-1573). The canonical home
+ * for state a module keeps on a workspace: entries persist with the workspace
+ * registry and ride workspace-sync exactly like sibling fields, and modules
+ * reach their own entry through the SDK accessors
+ * (`RendererHost.getWorkspaceModuleState` / `setWorkspaceModuleState`).
+ *
+ * The `sprintengine` entry is the first migrated in-tree field. Its legacy
+ * typed `Workspace.sprintEngineState` field remains as a store-maintained
+ * mirror of `moduleState.sprintengine` until its in-tree readers migrate to
+ * the bag (follow-up on backlog/2026-07-10-module-owned-workspace-state.md);
+ * the store's writers and the persist merge() keep the two in lockstep, and
+ * like the field, the `sprintengine` entry is stripped at partialize (it is a
+ * cache of the on-disk projection, not durable state).
+ */
+export type WorkspaceModuleStateBag = Record<string, unknown>
+
 export type Workspace = {
   id: WorkspaceId
   name: string
@@ -975,6 +992,13 @@ export type Workspace = {
   fileExplorerState?: WorkspaceFileExplorerState
   backlogState?: WorkspaceBacklogState
   gitPanelState?: WorkspaceGitPanelState
+  // Per-module state bag (MC-1573) — see WorkspaceModuleStateBag. The
+  // `sprintengine` entry is canonical; `sprintEngineState` below mirrors it.
+  moduleState?: WorkspaceModuleStateBag
+  // Legacy mirror of `moduleState.sprintengine` (MC-1573). Kept only for the
+  // existing in-tree readers; new code reads the bag. The store's writers and
+  // the persist merge() enforce the lockstep invariant — never assign this
+  // field without going through them.
   sprintEngineState: SprintEngineState | null
   sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults
   // Durable per-agent CLI session records, keyed by roster agent id. Populated

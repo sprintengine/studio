@@ -11,6 +11,9 @@ import {
   readPersistedWorkspaceState,
 } from './persistenceSlice'
 import { normalizeAppSettings, sprintEngineRunSettingsKey } from './settingsSlice'
+import { reconcileWorkspaceModuleState } from './workspaceModuleState'
+import { createInitialSprintEngineState } from '../../utils/sprintengine'
+import type { Workspace } from '../../types/workspace'
 
 // classifyPersistedWorkspaceState ----------------------------------------------
 
@@ -538,7 +541,7 @@ assert.equal(
 // v68: the Sprint Engine model catalog retired (MC-1890). An upgraded profile
 // still carries the persisted `sprintEngineModelCatalog` array of hand-set
 // scores; the ladder drops it and leaves every other setting alone.
-assert.equal(WORKSPACE_STORE_VERSION, 70, 'reasoning effort is the newest step, at store v70')
+assert.equal(WORKSPACE_STORE_VERSION, 71, 'module-state bag is the newest step, at store v71')
 
 const v67WithModelCatalog = {
   workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
@@ -668,6 +671,91 @@ assert.deepEqual(
   ).specialistModelDefaults,
   { architect: { cli: 'codex', model: 'gpt-5.5' } },
   'normalizeAppSettings drops a blank level and a selection naming no CLI, regardless of store version',
+)
+
+// v71: the per-module workspace-state bag arrives (MC-1573). Persisted rows
+// normally carry a null run state and no bag (partialize strips both homes),
+// so the rung's real work is the odd row that carries ONE representation: an
+// ancient pre-strip profile with a populated top-level sprintEngineState, or a
+// hand-written bag entry with no mirror. Either way both homes must agree
+// after the ladder, and a row already in the normal shape must load unchanged.
+const v70SprintState = createInitialSprintEngineState({
+  goal: 'Validate module-state rung',
+  name: 'Bag Team',
+  roleCounts: { frontend: 1 },
+})
+const v70WithLegacyField = {
+  workspaces: [
+    {
+      id: 'ws-legacy-field',
+      mode: 'sprintengine',
+      folderPath: '/repo/app',
+      agents: {},
+      sprintEngineState: v70SprintState,
+    },
+    {
+      id: 'ws-null-state',
+      mode: 'standard',
+      folderPath: '/repo/app',
+      agents: {},
+      sprintEngineState: null,
+      // A third-party module's durable entry must ride the ladder untouched.
+      moduleState: { 'weather-deck': { lastCity: 'Dublin' } },
+    },
+  ],
+  activeWorkspaceId: 'ws-legacy-field',
+}
+const migratedBag = migratePersistedWorkspaceState(v70WithLegacyField, 70) as {
+  workspaces: Workspace[]
+}
+const legacyFieldRow = migratedBag.workspaces[0]
+assert.ok(legacyFieldRow.sprintEngineState, 'v71 keeps the populated legacy mirror')
+assert.equal(
+  legacyFieldRow.moduleState?.sprintengine,
+  legacyFieldRow.sprintEngineState,
+  'v71 adopts a populated legacy field into the bag; both homes hold the same state',
+)
+const nullStateRow = migratedBag.workspaces[1]
+assert.equal(nullStateRow.sprintEngineState, null, 'v71 leaves a null run state null')
+assert.equal(
+  nullStateRow.moduleState && 'sprintengine' in nullStateRow.moduleState,
+  false,
+  'v71 never mints a sprintengine bag entry for a null run state',
+)
+assert.deepEqual(
+  nullStateRow.moduleState,
+  { 'weather-deck': { lastCity: 'Dublin' } },
+  'v71 leaves another module\'s bag entry untouched',
+)
+// Enforcement half, same split as v67-v70: reconcileWorkspaceModuleState runs
+// in persist merge() on every hydration, so a bag/mirror disagreement cannot
+// survive inside a current-version envelope the ladder never revisits. The bag
+// entry is canonical when both homes are present.
+const bagOnlyRow = reconcileWorkspaceModuleState({
+  id: 'ws-bag-only',
+  mode: 'sprintengine',
+  folderPath: '/repo/app',
+  agents: {},
+  sprintEngineState: null,
+  moduleState: { sprintengine: v70SprintState },
+} as never)
+assert.ok(bagOnlyRow.sprintEngineState, 'merge-level reconcile hoists a bag-only entry onto the mirror')
+assert.equal(
+  bagOnlyRow.moduleState?.sprintengine,
+  bagOnlyRow.sprintEngineState,
+  'merge-level reconcile leaves both homes holding the same state',
+)
+const normalRow = {
+  id: 'ws-normal',
+  mode: 'standard',
+  folderPath: '/repo/app',
+  agents: {},
+  sprintEngineState: null,
+} as never as Workspace
+assert.equal(
+  reconcileWorkspaceModuleState(normalRow),
+  normalRow,
+  'a row already in the normal persisted shape loads unchanged, reference and all',
 )
 
 console.log('persistenceSlice.test.ts: ok')

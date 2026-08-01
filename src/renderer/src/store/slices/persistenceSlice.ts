@@ -54,10 +54,11 @@ import {
   dropRetiredRoadmapWorkspaces,
   mapMigrationWorkspaces,
 } from './normalizers'
+import { reconcileWorkspaceModuleState } from './workspaceModuleState'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 70
+export const WORKSPACE_STORE_VERSION = 71
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -1082,6 +1083,20 @@ export function migratePersistedWorkspaceState(
     // split as the v67/v68/v69 rungs above).
     const current = migrationState
     current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
+  }
+  if (version < 71) {
+    // The per-module workspace-state bag arrives with this version (MC-1573):
+    // `Workspace.moduleState` keyed by module id, with `sprintengine` as the
+    // first migrated field (the legacy `sprintEngineState` field stays as a
+    // store-maintained mirror for its in-tree readers). Persisted rows carry a
+    // null run state and no bag — partialize strips both homes — so this rung
+    // is the clean-upgrade half only: it reconciles any row that does carry
+    // one representation (ancient pre-strip profiles, hand-edited state). The
+    // enforcement half is reconcileWorkspaceModuleState in persist merge(),
+    // which runs on every hydration and therefore also heals current-version
+    // envelopes this ladder never revisits (the dev-HMR trap, same split as
+    // the v67-v70 rungs above).
+    mapMigrationWorkspaces(migrationState, reconcileWorkspaceModuleState)
   }
 
   return state as never

@@ -1357,6 +1357,26 @@ export type RendererHost = {
    */
   getWorkspace(workspaceId: string): Promise<ModuleWorkspaceView | null>
   /**
+   * Your module's entry in the workspace's per-module state bag — durable
+   * state your module keeps on a workspace (view choices, selection, panel
+   * config), persisted with the workspace and synced across windows. Scoped
+   * to your module: one module can never read another's entry. `undefined`
+   * means no state is recorded, the workspace id is unknown, or the shell
+   * hasn't wired workspace state yet (early boot) — never a throw and never
+   * a deletion signal; retry later instead of discarding state. Declare the
+   * `storage` permission (install-time disclosure).
+   */
+  getWorkspaceModuleState<T = unknown>(workspaceId: string): T | undefined
+  /**
+   * Replace your module's entry in the workspace's per-module state bag;
+   * null/undefined removes it. Keep entries JSON-serializable — they persist
+   * into the workspace registry verbatim. False means the write was NOT
+   * stored (unknown workspace id, or the shell hasn't wired workspace state
+   * yet) — surface it or retry; never assume success. Declare the `storage`
+   * permission (install-time disclosure).
+   */
+  setWorkspaceModuleState(workspaceId: string, state: unknown): boolean
+  /**
    * The workspace's *effective working root*: where its live work happens.
    * `ModuleWorkspaceView.folderPath` deliberately reports the durable primary
    * checkout; a worktree-backed workspace (sprint runs) does live work under

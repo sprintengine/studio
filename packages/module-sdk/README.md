@@ -88,7 +88,15 @@ contracts, so a published version always matches the app version it ships with.
   availability-filtered catalog), and `watchWorkspaceFile` (debounced
   content watch; declare `ipc:agents` / `filesystem:read-workspace`
   respectively — each fails with a named cause when the Agent Runtime
-  module is disabled).
+  module is disabled), and per-module workspace state —
+  `getWorkspaceModuleState<T>(workspaceId)` /
+  `setWorkspaceModuleState(workspaceId, state)`, your module's own durable
+  entry on the workspace (persisted with the workspace, synced across
+  windows, scoped to your module by the host; keep entries
+  JSON-serializable; read resolves `undefined` and write reports `false`
+  when the workspace is unknown or the shell hasn't wired workspace state
+  yet — retry later, never treat either as a deletion signal; declare
+  `storage`).
 - **Automations providers**: `registerAutomationTrigger` and
   `registerAutomationAction` register trusted module providers with the
   Automations registry using the current `host.moduleId`. Declare
