@@ -2,9 +2,6 @@ import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../sha
 import { activeForChannel } from '../../../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 import { toModuleWorkspaceView } from '../../../shared/modules/workspace-view'
-import { createWorkspaceFileWatcher } from './workspace-file-watch'
-import { createAgentSessionWatcher } from './agent-session-watch'
-import { createModuleAgentSpawner } from './agent-spawn'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
 import { automationsRendererModule } from './automations-module'
 import { backlogRendererModule } from './backlog-module'
@@ -100,7 +97,12 @@ for (const module of ACTIVE_RENDERER_MODULES) {
 // (unit-test bundles construct this module without the store); until it lands
 // (a microtask after boot, before the React root renders any panel) the
 // kernel treats providers as enabled — and watches re-check on every
-// delivery, so nothing started in that window outlives the resolver.
+// delivery, so nothing started in that window outlives the resolver. The
+// live-runtime surface factories (file watch, session watch, agent spawn)
+// ride the same deferred batch: they are only constructed inside this wiring
+// block, and importing them statically would drag them — and their transitive
+// graph — into the eager boot chunk (the bundle-budget ratchet caught exactly
+// that regression, MC-1535/T14).
 if (typeof window !== 'undefined') {
   Promise.all([
     import('../store/workspaceStore'),
@@ -109,8 +111,11 @@ if (typeof window !== 'undefined') {
     import('../components/workspace/newWorkspace/cliRuntimeOptions'),
     import('../utils/agentNames'),
     import('../utils/workspaceWorktree'),
+    import('./workspace-file-watch'),
+    import('./agent-session-watch'),
+    import('./agent-spawn'),
   ])
-    .then(([{ useWorkspaceStore }, terminalSessions, modelRegistry, cliRuntimeOptions, agentNames, workspaceWorktree]) => {
+    .then(([{ useWorkspaceStore }, terminalSessions, modelRegistry, cliRuntimeOptions, agentNames, workspaceWorktree, { createWorkspaceFileWatcher }, { createAgentSessionWatcher }, { createModuleAgentSpawner }]) => {
       rendererHost.setModuleEnablementResolver((moduleId) =>
         selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
       )
