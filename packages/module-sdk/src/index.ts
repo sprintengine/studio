@@ -7,9 +7,9 @@
 // contracts, and that mirrored value exports stay identical. The SDK never
 // imports application code, so the published tarball is self-contained.
 //
-// Some shapes are deliberately narrowed for external publication (renderer
-// internals such as run-glyph providers and workspace supervisors are not in
-// the v1 surface). Every narrowing is listed in README.md.
+// Some shapes are deliberately narrowed for external publication (for
+// example, run-glyph providers receive a minimal input view rather than the
+// shell's internal workspace shape). Every narrowing is listed in README.md.
 
 import type { ComponentType, LazyExoticComponent } from 'react'
 
@@ -909,8 +909,62 @@ export type WorkspaceLayoutTemplate = {
 }
 
 /**
- * A contributed workspace type. Advanced shell hooks (top-bar supervisors,
- * run-glyph providers) are not part of the v1 SDK surface.
+ * A supervisor is a render-nothing React component the shell mounts for your
+ * workspace type — the home for background renderer logic (auto-run loops,
+ * pollers, sync). Lifecycle: `'global'` mounts one instance in the primary
+ * window while your module is enabled (whether or not one of your workspaces
+ * is open); `'all-windows'` mounts one instance per window. Unmounted when
+ * the module is disabled. The shell mounts supervisors inside a crash
+ * boundary and a display:none host: a throw is contained (logged, supervisor
+ * unmounted) and returned markup is never shown — return null. A
+ * supervisor may only touch published SDK surfaces — its power is exactly
+ * what the rest of the SDK exposes.
+ */
+export type WorkspaceTypeSupervisorScope = 'global' | 'all-windows'
+
+export type WorkspaceTypeSupervisorComponent = ComponentType | LazyExoticComponent<ComponentType>
+
+export type WorkspaceTypeSupervisor = {
+  Component: WorkspaceTypeSupervisorComponent
+  scope: WorkspaceTypeSupervisorScope
+}
+
+/**
+ * The published, stable subset of the shell's sidebar-status vocabulary. The
+ * app's own vocabulary is wider and grows; module glyphs stick to this core
+ * so a compiled module never emits a state the running shell can't draw.
+ */
+export type WorkspaceRunGlyphState =
+  | 'todo'
+  | 'ready'
+  | 'in_progress'
+  | 'paused'
+  | 'review'
+  | 'needs_input'
+  | 'done'
+  | 'failed'
+  | 'archived'
+
+/** The sidebar row's one status slot: lifecycle state, liveness, plain label. */
+export type WorkspaceRunGlyph = {
+  state: WorkspaceRunGlyphState
+  /** Adds the live pulse — only while something is actually running. */
+  live: boolean
+  /** Plain-language status, e.g. "2 scheduled today" or "Reviewing PR #12". */
+  label: string
+}
+
+/**
+ * The read view a run-glyph provider derives from. Deliberately minimal: the
+ * provider owns its module's state and consults it synchronously (e.g. a
+ * cache its supervisor maintains); the shell supplies only the identity.
+ */
+export type WorkspaceRunGlyphInput = {
+  mode: string
+}
+
+/**
+ * A contributed workspace type.
  */
 export type WorkspaceTypeDefinition = {
   id: string
@@ -924,6 +978,23 @@ export type WorkspaceTypeDefinition = {
     label: string
     views: WorkspaceTypeTopBarView[]
   }
+  /**
+   * Background renderer components the shell mounts for this type (see
+   * WorkspaceTypeSupervisor). Useful together with the live-runtime surfaces —
+   * a supervisor with nothing observable is a no-op.
+   */
+  supervisors?: WorkspaceTypeSupervisor[]
+  /**
+   * Sidebar status for workspaces of this type. Called for workspaces whose
+   * mode equals this type's id (the mode's own provider always wins the
+   * dispatch); return null for "no run signal" — the shell falls back to its
+   * recency text. Note: while your type ships this hook, collapsed sidebar
+   * rows defer their terminal-derived attention dot to your provider — a
+   * null return reads as "genuinely resting", so return a `needs_input`
+   * glyph when your module wants the user's attention. Synchronous — derive
+   * from module state you already hold, not from IPC.
+   */
+  deriveRunGlyph?(workspace: WorkspaceRunGlyphInput): WorkspaceRunGlyph | null
   creationStepsId?: string
   pickerOrder?: number
 }

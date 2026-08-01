@@ -84,7 +84,12 @@ import type {
   SidebarNavEntryDefinition as AppSidebarNavEntryDefinition,
   WorkspacePanelComponent as AppWorkspacePanelComponent,
   WorkspaceTypeDefinition as AppWorkspaceTypeDefinition,
+  WorkspaceTypeSupervisor as AppWorkspaceTypeSupervisor,
 } from '../../../src/renderer/src/modules/renderer-host'
+import type {
+  WorkspaceRunGlyph as AppWorkspaceRunGlyph,
+  WorkspaceRunGlyphProviderInput as AppWorkspaceRunGlyphProviderInput,
+} from '../../../src/renderer/src/utils/workspaceRunGlyph'
 import type { CommandAvailability as AppCommandAvailability, CommandScope as AppCommandScope, ModuleCommandContext as AppModuleCommandContext } from '../../../src/renderer/src/commands/types'
 import type { ModuleWorkspaceView as AppModuleWorkspaceView } from '../../../src/shared/modules/workspace-view'
 import type {
@@ -152,7 +157,10 @@ import type {
   TriggerKind as SdkTriggerKind,
   WorkspaceLayoutTemplate as SdkWorkspaceLayoutTemplate,
   WorkspacePanelComponent as SdkWorkspacePanelComponent,
+  WorkspaceRunGlyph as SdkWorkspaceRunGlyph,
+  WorkspaceRunGlyphInput as SdkWorkspaceRunGlyphInput,
   WorkspaceTypeDefinition as SdkWorkspaceTypeDefinition,
+  WorkspaceTypeSupervisor as SdkWorkspaceTypeSupervisor,
 } from '../src/index'
 import { BUNDLED_MODULE_IDS as SDK_BUNDLED_MODULE_IDS, KNOWN_CAPABILITY_PERMISSIONS as SDK_KNOWN_CAPABILITY_PERMISSIONS, MULTICODE_FILE_DROP_MIME as SDK_FILE_DROP_MIME } from '../src/index'
 
@@ -236,6 +244,14 @@ expectType<Extends<AppRendererHost, SdkRendererHost>>()
 // Registrability: every SDK-typed contribution remains valid for the app.
 expectType<Extends<SdkWorkspacePanelComponent, AppWorkspacePanelComponent>>()
 expectType<Extends<SdkWorkspaceTypeDefinition, AppWorkspaceTypeDefinition>>()
+// Supervisors + run glyphs (published as sound narrowings): an SDK-typed
+// supervisor mounts as an app supervisor; an SDK glyph result satisfies the
+// app's glyph shape (the published state union is a stable subset of the
+// shell vocabulary); and what the app passes a provider satisfies the
+// published minimal input view.
+expectType<Extends<SdkWorkspaceTypeSupervisor, AppWorkspaceTypeSupervisor>>()
+expectType<Extends<SdkWorkspaceRunGlyph, AppWorkspaceRunGlyph>>()
+expectType<Extends<AppWorkspaceRunGlyphProviderInput, SdkWorkspaceRunGlyphInput>>()
 expectType<Extends<SdkWorkspaceLayoutTemplate, AppLayoutTemplate>>()
 expectType<Extends<SdkModuleCommandDefinition, AppModuleCommandDefinition>>()
 expectType<Extends<SdkBacklogItemAction, AppBacklogItemAction>>()

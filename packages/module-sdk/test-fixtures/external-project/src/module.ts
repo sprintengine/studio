@@ -275,12 +275,28 @@ function createForecastTemplate(): WorkspaceLayoutTemplate {
   }
 }
 
+// Render-nothing background component: the shell mounts it globally while the
+// module is enabled — the home for pollers/sync loops (composed with the
+// published live-runtime surfaces).
+function ForecastSupervisor(): null {
+  useEffect(() => {
+    const timer = setInterval(() => undefined, 60_000)
+    return () => clearInterval(timer)
+  }, [])
+  return null
+}
+
 const forecastWorkspaceType: WorkspaceTypeDefinition = {
   id: 'weather-deck',
   label: 'Weather Deck',
   description: 'Plan work around the forecast.',
   icon: () => null,
   createTemplate: createForecastTemplate,
+  supervisors: [{ Component: ForecastSupervisor, scope: 'global' }],
+  // Sidebar status from module-owned state (sync — a supervisor-maintained
+  // cache in real modules). Only called for this type's own workspaces, so no
+  // mode check; null would mean "no run signal".
+  deriveRunGlyph: () => ({ state: 'in_progress', live: false, label: '2 scheduled today' }),
 }
 
 const markChecked: BacklogItemAction = {

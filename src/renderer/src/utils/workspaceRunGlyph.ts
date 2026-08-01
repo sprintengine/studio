@@ -24,9 +24,18 @@ function isModuleEnabledForRunGlyph(moduleId: string): boolean {
 }
 
 function runGlyphProviderForWorkspace(workspace: WorkspaceRunGlyphProviderInput) {
-  return getRendererHost().getWorkspaceTypes(isModuleEnabledForRunGlyph).find((definition) => {
+  const definitions = getRendererHost().getWorkspaceTypes(isModuleEnabledForRunGlyph)
+  // The mode's own provider wins: the published module contract promises a
+  // type's provider is called for its own workspaces. Predicate-based claims
+  // (Sprint Engine context riding a workspace of another mode) apply only
+  // when the workspace's own mode ships no provider.
+  const modeOwner = definitions.find(
+    (definition) => definition.deriveRunGlyph && definition.id === workspace.mode
+  )
+  if (modeOwner) return modeOwner
+  return definitions.find((definition) => {
     if (!definition.deriveRunGlyph) return false
-    return definition.isRunGlyphProviderForWorkspace?.(workspace) ?? definition.id === workspace.mode
+    return definition.isRunGlyphProviderForWorkspace?.(workspace) === true
   }) ?? null
 }
 

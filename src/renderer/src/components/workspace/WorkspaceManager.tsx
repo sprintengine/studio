@@ -150,6 +150,7 @@ import type { ConversationProviderListResult } from '../../../../shared/electron
 import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowRestore'
 import { EMPTY_CHAT_TEMPLATE, LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { collectWorkspaceTypeSupervisors } from '../../modules/workspace-type-supervisors'
+import { WorkspaceTypeSupervisorHost } from '../../modules/WorkspaceTypeSupervisorHost'
 import { RendererCommandDispatcher } from '../../commands/commandDispatcher'
 import { getCommandDefinition } from '../../commands/commandRegistry'
 import { getElectronAccelerator } from '../../commands/effectiveKeybindings'
@@ -3133,10 +3134,8 @@ export default function WorkspaceManager() {
           workspaceIds={workspaces.map((workspace) => workspace.id)}
         />
       ) : null}
-      {workspaceTypeSupervisors.map(({ key, Component }) => (
-        <React.Suspense key={key} fallback={null}>
-          <Component />
-        </React.Suspense>
+      {workspaceTypeSupervisors.map((supervisor) => (
+        <WorkspaceTypeSupervisorHost key={supervisor.key} supervisor={supervisor} />
       ))}
       {automationsEnabled && ownsGlobalSupervisors ? <AutomationsRunSupervisor /> : null}
 

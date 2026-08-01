@@ -43,7 +43,11 @@ contracts, so a published version always matches the app version it ships with.
 - **Main host**: `registerIpc` (channel ownership enforced), service tokens,
   startup/shutdown hooks, `registerSidecar`, and `notify(severity, title,
   body?)` (identity stamped by the host, per-module flood-bounded).
-- **Renderer host**: `registerPanel`, `registerWorkspaceType`,
+- **Renderer host**: `registerPanel`, `registerWorkspaceType` (workspace
+  types may now ship `supervisors` — render-nothing background components
+  the shell mounts while your module is enabled, inside a crash boundary and
+  a display:none host — and `deriveRunGlyph`, the sidebar status slot:
+  `{ state, live, label }` from the stable `WorkspaceRunGlyphState` subset),
   `registerBacklogItemAction`, `registerBacklogLinkProvider`,
   `registerCommand` (registered id is namespaced `<moduleId>.<id>`; scope
   `panel:<moduleId>` activates while a workspace of your module's mode is
@@ -94,8 +98,12 @@ valid for the app):
 
 - `WorkspacePanelProps` exposes `workspaceId` only (the app may pass extra
   shell-internal props such as future-plan hooks).
-- `WorkspaceTypeDefinition` omits shell-internal hooks (top-bar supervisors,
-  run-glyph providers).
+- `WorkspaceTypeDefinition.deriveRunGlyph` receives a minimal
+  `{ mode }` view (the app passes a richer internal shape) and returns states
+  from the published `WorkspaceRunGlyphState` subset (the shell's own
+  vocabulary is wider and keeps growing); `isRunGlyphProviderForWorkspace` is
+  not published — a module's provider always matches its own mode, and the
+  mode's own provider wins the dispatch.
 - Workspace layout JSON (`WorkspaceLayoutJson`) is a conservative subset of
   the app's FlexLayout model (rows, tabsets, tabs); the app accepts more.
 - `BacklogItemView` widens enumerated app internals (item kind, triage axes)

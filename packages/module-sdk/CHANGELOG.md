@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Workspace supervisors + sidebar run glyphs (MC-1537) published on
+  `WorkspaceTypeDefinition`: `supervisors` (render-nothing background
+  components; scope `'global'` = one instance in the primary window while the
+  module is enabled, `'all-windows'` = one per window; mounted inside a crash
+  boundary and a display:none host) and `deriveRunGlyph(workspace)` (sync
+  sidebar status — `{ state, live, label }` with `state` from the stable
+  `WorkspaceRunGlyphState` subset; input is the minimal `{ mode }` view; the
+  mode's own provider wins the dispatch; return null for "no run signal").
+  Both were v1 narrowings; extraction makes them load-bearing (an auto-run IS
+  a supervisor; the calendar benchmark's "2 scheduled today" badge needs the
+  glyph slot).
 - Module command scopes + availability (MC-1533): `CommandScope` and
   `CommandAvailability` are open at the type level (`(string & {})`) — the
   shell derives a module's `panel:<moduleId>` scope from the workspace-type
