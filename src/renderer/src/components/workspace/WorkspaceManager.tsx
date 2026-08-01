@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Actions, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
-import FirstRunCliCard from '../onboarding/FirstRunCliCard'
 import { shouldShowFirstRunCliCard } from '../../store/onboardingState'
 import { planAgentConfigAdoption } from '../onboarding/agentConfigAdoption'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
@@ -188,6 +187,10 @@ const CORE_SETTINGS_SURFACE = {
   Component: SettingsGlobalSurface,
 } as const
 const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
+// First-run only: the CLI onboarding card (and the CliInstallControl subtree it
+// shares with the lazy Settings panel) mounts on machines with no CLI installed,
+// so it stays out of the eager boot chunk (bundle-budget ratchet).
+const FirstRunCliCard = React.lazy(() => import('../onboarding/FirstRunCliCard'))
 const TipStartupModal = React.lazy(() =>
   import('../learn/TipStartupModal').then((m) => ({ default: m.TipStartupModal })),
 )
@@ -3464,7 +3467,11 @@ export default function WorkspaceManager() {
             while anything else owns the region — a door, the creation hub, the new
             chat panel — so it lands on a workspace the user has already reached
             rather than competing with the thing they opened. */}
-        {showFirstRunCliCard ? <FirstRunCliCard onDismiss={dismissFirstRunCliCard} /> : null}
+        {showFirstRunCliCard ? (
+          <React.Suspense fallback={null}>
+            <FirstRunCliCard onDismiss={dismissFirstRunCliCard} />
+          </React.Suspense>
+        ) : null}
       </div>
       </div>
       {workspaceAsideTenant ? <WorkspaceAsideMount tenant={workspaceAsideTenant} /> : null}
