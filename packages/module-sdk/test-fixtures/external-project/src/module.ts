@@ -22,9 +22,11 @@ import {
   type ModuleWorkspaceView,
   type RegisterMain,
   type RegisterRenderer,
+  type WorkspaceCreationStepProps,
   type WorkspaceLayoutTemplate,
   type WorkspacePanelComponent,
   type WorkspacePanelProps,
+  type WorkspaceTypeCreateContext,
   type WorkspaceTypeDefinition,
   WorkspaceContextToken,
 } from '@multicode/module-sdk'
@@ -253,7 +255,11 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
   }
 }
 
-function createForecastTemplate(): WorkspaceLayoutTemplate {
+function createForecastTemplate(context?: WorkspaceTypeCreateContext): WorkspaceLayoutTemplate {
+  // The creation step's collected value arrives here; a broken/skipped step
+  // hands undefined, so the template must always work without it.
+  const city =
+    typeof context?.stepValue === 'string' && context.stepValue.trim() ? context.stepValue.trim() : null
   return {
     id: 'weather-deck-board',
     name: 'Weather board',
@@ -267,7 +273,7 @@ function createForecastTemplate(): WorkspaceLayoutTemplate {
       layout: {
         type: 'row',
         children: [
-          { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Forecast', component: 'weather-deck.forecast' }] },
+          { type: 'tabset', weight: 50, children: [{ type: 'tab', name: city ? `Forecast: ${city}` : 'Forecast', component: 'weather-deck.forecast' }] },
           { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'agent-1' } }] },
         ],
       },
@@ -286,11 +292,29 @@ function ForecastSupervisor(): null {
   return null
 }
 
+// Module-owned config step in the creation hub: the collected value reaches
+// createTemplate(context) on create; isReady gates the Create button.
+function ForecastCityStep({ value, setValue }: WorkspaceCreationStepProps) {
+  return createElement('input', {
+    value: typeof value === 'string' ? value : '',
+    placeholder: 'City to forecast',
+    onChange: (event: { target: { value: string } }) => setValue(event.target.value),
+  })
+}
+
 const forecastWorkspaceType: WorkspaceTypeDefinition = {
   id: 'weather-deck',
   label: 'Weather Deck',
   description: 'Plan work around the forecast.',
   icon: () => null,
+  creationStep: {
+    id: 'forecast-city',
+    heading: 'Which city?',
+    description: 'The forecast panel opens on this city.',
+    Component: ForecastCityStep,
+    isReady: (value) => typeof value === 'string' && value.trim().length > 0,
+    blockedHint: 'Name a city to forecast.',
+  },
   createTemplate: createForecastTemplate,
   supervisors: [{ Component: ForecastSupervisor, scope: 'global' }],
   // Sidebar status from module-owned state (sync — a supervisor-maintained

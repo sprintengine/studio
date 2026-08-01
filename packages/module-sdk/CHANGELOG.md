@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Module-owned workspace-creation config steps (MC-1534):
+  `WorkspaceTypeDefinition.creationStep` —
+  `{ id, heading, description?, Component, isReady?, blockedHint? }`, one
+  step per type in v1. The hub renders the step as the flow's one config page
+  after the shared name/folder fields; `Component` receives
+  `{ value, setValue }` (`WorkspaceCreationStepProps`); `isReady(value)`
+  gates the Create button and `blockedHint` is the footer hint while it is
+  false. The collected value arrives in the new optional
+  `createTemplate(context?: WorkspaceTypeCreateContext)` argument
+  (`{ stepValue?: unknown }`) — the shell holds it for the pane's lifetime
+  only and persists nothing. A throwing step component degrades to the
+  type's zero-config create with an inline notice; it never blocks the hub.
+
 - Workspace supervisors + sidebar run glyphs (MC-1537) published on
   `WorkspaceTypeDefinition`: `supervisors` (render-nothing background
   components; scope `'global'` = one instance in the primary window while the

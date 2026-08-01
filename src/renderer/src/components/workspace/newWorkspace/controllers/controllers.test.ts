@@ -215,6 +215,32 @@ function testBuildModuleTypeCreation(): void {
     (error) => error instanceof ModuleTypeControllerError && error.code === 'unknown-type',
     'throws for an unregistered mode'
   )
+
+  // The module creation step's collected value reaches createTemplate(context).
+  const contexts: Array<{ stepValue?: unknown } | undefined> = []
+  getRendererHost()
+    .hostFor('controller-step-module')
+    .registerWorkspaceType({
+      id: 'controller-step-module',
+      label: 'Controller Step',
+      description: 'Module type with a creation step.',
+      icon: () => null,
+      creationStep: { id: 'step', heading: 'Step', Component: () => null },
+      createTemplate: (context) => {
+        contexts.push(context)
+        return {
+          id: 'controller-step-template',
+          name: 'Controller Step',
+          description: 'test',
+          previewSlots: [],
+          layout: { layout: { type: 'row', children: [] } },
+        }
+      },
+    })
+  buildModuleTypeCreation({ mode: 'controller-step-module', name: 'x', folderPath: '/p', stepValue: { goal: 'ship' } })
+  assert.deepEqual(contexts[0], { stepValue: { goal: 'ship' } }, 'stepValue reaches createTemplate')
+  buildModuleTypeCreation({ mode: 'controller-step-module', name: 'x', folderPath: '/p' })
+  assert.deepEqual(contexts[1], { stepValue: undefined }, 'no step value passes undefined, never throws')
 }
 
 function testBuildSwitchboardCreation(): void {

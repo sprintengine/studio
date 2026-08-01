@@ -46,8 +46,16 @@ contracts, so a published version always matches the app version it ships with.
 - **Renderer host**: `registerPanel`, `registerWorkspaceType` (workspace
   types may now ship `supervisors` — render-nothing background components
   the shell mounts while your module is enabled, inside a crash boundary and
-  a display:none host — and `deriveRunGlyph`, the sidebar status slot:
-  `{ state, live, label }` from the stable `WorkspaceRunGlyphState` subset),
+  a display:none host — `deriveRunGlyph`, the sidebar status slot:
+  `{ state, live, label }` from the stable `WorkspaceRunGlyphState` subset —
+  and `creationStep`, one module-owned config page in the workspace-creation
+  hub: `{ id, heading, description?, Component, isReady?, blockedHint? }`,
+  where `Component` receives `{ value, setValue }`, `isReady(value)` gates
+  the Create button with `blockedHint` as the footer hint, and the collected
+  value arrives in `createTemplate(context?: { stepValue?: unknown })`; the
+  shell holds the value for the pane's lifetime only and persists nothing —
+  a throwing step component degrades to your type's zero-config create with
+  an inline notice, never a blocked hub),
   `registerBacklogItemAction`, `registerBacklogLinkProvider`,
   `registerCommand` (registered id is namespaced `<moduleId>.<id>`; scope
   `panel:<moduleId>` activates while a workspace of your module's mode is

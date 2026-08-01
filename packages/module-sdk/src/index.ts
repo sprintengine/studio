@@ -964,6 +964,42 @@ export type WorkspaceRunGlyphInput = {
 }
 
 /**
+ * A module-owned config step in the workspace-creation hub. One step per type
+ * (v1): the hub renders it as the flow's one config page after the shared
+ * name/folder fields, holds the value for the pane's lifetime only (nothing
+ * persists shell-side), and hands it to `createTemplate(context)` on create.
+ * A throwing Component degrades to the type's zero-config flow with an inline
+ * notice — it never blocks the hub.
+ */
+export type WorkspaceCreationStepProps = {
+  value: unknown
+  setValue: (value: unknown) => void
+}
+
+export type WorkspaceCreationStepComponent =
+  | ComponentType<WorkspaceCreationStepProps>
+  | LazyExoticComponent<ComponentType<WorkspaceCreationStepProps>>
+
+export type WorkspaceTypeCreationStep = {
+  id: string
+  /** Page title in the hub pane. */
+  heading: string
+  /** One-line page subtitle. */
+  description?: string
+  Component: WorkspaceCreationStepComponent
+  /** Gates the Create button; absent means the step never blocks creation. */
+  isReady?: (value: unknown) => boolean
+  /** Footer hint while isReady is false, e.g. "Name a city to forecast." */
+  blockedHint?: string
+}
+
+/** Context handed to `createTemplate` on create. */
+export type WorkspaceTypeCreateContext = {
+  /** The module creation step's collected value; undefined without a step. */
+  stepValue?: unknown
+}
+
+/**
  * A contributed workspace type.
  */
 export type WorkspaceTypeDefinition = {
@@ -973,7 +1009,7 @@ export type WorkspaceTypeDefinition = {
   icon: WorkspaceTypeIconComponent
   accentToken?: string
   searchTerms?: string[]
-  createTemplate(): WorkspaceLayoutTemplate
+  createTemplate(context?: WorkspaceTypeCreateContext): WorkspaceLayoutTemplate
   topBarViews?: {
     label: string
     views: WorkspaceTypeTopBarView[]
@@ -995,6 +1031,8 @@ export type WorkspaceTypeDefinition = {
    * from module state you already hold, not from IPC.
    */
   deriveRunGlyph?(workspace: WorkspaceRunGlyphInput): WorkspaceRunGlyph | null
+  /** The type's config step in the creation hub (one per type in v1). */
+  creationStep?: WorkspaceTypeCreationStep
   creationStepsId?: string
   pickerOrder?: number
 }

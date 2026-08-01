@@ -11,6 +11,8 @@ export type ModuleTypeControllerInput = {
   mode: string
   name: string
   folderPath: string | null
+  /** The module creation step's collected value; undefined without a step. */
+  stepValue?: unknown
 }
 
 export class ModuleTypeControllerError extends Error {
@@ -25,7 +27,7 @@ export function buildModuleTypeCreation(input: ModuleTypeControllerInput): OnCre
   if (!definition) throw new ModuleTypeControllerError('unknown-type')
   if (!input.folderPath) throw new ModuleTypeControllerError('missing-folder')
   return {
-    template: definition.createTemplate(),
+    template: definition.createTemplate({ stepValue: input.stepValue }),
     name: input.name.trim() || definition.label,
     folderPath: input.folderPath,
     mode: input.mode as WorkspaceMode,

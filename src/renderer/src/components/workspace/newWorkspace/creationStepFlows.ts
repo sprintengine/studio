@@ -29,6 +29,9 @@ export type StepId =
   | 'sprintengine-start'
   | 'guided-idea'
   | 'review-source'
+  // A module-contributed config step (WorkspaceTypeDefinition.creationStep):
+  // heading/body come from the registered step, not the shell's heading map.
+  | 'module-step'
 
 // The hub's flows are keyed by a closed set of flow ids. A registered workspace
 // type points at one of these via its creationStepsId; 'standard' is the
@@ -102,7 +105,10 @@ export function stepsForMode(mode: CreationMode): StepId[] {
   const stepsId = definition?.creationStepsId
   if (isCreationStepsId(stepsId)) return STEPS_BY_MODE[stepsId]
   // A registered type with no shell flow (module-contributed types) ships its
-  // own createTemplate(): zero-config, the same shape the standard flow now has.
+  // own createTemplate(): with a contributed creationStep the flow is the
+  // shared fields plus that one module step; without one it is zero-config,
+  // the same shape the standard flow now has.
+  if (definition?.creationStep) return ['workspace', 'module-step']
   if (definition) return ['workspace']
   return STEPS_BY_MODE.standard
 }

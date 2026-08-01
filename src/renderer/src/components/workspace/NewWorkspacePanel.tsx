@@ -4,6 +4,7 @@ import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost } from '../../modules'
+import { ModuleCreationStepSection } from './newWorkspace/ModuleCreationStepSection'
 import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
 import { createReviewTemplate } from '../../modules/review-workspace-types'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEW_WORKSPACE_MODE } from '../../types/workspace'
@@ -188,6 +189,12 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     title: 'What are you reviewing?',
     subtitle: 'Point this workspace at one set of changes — a pull request, a branch, or a pasted patch.',
   },
+  // Placeholder only — a module step renders its own registered heading via
+  // ModuleCreationStepSection, and stepHeading/stepLabels substitute it too.
+  'module-step': {
+    title: 'Configure',
+    subtitle: '',
+  },
 }
 
 // Short station names for the labeled progress header (MC-1646): the sprint
@@ -204,6 +211,7 @@ const STEP_LABEL: Record<StepId, string> = {
   'sprintengine-start': 'Start',
   'guided-idea': 'What',
   'review-source': 'What',
+  'module-step': 'Configure',
 }
 
 const SOURCE_PLAN_KIND_LABELS: Record<SprintEngineSourcePlanKind, string> = {
@@ -561,6 +569,17 @@ export default function NewWorkspacePanel({
   const [reviewGuideModel, setReviewGuideModel] = useState<string | null>(null)
   const [reviewDepth, setReviewDepth] = useState<'brief' | 'standard' | 'thorough'>('standard')
   const [reviewError, setReviewError] = useState<string | null>(null)
+
+  // Module-contributed creation step (WorkspaceTypeDefinition.creationStep):
+  // the collected value lives here for the pane's lifetime only and resets on
+  // mode change; `broken` records a thrown step component, degrading the flow
+  // to the type's zero-config path instead of blocking the hub.
+  const [moduleStepValue, setModuleStepValue] = useState<unknown>(undefined)
+  const [moduleStepBroken, setModuleStepBroken] = useState(false)
+  useEffect(() => {
+    setModuleStepValue(undefined)
+    setModuleStepBroken(false)
+  }, [mode])
 
   const [guidedIdea, setGuidedIdea] = useState('')
   const [guidedPreset, setGuidedPreset] = useState<GuidedBriefPreset>('full-brief')
@@ -1057,9 +1076,20 @@ export default function NewWorkspacePanel({
   )
   const stepIndex = stepIndexIn(steps, step)
   const isLastStep = isLastStepIn(steps, step)
+  // The active mode's contributed creation step, if any: its registered
+  // heading replaces the shell's 'module-step' placeholder wherever the page
+  // is named (progress labels, back-jump titles, the page heading itself).
+  const moduleCreationStep =
+    mode !== 'standard' && mode !== 'chat'
+      ? getRendererHost().getWorkspaceType(mode)?.creationStep ?? null
+      : null
   const stepLabels = useMemo(
-    () => steps.map((id) => (mode === 'sprintengine' ? STEP_LABEL[id] : STEP_HEADING[id].title)),
-    [steps, mode],
+    () =>
+      steps.map((id) => {
+        if (id === 'module-step' && moduleCreationStep) return moduleCreationStep.heading
+        return mode === 'sprintengine' ? STEP_LABEL[id] : STEP_HEADING[id].title
+      }),
+    [steps, mode, moduleCreationStep],
   )
   // The optional Advanced setup disclosure rides the flow's final page, for any
   // flow with real config steps; the zero-config quick flows (chat, switchboard,
@@ -1383,12 +1413,32 @@ export default function NewWorkspacePanel({
     guidedPreset !== 'design-system' || guidedSeedMode === 'blank' || guidedSeedSource != null
   const guidedIdeaReady = guidedIdea.trim().length > 0 && guidedHasUi != null && guidedSeedReady
 
+  // The module step gates create only through its own optional isReady; a
+  // broken (thrown) component degrades to zero-config, so it never blocks.
+  // isReady is module code running in the shell's render path, outside the
+  // step's error boundary — a throw here must fail open (never block the
+  // hub), like the thrown-Component degradation.
+  const moduleStepReady =
+    !configSteps.includes('module-step')
+    || moduleStepBroken
+    || moduleCreationStep == null
+    || !moduleCreationStep.isReady
+    || (() => {
+      try {
+        return moduleCreationStep.isReady(moduleStepValue) === true
+      } catch (error) {
+        console.error('[modules] workspace creation step isReady threw:', error)
+        return true
+      }
+    })()
+
   const stepReadiness = {
     workspaceStepReady,
     sprintEngineTeamReady,
     sprintEngineRosterReady,
     guidedIdeaReady,
     reviewSourceReady,
+    moduleStepReady,
   }
   // Every non-chat create requires the name+folder fields plus the mode's own
   // config steps; the first unready one drives the footer's blocking hint.
@@ -1421,6 +1471,8 @@ export default function NewWorkspacePanel({
     step: hintStep,
     workspaceFolderReady: folderTargetUsable,
     name,
+    moduleStepReady,
+    moduleStepBlockedHint: moduleCreationStep?.blockedHint ?? null,
     sePath,
     sePlanReady,
     seExistingTeam,
@@ -2338,7 +2390,12 @@ export default function NewWorkspacePanel({
     // no layout picker (see stepsForMode), so nothing here overrides it.
     if (mode !== 'standard' && getRendererHost().getWorkspaceType(mode)) {
       if (!folderPath) return
-      const args = buildModuleTypeCreation({ mode, name, folderPath })
+      const args = buildModuleTypeCreation({
+        mode,
+        name,
+        folderPath,
+        stepValue: moduleStepBroken ? undefined : moduleStepValue,
+      })
       setIsCreating(true)
       try {
         if (await persistAdvancedSetup(folderPath)) return
@@ -2511,7 +2568,10 @@ export default function NewWorkspacePanel({
   // moment createReady turns true, so from there the user can leave at any time.
   // A per-page Skip button as well would make people stop and read the footer.
   const showSkipToCreate = shouldShowSkipToCreate({ createReady, isLastStep })
-  const stepHeading = STEP_HEADING[step]
+  const stepHeading =
+    step === 'module-step' && moduleCreationStep
+      ? { title: moduleCreationStep.heading, subtitle: moduleCreationStep.description ?? '' }
+      : STEP_HEADING[step]
   const stepAnimationClass =
     direction === 'forward' ? 'wizard-step-in-forward' : 'wizard-step-in-backward'
   // The sprint's source page (backlog picker, team cards) is the one wide page;
@@ -2891,6 +2951,20 @@ export default function NewWorkspacePanel({
                 createError={reviewError}
               />
             </ConfigStepSection>
+          ) : null}
+
+          {/* The module-contributed config page (MC-1534): the registered
+              step's own heading in the shared page chrome, behind an error
+              boundary that degrades to the type's zero-config create. */}
+          {step === 'module-step' && moduleCreationStep ? (
+            <ModuleCreationStepSection
+              step={moduleCreationStep}
+              headingRef={headingRef}
+              value={moduleStepValue}
+              setValue={setModuleStepValue}
+              broken={moduleStepBroken}
+              onBroken={() => setModuleStepBroken(true)}
+            />
           ) : null}
 
           {/* The sprint's rebuilt config pages (MC-1646): Team, Tools & skills,
@@ -4469,6 +4543,7 @@ function isStepReady(
     sprintEngineRosterReady: boolean
     guidedIdeaReady: boolean
     reviewSourceReady: boolean
+    moduleStepReady: boolean
   },
 ): boolean {
   switch (step) {
@@ -4495,6 +4570,8 @@ function isStepReady(
       return readiness.guidedIdeaReady
     case 'review-source':
       return readiness.reviewSourceReady
+    case 'module-step':
+      return readiness.moduleStepReady
   }
 }
 
@@ -4512,6 +4589,8 @@ function getStepBlockingMessage(args: {
   step: StepId
   workspaceFolderReady: boolean
   name: string
+  moduleStepReady: boolean
+  moduleStepBlockedHint: string | null
   sePath: SprintEnginePath
   sePlanReady: boolean
   seExistingTeam: ExistingTeam | null
@@ -4584,6 +4663,9 @@ function getStepBlockingMessage(args: {
     // the footer shows next to the Start sprint action.
     case 'sprintengine-start':
       if (seExistingTeam) return 'Ready to load team.'
+      return 'Ready to create.'
+    case 'module-step':
+      if (!args.moduleStepReady) return args.moduleStepBlockedHint ?? 'Complete the configuration to create.'
       return 'Ready to create.'
     case 'guided-idea':
       if (!guidedIdea.trim()) return 'Describe the idea in a sentence or two.'

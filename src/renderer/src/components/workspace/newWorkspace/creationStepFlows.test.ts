@@ -114,4 +114,34 @@ assert.deepEqual(STEPS_BY_MODE.automations, ['workspace'])
   )
 }
 
+// A registered type WITH a contributed creationStep resolves to the shared
+// fields plus its one module step — never the standard flow.
+{
+  getRendererHost()
+    .hostFor('flow-step-module')
+    .registerWorkspaceType({
+      id: 'flow-step-module',
+      label: 'Flow Step Test',
+      description: 'Module-contributed type with a creation step.',
+      icon: () => null,
+      creationStep: {
+        id: 'flow-step',
+        heading: 'Configure the thing',
+        Component: () => null,
+      },
+      createTemplate: () => ({
+        id: 'flow-step-test',
+        name: 'Flow Step Test',
+        description: 'test',
+        previewSlots: [],
+        layout: { layout: { type: 'row', children: [] } },
+      }),
+    })
+  assert.deepEqual(
+    stepsForMode('flow-step-module'),
+    ['workspace', 'module-step'],
+    'module-contributed type with a creationStep gets the module step'
+  )
+}
+
 console.log('creation step flow tests passed')

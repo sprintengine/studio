@@ -82,7 +82,10 @@ import type {
   SettingsSectionDefinition as AppSettingsSectionDefinition,
   SettingsSectionProps as AppSettingsSectionProps,
   SidebarNavEntryDefinition as AppSidebarNavEntryDefinition,
+  WorkspaceCreationStepProps as AppWorkspaceCreationStepProps,
   WorkspacePanelComponent as AppWorkspacePanelComponent,
+  WorkspaceTypeCreateContext as AppWorkspaceTypeCreateContext,
+  WorkspaceTypeCreationStep as AppWorkspaceTypeCreationStep,
   WorkspaceTypeDefinition as AppWorkspaceTypeDefinition,
   WorkspaceTypeSupervisor as AppWorkspaceTypeSupervisor,
 } from '../../../src/renderer/src/modules/renderer-host'
@@ -155,10 +158,13 @@ import type {
   SidebarNavEntryDefinition as SdkSidebarNavEntryDefinition,
   SidecarSpec as SdkSidecarSpec,
   TriggerKind as SdkTriggerKind,
+  WorkspaceCreationStepProps as SdkWorkspaceCreationStepProps,
   WorkspaceLayoutTemplate as SdkWorkspaceLayoutTemplate,
   WorkspacePanelComponent as SdkWorkspacePanelComponent,
   WorkspaceRunGlyph as SdkWorkspaceRunGlyph,
   WorkspaceRunGlyphInput as SdkWorkspaceRunGlyphInput,
+  WorkspaceTypeCreateContext as SdkWorkspaceTypeCreateContext,
+  WorkspaceTypeCreationStep as SdkWorkspaceTypeCreationStep,
   WorkspaceTypeDefinition as SdkWorkspaceTypeDefinition,
   WorkspaceTypeSupervisor as SdkWorkspaceTypeSupervisor,
 } from '../src/index'
@@ -252,6 +258,14 @@ expectType<Extends<SdkWorkspaceTypeDefinition, AppWorkspaceTypeDefinition>>()
 expectType<Extends<SdkWorkspaceTypeSupervisor, AppWorkspaceTypeSupervisor>>()
 expectType<Extends<SdkWorkspaceRunGlyph, AppWorkspaceRunGlyph>>()
 expectType<Extends<AppWorkspaceRunGlyphProviderInput, SdkWorkspaceRunGlyphInput>>()
+// Module creation steps (MC-1534): a plain `Extends` on the whole definition
+// cannot catch a missing/renamed optional property, so the step and its two
+// wire shapes are pinned exactly — the hub mounts the SDK-typed Component with
+// exactly WorkspaceCreationStepProps, and createTemplate receives exactly
+// WorkspaceTypeCreateContext.
+expectType<IsExact<AppWorkspaceCreationStepProps, SdkWorkspaceCreationStepProps>>()
+expectType<IsExact<AppWorkspaceTypeCreateContext, SdkWorkspaceTypeCreateContext>>()
+expectType<IsExact<AppWorkspaceTypeCreationStep, SdkWorkspaceTypeCreationStep>>()
 expectType<Extends<SdkWorkspaceLayoutTemplate, AppLayoutTemplate>>()
 expectType<Extends<SdkModuleCommandDefinition, AppModuleCommandDefinition>>()
 expectType<Extends<SdkBacklogItemAction, AppBacklogItemAction>>()

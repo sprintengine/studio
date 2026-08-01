@@ -55,6 +55,40 @@ export type WorkspaceTypeSupervisor = {
   scope: WorkspaceTypeSupervisorScope
 }
 
+// A module-owned config step in the workspace-creation hub. One step per type
+// (v1): the hub renders it as the flow's one config page after the shared
+// name/folder fields, holds the value shell-side for the pane's lifetime only,
+// and hands it to createTemplate(context) on create — nothing is persisted by
+// the shell. A throwing Component degrades to the type's zero-config flow
+// (standard error surface), never a blocked hub.
+export type WorkspaceCreationStepProps = {
+  value: unknown
+  setValue: (value: unknown) => void
+}
+
+export type WorkspaceCreationStepComponent =
+  | ComponentType<WorkspaceCreationStepProps>
+  | LazyExoticComponent<ComponentType<WorkspaceCreationStepProps>>
+
+export type WorkspaceTypeCreationStep = {
+  id: string
+  /** Page title in the hub pane. */
+  heading: string
+  /** One-line page subtitle. */
+  description?: string
+  Component: WorkspaceCreationStepComponent
+  /** Gates the Create button; absent means the step never blocks creation. */
+  isReady?: (value: unknown) => boolean
+  /** Footer hint while isReady is false, e.g. "Name a city to forecast." */
+  blockedHint?: string
+}
+
+/** Context handed to createTemplate on create. */
+export type WorkspaceTypeCreateContext = {
+  /** The module creation step's collected value; undefined without a step. */
+  stepValue?: unknown
+}
+
 export type WorkspaceTypeDefinition = {
   id: string
   label: string
@@ -62,7 +96,7 @@ export type WorkspaceTypeDefinition = {
   icon: WorkspaceTypeIconComponent
   accentToken?: string
   searchTerms?: string[]
-  createTemplate(): LayoutTemplate
+  createTemplate(context?: WorkspaceTypeCreateContext): LayoutTemplate
   topBarViews?: {
     label: string
     views: WorkspaceTypeTopBarView[]
@@ -70,6 +104,8 @@ export type WorkspaceTypeDefinition = {
   isRunGlyphProviderForWorkspace?(workspace: WorkspaceRunGlyphProviderInput): boolean
   deriveRunGlyph?(workspace: WorkspaceRunGlyphProviderInput): WorkspaceRunGlyph | null
   supervisors?: WorkspaceTypeSupervisor[]
+  /** The type's config step in the creation hub (one per type in v1). */
+  creationStep?: WorkspaceTypeCreationStep
   creationStepsId?: string
   pickerOrder?: number
   /**
