@@ -1,6 +1,7 @@
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import { activeForChannel } from '../../../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
+import { toModuleWorkspaceView } from '../../../shared/modules/workspace-view'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
 import { automationsRendererModule } from './automations-module'
 import { backlogRendererModule } from './backlog-module'
@@ -103,9 +104,21 @@ if (typeof window !== 'undefined') {
       rendererHost.setModuleEnablementResolver((moduleId) =>
         selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
       )
+      // Workspace-view source for RendererHost.getWorkspace: a fresh snapshot
+      // object per lookup (never a store reference), null for unknown ids —
+      // the same shared mapping the main-side WorkspaceContextToken uses.
+      rendererHost.setWorkspaceResolver((workspaceId) => {
+        const workspace = useWorkspaceStore.getState().workspaces.find((entry) => entry.id === workspaceId)
+        return workspace ? toModuleWorkspaceView(workspace) : null
+      })
     })
-    .catch(() => {
-      // Windowless bundles (unit tests) have no store; the kernel default applies.
+    .catch((error) => {
+      // Windowless bundles (unit tests) have no store; the kernel default
+      // applies. Anything else here means module reads run unwired app-wide —
+      // say so instead of failing silently.
+      if (typeof document !== 'undefined') {
+        console.error('[modules] failed to wire kernel resolvers from the workspace store:', error)
+      }
     })
 }
 

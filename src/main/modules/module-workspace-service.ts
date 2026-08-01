@@ -3,6 +3,7 @@ import {
   type WorkspaceCreateDeps,
   type WorkspaceCreateInput,
 } from '../workspace-create'
+import { toModuleWorkspaceView, type ModuleWorkspaceView } from '../../shared/modules/workspace-view'
 
 // The workspace-creation service capability modules consume via the host
 // service bridge (WorkspaceServiceToken). It is a thin adapter over the shared
@@ -30,6 +31,33 @@ export function createModuleWorkspaceService(
       const outcome = await createWorkspaceConfirmed(input, backends)
       if (!outcome.ok) return { ok: false, code: outcome.code, message: outcome.message }
       return { ok: true, workspaceId: outcome.workspaceId }
+    },
+  }
+}
+
+// Read-only workspace context resolution (WorkspaceContextToken): the main-side
+// twin of RendererHost.getWorkspace, backed by the same workspace-sync snapshot
+// the create flow confirms against. Unknown ids — and post-restart routing
+// placeholders whose folder path hasn't re-hydrated yet — resolve to null
+// (not currently resolvable), never a throw.
+export type { ModuleWorkspaceView } from '../../shared/modules/workspace-view'
+
+export type ModuleWorkspaceContextService = {
+  get(workspaceId: string): Promise<ModuleWorkspaceView | null>
+}
+
+export type ModuleWorkspaceContextBackends = Pick<WorkspaceCreateDeps, 'getWorkspaceSyncSnapshot'>
+
+export function createModuleWorkspaceContextService(
+  backends: ModuleWorkspaceContextBackends
+): ModuleWorkspaceContextService {
+  return {
+    async get(workspaceId): Promise<ModuleWorkspaceView | null> {
+      const workspace = backends
+        .getWorkspaceSyncSnapshot()
+        .state.workspaces.find((entry) => entry.id === workspaceId)
+      if (!workspace) return null
+      return toModuleWorkspaceView(workspace)
     },
   }
 }

@@ -57,7 +57,11 @@ contracts, so a published version always matches the app version it ships with.
   API — `listBacklogItems(workspaceId)` / `watchBacklogItems(workspaceId, cb)`
   return `BacklogItemView`s from the same scan the Backlog panel uses (watch
   fires with the current snapshot, then on change; declare `backlog.read`;
-  both fail with a named cause when the backlog module is disabled).
+  both fail with a named cause when the backlog module is disabled), and
+  `getWorkspace(workspaceId)` — the workspace's read-only
+  `ModuleWorkspaceView` (`{ id, name, folderPath, mode }`; unknown ids
+  resolve `null`, never a throw; declare `ipc:workspace-read`). The
+  `entry.main` twin is `WorkspaceContextToken` (`core.workspace-context`).
 - **Automations providers**: `registerAutomationTrigger` and
   `registerAutomationAction` register trusted module providers with the
   Automations registry using the current `host.moduleId`. Declare
@@ -192,6 +196,21 @@ export const registerMain: RegisterMain = (host) => {
 bus, so the returned id is always a real, confirmed workspace (or an explicit
 failure). The service is provided by the always-on `agent-runtime` core, so
 `requireService` never throws for it.
+
+To resolve an existing workspace id to its folder root, name, and mode —
+per-workspace persistence paths, scoped Automations `workspaceRoot`s — use the
+read-only workspace context (also always-on; declare `ipc:workspace-read`):
+
+```ts
+import { WorkspaceContextToken } from '@multicode/module-sdk'
+
+const workspaces = host.requireService(WorkspaceContextToken)
+const view = await workspaces.get(workspaceId)
+// { id, name, folderPath, mode } | null — unknown ids are null, never a throw
+```
+
+Renderer panels get the same view from `host.getWorkspace(workspaceId)` (a
+snapshot read, not a subscription — live state is a separate surface).
 
 ## Creating automations from a module
 

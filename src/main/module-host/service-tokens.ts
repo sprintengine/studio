@@ -6,7 +6,7 @@ import type { SprintEngineAutomationFrontDoors } from '../automations/actions/sp
 import type { SwitchboardAutomationFrontDoors } from '../automations/actions/switchboard'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { RoadmapAppFrontDoor } from '../roadmap-orchestrator'
-import type { ModuleWorkspaceService } from '../modules/module-workspace-service'
+import type { ModuleWorkspaceContextService, ModuleWorkspaceService } from '../modules/module-workspace-service'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
 import type { ReviewChangeSetService } from '../review/changeset-service'
 import type { ReviewGuideTerminalService } from '../review/guide-terminal-service'
@@ -78,6 +78,9 @@ export const SprintEngineAutomationFrontDoorsToken = createServiceToken<SprintEn
 // SDK's WorkspaceServiceToken ('core.workspace') so a module that imports the
 // token from @multicode/module-sdk resolves the instance the app provides here.
 export const WorkspaceServiceToken = createServiceToken<ModuleWorkspaceService>('core.workspace')
+// Read-only workspace context (id → root/name/mode). The key MUST equal the
+// SDK's WorkspaceContextToken ('core.workspace-context') for the same reason.
+export const WorkspaceContextToken = createServiceToken<ModuleWorkspaceContextService>('core.workspace-context')
 // The app-internal companion-agent service (attach workspace-bound background
 // agents). Consumed by first-party surfaces via requireService.
 export const CompanionAgentServiceToken = createServiceToken<CompanionAgentService>(

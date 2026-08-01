@@ -249,6 +249,46 @@ export type WorkspaceService = {
 export const WorkspaceServiceToken: ServiceToken<WorkspaceService> =
   createServiceToken<WorkspaceService>('core.workspace')
 
+/**
+ * Read-only workspace snapshot: the id → root/name/mode resolution modules
+ * need for per-workspace persistence keys and scoped services. A snapshot,
+ * not a subscription — live session/workspace observation is a separate
+ * surface.
+ */
+export type ModuleWorkspaceView = {
+  id: string
+  name: string
+  /**
+   * Absolute folder the workspace opened (its primary checkout); null for
+   * folderless workspaces. Note for Sprint-run worktree-backed workspaces:
+   * the run's agents work in a git worktree under this folder — this
+   * snapshot deliberately reports the durable project root (the right base
+   * for persistence and scoped services), not the transient worktree.
+   */
+  folderPath: string | null
+  /** Workspace type id ('standard' or a module-registered type). */
+  mode: string
+}
+
+/**
+ * Resolve a workspace id to its read-only view from `entry.main`. A null
+ * resolution means "not currently resolvable" — an unknown id, or workspace
+ * state that has not re-hydrated yet (e.g. right after app launch). Never a
+ * throw, and never a deletion signal: retry later instead of discarding
+ * per-workspace state. Declare the `ipc:workspace-read` permission
+ * (install-time disclosure). The renderer twin is `RendererHost.getWorkspace`.
+ */
+export type WorkspaceContextService = {
+  get(workspaceId: string): Promise<ModuleWorkspaceView | null>
+}
+
+/**
+ * Resolve with `host.requireService(WorkspaceContextToken)` from a module's
+ * `entry.main`. Always available — provided by the always-on agent-runtime core.
+ */
+export const WorkspaceContextToken: ServiceToken<WorkspaceContextService> =
+  createServiceToken<WorkspaceContextService>('core.workspace-context')
+
 // ── Automations providers (host-provided, consumed via the service bridge) ────
 
 export type JsonSchema = Record<string, unknown>
@@ -814,7 +854,8 @@ export type WorkspaceTypeDefinition = {
 // ── Backlog contributions ────────────────────────────────────────────────────
 
 export type BacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
-export type BacklogItemLinkStatus = 'active' | 'completed' | 'canceled' | 'failed' | 'unknown'
+// `pending` is lifecycle-neutral: the work is recorded but has not started.
+export type BacklogItemLinkStatus = 'pending' | 'active' | 'completed' | 'canceled' | 'failed' | 'unknown'
 
 export type BacklogItemLink = {
   id: string
@@ -826,8 +867,19 @@ export type BacklogItemLink = {
     id: string
     path?: string
     url?: string
+    /**
+     * The one task inside the target that owns this item, when the target is
+     * a run and the item is one of its epic children.
+     */
+    taskId?: string
   }
   status?: BacklogItemLinkStatus
+  /**
+   * The item status to restore if this link's work is abandoned. Written when
+   * an epic-child link is created and consumed when the run or its task is
+   * canceled.
+   */
+  priorStatus?: BacklogItemStatus
   updatedAt?: string
 }
 
@@ -1023,6 +1075,17 @@ export type RendererHost = {
    * Throws when the backlog module is disabled. Declare `backlog.read`.
    */
   watchBacklogItems(workspaceId: string, cb: (items: BacklogItemView[]) => void): () => void
+  /**
+   * Resolve a workspace id (e.g. from `WorkspacePanelProps.workspaceId`) to
+   * its read-only view — the supported way to get a workspace's folder root,
+   * name, and mode. A null resolution means "not currently resolvable" (an
+   * unknown id, or the shell hasn't wired workspace state yet at early
+   * boot) — never a throw, and never a deletion signal: retry later instead
+   * of discarding per-workspace state. Declare the `ipc:workspace-read`
+   * permission (install-time disclosure). The `entry.main` twin is
+   * `WorkspaceContextToken`.
+   */
+  getWorkspace(workspaceId: string): Promise<ModuleWorkspaceView | null>
   /**
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`, e.g. `host.invoke('my-module:save', data)`.

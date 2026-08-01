@@ -18,12 +18,14 @@ import {
   type BacklogItemAction,
   type CapabilityManifest,
   type ModuleCommandDefinition,
+  type ModuleWorkspaceView,
   type RegisterMain,
   type RegisterRenderer,
   type WorkspaceLayoutTemplate,
   type WorkspacePanelComponent,
   type WorkspacePanelProps,
   type WorkspaceTypeDefinition,
+  WorkspaceContextToken,
 } from '@multicode/module-sdk'
 
 export const manifest: CapabilityManifest = {
@@ -84,6 +86,16 @@ export const registerMain: RegisterMain = (host) => {
       throw new Error('weather-deck:forecast requires a city name.')
     }
     return { city, summary: 'clear' }
+  })
+  // Workspace context from entry.main: id → root/name/mode for per-workspace
+  // persistence paths. Unknown ids resolve to null, never a throw.
+  host.registerIpc('weather-deck:workspace-root', async (_event, workspaceId: unknown) => {
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('weather-deck:workspace-root requires a workspace id.')
+    }
+    const workspaces = host.requireService(WorkspaceContextToken)
+    const view = await workspaces.get(workspaceId)
+    return { folderPath: view?.folderPath ?? null }
   })
   // Owned-automation CRUD through the scoped service. Idempotent via the fixed
   // id: a second call finds the existing record in list() and skips creation.
@@ -153,8 +165,22 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
   return function ForecastPanel({ workspaceId }: WorkspacePanelProps) {
     const [backlogCount, setBacklogCount] = useState<number | null>(null)
     const [backlogUnavailable, setBacklogUnavailable] = useState(false)
+    const [workspace, setWorkspace] = useState<ModuleWorkspaceView | null>(null)
     useEffect(() => {
       let disposed = false
+      // Workspace context resolution: the supported id → root/name/mode read
+      // (replaces deriving the root from drop payloads or backlog paths).
+      // Reset per workspace so a switch never renders the previous
+      // workspace's folder against the new one's data; null means "not
+      // currently resolvable", so the panel just omits the folder.
+      setWorkspace(null)
+      host.getWorkspace(workspaceId)
+        .then((view) => {
+          if (!disposed) setWorkspace(view)
+        })
+        .catch(() => {
+          if (!disposed) setWorkspace(null)
+        })
       // Reset per workspace: one workspace's failure must not latch the
       // unavailable state after switching to a workspace that reads fine.
       setBacklogUnavailable(false)
@@ -200,7 +226,7 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
         ? 'Backlog unavailable'
         : backlogCount === null
           ? 'Loading backlog…'
-          : `${backlogCount} backlog items`
+          : `${backlogCount} backlog items${workspace?.folderPath ? ` in ${workspace.folderPath}` : ''}`
     )
   }
 }

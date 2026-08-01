@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- `BacklogItemLink` mirror caught up with the app: `target.taskId?` (the task
+  inside a run target that owns the item), `priorStatus?` (item status to
+  restore if the linked work is abandoned), and the `pending` value in
+  `BacklogItemLinkStatus`.
+- Workspace context resolution (id → root/name/mode): renderer
+  `RendererHost.getWorkspace(workspaceId)` and main-side
+  `WorkspaceContextToken` (`core.workspace-context`, always-on) both resolve a
+  read-only `ModuleWorkspaceView` (`{ id, name, folderPath, mode }`). Unknown
+  ids resolve `null`, never a throw. Disclosure permission:
+  `ipc:workspace-read`. Replaces deriving the workspace root from Backlog item
+  paths or drop payloads.
+
 ## 0.4.0 — 2026-07-07
 
 Calendar-class workspace parity: a module's renderer can now reach its own

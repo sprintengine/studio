@@ -61,6 +61,7 @@ import type {
   ModuleNotifyInput as AppModuleNotifyInput,
 } from '../../../src/shared/modules/notifications'
 import type { MainHost as AppMainHost, SidecarSpec as AppSidecarSpec } from '../../../src/main/module-host/main-host'
+import type { ModuleWorkspaceContextService as AppModuleWorkspaceContextService } from '../../../src/main/modules/module-workspace-service'
 import type {
   BacklogItemAction as AppBacklogItemAction,
   BacklogItemActionContext as AppBacklogItemActionContext,
@@ -75,6 +76,7 @@ import type {
   WorkspaceTypeDefinition as AppWorkspaceTypeDefinition,
 } from '../../../src/renderer/src/modules/renderer-host'
 import type { CommandAvailability as AppCommandAvailability, CommandScope as AppCommandScope } from '../../../src/renderer/src/commands/types'
+import type { ModuleWorkspaceView as AppModuleWorkspaceView } from '../../../src/shared/modules/workspace-view'
 import type {
   BacklogItemLink as AppBacklogItemLink,
   BacklogItemStatus as AppBacklogItemStatus,
@@ -124,6 +126,8 @@ import type {
   ModuleSignature as SdkModuleSignature,
   ModuleSource as SdkModuleSource,
   ModuleTrustStatus as SdkModuleTrustStatus,
+  ModuleWorkspaceView as SdkModuleWorkspaceView,
+  WorkspaceContextService as SdkWorkspaceContextService,
   PreviewSlot as SdkPreviewSlot,
   RendererHost as SdkRendererHost,
   ScheduleTriggerConfig as SdkScheduleTriggerConfig,
@@ -167,6 +171,11 @@ expectType<IsExact<AppBacklogItemStatus, SdkBacklogItemStatus>>()
 expectType<IsExact<AppBacklogItemLink, SdkBacklogItemLink>>()
 expectType<IsExact<AppBacklogResolvedLink, SdkBacklogResolvedLink>>()
 expectType<IsExact<AppSettingsSectionProps, SdkSettingsSectionProps>>()
+// One app-side declaration (shared/modules/workspace-view) backs both process
+// surfaces; the SDK mirror must match it exactly, and the main-side service
+// provided under WorkspaceContextToken must match the SDK's contract.
+expectType<IsExact<AppModuleWorkspaceView, SdkModuleWorkspaceView>>()
+expectType<IsExact<AppModuleWorkspaceContextService, SdkWorkspaceContextService>>()
 expectType<IsExact<AppPreviewSlot, SdkPreviewSlot>>()
 expectType<IsExact<AppJsonSchema, SdkJsonSchema>>()
 expectType<IsExact<AppAutomationStatus, SdkAutomationStatus>>()

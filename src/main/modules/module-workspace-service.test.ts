@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import { createModuleWorkspaceService } from './module-workspace-service'
+import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
 
 function snapshotWith(ids: string[]): WorkspaceSyncSnapshot {
   return {
@@ -68,4 +68,54 @@ test('reports an unverified creation when the bus never confirms', async () => {
   assert.equal(result.ok, false)
   if (result.ok) return
   assert.equal(result.code, 'bus_confirmation_timeout')
+})
+
+// WorkspaceContextToken contract: id → read-only {id, name, folderPath, mode}
+// view from the same sync snapshot; unknown ids are null, never a throw, and
+// a folderless workspace reports folderPath: null.
+test('workspace context resolves the read-only view or null', async () => {
+  const context = createModuleWorkspaceContextService({
+    getWorkspaceSyncSnapshot: () =>
+      ({
+        state: {
+          workspaces: [
+            { id: 'ws-1', name: 'Calendar sprint', folderPath: '/repos/calendar', mode: 'calendar' },
+            { id: 'ws-2', name: 'Scratch', folderPath: null, mode: 'standard' },
+          ],
+        },
+      }) as unknown as WorkspaceSyncSnapshot,
+  })
+  assert.deepEqual(await context.get('ws-1'), {
+    id: 'ws-1',
+    name: 'Calendar sprint',
+    folderPath: '/repos/calendar',
+    mode: 'calendar',
+  })
+  assert.deepEqual(await context.get('ws-2'), { id: 'ws-2', name: 'Scratch', folderPath: null, mode: 'standard' })
+  assert.equal(await context.get('ws-missing'), null)
+})
+
+// Post-restart routing placeholders (folder path not yet re-hydrated) resolve
+// null — "not currently resolvable" — rather than attesting folderPath: null
+// as a folderless workspace. A placeholder that DID persist its folder path
+// serves real data.
+test('workspace context reports unhydrated routing placeholders as unresolvable', async () => {
+  const context = createModuleWorkspaceContextService({
+    getWorkspaceSyncSnapshot: () =>
+      ({
+        state: {
+          workspaces: [
+            { id: 'ws-stale', name: 'ws-stale', folderPath: null, mode: 'standard', templateId: 'workspace-sync-routing-placeholder' },
+            { id: 'ws-hydrated', name: 'Calendar', folderPath: '/repos/calendar', mode: 'calendar', templateId: 'workspace-sync-routing-placeholder' },
+          ],
+        },
+      }) as unknown as WorkspaceSyncSnapshot,
+  })
+  assert.equal(await context.get('ws-stale'), null)
+  assert.deepEqual(await context.get('ws-hydrated'), {
+    id: 'ws-hydrated',
+    name: 'Calendar',
+    folderPath: '/repos/calendar',
+    mode: 'calendar',
+  })
 })

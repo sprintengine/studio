@@ -12,6 +12,7 @@ import {
   SprintEngineMcpHubToken,
   SprintRuntimeToken,
   TerminalRuntimeToken,
+  WorkspaceContextToken,
   WorkspaceServiceToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
@@ -20,7 +21,7 @@ import {
   createCompanionAgentService,
   createCompanionAgentsModuleRegistry,
 } from '../companion-agent-service'
-import { createModuleWorkspaceService } from './module-workspace-service'
+import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
 
 // Resolves a module id to the capability permissions it declared in its
 // manifest (disclosure list). The companion registry uses it to gate `attach`
@@ -77,6 +78,13 @@ export function createAgentRuntimeModule(
       host.provideService(WorkspaceServiceToken, () =>
         createModuleWorkspaceService({
           delegateToRenderer: (request) => services.automationDelegate.request(request),
+          getWorkspaceSyncSnapshot: () => services.workspaceSyncService.getSnapshot(),
+        })
+      )
+      // Read-only workspace context (id → root/name/mode), backed by the same
+      // workspace-sync snapshot the create flow confirms against.
+      host.provideService(WorkspaceContextToken, () =>
+        createModuleWorkspaceContextService({
           getWorkspaceSyncSnapshot: () => services.workspaceSyncService.getSnapshot(),
         })
       )

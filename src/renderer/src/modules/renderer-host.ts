@@ -12,6 +12,7 @@ import type {
   LayoutTemplate,
 } from '../types/workspace'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../utils/backlog'
+import type { ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
 import type {
   WorkspaceRunGlyph,
   WorkspaceRunGlyphProviderInput,
@@ -219,6 +220,13 @@ export type RegisteredSettingsSection = SettingsSectionDefinition & {
   moduleId: string
 }
 
+// Read-only workspace snapshot for module code: the id → root/name/mode
+// resolution both processes need for per-workspace persistence and scoped
+// services. Deliberately a snapshot, not a subscription — live workspace state
+// stays a separate surface. The declaration + mapping live in
+// shared/modules/workspace-view so the renderer and main surfaces can't drift.
+export type { ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
+
 // A top-nav door a module contributes to the workspace sidebar's instance-level
 // nav cluster (the band that holds New chat, Automations, Sprints, Connectors).
 // The entry is a self-contained row component so it owns its full behavior —
@@ -349,6 +357,13 @@ export type RendererHost = {
   listBacklogItems(workspaceId: string): Promise<BacklogItem[]>
   /** Observe the workspace's Backlog: fires with the current snapshot, then on change. */
   watchBacklogItems(workspaceId: string, cb: (items: BacklogItem[]) => void): () => void
+  /**
+   * Resolve a workspace id to its read-only view. Null means "not currently
+   * resolvable" — an unknown id, or early boot before the shell wires the
+   * resolver — never a throw and never a deletion signal.
+   * Disclosure permission: `ipc:workspace-read`.
+   */
+  getWorkspace(workspaceId: string): Promise<ModuleWorkspaceView | null>
 }
 
 // The kernel owns the registries and is consumed by the factory/rail. Modules
@@ -418,6 +433,12 @@ export type RendererKernel = {
    * (early boot, tests) the reader's owning module is treated as enabled.
    */
   setModuleEnablementResolver(resolver: (moduleId: string) => boolean): void
+  /**
+   * Workspace-view source for `RendererHost.getWorkspace`. Wired once at boot
+   * by modules/index.ts from the workspace store; absent (early boot, tests)
+   * every lookup resolves to null.
+   */
+  setWorkspaceResolver(resolver: (workspaceId: string) => ModuleWorkspaceView | null): void
 }
 
 const SHELL_COMMAND_IDS: ReadonlySet<string> = new Set(COMMAND_REGISTRY.map((command) => command.id))
@@ -436,6 +457,7 @@ export function createRendererHost(): RendererKernel {
   let workspaceAside: RegisteredWorkspaceAside | null = null
   let backlogReader: { moduleId: string; reader: BacklogReader } | null = null
   let moduleEnabledResolver: ((moduleId: string) => boolean) | null = null
+  let workspaceResolver: ((workspaceId: string) => ModuleWorkspaceView | null) | null = null
   // Shared gate for the Backlog read methods: the error names the actual cause
   // so a module author can tell "nothing provides this" from "the user turned
   // the backlog module off".
@@ -620,6 +642,9 @@ export function createRendererHost(): RendererKernel {
             }
           })
         },
+        async getWorkspace(workspaceId) {
+          return workspaceResolver ? workspaceResolver(workspaceId) : null
+        },
         async invoke(channel, payload) {
           if (!channel.startsWith(`${moduleId}:`)) {
             throw new Error(
@@ -720,6 +745,9 @@ export function createRendererHost(): RendererKernel {
     },
     setModuleEnablementResolver(resolver) {
       moduleEnabledResolver = resolver
+    },
+    setWorkspaceResolver(resolver) {
+      workspaceResolver = resolver
     },
   }
 }
