@@ -146,6 +146,27 @@ export const registerMain: RegisterMain = (host) => {
     if (!created.ok) throw new Error(`${created.code}: ${created.message}`)
     return { created: true, automationId: created.automation.id }
   })
+  // Cross-surface briefing (seam proof): ONE channel that composes workspace
+  // context resolution with a scoped storage round-trip — the resolved view's
+  // folderPath picks the storage scope, and the stored counter survives the
+  // get→set→return chain. The renderer half (below) feeds the result into
+  // per-module workspace state, so the value crosses three published
+  // surfaces end to end instead of each being exercised in isolation.
+  host.registerIpc('weather-deck:workspace-briefing', async (_event, workspaceId: unknown) => {
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('weather-deck:workspace-briefing requires a workspace id.')
+    }
+    const view = await host.requireService(WorkspaceContextToken).get(workspaceId)
+    if (!view) throw new Error(`Workspace "${workspaceId}" is not resolvable yet — retry the briefing.`)
+    const storage = getModuleStorage(host)
+    const scope = view.folderPath ? { workspaceRoot: view.folderPath } : {}
+    const read = await storage.get({ ...scope, key: 'briefing-count' })
+    if (!read.ok) throw new Error(`${read.code}: ${read.message}`)
+    const briefingCount = (read.found && typeof read.value === 'number' ? read.value : 0) + 1
+    const wrote = await storage.set({ ...scope, key: 'briefing-count', value: briefingCount })
+    if (!wrote.ok) throw new Error(`${wrote.code}: ${wrote.message}`)
+    return { workspaceName: view.name, mode: view.mode, briefingCount }
+  })
   // Companion agent: a workspace-bound background helper that answers a
   // structured question. Exercises the SDK's CompanionAgentsService surface.
   host.registerIpc('weather-deck:ask-guide', async (_event, workspaceRoot: unknown) => {
@@ -191,6 +212,42 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
     const [backlogUnavailable, setBacklogUnavailable] = useState(false)
     const [workspace, setWorkspace] = useState<ModuleWorkspaceView | null>(null)
     const [liveAgents, setLiveAgents] = useState(0)
+    const [briefingCount, setBriefingCount] = useState(0)
+    useEffect(() => {
+      // Renderer half of the cross-surface briefing: bridge → main channel
+      // (workspace context + storage round-trip) → per-module workspace
+      // state write-back. The stored entry is read first so the briefing
+      // composes with — never clobbers — whatever else the module keeps on
+      // this workspace (the lastCity entry the other effect maintains).
+      let disposed = false
+      const brief = () => {
+        void host.invoke('weather-deck:workspace-briefing', workspaceId)
+          .then((briefing) => {
+            if (disposed) return
+            const record = briefing as { briefingCount?: unknown }
+            const count = typeof record.briefingCount === 'number' ? record.briefingCount : 0
+            const prior = host.getWorkspaceModuleState<{ lastCity?: string; briefingCount?: number }>(workspaceId)
+            // A false write-back (unknown workspace, early boot) means "not
+            // stored" — nothing to branch on here, because the next briefing
+            // rewrites the entry anyway; just never treat the in-memory
+            // count as durably persisted.
+            host.setWorkspaceModuleState(workspaceId, { ...(prior ?? {}), briefingCount: count })
+            setBriefingCount(count)
+          })
+          // A refused bridge invoke or a not-yet-resolvable workspace keeps
+          // the last rendered count; the palette command retries on demand.
+          .catch(() => undefined)
+      }
+      brief()
+      const onPanelCommand = (event: Event) => {
+        if ((event as CustomEvent<{ id?: string }>).detail?.id === 'weather-deck.refresh.briefing') brief()
+      }
+      window.addEventListener('multicode:panel-command', onPanelCommand)
+      return () => {
+        disposed = true
+        window.removeEventListener('multicode:panel-command', onPanelCommand)
+      }
+    }, [workspaceId])
     useEffect(() => {
       // Live runtime surfaces: session observation (snapshot + change) and a
       // workspace-relative file watch — resolved against the effective
@@ -286,7 +343,7 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
         ? 'Backlog unavailable'
         : backlogCount === null
           ? 'Loading backlog…'
-          : `${backlogCount} backlog items${workspace?.folderPath ? ` in ${workspace.folderPath}` : ''} · ${liveAgents} live agents`
+          : `${backlogCount} backlog items${workspace?.folderPath ? ` in ${workspace.folderPath}` : ''} · ${liveAgents} live agents · briefing #${briefingCount}`
     )
   }
 }
@@ -425,6 +482,20 @@ export const registerRenderer: RegisterRenderer = (host) => {
     availability: (context) => context.activeWorkspaceMode === 'weather-deck',
     run: () => {
       window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id: 'weather-deck.refresh.forecast' } }))
+    },
+  })
+  // Predicate-gated entry point for the cross-surface briefing: the shell
+  // derives the `panel:weather-deck` scope, the availability predicate
+  // narrows against the published context view, and run() dispatches the
+  // documented panel-command event the ForecastPanel briefing effect handles.
+  host.registerCommand({
+    id: 'refresh.briefing',
+    title: 'Weather: Refresh workspace briefing',
+    category: 'Weather Deck',
+    scopes: ['panel:weather-deck'],
+    availability: (context) => context.activeWorkspaceMode === 'weather-deck',
+    run: () => {
+      window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id: 'weather-deck.refresh.briefing' } }))
     },
   })
   host.registerSettingsSection({
