@@ -72,7 +72,29 @@ async function testReservedIdIsRejectedWithoutEvaluation(): Promise<void> {
   assert.equal(imported, 0, 'reserved-id bundles must never be evaluated')
   const state = getThirdPartyRendererLoadState('git')
   assert.equal(state?.status, 'error')
-  assert.match(state.message, /reserved built-in module id/)
+  assert.match(state.message, /reserved id, publisher-locked/)
+}
+
+// Publisher-locked, not absolutely blocked: a reserved-id entry that main
+// verified as first-party-signed (the stamped flag) loads normally — that's
+// how extracted first-party modules keep their ids.
+async function testReservedIdWithFirstPartyStampLoads(): Promise<void> {
+  const kernel = createRendererHost()
+  const entries = served([{ id: 'memory-graph' }])
+  entries.entries[0]!.firstPartySigned = true
+  const loaded = await loadThirdPartyRendererEntries(
+    kernel,
+    entries,
+    importerFor({
+      'memory-graph': {
+        registerRenderer: (host: RendererHost) => {
+          host.registerPanel('memory-graph.reserved-proof-panel', () => null)
+        },
+      },
+    })
+  )
+  assert.deepEqual(loaded.map((entry) => entry.id), ['memory-graph'])
+  assert.deepEqual(getThirdPartyRendererLoadState('memory-graph'), { status: 'loaded' })
 }
 
 async function testManifestIdMismatchIsRejected(): Promise<void> {
@@ -197,6 +219,7 @@ async function testDuplicateIdKeepsFirstDefinition(): Promise<void> {
 async function main(): Promise<void> {
   await testLoadsAndRegistersUnderOwnModuleId()
   await testReservedIdIsRejectedWithoutEvaluation()
+  await testReservedIdWithFirstPartyStampLoads()
   await testManifestIdMismatchIsRejected()
   await testMissingRegisterRendererExportIsAnError()
   await testBrokenBundleIsIsolatedFromNeighbors()

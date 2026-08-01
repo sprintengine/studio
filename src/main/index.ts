@@ -164,6 +164,7 @@ recordThirdPartyMainLaunchReport(
 registerThirdPartyRendererEntryIpc(moduleLoad.kernel.hostFor('@host'), {
   discoverModules: () =>
     discoverUserModules(defaultUserModuleRoot(), readModuleTrustContext()),
+  trustContext: readModuleTrustContext,
 })
 if (MULTICODE_DIAGNOSTICS) {
   console.info('[modules] extension roots:', extensionFolders.moduleRoot, extensionFolders.pluginRoot)

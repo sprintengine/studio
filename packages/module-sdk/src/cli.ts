@@ -47,7 +47,7 @@ const USAGE = `multicode-module — pack, sign, and verify Multicode capability 
 
 Usage:
   multicode-module keygen [--out <file>] [--force]
-  multicode-module pack <module-dir> [--out <dir>] [--force]
+  multicode-module pack <module-dir> [--out <dir>] [--force] [--allow-reserved-id]
   multicode-module sign <module-dir> --key <private-key.pem>
   multicode-module verify <module-dir>
   multicode-module plugin scaffold <plugin-id> [--out <dir>] [--component <kind>]... [--force]
@@ -249,7 +249,7 @@ function keygen(args: string[]): void {
 function pack(args: string[]): void {
   const { values, positionals } = parseArgs({
     args,
-    options: { out: { type: 'string' }, force: { type: 'boolean' } },
+    options: { out: { type: 'string' }, force: { type: 'boolean' }, 'allow-reserved-id': { type: 'boolean' } },
     allowPositionals: true,
   })
   const moduleDir = positionals[0]
@@ -257,8 +257,12 @@ function pack(args: string[]): void {
   const sourceDir = resolve(moduleDir)
   const { manifest } = readManifest(sourceDir)
 
-  if (BUNDLED_MODULE_IDS.includes(manifest.id)) {
-    fail(`id "${manifest.id}" is a reserved bundled module id. Choose a different module id.`)
+  if (BUNDLED_MODULE_IDS.includes(manifest.id) && values['allow-reserved-id'] !== true) {
+    fail(
+      `id "${manifest.id}" is a reserved id, publisher-locked to the first-party signing key — `
+      + `the app only installs it when the manifest is signed by a first-party marketplace publisher. `
+      + `Choose a different module id, or pass --allow-reserved-id if you are the first-party publisher.`
+    )
   }
   const missingEntries: ThirdPartyManifestIssue[] = []
   for (const [key, relPath] of Object.entries(manifest.entry ?? {})) {

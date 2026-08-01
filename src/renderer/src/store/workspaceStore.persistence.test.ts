@@ -1172,5 +1172,20 @@ assert.equal(
   )
 }
 
+// Module-contributed workspace types: an explicit non-shell mode survives
+// addWorkspace (it used to be silently dropped to 'standard', stripping every
+// mode-derived surface — panel scopes, run glyphs, the not-installed state).
+{
+  const moduleModeId = useWorkspaceStore.getState().addWorkspace(
+    { ...raceTemplate, id: 'calendar-mode' },
+    { name: 'Module Mode Workspace', mode: 'calendar' },
+  )
+  assert.equal(
+    useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === moduleModeId)?.mode,
+    'calendar',
+    'explicit module mode is persisted, not coerced to standard',
+  )
+}
+
 console.info = originalInfo
 console.log('workspaceStore.persistence.test.ts: ok')

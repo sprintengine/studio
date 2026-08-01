@@ -23,6 +23,9 @@ import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
+import { isModeHiddenFromRail } from '../../../../shared/workspace-mode'
+import { EXTENSIONS_BROWSE_DEEPLINK } from '../settings/extensionsRoute'
+import { MissingModulePanelSurface, ModuleNotInstalledSurface, moduleLabelForMode } from './ModuleAbsenceSurfaces'
 import {
   isSessionFailed,
   isSessionWorking,
@@ -267,6 +270,8 @@ function renderTerminalRecencyIndicator(
 
 function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAgent, renderSpecialistPicker, onStartSprintEngine, onNewWorkspace, onCloseWorkspace }: Props) {
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
+  const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
+  const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const workspaceAgents = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.agents ?? EMPTY_WORKSPACE_AGENTS
   )
@@ -594,14 +599,28 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
           // component) falls back to the explicit unavailable surface.
           const host = getRendererHost()
           const Panel = component ? host.getPanel(component) : undefined
-          if (!Panel) return DISABLED_SURFACE
+          if (!Panel) {
+            // No registered panel: usually a stale tab, but when the component
+            // id's `<moduleId>.` prefix names a known marketplace module the
+            // owning module is missing, and the tab upgrades to the explicit
+            // not-installed surface with the install path (MC-1532).
+            return component ? (
+              <MissingModulePanelSurface
+                componentId={component}
+                fallback={DISABLED_SURFACE}
+                onOpenMarketplace={() => openSettingsOverlay({ initialTab: EXTENSIONS_BROWSE_DEEPLINK })}
+              />
+            ) : (
+              DISABLED_SURFACE
+            )
+          }
           const moduleId = host.getPanelModule(component!)
           if (moduleId && !selectModuleEnabled(moduleOverrides, moduleId)) return DISABLED_SURFACE
           return timedPanel(component!, <Panel workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />)
         }
       }
     },
-    [moduleOverrides, onStartFuturePlan, shouldKillTerminalOnUnmount, workspaceId]
+    [moduleOverrides, onStartFuturePlan, openSettingsOverlay, shouldKillTerminalOnUnmount, workspaceId]
   )
 
   const cleanupNode = useCallback(
@@ -1335,6 +1354,27 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
   }, [showTabContextMenu])
 
   const isEmpty = countOpenTabs(modelRef.current) === 0
+
+  // A workspace whose mode has no registered type: the owning module is not
+  // installed (fresh machine, uninstalled, or a marketplace module pending
+  // install). An explicit, labeled state with an install path — never a grid
+  // of blank "Panel unavailable" tabs. Data stays on disk; installing the
+  // module and relaunching renders the workspace again. (A DISABLED bundled
+  // module still has a registered type and keeps the existing per-tab gating;
+  // shell-owned hidden host modes — sprintengine, automations-host,
+  // reviews-host — are not module-owned surfaces and keep their layouts.)
+  if (
+    workspaceMode !== 'standard'
+    && !isModeHiddenFromRail(workspaceMode)
+    && !getRendererHost().getWorkspaceType(workspaceMode)
+  ) {
+    return (
+      <ModuleNotInstalledSurface
+        label={moduleLabelForMode(workspaceMode)}
+        onOpenMarketplace={() => openSettingsOverlay({ initialTab: EXTENSIONS_BROWSE_DEEPLINK })}
+      />
+    )
+  }
 
   return (
     <div className="relative h-full" onMouseDownCapture={handleMouseDownCapture}>

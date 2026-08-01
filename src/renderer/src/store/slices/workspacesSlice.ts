@@ -1231,7 +1231,12 @@ export function createWorkspacesSlice(
                     ? REVIEWS_HOST_WORKSPACE_MODE
                     : isReview
                       ? REVIEW_WORKSPACE_MODE
-                      : 'standard',
+                      // Module-contributed workspace types: the explicit mode
+                      // from buildModuleTypeCreation IS the identity every
+                      // mode-derived surface (panel scopes, run glyphs, the
+                      // not-installed state, creation re-resolution) keys on —
+                      // dropping it to 'standard' silently strips all of them.
+                      : explicitMode ?? 'standard',
           folderPath,
           folderMissing: false,
           ...(options?.worktree ? { worktree: options.worktree } : {}),

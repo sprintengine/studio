@@ -94,6 +94,28 @@ function testParseInvalidJson(): void {
   assert.equal(parseThirdPartyModuleManifest('{nope').ok, false)
 }
 
+// Publisher-locked reserved ids (MC-1532): reserved-id policy is NOT the
+// parser's — a manifest claiming a bundled id must parse cleanly WITH its
+// signature intact, because the registry decides both directions (locked id +
+// wrong signer rejected, locked id + verified first-party signer accepted)
+// from the parsed signature. A parser that rejected reserved ids, or dropped
+// the signature, would silently break the accept direction.
+function testReservedIdParsesWithSignaturePreserved(): void {
+  const signature: ModuleSignature = { algorithm: 'ed25519', publicKey: 'YWJj', signature: 'ZGVm' }
+  const parsed = parseThirdPartyModuleManifest(
+    JSON.stringify({ ...VALID, id: 'switchboard', signature })
+  )
+  assert.equal(parsed.ok, true, 'reserved ids are policy for the registry, not a parse error')
+  if (parsed.ok) {
+    assert.equal(parsed.manifest.id, 'switchboard')
+    assert.deepEqual(
+      (parsed.manifest as { signature?: ModuleSignature }).signature,
+      signature,
+      'the signature survives validation for the publisher-lock check'
+    )
+  }
+}
+
 testValidForcesThirdPartyAndStripsCore()
 testDefaultEnabledDefaultsFalse()
 testRejectsBadId()
@@ -102,4 +124,5 @@ testRejectsEntryTraversal()
 testSignatureShape()
 testCanonicalPayloadExcludesSignatureAndIsStable()
 testParseInvalidJson()
+testReservedIdParsesWithSignaturePreserved()
 console.log('third-party-manifest tests passed')

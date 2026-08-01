@@ -159,7 +159,13 @@ function testPackRejectsInvalidManifests(): void {
   const reservedId = BUNDLED_MODULE_IDS[0]
   const reserved = runCli(['pack', writeModuleFixture({ ...validFixtureManifest(), id: reservedId })])
   assert.equal(reserved.status, 1)
-  assert.match(reserved.stderr, /reserved bundled module id/)
+  assert.match(reserved.stderr, /reserved id, publisher-locked/)
+
+  // Publisher-locked, not absolutely blocked: the first-party publish
+  // pipeline packs a reserved id with the explicit opt-in flag (the app
+  // still verifies the first-party signature at install).
+  const allowed = runCli(['pack', writeModuleFixture({ ...validFixtureManifest(), id: reservedId }), '--allow-reserved-id'])
+  assert.equal(allowed.status, 0, allowed.stderr)
 
   const badPermissions = runCli(['pack', writeModuleFixture({ ...validFixtureManifest(), permissions: 'network' })])
   assert.equal(badPermissions.status, 1)

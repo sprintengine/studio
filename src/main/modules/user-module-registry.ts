@@ -5,7 +5,7 @@ import { basename, join } from 'path'
 
 import { BUNDLED_MODULE_IDS, type CapabilityManifest } from '../../shared/modules/manifest'
 import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
-import { classifyModuleTrust, type ModuleTrust, type ModuleTrustContext } from './module-signature'
+import { classifyModuleTrust, isSignedByTrustedPublisher, type ModuleTrust, type ModuleTrustContext } from './module-signature'
 
 // Discovery + install for third-party capability modules under
 // ~/.multicode/modules/<id>/manifest.json. Mirrors the BYO-CLI plugin-registry
@@ -60,21 +60,26 @@ function readDirSafeSync(dir: string): import('fs').Dirent[] {
 }
 
 // Validate the manifest.json in a module folder and confirm its declared id
-// matches the folder name and isn't a reserved bundled id.
+// matches the folder name and isn't an impermissible reserved id. Reserved
+// (bundled) ids are publisher-locked, not absolutely blocked: a module signed
+// with a first-party marketplace publisher key may claim one — that's how the
+// extracted first-party modules keep their ids (and existing workspace modes)
+// while third parties still can't shadow them.
 function validateInstalledManifestSource(
   source: string,
   manifestPath: string,
-  expectedId: string
+  expectedId: string,
+  ctx: ModuleTrustContext
 ): { ok: true; manifest: CapabilityManifest } | { ok: false; rejection: ModuleRejection } {
   const result = parseThirdPartyModuleManifest(source)
   if (!result.ok) return { ok: false, rejection: { path: manifestPath, issues: result.issues } }
 
-  if (RESERVED_IDS.has(result.manifest.id)) {
+  if (RESERVED_IDS.has(result.manifest.id) && !isSignedByTrustedPublisher(result.manifest, ctx)) {
     return {
       ok: false,
       rejection: {
         path: manifestPath,
-        issues: [{ path: 'id', message: `"${result.manifest.id}" is a reserved built-in module id.` }],
+        issues: [{ path: 'id', message: `"${result.manifest.id}" is a reserved id, publisher-locked to the first-party signing key.` }],
       },
     }
   }
@@ -94,7 +99,8 @@ function validateInstalledManifestSource(
 
 async function loadManifestFromDir(
   moduleRoot: string,
-  expectedId: string
+  expectedId: string,
+  ctx: ModuleTrustContext
 ): Promise<{ ok: true; manifest: CapabilityManifest } | { ok: false; rejection: ModuleRejection }> {
   const manifestPath = join(moduleRoot, 'manifest.json')
   let source: string
@@ -109,12 +115,13 @@ async function loadManifestFromDir(
       },
     }
   }
-  return validateInstalledManifestSource(source, manifestPath, expectedId)
+  return validateInstalledManifestSource(source, manifestPath, expectedId, ctx)
 }
 
 function loadManifestFromDirSync(
   moduleRoot: string,
-  expectedId: string
+  expectedId: string,
+  ctx: ModuleTrustContext
 ): { ok: true; manifest: CapabilityManifest } | { ok: false; rejection: ModuleRejection } {
   const manifestPath = join(moduleRoot, 'manifest.json')
   let source: string
@@ -129,7 +136,7 @@ function loadManifestFromDirSync(
       },
     }
   }
-  return validateInstalledManifestSource(source, manifestPath, expectedId)
+  return validateInstalledManifestSource(source, manifestPath, expectedId, ctx)
 }
 
 // Enumerate installed third-party modules, validating + trust-classifying each.
@@ -140,7 +147,7 @@ export async function discoverUserModules(root: string, ctx: ModuleTrustContext)
   for (const entry of await readDirSafe(root)) {
     if (!entry.isDirectory()) continue
     const moduleRoot = join(root, entry.name)
-    const loaded = await loadManifestFromDir(moduleRoot, entry.name)
+    const loaded = await loadManifestFromDir(moduleRoot, entry.name, ctx)
     if (!loaded.ok) {
       rejected.push(loaded.rejection)
       continue
@@ -159,7 +166,7 @@ export function discoverUserModulesSync(root: string, ctx: ModuleTrustContext): 
   for (const entry of readDirSafeSync(root)) {
     if (!entry.isDirectory()) continue
     const moduleRoot = join(root, entry.name)
-    const loaded = loadManifestFromDirSync(moduleRoot, entry.name)
+    const loaded = loadManifestFromDirSync(moduleRoot, entry.name, ctx)
     if (!loaded.ok) {
       rejected.push(loaded.rejection)
       continue
@@ -200,14 +207,12 @@ export async function installModuleFolder(
       message: 'Module manifest is invalid.',
     }
   }
-  if (RESERVED_IDS.has(result.manifest.id)) {
+  if (RESERVED_IDS.has(result.manifest.id) && !isSignedByTrustedPublisher(result.manifest, ctx)) {
+    const message = `"${result.manifest.id}" is a reserved id, publisher-locked to the first-party signing key.`
     return {
       ok: false,
-      rejected: {
-        path: manifestPath,
-        issues: [{ path: 'id', message: `"${result.manifest.id}" is a reserved built-in module id.` }],
-      },
-      message: `"${result.manifest.id}" is a reserved built-in module id.`,
+      rejected: { path: manifestPath, issues: [{ path: 'id', message }] },
+      message,
     }
   }
 

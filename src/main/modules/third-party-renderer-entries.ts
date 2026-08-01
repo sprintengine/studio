@@ -8,7 +8,7 @@ import {
 } from '../../shared/modules/manifest'
 import type { MainHost } from '../module-host/main-host'
 import { resolveContainedEntry, sanitizeEntryMessage } from './entry-containment'
-import { isLoadEligible } from './module-signature'
+import { isLoadEligible, isSignedByTrustedPublisher, type ModuleTrustContext } from './module-signature'
 import type { InstalledModule, UserModuleListResult } from './user-module-registry'
 
 // Serves trusted third-party modules' `entry.renderer` bundles to the renderer
@@ -69,7 +69,8 @@ export function rendererEntryView(installed: InstalledModule): ThirdPartyRendere
 }
 
 export async function collectThirdPartyRendererEntries(
-  modules: readonly InstalledModule[]
+  modules: readonly InstalledModule[],
+  trustContext?: ModuleTrustContext
 ): Promise<ThirdPartyRendererEntriesResult> {
   const result: ThirdPartyRendererEntriesResult = { entries: [], failures: {} }
   for (const installed of modules) {
@@ -84,7 +85,14 @@ export async function collectThirdPartyRendererEntries(
     }
     try {
       const code = await readFile(resolution.entryPath, 'utf8')
-      result.entries.push({ id: installed.manifest.id, manifest: installed.manifest, code })
+      result.entries.push({
+        id: installed.manifest.id,
+        manifest: installed.manifest,
+        code,
+        ...(trustContext && isSignedByTrustedPublisher(installed.manifest, trustContext)
+          ? { firstPartySigned: true }
+          : {}),
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       result.failures[installed.manifest.id] = sanitizeEntryMessage(message, READ_FAILURE_MESSAGE)
@@ -99,10 +107,13 @@ export async function collectThirdPartyRendererEntries(
 // (and tests provide fixtures without electron).
 export function registerThirdPartyRendererEntryIpc(
   host: MainHost,
-  options: { discoverModules: () => Promise<UserModuleListResult> }
+  options: {
+    discoverModules: () => Promise<UserModuleListResult>
+    trustContext?: () => ModuleTrustContext
+  }
 ): void {
   host.registerIpc(THIRD_PARTY_RENDERER_ENTRIES_CHANNEL, async (): Promise<ThirdPartyRendererEntriesResult> => {
     const { modules } = await options.discoverModules()
-    return collectThirdPartyRendererEntries(modules)
+    return collectThirdPartyRendererEntries(modules, options.trustContext?.())
   })
 }

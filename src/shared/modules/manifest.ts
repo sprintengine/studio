@@ -148,6 +148,13 @@ export type ThirdPartyRendererEntry = {
   id: string
   manifest: CapabilityManifest
   code: string
+  /**
+   * The manifest carries a valid signature from a first-party marketplace
+   * publisher key. Stamped main-side (the renderer cannot verify
+   * signatures); the loader's reserved-id gate admits a bundled id only
+   * with this flag — publisher-locked, not absolutely blocked (MC-1532).
+   */
+  firstPartySigned?: boolean
 }
 
 export type ThirdPartyRendererEntriesResult = {

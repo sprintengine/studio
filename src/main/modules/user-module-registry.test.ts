@@ -3,6 +3,9 @@ import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
+
+import { canonicalManifestPayload, validateThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
 import { manifestFingerprint, type ModuleTrustContext } from './module-signature'
 import { discoverUserModules, discoverUserModulesSync, installModuleFolder } from './user-module-registry'
 
@@ -80,6 +83,62 @@ async function testReservedIdRejected(): Promise<void> {
     const src = await writeModuleFolder(dir, 'git', manifestJson({ id: 'git' }))
     const install = await installModuleFolder(src, join(dir, 'modules'), EMPTY_TRUST)
     assert.equal(install.ok, false, 'cannot install a module that shadows a built-in id')
+    if (!install.ok) assert.match(install.message, /publisher-locked/)
+  })
+}
+
+// Sign a validated manifest with a fresh ed25519 key, returning the signed
+// JSON and the signer's key fingerprint (sha256 of the DER public key —
+// matching module-signature's publicKeyFingerprint).
+function signedManifestJson(overrides: Record<string, unknown>): { json: string; fingerprint: string } {
+  const validated = validateThirdPartyModuleManifest(JSON.parse(manifestJson(overrides)))
+  assert.equal(validated.ok, true)
+  if (!validated.ok) throw new Error('test manifest invalid')
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519')
+  const publicKeyDer = publicKey.export({ type: 'spki', format: 'der' })
+  const signature = {
+    algorithm: 'ed25519' as const,
+    publicKey: publicKeyDer.toString('base64'),
+    signature: sign(null, Buffer.from(canonicalManifestPayload(validated.manifest), 'utf8'), privateKey).toString('base64'),
+  }
+  return {
+    json: JSON.stringify({ ...validated.manifest, signature }),
+    fingerprint: createHash('sha256').update(publicKeyDer).digest('hex'),
+  }
+}
+
+// Publisher-locked reserved ids (MC-1532): the same reserved id installs and
+// discovers when signed by a first-party marketplace publisher key, and stays
+// rejected for any other signer — including one the user id-trusted.
+async function testReservedIdPublisherLock(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const firstParty = signedManifestJson({ id: 'switchboard', displayName: 'Switchboard' })
+    const impostor = signedManifestJson({ id: 'roadmap', displayName: 'Fake Roadmap' })
+    const root = join(dir, 'modules')
+    const firstPartyCtx: ModuleTrustContext = {
+      trustedModules: new Map(),
+      trustedKeyFingerprints: new Set([firstParty.fingerprint]),
+    }
+
+    // First-party signer: install + discovery accept the reserved id, and the
+    // trusted key classifies it load-eligible.
+    const src = await writeModuleFolder(dir, 'switchboard-src', firstParty.json)
+    const install = await installModuleFolder(src, root, firstPartyCtx)
+    assert.equal(install.ok, true, 'first-party-signed module may claim its reserved id')
+    if (install.ok) assert.equal(install.trust.status, 'trusted')
+    const listed = await discoverUserModules(root, firstPartyCtx)
+    assert.deepEqual(listed.modules.map((entry) => entry.manifest.id), ['switchboard'])
+
+    // A different signer is rejected even though its signature is valid —
+    // and even if the user id-trusted that exact manifest.
+    const impostorSrc = await writeModuleFolder(dir, 'roadmap-src', impostor.json)
+    const impostorTrusted: ModuleTrustContext = {
+      trustedModules: new Map([['roadmap', manifestFingerprint(JSON.parse(impostor.json))]]),
+      trustedKeyFingerprints: new Set([firstParty.fingerprint]),
+    }
+    const blocked = await installModuleFolder(impostorSrc, root, impostorTrusted)
+    assert.equal(blocked.ok, false, 'wrong signer cannot claim a reserved id')
+    if (!blocked.ok) assert.match(blocked.message, /publisher-locked/)
   })
 }
 
@@ -109,6 +168,7 @@ async function main(): Promise<void> {
   await testInstallThenDiscover()
   await testTrustedClassification()
   await testReservedIdRejected()
+  await testReservedIdPublisherLock()
   await testIdDirMismatchRejected()
   await testInvalidManifestRejected()
   console.log('user-module-registry tests passed')

@@ -17,6 +17,9 @@ import {
   getThirdPartyRendererLoadState,
   type ThirdPartyRendererLoadState,
 } from '../../modules/third-party-loader'
+import { getRendererHost } from '../../modules'
+import { useWorkspaceStore } from '../../store/workspaceStore'
+import { useConfirmDialog } from '../ui/ConfirmDialog'
 import type { Tone } from '../ui/tokens'
 import { GhostButton, StatusDot, Switch } from '../ui'
 
@@ -313,9 +316,31 @@ export function ThirdPartyModuleList({
     }
   }, [load])
 
+  const { confirm: confirmDialog } = useConfirmDialog()
   const setTrust = useCallback(
     async (id: string, trusted: boolean) => {
       if (typeof window.api.setThirdPartyModuleTrust !== 'function') return
+      // Revoking trust unloads the module's workspace types on next launch —
+      // warn with the workspaces that would lose their surface (nothing on
+      // disk is touched; re-trusting brings them back).
+      if (!trusted) {
+        const state = useWorkspaceStore.getState()
+        const kernel = getRendererHost()
+        const affected = state.workspaces.filter(
+          (workspace) => kernel.getWorkspaceTypeModule(workspace.mode) === id
+        )
+        if (affected.length > 0) {
+          const confirmed = await confirmDialog({
+            title: 'Stop trusting this module?',
+            body: `These workspaces use it and will show “module not installed” until you trust it again (their files stay on disk): ${affected
+              .map((workspace) => workspace.name)
+              .join(', ')}.`,
+            confirmLabel: 'Stop trusting',
+            tone: 'danger',
+          })
+          if (!confirmed) return
+        }
+      }
       setPendingId(id)
       try {
         const result = await window.api.setThirdPartyModuleTrust(id, trusted)
@@ -325,7 +350,7 @@ export function ThirdPartyModuleList({
         setPendingId(null)
       }
     },
-    [load]
+    [confirmDialog, load]
   )
 
   return (
