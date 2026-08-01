@@ -128,6 +128,20 @@ export function resolveWorkspaceWorktree(
 }
 
 /**
+ * The workspace's *effective working root* (MC-1535): where live work actually
+ * happens. `folderPath` stays the durable primary checkout (that's what
+ * `ModuleWorkspaceView` reports), but a worktree-backed workspace does its live
+ * work under the primary worktree — file watches, agent spawns, and file-tab
+ * resolution that used the primary checkout would silently miss it. Null means
+ * the workspace has no resolvable root at all (folderless), never a fallback.
+ */
+export function workspaceWorkingRoot(
+  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
+): string | null {
+  return resolveWorkspaceWorktree(workspace)?.gitRoot ?? workspace.folderPath ?? null
+}
+
+/**
  * The root a spawn falls back to when `worktreeCwd` has been removed: the root
  * of the repo THAT worktree belongs to, not the workspace folder (MC-1610). A
  * pruned mobile worktree redirects into the mobile checkout, where the agent's
