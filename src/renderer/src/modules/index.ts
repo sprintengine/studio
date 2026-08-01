@@ -2,6 +2,9 @@ import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../sha
 import { activeForChannel } from '../../../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 import { toModuleWorkspaceView } from '../../../shared/modules/workspace-view'
+import { createWorkspaceFileWatcher } from './workspace-file-watch'
+import { createAgentSessionWatcher } from './agent-session-watch'
+import { createModuleAgentSpawner } from './agent-spawn'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
 import { automationsRendererModule } from './automations-module'
 import { backlogRendererModule } from './backlog-module'
@@ -99,8 +102,15 @@ for (const module of ACTIVE_RENDERER_MODULES) {
 // kernel treats providers as enabled — and watches re-check on every
 // delivery, so nothing started in that window outlives the resolver.
 if (typeof window !== 'undefined') {
-  import('../store/workspaceStore')
-    .then(({ useWorkspaceStore }) => {
+  Promise.all([
+    import('../store/workspaceStore'),
+    import('../hooks/terminalSessionsStore'),
+    import('../utils/modelRegistry'),
+    import('../components/workspace/newWorkspace/cliRuntimeOptions'),
+    import('../utils/agentNames'),
+    import('../utils/workspaceWorktree'),
+  ])
+    .then(([{ useWorkspaceStore }, terminalSessions, modelRegistry, cliRuntimeOptions, agentNames, workspaceWorktree]) => {
       rendererHost.setModuleEnablementResolver((moduleId) =>
         selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
       )
@@ -111,6 +121,117 @@ if (typeof window !== 'undefined') {
         const workspace = useWorkspaceStore.getState().workspaces.find((entry) => entry.id === workspaceId)
         return workspace ? toModuleWorkspaceView(workspace) : null
       })
+      // Effective working root (MC-1535): the worktree for worktree-backed
+      // workspaces, the primary checkout otherwise. Every live-runtime surface
+      // below resolves workspace-relative paths against this, never against
+      // the durable folderPath the workspace view reports.
+      const resolveWorkingRoot = (workspaceId: string): string | null => {
+        const workspace = useWorkspaceStore.getState().workspaces.find((entry) => entry.id === workspaceId)
+        return workspace ? workspaceWorktree.workspaceWorkingRoot(workspace) : null
+      }
+      rendererHost.setWorkingRootResolver(resolveWorkingRoot)
+      // File-watch backend over the shell's fs watch plumbing (the same
+      // window.api surface runStateSynchronizer rides).
+      rendererHost.setWorkspaceFileWatcher(
+        createWorkspaceFileWatcher({
+          resolveFolderPath: resolveWorkingRoot,
+          watchPath: (path, cb) => window.api.watchPath(path, cb),
+          readFile: (path) => window.api.readfile(path),
+        })
+      )
+      // Agent-session observation over the same terminal-sessions store the
+      // shell's own surfaces consume.
+      rendererHost.setAgentSessionWatcher(
+        createAgentSessionWatcher({
+          getSessions: terminalSessions.getTerminalSessionsSnapshot,
+          subscribe: terminalSessions.subscribeTerminalSessions,
+        })
+      )
+      // Agent spawn/focus/runtimes over the SHARED session runtime, the
+      // layout tab helpers, and the availability-filtered CLI catalog.
+      rendererHost.setAgentSpawner(
+        createModuleAgentSpawner({
+          getWorkspace: (workspaceId) => {
+            const workspace = useWorkspaceStore.getState().workspaces.find((entry) => entry.id === workspaceId)
+            if (!workspace) return null
+            return {
+              // Spawn cwd and file-tab base both target the working root, so
+              // live ops land in the worktree a sprint workspace works under.
+              folderPath: workspaceWorktree.workspaceWorkingRoot(workspace),
+              agents: Object.entries(workspace.agents).map(([id, agent]) => ({ id, name: agent.name })),
+            }
+          },
+          upsertAgent: (workspaceId, agentId, patch) => {
+            useWorkspaceStore.getState().updateAgent(workspaceId, agentId, {
+              name: patch.name,
+              cli: patch.cli,
+              ...(patch.cliModel ? { cliModel: patch.cliModel } : {}),
+            })
+          },
+          removeAgent: (workspaceId, agentId) => {
+            useWorkspaceStore.getState().removeAgent(workspaceId, agentId)
+          },
+          spawnTerminal: async (input) => {
+            const state = useWorkspaceStore.getState()
+            const agentName = state.workspaces
+              .find((entry) => entry.id === input.workspaceId)?.agents[input.agentId]?.name
+            // Mirror the shell spawn paths: an IPC rejection becomes a
+            // structured failure — the module surface documents never-throw.
+            const result = await window.api.terminalSpawn(
+              input.sessionId,
+              100,
+              30,
+              input.cwd,
+              false,
+              undefined,
+              input.cli,
+              input.prompt,
+              state.appSettings.cliRuntimes,
+              false,
+              {
+                kind: 'agent',
+                workspaceId: input.workspaceId,
+                agentId: input.agentId,
+                ...(agentName ? { agentName } : {}),
+                ...(input.cliModel ? { cliModel: input.cliModel } : {}),
+                cliPermissionPreset: state.appSettings.lastAgentSpawnPermissionPreset ?? 'default',
+                mcpSettings: state.appSettings.mcp,
+              }
+            ).catch((error): { ok: false; message: string } => ({
+              ok: false,
+              message: error instanceof Error ? error.message : 'Failed to start the agent session.',
+            }))
+            return { ok: result.ok, message: result.ok ? undefined : result.message }
+          },
+          revealAgentTab: (workspaceId, agentId, name) => {
+            if (modelRegistry.focusOrAddAgentTab(workspaceId, agentId, name)) return
+            const state = useWorkspaceStore.getState()
+            const workspace = state.workspaces.find((entry) => entry.id === workspaceId)
+            if (!workspace) return
+            try {
+              state.updateLayout(workspaceId, modelRegistry.ensureAgentTabInLayoutModel(workspace.layoutModel, agentId, name))
+            } catch {
+              // The session stays available even if layout persistence is busy.
+            }
+          },
+          focusFileTab: (workspaceId, absolutePath) => modelRegistry.focusFileTab(workspaceId, absolutePath),
+          listRuntimes: () => {
+            const state = useWorkspaceStore.getState()
+            return cliRuntimeOptions
+              .selectAgentCliCatalog(
+                state.pluginCatalogStatus,
+                state.pluginCatalogEntries,
+                state.appSettings.cliRuntimes,
+                { map: state.cliAvailability, status: state.cliAvailabilityStatus }
+              )
+              .map((option) => ({ id: option.value, label: option.label }))
+          },
+          defaultCli: () => useWorkspaceStore.getState().appSettings.lastSelectedCli ?? null,
+          pickAgentName: (existing) => agentNames.pickRandomAgentName(existing),
+          newAgentId: () => `agent-${crypto.randomUUID()}`,
+          newSessionId: () => crypto.randomUUID(),
+        })
+      )
     })
     .catch((error) => {
       // Windowless bundles (unit tests) have no store; the kernel default

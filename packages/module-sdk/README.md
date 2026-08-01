@@ -76,8 +76,19 @@ contracts, so a published version always matches the app version it ships with.
   both fail with a named cause when the backlog module is disabled), and
   `getWorkspace(workspaceId)` — the workspace's read-only
   `ModuleWorkspaceView` (`{ id, name, folderPath, mode }`; unknown ids
-  resolve `null`, never a throw; declare `ipc:workspace-read`). The
-  `entry.main` twin is `WorkspaceContextToken` (`core.workspace-context`).
+  resolve `null`, never a throw; declare `ipc:workspace-read`; the
+  `entry.main` twin is `WorkspaceContextToken`), and the live runtime
+  surfaces — `getWorkingRoot` (the *effective working root*: the worktree a
+  worktree-backed workspace does live work under, else the primary checkout;
+  the methods below resolve workspace-relative paths against it; declare
+  `ipc:workspace-read`), `watchAgentSessions` (read-only session views,
+  snapshot + deduped changes), `spawnAgent` (through the app's shared
+  session runtime, structured failures), `focusTab` (agent or
+  workspace-relative file tab), `listAgentRuntimes` (ids + labels from the
+  availability-filtered catalog), and `watchWorkspaceFile` (debounced
+  content watch; declare `ipc:agents` / `filesystem:read-workspace`
+  respectively — each fails with a named cause when the Agent Runtime
+  module is disabled).
 - **Automations providers**: `registerAutomationTrigger` and
   `registerAutomationAction` register trusted module providers with the
   Automations registry using the current `host.moduleId`. Declare

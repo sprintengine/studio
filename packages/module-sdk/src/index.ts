@@ -1259,6 +1259,63 @@ export type SidebarNavEntryDefinition = {
   Component: SidebarNavEntryComponent
 }
 
+// ── Live runtime surfaces (renderer) ─────────────────────────────────────────
+
+export type WorkspaceFileWatchEvent = {
+  relativePath: string
+  /** File content after the change; null when the file does not exist. */
+  content: string | null
+}
+
+/** Read-only view of one live agent session (enum-ish fields widened to string). */
+export type ModuleAgentSessionView = {
+  /** Multicode's terminal-tracking id (stable per session). */
+  sessionId: string
+  agentId: string | null
+  /** Display name from spawn metadata, when known. */
+  name: string | null
+  /** Session kind ('terminal', 'agent', …). */
+  kind: string
+  /** Owning orchestration system tag, when the session belongs to one. */
+  system: string | null
+  /** The owning execution's id within its system, when the session belongs to one. */
+  executionId: string | null
+  /** True while the underlying process is alive (false when suspended/exited). */
+  isLive: boolean
+}
+
+export type ModuleAgentRuntimeOption = {
+  /** Runtime id to pass as `spawnAgent`'s `cli` (e.g. 'claude', 'codex'). */
+  id: string
+  /** Display label for pickers. */
+  label: string
+}
+
+export type ModuleSpawnAgentInput = {
+  workspaceId: string
+  /** Display name for the agent tab; defaults to a shell-picked agent name. */
+  name?: string
+  /** Runtime id from `listAgentRuntimes()`; defaults to the user's last-used CLI. */
+  cli?: string
+  /** Model id for the runtime; omitted = the CLI's default model. */
+  cliModel?: string
+  /** Launch prompt handed to the agent once the session starts. */
+  prompt?: string
+  /** Focus the new agent's tab (default true). */
+  focus?: boolean
+}
+
+export type ModuleSpawnAgentResult =
+  | { ok: true; agentId: string }
+  | { ok: false; code: 'unknown_workspace' | 'missing_folder' | 'unknown_runtime' | 'spawn_failed'; message: string }
+
+export type ModuleFocusTabInput = {
+  workspaceId: string
+  kind: 'agent' | 'file'
+  /** Agent id, or a workspace-relative file path. */
+  id: string
+}
+
 // ── Renderer host registration contract ──────────────────────────────────────
 
 export type RendererHost = {
@@ -1299,6 +1356,56 @@ export type RendererHost = {
    * `WorkspaceContextToken`.
    */
   getWorkspace(workspaceId: string): Promise<ModuleWorkspaceView | null>
+  /**
+   * The workspace's *effective working root*: where its live work happens.
+   * `ModuleWorkspaceView.folderPath` deliberately reports the durable primary
+   * checkout; a worktree-backed workspace (sprint runs) does live work under
+   * a worktree, and this resolves that root. The live-runtime methods below
+   * resolve workspace-relative paths against it. Null means "not currently
+   * resolvable" — never a throw. Declare `ipc:workspace-read`.
+   */
+  getWorkingRoot(workspaceId: string): Promise<string | null>
+  /**
+   * Watch one workspace-relative file (resolved against the effective working
+   * root): `cb` fires once with the current content (null when the file
+   * doesn't exist), then debounced (~300ms) on every change. Rejects with a
+   * named cause for absolute/escaping paths, unknown/folderless workspaces,
+   * or a disabled Agent Runtime module. Keep the resolved closure and call it
+   * on unmount. Declare `filesystem:read-workspace`.
+   */
+  watchWorkspaceFile(
+    workspaceId: string,
+    relativePath: string,
+    cb: (event: WorkspaceFileWatchEvent) => void
+  ): Promise<() => void>
+  /**
+   * Observe the workspace's live agent sessions: `cb` fires once with the
+   * current read-only views, then on every change (deduped). Returns the
+   * unsubscriber — call it on unmount. Throws with a named cause when agent
+   * runtime is unavailable. Declare `ipc:agents`.
+   */
+  watchAgentSessions(workspaceId: string, cb: (sessions: ModuleAgentSessionView[]) => void): () => void
+  /**
+   * Spawn an agent session through the app's SHARED session runtime (the
+   * same path every shell surface uses) and add its tab to the workspace
+   * layout. Structured result — expected failures (unknown workspace,
+   * folderless workspace, unavailable runtime, spawn failure) never throw;
+   * rejects only when agent runtime is unavailable. Declare `ipc:agents`.
+   */
+  spawnAgent(input: ModuleSpawnAgentInput): Promise<ModuleSpawnAgentResult>
+  /**
+   * Focus a workspace tab: an agent's terminal tab (added if missing) or a
+   * file tab by workspace-relative path. False when not focusable; throws
+   * with a named cause when agent runtime is unavailable.
+   */
+  focusTab(input: ModuleFocusTabInput): boolean
+  /**
+   * The agent runtimes currently available to spawn — ids + display labels
+   * from the same availability-filtered catalog the shell's pickers use.
+   * Plugin internals stay unexposed. Throws with a named cause when agent
+   * runtime is unavailable.
+   */
+  listAgentRuntimes(): ModuleAgentRuntimeOption[]
   /**
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`, e.g. `host.invoke('my-module:save', data)`.

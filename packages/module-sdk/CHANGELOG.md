@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Live runtime surfaces on `RendererHost` (MC-1535, the extraction blocker
+  set): `watchAgentSessions(workspaceId, cb)` — read-only session views
+  (`ModuleAgentSessionView`: sessionId/agentId/name/kind/system/executionId/
+  isLive, enum-ish fields widened to string), snapshot then deduped change
+  events; `spawnAgent(input)` — spawns through the app's SHARED session
+  runtime (never a bespoke PTY) with structured failures
+  (`unknown_workspace`/`missing_folder`/`unknown_runtime`/`spawn_failed`)
+  and adds the agent's layout tab; `focusTab({ kind: 'agent' | 'file' })`;
+  `listAgentRuntimes()` — ids + labels from the shell's availability-
+  filtered CLI catalog (no plugin internals);
+  `watchWorkspaceFile(workspaceId, relativePath, cb)` — debounced content
+  watch (null = file absent), absolute/escaping paths reject with a named
+  cause; and `getWorkingRoot(workspaceId)` — the *effective working root*
+  (`ModuleWorkspaceView.folderPath` stays the durable primary checkout;
+  worktree-backed workspaces do live work under a worktree, and the file
+  watch, spawn cwd, and file-tab focus all resolve against that root).
+  Every method fails with a named cause when agent runtime is unavailable
+  (unwired shell vs the Agent Runtime module disabled are distinct causes).
+  Disclosures: `ipc:agents` (sessions/spawn/focus),
+  `filesystem:read-workspace` (file watch), `ipc:workspace-read`
+  (working root).
+
 - Module-owned workspace-creation config steps (MC-1534):
   `WorkspaceTypeDefinition.creationStep` —
   `{ id, heading, description?, Component, isReady?, blockedHint? }`, one

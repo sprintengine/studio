@@ -190,6 +190,30 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
     const [backlogCount, setBacklogCount] = useState<number | null>(null)
     const [backlogUnavailable, setBacklogUnavailable] = useState(false)
     const [workspace, setWorkspace] = useState<ModuleWorkspaceView | null>(null)
+    const [liveAgents, setLiveAgents] = useState(0)
+    useEffect(() => {
+      // Live runtime surfaces: session observation (snapshot + change) and a
+      // workspace-relative file watch — resolved against the effective
+      // working root (getWorkingRoot), so a worktree-backed workspace
+      // watches the worktree — both torn down on unmount.
+      let offSessions: (() => void) | undefined
+      try {
+        offSessions = host.watchAgentSessions(workspaceId, (sessions) => {
+          setLiveAgents(sessions.filter((session) => session.isLive).length)
+        })
+      } catch {
+        // Session source unavailable (early boot, module disabled) — stay 0.
+      }
+      void host.getWorkingRoot(workspaceId).catch(() => null)
+      let offFile: (() => void) | undefined
+      void host.watchWorkspaceFile(workspaceId, 'forecast/config.json', () => undefined)
+        .then((off) => { offFile = off })
+        .catch(() => undefined)
+      return () => {
+        offSessions?.()
+        offFile?.()
+      }
+    }, [workspaceId])
     useEffect(() => {
       let disposed = false
       // Workspace context resolution: the supported id → root/name/mode read
@@ -250,7 +274,7 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
         ? 'Backlog unavailable'
         : backlogCount === null
           ? 'Loading backlog…'
-          : `${backlogCount} backlog items${workspace?.folderPath ? ` in ${workspace.folderPath}` : ''}`
+          : `${backlogCount} backlog items${workspace?.folderPath ? ` in ${workspace.folderPath}` : ''} · ${liveAgents} live agents`
     )
   }
 }
@@ -359,6 +383,24 @@ export const registerRenderer: RegisterRenderer = (host) => {
   host.registerWorkspaceType(forecastWorkspaceType)
   host.registerBacklogItemAction(markChecked)
   host.registerCommand(quickCheck(host))
+  // Agent spawn through the app's SHARED session runtime; structured result,
+  // runtime picked from the published availability-filtered catalog.
+  host.registerCommand({
+    id: 'spawn.forecaster',
+    title: 'Weather: Spawn forecaster agent',
+    category: 'Weather Deck',
+    scopes: ['panel:weather-deck'],
+    run: async () => {
+      const runtimes = host.listAgentRuntimes()
+      const result = await host.spawnAgent({
+        workspaceId: 'active',
+        name: 'Forecaster',
+        cli: runtimes[0]?.id,
+        prompt: 'Summarize today\'s forecast for the workspace city.',
+      })
+      if (!result.ok) console.error('[weather-deck] spawn failed:', result.code, result.message)
+    },
+  })
   // Workspace-gated command: `panel:weather-deck` is derived by the shell
   // from the workspace-type registry (active while a weather-deck-mode
   // workspace is active), and the availability predicate narrows further

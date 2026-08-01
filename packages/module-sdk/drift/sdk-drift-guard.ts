@@ -95,6 +95,14 @@ import type {
 } from '../../../src/renderer/src/utils/workspaceRunGlyph'
 import type { CommandAvailability as AppCommandAvailability, CommandScope as AppCommandScope, ModuleCommandContext as AppModuleCommandContext } from '../../../src/renderer/src/commands/types'
 import type { ModuleWorkspaceView as AppModuleWorkspaceView } from '../../../src/shared/modules/workspace-view'
+import type { WorkspaceFileWatchEvent as AppWorkspaceFileWatchEvent } from '../../../src/renderer/src/modules/workspace-file-watch'
+import type { ModuleAgentSessionView as AppModuleAgentSessionView } from '../../../src/renderer/src/modules/agent-session-watch'
+import type {
+  ModuleAgentRuntimeOption as AppModuleAgentRuntimeOption,
+  ModuleFocusTabInput as AppModuleFocusTabInput,
+  ModuleSpawnAgentInput as AppModuleSpawnAgentInput,
+  ModuleSpawnAgentResult as AppModuleSpawnAgentResult,
+} from '../../../src/renderer/src/modules/agent-spawn'
 import type {
   BacklogItemLink as AppBacklogItemLink,
   BacklogItemStatus as AppBacklogItemStatus,
@@ -144,6 +152,11 @@ import type {
   ModuleNotifyInput as SdkModuleNotifyInput,
   ModuleSignature as SdkModuleSignature,
   ModuleSource as SdkModuleSource,
+  ModuleAgentRuntimeOption as SdkModuleAgentRuntimeOption,
+  ModuleAgentSessionView as SdkModuleAgentSessionView,
+  ModuleFocusTabInput as SdkModuleFocusTabInput,
+  ModuleSpawnAgentInput as SdkModuleSpawnAgentInput,
+  ModuleSpawnAgentResult as SdkModuleSpawnAgentResult,
   ModuleStorageErrorCode as SdkModuleStorageErrorCode,
   ModuleStorageResult as SdkModuleStorageResult,
   ModuleStorageService as SdkModuleStorageService,
@@ -161,6 +174,7 @@ import type {
   WorkspaceCreationStepProps as SdkWorkspaceCreationStepProps,
   WorkspaceLayoutTemplate as SdkWorkspaceLayoutTemplate,
   WorkspacePanelComponent as SdkWorkspacePanelComponent,
+  WorkspaceFileWatchEvent as SdkWorkspaceFileWatchEvent,
   WorkspaceRunGlyph as SdkWorkspaceRunGlyph,
   WorkspaceRunGlyphInput as SdkWorkspaceRunGlyphInput,
   WorkspaceTypeCreateContext as SdkWorkspaceTypeCreateContext,
@@ -207,6 +221,15 @@ expectType<IsExact<AppSettingsSectionProps, SdkSettingsSectionProps>>()
 // provided under WorkspaceContextToken must match the SDK's contract.
 expectType<IsExact<AppModuleWorkspaceView, SdkModuleWorkspaceView>>()
 expectType<IsExact<AppModuleWorkspaceContextService, SdkWorkspaceContextService>>()
+// Live runtime surfaces (MC-1535): the published views/inputs mirror the
+// app-side declarations exactly; RendererHost method soundness rides the
+// AppRendererHost extends SdkRendererHost assertion below.
+expectType<IsExact<AppWorkspaceFileWatchEvent, SdkWorkspaceFileWatchEvent>>()
+expectType<IsExact<AppModuleAgentSessionView, SdkModuleAgentSessionView>>()
+expectType<IsExact<AppModuleAgentRuntimeOption, SdkModuleAgentRuntimeOption>>()
+expectType<IsExact<AppModuleSpawnAgentInput, SdkModuleSpawnAgentInput>>()
+expectType<IsExact<AppModuleSpawnAgentResult, SdkModuleSpawnAgentResult>>()
+expectType<IsExact<AppModuleFocusTabInput, SdkModuleFocusTabInput>>()
 // Module storage: the SDK publishes the scoped service (getModuleStorage);
 // the app provides the moduleId-first registry under 'core.module-storage'.
 // The registry the app serves must accept exactly what the SDK helper

@@ -13,6 +13,16 @@ import type {
 } from '../types/workspace'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../utils/backlog'
 import type { ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
+import { AGENT_RUNTIME_MODULE_ID } from '../../../shared/backlog/agent-links'
+import type { WorkspaceFileWatcher, WorkspaceFileWatchEvent } from './workspace-file-watch'
+import type { AgentSessionWatcher, ModuleAgentSessionView } from './agent-session-watch'
+import type {
+  ModuleAgentRuntimeOption,
+  ModuleAgentSpawner,
+  ModuleFocusTabInput,
+  ModuleSpawnAgentInput,
+  ModuleSpawnAgentResult,
+} from './agent-spawn'
 import type {
   WorkspaceRunGlyph,
   WorkspaceRunGlyphProviderInput,
@@ -422,6 +432,60 @@ export type RendererHost = {
    * Disclosure permission: `ipc:workspace-read`.
    */
   getWorkspace(workspaceId: string): Promise<ModuleWorkspaceView | null>
+  /**
+   * The workspace's *effective working root*: where its live work happens.
+   * `ModuleWorkspaceView.folderPath` deliberately reports the durable primary
+   * checkout; a worktree-backed workspace (sprint runs) does live work under a
+   * worktree, and this resolves that root. The live-runtime methods below
+   * (`watchWorkspaceFile`, `spawnAgent`, `focusTab`) resolve workspace-relative
+   * paths against it. Null means "not currently resolvable" — never a throw.
+   * Disclosure permission: `ipc:workspace-read`.
+   */
+  getWorkingRoot(workspaceId: string): Promise<string | null>
+  /**
+   * Watch one workspace-relative file (resolved against the effective working
+   * root): the callback fires once with the current content (null when the
+   * file doesn't exist), then debounced on every change. Rejects with a named
+   * cause for absolute/escaping paths, unknown/folderless workspaces, an
+   * unwired backend (early boot, tests), or a disabled Agent Runtime module.
+   * Resolve the returned closure's promise, keep it, and call it on unmount.
+   * Disclosure permission: `filesystem:read-workspace`.
+   */
+  watchWorkspaceFile(
+    workspaceId: string,
+    relativePath: string,
+    cb: (event: WorkspaceFileWatchEvent) => void
+  ): Promise<() => void>
+  /**
+   * Observe the workspace's live agent sessions: `cb` fires once with the
+   * current read-only views, then on every change (deduped). Returns the
+   * unsubscriber — call it on unmount. Throws with a named cause before the
+   * shell wires the session source or while the Agent Runtime module is
+   * disabled. Disclosure permission: `ipc:agents`.
+   */
+  watchAgentSessions(workspaceId: string, cb: (sessions: ModuleAgentSessionView[]) => void): () => void
+  /**
+   * Spawn an agent session through the SHARED session runtime (the same path
+   * every shell surface uses) and add its tab to the workspace layout.
+   * Structured result, never a throw for expected failures (unknown
+   * workspace, folderless workspace, unavailable runtime, spawn failure).
+   * Rejects with a named cause before the shell wires the backend or while
+   * the Agent Runtime module is disabled. Disclosure: `ipc:agents`.
+   */
+  spawnAgent(input: ModuleSpawnAgentInput): Promise<ModuleSpawnAgentResult>
+  /**
+   * Focus a workspace tab: an agent's terminal tab (added if missing) or a
+   * file tab by workspace-relative path (false when not open/focusable).
+   * Throws with a named cause when agent runtime is unavailable.
+   */
+  focusTab(input: ModuleFocusTabInput): boolean
+  /**
+   * The agent runtimes currently available to spawn: ids + display labels
+   * only (installed CLIs, from the same availability-filtered catalog the
+   * shell's pickers use) — plugin internals stay unexposed. Throws with a
+   * named cause when agent runtime is unavailable.
+   */
+  listAgentRuntimes(): ModuleAgentRuntimeOption[]
 }
 
 // The kernel owns the registries and is consumed by the factory/rail. Modules
@@ -497,6 +561,29 @@ export type RendererKernel = {
    * every lookup resolves to null.
    */
   setWorkspaceResolver(resolver: (workspaceId: string) => ModuleWorkspaceView | null): void
+  /**
+   * Working-root source for `RendererHost.getWorkingRoot`. Wired once at boot
+   * by modules/index.ts (store + worktree resolution); absent (early boot,
+   * tests) every lookup resolves to null.
+   */
+  setWorkingRootResolver(resolver: (workspaceId: string) => string | null): void
+  /**
+   * File-watch backend for `RendererHost.watchWorkspaceFile`. Wired once at
+   * boot by modules/index.ts over the shell's fs watch plumbing; absent
+   * (tests, early boot) the host method rejects with a named cause.
+   */
+  setWorkspaceFileWatcher(watcher: WorkspaceFileWatcher): void
+  /**
+   * Agent-session source for `RendererHost.watchAgentSessions`. Wired once at
+   * boot by modules/index.ts over the shell's terminal-sessions store.
+   */
+  setAgentSessionWatcher(watcher: AgentSessionWatcher): void
+  /**
+   * Spawn/focus/runtimes backend for the module agent surface. Wired once at
+   * boot by modules/index.ts over the shared session runtime + layout
+   * helpers + availability-filtered CLI catalog.
+   */
+  setAgentSpawner(spawner: ModuleAgentSpawner): void
 }
 
 const SHELL_COMMAND_IDS: ReadonlySet<string> = new Set(COMMAND_REGISTRY.map((command) => command.id))
@@ -516,6 +603,26 @@ export function createRendererHost(): RendererKernel {
   let backlogReader: { moduleId: string; reader: BacklogReader } | null = null
   let moduleEnabledResolver: ((moduleId: string) => boolean) | null = null
   let workspaceResolver: ((workspaceId: string) => ModuleWorkspaceView | null) | null = null
+  let workingRootResolver: ((workspaceId: string) => string | null) | null = null
+  let workspaceFileWatcher: WorkspaceFileWatcher | null = null
+  let agentSessionWatcher: AgentSessionWatcher | null = null
+  let agentSpawner: ModuleAgentSpawner | null = null
+  const agentRuntimeDisabled = (): boolean =>
+    moduleEnabledResolver !== null && !moduleEnabledResolver(AGENT_RUNTIME_MODULE_ID)
+  // Shared gate for the live-runtime methods (MC-1535): the error names the
+  // actual cause so a module author can tell "the shell has not wired this
+  // backend yet" (early boot, tests) from "the user turned the Agent Runtime
+  // module off". Before the enablement resolver lands the module is treated
+  // as enabled, matching the Backlog gate's boot window.
+  const requireAgentRuntime = <T>(backend: T | null, surface: string): T => {
+    if (agentRuntimeDisabled()) {
+      throw new Error(`${surface} is not available — the Agent Runtime module is disabled.`)
+    }
+    if (!backend) {
+      throw new Error(`${surface} is not available — the shell has not wired the agent-runtime backend.`)
+    }
+    return backend
+  }
   // Shared gate for the Backlog read methods: the error names the actual cause
   // so a module author can tell "nothing provides this" from "the user turned
   // the backlog module off".
@@ -725,6 +832,35 @@ export function createRendererHost(): RendererKernel {
         async getWorkspace(workspaceId) {
           return workspaceResolver ? workspaceResolver(workspaceId) : null
         },
+        async getWorkingRoot(workspaceId) {
+          return workingRootResolver ? workingRootResolver(workspaceId) : null
+        },
+        async watchWorkspaceFile(workspaceId, relativePath, cb) {
+          const watcher = requireAgentRuntime(workspaceFileWatcher, 'Workspace file watch')
+          return watcher(workspaceId, relativePath, (event) => {
+            // Live gate on every delivery, not just at subscribe (the Backlog
+            // watcher pattern): an active watch stops streaming the moment the
+            // user disables the Agent Runtime module.
+            if (agentRuntimeDisabled()) return
+            cb(event)
+          })
+        },
+        watchAgentSessions(workspaceId, cb) {
+          const watcher = requireAgentRuntime(agentSessionWatcher, 'Agent session observation')
+          return watcher(workspaceId, (sessions) => {
+            if (agentRuntimeDisabled()) return
+            cb(sessions)
+          })
+        },
+        async spawnAgent(input) {
+          return requireAgentRuntime(agentSpawner, 'Agent spawn').spawnAgent(input)
+        },
+        focusTab(input) {
+          return requireAgentRuntime(agentSpawner, 'Tab focus').focusTab(input)
+        },
+        listAgentRuntimes() {
+          return requireAgentRuntime(agentSpawner, 'Agent runtime listing').listAgentRuntimes()
+        },
         async invoke(channel, payload) {
           if (!channel.startsWith(`${moduleId}:`)) {
             throw new Error(
@@ -828,6 +964,18 @@ export function createRendererHost(): RendererKernel {
     },
     setWorkspaceResolver(resolver) {
       workspaceResolver = resolver
+    },
+    setWorkingRootResolver(resolver) {
+      workingRootResolver = resolver
+    },
+    setWorkspaceFileWatcher(watcher) {
+      workspaceFileWatcher = watcher
+    },
+    setAgentSessionWatcher(watcher) {
+      agentSessionWatcher = watcher
+    },
+    setAgentSpawner(spawner) {
+      agentSpawner = spawner
     },
   }
 }
