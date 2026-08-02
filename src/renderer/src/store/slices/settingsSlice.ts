@@ -29,7 +29,6 @@ import type {
   SprintEngineRunSettings,
   SprintEngineRoleSettings,
   SprintEngineRoster,
-  SprintEngineRosterMode,
   SprintEngineSavedRoster,
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
@@ -831,14 +830,12 @@ function normalizeSprintEngineRosters(value: unknown): SprintEngineRoster[] {
     const createdAt = typeof candidate.createdAt === 'number' && Number.isFinite(candidate.createdAt) ? candidate.createdAt : now
     const updatedAt = typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt) ? candidate.updatedAt : createdAt
     const roleModelOverrides = normalizeSprintEngineRoleModelOverrides(candidate.roleModelOverrides)
-    // MC-1875: only the two real formations survive normalization. An unknown
-    // or absent value drops the key entirely, which is the documented "legacy
-    // roster, fall back to the guess" state — never an invented default.
-    const mode = candidate.mode === 'roles' || candidate.mode === 'pool' ? candidate.mode : undefined
+    // MC-2064 deleted the roster `mode` formation axis outright (no migration:
+    // owner ruling, no users and no saved pools). A stored `mode` key from an
+    // older profile is simply not carried forward — a roster is a set of roles.
     result.push({
       id,
       name,
-      ...(mode ? { mode } : {}),
       roleCounts: normalizeSavedSprintEngineRoleCounts(candidate.roleCounts),
       roleCliDefaults: normalizeCliDefaults(candidate.roleCliDefaults) as SprintEngineRoleCliDefaults,
       // Omit the key entirely when empty so pre-model-persistence teams keep a
@@ -1237,8 +1234,6 @@ export interface SettingsSliceActions {
   saveSprintEngineRoster: (input: {
     id?: string
     name: string
-    /** The formation the roster is saved in (MC-1875); absent keeps the legacy guess. */
-    mode?: SprintEngineRosterMode
     roleCounts: SprintEngineRoleCounts
     roleCliDefaults: SprintEngineRoleCliDefaults
     roleModelOverrides?: SprintEngineRoleModelOverrides
@@ -1700,15 +1695,10 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
         const teams = [...(current.savedRosters ?? [])]
         const existingIndex = teams.findIndex((team) => team.id === id)
-        // MC-1875: an explicit formation is stored; omitting it leaves an
-        // existing roster's stored mode untouched rather than erasing it, and
-        // leaves a new roster on the legacy guess.
-        const modePatch = input.mode ? { mode: input.mode } : {}
         if (existingIndex >= 0) {
           teams[existingIndex] = {
             ...teams[existingIndex],
             name,
-            ...modePatch,
             roleCounts: roster.roleCounts,
             roleCliDefaults: roster.roleCliDefaults,
             // Explicitly overwrite (not spread-merge) so clearing every model
@@ -1720,7 +1710,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           teams.push({
             id,
             name,
-            ...modePatch,
             roleCounts: roster.roleCounts,
             roleCliDefaults: roster.roleCliDefaults,
             roleModelOverrides: roster.roleModelOverrides,

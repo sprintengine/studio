@@ -70,6 +70,14 @@ import { BacklogTrackerPicker } from '../backlog/BacklogTrackerPicker'
 import { useBacklogTrackerSeeding } from '../backlog/useBacklogTrackerSeeding'
 import { isRoadmapContent } from '../../../../shared/backlog/roadmap'
 import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
+import {
+  collapseBacklogSelectionTo,
+  effectiveBacklogSelection,
+  extendBacklogSelectionTo,
+  pruneBacklogSelection,
+  toggleBacklogSelection,
+  EMPTY_BACKLOG_MULTI_SELECTION,
+} from '../backlog/backlogMultiSelection'
 import { backlogRowPaintClass } from '../backlog/backlogRowPaint'
 import {
   compareBacklogItems,
@@ -264,6 +272,10 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // The extended (shift/cmd) selection layered over the cursor above (MC-2060),
+  // keyed by item id — this panel lists one project, so there is no cross-
+  // project rule to enforce (the door's model carries that via `groupOf`).
+  const [multiSelection, setMultiSelection] = useState(EMPTY_BACKLOG_MULTI_SELECTION)
   // Search is ephemeral: a transient act, never persisted or shared, so each
   // window's box starts empty and typing here never leaks to another workspace.
   const [search, setSearch] = useState('')
@@ -307,7 +319,9 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // Row context menu (right-click). Keyed by item id, not the item object, so a
   // re-scan triggered by a menu mutation (star, highlight) re-resolves the live
   // item and the open menu reflects the new state instead of a stale snapshot.
-  const [rowMenu, setRowMenu] = useState<{ itemId: string; x: number; y: number } | null>(null)
+  // `selection`: opened on a row inside a live multi-selection, so module
+  // actions act on the whole selection rather than the row alone (MC-2060).
+  const [rowMenu, setRowMenu] = useState<{ itemId: string; x: number; y: number; selection?: boolean } | null>(null)
   // Terminal-session liveness for the send-to-agent flyout. null = not fetched
   // yet (agents render enabled; the send core re-verifies liveness anyway);
   // fetched on every flyout open so a dead session shows as disabled.
@@ -479,6 +493,16 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     if (groupedRows) for (const row of groupedRows) map.set(row.navId, row)
     return map
   }, [groupedRows])
+  // The VISIBLE item rows in nav order — headers excluded — which is the space
+  // shift ranges walk. A collapsed group's children are not rangeable (they are
+  // not on screen) but stay selected: pruning uses `filtered`, like the cursor.
+  const itemIdOrder = useMemo<string[]>(
+    () =>
+      groupedRows
+        ? groupedRows.filter((row) => row.kind === 'item').map((row) => row.item.id)
+        : filtered.map((item) => item.id),
+    [groupedRows, filtered],
+  )
 
   // Assignable epics for the "Move to epic" affordances: every epic concept file
   // with its slug + title, drawn from the full scan (not the filtered view) so
@@ -574,10 +598,29 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       setShowDetailInSingle(false)
     }
   }, [filtered, navIndexById, selectedId])
+  // The extended selection prunes against `filtered` (like the cursor), so a
+  // collapsed group hides its selected rows without dropping them.
+  useEffect(() => {
+    setMultiSelection((prev) => pruneBacklogSelection(prev, new Set(filtered.map((item) => item.id))))
+  }, [filtered])
 
   const selected = useMemo(
     () => filtered.find((item) => item.id === selectedId) ?? null,
     [filtered, selectedId],
+  )
+  // During a multi-selection the detail pane binds to the anchor (last-clicked)
+  // row rather than the roving range end; single mode keeps the cursor binding.
+  const detailItem = useMemo(() => {
+    if (!multiSelection.keys) return selected
+    const anchor = multiSelection.anchorKey
+      ? filtered.find((item) => item.id === multiSelection.anchorKey) ?? null
+      : null
+    return anchor ?? selected
+  }, [multiSelection, filtered, selected])
+  // What the list paints as selected: the multi set, else the cursor row.
+  const selectedRowIds = useMemo(
+    () => effectiveBacklogSelection(multiSelection, selectedId),
+    [multiSelection, selectedId],
   )
 
   // The selected item's effective run glyph. A leaf item carries its own Sprint
@@ -587,10 +630,10 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // states up into the epic's glyph so a merged epic reads "Merged" (purple
   // branch), matching what each member shows in the list.
   const selectedRunGlyph = useMemo(() => {
-    if (!selected) return undefined
-    if (selected.isEpic) return deriveEpicRunGlyphFromChildren(selected, items, runGlyphById)
-    return runGlyphById.get(selected.id)
-  }, [selected, items, runGlyphById])
+    if (!detailItem) return undefined
+    if (detailItem.isEpic) return deriveEpicRunGlyphFromChildren(detailItem, items, runGlyphById)
+    return runGlyphById.get(detailItem.id)
+  }, [detailItem, items, runGlyphById])
 
   // Inline mockup preview (MC-1485 / T4), mirroring the Sprint board's
   // previewed-artifact local state: when set, the detail pane renders the
@@ -731,6 +774,22 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [navOrder],
   )
 
+  // Shift+↑/↓ extends the selection from the roving cursor: the range end walks
+  // the VISIBLE item rows (group headers are skipped — they are not selectable
+  // work). Only meaningful when the cursor sits on an item row.
+  const extendSelectionByStep = useCallback(
+    (direction: 1 | -1) => {
+      if (!selectedId || isBacklogHeaderNavId(selectedId)) return
+      const currentIndex = itemIdOrder.indexOf(selectedId)
+      if (currentIndex < 0) return
+      const target = itemIdOrder[currentIndex + direction]
+      if (target == null) return
+      setMultiSelection((prev) => extendBacklogSelectionTo(prev, selectedId, target, itemIdOrder))
+      setSelectedId(target)
+    },
+    [selectedId, itemIdOrder],
+  )
+
   const handleListKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLUListElement>) => {
       if (isEditableTarget(event.target)) return
@@ -738,9 +797,19 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       const currentRow = selectedId ? rowByNavId.get(selectedId) : undefined
       if (event.key === 'j' || event.key === 'ArrowDown') {
         event.preventDefault()
+        if (event.shiftKey) {
+          extendSelectionByStep(1)
+          return
+        }
+        setMultiSelection((prev) => (prev.keys === null && prev.anchorKey === null ? prev : collapseBacklogSelectionTo(null)))
         selectAt(currentIndex < 0 ? 0 : Math.min(currentIndex + 1, navOrder.length - 1))
       } else if (event.key === 'k' || event.key === 'ArrowUp') {
         event.preventDefault()
+        if (event.shiftKey) {
+          extendSelectionByStep(-1)
+          return
+        }
+        setMultiSelection((prev) => (prev.keys === null && prev.anchorKey === null ? prev : collapseBacklogSelectionTo(null)))
         selectAt(currentIndex < 0 ? 0 : Math.max(currentIndex - 1, 0))
       } else if (event.key === 'Enter' || event.key === 'ArrowRight') {
         // On a group header the primary action is collapse/expand; on a leaf it
@@ -761,15 +830,36 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       } else if (event.key === 'Escape') {
         event.preventDefault()
         setSelectedId(null)
+        setMultiSelection(EMPTY_BACKLOG_MULTI_SELECTION)
       }
     },
-    [navOrder, rowByNavId, selectAt, selectedId, toggleGroupCollapsed],
+    [navOrder, rowByNavId, selectAt, selectedId, toggleGroupCollapsed, extendSelectionByStep],
   )
 
-  const handleSelectRow = useCallback((id: string) => {
-    setSelectedId(id)
-    setShowDetailInSingle(true)
-  }, [])
+  // Plain click collapses to single (today's behavior, including the single-
+  // column detail flip); cmd/ctrl toggles the row; shift ranges from the
+  // anchor. The two multi gestures keep the list face — flipping to the detail
+  // on every toggle would end the selection gesture it is part of.
+  const handleSelectRow = useCallback(
+    (id: string, modifiers?: { toggle?: boolean; range?: boolean }) => {
+      setSelectedId(id)
+      // Only visible item rows join a multi-selection; an epic group header
+      // (which selects its epic item while the epic renders as a header) stays
+      // single-select, exactly like the door's headers.
+      const selectable = itemIdOrder.includes(id)
+      if (modifiers?.range && selectable) {
+        setMultiSelection((prev) => extendBacklogSelectionTo(prev, selectedId, id, itemIdOrder))
+        return
+      }
+      if (modifiers?.toggle && selectable) {
+        setMultiSelection((prev) => toggleBacklogSelection(prev, selectedId, id))
+        return
+      }
+      setMultiSelection(collapseBacklogSelectionTo(selectable ? id : null))
+      setShowDetailInSingle(true)
+    },
+    [selectedId, itemIdOrder],
+  )
 
   // Cross-navigation from the detail pane (a prerequisite or a blocked item).
   // Unlike a list-row click, the target may sit outside the active lens/search —
@@ -1450,24 +1540,35 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, onStartFuturePlan, runScan, workspaceId],
   )
 
-  const externalActionsForItem = useCallback((item: BacklogItem) => {
-    const context = backlogActionContext(item)
-    if (!context) return []
+  const externalActionsForItem = useCallback((
+    item: BacklogItem,
+    selectionItems?: ReadonlyArray<BacklogItem>,
+  ) => {
+    const base = backlogActionContext(item)
+    if (!base) return []
+    // The whole-selection context (MC-2060): the menu was opened inside a
+    // multi-selection, so module actions read every selected item plus the full
+    // scan for epic expansion. Single-item callers pass nothing and the context
+    // is byte-identical to before.
+    const context = selectionItems
+      ? { ...base, selection: { items: selectionItems, projectItems: items } }
+      : base
     return getRendererHost().getBacklogItemActions()
       .filter((action) => selectModuleEnabled(moduleOverrides, action.moduleId))
       .filter((action) => action.isVisible ? action.isVisible(context) : true)
       .map((action) => ({
         action,
+        label: action.getLabel?.(context) ?? action.label,
         disabled: action.getState?.(context) === 'disabled',
         run: () => runAction(async () => {
           await action.run(context)
         }),
       }))
-  }, [backlogActionContext, moduleOverrides, runAction])
+  }, [backlogActionContext, items, moduleOverrides, runAction])
 
   const externalActions = useMemo(
-    () => selected ? externalActionsForItem(selected) : [],
-    [externalActionsForItem, selected],
+    () => detailItem ? externalActionsForItem(detailItem) : [],
+    [externalActionsForItem, detailItem],
   )
 
   // Enabled Backlog link providers, so the detail pane can resolve and open a
@@ -1500,12 +1601,22 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
 
   // Right-click selects the row first (Files-tree behavior) so the menu and the
   // detail pane agree about the target; in single-column mode it stays on the
-  // list face so the menu doesn't open over a swapped-in detail pane.
-  const handleRowContextMenu = useCallback((event: React.MouseEvent, item: BacklogItem) => {
-    event.preventDefault()
-    setSelectedId(item.id)
-    setRowMenu({ itemId: item.id, x: event.clientX, y: event.clientY })
-  }, [])
+  // list face so the menu doesn't open over a swapped-in detail pane. Inside a
+  // live multi-selection the menu acts on the whole set; on any unselected row
+  // it collapses the selection to that row first (platform convention).
+  const handleRowContextMenu = useCallback(
+    (event: React.MouseEvent, item: BacklogItem) => {
+      event.preventDefault()
+      // Even a set of one acts as a selection, so a lone selected epic
+      // launches with its bundle (planKind stays `epic`; the builder settles
+      // that); the reduced menu only engages above one row.
+      const inSelection = Boolean(multiSelection.keys?.has(item.id))
+      setSelectedId(item.id)
+      if (!inSelection) setMultiSelection(collapseBacklogSelectionTo(item.id))
+      setRowMenu({ itemId: item.id, x: event.clientX, y: event.clientY, selection: inSelection })
+    },
+    [multiSelection],
+  )
 
   // Agents of this workspace that own a CLI terminal session — the send-to-agent
   // targets. Liveness comes from terminalList(), fetched when the flyout opens.
@@ -1560,16 +1671,22 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   )
 
   const menuItem = rowMenu ? filtered.find((item) => item.id === rowMenu.itemId) ?? null : null
+  // The rows the open menu acts on, in list order — only when it was opened
+  // inside a live multi-selection.
+  const menuSelectionItems = useMemo(() => {
+    if (!rowMenu?.selection || !menuItem || !multiSelection.keys) return null
+    return filtered.filter((item) => multiSelection.keys?.has(item.id))
+  }, [rowMenu, menuItem, multiSelection, filtered])
   const menuItemActions = useMemo(
     () => menuItem
-      ? externalActionsForItem(menuItem).map(({ action, disabled, run }) => ({
+      ? externalActionsForItem(menuItem, menuSelectionItems ?? undefined).map(({ action, label, disabled, run }) => ({
           id: action.id,
-          label: action.label,
+          label,
           disabled,
           run,
         }))
       : [],
-    [externalActionsForItem, menuItem],
+    [externalActionsForItem, menuItem, menuSelectionItems],
   )
 
   // A mutation that removes the item from the current view (rename, archive,
@@ -1585,6 +1702,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       groupedRows={groupedRows}
       navIndexById={navIndexById}
       selectedId={selectedId}
+      selectedRowIds={selectedRowIds}
       onSelect={handleSelectRow}
       onToggleCollapse={toggleGroupCollapsed}
       onKeyDown={handleListKeyDown}
@@ -1608,7 +1726,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       scan={scan}
       loading={loading}
       folderPath={folderPath}
-      selected={selected}
+      selected={detailItem}
       selectedRunGlyph={selectedRunGlyph}
       runGlyphById={runGlyphById}
       now={now}
@@ -1622,11 +1740,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       epicChoices={epicChoices}
       items={items}
       epicMetaBySlug={epicMeta}
-      dependencyNode={selected ? dependencyGraph.byItemId.get(selected.id) ?? null : null}
-      dependencyState={selected ? dependencyStateById.get(selected.id) ?? null : null}
+      dependencyNode={detailItem ? dependencyGraph.byItemId.get(detailItem.id) ?? null : null}
+      dependencyState={detailItem ? dependencyStateById.get(detailItem.id) ?? null : null}
       dependencyStateById={dependencyStateById}
       epicBlockedRollup={
-        selected?.isEpic ? epicBlockedBySlug.get(epicSlug(selected)) : undefined
+        detailItem?.isEpic ? epicBlockedBySlug.get(epicSlug(detailItem)) : undefined
       }
       dependencyChoices={dependencyChoices}
       onNavigate={navigateToBacklogItem}
@@ -1752,7 +1870,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          {showDetailInSingle && selected ? detailPane : listPane}
+          {showDetailInSingle && detailItem ? detailPane : listPane}
         </div>
       )}
 
@@ -1770,6 +1888,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           x={rowMenu.x}
           y={rowMenu.y}
           item={menuItem}
+          selectionCount={menuSelectionItems?.length}
           actions={actions}
           epicChoices={epicChoices}
           dependencyChoices={dependencyChoices}
@@ -1852,6 +1971,7 @@ function BacklogList({
   groupedRows,
   navIndexById,
   selectedId,
+  selectedRowIds,
   onSelect,
   onToggleCollapse,
   onKeyDown,
@@ -1872,7 +1992,9 @@ function BacklogList({
   groupedRows: BacklogGroupedRow[] | null
   navIndexById: ReadonlyMap<string, number>
   selectedId: string | null
-  onSelect: (id: string) => void
+  // The rows painted selected: the multi set, or the cursor row alone (MC-2060).
+  selectedRowIds: ReadonlySet<string>
+  onSelect: (id: string, modifiers?: { toggle?: boolean; range?: boolean }) => void
   onToggleCollapse: (group: BacklogEpicGroup) => void
   onKeyDown: (event: React.KeyboardEvent<HTMLUListElement>) => void
   onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
@@ -1923,6 +2045,7 @@ function BacklogList({
       ref={listRef}
       role="listbox"
       aria-label="Backlog items"
+      aria-multiselectable
       tabIndex={0}
       onKeyDown={onKeyDown}
       // Active-descendant so screen readers announce the active plan as j/k/arrow
@@ -1951,7 +2074,7 @@ function BacklogList({
                 key={row.item.id}
                 item={row.item}
                 optionIndex={navIndexById.get(row.item.id) ?? -1}
-                selected={row.item.id === selectedId}
+                selected={selectedRowIds.has(row.item.id)}
                 indented
                 onSelect={onSelect}
                 onItemDragStart={onItemDragStart}
@@ -1968,7 +2091,7 @@ function BacklogList({
               key={item.id}
               item={item}
               optionIndex={navIndexById.get(item.id) ?? -1}
-              selected={item.id === selectedId}
+              selected={selectedRowIds.has(item.id)}
               onSelect={onSelect}
               onItemDragStart={onItemDragStart}
               onItemContextMenu={onItemContextMenu}
@@ -2020,7 +2143,7 @@ function BacklogOptionRow({
   optionIndex: number
   selected: boolean
   indented?: boolean
-  onSelect: (id: string) => void
+  onSelect: (id: string, modifiers?: { toggle?: boolean; range?: boolean }) => void
   onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
   onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
   now: number
@@ -2049,7 +2172,13 @@ function BacklogOptionRow({
       draggable={Boolean(onItemDragStart)}
       onDragStart={onItemDragStart ? (event) => onItemDragStart(event, item) : undefined}
       onContextMenu={onItemContextMenu ? (event) => onItemContextMenu(event, item) : undefined}
-      onClick={() => onSelect(item.id)}
+      onClick={(event) =>
+        onSelect(item.id, { toggle: event.metaKey || event.ctrlKey, range: event.shiftKey })
+      }
+      // A shift-click is a selection gesture, not a text-selection start.
+      onMouseDown={(event) => {
+        if (event.shiftKey) event.preventDefault()
+      }}
       className={`cursor-pointer border-l-[3px] ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
         backlogRowPaintClass({ color: stripeColor, litFill, selected })
       } ${archived ? 'opacity-70' : ''}`}

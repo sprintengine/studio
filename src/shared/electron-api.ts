@@ -1967,6 +1967,9 @@ export type SprintEngineStateInitializeSourceBundleItem = {
   // planner mints one task for), not supporting reading material sharing the
   // bundle. See SprintEngineSourceBundleItem.epicChild.
   epicChild?: boolean
+  // A directly-selected work item on a `selection` launch (MC-2060). See
+  // SprintEngineSourceBundleItem.selectedItem.
+  selectedItem?: boolean
 }
 
 export type SprintEngineStateInitializeInput = {

@@ -3,34 +3,17 @@
 // row's leading slot reads as "this is a recent folder" rather than "this has a
 // status." The button-row contract (single `<button>` root, no nested
 // interactives, panel-aligned hover/selected tokens, Tooltip-wrapped accessible
-// name) matches `ui/InboxRow` and the trailing hint chips are non-interactive
-// spans so the row remains valid HTML.
+// name) matches `ui/InboxRow`.
 import { basename, folderKey } from './helpers'
 import { Tooltip } from '../../ui/Tooltip'
-
-type Hint = 'sprintengine'
 
 interface RecentFolderRowProps {
   path: string
   active: boolean
-  hints: Hint[]
   onSelect: (path: string) => void
 }
 
-const HINT_LABEL: Record<Hint, string> = {
-  sprintengine: 'Sprint',
-}
-
-const HINT_STYLES: Record<Hint, { dot: string; text: string; bg: string; border: string }> = {
-  sprintengine: {
-    dot: 'bg-[color:var(--tone-warn)]',
-    text: 'text-[color:var(--tone-warn)]',
-    bg: 'bg-[color:var(--tone-warn-soft)]',
-    border: 'border-[color:var(--tone-warn-soft)]',
-  },
-}
-
-export function RecentFolderRow({ path, active, hints, onSelect }: RecentFolderRowProps) {
+export function RecentFolderRow({ path, active, onSelect }: RecentFolderRowProps) {
   const label = basename(path) || path
 
   return (
@@ -73,23 +56,6 @@ export function RecentFolderRow({ path, active, hints, onSelect }: RecentFolderR
           {path}
         </span>
       </span>
-      {hints.length > 0 ? (
-        <span className="flex shrink-0 items-center gap-1">
-          {hints.map((hint) => {
-            const styles = HINT_STYLES[hint]
-            return (
-              <span
-                key={hint}
-                className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-micro font-semibold ${styles.bg} ${styles.border} ${styles.text}`}
-              >
-                {/* design-tokens-allow: hint identity dot inside a chip — color matches the chip's accent */}
-                <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} aria-hidden="true" />
-                {HINT_LABEL[hint]}
-              </span>
-            )
-          })}
-        </span>
-      ) : null}
     </button>
     </Tooltip>
   )

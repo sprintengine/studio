@@ -118,7 +118,7 @@ export function useBacklogTrackerSeeding(params: {
           defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
           defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
         })
-        const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.mode, roster.roleCounts)
+        const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.selectedRosterId, roster.roleCounts)
         const automationMode = sprintEngineAutomationModeForRunOptions({
           startRunner: true,
           autoApproveArtifacts: false,
@@ -132,12 +132,12 @@ export function useBacklogTrackerSeeding(params: {
           sourceRelativePath: item.relativePath,
           sourceContent: item.sourceContent,
           sourcePlanKind: 'unknown',
-          // Formation decides staffing here too (MC-1875/1876). This is the
-          // THIRD caller that resolves a roster and must honor the `mode` it
-          // gets back; the other two are sprint.create's goal-sourced and
-          // plan-sourced paths. Without this, a tracker-seeded sprint on a
-          // fresh install would resolve to "No roles" and then launch the
-          // specialist defaults anyway, seating an architect.
+          // The no-roles/roster selection decides staffing here too. This is
+          // the THIRD caller that resolves a roster and must honor the
+          // selection it gets back; the other two are sprint.create's
+          // goal-sourced and plan-sourced paths. Without this, a tracker-seeded
+          // sprint on a fresh install would resolve to "No roles" and then
+          // launch the specialist defaults anyway, seating an architect.
           roleCounts: launchRoleCounts,
           roleCliDefaults: roster.roleCliDefaults,
           roleModelOverrides: roster.roleModelOverrides,

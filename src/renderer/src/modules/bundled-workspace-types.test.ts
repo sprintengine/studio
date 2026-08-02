@@ -169,9 +169,13 @@ assert.deepEqual(
       id: 'sprintengine',
       moduleId: 'sprint-engine',
       label: 'Sprint',
-      description: 'Specialist team, architect plan, kanban, and evidence trail.',
+      // The old sprint-card marketing line died with the wizard page (MC-2062);
+      // the rail row now describes the board, and selecting it opens the New
+      // sprint dialog rather than a wizard flow. There is no sprint creation
+      // flow, so the registration names no creationStepsId.
+      description: 'Inbox, Agents, and Tasks together in one stable board.',
       accentToken: '--tool-sprintengine',
-      creationStepsId: 'sprintengine',
+      creationStepsId: undefined,
     },
     {
       id: 'automations-host',

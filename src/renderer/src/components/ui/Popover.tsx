@@ -217,11 +217,16 @@ export function Popover({
       }
     }
     window.addEventListener('mousedown', onPointer)
-    window.addEventListener('keydown', onKey)
+    // On document, not window: hosting dialogs key their own Escape handlers off
+    // event.defaultPrevented, but their window listeners are registered at mount
+    // — before this one — and same-target listeners fire in registration order.
+    // Document bubble listeners always run before window listeners, so the
+    // popover consumes Escape first regardless of when it opened.
+    document.addEventListener('keydown', onKey)
     return () => {
       removeOpenPopover(popoverId)
       window.removeEventListener('mousedown', onPointer)
-      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('keydown', onKey)
     }
   }, [open, closePopover, onOpenChange, popoverId])
 

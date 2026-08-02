@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import type { ModuleEnablementOverrides } from '../../../../../shared/modules/manifest'
+import { SPRINT_ENGINE_WORKSPACE_MODE } from '../../../types/workspace'
 import { CreationRail } from './CreationRail'
 import { buildModeModels } from './modeModels'
 
@@ -10,6 +11,8 @@ import { buildModeModels } from './modeModels'
 // featured ahead of the remaining registry-contributed types in pickerOrder —
 // all gated by module enablement. This is the real getWorkspaceTypes +
 // selectModuleEnabled path, so the gating assertions are real-path coverage.
+// (Selecting Sprint no longer enters a wizard flow — the hub routes it to the
+// New sprint dialog, MC-2062 — but the rail row itself remains.)
 
 // The 'automations-host' workspace type is being migrated to a global screen in a
 // sibling task; while its registration lingers it still returns from
@@ -24,7 +27,7 @@ const contractIds = (overrides: ModuleEnablementOverrides) =>
 // remaining contributed types (Switchboard) in pickerOrder.
 assert.deepEqual(
   contractIds({}),
-  ['chat', 'standard', 'sprintengine', 'guided-brief', 'switchboard'],
+  ['chat', 'standard', SPRINT_ENGINE_WORKSPACE_MODE, 'guided-brief', 'switchboard'],
   'rail leads with Chat + Workspace, then the featured types, then the rest',
 )
 assert.equal(contractIds({})[0], 'chat', 'Chat is always the first rail entry')
@@ -39,7 +42,7 @@ assert.deepEqual(
 )
 assert.deepEqual(
   contractIds({ switchboard: false }),
-  ['chat', 'standard', 'sprintengine', 'guided-brief'],
+  ['chat', 'standard', SPRINT_ENGINE_WORKSPACE_MODE, 'guided-brief'],
   'disabling switchboard hides only switchboard',
 )
 
@@ -51,7 +54,7 @@ const EXPECTED_ICON_PATH: Record<string, string> = {
   chat: 'M5 6.5C5 5.95 5.45 5.5',
   standard: 'M7.25 10L10 12.5L7.25 15',
   switchboard: 'M9 5.5V18.5M15 5.5V18.5',
-  sprintengine: 'M10.85 8.2L7.65 14.35',
+  [SPRINT_ENGINE_WORKSPACE_MODE]: 'M10.85 8.2L7.65 14.35',
   'guided-brief': 'M5 6.25C5 5.42',
 }
 

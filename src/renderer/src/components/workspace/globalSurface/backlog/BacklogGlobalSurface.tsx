@@ -52,6 +52,14 @@ import { focusOrAddFileTab } from '../../../../utils/modelRegistry'
 import { getRendererHost, selectModuleEnabled } from '../../../../modules'
 import type { BacklogItemActionContext, BacklogLinkProvider } from '../../../../modules/renderer-host'
 import { BacklogFilterMenu } from '../../../backlog/BacklogFilterMenu'
+import {
+  collapseBacklogSelectionTo,
+  effectiveBacklogSelection,
+  extendBacklogSelectionTo,
+  pruneBacklogSelection,
+  toggleBacklogSelection,
+  EMPTY_BACKLOG_MULTI_SELECTION,
+} from '../../../backlog/backlogMultiSelection'
 import { backlogRowPaintClass } from '../../../backlog/backlogRowPaint'
 import {
   BacklogEpicHeaderContent,
@@ -173,9 +181,15 @@ export default function BacklogGlobalSurface(): JSX.Element {
 
   const [search, setSearch] = useState('')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  // The extended (shift/cmd) selection layered over the cursor above (MC-2060).
+  // Keys are the same rowKeyOf keys; the model enforces the pinned per-project
+  // rule through `groupOf`, so a bundle can never mix projects.
+  const [multiSelection, setMultiSelection] = useState(EMPTY_BACKLOG_MULTI_SELECTION)
   const [actionError, setActionError] = useState<string | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set())
-  const [rowMenu, setRowMenu] = useState<{ rowKey: string; x: number; y: number } | null>(null)
+  // `selection`: the menu was opened on a row inside a live multi-selection, so
+  // module actions act on the whole selection rather than the row alone.
+  const [rowMenu, setRowMenu] = useState<{ rowKey: string; x: number; y: number; selection?: boolean } | null>(null)
   // The create flow: `null` closed, a project ref once a target project is
   // chosen (immediately when one project is in view, else via the picker).
   const [createTarget, setCreateTarget] = useState<BacklogProjectRef | null>(null)
@@ -302,6 +316,15 @@ export default function BacklogGlobalSurface(): JSX.Element {
     () => renderRows.filter((row): row is Extract<DoorRenderRow, { kind: 'item' }> => row.kind === 'item'),
     [renderRows],
   )
+  const itemRowByKey = useMemo(() => new Map(itemRows.map((row) => [row.key, row])), [itemRows])
+  const itemKeyOrder = useMemo(() => itemRows.map((row) => row.key), [itemRows])
+  // The pinned per-project rule rides the selection model's group hook: a row's
+  // group is its project, resolved off the row itself rather than parsed out of
+  // the key (a root key is a path and could hold any separator).
+  const projectOfRowKey = useCallback(
+    (key: string) => itemRowByKey.get(key)?.feed.rootKey,
+    [itemRowByKey],
+  )
 
   // Keep the cursor valid across re-scans, lens changes, and filter changes. The
   // cursor may sit on a group header (headers are navigable options), so it is
@@ -312,10 +335,57 @@ export default function BacklogGlobalSurface(): JSX.Element {
     const stillPresent = renderRows.some((row) => row.kind !== 'project' && row.key === selectedKey)
     if (!stillPresent) setSelectedKey(null)
   }, [renderRows, selectedKey])
+  // The extended selection prunes against every row the current lens/search
+  // lists (list.rows), not just the rendered ones — a collapsed epic group
+  // hides its selected rows without dropping them, mirroring the cursor rule.
+  useEffect(() => {
+    setMultiSelection((prev) =>
+      pruneBacklogSelection(
+        prev,
+        new Set(list.rows.map((row) => rowKeyOf(row.project.rootKey, row.item.id))),
+      ),
+    )
+  }, [list.rows])
 
   const selectedRow = useMemo(
     () => itemRows.find((row) => row.key === selectedKey) ?? null,
     [itemRows, selectedKey],
+  )
+  // During a multi-selection the detail pane binds to the anchor (last-clicked)
+  // row rather than the roving range end, so extending a range never blanks or
+  // retargets the pane; single mode keeps today's cursor binding.
+  const detailRow = useMemo(() => {
+    if (!multiSelection.keys) return selectedRow
+    const anchor = multiSelection.anchorKey ? itemRowByKey.get(multiSelection.anchorKey) : undefined
+    return anchor ?? selectedRow
+  }, [multiSelection, itemRowByKey, selectedRow])
+  // What the list paints as selected: the extended set in multi mode, else the
+  // cursor row — the same selection paint either way, no new chrome.
+  const selectedRowKeys = useMemo(
+    () => effectiveBacklogSelection(multiSelection, selectedKey),
+    [multiSelection, selectedKey],
+  )
+
+  // One click handler for all three gestures. Plain click collapses to single
+  // (today's behavior); cmd/ctrl toggles; shift ranges from the anchor over the
+  // item rows in list order. All three move the keyboard cursor to the row.
+  const handleRowSelect = useCallback(
+    (key: string, modifiers?: { toggle?: boolean; range?: boolean }) => {
+      setSelectedKey(key)
+      if (!itemRowByKey.has(key)) {
+        // Headers are single-select only: any click on one collapses the set.
+        setMultiSelection(collapseBacklogSelectionTo(null))
+        return
+      }
+      setMultiSelection((prev) =>
+        modifiers?.range
+          ? extendBacklogSelectionTo(prev, selectedKey, key, itemKeyOrder, projectOfRowKey)
+          : modifiers?.toggle
+            ? toggleBacklogSelection(prev, selectedKey, key, projectOfRowKey)
+            : collapseBacklogSelectionTo(key),
+      )
+    },
+    [itemRowByKey, itemKeyOrder, projectOfRowKey, selectedKey],
   )
 
   // ── mutations, each routed to the row's own project ───────────────────────
@@ -514,17 +584,38 @@ export default function BacklogGlobalSurface(): JSX.Element {
     [workspaces],
   )
 
+  // The selection the open menu acts on: the multi set in list order when the
+  // menu was opened inside one, else the row alone. All one project by the
+  // selection model's invariant, so the anchor row's context speaks for it.
+  const menuSelectionItems = useMemo(() => {
+    if (!rowMenu?.selection || !menuRow || !multiSelection.keys) return null
+    // Off list.rows, not the rendered rows: a selected row inside a collapsed
+    // epic group is still selected and must ride the launch bundle.
+    return list.rows
+      .filter((row) => multiSelection.keys?.has(rowKeyOf(row.project.rootKey, row.item.id)))
+      .map((row) => row.item)
+  }, [rowMenu, menuRow, multiSelection, list.rows])
+
   const menuItemActions = useMemo(() => {
     if (!menuRow) return []
-    const context = backlogActionContext(menuRow.item, menuRow.project)
-    if (!context) return []
+    const base = backlogActionContext(menuRow.item, menuRow.project)
+    if (!base) return []
+    const context = menuSelectionItems
+      ? {
+          ...base,
+          selection: {
+            items: menuSelectionItems,
+            projectItems: menuRow.feed.items.map((entry) => entry.item),
+          },
+        }
+      : base
     return getRendererHost()
       .getBacklogItemActions()
       .filter((action) => selectModuleEnabled(moduleOverrides, action.moduleId))
       .filter((action) => (action.isVisible ? action.isVisible(context) : true))
       .map((action) => ({
         id: action.id,
-        label: action.label,
+        label: action.getLabel?.(context) ?? action.label,
         disabled: action.getState?.(context) === 'disabled',
         run: () => {
           void Promise.resolve(action.run(context)).catch((error: unknown) => {
@@ -532,7 +623,7 @@ export default function BacklogGlobalSurface(): JSX.Element {
           })
         },
       }))
-  }, [backlogActionContext, menuRow, moduleOverrides])
+  }, [backlogActionContext, menuRow, menuSelectionItems, moduleOverrides])
 
   const linkProviders = useMemo<BacklogLinkProvider[]>(
     () => getRendererHost().getBacklogLinkProviders((moduleId) => selectModuleEnabled(moduleOverrides, moduleId)),
@@ -634,37 +725,48 @@ export default function BacklogGlobalSurface(): JSX.Element {
           rows={renderRows}
           now={now}
           selectedKey={selectedKey}
+          selectedRowKeys={selectedRowKeys}
           showProjectTag={showProjectTag}
           runGlyphByRowKey={runGlyphByRowKey}
-          onSelect={setSelectedKey}
+          onSelect={handleRowSelect}
           onToggleGroup={toggleGroup}
           onContextMenu={(event, key) => {
             event.preventDefault()
-            setRowMenu({ rowKey: key, x: event.clientX, y: event.clientY })
+            // Inside a live multi-selection the menu acts on the whole set —
+            // even a set of one, so a lone selected epic launches with its
+            // bundle (planKind stays `epic`; the builder settles that). On any
+            // unselected row it collapses to that row first (platform
+            // convention) and stays the single-item menu.
+            const inSelection = Boolean(multiSelection.keys?.has(key))
+            if (!inSelection) {
+              setSelectedKey(key)
+              setMultiSelection(collapseBacklogSelectionTo(key))
+            }
+            setRowMenu({ rowKey: key, x: event.clientX, y: event.clientY, selection: inSelection })
           }}
         />
       </div>
     </div>
   )
 
-  const detailPane = selectedRow ? (
+  const detailPane = detailRow ? (
     <BacklogItemDetailPane
-      item={selectedRow.item}
-      project={selectedRow.project}
-      feed={selectedRow.feed}
-      runGlyph={runGlyphByRowKey.get(selectedRow.key)}
-      resolveRunGlyph={(item) => runGlyphByRowKey.get(rowKeyOf(selectedRow.feed.rootKey, item.id))}
+      item={detailRow.item}
+      project={detailRow.project}
+      feed={detailRow.feed}
+      runGlyph={runGlyphByRowKey.get(detailRow.key)}
+      resolveRunGlyph={(item) => runGlyphByRowKey.get(rowKeyOf(detailRow.feed.rootKey, item.id))}
       now={now}
       actions={actions}
       linkProviders={linkProviders}
-      epicChoices={epicChoicesFor(selectedRow.feed)}
-      dependencyChoices={dependencyChoicesFor(selectedRow.feed)}
+      epicChoices={epicChoicesFor(detailRow.feed)}
+      dependencyChoices={dependencyChoicesFor(detailRow.feed)}
       // The canvas carries no back affordance: the rail's pinned Back row (and
       // Escape) is the one way out of the door, and the rail is always beside
       // this pane rather than replaced by it.
       showBack={false}
       onBack={() => undefined}
-      onNavigate={(itemId) => navigateWithinProject(selectedRow.feed, itemId)}
+      onNavigate={(itemId) => navigateWithinProject(detailRow.feed, itemId)}
     />
   ) : (
     <div className="flex h-full items-center justify-center px-6 text-meta text-[color:var(--text-muted)]">
@@ -761,6 +863,7 @@ export default function BacklogGlobalSurface(): JSX.Element {
           x={rowMenu.x}
           y={rowMenu.y}
           item={menuRow.item}
+          selectionCount={menuSelectionItems?.length}
           actions={actions}
           epicChoices={epicChoicesFor(menuRow.feed)}
           dependencyChoices={dependencyChoicesFor(menuRow.feed)}
@@ -872,6 +975,7 @@ function BacklogDoorList({
   rows,
   now,
   selectedKey,
+  selectedRowKeys,
   showProjectTag,
   runGlyphByRowKey,
   onSelect,
@@ -881,9 +985,11 @@ function BacklogDoorList({
   rows: ReadonlyArray<DoorRenderRow>
   now: number
   selectedKey: string | null
+  /** The rows painted selected: the multi set, or the cursor row alone. */
+  selectedRowKeys: ReadonlySet<string>
   showProjectTag: boolean
   runGlyphByRowKey: ReadonlyMap<string, BacklogRunGlyph>
-  onSelect: (key: string) => void
+  onSelect: (key: string, modifiers?: { toggle?: boolean; range?: boolean }) => void
   onToggleGroup: (rootKey: string, group: BacklogEpicGroup) => void
   onContextMenu: (event: React.MouseEvent, rowKey: string) => void
 }): JSX.Element {
@@ -902,6 +1008,19 @@ function BacklogDoorList({
     if (event.key === 'ArrowDown' || event.key === 'j' || event.key === 'ArrowUp' || event.key === 'k') {
       const next = event.key === 'ArrowDown' || event.key === 'j'
       event.preventDefault()
+      // Shift+↑/↓ extends the selection from the roving cursor: the range end
+      // walks the ITEM rows (headers are skipped — they are not selectable
+      // work), while a plain arrow keeps today's cursor move and collapses.
+      if (event.shiftKey && cursor && cursor.kind === 'item') {
+        for (let index = activeIndex + (next ? 1 : -1); index >= 0 && index < navRows.length; index += next ? 1 : -1) {
+          const candidate = navRows[index]
+          if (candidate.kind === 'item') {
+            onSelect(candidate.key, { range: true })
+            return
+          }
+        }
+        return
+      }
       const index =
         activeIndex < 0 ? 0 : next ? Math.min(activeIndex + 1, navRows.length - 1) : Math.max(activeIndex - 1, 0)
       onSelect(navRows[index].key)
@@ -926,6 +1045,7 @@ function BacklogDoorList({
       // only once another pane takes it. The attribute belongs on the element
       // holding the `li` that carries aria-selected — the tokens rebind there.
       data-selection-pane="primary"
+      aria-multiselectable
       tabIndex={0}
       onKeyDown={onKeyDown}
       aria-activedescendant={activeIndex >= 0 ? `backlog-door-opt-${activeIndex}` : undefined}
@@ -987,7 +1107,7 @@ function BacklogDoorList({
         }
         const { item, feed, project, indented } = row
         const index = navRows.findIndex((candidate) => candidate.key === row.key)
-        const selected = row.key === selectedKey
+        const selected = selectedRowKeys.has(row.key)
         const epicMeta = item.isEpic
           ? feed.derived.epicMetaBySlug.get(epicSlug(item))
           : item.epic
@@ -1003,7 +1123,13 @@ function BacklogDoorList({
             id={`backlog-door-opt-${index}`}
             role="option"
             aria-selected={selected}
-            onClick={() => onSelect(row.key)}
+            onClick={(event) =>
+              onSelect(row.key, { toggle: event.metaKey || event.ctrlKey, range: event.shiftKey })
+            }
+            // A shift-click is a selection gesture, not a text-selection start.
+            onMouseDown={(event) => {
+              if (event.shiftKey) event.preventDefault()
+            }}
             onContextMenu={(event) => onContextMenu(event, row.key)}
             className={`cursor-pointer border-l-[3px] ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
               backlogRowPaintClass({ color, litFill, selected })

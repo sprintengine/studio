@@ -1055,73 +1055,45 @@ assert.equal(
   'clearing every model override drops the stale map on update',
 )
 
-// --- MC-1875: a saved roster carries its formation -------------------------
-const poolRosterId = teamStore.saveSprintEngineRoster({
-  name: 'Pooled',
-  mode: 'pool',
-  // Specialists stay staffed behind the wizard's collapsed disclosure — this is
-  // precisely the shape the pre-MC-1875 guess mis-read as 'roles'.
-  roleCounts: { architect: 1, developer: 1 },
-  roleCliDefaults: { architect: 'claude-code' },
-})
-const afterPoolSave = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
-const savedPool = afterPoolSave.savedRosters?.find((roster) => roster.id === poolRosterId)
-assert.equal(savedPool?.mode, 'pool', 'the formation persists on the saved roster')
-
-// Switching formation and re-saving under the same id updates the mode in place.
-teamStore.saveSprintEngineRoster({
-  id: poolRosterId,
-  name: 'Pooled',
-  mode: 'roles',
-  roleCounts: { architect: 1, developer: 1 },
-  roleCliDefaults: { architect: 'claude-code' },
-})
-assert.equal(
-  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
-    .savedRosters?.find((roster) => roster.id === poolRosterId)?.mode,
-  'roles',
-  '"Update" persists the switched formation',
-)
-
-// Omitting the mode does NOT erase a stored one — a caller that does not track
-// formation (or a legacy code path) must not silently downgrade the roster.
-teamStore.saveSprintEngineRoster({
-  id: poolRosterId,
+// --- MC-2064: a roster is a set of roles — the `mode` formation is deleted --
+// Saving stores no formation, and a `mode` key persisted by an older profile
+// (any value, 'pool' included) is dropped on normalization rather than
+// migrated: owner ruling, no users and no saved pools.
+const rolesOnlyRosterId = teamStore.saveSprintEngineRoster({
   name: 'Pooled',
   roleCounts: { architect: 1, developer: 1 },
   roleCliDefaults: { architect: 'claude-code' },
 })
-assert.equal(
-  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
-    .savedRosters?.find((roster) => roster.id === poolRosterId)?.mode,
-  'roles',
-  'saving without a mode leaves the stored formation intact',
-)
+const savedRolesOnly = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
+  .savedRosters?.find((roster) => roster.id === rolesOnlyRosterId)
+assert.ok(savedRolesOnly && !('mode' in savedRolesOnly), 'a saved roster carries no formation key')
 
-// A roster saved before MC-1875 simply has no mode key, and an unknown value is
-// dropped rather than coerced — both resolve through the documented legacy guess.
 const modeNormalized = normalizeAppSettings(
   {
     sprintEngineRoleSettings: {
       enabled: {},
       savedRosters: [
         { id: 'legacy', name: 'Legacy', roleCounts: { architect: 1 }, roleCliDefaults: {}, createdAt: 1, updatedAt: 1 },
-        // `architect` was a real formation before MC-1875 and is now unknown, so
-        // the type can no longer express it — it only exists as stored JSON.
-        { id: 'bogus', name: 'Bogus', mode: 'architect' as never, roleCounts: { architect: 1 }, roleCliDefaults: {}, createdAt: 1, updatedAt: 1 },
+        // A roster persisted while MC-1875's formation axis existed — the type
+        // can no longer express it, it only exists as stored JSON, so the
+        // legacy field arrives via a spread the excess-property check skips.
+        { id: 'pooled', name: 'Pooled legacy', roleCounts: { architect: 1 }, roleCliDefaults: {}, createdAt: 1, updatedAt: 1, ...({ mode: 'pool' } as object) },
+        { id: 'bogus', name: 'Bogus', roleCounts: { architect: 1 }, roleCliDefaults: {}, createdAt: 1, updatedAt: 1, ...({ mode: 'architect' } as object) },
       ],
     },
   },
   [],
 ).sprintEngineRoleSettings
-assert.ok(
-  !('mode' in (modeNormalized.savedRosters?.[0] ?? {})),
-  'a pre-MC-1875 roster keeps no mode key at all',
-)
-assert.ok(
-  !('mode' in (modeNormalized.savedRosters?.[1] ?? {})),
-  'an unknown formation (e.g. the removed "architect") is dropped, never coerced to a real one',
-)
+for (const [index, what] of [
+  [0, 'a roster that never had one'],
+  [1, 'a persisted pool formation'],
+  [2, 'an unknown formation value'],
+] as const) {
+  assert.ok(
+    !('mode' in (modeNormalized.savedRosters?.[index] ?? {})),
+    `${what} normalizes to no mode key — the formation axis is deleted, not migrated`,
+  )
+}
 
 // --- MC-1876: the built-in "No roles" is synthetic and reserved ------------
 // Enforced in the STORE, not just in the UI's validation — "cannot be renamed,

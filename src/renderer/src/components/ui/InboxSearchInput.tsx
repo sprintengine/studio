@@ -48,6 +48,15 @@ export function InboxSearchInput({
         aria-label={ariaLabel}
         placeholder={placeholder}
         autoFocus={autoFocus}
+        // Escape with text clears it and consumes the event, so an ancestor
+        // keyed off defaultPrevented (a hosting dialog) never also closes on
+        // the same press. Chromium's native search-clear does the clearing but
+        // leaves the event unconsumed — this makes both halves deterministic.
+        onKeyDown={(event) => {
+          if (event.key !== 'Escape' || value === '') return
+          event.preventDefault()
+          onChange('')
+        }}
         data-menu-autofocus={autoFocus ? 'true' : undefined}
         // Suppress Chromium's native search clear button so it doesn't double
         // up with the styled clear affordance below (two X's in the field).

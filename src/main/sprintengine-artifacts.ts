@@ -491,9 +491,15 @@ function resolveInitSourceBundle(
     .map((item) => {
       const resolved = resolveInitSourceItem(item)
       if (!resolved) return null
-      // An epic's child item, marked by the launch path: it is a unit of work
-      // the planner mints one task for, not reading material sharing the bundle.
-      return item?.epicChild === true ? { ...resolved, epicChild: true } : resolved
+      // Work markers set by the launch path: an epic's child item, or a
+      // directly-selected item on a `selection` launch (MC-2060). Either means
+      // a unit of work the planner mints one task for, not reading material
+      // sharing the bundle; Python init re-settles the flavor from frontmatter.
+      return {
+        ...resolved,
+        ...(item?.epicChild === true ? { epicChild: true } : {}),
+        ...(item?.selectedItem === true ? { selectedItem: true } : {}),
+      }
     })
     .filter((item): item is SprintEngineStateInitializeSourceBundleItem => item !== null)
 }

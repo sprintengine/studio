@@ -169,6 +169,9 @@ const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
 // until the user starts the chat. Code-split like NewWorkspacePanel; rendered
 // only when showNewChatPanel is true.
 const NewChatPanel = React.lazy(() => import('./agentComposer/NewChatPanel'))
+// The New sprint dialog (MC-2062): one light dialog, shaped like New chat —
+// sprint creation left the wizard, and every entry point converges here.
+const NewSprintDialog = React.lazy(() => import('./newSprint/NewSprintDialog'))
 
 // On-demand overlays kept off the eager boot chunk: each mounts only when the
 // user reaches for it (Cmd-K palette, the diagnostics overlay, the startup-tip
@@ -534,6 +537,19 @@ export default function WorkspaceManager() {
     connector: AgentComposerConnector | null
   } | null>(null)
   const newChatPanelOpen = newChatPanelState !== null
+  // The New sprint dialog's scope (MC-2062). Present while the dialog is open;
+  // `initialSource` carries a preloaded plan (the `initialFuturePlan` seam) so
+  // a backlog "Run a Sprint" arrives with the selection already made.
+  const [newSprintDialogState, setNewSprintDialogState] = useState<{
+    folderPath: string | null
+    initialSource: FuturePlanWorkspaceSource | null
+  } | null>(null)
+  // Closing also releases the Sprints door's claim on the next sprint creation
+  // (item 1811), exactly as dismissing the old wizard did.
+  const closeNewSprintDialog = useCallback(() => {
+    setNewSprintDialogState(null)
+    releaseSprintCreationDoorClaim()
+  }, [])
   const [tipModalOpen, setTipModalOpen] = useState(false)
   const tipModalDecidedRef = useRef(false)
   // Guards the async adoption against a second workspace creation landing before
@@ -1293,10 +1309,42 @@ export default function WorkspaceManager() {
     presentNewWorkspacePanel({ folderPath })
   }, [presentNewWorkspacePanel])
 
+  // The one way the New sprint dialog opens (MC-2062) — the sidebar's New
+  // sprint, the Sprints door's New sprint, and every plan-sourced entry
+  // (`initialFuturePlan`) all land here. Mirrors presentNewWorkspacePanel: the
+  // dialog overlays the workspace card region, so whatever owns that region
+  // steps aside, and the Sprints-door claim resets to whoever opened this one.
+  const openNewSprintDialog = useCallback(
+    (initial?: { folderPath?: string | null; source?: FuturePlanWorkspaceSource | null }) => {
+      setNewSprintDialogState({
+        folderPath:
+          initial?.source?.folderPath
+          ?? initial?.folderPath
+          ?? activeWorkspace?.folderPath
+          ?? null,
+        initialSource: initial?.source ?? null,
+      })
+      // One dismissal route for the creation hub (item 1811), so opening the
+      // dialog releases whatever claim came before, exactly like the wizard.
+      dismissNewWorkspacePanel()
+      setNewChatPanelState(null)
+      closeGlobalSurface()
+      closeSettingsOverlay()
+      setSpecialistMenuOpen(false)
+      setNotificationsOpen(false)
+    },
+    [activeWorkspace?.folderPath, closeGlobalSurface, closeSettingsOverlay, dismissNewWorkspacePanel],
+  )
+
   // Open the creation hub preselected on a type — the sidebar "+" menu rows.
+  // Sprint creation is no longer a wizard flow: its row opens the dialog.
   const openNewWorkspacePanelWithMode = useCallback((mode: WorkspaceMode) => {
+    if (mode === 'sprintengine') {
+      openNewSprintDialog()
+      return
+    }
     presentNewWorkspacePanel({ mode })
-  }, [presentNewWorkspacePanel])
+  }, [openNewSprintDialog, presentNewWorkspacePanel])
 
   // "New sprint" on the Sprints door (item 1763). A door-routed surface is
   // zero-prop by contract, so it signals instead of calling — and because the
@@ -1322,21 +1370,17 @@ export default function WorkspaceManager() {
   }, [openSettings])
 
   const openFuturePlanWorkspace = useCallback((source: FuturePlanWorkspaceSource) => {
-    presentNewWorkspacePanel({
-      mode: 'sprintengine',
-      folderPath: source.folderPath,
-      futurePlanSource: source,
-    })
-  }, [presentNewWorkspacePanel])
+    openNewSprintDialog({ source })
+  }, [openNewSprintDialog])
 
   useEffect(
     () =>
       subscribeNewSprintRequests((source) => {
         closeGlobalSurface()
         // A request carrying a plan (a "Run a Sprint" from a Backlog door row)
-        // opens the wizard seeded from that item, exactly as the per-project
-        // panel's own action does; the rail's bare "New sprint" opens on the
-        // mode with nothing chosen.
+        // opens the New sprint dialog with that selection already made, exactly
+        // as the per-project panel's own action does; the rail's bare "New
+        // sprint" opens it with nothing chosen.
         if (source) openFuturePlanWorkspace(source)
         else openNewWorkspacePanelWithMode('sprintengine')
         claimSprintCreationForDoor()
@@ -1344,11 +1388,11 @@ export default function WorkspaceManager() {
     [closeGlobalSurface, openFuturePlanWorkspace, openNewWorkspacePanelWithMode],
   )
 
-  // The empty-workspace launcher's Sprint Engine path: open the New Workspace
-  // panel pre-set to the team-setup flow (no source plan — "start a new team").
+  // The empty-workspace launcher's Sprint Engine path: the same dialog, with
+  // nothing chosen yet.
   const openSprintEngineSetup = useCallback(() => {
-    presentNewWorkspacePanel({ mode: 'sprintengine' })
-  }, [presentNewWorkspacePanel])
+    openNewSprintDialog()
+  }, [openNewSprintDialog])
 
   const setAgentSpawnPermissionPreset = (preset: SprintEngineCliPermissionPreset) => {
     setAgentSpawnPermissionPresetState(preset)
@@ -3342,6 +3386,7 @@ export default function WorkspaceManager() {
                 workspaceWindowId={workspaceWindowId}
                 allowClose={railWorkspaces.length > 0}
                 initialState={newWorkspacePanelInitialState}
+                onOpenNewSprintDialog={(folderPath) => openNewSprintDialog({ folderPath })}
                 chatComposer={{
                   projectOptions: newChatProjectOptions,
                   initialSelection: lastNewChatAgent ?? { kind: 'general' },
@@ -3470,6 +3515,19 @@ export default function WorkspaceManager() {
         {showFirstRunCliCard ? (
           <React.Suspense fallback={null}>
             <FirstRunCliCard onDismiss={dismissFirstRunCliCard} />
+          </React.Suspense>
+        ) : null}
+        {/* The New sprint dialog (MC-2062): a fixed overlay, so it works whether
+            a workspace, a door, or the empty state owns the region beneath. */}
+        {newSprintDialogState ? (
+          <React.Suspense fallback={<SuspenseFallback label="Loading new sprint" />}>
+            <NewSprintDialog
+              initialFolderPath={newSprintDialogState.folderPath}
+              initialSource={newSprintDialogState.initialSource}
+              projectOptions={newChatProjectOptions}
+              workspaceWindowId={workspaceWindowId}
+              onClose={closeNewSprintDialog}
+            />
           </React.Suspense>
         ) : null}
       </div>

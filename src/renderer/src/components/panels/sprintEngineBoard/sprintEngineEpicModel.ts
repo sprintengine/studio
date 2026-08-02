@@ -94,9 +94,17 @@ export function sprintEngineEpicSeed(
   sourceBundle: SprintEngineSourceBundleStateItem[] | undefined,
 ): SprintEngineEpicSeed | null {
   if (!source?.path) return null
-  const epicPath = backlogPathOf(source.originalPath, source.path)
+  // A `selection` launch (MC-2060) has no single epic root — its anchor item is
+  // the recorded source and the selected epics ride the bundle as `epic`-kind
+  // entries. The tab keys on the first of those, so a selection containing an
+  // epic keeps its Epic tab; a selection of plain items alone has no epic to
+  // anchor a membership view on and yields none.
+  const epicPath =
+    source.planKind === 'selection' && !isBacklogEpicPath(backlogPathOf(source.originalPath, source.path) ?? '')
+      ? firstBundleEpicPath(sourceBundle)
+      : backlogPathOf(source.originalPath, source.path)
   if (!epicPath) return null
-  if (source.planKind !== 'epic' && !isBacklogEpicPath(epicPath)) return null
+  if (source.planKind !== 'epic' && source.planKind !== 'selection' && !isBacklogEpicPath(epicPath)) return null
   // The members the run recorded at launch: the bundle's backlog items. The epic
   // file itself is the root, never one of its own children, and supporting
   // reading material (mockups, design notes) is not a member at all.
@@ -106,6 +114,18 @@ export function sprintEngineEpicSeed(
     if (path && !isBacklogEpicPath(path)) recordedChildPaths.push(path)
   }
   return { relativePath: epicPath, slug: backlogEpicSlugFromPath(epicPath), recordedChildPaths }
+}
+
+// The first selected epic a `selection` bundle carries (kind `epic`, or any
+// entry living under backlog/epics/ — a pre-marker store is honest by location).
+function firstBundleEpicPath(
+  sourceBundle: SprintEngineSourceBundleStateItem[] | undefined,
+): string | null {
+  for (const entry of sourceBundle ?? []) {
+    const path = backlogPathOf(entry.originalPath, entry.path)
+    if (path && isBacklogEpicPath(path)) return path
+  }
+  return null
 }
 
 // The project-relative `backlog/…` path a seed entry points at: the recorded

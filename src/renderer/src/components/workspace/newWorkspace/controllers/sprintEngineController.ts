@@ -15,12 +15,16 @@ import {
   buildSprintEngineRoleRuntimes,
   createPlanSourcedSprintEngineWorkspace,
 } from '../../../../utils/sprintengineWorkspaceCreation'
-import { slugifySprintEngineName } from '../../../../utils/sprintengineStateFile'
-import { buildSprintEngineContext } from '../useNewWorkspaceFolder'
+import {
+  getSprintEngineDirectoryPath,
+  getSprintEngineStateFilePath,
+  slugifySprintEngineName,
+} from '../../../../utils/sprintengineStateFile'
 import type {
   SprintEngineAutomationMode,
   SprintEngineRoleCounts,
   SprintEngineRoleId,
+  SprintEngineWorkspaceContext,
 } from '../../../../types/workspace'
 import type {
   OnCreateArgs,
@@ -120,6 +124,21 @@ export function buildSprintEngineExistingTeamCreation(
       // MC-1450: the ceiling is a user knob, never derived from roster size.
       maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
     },
+  }
+}
+
+// Lived in useNewWorkspaceFolder until the wizard's sprint flow was deleted
+// (MC-2062); the controller is its only consumer now.
+export function buildSprintEngineContext(
+  folderPath: string,
+  teamName: string,
+  teamSlug: string,
+): SprintEngineWorkspaceContext {
+  return {
+    teamName,
+    teamSlug,
+    teamDirectoryPath: getSprintEngineDirectoryPath(folderPath, teamSlug),
+    statePath: getSprintEngineStateFilePath(folderPath, teamSlug),
   }
 }
 
@@ -249,10 +268,19 @@ export async function runSprintEngineNewTeamCreation(
   }
 }
 
+// What a plan-sourced creation hands back: enough identity for the caller to
+// route AFTER the workspace exists (e.g. the New sprint dialog returning a
+// door-started creation to the Sprints door on its new run).
+export type SprintEnginePlanSourcedCreated = {
+  workspaceId: string
+  statePath: string
+  teamSlug: string
+}
+
 export async function runSprintEnginePlanSourcedCreation(
   input: SprintEnginePlanSourcedInput,
   ports: SprintEnginePlanSourcedPorts,
-): Promise<void> {
+): Promise<SprintEnginePlanSourcedCreated> {
   if (!input.folderPath) throw new SprintEnginePlanSourcedError('missing-folder')
   // For an epic, the epic file itself is the primary handover source and the
   // bundle holds its children. For every other launch the selected plan path is
@@ -313,6 +341,11 @@ export async function runSprintEnginePlanSourcedCreation(
           ? { childRelativePaths: (input.epicChildRelativePaths ?? []).filter((path) => path.startsWith('backlog/')) }
           : {}),
       })
+    }
+    return {
+      workspaceId: result.workspaceId,
+      statePath: result.sprintEngineContext.statePath,
+      teamSlug: result.sprintEngineContext.teamSlug,
     }
   } catch (error) {
     if (error instanceof PlanSourcedSprintEngineWorkspaceError && error.code === 'team-exists') {

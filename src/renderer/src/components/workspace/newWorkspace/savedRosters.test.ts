@@ -194,12 +194,16 @@ const DEFAULT_CLIS = {
     defaultRoleCounts: DEFAULT_COUNTS,
     defaultRoleCliDefaults: DEFAULT_CLIS,
   })
-  // The specialist default is still SEEDED (so switching to "Pick roles
-  // yourself" opens on something runnable) — it is just no longer what LAUNCHES.
+  // The specialist default is still SEEDED (so picking a roster later opens on
+  // something runnable) — it is just no longer what LAUNCHES.
   assert.deepEqual(resolved.roleCounts, DEFAULT_COUNTS, 'fresh install seeds the default counts')
   assert.deepEqual(resolved.roleCliDefaults, DEFAULT_CLIS, 'fresh install seeds the default CLI map')
   assert.equal(resolved.selectedRosterId, NO_ROLES_ROSTER_ID, 'fresh install selects the built-in No roles')
-  assert.equal(resolved.mode, 'pool', 'and opens in no-roles formation')
+  assert.deepEqual(
+    sprintEngineLaunchRoleCounts(resolved.selectedRosterId, resolved.roleCounts),
+    PLAIN_AGENT_ROLE_COUNTS,
+    'and a fresh-install launch stages the plain-agent seed',
+  )
   assert.notEqual(resolved.roleCounts, DEFAULT_COUNTS, 'counts are cloned, not the same reference')
 }
 
@@ -272,66 +276,35 @@ const DEFAULT_CLIS = {
   )
 }
 
-// --- MC-1875: formation is a stored property of the roster -----------------
+// --- MC-2064: a roster is a set of roles — there is no formation -----------
 
-// A roster saved in pool formation reopens in pool formation — the whole point.
-// Note its roleCounts still staff specialists (the wizard keeps them behind the
-// collapsed disclosure), which is exactly the case the old guess got WRONG:
-// re-deriving from roleCounts would say 'roles'.
+// The `mode` axis is deleted outright (owner ruling: no users, no saved pools,
+// no migration). A roster carries staffing and runtimes only, and the resolver
+// returns nothing beyond selection + staffing.
 {
+  const saved = team({ id: 'p' })
+  const keys = Object.keys(saved)
+  for (const forbidden of ['mode', 'agentCount', 'poolSize', 'maxAgents', 'agents']) {
+    assert.ok(!keys.includes(forbidden), `a roster must not carry "${forbidden}"`)
+  }
+  assert.ok(!('mode' in NO_ROLES_ROSTER), 'the built-in carries no formation either — it IS the level above rosters')
   const resolved = resolveInitialSprintEngineRoster({
-    savedRosters: [team({ id: 'p', mode: 'pool', roleCounts: { architect: 1, developer: 1 } })],
+    savedRosters: [saved],
     lastSelectedRosterId: 'p',
     savedRoster: null,
     defaultRoleCounts: DEFAULT_COUNTS,
     defaultRoleCliDefaults: DEFAULT_CLIS,
   })
-  assert.equal(resolved.mode, 'pool', 'a saved pool formation is restored, not re-derived from roleCounts')
   assert.deepEqual(
-    resolved.roleCounts,
-    { architect: 1, developer: 1 },
-    'the specialist roster is still carried, so switching back to roles restores it',
+    Object.keys(resolved).sort(),
+    ['roleCliDefaults', 'roleCounts', 'roleModelOverrides', 'selectedRosterId'],
+    'the resolver returns selection and staffing only — no formation, no agent count',
   )
 }
 
-// An explicitly-saved roles formation survives even when nothing is staffed —
-// the mirror case, where the guess would have said 'pool'.
-{
-  const resolved = resolveInitialSprintEngineRoster({
-    savedRosters: [team({ id: 'r', mode: 'roles', roleCounts: {} })],
-    lastSelectedRosterId: 'r',
-    savedRoster: null,
-    defaultRoleCounts: DEFAULT_COUNTS,
-    defaultRoleCliDefaults: DEFAULT_CLIS,
-  })
-  assert.equal(resolved.mode, 'roles', 'an explicit roles formation is not overridden by the guess')
-}
-
-// A roster saved BEFORE this change has no `mode`, and must resolve exactly as
-// it did before: the staffs-specialists guess.
-{
-  const legacySpecialist = resolveInitialSprintEngineRoster({
-    savedRosters: [team({ id: 'l', roleCounts: { architect: 1, developer: 1 } })],
-    lastSelectedRosterId: 'l',
-    savedRoster: null,
-    defaultRoleCounts: DEFAULT_COUNTS,
-    defaultRoleCliDefaults: DEFAULT_CLIS,
-  })
-  assert.equal(legacySpecialist.mode, 'roles', 'a legacy roster staffing specialists still opens on roles')
-
-  const legacyPlain = resolveInitialSprintEngineRoster({
-    savedRosters: [team({ id: 'l', roleCounts: {} })],
-    lastSelectedRosterId: 'l',
-    savedRoster: null,
-    defaultRoleCounts: DEFAULT_COUNTS,
-    defaultRoleCliDefaults: DEFAULT_CLIS,
-  })
-  assert.equal(legacyPlain.mode, 'pool', 'a legacy roster staffing no role still opens on the pool')
-}
-
-// A fresh install (no saved source at all) opens on the pool even though the
-// built-in default counts staff specialists — the MC-1585 behavior the resolver
-// must not silently flip.
+// A fresh install (no saved source at all) opens on the built-in "No roles"
+// even though the seeded default counts staff specialists — the MC-1585
+// behavior the resolver must not silently flip.
 {
   const fresh = resolveInitialSprintEngineRoster({
     savedRosters: [],
@@ -340,103 +313,79 @@ const DEFAULT_CLIS = {
     defaultRoleCounts: DEFAULT_COUNTS,
     defaultRoleCliDefaults: DEFAULT_CLIS,
   })
-  assert.equal(fresh.mode, 'pool', 'a fresh install still opens on the plain agent pool')
-  assert.deepEqual(fresh.roleCounts, DEFAULT_COUNTS, 'while still holding the default specialist roster behind it')
+  assert.equal(fresh.selectedRosterId, NO_ROLES_ROSTER_ID, 'a fresh install still opens on No roles')
+  assert.deepEqual(fresh.roleCounts, DEFAULT_COUNTS, 'while still holding the default specialist roster seeded behind it')
 }
 
-// Switching formation marks the roster dirty, so "Update" can persist the new
-// mode. Without this, changing formation and pressing Update would silently
-// re-save the OLD formation.
+// A persisted roster selection whose id no longer resolves (deleted roster,
+// hand-edited settings) falls back to the built-in "No roles" — never to a
+// phantom roster. The legacy single-roster mirror is the one documented
+// exception, pinned separately above.
 {
-  const pool = team({ id: 'p', mode: 'pool', roleCounts: { architect: 1, developer: 2 } })
-  assert.equal(
-    sprintEngineRosterMatches(pool, pool.roleCounts, pool.roleCliDefaults, undefined, 'pool'),
-    true,
-    'merely opening a pool roster is not an edit',
-  )
-  assert.equal(
-    sprintEngineRosterMatches(pool, pool.roleCounts, pool.roleCliDefaults, undefined, 'roles'),
-    false,
-    'switching formation marks the roster edited',
-  )
-  // A legacy roster resolves its implicit mode the same way the loader does, so
-  // opening one is never spuriously "edited".
-  const legacy = team({ id: 'l', roleCounts: { architect: 1, developer: 2 } })
-  assert.equal(
-    sprintEngineRosterMatches(legacy, legacy.roleCounts, legacy.roleCliDefaults, undefined, 'roles'),
-    true,
-    'opening a legacy specialist roster is not an edit',
-  )
-  // Callers that do not track formation compare exactly as before.
-  assert.equal(
-    sprintEngineRosterMatches(pool, pool.roleCounts, pool.roleCliDefaults),
-    true,
-    'omitting the mode argument keeps the pre-MC-1875 comparison',
-  )
-}
-
-// OWNER RULING 2026-07-26: no roster-level agent count. A pool run's ceiling is
-// the RUN's max-concurrency setting, never a number stored on the roster.
-{
-  const pool = team({ id: 'p', mode: 'pool' })
-  const keys = Object.keys(pool)
-  for (const forbidden of ['agentCount', 'poolSize', 'maxAgents', 'agents']) {
-    assert.ok(!keys.includes(forbidden), `a roster must not carry "${forbidden}" — the run owns concurrency`)
-  }
-  const resolved = resolveInitialSprintEngineRoster({
-    savedRosters: [pool],
-    lastSelectedRosterId: 'p',
+  const stale = resolveInitialSprintEngineRoster({
+    savedRosters: [],
+    lastSelectedRosterId: 'ghost-roster-id',
     savedRoster: null,
     defaultRoleCounts: DEFAULT_COUNTS,
     defaultRoleCliDefaults: DEFAULT_CLIS,
   })
+  assert.equal(stale.selectedRosterId, NO_ROLES_ROSTER_ID, 'a stale selection falls back to No roles')
   assert.deepEqual(
-    Object.keys(resolved).sort(),
-    ['mode', 'roleCliDefaults', 'roleCounts', 'roleModelOverrides', 'selectedRosterId'],
-    'the resolver returns formation and staffing only — no agent count',
+    sprintEngineLaunchRoleCounts(stale.selectedRosterId, stale.roleCounts),
+    PLAIN_AGENT_ROLE_COUNTS,
+    'and launches the plain-agent seed, not the seeded specialist rows',
   )
 }
 
-// SEAM (MC-1875): formation -> what actually launches. Horizon could not start
-// a pool run at all before this: its only launch door passed roleCounts and
-// nothing else, so "no roles" was unexpressible.
+// SEAM: the no-roles/roster selection -> what actually launches. Keyed off the
+// roster REFERENCE via isNoRolesRosterRef, never a stored formation.
 {
   const specialistCounts: SprintEngineRoleCounts = { architect: 1, developer: 1 }
 
   assert.deepEqual(
-    sprintEngineLaunchRoleCounts('roles', specialistCounts),
+    sprintEngineLaunchRoleCounts('some-saved-roster', specialistCounts),
     specialistCounts,
-    'a roles roster launches with exactly its own counts — byte-identical to today',
+    'a roster selection launches with exactly its own counts',
   )
   assert.deepEqual(
-    sprintEngineLaunchRoleCounts('pool', specialistCounts),
+    sprintEngineLaunchRoleCounts(null, specialistCounts),
+    specialistCounts,
+    'and so does a hand-tuned (Custom) selection',
+  )
+  assert.deepEqual(
+    sprintEngineLaunchRoleCounts(NO_ROLES_ROSTER_ID, specialistCounts),
     PLAIN_AGENT_ROLE_COUNTS,
-    'a pool roster launches the plain-agent seed, not the specialists it parks behind the disclosure',
+    'the built-in launches the plain-agent seed, not the specialists the wizard keeps seeded',
+  )
+  assert.deepEqual(
+    sprintEngineLaunchRoleCounts(NO_ROLES_ROSTER_NAME, specialistCounts),
+    PLAIN_AGENT_ROLE_COUNTS,
+    'by name as well as by id — horizon frontmatter references it by name',
   )
 
-  // The acceptance criterion in full: a pool launch seats NO architect, and the
-  // agent it spawns first carries no role.
-  const poolLaunch = sprintEngineLaunchRoleCounts('pool', specialistCounts)
-  assert.equal(poolLaunch.architect ?? 0, 0, 'a no-roles run has no architect seat')
+  // The acceptance criterion in full: a no-roles launch seats NO architect, and
+  // the agent it spawns first carries no role.
+  const noRolesLaunch = sprintEngineLaunchRoleCounts(NO_ROLES_ROSTER_ID, specialistCounts)
+  assert.equal(noRolesLaunch.architect ?? 0, 0, 'a no-roles run has no architect seat')
   assert.deepEqual(
-    sprintEngineCoordinatorSeatForRoleCounts(poolLaunch),
+    sprintEngineCoordinatorSeatForRoleCounts(noRolesLaunch),
     { agentId: 'coordinator' },
     'the initial spawn for a no-roles run is the roleless coordinator seat',
   )
   assert.deepEqual(
-    sprintEngineCoordinatorSeatForRoleCounts(sprintEngineLaunchRoleCounts('roles', specialistCounts)),
+    sprintEngineCoordinatorSeatForRoleCounts(sprintEngineLaunchRoleCounts('some-saved-roster', specialistCounts)),
     { role: 'architect', agentId: 'architect' },
-    'a roles run still spawns its architect first',
+    'a roster run still spawns its architect first',
   )
 
   // WHY the line above is load-bearing: the seat is architect whenever an
-  // architect is CONFIGURED, so the pool result is correct only because the seed
-  // staffs nothing. If that ever changes, a "no roles" run silently gets an
-  // architect coordinator.
+  // architect is CONFIGURED, so the no-roles result is correct only because the
+  // seed staffs nothing. If that ever changes, a "no roles" run silently gets
+  // an architect coordinator.
   assert.deepEqual(
     sprintEngineCoordinatorSeatForRoleCounts({ architect: 1, developer: 1 }),
     { role: 'architect', agentId: 'architect' },
-    'a staffed architect always takes the seat — so the pool seed must never carry one',
+    'a staffed architect always takes the seat — so the no-roles seed must never carry one',
   )
 }
 
@@ -453,10 +402,9 @@ const DEFAULT_CLIS = {
   assert.equal(isNoRolesRosterRef(''), false, 'empty is not the built-in')
 }
 
-// It is 'pool' formation with the plain-agent seed, and carries no staffing to
-// summarise — it is the ABSENCE of a roster.
+// It carries the plain-agent seed and no staffing to summarise — it is the
+// ABSENCE of a roster.
 {
-  assert.equal(NO_ROLES_ROSTER.mode, 'pool')
   assert.deepEqual(NO_ROLES_ROSTER.roleCounts, PLAIN_AGENT_ROLE_COUNTS)
   assert.equal(NO_ROLES_ROSTER.id, NO_ROLES_ROSTER_ID)
   assert.equal(NO_ROLES_ROSTER.name, NO_ROLES_ROSTER_NAME)
@@ -465,7 +413,7 @@ const DEFAULT_CLIS = {
 // An explicit reference to the built-in beats a saved roster AND a last-used
 // selection — naming it means "no roster", so nothing may override it.
 {
-  const saved = team({ id: 'a', name: 'opus', mode: 'roles', roleCounts: { architect: 1, developer: 1 } })
+  const saved = team({ id: 'a', name: 'opus', roleCounts: { architect: 1, developer: 1 } })
   const byName = resolveInitialSprintEngineRoster({
     savedRosters: [saved],
     lastSelectedRosterId: 'a',
@@ -475,7 +423,11 @@ const DEFAULT_CLIS = {
     explicitRosterRef: NO_ROLES_ROSTER_NAME,
   })
   assert.equal(byName.selectedRosterId, NO_ROLES_ROSTER_ID, 'naming the built-in wins over last-used')
-  assert.equal(byName.mode, 'pool', 'and staffs no roles')
+  assert.deepEqual(
+    sprintEngineLaunchRoleCounts(byName.selectedRosterId, byName.roleCounts),
+    PLAIN_AGENT_ROLE_COUNTS,
+    'and staffs no roles',
+  )
 }
 
 // Selecting the built-in STICKS across a reload: `lastSelectedRosterId` holding
@@ -490,13 +442,17 @@ const DEFAULT_CLIS = {
     defaultRoleCliDefaults: DEFAULT_CLIS,
   })
   assert.equal(resolved.selectedRosterId, NO_ROLES_ROSTER_ID, 'a stored No-roles selection survives reload')
-  assert.equal(resolved.mode, 'pool', 'and is not re-staffed from the legacy roster mirror')
+  assert.deepEqual(
+    sprintEngineLaunchRoleCounts(resolved.selectedRosterId, resolved.roleCounts),
+    PLAIN_AGENT_ROLE_COUNTS,
+    'and is not re-staffed from the legacy roster mirror',
+  )
 }
 
 // An explicit SAVED roster still wins over the default — the flip only changes
 // what ABSENT means.
 {
-  const saved = team({ id: 'a', name: 'opus', mode: 'roles', roleCounts: { architect: 1, developer: 1 } })
+  const saved = team({ id: 'a', name: 'opus', roleCounts: { architect: 1, developer: 1 } })
   const byId = resolveInitialSprintEngineRoster({
     savedRosters: [saved],
     lastSelectedRosterId: null,
@@ -506,7 +462,11 @@ const DEFAULT_CLIS = {
     explicitRosterRef: 'a',
   })
   assert.equal(byId.selectedRosterId, 'a', 'an explicit saved roster id resolves')
-  assert.equal(byId.mode, 'roles')
+  assert.deepEqual(
+    sprintEngineLaunchRoleCounts(byId.selectedRosterId, byId.roleCounts),
+    { architect: 1, developer: 1 },
+    'and launches its own staffing',
+  )
   const byName = resolveInitialSprintEngineRoster({
     savedRosters: [saved],
     lastSelectedRosterId: null,
@@ -556,18 +516,18 @@ const DEFAULT_CLIS = {
   })
   assert.equal(afterDeletingAll.selectedRosterId, NO_ROLES_ROSTER_ID, 'No roles survives deleting every roster')
   assert.equal(
-    sprintEngineLaunchRoleCounts(afterDeletingAll.mode, afterDeletingAll.roleCounts).architect ?? 0,
+    sprintEngineLaunchRoleCounts(afterDeletingAll.selectedRosterId, afterDeletingAll.roleCounts).architect ?? 0,
     0,
     'and still launches with no architect',
   )
 }
 
-// SEAM (MC-1876 x MC-1875, found in review): BOTH sprint.create paths resolve a
-// roster through resolveRequestedRoster and BOTH must honor the `mode` it
-// returns. The goal-sourced path originally passed `roster.roleCounts` straight
+// SEAM (MC-1876, found in review): BOTH sprint.create paths resolve a roster
+// through resolveRequestedRoster and BOTH must honor the selection it returns.
+// The goal-sourced path originally passed `roster.roleCounts` straight
 // through and hardcoded `initialSpawnRoles: ['architect']`, so a No-roles run
 // created that way silently staffed the specialist defaults and seated an
-// architect — formation resolved, then ignored, on one of two callers.
+// architect — the selection resolved, then ignored, on one of two callers.
 //
 // This pins the shared decision both paths now make. The regression it guards
 // is "one caller honors the contract and the other does not", which is invisible
@@ -582,9 +542,9 @@ const DEFAULT_CLIS = {
   })
   // What the resolver hands a caller still carries the specialist defaults...
   assert.ok((defaultResolved.roleCounts.architect ?? 0) > 0, 'the resolved roster still carries the specialist rows')
-  // ...so a caller that forgets to apply the formation staffs an architect.
+  // ...so a caller that forgets to apply the selection staffs an architect.
   // Applying it is what makes "No roles" true.
-  const launched = sprintEngineLaunchRoleCounts(defaultResolved.mode, defaultResolved.roleCounts)
+  const launched = sprintEngineLaunchRoleCounts(defaultResolved.selectedRosterId, defaultResolved.roleCounts)
   assert.deepEqual(launched, PLAIN_AGENT_ROLE_COUNTS, 'both paths must launch the plain-agent seed')
   assert.equal(launched.architect ?? 0, 0, 'and therefore seat no architect')
   assert.deepEqual(

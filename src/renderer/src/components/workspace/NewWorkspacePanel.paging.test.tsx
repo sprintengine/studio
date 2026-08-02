@@ -3,15 +3,14 @@ import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 
 // The creation hub pages its pane: one step at a time, a Continue footer, and a
-// "Skip the rest and create" affordance that leaves the moment the flow is
-// answerable. Every other renderer test in this repo is a static
+// pinned primary action. Every other renderer test in this repo is a static
 // renderToStaticMarkup, which cannot click — and paging IS clicking, so this
 // suite stands up a real DOM and drives the panel the way a person does.
 //
-// The parity test is the one that matters: it asserts that skipping produces the
-// SAME payload at the engine boundary as walking every page and touching nothing.
-// That is what makes the skip affordance safe to offer, and it is asserted at
-// `initializeSprintEngineState` — the real mutation path — not on internal state.
+// It also proves the sprint handoff (MC-2062): sprint creation is the New
+// sprint dialog, so BOTH routes that used to enter the wizard's sprint flow —
+// a host preselect of the sprint mode, and the rail's Sprint row — must hand
+// off to the dialog instead of paging a sprint flow that no longer exists.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost',
@@ -47,19 +46,17 @@ const IDEA_PAGE = 'Tell us about your idea'
 // only so the single-page assertion can prove it renders nowhere.
 const LAYOUT_PAGE = 'Pick an IDE layout'
 
-// Every payload the panel pushes across the preload boundary during a create.
-type Recorded = { initializeSprintEngineState: unknown[]; created: unknown[] }
+// Every payload the panel pushes across its host seams during the drive.
+type Recorded = { created: unknown[]; sprintDialogOpens: Array<string | null> }
 
-function installApi(recorded: Recorded): void {
+function installApi(): void {
   const authState = {
     authenticated: true,
     entitlements: { features: { 'multicode.sprintengine': true } },
     selectedOrganization: null,
   }
   const api = {
-    // Folder + scan surface: an existing, empty project folder that holds no
-    // sprint team yet. The create path asks pathExists(statePath) to refuse a
-    // duplicate team, so a blanket `true` here would make every team look taken.
+    // Folder surface: an existing, empty project folder.
     pathExists: async (path: string) => path === FOLDER,
     ensureDir: async () => ({ ok: true }),
     readdir: async () => [],
@@ -71,37 +68,6 @@ function installApi(recorded: Recorded): void {
     authGetState: async () => authState,
     authRefreshEntitlements: async () => authState,
     authCheckPremiumAccess: async () => ({ allowed: true }),
-    // The seam under test: what actually reaches the engine. The create parses
-    // the projection this returns and aborts with `invalid-projection` if it does
-    // not, so a stub without `data` would let both create paths fail IDENTICALLY
-    // — and a parity test over two failed creates proves nothing.
-    initializeSprintEngineState: async (payload: unknown) => {
-      recorded.initializeSprintEngineState.push(payload)
-      return {
-        ok: true,
-        data: {
-          projectionContent: JSON.stringify({
-            ok: true,
-            projectionVersion: 1,
-            source: 'folder_store',
-            generatedAt: '2026-06-16T11:00:00Z',
-            updatedAt: '2026-06-16T11:00:00Z',
-            run: {
-              id: 'run-id',
-              name: 'Parity team',
-              goal: 'Ship the paged creation hub',
-              status: 'planning',
-              rosterConfigured: true,
-              updatedAt: '2026-06-16T11:00:00Z',
-            },
-            roster: { architect: { role: 'architect', status: 'idle', currentTaskId: null } },
-            tasks: [],
-            artifacts: [],
-            events: [],
-          }),
-        },
-      }
-    },
   }
   // Anything the panel touches that this test does not model resolves to null
   // rather than throwing — a missing stub must not read as a product failure.
@@ -122,13 +88,14 @@ function installApi(recorded: Recorded): void {
 }
 
 async function main(): Promise<void> {
-  const recorded: Recorded = { initializeSprintEngineState: [], created: [] }
-  installApi(recorded)
+  const recorded: Recorded = { created: [], sprintDialogOpens: [] }
+  installApi()
 
   const React = await import('react')
   const { act } = React
   const { createRoot } = await import('react-dom/client')
   const { default: NewWorkspacePanel } = await import('./NewWorkspacePanel')
+  const { SPRINT_ENGINE_WORKSPACE_MODE } = await import('../../types/workspace')
 
   type PanelProps = Parameters<typeof NewWorkspacePanel>[0]
 
@@ -141,6 +108,8 @@ async function main(): Promise<void> {
       onClose: () => {},
       workspaceWindowId: 'w1',
       initialState,
+      onOpenNewSprintDialog: (folderPath: string | null) =>
+        recorded.sprintDialogOpens.push(folderPath),
     } as unknown as PanelProps
     act(() => {
       root.render(React.createElement(NewWorkspacePanel, props))
@@ -169,20 +138,8 @@ async function main(): Promise<void> {
     // upcoming ones — the back-jump-only contract, read off the real DOM.
     const jumpControls = (): HTMLButtonElement[] =>
       buttons().filter((element) => /^Go back to step /.test(element.getAttribute('aria-label') ?? ''))
-    const type = async (element: Element | undefined, value: string): Promise<void> => {
-      assert.ok(element, 'expected the field to exist before typing into it')
-      const field = element as unknown as HTMLInputElement
-      const prototype = field.tagName === 'TEXTAREA'
-        ? dom.window.HTMLTextAreaElement.prototype
-        : dom.window.HTMLInputElement.prototype
-      const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
-      await act(async () => {
-        setter?.call(field, value)
-        field.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-      })
-    }
 
-    return { container, root, button, click, primary, jumpControls, type, text: () => container.textContent ?? '' }
+    return { container, root, button, click, primary, jumpControls, text: () => container.textContent ?? '' }
   }
 
   // ------------------------------------------------- standard is a single page
@@ -259,79 +216,55 @@ async function main(): Promise<void> {
     panel.root.unmount()
   }
 
-  // --------------------------------------------------------- skip affordance
-  // "Skip the rest and create" appears exactly when the flow is create-ready AND
-  // the user is not on the last page — never as a second skip-shaped control.
+  // ------------------------------------------------- sprint preselect handoff
+  // A host preselect of the sprint mode (a stale route, a persisted mode) must
+  // not page a sprint flow — the panel hands off to the New sprint dialog with
+  // the folder it holds, and its own pane stays the standard one.
   {
-    // A blocked flow offers no skip: the sprint's team page carries the run's
-    // only required intent, so until it is answered there is nothing to skip to.
-    const panel = mount({ mode: 'sprintengine', folderPath: FOLDER })
-    await panel.click(panel.primary())
-    assert.ok(panel.text().includes('What should the team work on?'), 'the sprint pages to its team step')
-    assert.equal(panel.button(SKIP), undefined, 'skip is withheld while the flow is still blocked')
+    recorded.sprintDialogOpens.length = 0
+    const panel = mount({ mode: SPRINT_ENGINE_WORKSPACE_MODE, folderPath: FOLDER })
+    assert.deepEqual(
+      recorded.sprintDialogOpens,
+      [FOLDER],
+      'a sprint preselect opens the New sprint dialog with the preselected folder',
+    )
+    assert.ok(panel.text().includes(WORKSPACE_PAGE), 'the hub itself stays on the standard name/folder page')
+    assert.equal(panel.primary().textContent?.trim(), 'Create workspace',
+      'no sprint flow mounted — the pane is the standard single page')
     panel.root.unmount()
   }
 
-  // ------------------------------------------------------------ defaults parity
-  // Skipping must not silently create a DIFFERENT run than walking the pages.
-  // Both paths are driven end to end and compared at the engine boundary.
-  // A sprint's configuration lands in TWO places, and parity has to hold across
-  // both: the engine's initial state (team, roster, per-role runtimes, worktrees)
-  // and the workspace creation args (max parallel agents, permission preset,
-  // automation). Comparing only one half would let the other half drift.
-  async function createSprint(skip: boolean): Promise<{ init: unknown; created: unknown }> {
-    recorded.initializeSprintEngineState.length = 0
-    recorded.created.length = 0
-    const panel = mount({ mode: 'sprintengine', folderPath: FOLDER })
-    await panel.click(panel.primary()) // workspace -> team
-
-    // Answer the run's only required intent, and nothing else. Every later page
-    // is left exactly as the flow seeded it — that is the point of the test.
-    await panel.type(
-      panel.container.querySelector('input[placeholder="Interface Team"]') ?? undefined,
-      'Parity team',
+  // ------------------------------------------------------- rail Sprint handoff
+  // The rail keeps its Sprint row, but selecting it is a handoff, not a mode
+  // switch: the dialog opens with the hub's current folder and the pane the
+  // user was on does not change.
+  {
+    recorded.sprintDialogOpens.length = 0
+    const panel = mount({ mode: 'standard', folderPath: FOLDER })
+    const sprintRailRow = panel.container.querySelector(
+      `#creation-tab-${SPRINT_ENGINE_WORKSPACE_MODE}`,
     )
-    await panel.type(
-      panel.container.querySelector('textarea[placeholder="What outcome should this team deliver?"]') ?? undefined,
-      'Ship the paged creation hub',
+    assert.ok(sprintRailRow, 'the rail still offers the Sprint row')
+    await panel.click(sprintRailRow)
+    assert.deepEqual(
+      recorded.sprintDialogOpens,
+      [FOLDER],
+      'the rail Sprint row opens the New sprint dialog with the hub folder',
     )
-
-    // The positive half of the skip contract: answering the intent on a
-    // non-final page makes the flow create-ready, and the skip appears.
-    assert.ok(panel.button(SKIP), 'skip is offered once a create-ready non-final page is answered')
-
-    if (skip) {
-      await panel.click(panel.button(SKIP))
-    } else {
-      await panel.click(panel.primary()) // team -> roster
-      assert.ok(panel.text().includes('Who plans and builds this sprint.'), 'the sprint pages to its Team step')
-      await panel.click(panel.primary()) // roster -> tools
-      assert.ok(panel.text().includes('Tools & skills'), 'the sprint pages to its Tools step')
-      await panel.click(panel.primary()) // tools -> start
-      assert.ok(panel.text().includes('Review & start'), 'the sprint ends on the Review & start step')
-      await panel.click(panel.primary()) // create
-    }
-
-    const init = recorded.initializeSprintEngineState[0]
-    const created = recorded.created[0]
-    assert.ok(init, `the ${skip ? 'skipped' : 'walked'} path must reach initializeSprintEngineState`)
-    assert.ok(created, `the ${skip ? 'skipped' : 'walked'} path must reach the workspace create`)
+    assert.ok(panel.text().includes(WORKSPACE_PAGE), 'the hub pane does not switch')
+    assert.equal(panel.primary().textContent?.trim(), 'Create workspace',
+      'the standard pane is still the one on screen')
     panel.root.unmount()
-    return { init, created }
   }
 
   // ------------------------------------------------------------- guard contract
   // The page-turn guards are pure, so the cases a DOM drive cannot hold open —
-  // above all "a create is in flight" — are asserted directly against them.
+  // above all "a create is in flight" — are asserted directly against them, on a
+  // synthetic multi-page flow of surviving step ids (every real flow is short
+  // now that the five-page sprint flow is gone).
   {
     const nav = await import('./newWorkspace/stepNavigation')
-    const steps = [
-      'workspace',
-      'sprintengine-team',
-      'sprintengine-roster',
-      'sprintengine-tools',
-      'sprintengine-start',
-    ] as const
+    const steps = ['workspace', 'guided-idea', 'mcp-servers', 'knowledge', 'module-step'] as const
     const at = (step: (typeof steps)[number], busy = false) => ({ steps: [...steps], step, busy })
 
     assert.equal(
@@ -340,14 +273,14 @@ async function main(): Promise<void> {
       'Continue refuses to leave a page the user has not answered',
     )
     assert.equal(
-      nav.nextStepFrom({ ...at('sprintengine-start'), currentStepReady: true }),
+      nav.nextStepFrom({ ...at('module-step'), currentStepReady: true }),
       null,
       'the last page has no Continue — its primary is create',
     )
     // Forward jumps are the refusal the progress bar depends on.
-    assert.equal(nav.jumpTargetFor(at('sprintengine-team'), 2), null, 'a forward jump is refused')
-    assert.equal(nav.jumpTargetFor(at('sprintengine-team'), 1), null, 'a jump to the current page is refused')
-    assert.equal(nav.jumpTargetFor(at('sprintengine-team'), 0), 'workspace', 'a back-jump is allowed')
+    assert.equal(nav.jumpTargetFor(at('guided-idea'), 2), null, 'a forward jump is refused')
+    assert.equal(nav.jumpTargetFor(at('guided-idea'), 1), null, 'a jump to the current page is refused')
+    assert.equal(nav.jumpTargetFor(at('guided-idea'), 0), 'workspace', 'a back-jump is allowed')
 
     // Mid-create, the pane freezes: the deferred create reads the state of the
     // page the user confirmed on, so a page turn underneath it would create
@@ -357,8 +290,8 @@ async function main(): Promise<void> {
       null,
       'Continue is a no-op mid-create',
     )
-    assert.equal(nav.previousStepFrom(at('sprintengine-team', true)), null, 'Back is a no-op mid-create')
-    assert.equal(nav.jumpTargetFor(at('sprintengine-team', true), 0), null, 'a back-jump is a no-op mid-create')
+    assert.equal(nav.previousStepFrom(at('guided-idea', true)), null, 'Back is a no-op mid-create')
+    assert.equal(nav.jumpTargetFor(at('guided-idea', true), 0), null, 'a back-jump is a no-op mid-create')
 
     assert.equal(
       nav.shouldShowSkipToCreate({ createReady: true, isLastStep: true }),
@@ -367,62 +300,9 @@ async function main(): Promise<void> {
     )
     // A rail switch swaps the flow under the current page; a page the new flow
     // does not have falls back to its first page rather than stranding the user.
-    assert.equal(nav.stepWithinFlow(['workspace', 'guided-idea'], 'sprintengine-roster'), 'workspace')
+    assert.equal(nav.stepWithinFlow(['workspace', 'guided-idea'], 'mcp-servers'), 'workspace')
     assert.equal(nav.stepWithinFlow(['workspace', 'guided-idea'], 'guided-idea'), 'guided-idea')
   }
-
-  const walked = await createSprint(false)
-  const skipped = await createSprint(true)
-
-  // Guard the parity assertions against passing vacuously — two empty payloads
-  // are deep-equal too. The seeded roster and the run settings must actually be
-  // in there, or this proves nothing.
-  const engineState = walked.init as Record<string, unknown>
-  for (const key of ['agents', 'roleRuntimes', 'enabledRoles', 'useWorktrees']) {
-    assert.ok(key in engineState, `the engine state must carry ${key} for parity to mean anything`)
-  }
-  assert.ok(
-    Object.keys((engineState.agents ?? {}) as object).length > 0,
-    'the seeded roster must be non-empty — parity over an empty team proves nothing',
-  )
-
-  // The whole promise of the skip affordance: every page it skipped was already
-  // holding its default, so the run it creates is identical to the one you get by
-  // walking every page and changing nothing. A future step whose default only
-  // materializes when its page renders breaks HERE, not in production.
-  //
-  // A sprint's configuration lands in two places and BOTH must match. The engine
-  // state carries the team: seeded agents, per-role runtimes, enabled roles, and
-  // worktrees.
-  assert.deepEqual(
-    skipped.init,
-    walked.init,
-    'skipping must seed the engine with the same team as walking every page unchanged',
-  )
-  // The workspace creation args carry the rest of the run page: max parallel
-  // agents, the permission preset, and the automation mode. Comparing only the
-  // engine state would let these drift unnoticed.
-  //
-  // `changedAt` is a wall-clock stamp of when the automation mode was last set,
-  // so it differs between any two creates by construction. It is the one field
-  // that is not a setting, and it is dropped rather than the comparison being
-  // loosened — everything else must match exactly.
-  const runSettings = (args: unknown): Record<string, unknown> => {
-    const record = { ...(args as Record<string, unknown>) }
-    const auto = record.sprintEngineAutoState as Record<string, unknown> | undefined
-    assert.ok(auto, 'the create args must carry the run settings')
-    for (const key of ['maxConcurrentAgents', 'cliPermissionPreset', 'desiredMode']) {
-      assert.ok(key in auto, `the run settings must carry ${key} for parity to mean anything`)
-    }
-    const { changedAt: _changedAt, ...settings } = auto
-    record.sprintEngineAutoState = settings
-    return record
-  }
-  assert.deepEqual(
-    runSettings(skipped.created),
-    runSettings(walked.created),
-    'skipping must create the workspace with the same run settings as walking every page unchanged',
-  )
 
   console.log('NewWorkspacePanel.paging.test.tsx: ok')
 }

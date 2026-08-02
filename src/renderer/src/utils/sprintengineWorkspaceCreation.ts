@@ -179,6 +179,8 @@ function buildSprintEngineInitSourceSeed(
       // Carried into run.yaml so the planner can enumerate the epic's children
       // one-to-one and plan approval can warn about one it left undelivered.
       ...(item.epicChild === true ? { epicChild: true } : {}),
+      // The selection counterpart (MC-2060): a directly-selected work item.
+      ...(item.selectedItem === true ? { selectedItem: true } : {}),
     })),
   }
 }

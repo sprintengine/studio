@@ -59,6 +59,7 @@ const HTML_EXT = /\.html?$/i
 
 const KIND_LABELS: Record<string, string> = {
   epic: 'Epic',
+  selection: 'Selection',
   product_plan: 'Product plan',
   architect_plan: 'Architect plan',
   plan_overview: 'Plan overview',
@@ -148,7 +149,11 @@ export function buildSprintEngineStartedFrom(
   // No recorded seed (legacy runs) → no section at all, rather than an empty one.
   if (!source || !source.path) return null
 
-  const epic = source.planKind === 'epic'
+  // The work-list gate (MC-2060): a `selection` launch carries its work items
+  // in the bundle exactly as an epic launch carries its children, so both nest
+  // their backlog items as child rows (and pass every consumer keyed on this
+  // flag — the Epic tab renders a list of items, which is what a selection is).
+  const epic = source.planKind === 'epic' || source.planKind === 'selection'
   const primary = buildSeedRow(
     {
       path: source.path,
@@ -184,7 +189,7 @@ export function buildSprintEngineStartedFrom(
 
   return {
     epic,
-    subtitle: buildSubtitle(primary, epic, children.length, supporting.length),
+    subtitle: buildSubtitle(primary, epic, children.length, supporting.length, source.planKind === 'selection'),
     rows: [primary, ...children, ...supporting],
   }
 }
@@ -198,9 +203,12 @@ function buildSubtitle(
   epic: boolean,
   childCount: number,
   supportingCount: number,
+  selection = false,
 ): string {
   if (epic) {
-    const head = childCount > 0 ? `epic · ${pluralize(childCount, 'item')}` : 'epic'
+    const head = childCount > 0
+      ? `${selection ? 'selection' : 'epic'} · ${pluralize(childCount, 'item')}`
+      : selection ? 'selection' : 'epic'
     return supportingCount > 0 ? `${head} + ${pluralize(supportingCount, 'file')}` : head
   }
   const noun = primary.backlogPath ? 'backlog item' : primary.kindLabel.toLowerCase()

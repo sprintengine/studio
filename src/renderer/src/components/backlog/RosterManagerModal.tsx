@@ -1,22 +1,23 @@
 // The roster manager (MC-1880): the ONE door behind the Horizon roster
-// picker's single "Manage rosters…" action. It lists every saved roster, and
-// selecting one edits it in the very same `SprintEngineRosterPanel` the sprint
-// wizard uses, driven by the very same `useRosterEditor()` seam (MC-1879).
+// picker's single "Manage rosters…" action. Since MC-2065 it is shell plus
+// editor: this file owns the modal chrome (scrim, dialog, header, footer) and
+// mounts the shared shell-free `RosterEditor` — the same surface the New
+// sprint dialog hosts as its second screen — driven by the very same
+// `useRosterEditor()` seam (MC-1879).
 //
 // Reuse over lookalikes is the point: this file contributes NO roster state of
 // its own. If it ever needs some, the boundary in useRosterEditor was drawn
 // wrong.
 //
-// Editing here is GLOBAL — a roster is shared with the sprint wizard and with
-// every other horizon — and the modal says so plainly rather than implying a
-// horizon-local copy.
-import { useMemo, useState } from 'react'
+// Editing here is GLOBAL — a roster is shared with the New sprint dialog and
+// with every other horizon — and the modal says so plainly rather than implying
+// a horizon-local copy.
+import { useMemo } from 'react'
 
 import { GhostButton, PrimaryButton } from '../ui'
-import { SprintEngineRosterPanel } from '../workspace/newWorkspace/SprintEngineRosterPanel'
+import { RosterEditor } from './RosterEditor'
 import { useRosterEditor } from '../workspace/newWorkspace/useRosterEditor'
 import { selectAgentCliCatalog } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { NO_ROLES_ROSTER_NAME, sprintEngineRosterNameTaken } from '../workspace/newWorkspace/savedRosters'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 
 export function RosterManagerModal({
@@ -58,11 +59,6 @@ export function RosterManagerModal({
     workspaceRoot,
   })
 
-  const [newName, setNewName] = useState('')
-  const trimmedNewName = newName.trim()
-  const nameCollides = sprintEngineRosterNameTaken(roster.rosters, trimmedNewName)
-  const canCreate = trimmedNewName.length > 0 && !nameCollides
-
   const selected = roster.rosters.find((entry) => entry.id === roster.selectedRosterId) ?? null
 
   return (
@@ -80,100 +76,11 @@ export function RosterManagerModal({
           <h2 className="text-heading font-semibold text-[color:var(--text-strong)]">Rosters</h2>
           <p className="mt-1 text-meta text-[color:var(--text-muted)]">
             Rosters are shared. Editing one here changes it everywhere it is used — in the
-            sprint wizard and in every horizon.
+            New sprint dialog and in every horizon.
           </p>
         </header>
 
-        <div className="flex min-h-0 flex-1">
-          <div className="flex w-[220px] shrink-0 flex-col border-r border-[color:var(--border-default)]">
-            <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-              {roster.rosters.length === 0 ? (
-                <p className="px-2 py-3 text-meta text-[color:var(--text-subtle)]">
-                  No saved rosters yet.
-                </p>
-              ) : (
-                roster.rosters.map((entry) => {
-                  const staffed = Object.values(entry.roleCounts).filter((count) => (count ?? 0) > 0).length
-                  return (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      onClick={() => roster.onSelectRoster(entry.id)}
-                      className={`interactive flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta ${
-                        entry.id === roster.selectedRosterId
-                          ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
-                          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
-                      }`}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                      <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
-                        {staffed}
-                      </span>
-                    </button>
-                  )
-                })
-              )}
-            </div>
-            <div className="shrink-0 border-t border-[color:var(--border-default)] p-1.5">
-              <label className="sr-only" htmlFor="roster-manager-new-name">New roster name</label>
-              <input
-                id="roster-manager-new-name"
-                value={newName}
-                onChange={(event) => setNewName(event.target.value)}
-                placeholder="New roster name"
-                className="w-full rounded border border-[color:var(--border-default)] bg-transparent px-2 py-1 text-meta text-[color:var(--text-default)] outline-none placeholder:text-[color:var(--text-disabled)] focus-visible:focus-ring"
-              />
-              {nameCollides ? (
-                <p className="mt-1 px-0.5 text-micro text-[color:var(--tone-error)]">
-                  {trimmedNewName.toLowerCase() === NO_ROLES_ROSTER_NAME.toLowerCase()
-                    ? `“${NO_ROLES_ROSTER_NAME}” is the built-in default and cannot be reused.`
-                    : `A roster named “${trimmedNewName}” already exists.`}
-                </p>
-              ) : null}
-              <PrimaryButton
-                className="mt-1.5 w-full"
-                disabled={!canCreate}
-                onClick={() => {
-                  if (!canCreate) return
-                  roster.onSaveRoster(trimmedNewName)
-                  setNewName('')
-                }}
-              >
-                New roster
-              </PrimaryButton>
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            {/* The wizard's roster panel, unchanged, driven by the same hook. */}
-            <SprintEngineRosterPanel
-              rosterMode={roster.rosterMode}
-              onChangeRosterMode={roster.onChangeRosterMode}
-              roleCounts={roster.roleCounts}
-              roleCliDefaults={roster.roleCliDefaults}
-              roleModelOverrides={roster.roleModelOverrides}
-              onSetRoleCount={roster.onSetRoleCount}
-              onSetRoleCli={roster.onSetRoleCli}
-              onSetRoleModel={roster.onSetRoleModel}
-              cliOptions={roster.cliOptions}
-              registry={roster.registry}
-              registryStatus={roster.registryStatus}
-              disabledRoleIds={roster.disabledRoleIds}
-              rosterDisabled={roster.rosterDisabled}
-              hasExistingTeam={false}
-              rosters={roster.rosters}
-              selectedRosterId={roster.selectedRosterId}
-              selectedRosterDirty={roster.selectedRosterDirty}
-              onSelectRoster={roster.onSelectRoster}
-              onSaveRoster={roster.onSaveRoster}
-              onUpdateRoster={roster.onUpdateRoster}
-              onRenameRoster={roster.onRenameRoster}
-              onDeleteRoster={roster.onDeleteRoster}
-              poolAgentCount={roster.poolAgentCount}
-              onChangePoolAgentCount={roster.onChangePoolAgentCount}
-            />
-          </div>
-        </div>
+        <RosterEditor editor={roster} />
 
         <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-[color:var(--border-default)] px-4 py-3">
           <GhostButton onClick={onClose}>Close</GhostButton>

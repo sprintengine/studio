@@ -25,7 +25,6 @@ import type {
   SprintEngineRosterSession,
   SprintEngineRoleCounts,
   SprintEngineRoleModelOverrides,
-  SprintEngineRosterMode,
   AgentCli,
   AgentCliModelSelection,
   AgentConfigAdoptionResult,
@@ -258,8 +257,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   saveSprintEngineRoster: (input: {
     id?: string
     name: string
-    /** The formation the roster is saved in (MC-1875); absent keeps the legacy guess. */
-    mode?: SprintEngineRosterMode
     roleCounts: SprintEngineRoleCounts
     roleCliDefaults: SprintEngineRoleCliDefaults
     roleModelOverrides?: SprintEngineRoleModelOverrides

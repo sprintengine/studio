@@ -345,5 +345,33 @@ assert.equal(sprintEngineSeedKindLabel({ kind: 'unknown', isEpicRoot: false }), 
   )
 }
 
+// 11. Selection-sourced (MC-2060): planKind `selection` passes the same
+// work-list gate as `epic`, so the bundle's backlog items nest as child rows
+// (which is what keeps a selection-seeded run's Epic tab and seed section
+// rendering the selection as a list of items). Selected epic files ride the
+// bundle as supporting scopes labeled Epic, never as children.
+{
+  const model = buildSprintEngineStartedFrom(
+    source({ planKind: 'selection', path: 'backlog/2026-07-03-search.md' }),
+    [
+      bundleItem({ kind: 'generic_context', path: 'backlog/2026-07-03-search.md' }),
+      bundleItem({ kind: 'epic', path: 'backlog/epics/auth.md' }),
+      bundleItem({ kind: 'generic_context', path: 'backlog/login.md' }),
+      bundleItem({ kind: 'html_mockup', path: 'docs/flow.html' }),
+    ],
+  )
+  assert.ok(model)
+  assert.equal(model.epic, true, 'planKind selection passes the work-list (Epic tab) gate')
+  assert.equal(model.subtitle, 'selection · 2 items + 2 files')
+  assert.deepEqual(
+    model.rows.map((row) => row.role),
+    ['primary', 'epic-child', 'epic-child', 'supporting', 'supporting'],
+    'selected work items nest as children; the epic scope and the mockup are supporting',
+  )
+  assert.equal(model.rows[0].kindLabel, 'Backlog item', 'a plain-item anchor is a backlog item')
+  const epicRow = model.rows.find((row) => row.path === 'backlog/epics/auth.md')
+  assert.equal(epicRow?.kindLabel, 'Epic', 'a selected epic keeps its Epic label')
+}
+
 // eslint-disable-next-line no-console
 console.log('SprintEngineStartedFrom.test.ts: ok')

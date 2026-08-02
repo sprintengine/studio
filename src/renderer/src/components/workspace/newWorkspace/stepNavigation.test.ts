@@ -16,22 +16,20 @@ import {
 // footer and the progress bar make; the panel owns the `step` state, so a break
 // here is invisible to every other test in the tree.
 
-// The sprint flow is the long one — five pages — so it exercises every move.
-const SPRINT = STEPS_BY_MODE.sprintengine
-assert.deepEqual(SPRINT, [
-  'workspace',
-  'sprintengine-team',
-  'sprintengine-roster',
-  'sprintengine-tools',
-  'sprintengine-start',
-])
+// The helpers are pure over any step list, and every real flow is now short
+// (the five-page sprint flow left with MC-2062), so the walk is exercised on a
+// synthetic five-page flow of surviving step ids. The moves under test are the
+// same ones the real two-page flows make — there are just more of them to
+// observe ordering, back-jumps, and freezes on.
+const LONG: readonly StepId[] = ['workspace', 'guided-idea', 'mcp-servers', 'knowledge', 'module-step']
+const LAST = LONG[LONG.length - 1]
 
 function ready(
   step: StepId,
   over: { busy?: boolean; currentStepReady?: boolean } = {},
 ): { steps: readonly StepId[]; step: StepId; busy: boolean; currentStepReady: boolean } {
   return {
-    steps: SPRINT,
+    steps: LONG,
     step,
     busy: over.busy ?? false,
     currentStepReady: over.currentStepReady ?? true,
@@ -51,16 +49,16 @@ function ready(
     walked.push(next)
     step = next
   }
-  assert.deepEqual(walked, [...SPRINT], 'Continue walks the whole sprint flow, in order')
-  assert.equal(nextStepFrom(ready('sprintengine-start')), null, 'the last page has no Continue')
-  assert.ok(isLastStepIn(SPRINT, 'sprintengine-start'), 'the review-&-start page is the last page')
-  assert.ok(!isLastStepIn(SPRINT, 'sprintengine-tools'), 'the tools page is not')
+  assert.deepEqual(walked, [...LONG], 'Continue walks the whole flow, in order')
+  assert.equal(nextStepFrom(ready(LAST)), null, 'the last page has no Continue')
+  assert.ok(isLastStepIn(LONG, LAST), 'the final page is the last page')
+  assert.ok(!isLastStepIn(LONG, 'knowledge'), 'a mid-flow page is not')
 }
 
 // Continue is gated on the page you are ON — not on the whole flow. An unanswered
 // page refuses to advance even though later pages are all defaulted.
 assert.equal(
-  nextStepFrom(ready('sprintengine-team', { currentStepReady: false })),
+  nextStepFrom(ready('guided-idea', { currentStepReady: false })),
   null,
   'Continue refuses to leave an unanswered page',
 )
@@ -71,24 +69,24 @@ assert.equal(nextStepFrom(ready('workspace', { busy: true })), null, 'Continue i
 
 // --- Back returns ------------------------------------------------------------
 
-assert.equal(previousStepFrom(ready('sprintengine-start')), 'sprintengine-tools', 'Back returns one page')
-assert.equal(previousStepFrom(ready('sprintengine-team')), 'workspace', 'Back reaches the first page')
+assert.equal(previousStepFrom(ready(LAST)), 'knowledge', 'Back returns one page')
+assert.equal(previousStepFrom(ready('guided-idea')), 'workspace', 'Back reaches the first page')
 assert.equal(previousStepFrom(ready('workspace')), null, 'the first page has no Back')
-assert.equal(previousStepFrom(ready('sprintengine-start', { busy: true })), null, 'Back is frozen mid-create')
+assert.equal(previousStepFrom(ready(LAST, { busy: true })), null, 'Back is frozen mid-create')
 
 // Back is never gated on readiness: a page you cannot answer is exactly the one
 // you need to retreat out of (e.g. to re-pick the folder its content depends on).
 assert.equal(
-  previousStepFrom({ steps: SPRINT, step: 'sprintengine-team', busy: false }),
+  previousStepFrom({ steps: LONG, step: 'guided-idea', busy: false }),
   'workspace',
   'Back works out of an unanswered page',
 )
 
 // Continue then Back is a round trip — the pair are inverses, page by page.
-for (let index = 0; index < SPRINT.length - 1; index += 1) {
-  const forward = nextStepFrom(ready(SPRINT[index]))
-  assert.equal(forward, SPRINT[index + 1])
-  assert.equal(previousStepFrom(ready(forward as StepId)), SPRINT[index], 'Back undoes Continue')
+for (let index = 0; index < LONG.length - 1; index += 1) {
+  const forward = nextStepFrom(ready(LONG[index]))
+  assert.equal(forward, LONG[index + 1])
+  assert.equal(previousStepFrom(ready(forward as StepId)), LONG[index], 'Back undoes Continue')
 }
 
 // --- jumpToStep refuses forward jumps ----------------------------------------
@@ -97,9 +95,9 @@ for (let index = 0; index < SPRINT.length - 1; index += 1) {
 // gate the page it jumps over holds — the whole point of Continue's readiness
 // check — so every index at or ahead of the current page is refused.
 {
-  const flow = { steps: SPRINT, step: 'sprintengine-roster' as StepId, busy: false } // index 2
+  const flow = { steps: LONG, step: 'mcp-servers' as StepId, busy: false } // index 2
   assert.equal(jumpTargetFor(flow, 0), 'workspace', 'jump back to the first page')
-  assert.equal(jumpTargetFor(flow, 1), 'sprintengine-team', 'jump back one page')
+  assert.equal(jumpTargetFor(flow, 1), 'guided-idea', 'jump back one page')
   assert.equal(jumpTargetFor(flow, 2), null, 'the current page is not a jump')
   assert.equal(jumpTargetFor(flow, 3), null, 'a forward jump is refused')
   assert.equal(jumpTargetFor(flow, -1), null, 'a negative index is refused')
@@ -107,15 +105,15 @@ for (let index = 0; index < SPRINT.length - 1; index += 1) {
   assert.equal(jumpTargetFor({ ...flow, busy: true }, 0), null, 'jumps are frozen mid-create')
 
   // From the first page there is nowhere to jump at all.
-  assert.equal(jumpTargetFor({ steps: SPRINT, step: 'workspace', busy: false }, 0), null)
+  assert.equal(jumpTargetFor({ steps: LONG, step: 'workspace', busy: false }, 0), null)
 }
 
 // A forward jump stays refused even when every page ahead is ready: readiness is
 // not the reason — an un-walked page is.
-for (let index = 0; index < SPRINT.length; index += 1) {
-  const flow = { steps: SPRINT, step: SPRINT[index], busy: false }
-  for (let target = index; target < SPRINT.length; target += 1) {
-    assert.equal(jumpTargetFor(flow, target), null, `no jump from ${SPRINT[index]} to ${SPRINT[target]}`)
+for (let index = 0; index < LONG.length; index += 1) {
+  const flow = { steps: LONG, step: LONG[index], busy: false }
+  for (let target = index; target < LONG.length; target += 1) {
+    assert.equal(jumpTargetFor(flow, target), null, `no jump from ${LONG[index]} to ${LONG[target]}`)
   }
 }
 
@@ -129,13 +127,11 @@ assert.equal(shouldShowSkipToCreate({ createReady: true, isLastStep: true }), fa
 assert.equal(shouldShowSkipToCreate({ createReady: false, isLastStep: false }), false, 'withheld while create is blocked')
 assert.equal(shouldShowSkipToCreate({ createReady: false, isLastStep: true }), false, 'withheld when blocked on the last page')
 
-// The affordance the item promises: with the sprint's intent page (the team)
-// answered, skip is on offer from the team page onward — but never on the
-// review-&-start page, which is where create lives.
-for (const step of SPRINT) {
+// Across a whole flow: skip is on offer everywhere but the last page.
+for (const step of LONG) {
   assert.equal(
-    shouldShowSkipToCreate({ createReady: true, isLastStep: isLastStepIn(SPRINT, step) }),
-    step !== 'sprintengine-start',
+    shouldShowSkipToCreate({ createReady: true, isLastStep: isLastStepIn(LONG, step) }),
+    step !== LAST,
     `skip-to-create on ${step}`,
   )
 }
@@ -146,9 +142,9 @@ for (const step of SPRINT) {
 // that survives the change is kept; one that does not falls back to the flow's
 // first page rather than stranding the user on a page the new type has no render
 // for.
-assert.equal(stepWithinFlow(SPRINT, 'sprintengine-roster'), 'sprintengine-roster', 'a surviving page is kept')
+assert.equal(stepWithinFlow(LONG, 'mcp-servers'), 'mcp-servers', 'a surviving page is kept')
 assert.equal(
-  stepWithinFlow(STEPS_BY_MODE.standard, 'sprintengine-roster'),
+  stepWithinFlow(STEPS_BY_MODE.standard, 'mcp-servers'),
   'workspace',
   'a page the new flow does not have falls back to its first page',
 )
@@ -156,7 +152,7 @@ assert.equal(stepWithinFlow(STEPS_BY_MODE.switchboard, 'workspace'), 'workspace'
 
 // A step outside the flow reads as page 0, so a stale step can never index past
 // the flow's end and hand Continue an undefined page.
-assert.equal(stepIndexIn(SPRINT, 'guided-idea'), 0, 'an unknown step reads as the first page')
-assert.equal(nextStepFrom(ready('guided-idea')), 'sprintengine-team', 'and advances from there, not off the end')
+assert.equal(stepIndexIn(LONG, 'review-source'), 0, 'an unknown step reads as the first page')
+assert.equal(nextStepFrom(ready('review-source')), 'guided-idea', 'and advances from there, not off the end')
 
 console.log('stepNavigation.test.ts: ok')

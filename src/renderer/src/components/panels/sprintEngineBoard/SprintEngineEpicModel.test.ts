@@ -122,6 +122,50 @@ assert.deepEqual(
   'recorded members are the bundle’s backlog items — never a supporting file, never the epic itself',
 )
 
+// ── 1a. Selection launches (MC-2060) ─────────────────────────────────────────
+// A `selection` run whose anchor is a plain item keys its Epic tab on the first
+// selected epic riding the bundle; a selection of plain items alone has no epic
+// to anchor a membership view on and yields none.
+{
+  const selectionSeed = sprintEngineEpicSeed(
+    {
+      kind: 'markdown',
+      origin: 'reference',
+      path: 'backlog/2026-07-03-search.md',
+      planKind: 'selection',
+    },
+    [
+      bundleChild('backlog/2026-07-03-search.md'),
+      { kind: 'epic', origin: 'reference', path: 'backlog/epics/checkout-hardening.md' },
+      bundleChild('backlog/2026-07-01-idempotency.md'),
+    ],
+  )
+  assert.ok(selectionSeed, 'a selection containing an epic keeps its Epic tab')
+  assert.equal(selectionSeed.slug, 'checkout-hardening', 'keyed on the first selected epic')
+  assert.deepEqual(
+    selectionSeed.recordedChildPaths,
+    ['backlog/2026-07-03-search.md', 'backlog/2026-07-01-idempotency.md'],
+    'recorded members are the bundle’s backlog work items',
+  )
+  assert.equal(
+    sprintEngineEpicSeed(
+      { kind: 'markdown', origin: 'reference', path: 'backlog/2026-07-03-search.md', planKind: 'selection' },
+      [bundleChild('backlog/2026-07-03-search.md'), bundleChild('backlog/2026-07-05-export.md')],
+    ),
+    null,
+    'a selection of plain items alone has no epic to key a tab on',
+  )
+  const epicAnchored = sprintEngineEpicSeed(
+    { kind: 'markdown', origin: 'reference', path: 'backlog/epics/checkout-hardening.md', planKind: 'selection' },
+    [bundleChild('backlog/2026-07-01-idempotency.md')],
+  )
+  assert.equal(
+    epicAnchored?.slug,
+    'checkout-hardening',
+    'a selection anchored on an epic file keys on that epic directly',
+  )
+}
+
 // ── 1b. The project a door-mounted run reads its backlog from ───────────────
 
 assert.equal(

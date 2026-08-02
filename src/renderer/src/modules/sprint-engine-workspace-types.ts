@@ -99,7 +99,7 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
   host.registerWorkspaceType({
     id: 'sprintengine',
     label: 'Sprint',
-    description: 'Specialist team, architect plan, kanban, and evidence trail.',
+    description: 'Inbox, Agents, and Tasks together in one stable board.',
     icon: SprintEngineWorkspaceTypeIcon,
     accentToken: '--tool-sprintengine',
     searchTerms: ['sprint engine', 'sprintengine', 'roster', 'kanban', 'evidence'],
@@ -110,7 +110,11 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
     // Phase 3): scheduling AND session reconcile run in the main-process
     // scheduler (src/main/sprint-runtime.ts); the runtime bridge mirrors its
     // store mutations into every window. No renderer supervisor remains.
-    creationStepsId: 'sprintengine',
+    // Sprint creation left the wizard (MC-2062): picking this type anywhere —
+    // the hub rail, the sidebar "+" menu — opens the New sprint dialog, never
+    // a wizard flow. There is no sprint creation flow, so no creationStepsId:
+    // the type registers for the sake of existing sprint workspaces, and the
+    // hub reroutes any selection of it to the dialog.
     pickerOrder: 20,
   })
   // The `roadmap` workspace type retired (MC-1692): Roadmap is now an

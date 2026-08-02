@@ -233,12 +233,12 @@ async function createSprint(
   const resolved = resolveRequestedRoster(request)
   if (!resolved.ok) return resolved.response
   const roster = resolved.roster
-  // Formation decides staffing on THIS path too. Both sprint.create paths
-  // resolve a roster through `resolveRequestedRoster`, so both must honor the
-  // `mode` it returns — otherwise a "No roles" run created goal-sourced would
-  // silently staff the specialist defaults and seat an architect, which is the
-  // exact thing "no roles" excludes.
-  const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.mode, roster.roleCounts)
+  // The no-roles/roster selection decides staffing on THIS path too. Both
+  // sprint.create paths resolve a roster through `resolveRequestedRoster`, so
+  // both must honor the selection it returns — otherwise a "No roles" run
+  // created goal-sourced would silently staff the specialist defaults and seat
+  // an architect, which is the exact thing "no roles" excludes.
+  const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.selectedRosterId, roster.roleCounts)
 
   let args: OnCreateArgs
   try {
@@ -332,14 +332,12 @@ async function createPlanSourcedSprint(
   const resolved = resolveRequestedRoster(request)
   if (!resolved.ok) return resolved.response
   const roster = resolved.roster
-  // MC-1875: formation decides what actually staffs the run. A 'pool' ("no
-  // roles") roster launches the plain-agent seed — no staffed role, so the
-  // roleless coordinator seat plus one agent minted per task up to the run's
-  // max-concurrency setting — NOT the specialist counts it may still be carrying
-  // behind the wizard's disclosure.
-  // Before this, Horizon could never start a pool run at all: it passed
-  // roleCounts and nothing else, so formation was unexpressible.
-  const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.mode, roster.roleCounts)
+  // The selection decides what actually staffs the run. A "No roles" selection
+  // launches the plain-agent seed — no staffed role, so the roleless
+  // coordinator seat plus one agent minted per task up to the run's
+  // max-concurrency setting — NOT the specialist counts the resolver may still
+  // be carrying as the wizard's seeded rows.
+  const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.selectedRosterId, roster.roleCounts)
 
   const absoluteSourcePath = joinPath(request.folderPath, normalizedSourcePath)
   if (!(await window.api.pathExists(absoluteSourcePath))) {

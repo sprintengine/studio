@@ -1,9 +1,10 @@
 // The sprint wizard's Roster step (MC-1646, mockup §1). One reading column:
-// a segmented control chooses the sprint kind (no roles / pick roles), the
-// roster is a single dense hairline list summarized by an overlapping glyph
+// the roster is a single dense hairline list summarized by an overlapping glyph
 // stack, and saved rosters collapse into a quiet
-// "Roster: <name>" menu instead of a permanent rail. Replaces the old
-// "Your AI team" screen's banner, checkbox card, option cards, and boxed rail.
+// "Roster: <name>" menu instead of a permanent rail. A roster is a set of roles
+// and nothing else (MC-2064): "No roles" is not a formation of this panel but
+// the level above it, so the panel renders role rows unconditionally and the
+// create surface decides whether to show it at all.
 
 import React from 'react'
 
@@ -16,35 +17,21 @@ import type {
   SprintEngineRoleReasoningOverrides,
   SprintEngineRoleRegistry,
   SprintEngineRoster,
-  SprintEngineRosterMode,
 } from '../../../types/workspace'
-import { SPRINT_ENGINE_ROLELESS_KEY, getSprintEngineRoleLabel } from '../../../utils/sprintengine'
+import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
   listSprintEngineWizardRoles,
 } from '../../../utils/sprintengineRoleOptions'
 import { CheckIcon, ChevronDownIcon } from '../../AppIcons'
-import { CliModelPickerButton, Field, Popover, PrimaryButton, RoleAvatar, SegmentedControl, Switch } from '../../ui'
-import { AgentCliPicker, type SprintEngineCliOption } from './SprintEngineRosterTable'
+import { CliModelPickerButton, Popover, PrimaryButton, RoleAvatar, Switch } from '../../ui'
+import { type SprintEngineCliOption } from './SprintEngineRosterTable'
 import {
   NO_ROLES_ROSTER_ID,
   NO_ROLES_ROSTER_NAME,
   isNoRolesRosterRef,
   sprintEngineRosterNameTaken,
 } from './savedRosters'
-
-// How the roster is formed. Defined in shared (MC-1875) because a saved roster
-// now persists it and `src/shared` cannot import renderer modules; re-exported
-// here so every existing call site's import is unchanged.
-export type { SprintEngineRosterMode }
-
-// The sprint kind, in the user's terms. Roleless is the default and reads
-// first; nothing here asks for a planner, because every sprint coordinates
-// through a seat rather than a staffed role (MC-2055).
-const ROSTER_MODE_HELP: Record<SprintEngineRosterMode, string> = {
-  pool: 'Agents share one task graph. One of them holds the plan.',
-  roles: 'You choose the roles and models below.',
-}
 
 // Effective launch model for a role: explicit override (string), otherwise the
 // CLI default (undefined -> no model flag). Mirrors the roster table.
@@ -69,8 +56,6 @@ function effectiveRoleReasoning(
 }
 
 export function SprintEngineRosterPanel({
-  rosterMode,
-  onChangeRosterMode,
   roleCounts,
   roleCliDefaults,
   roleModelOverrides,
@@ -93,12 +78,7 @@ export function SprintEngineRosterPanel({
   onUpdateRoster,
   onRenameRoster,
   onDeleteRoster,
-  poolAgentCount,
-  onChangePoolAgentCount,
 }: {
-  rosterMode: SprintEngineRosterMode
-  // Absent for an existing run: its formation is fixed, so no segmented control.
-  onChangeRosterMode?: (mode: SprintEngineRosterMode) => void
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides: SprintEngineRoleModelOverrides
@@ -129,107 +109,56 @@ export function SprintEngineRosterPanel({
   onUpdateRoster: (id: string, name: string) => void
   onRenameRoster: (id: string, name: string) => void
   onDeleteRoster: (id: string) => void
-  /** Pool mode: how many plain agents share the run (the concurrency cap). */
-  poolAgentCount: number
-  onChangePoolAgentCount: (value: number) => void
 }) {
   // One roster list for every staffable role, reviewers included (MC-1886):
   // staffing a role makes it available to the architect, which is the same
   // meaning for a reviewer as for a builder.
   const roles = listSprintEngineWizardRoles(registry, disabledRoleIds)
   const onRoles = roles.filter((role) => (roleCounts[role] ?? 0) > 0)
-  // The help line below the segments is the only place either formation is
-  // explained, so it is the control's description, not loose copy near it.
-  const formationHelpId = React.useId()
 
   return (
     <div className="flex flex-col gap-1">
-      {onChangeRosterMode ? (
-        <>
-          <SegmentedControl<SprintEngineRosterMode>
-            ariaLabel="How this sprint is staffed"
-            ariaDescribedBy={formationHelpId}
-            className="self-start"
-            items={[
-              // Roleless first, because it is the default. Its label is the same
-              // words as the built-in roster pinned first in the saved-rosters
-              // menu — one axis, so one name for it.
-              { value: 'pool', label: 'No roles' },
-              { value: 'roles', label: 'Pick roles' },
-            ]}
-            value={rosterMode}
-            onChange={onChangeRosterMode}
+      <div className="mt-4 flex items-center gap-2.5">
+        <RoleGlyphStack roles={onRoles} registry={registry} />
+        <span className="text-meta tabular-nums text-[color:var(--text-muted)]">
+          {registryStatus === 'loading'
+            ? 'Loading roles'
+            : `${onRoles.length} role${onRoles.length === 1 ? '' : 's'}`}
+        </span>
+        <span className="flex-1" />
+        {!hasExistingTeam ? (
+          <SavedRostersMenu
+            rosters={rosters}
+            selectedRosterId={selectedRosterId}
+            selectedRosterDirty={selectedRosterDirty}
+            onSelectRoster={onSelectRoster}
+            onSaveRoster={onSaveRoster}
+            onUpdateRoster={onUpdateRoster}
+            onRenameRoster={onRenameRoster}
+            onDeleteRoster={onDeleteRoster}
           />
-          <p id={formationHelpId} className="mt-2 min-h-[18px] text-meta leading-4 text-[color:var(--text-subtle)]">
-            {ROSTER_MODE_HELP[rosterMode]}
-          </p>
-        </>
-      ) : null}
+        ) : null}
+      </div>
 
-      {rosterMode === 'pool' ? (
-        <div className="mt-4">
-          <PlainAgentsPanel
-            agentCount={poolAgentCount}
-            onChangeAgentCount={onChangePoolAgentCount}
-            cli={roleCliDefaults[SPRINT_ENGINE_ROLELESS_KEY] ?? cliOptions[0]?.value ?? 'claude-code'}
+      <div className="mt-2 border-t border-[color:var(--border-subtle)]">
+        {roles.map((role) => (
+          <RosterRoleRow
+            key={role}
+            role={role}
+            isOn={(roleCounts[role] ?? 0) > 0}
+            registry={registry}
             cliOptions={cliOptions}
-            effectiveModel={effectiveRoleModel(SPRINT_ENGINE_ROLELESS_KEY, roleModelOverrides)}
-            onSetCli={(cli) => onSetRoleCli(SPRINT_ENGINE_ROLELESS_KEY, cli)}
-            onSetModel={(model) => onSetRoleModel(SPRINT_ENGINE_ROLELESS_KEY, model)}
-            {...(onSetRoleReasoning
-              ? {
-                  effectiveReasoning: effectiveRoleReasoning(SPRINT_ENGINE_ROLELESS_KEY, roleReasoningOverrides),
-                  onSetReasoning: (reasoning: string | null) =>
-                    onSetRoleReasoning(SPRINT_ENGINE_ROLELESS_KEY, reasoning),
-                }
-              : {})}
+            roleCliDefaults={roleCliDefaults}
+            roleModelOverrides={roleModelOverrides}
+            roleReasoningOverrides={roleReasoningOverrides}
+            rosterDisabled={rosterDisabled}
+            onSetRoleCount={onSetRoleCount}
+            onSetRoleCli={onSetRoleCli}
+            onSetRoleModel={onSetRoleModel}
+            onSetRoleReasoning={onSetRoleReasoning}
           />
-        </div>
-      ) : (
-        <>
-          <div className="mt-4 flex items-center gap-2.5">
-            <RoleGlyphStack roles={onRoles} registry={registry} />
-            <span className="text-meta tabular-nums text-[color:var(--text-muted)]">
-              {registryStatus === 'loading'
-                ? 'Loading roles'
-                : `${onRoles.length} role${onRoles.length === 1 ? '' : 's'}`}
-            </span>
-            <span className="flex-1" />
-            {!hasExistingTeam ? (
-              <SavedRostersMenu
-                rosters={rosters}
-                selectedRosterId={selectedRosterId}
-                selectedRosterDirty={selectedRosterDirty}
-                onSelectRoster={onSelectRoster}
-                onSaveRoster={onSaveRoster}
-                onUpdateRoster={onUpdateRoster}
-                onRenameRoster={onRenameRoster}
-                onDeleteRoster={onDeleteRoster}
-              />
-            ) : null}
-          </div>
-
-          <div className="mt-2 border-t border-[color:var(--border-subtle)]">
-            {roles.map((role) => (
-              <RosterRoleRow
-                key={role}
-                role={role}
-                isOn={(roleCounts[role] ?? 0) > 0}
-                registry={registry}
-                cliOptions={cliOptions}
-                roleCliDefaults={roleCliDefaults}
-                roleModelOverrides={roleModelOverrides}
-                roleReasoningOverrides={roleReasoningOverrides}
-                rosterDisabled={rosterDisabled}
-                onSetRoleCount={onSetRoleCount}
-                onSetRoleCli={onSetRoleCli}
-                onSetRoleModel={onSetRoleModel}
-                onSetRoleReasoning={onSetRoleReasoning}
-              />
-            ))}
-          </div>
-        </>
-      )}
+        ))}
+      </div>
     </div>
   )
 }
@@ -349,8 +278,10 @@ function RosterRoleRow({
 
 // Quiet saved-rosters menu: load / save as new / update / rename / delete, all in
 // one popover so the roster header stays a single line. "Custom" is the current
-// unsaved config.
-function SavedRostersMenu({
+// unsaved config. Exported (MC-2064) because the create surface renders it on
+// its own when "No roles" is selected — the roster panel is not mounted then,
+// and this menu is the way back to a roster.
+export function SavedRostersMenu({
   rosters,
   selectedRosterId,
   selectedRosterDirty,
@@ -495,16 +426,20 @@ function SavedRostersMenu({
             <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">default</span>
           </button>
           <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+          {/* The way to a hand-tuned role set whenever something else is
+              selected — including the built-in: with "No roles" a level above
+              rosters (MC-2064) this row is how a fresh install, whose only
+              other entry is the pinned default, reaches the role rows at all. */}
+          {selectedRosterId != null ? (
+            <button type="button" role="menuitem" className={itemClass} onClick={() => { onSelectRoster(null); setOpen(false) }}>
+              <span className="min-w-0 flex-1 truncate">Custom roster</span>
+            </button>
+          ) : null}
           {rosters.length > 0 ? (
             <>
               <div className="px-2 pb-0.5 pt-1.5 text-micro font-semibold text-[color:var(--text-subtle)]">
                 Saved rosters
               </div>
-              {selectedRoster ? (
-                <button type="button" role="menuitem" className={itemClass} onClick={() => { onSelectRoster(null); setOpen(false) }}>
-                  <span className="min-w-0 flex-1 truncate">Custom roster</span>
-                </button>
-              ) : null}
               {rosters.map((roster) => {
                 const total = Object.values(roster.roleCounts).reduce<number>((sum, n) => sum + (n ?? 0), 0)
                 return (
@@ -582,134 +517,5 @@ function SavedRostersMenu({
         </>
       )}
     </Popover>
-  )
-}
-
-// The plain-agents pool: how many agents share the run (bound to the
-// concurrency cap, not a roster count) and which agent + model they all run.
-// Moved here from WizardControls with the MC-1646 step split; behavior intact.
-function PlainAgentsPanel({
-  agentCount,
-  onChangeAgentCount,
-  cli,
-  cliOptions,
-  effectiveModel,
-  effectiveReasoning,
-  onSetCli,
-  onSetModel,
-  onSetReasoning,
-}: {
-  agentCount: number
-  onChangeAgentCount?: (value: number) => void
-  cli: AgentCli
-  cliOptions: SprintEngineCliOption[]
-  effectiveModel: string | undefined
-  /** The pool's effort level. Opt-in as a pair with `onSetReasoning`. */
-  effectiveReasoning?: string | undefined
-  onSetCli: (cli: AgentCli) => void
-  onSetModel?: (model: string | null) => void
-  onSetReasoning?: (reasoning: string | null) => void
-}) {
-  const clamp = (value: number) => Math.max(1, Math.min(10, Math.floor(value)))
-  const setCount = (value: number) => {
-    if (onChangeAgentCount) onChangeAgentCount(clamp(value))
-  }
-  return (
-    <div className="flex flex-col gap-2">
-      <Field.Label>Agents</Field.Label>
-      <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-        <div className="flex items-start justify-between gap-3 px-3.5 py-3">
-          <span className="min-w-0">
-            <span className="block text-body font-semibold text-[color:var(--text-strong)]">How many agents</span>
-            <span className="mt-0.5 block text-micro leading-4 text-[color:var(--text-muted)]">
-              More agents run at once and finish faster.
-            </span>
-          </span>
-          <div className="flex shrink-0 items-center gap-1">
-            <AgentCountStepButton
-              label="Fewer agents"
-              glyph="−"
-              disabled={!onChangeAgentCount || agentCount <= 1}
-              onClick={() => setCount(agentCount - 1)}
-            />
-            <span className="w-7 text-center text-body font-semibold tabular-nums text-[color:var(--text-strong)]">
-              {agentCount}
-            </span>
-            <AgentCountStepButton
-              label="More agents"
-              glyph="+"
-              disabled={!onChangeAgentCount || agentCount >= 10}
-              onClick={() => setCount(agentCount + 1)}
-            />
-          </div>
-        </div>
-        <div className="flex items-start justify-between gap-3 border-t border-[color:var(--border-default)] px-3.5 py-3">
-          <span className="min-w-0">
-            <span className="block text-body font-semibold text-[color:var(--text-strong)]">Agent</span>
-            <span className="mt-0.5 block text-micro leading-4 text-[color:var(--text-muted)]">
-              The CLI and model every agent runs.
-            </span>
-          </span>
-          {onSetModel ? (
-            <CliModelPickerButton
-              ariaLabel="Agent runtime"
-              options={cliOptions}
-              cli={cli}
-              effectiveModelFor={(candidateCli) => (candidateCli === cli ? effectiveModel : undefined)}
-              {...(onSetReasoning
-                ? {
-                    effectiveReasoningFor: (candidateCli: AgentCli) =>
-                      candidateCli === cli ? effectiveReasoning : undefined,
-                    onSelectReasoning: (_cli: AgentCli, reasoning: string | null) => onSetReasoning(reasoning),
-                  }
-                : {})}
-              onSelectCli={onSetCli}
-              onSelectModel={(nextCli, nextModel) => {
-                if (nextCli !== cli) onSetCli(nextCli)
-                onSetModel(nextModel)
-              }}
-            />
-          ) : (
-            <AgentCliPicker
-              ariaLabel="Agent CLI"
-              value={cli}
-              disabled={false}
-              cliOptions={cliOptions}
-              onChange={onSetCli}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function AgentCountStepButton({
-  label,
-  glyph,
-  disabled,
-  onClick,
-}: {
-  label: string
-  glyph: string
-  disabled: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="
-        inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--color-5)]
-        bg-[color:var(--bg-surface-raised)] text-heading leading-none text-[color:var(--text-default)] transition-colors
-        hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
-        focus-visible:focus-ring
-        disabled:cursor-not-allowed disabled:opacity-45
-      "
-    >
-      <span aria-hidden="true">{glyph}</span>
-    </button>
   )
 }

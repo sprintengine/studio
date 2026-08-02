@@ -7,31 +7,28 @@ import { getRendererHost } from '../../modules'
 import { ModuleCreationStepSection } from './newWorkspace/ModuleCreationStepSection'
 import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
 import { createReviewTemplate } from '../../modules/review-workspace-types'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEW_WORKSPACE_MODE } from '../../types/workspace'
+import {
+  AUTOMATIONS_HOST_WORKSPACE_MODE,
+  REVIEW_WORKSPACE_MODE,
+  SPRINT_ENGINE_WORKSPACE_MODE,
+} from '../../types/workspace'
 import type { GitBranchSnapshot, ReviewSourceInput } from '../../../../shared/electron-api'
 import type {
   AgentCli,
   AgentId,
   DesignSystemSeedSource,
-  FuturePlanWorkspaceSource,
   LayoutTemplate,
   McpCatalogServer,
   ReviewGuideConfig,
   SprintEngineAutoState,
-  SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
-  SprintEngineMockConfig,
   SprintEngineRoleId,
   SprintEngineRoleRegistry,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
-  SprintEngineSourceBundleItem,
-  SprintEngineSourceBundleKind,
-  SprintEngineSourcePlanKind,
   SprintEngineState,
   SprintEngineWorkspaceContext,
   WorkspaceMode,
-  Workspace,
   GuidedBriefRoleCliDefaults,
   GuidedBriefRoleModelOverrides,
   WorkspaceWindowId,
@@ -53,15 +50,13 @@ import {
 import { joinWorkspacePath as joinGuidedWorkspacePath } from './guidedBrief/paths'
 import {
   applyUserDisabledSprintEngineRoleCounts,
-  countSprintEngineAgents,
   getSprintEngineRoleLabel,
   getUserDisabledSprintEngineRoleIds,
-  sprintEngineRoleKey,
   sprintEngineRoleOrder,
 } from '../../utils/sprintengine'
 import MulticodeMark from '../brand/MulticodeMark'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { CliModelPickerButton, CloseIconButton, Field, FOCUS_RING_CLASS, GhostButton, Select, TruncatedText, WizardProgress } from '../ui'
+import { CliModelPickerButton, CloseIconButton, Field, FOCUS_RING_CLASS, GhostButton, TruncatedText, WizardProgress } from '../ui'
 import {
   analyzeWorkspaceTargetPath,
   defaultWorkspaceFolderPath,
@@ -76,27 +71,8 @@ import AgentComposer, {
 } from './agentComposer/AgentComposer'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTable'
-import { SprintEngineRosterPanel } from './newWorkspace/SprintEngineRosterPanel'
-import { SprintEngineToolsPanel } from './newWorkspace/SprintEngineToolsPanel'
-import { SprintEngineStartPanel } from './newWorkspace/SprintEngineStartPanel'
-import { listSprintEngineWizardRoles } from '../../utils/sprintengineRoleOptions'
-import { mcpServerDisplayName } from '../../utils/mcpDisplayName'
-import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
-import { useBacklogScan } from './newWorkspace/useBacklogScan'
-import { BacklogRowContent } from '../backlog/BacklogRow'
-import { useRelativeNow } from '../../hooks/useRelativeNow'
-import type { BacklogItem, BacklogScanResult } from '../../utils/backlog'
-import { compareBacklogItems } from '../../utils/backlogTriage'
-import { childrenOfEpic, epicSlug, isBacklogEpicPath } from '../../utils/backlogEpics'
-import { buildSprintEngineRunLink } from '../../utils/sprintengineBacklogLinks'
-import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
-import {
-  mockupSourceDocFromMarkdown,
-  resolveSprintEngineMockupBundleItems,
-  type SprintEngineMockupSourceDoc,
-} from '../../utils/sprintengineMockupSources'
-import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
-import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath, UnreadableTeam } from './newWorkspace/types'
+import { basename, folderKey, toTitleName } from './newWorkspace/helpers'
+import type { CreationMode, GuidedBriefHasUi } from './newWorkspace/types'
 import { stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
 import {
   isLastStepIn,
@@ -111,18 +87,7 @@ import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
 import { ReviewSourceStep, type ReviewProbeState } from './newWorkspace/ReviewSourceStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
-import { listAutomationProjectFolders } from '../../utils/automationsEntry'
-import { PathRadio } from './newWorkspace/WizardControls'
-import { SprintEngineProjectPanel } from './newWorkspace/SprintEngineProjectPanel'
-import {
-  declareSprintProject,
-  rebaseSprintRepos,
-  resolveDefaultSprintProject,
-  sprintRepoDeclarations,
-  type SprintDeclaredRepo,
-  type SprintProjectOption,
-} from './newWorkspace/sprintProjectSelection'
-import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, PLAIN_AGENT_ROLE_COUNTS } from './newWorkspace/savedRosters'
+import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS } from './newWorkspace/savedRosters'
 import {
   resolveAvailableAgentCli,
   selectAgentCliCatalog,
@@ -132,10 +97,6 @@ import {
   DesignSystemScaffoldError,
   GuidedBriefScaffoldError,
   GuidedBriefStartBuildError,
-  SprintEngineNewTeamCreationError,
-  SprintEnginePlanSourcedError,
-  buildSprintEngineEffectiveSpawnAtStartRoles,
-  buildSprintEngineExistingTeamCreation,
   buildAutomationsCreation,
   buildModuleTypeCreation,
   buildStandardCreation,
@@ -145,8 +106,6 @@ import {
   runDesignSystemScaffold,
   runGuidedBriefScaffold,
   runGuidedBriefStartBuild,
-  runSprintEngineNewTeamCreation,
-  runSprintEnginePlanSourcedCreation,
 } from './newWorkspace/controllers'
 
 // The shell-owned mode models (chat, standard) and the rail ordering live in
@@ -165,22 +124,6 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     title: 'Connect a knowledge graph',
     subtitle: 'Point new agents at a folder of project knowledge they should read. Optional — skip and set it later in Settings.',
   },
-  'sprintengine-team': {
-    title: 'What should the team work on?',
-    subtitle: 'Start fresh, pick something from your backlog, or reopen a team.',
-  },
-  'sprintengine-roster': {
-    title: 'Team',
-    subtitle: 'Who plans and builds this sprint.',
-  },
-  'sprintengine-tools': {
-    title: 'Tools & skills',
-    subtitle: 'Optional. Selected tools are added to this project — manage them anytime in Settings.',
-  },
-  'sprintengine-start': {
-    title: 'Review & start',
-    subtitle: 'The sprint runs with everything below. Change any line before starting.',
-  },
   'guided-idea': {
     title: 'Tell us about your idea',
     subtitle: 'A sentence or two, in plain words. We’ll ask the rest.',
@@ -196,66 +139,6 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     subtitle: '',
   },
 }
-
-// Short station names for the labeled progress header (MC-1646): the sprint
-// flow reads Where · What · Team · Tools · Start instead of anonymous dashes.
-// Other flows keep the dash strip and label back-jumps with the full
-// STEP_HEADING title.
-const STEP_LABEL: Record<StepId, string> = {
-  workspace: 'Where',
-  'mcp-servers': 'Tools',
-  knowledge: 'Knowledge',
-  'sprintengine-team': 'What',
-  'sprintengine-roster': 'Team',
-  'sprintengine-tools': 'Tools',
-  'sprintengine-start': 'Start',
-  'guided-idea': 'What',
-  'review-source': 'What',
-  'module-step': 'Configure',
-}
-
-const SOURCE_PLAN_KIND_LABELS: Record<SprintEngineSourcePlanKind, string> = {
-  product_plan: 'Product plan',
-  architect_plan: 'Implementation plan',
-  epic: 'Epic',
-  unknown: 'Generic handoff',
-}
-
-const SOURCE_PLAN_KIND_OPTIONS: Array<{ value: SprintEngineSourcePlanKind; label: string }> = [
-  { value: 'product_plan', label: SOURCE_PLAN_KIND_LABELS.product_plan },
-  { value: 'architect_plan', label: SOURCE_PLAN_KIND_LABELS.architect_plan },
-  { value: 'unknown', label: SOURCE_PLAN_KIND_LABELS.unknown },
-]
-
-const SOURCE_BUNDLE_KIND_LABELS: Record<string, string> = {
-  ...SOURCE_PLAN_KIND_LABELS,
-  html_mockup: 'HTML mockup',
-  design_notes: 'Design notes',
-  generic_context: 'Context',
-}
-
-const SOURCE_BUNDLE_KIND_OPTIONS: Array<{ value: SprintEngineSourceBundleKind; label: string }> = [
-  { value: 'html_mockup', label: SOURCE_BUNDLE_KIND_LABELS.html_mockup },
-  { value: 'product_plan', label: SOURCE_PLAN_KIND_LABELS.product_plan },
-  { value: 'architect_plan', label: SOURCE_PLAN_KIND_LABELS.architect_plan },
-  { value: 'design_notes', label: SOURCE_BUNDLE_KIND_LABELS.design_notes },
-  { value: 'unknown', label: SOURCE_PLAN_KIND_LABELS.unknown },
-  { value: 'generic_context', label: SOURCE_BUNDLE_KIND_LABELS.generic_context },
-]
-
-// Default first-run team + CLI map moved to newWorkspace/savedRosters.ts so the
-// automation server's sprint.create seeds the identical roster; these aliases
-// keep the wizard's local vocabulary.
-const initialSprintEngineRoleCliDefaults = DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS
-
-// The plain-agents create/spawn roster: staffs no role at all, so the run seats
-// the roleless coordinator. Module-level in savedRosters.ts (MC-1875) so its
-// reference is stable across renders — the effective roster derivations below
-// hand it to memoized consumers (seInitialSpawnRoles) — and so the wizard and
-// the plan-sourced launch path share one constant.
-
-// remapRoleCliDefaultsToAvailable moved to newWorkspace/useRosterEditor.ts
-// (MC-1879) with the roster state that is its primary consumer.
 
 const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
   architect: 1,
@@ -288,61 +171,15 @@ function sprintEngineRosterSummary(roleCounts: SprintEngineRoleCounts, registry?
     .map((role) => `${getSprintEngineRoleLabel(role, registry)}: ${roleCounts[role]}`)
 }
 
-function normalizedPathKey(path: string | null | undefined): string | null {
-  if (!path) return null
-  return path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-}
-
-function cliSelectionForExistingSprintEngineTeam(
-  team: ExistingTeam,
-  folderPath: string | null,
-  workspaces: Workspace[],
-  fallback: Required<SprintEngineRoleCliDefaults>,
-): {
-  roleDefaults: Required<SprintEngineRoleCliDefaults>
-  agentOverrides: Record<AgentId, AgentCli>
-} {
-  const roleDefaults = { ...fallback }
-  const agentOverrides: Record<AgentId, AgentCli> = {}
-  const selectedFolderKey = normalizedPathKey(folderPath)
-  const matchingWorkspace = workspaces.find((workspace) => (
-    workspace.sprintEngineContext?.teamSlug === team.slug
-    && normalizedPathKey(workspace.folderPath) === selectedFolderKey
-  )) ?? workspaces.find((workspace) => (
-    workspace.sprintEngineContext?.teamDirectoryPath
-    && normalizedPathKey(workspace.sprintEngineContext.teamDirectoryPath) === normalizedPathKey(team.context.teamDirectoryPath)
-  ))
-
-  if (matchingWorkspace?.sprintEngineRoleCliDefaults) {
-    for (const [role, cli] of Object.entries(matchingWorkspace.sprintEngineRoleCliDefaults)) {
-      if (typeof cli === 'string' && cli.trim()) roleDefaults[role] = cli.trim()
-    }
-  }
-
-  if (matchingWorkspace) {
-    for (const [agentId, runtimeAgent] of Object.entries(team.state.sprintEngineAgents)) {
-      const cli = matchingWorkspace.agents[agentId]?.cli
-      if (typeof cli === 'string' && cli.trim()) {
-        const trimmed = cli.trim()
-        roleDefaults[sprintEngineRoleKey(runtimeAgent.role)] = trimmed
-        agentOverrides[agentId] = trimmed
-      }
-    }
-  }
-
-  return { roleDefaults, agentOverrides }
-}
-
 const initialGuidedBriefRoleCliDefaults: GuidedBriefRoleCliDefaults = {
-  product: initialSprintEngineRoleCliDefaults.product ?? 'claude-code',
-  architect: initialSprintEngineRoleCliDefaults.architect ?? 'claude-code',
-  frontend: initialSprintEngineRoleCliDefaults.frontend ?? 'claude-code',
+  product: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS.product ?? 'claude-code',
+  architect: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS.architect ?? 'claude-code',
+  frontend: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS.frontend ?? 'claude-code',
 }
 
 export type NewWorkspacePanelInitialState = {
   mode?: CreationMode
   folderPath?: string | null
-  futurePlanSource?: FuturePlanWorkspaceSource | null
 }
 
 // Host wiring for the embedded Chat composer (the 'chat' pseudo-type). The panel
@@ -378,6 +215,10 @@ interface Props {
   allowClose?: boolean
   initialState?: NewWorkspacePanelInitialState | null
   chatComposer: NewWorkspaceChatComposer
+  /** Sprint creation left the wizard (MC-2062): the rail's Sprint row hands
+   *  off to the New sprint dialog instead of entering a wizard flow. The host
+   *  dismisses this panel as part of opening the dialog. */
+  onOpenNewSprintDialog: (folderPath: string | null) => void
 }
 
 export default function NewWorkspacePanel({
@@ -387,6 +228,7 @@ export default function NewWorkspacePanel({
   allowClose = true,
   initialState = null,
   chatComposer,
+  onOpenNewSprintDialog,
 }: Props) {
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
@@ -395,7 +237,6 @@ export default function NewWorkspacePanel({
     (s) => s.appSettings.recentWorkspaceFolders ?? [],
   )
   const workspaces = useWorkspaceStore((s) => s.workspaces)
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots)
   const setProjectKnowledgeRoot = useWorkspaceStore((s) => s.setProjectKnowledgeRoot)
   const lastSpawnPermissionPreset = useWorkspaceStore(
@@ -405,17 +246,15 @@ export default function NewWorkspacePanel({
     (s) => s.setLastAgentSpawnPermissionPreset,
   )
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
-  // The roster CRUD store actions are consumed by useRosterEditor (MC-1879).
-  const sprintEngineRosters = sprintEngineRoleSettings.savedRosters ?? []
-  const savedSprintEngineRoster = sprintEngineRoleSettings.savedRoster ?? null
-  // Seeding the wizard from the most recently selected roster (else the legacy
-  // single roster, else No roles) moved into useRosterEditor (MC-1879), which
-  // resolves it once at mount exactly as this did.
 
-  const initialFuturePlan = initialState?.futurePlanSource ?? null
+  // Sprint creation is the New sprint dialog (MC-2062), never a hub flow: a
+  // sprint preselect must not mount a sprint pane. The initialState sync effect
+  // below routes it through handleSelectMode, whose sprint branch hands off to
+  // the dialog, so the hub itself opens on the standard pane.
+  const requestedInitialMode = initialState?.mode ?? 'standard'
   const initialMode: CreationMode =
-    initialState?.mode ?? (initialFuturePlan ? 'sprintengine' : 'standard')
-  const initialFolderPath = initialState?.folderPath ?? initialFuturePlan?.folderPath ?? null
+    requestedInitialMode === SPRINT_ENGINE_WORKSPACE_MODE ? 'standard' : requestedInitialMode
+  const initialFolderPath = initialState?.folderPath ?? null
   // The hub always shows the name field (the step wizard skipped it for
   // future-plan intake), so a pre-seeded folder — future-plan included — seeds
   // a workable default name instead of blocking create on an empty field.
@@ -478,77 +317,12 @@ export default function NewWorkspacePanel({
     void loadUserLayoutTemplates()
   }, [loadUserLayoutTemplates])
 
-  const [sePath, setSePath] = useState<SprintEnginePath>(initialFuturePlan ? 'plan' : 'new')
-  // Within the 'plan' source path: false = pick from the backlog list (default);
-  // true = a hand-picked file outside the backlog. A pre-seeded future plan that
-  // did not come from backlog/ opens straight into the file view.
-  const [seSourceFromFile, setSeSourceFromFile] = useState<boolean>(
-    Boolean(
-      initialFuturePlan
-      && !/^backlog\//i.test((initialFuturePlan.sourceRelativePath ?? '').replace(/\\/g, '/')),
-    ),
-  )
-  const [sePlanPath, setSePlanPath] = useState(initialFuturePlan?.sourcePath ?? '')
-  const [sePlanRelativePath, setSePlanRelativePath] = useState(initialFuturePlan?.sourceRelativePath ?? '')
-  const [sePlanContent, setSePlanContent] = useState<string | null>(
-    initialFuturePlan?.sourceContent ?? null,
-  )
-  const [seSourcePlanKind, setSeSourcePlanKind] = useState<SprintEngineSourcePlanKind>(
-    initialFuturePlan?.sourcePlanKind ?? 'unknown',
-  )
-  const [seSourceBundle, setSeSourceBundle] = useState(initialFuturePlan?.sourceBundle ?? null)
-  // Project-root-relative paths of an epic launch's child items, flipped to
-  // in_progress at launch. Null for non-epic sources.
-  const [seEpicChildRelativePaths, setSeEpicChildRelativePaths] = useState<string[] | null>(null)
-  const [seExistingTeam, setSeExistingTeam] = useState<ExistingTeam | null>(null)
-  const [seTeamName, setSeTeamName] = useState(initialFuturePlan?.teamName ?? '')
-  const [seTeamNameTouched, setSeTeamNameTouched] = useState(Boolean(initialFuturePlan))
-  const [seGoal, setSeGoal] = useState(initialFuturePlan?.goal ?? '')
-  // Roster editor state lives in useRosterEditor (MC-1879); the hook is called
-  // below, once the CLI catalog it needs exists.
-  const [seAgentCliOverrides, setSeAgentCliOverrides] = useState<Record<AgentId, AgentCli>>({})
-  // Automation defaults to the product default (run agents + approve eligible
-  // artifacts), so an untouched or skipped run continues on its own. Manual
-  // stays one click away on the run page.
-  const [seStartRunner, setSeStartRunner] = useState(true)
-  const [seUseWorktrees, setSeUseWorktrees] = useState(false)
-  // "Also works in" (item 1765): the other projects this run works in, declared at
-  // creation so a multi-project run has every worktree the moment it initializes.
-  // The set is fixed for the life of the run — projects nobody foresaw still join
-  // a running sprint through `sprintengine.vcs.request_repo`.
-  const [seDeclaredRepos, setSeDeclaredRepos] = useState<SprintDeclaredRepo[]>([])
-  // Why the last "Also works in" pick was refused, in the user's words.
-  const [seRepoError, setSeRepoError] = useState<string | null>(null)
-  // Workspace-level concurrent-session cap (MC-1450: replaces the roster-size
-  // ceiling) now lives in useRosterEditor as `poolAgentCount`, because the
-  // roster step's pool panel is where it is edited.
-  const [sePlanError, setSePlanError] = useState<string | null>(null)
-  const [cliPermissionPreset, setCliPermissionPreset] = useState<SprintEngineCliPermissionPreset>(
+  // Spawn-permission preset carried into the Guided Brief scaffold (the sprint
+  // wizard that used to edit it is gone — MC-2062); the value is the stored
+  // preference, and the guided handoff surface owns any per-run change.
+  const [cliPermissionPreset] = useState<SprintEngineCliPermissionPreset>(
     lastSpawnPermissionPreset,
   )
-  const [seAutoApproveArtifacts, setSeAutoApproveArtifacts] = useState(true)
-  const [seAutomationTouched, setSeAutomationTouched] = useState(false)
-  // Untouched, the mode follows the create path: new and plan-sourced runs get
-  // the product default (run agents + approve eligible artifacts), while
-  // loading an existing team defaults to manual so a paused sprint never
-  // auto-resumes just by being reopened. An explicit choice on the run page
-  // wins over both, and every create path reads this derived mode.
-  const seAutomationMode: SprintEngineAutomationMode = seAutomationTouched
-    ? seAutoApproveArtifacts
-      ? 'run_agents_and_approve_artifacts'
-      : seStartRunner
-        ? 'run_agents'
-        : 'manual'
-    : seExistingTeam
-      ? 'manual'
-      : 'run_agents_and_approve_artifacts'
-  const setSeAutomationMode = (mode: SprintEngineAutomationMode) => {
-    setSeAutomationTouched(true)
-    setSeStartRunner(mode !== 'manual')
-    setSeAutoApproveArtifacts(mode === 'run_agents_and_approve_artifacts')
-  }
-  // Specialist roles on/off (MC-1585) and the Team page's segmented control
-  // that projects it both live in useRosterEditor now (MC-1879).
 
   // Review workspace creation state (MC-1677). The source segment leads with
   // Pull request (per the accepted mockup); the GitHub provider (MC-1678) is
@@ -591,7 +365,7 @@ export default function NewWorkspacePanel({
     initialGuidedBriefRoleCliDefaults,
   )
   // Explicit per-guided-role launch model (string = explicit id, null = explicit
-  // CLI default/no model flag). Mirrors seRoleModelOverrides for the roster.
+  // CLI default/no model flag).
   const [guidedRoleModelOverrides, setGuidedRoleModelOverrides] = useState<GuidedBriefRoleModelOverrides>({})
   const [guidedError, setGuidedError] = useState<string | null>(null)
   const [guidedRuntimeState, setGuidedRuntimeState] = useState<GuidedBriefRuntimeState | null>(null)
@@ -684,102 +458,23 @@ export default function NewWorkspacePanel({
     setGuidedRoleCliDefaults((current) => remapRoleCliDefaultsToAvailable(current, sprintEngineCliOptions))
   }, [cliAvailabilityStatus, sprintEngineCliOptions, guidedRoleCliDefaults])
 
-  // MC-1879: every roster-editing concern — counts, CLI defaults, per-role
-  // models, formation, the role registry, saved-roster load/save/rename/delete
-  // and dirty tracking — lives in this hook. The wizard keeps only what is
-  // about LAUNCHING a run (the effective create counts below).
+  // MC-1879: roster-editing state lives in useRosterEditor. With the wizard's
+  // sprint flow gone (MC-2062) the hub keeps the hook only for the Guided Brief
+  // handoff, which seeds its build roster from the resolved (saved-roster-aware,
+  // availability-remapped) role CLI defaults and reads the role registry for the
+  // roster summary it writes into the handoff.
   const roster = useRosterEditor({
     cliOptions: sprintEngineCliOptions,
     cliAvailabilityStatus,
     workspaceRoot: folderPath,
-    hasExistingRun: seExistingTeam != null,
-    rosterDisabled: seExistingTeam != null,
-    // Editing the roster means it is no longer the existing run's roster.
-    onDetachFromExistingRun: () => {
-      setSeExistingTeam(null)
-      setSeAgentCliOverrides({})
-    },
-    // A role's CLI changed: drop any per-agent override pinned to that role on
-    // the loaded run, so the run's agents pick up the new runtime.
-    onRoleCliChanged: (role) => {
-      setSeAgentCliOverrides((current) => {
-        if (!seExistingTeam) return current
-        let changed = false
-        const next = { ...current }
-        for (const [agentId, runtimeAgent] of Object.entries(seExistingTeam.state.sprintEngineAgents)) {
-          if (runtimeAgent.role !== role) continue
-          if (agentId in next) {
-            delete next[agentId]
-            changed = true
-          }
-        }
-        return changed ? next : current
-      })
-    },
   })
-  const seRoleCliDefaults = roster.roleCliDefaults
-  const seRoleModelOverrides = roster.roleModelOverrides
-  // Per-role effort level (MC-1885's wizard producer). Session state on the
-  // roster editor, carried into run init as part of `roleRuntimes`.
-  const seRoleReasoningOverrides = roster.roleReasoningOverrides
-  const seRoleRegistry = roster.registry
-  const seRoleRegistryStatus = roster.registryStatus
-  const seSelectedRosterId = roster.selectedRosterId
-  const seUseSpecialistRoles = roster.useSpecialistRoles
-  const seRosterMode = roster.rosterMode
-  const seMaxParallelAgents = roster.poolAgentCount
-  const setSeMaxParallelAgents = roster.onChangePoolAgentCount
-  const setSeRoleCliDefaults = roster.setRoleCliDefaults
-  const setSeRoleCounts = roster.setRoleCounts
-  const setSeSelectedRosterId = roster.setSelectedRosterId
-  const setSeRosterMode = roster.onChangeRosterMode
-  const effectiveSprintEngineDisabledRoleIds = roster.disabledRoleIds
-  // The UNMASKED user-disabled set. `effectiveSprintEngineDisabledRoleIds`
-  // above is the wizard-view mask (null while an existing run is loaded); this
-  // one is the raw preference, still read by the settings-driven surfaces below.
+  const rosterRoleCliDefaults = roster.roleCliDefaults
+  const rosterRoleRegistry = roster.registry
+  // The user-disabled role set, read by the guided-brief build roster below.
   const sprintEngineDisabledRoleIds = useMemo(
     () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
     [sprintEngineRoleSettings],
   )
-  const visibleSprintEngineRoleCounts = useMemo<SprintEngineRoleCounts>(
-    () => (effectiveSprintEngineDisabledRoleIds && effectiveSprintEngineDisabledRoleIds.size > 0
-      ? applyUserDisabledSprintEngineRoleCounts(roster.rawRoleCounts, effectiveSprintEngineDisabledRoleIds)
-      : roster.rawRoleCounts),
-    [roster.rawRoleCounts, effectiveSprintEngineDisabledRoleIds],
-  )
-  // Role counts handed to CREATION (not the panel view): only roles the wizard
-  // actually offers as roster rows. seRoleCounts can carry stale extras from a
-  // saved roster — role ids the current registry doesn't know (e.g. the v1-era
-  // spec_reviewer) — which would silently ride into configuredRoles as phantom,
-  // unseatable roster rows the user never chose. Existing teams never
-  // re-create, so their canonical counts pass through untouched.
-  const sprintEngineCreateRoleCounts = useMemo<SprintEngineRoleCounts>(() => {
-    if (seExistingTeam) return visibleSprintEngineRoleCounts
-    const offered = new Set<SprintEngineRoleId>(
-      listSprintEngineWizardRoles(seRoleRegistry, effectiveSprintEngineDisabledRoleIds),
-    )
-    const filtered: SprintEngineRoleCounts = {}
-    for (const [role, count] of Object.entries(visibleSprintEngineRoleCounts)) {
-      if (offered.has(role as SprintEngineRoleId)) filtered[role as SprintEngineRoleId] = count
-    }
-    return filtered
-  }, [seExistingTeam, visibleSprintEngineRoleCounts, seRoleRegistry, effectiveSprintEngineDisabledRoleIds])
-
-  // The plain-agents default is a ROLELESS run. seRoleCounts still holds the
-  // specialist roster behind the collapsed disclosure (so toggling it on
-  // restores those rows), so creation must NOT read it in plain mode — it stages
-  // no role at all, and the pool grows by mint-on-demand up to the concurrency cap. Never applies to an existing team
-  // (its canonical roster is fixed and the disclosure is not offered).
-  const sprintEnginePlainAgents = !seExistingTeam && !seUseSpecialistRoles
-  const sprintEngineEffectiveCreateRoleCounts = sprintEnginePlainAgents
-    ? PLAIN_AGENT_ROLE_COUNTS
-    : sprintEngineCreateRoleCounts
-  // Spawn-at-start follows the coordinator seat (roleless here, architect in
-  // specialist mode), so the launch bootstrap reads the effective counts, not
-  // the hidden specialist roster.
-  const sprintEngineEffectiveVisibleRoleCounts = sprintEnginePlainAgents
-    ? PLAIN_AGENT_ROLE_COUNTS
-    : visibleSprintEngineRoleCounts
 
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
@@ -837,13 +532,12 @@ export default function NewWorkspacePanel({
     }
   }
 
-  // Attach is offered on the three build entry points (standard, Sprint
-  // Engine, Design Wizard) — never on the design-system authoring preset,
-  // which owns design-system/ as its work product, and never on the
-  // zero-config flows that skip Advanced setup.
+  // Attach is offered on the build entry points (standard, Design Wizard) —
+  // never on the design-system authoring preset, which owns design-system/ as
+  // its work product, and never on the zero-config flows that skip Advanced
+  // setup.
   const designSystemAttachEligible =
     mode === 'standard'
-    || mode === 'sprintengine'
     || (mode === 'guided-brief' && guidedPreset !== 'design-system')
 
   // Knowledge folder currently stored for the chosen project (case-preserved
@@ -1038,10 +732,8 @@ export default function NewWorkspacePanel({
   // reading in one closure would hand every mode branch a stale null folder.
   const [pendingCreate, setPendingCreate] = useState(false)
 
-  // The pane pages through its flow one step at a time. A dropped plan opens on
-  // the sprint's team step: its folder arrives with the drop, so the name+folder
-  // page has nothing left to ask.
-  const [step, setStep] = useState<StepId>(initialFuturePlan ? 'sprintengine-team' : 'workspace')
+  // The pane pages through its flow one step at a time.
+  const [step, setStep] = useState<StepId>('workspace')
   const [direction, setDirection] = useState<'forward' | 'backward'>('forward')
 
   useEffect(() => {
@@ -1056,13 +748,9 @@ export default function NewWorkspacePanel({
     }
   }, [setAuthState])
 
-  const isSprintEngine = mode === 'sprintengine'
   // 'chat' is the shell-owned pseudo-type: on the mode step it swaps the config
   // region for the embedded AgentComposer, which owns the chat's create action.
   const isChat = mode === 'chat'
-  const folderScan = useFolderScan(folderPath)
-  const backlogScan = useBacklogScan(isSprintEngine ? folderPath : null)
-  const totalAgents = countSprintEngineAgents(visibleSprintEngineRoleCounts)
 
   const steps = useMemo(() => {
     const base = stepsForMode(mode)
@@ -1087,19 +775,16 @@ export default function NewWorkspacePanel({
     () =>
       steps.map((id) => {
         if (id === 'module-step' && moduleCreationStep) return moduleCreationStep.heading
-        return mode === 'sprintengine' ? STEP_LABEL[id] : STEP_HEADING[id].title
+        return STEP_HEADING[id].title
       }),
-    [steps, mode, moduleCreationStep],
+    [steps, moduleCreationStep],
   )
   // The optional Advanced setup disclosure rides the flow's final page, for any
   // flow with real config steps; the zero-config quick flows (chat, switchboard,
-  // automations) defer that configuration to Settings, exactly as before. The
-  // sprint flow is the exception (MC-1646): its Tools & skills page IS that
-  // configuration, so the accordion would offer the same choices twice.
+  // automations) defer that configuration to Settings, exactly as before.
   // Review's source page owns its own "Walkthrough context" rows (knowledge graph,
   // guide, depth), so the generic Advanced setup disclosure would duplicate the
-  // knowledge control — suppress it, like the sprint flow suppresses it for its
-  // Tools & skills page.
+  // knowledge control — suppress it.
   // 'standard' is listed explicitly because it no longer HAS a config step: the
   // layout picker it used to ride on was removed, and gating purely on
   // configSteps.length would have taken create-time MCP / knowledge / design-system
@@ -1107,7 +792,6 @@ export default function NewWorkspacePanel({
   const showAdvancedSetup =
     (configSteps.length > 0 || mode === 'standard')
     && isLastStep
-    && mode !== 'sprintengine'
     && mode !== REVIEW_WORKSPACE_MODE
 
   // The rail's type list — shell-owned Chat + Workspace, then the enabled
@@ -1151,22 +835,6 @@ export default function NewWorkspacePanel({
     })
     return folders
   }, [storedRecentFolders, workspaces])
-
-  const folderHints = useFolderHints(recentFolders)
-
-  // Every project the app knows about, for the sprint wizard's project picker
-  // (item 1765). Deliberately the same root set the Sprints door lists runs from
-  // (`useSprintRunIndex`), so the door and the wizard never disagree about which
-  // projects exist.
-  const sprintProjectOptions: SprintProjectOption[] = useMemo(
-    () => listAutomationProjectFolders(workspaces),
-    [workspaces],
-  )
-  // The project the user is in right now, which the picker opens on.
-  const activeProjectFolderPath = useMemo(
-    () => workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.folderPath ?? null,
-    [workspaces, activeWorkspaceId],
-  )
 
   // Cold-start fallback location for "Create new folder" when there's no
   // selected/recent folder to derive a parent from. Fetched once; the resolver
@@ -1235,71 +903,6 @@ export default function NewWorkspacePanel({
     }
   }, [folderDraftPath])
 
-  // Mockup enrichment (MC-1485): a plan source's attached/body-referenced
-  // mockups resolve from disk asynchronously and append to the source bundle.
-  // One implementation shared by the initialFuturePlan seed effect below and
-  // applyPlanSource; the request token serializes them — whichever selection
-  // is newest owns the bundle, and an overtaken enrichment is dropped.
-  // Dangling references resolve to nothing; a failure never blocks selection.
-  const planSourceRequestRef = useRef(0)
-  const enrichSourceBundleWithMockups = (args: {
-    requestId: number
-    rootPath: string
-    docs: SprintEngineMockupSourceDoc[]
-    excludeRelativePaths: string[]
-  }): void => {
-    if (args.docs.length === 0 || !args.rootPath) return
-    void (async () => {
-      try {
-        const mockupItems = await resolveSprintEngineMockupBundleItems({
-          docs: args.docs,
-          folderPath: args.rootPath,
-          readFile: (absolutePath) => window.api.readfile(absolutePath),
-          excludeRelativePaths: args.excludeRelativePaths,
-        })
-        if (planSourceRequestRef.current !== args.requestId || mockupItems.length === 0) return
-        setSeSourceBundle((previous) => [...(previous ?? []), ...mockupItems])
-      } catch {
-        // Mockups are supporting context — enrichment failure is silent.
-      }
-    })()
-  }
-
-  // Sync initial future-plan option into the scan list once available.
-  useEffect(() => {
-    if (!initialFuturePlan) return
-    // The seed is a selection: it takes the request token so any in-flight
-    // enrichment for a previous source is dropped, and a later click drops
-    // this seed's own enrichment in turn.
-    const requestId = ++planSourceRequestRef.current
-    setSePath('plan')
-    setSePlanPath(initialFuturePlan.sourcePath)
-    setSePlanRelativePath(initialFuturePlan.sourceRelativePath)
-    setSePlanContent(initialFuturePlan.sourceContent ?? null)
-    setSeSourcePlanKind(initialFuturePlan.sourcePlanKind ?? 'unknown')
-    setSeSourceBundle(initialFuturePlan.sourceBundle ?? null)
-
-    // Sources seeded from outside the wizard (FileExplorer context menu) skip
-    // applyPlanSource, so their attached/body-referenced mockups (MC-1485) are
-    // resolved here through the same enrichment — markdown sources only; an
-    // HTML source is itself the mockup.
-    const seededBundle = initialFuturePlan.sourceBundle ?? []
-    enrichSourceBundleWithMockups({
-      requestId,
-      rootPath: initialFuturePlan.folderPath,
-      docs: [
-        { content: initialFuturePlan.sourceContent, relativePath: initialFuturePlan.sourceRelativePath },
-        ...seededBundle.map((item) => ({ content: item.sourceContent, relativePath: item.sourceRelativePath })),
-      ]
-        .filter((doc) => Boolean(doc.content) && /\.(md|markdown)$/i.test(doc.relativePath))
-        .map((doc) => mockupSourceDocFromMarkdown(doc.content ?? '', doc.relativePath)),
-      excludeRelativePaths: [
-        initialFuturePlan.sourceRelativePath,
-        ...seededBundle.map((item) => item.sourceRelativePath),
-      ],
-    })
-  }, [initialFuturePlan])
-
   // Escape closes when allowed. While a Guided brief runtime session is mid-
   // stage we route Escape through a confirmation step instead of dropping the
   // live conversation silently.
@@ -1330,19 +933,6 @@ export default function NewWorkspacePanel({
     }
     onClose()
   }
-
-  // Reset SprintEngine path if the folder loses prerequisites.
-  useEffect(() => {
-    if (!isSprintEngine) return
-    if (sePath === 'existing' && folderScan.result.teams.length === 0) {
-      setSePath('new')
-      setSeExistingTeam(null)
-      setSeAgentCliOverrides({})
-    }
-    // The 'plan' (backlog) path stays selectable even with an empty backlog —
-    // the step shows an empty state that offers a new team or a hand-picked file
-    // rather than bouncing the user back to 'new'.
-  }, [isSprintEngine, sePath, folderScan.result, folderScan.isScanning, sePlanPath])
 
   // Keep the current step inside the flow when the step list changes under it —
   // the knowledge step dropping out for an already-configured folder, or a rail
@@ -1380,25 +970,6 @@ export default function NewWorkspacePanel({
   const folderTargetUsable =
     folderDraftExists === true || analyzeWorkspaceTargetPath(folderDraftPath).ok
   const workspaceStepReady = folderTargetUsable && name.trim().length > 0
-  const sePlanReady =
-    sePath !== 'plan' || (sePlanPath !== '' && sePlanContent != null && !sePlanError)
-  const seTeamDetailsReady =
-    seExistingTeam != null
-    || (sePath === 'plan'
-      ? seTeamName.trim().length > 0
-      : seTeamName.trim().length > 0 && seGoal.trim().length > 0)
-  const sprintEngineTeamReady = sePlanReady && seTeamDetailsReady
-  // A new roster in ROLES mode needs at least one role staffed — that mode IS
-  // picking roles, so an empty one would silently create the roleless run the
-  // other segment already offers. WHICH roles is entirely the user's: no role is
-  // required, and the run's coordination is a seat rather than a staffed planner
-  // (MC-2055). Existing teams were already validated when created.
-  const sprintEngineRosterReady =
-    seExistingTeam != null
-    // A roleless sprint staffs no role at all and coordinates through its own
-    // seat, so the Team page can never block create in that mode.
-    || !seUseSpecialistRoles
-    || totalAgents > 0
   // The resolved seed source for the design-system preset. Null means blank
   // start — either chosen deliberately, or because a seed mode is selected but
   // its source is not resolved yet (folder not picked / demo unavailable), in
@@ -1434,8 +1005,6 @@ export default function NewWorkspacePanel({
 
   const stepReadiness = {
     workspaceStepReady,
-    sprintEngineTeamReady,
-    sprintEngineRosterReady,
     guidedIdeaReady,
     reviewSourceReady,
     moduleStepReady,
@@ -1461,25 +1030,12 @@ export default function NewWorkspacePanel({
   // order, a ready name+folder page would claim "Ready to create." on a flow
   // whose intent step is still unanswered.
   const hintStep = !currentStepReady ? step : firstBlockedStepId ?? step
-  // The Tools page's footer hint states the live selection count (MC-1646):
-  // the enabled MCP servers.
-  const selectedMcpServers = integrationsMcpCatalog.filter((server) =>
-    Boolean(mcpSettings?.servers[server.id]?.enabled),
-  )
-  const toolsSelectedCount = selectedMcpServers.length
   const blockingMessage = getStepBlockingMessage({
     step: hintStep,
     workspaceFolderReady: folderTargetUsable,
     name,
     moduleStepReady,
     moduleStepBlockedHint: moduleCreationStep?.blockedHint ?? null,
-    sePath,
-    sePlanReady,
-    seExistingTeam,
-    seTeamDetailsReady,
-    totalAgents,
-    sePlainAgents: !seUseSpecialistRoles,
-    toolsSelectedCount,
     guidedIdea,
     guidedHasUi,
     guidedSeedMode,
@@ -1494,6 +1050,12 @@ export default function NewWorkspacePanel({
     // A type switch during an in-flight create would hand the deferred
     // handleCreate a different mode than the one the user confirmed.
     if (isCreating || pendingCreate) return
+    // Sprint creation is the New sprint dialog (MC-2062), not a wizard flow:
+    // the rail row hands off, scoped to whatever folder the hub already holds.
+    if (next === SPRINT_ENGINE_WORKSPACE_MODE) {
+      onOpenNewSprintDialog(folderPath)
+      return
+    }
     setMode(next)
     // Every flow starts at 'workspace' (see creationStepFlows): a rail switch
     // restarts the new type's flow rather than stranding the user on page 3 of
@@ -1505,10 +1067,6 @@ export default function NewWorkspacePanel({
       setName(toTitleName(basename(folderPath ?? '')) || 'Switchboard')
     if (next === 'guided-brief' && !nameTouched)
       setName(toTitleName(basename(folderPath ?? '')) || 'Design Wizard')
-    if (next !== 'sprintengine') {
-      setSeExistingTeam(null)
-      setSeAgentCliOverrides({})
-    }
     if (next !== 'guided-brief') {
       setGuidedError(null)
       setGuidedRuntimeState(null)
@@ -1532,59 +1090,13 @@ export default function NewWorkspacePanel({
   const handleChangeName = (value: string) => {
     setName(value)
     setNameTouched(true)
-    // Mirror the single workspace name into mode-specific name slots so the
-    // user never re-types the same name later. Mode-specific edits below still
-    // override these values.
-    if (!seTeamNameTouched) setSeTeamName(value)
-  }
-
-  // Worktree mode turned on FOR the extra projects belongs to them: when the last
-  // one goes, so does the mode. Otherwise a run whose projects were dropped — by
-  // a path switch, a re-based primary, or an un-ticked chip — would still branch
-  // and open a pull request, and "Skip the rest and create" never shows the
-  // switch that says so. Cleared the moment the user works the switch themselves.
-  const worktreesForcedByRepos = useRef(false)
-
-  const applyDeclaredSprintRepos = (next: SprintDeclaredRepo[]) => {
-    setSeDeclaredRepos(next)
-    if (next.length === 0 && worktreesForcedByRepos.current) {
-      worktreesForcedByRepos.current = false
-      setSeUseWorktrees(false)
-    }
-  }
-
-  // Folder-scoped source state is invalidated whenever the target folder changes:
-  // a saved team, plan/bundle selection, or error message all belong to the old
-  // folder. Shared by every folder-change path (workspace step + chat chip) so the
-  // invariant holds no matter where the switch happens.
-  const resetFolderScopedSourceState = () => {
-    setSeExistingTeam(null)
-    setSeAgentCliOverrides({})
-    setSePlanPath('')
-    setSePlanRelativePath('')
-    setSePlanContent(null)
-    setSeSourcePlanKind('unknown')
-    setSeSourceBundle(null)
-    setSeEpicChildRelativePaths(null)
-    setSeSourceFromFile(false)
-    setSePlanError(null)
   }
 
   const handleSelectFolder = (dir: string) => {
     const folderName = basename(dir)
     setFolderPath(dir)
     setKnowledgeStepEligible(shouldShowKnowledgeStep(dir, projectKnowledgeRoots))
-    resetFolderScopedSourceState()
-    // The other projects survive a change of primary, but their declared roots are
-    // written relative to it — and one that the new primary now contains, or sits
-    // inside, is no longer a separate project at all (item 1765).
-    applyDeclaredSprintRepos(rebaseSprintRepos(seDeclaredRepos, dir))
-    setSeRepoError(null)
     if (!nameTouched) setName(folderName || 'workspace')
-    if (!seTeamNameTouched) setSeTeamName(toTitleName(folderName) || 'Sprint Roster')
-    // The hub picks the type first (the rail), so a folder hint never
-    // auto-switches the selected pane out from under the user; the Recent rows
-    // still surface sprint hints on the folder itself.
   }
 
   // Unified folder field edits. Editing or browsing pins the path so the
@@ -1623,103 +1135,6 @@ export default function NewWorkspacePanel({
     adoptFolderDraft(dir)
   }
 
-  // A sprint started from the Sprints door has no project to inherit — the door
-  // sits outside every project — so the wizard opens on the project the user was
-  // last in (item 1765). It only fills a folder nobody has chosen: a launch that
-  // arrives with one (a backlog item, "New workspace" inside a project) and a
-  // path the user typed or browsed both keep theirs, and once the picker owns
-  // the field this never fires again.
-  const sprintProjectSeeded = useRef(false)
-  useEffect(() => {
-    if (!isSprintEngine || sprintProjectSeeded.current) return
-    if (folderPath || folderPathPinned) return
-    const preset = resolveDefaultSprintProject({
-      projects: sprintProjectOptions,
-      activeFolderPath: activeProjectFolderPath,
-      recentFolders,
-    })
-    if (!preset) return
-    sprintProjectSeeded.current = true
-    adoptFolderDraft(preset)
-    // `adoptFolderDraft` is re-created every render and would defeat the guard
-    // list; the ref above is what keeps this to one seeding.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSprintEngine, folderPath, folderPathPinned, sprintProjectOptions, activeProjectFolderPath, recentFolders])
-
-  // The sprint wizard's project fields. The primary project rides the same
-  // folder state as the workspace step (one folder, one source of truth); the
-  // extra projects are creation-time intent, validated against the engine's own
-  // rules before they can be selected.
-  const handleSelectSprintProject = (dir: string) => {
-    if (folderPath && isSameFolder(dir, folderPath)) return
-    adoptFolderDraft(dir)
-  }
-
-  const addSprintRepo = async (candidate: string, displayName: string) => {
-    const outcome = await declareSprintProject(
-      {
-        primaryFolderPath: folderPath,
-        candidateFolderPath: candidate,
-        displayName,
-        alreadyDeclared: seDeclaredRepos,
-      },
-      { pathExists: window.api.pathExists },
-    )
-    if ('rejection' in outcome) {
-      setSeRepoError(outcome.rejection.reason)
-      return
-    }
-    setSeDeclaredRepos((current) => [...current, outcome.repo])
-    // A run can only span projects when each one gets its own worktree — the
-    // engine refuses the pair — so taking on a project turns worktree mode on
-    // with it rather than dropping the choice at creation.
-    if (!seUseWorktrees) {
-      worktreesForcedByRepos.current = true
-      setSeUseWorktrees(true)
-    }
-  }
-
-  const handleToggleSprintRepo = (candidate: string, displayName: string) => {
-    setSeRepoError(null)
-    const declared = seDeclaredRepos.find((repo) => isSameFolder(repo.folderPath, candidate))
-    if (declared) {
-      applyDeclaredSprintRepos(
-        seDeclaredRepos.filter((repo) => repo.folderPath !== declared.folderPath),
-      )
-      return
-    }
-    void addSprintRepo(candidate, displayName)
-  }
-
-  const handleBrowseSprintRepo = () => {
-    void (async () => {
-      const dir = await window.api.openDir()
-      if (!dir) return
-      setSeRepoError(null)
-      await addSprintRepo(dir, basename(dir))
-    })()
-  }
-
-  // What creation actually declares: `{id, root}` per extra project, and nothing
-  // at all without worktree mode.
-  const seRepoDeclarations = useMemo(
-    () => sprintRepoDeclarations(seDeclaredRepos, seUseWorktrees),
-    [seDeclaredRepos, seUseWorktrees],
-  )
-
-  // Worktrees off means a single-project run: the extra projects go with it, so
-  // no selection can survive into a creation the engine would reject. Working the
-  // switch also makes the mode the user's, not the projects' — turning it back on
-  // afterwards is their call, not something dropping a project undoes.
-  const handleChangeUseWorktrees = (value: boolean) => {
-    worktreesForcedByRepos.current = false
-    setSeUseWorktrees(value)
-    if (!value) {
-      setSeDeclaredRepos([])
-      setSeRepoError(null)
-    }
-  }
-
   // Leaving the folder field with a typed path that exists adopts it (a fresh
   // existence check, not the 250ms-debounced display flag — that flag can be
   // stale mid-edit). A still-nonexistent path stays a draft until create.
@@ -1748,9 +1163,6 @@ export default function NewWorkspacePanel({
     setFolderDraftPath(path)
     setFolderPathPinned(true)
     setKnowledgeStepEligible(shouldShowKnowledgeStep(path, projectKnowledgeRoots))
-    // Keep the folder-change invariant even though chat never reads this state:
-    // the user can switch to Sprint Engine after picking a project here.
-    resetFolderScopedSourceState()
   }
   const handleChatBrowseProject = async () => {
     const dir = await window.api.openDir()
@@ -1794,173 +1206,6 @@ export default function NewWorkspacePanel({
     }
   }
 
-  const handleSelectExistingTeam = (slug: string) => {
-    const team = folderScan.result.teams.find((candidate) => candidate.slug === slug)
-    if (!team) {
-      setSeExistingTeam(null)
-      setSeAgentCliOverrides({})
-      return
-    }
-    const cliSelection = cliSelectionForExistingSprintEngineTeam(team, folderPath, workspaces, seRoleCliDefaults)
-    setSeExistingTeam(team)
-    // A canonical team's roster comes from projection state, not a saved preset;
-    // detach the preset picker so its Update/Delete affordances aren't stale.
-    setSeSelectedRosterId(null)
-    setSeTeamName(team.displayName)
-    setSeGoal(team.state.goal)
-    setSeRoleCounts(team.state.roleCounts)
-    if (savedSprintEngineRoster) {
-      setSeRoleCliDefaults({
-        ...cliSelection.roleDefaults,
-        ...savedSprintEngineRoster.roleCliDefaults,
-      })
-      setSeAgentCliOverrides({})
-    } else {
-      setSeRoleCliDefaults(cliSelection.roleDefaults)
-      setSeAgentCliOverrides(cliSelection.agentOverrides)
-    }
-  }
-
-  // Shared application of a chosen source (backlog item or hand-picked file)
-  // into the plan-sourced creation state. Backlog items pass their already
-  // derived title and loaded content; the file picker passes freshly read
-  // content. `fromFile` switches the step between the backlog list and the
-  // hand-picked-file view.
-  //
-  // Selection state applies synchronously — the Create gate and the selection
-  // highlight must never lag a click behind file IPC. The source's attached/
-  // body-referenced mockups (MC-1485) then resolve asynchronously and append
-  // to the bundle via enrichSourceBundleWithMockups (declared with the seed
-  // effect above); the request token drops an enrichment a newer selection
-  // (click or seed) overtook.
-  const applyPlanSource = (input: {
-    path: string
-    relativePath: string
-    content: string
-    title?: string
-    fromFile: boolean
-    // When the selected item is an epic, its child design documents. The epic
-    // becomes the root (`epic`) plan source and the children become the source
-    // bundle; each is referenced in place, never copied.
-    epicChildren?: BacklogItem[]
-  }) => {
-    const requestId = ++planSourceRequestRef.current
-    const fallbackName = planBasename(input.relativePath)
-    const goal = input.title?.trim() || markdownTitle(input.content) || toTitleName(fallbackName)
-    const isHtmlSource = /\.html?$/i.test(input.relativePath)
-    const epicChildren = input.epicChildren ?? []
-    const isEpicSource = epicChildren.length > 0
-
-    const baseBundle: SprintEngineSourceBundleItem[] | null = isEpicSource
-      ? epicChildren.map((child) => {
-        const inferred = inferSourcePlanKind(child.relativePath, child.sourceContent)
-        return {
-          kind: /\.html?$/i.test(child.relativePath)
-            ? 'html_mockup'
-            : inferred === 'product_plan' || inferred === 'architect_plan'
-              ? inferred
-              : 'generic_context',
-          sourcePath: child.path,
-          sourceRelativePath: child.relativePath,
-          sourceContent: child.sourceContent,
-          // The children are the sprint's work list, not reading material: the
-          // planner mints exactly one task per child (MC-2018). The mockups
-          // appended below share this bundle and carry no marker, so the two
-          // stay tellable apart all the way into the run store.
-          epicChild: true,
-        }
-      })
-      : isHtmlSource
-        ? [{
-          kind: 'html_mockup',
-          sourcePath: input.path,
-          sourceRelativePath: input.relativePath,
-          sourceContent: input.content,
-        }]
-        : null
-
-    setSePlanPath(input.path)
-    setSePlanRelativePath(input.relativePath)
-    setSePlanContent(input.content)
-    setSePlanError(null)
-    setSeSourcePlanKind(isEpicSource ? 'epic' : isHtmlSource ? 'unknown' : inferSourcePlanKind(input.relativePath, input.content))
-    setSeSourceBundle(baseBundle)
-    setSeEpicChildRelativePaths(isEpicSource ? epicChildren.map((child) => child.relativePath) : null)
-    if (!seTeamNameTouched) setSeTeamName(slugifySprintEngineName(fallbackName))
-    setSeGoal(goal)
-    setSeExistingTeam(null)
-    setSeAgentCliOverrides({})
-    setSeSourceFromFile(input.fromFile)
-
-    // An HTML source IS the mockup; every markdown source (backlog item, epic +
-    // children, hand-picked file) may attach mockups in `mockups:` frontmatter
-    // or reference them in the body — one parse path for all of them.
-    if (!isHtmlSource) {
-      enrichSourceBundleWithMockups({
-        requestId,
-        rootPath: folderPath ?? '',
-        docs: [mockupSourceDocFromMarkdown(input.content, input.relativePath), ...epicChildren],
-        excludeRelativePaths: [
-          input.relativePath,
-          ...(baseBundle ?? []).map((item) => item.sourceRelativePath),
-        ],
-      })
-    }
-  }
-
-  const handleSelectBacklogItem = (item: BacklogItem) => {
-    // An epic launch plans the whole epic: hand the architect the epic plus every
-    // child design document (referenced in place). Non-epic items launch as a
-    // single reference source.
-    const epicChildren = item.isEpic
-      ? childrenOfEpic(backlogScan.result.items, epicSlug(item)).filter((child) => child.status !== 'archived')
-      : []
-    applyPlanSource({
-      path: item.path,
-      relativePath: item.relativePath,
-      content: item.sourceContent,
-      title: item.title,
-      fromFile: false,
-      epicChildren,
-    })
-  }
-
-  const handlePickSourceFile = async () => {
-    if (!folderPath) return
-    const picked = await window.api.openFile({
-      title: 'Choose a source file',
-      defaultPath: folderPath,
-      filters: [{ name: 'Plans & mockups', extensions: ['md', 'markdown', 'html', 'htm'] }],
-    })
-    if (!picked) return
-    try {
-      const content = await window.api.readfile(picked)
-      const relativePath = workspaceRelativePath(folderPath, picked) ?? planBasename(picked)
-      applyPlanSource({ path: picked, relativePath, content, fromFile: true })
-    } catch {
-      setSePlanError('Could not read the selected file.')
-    }
-  }
-
-  // Return from the hand-picked-file view to the backlog list, dropping the
-  // file selection so the step doesn't carry a stale source into creation.
-  const handleBackToBacklog = () => {
-    setSeSourceFromFile(false)
-    setSePlanPath('')
-    setSePlanRelativePath('')
-    setSePlanContent(null)
-    setSeSourcePlanKind('unknown')
-    setSeSourceBundle(null)
-    setSeEpicChildRelativePaths(null)
-    setSePlanError(null)
-  }
-
-  // setRoleCount / setRoleCli moved into useRosterEditor (MC-1879), which keeps
-  // their side effects via the onDetachFromExistingRun / onRoleCliChanged
-  // callbacks the wizard passes in.
-  const setRoleCount = roster.onSetRoleCount
-  const setRoleCli = roster.onSetRoleCli
-
   const setGuidedRoleCli = (role: keyof GuidedBriefRoleCliDefaults, cli: AgentCli) => {
     setGuidedRoleCliDefaults((current) => ({ ...current, [role]: cli }))
   }
@@ -1968,22 +1213,6 @@ export default function NewWorkspacePanel({
   const setGuidedRoleModel = (role: keyof GuidedBriefRoleCliDefaults, model: string | null) => {
     setGuidedRoleModelOverrides((current) => ({ ...current, [role]: model }))
   }
-
-  const setRoleModel = roster.onSetRoleModel
-  const setRoleReasoning = roster.onSetRoleReasoning
-
-  // Lazy roster: only the architect carries a start-at-launch intent (no
-  // per-role "Start now" toggle). Worker/reviewer ids are minted on demand.
-  const seInitialSpawnRoles = useMemo(
-    () => (Object.entries(buildSprintEngineEffectiveSpawnAtStartRoles({
-      automationMode: seAutomationMode,
-      existingTeam: seExistingTeam != null,
-      visibleRoleCounts: sprintEngineEffectiveVisibleRoleCounts,
-    })) as Array<[SprintEngineRoleId, boolean | undefined]>)
-      .filter(([, spawn]) => spawn)
-      .map(([role]) => role),
-    [seAutomationMode, seExistingTeam, sprintEngineEffectiveVisibleRoleCounts],
-  )
 
   const handleChooseGuidedSeedFolder = async () => {
     const dir = await window.api.openDir()
@@ -2012,35 +1241,15 @@ export default function NewWorkspacePanel({
     }
   }
 
-  const sprintEngineConfig = useMemo<SprintEngineMockConfig>(
-    () => ({
-      name: seTeamName.trim() || 'Sprint Roster',
-      goal: seGoal.trim(),
-      roleCounts: visibleSprintEngineRoleCounts,
-    }),
-    [seGoal, visibleSprintEngineRoleCounts, seTeamName],
-  )
-
   const persistLastPermissionPreset = () => {
     setLastAgentSpawnPermissionPreset(cliPermissionPreset)
   }
-
-  // Roster load/save/rename/delete and the dirty read all moved into
-  // useRosterEditor (MC-1879). These aliases keep the render tree unchanged.
-  const handleSelectSprintEngineRoster = roster.onSelectRoster
-  const handleSaveSprintEngineRoster = roster.onSaveRoster
-  const handleUpdateSprintEngineRoster = roster.onUpdateRoster
-  const handleRenameSprintEngineRoster = roster.onRenameRoster
-  const handleDeleteSprintEngineRoster = roster.onDeleteRoster
-  const selectedSprintEngineRosterDirty = roster.selectedRosterDirty
 
   const handleCreate = async () => {
     // 'chat' has no wizard create path: it is created by the embedded composer's
     // own confirmation path (host solo-chat create). Guard so an Enter that reaches the
     // section handler on the chat mode step can never fall through to Standard.
     if (isChat) return
-    if (!sprintEngineRosterReady && mode === 'sprintengine') return
-    if (mode === 'sprintengine') setSePlanError(null)
 
     if (mode === 'guided-brief') {
       if (!folderPath) {
@@ -2076,13 +1285,12 @@ export default function NewWorkspacePanel({
                 guidedRoleCliDefaults,
                 guidedRoleModelOverrides,
                 buildRoleCounts,
-                buildRoleCliDefaults: seRoleCliDefaults,
+                buildRoleCliDefaults: rosterRoleCliDefaults,
                 buildCliPermissionPreset: cliPermissionPreset,
-                // Raw state, not the path-aware seAutomationMode: a guided
-                // build never resumes an existing team, so a stale sprint-tab
-                // team selection must not flip this to manual.
-                buildStartRunner: seStartRunner,
-                buildAutoApproveArtifacts: seAutoApproveArtifacts,
+                // The product default (run agents + approve eligible
+                // artifacts); the guided handoff surface owns any change.
+                buildStartRunner: true,
+                buildAutoApproveArtifacts: true,
               },
               {
                 filesystem: guidedFilesystem,
@@ -2102,13 +1310,12 @@ export default function NewWorkspacePanel({
                 guidedRoleCliDefaults,
                 guidedRoleModelOverrides,
                 buildRoleCounts,
-                buildRoleCliDefaults: seRoleCliDefaults,
+                buildRoleCliDefaults: rosterRoleCliDefaults,
                 buildCliPermissionPreset: cliPermissionPreset,
-                // Raw state, not the path-aware seAutomationMode: a guided
-                // build never resumes an existing team, so a stale sprint-tab
-                // team selection must not flip this to manual.
-                buildStartRunner: seStartRunner,
-                buildAutoApproveArtifacts: seAutoApproveArtifacts,
+                // The product default (run agents + approve eligible
+                // artifacts); the guided handoff surface owns any change.
+                buildStartRunner: true,
+                buildAutoApproveArtifacts: true,
               },
               {
                 filesystem: guidedFilesystem,
@@ -2201,184 +1408,6 @@ export default function NewWorkspacePanel({
               ? error.message
               : 'Could not create the review.',
         )
-      } finally {
-        setIsCreating(false)
-      }
-      return
-    }
-
-    if (mode === 'sprintengine') {
-
-      if (seExistingTeam) {
-        const args = buildSprintEngineExistingTeamCreation({
-          folderPath,
-          existingTeam: seExistingTeam,
-          roleCliDefaults: seRoleCliDefaults,
-          agentCliOverrides: seAgentCliOverrides,
-          roleModelOverrides: seRoleModelOverrides,
-          initialSpawnRoles: seInitialSpawnRoles,
-          startRunner: seAutomationMode !== 'manual',
-          autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
-          cliPermissionPreset,
-        })
-        setIsCreating(true)
-        try {
-          if (await persistAdvancedSetup(folderPath)) return
-          onCreate(args)
-          persistLastPermissionPreset()
-        } finally {
-          setIsCreating(false)
-        }
-        return
-      }
-
-      if (sePath === 'plan' && sePlanPath) {
-        if (!folderPath) {
-          setSePlanError('Pick a folder before creating from a plan.')
-          return
-        }
-        // The selected plan path is always the primary handover source — a
-        // bundle carries supporting items (attached mockups, epic children,
-        // sibling docs) and its first entry must never displace the selection.
-        // (For a hand-picked HTML source the plan path IS the mockup, so the
-        // values coincide.) Bundle-only promotion lives in the controller.
-        const option = { path: sePlanPath, relativePath: sePlanRelativePath }
-        if (sePlanContent == null) {
-          setSePlanError('Plan content was not loaded. Re-select the plan on the previous step.')
-          return
-        }
-        if (!seTeamName.trim()) {
-          setSePlanError('Add a team name on the previous step.')
-          return
-        }
-        setIsCreating(true)
-        try {
-          if (await persistAdvancedSetup(folderPath)) return
-          await runSprintEnginePlanSourcedCreation(
-            {
-              folderPath,
-              teamName: seTeamName,
-              goal: seGoal,
-              sourcePlanPath: option.path,
-              sourcePlanRelativePath: option.relativePath,
-              sourcePlanContent: sePlanContent,
-              sourcePlanKind: seSourcePlanKind,
-              sourceBundle: seSourceBundle ?? null,
-              visibleRoleCounts: sprintEngineEffectiveCreateRoleCounts,
-              maxParallelAgents: seMaxParallelAgents,
-              roleCliDefaults: seRoleCliDefaults,
-              roleModelOverrides: seRoleModelOverrides,
-              // The roster's effort levels ride the same `roleRuntimes` entry
-              // as the CLI/model pick (MC-1885).
-              roleReasoningOverrides: seRoleReasoningOverrides,
-              initialSpawnRoles: seInitialSpawnRoles,
-              startRunner: seAutomationMode !== 'manual',
-              autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
-              useWorktrees: seUseWorktrees,
-              // Backlog/file sources are referenced in place, never copied.
-              sourceReference: true,
-              epicChildRelativePaths: seEpicChildRelativePaths ?? undefined,
-              cliPermissionPreset,
-              workspaceWindowId,
-            },
-            {
-              pathExists: window.api.pathExists,
-              initializeSprintEngineState: window.api.initializeSprintEngineState,
-              recordBacklogExecutionLink: async ({ workspaceRoot, sourceRelativePath, teamSlug, statePath, childRelativePaths }) => {
-                const runRelativePath = workspaceRelativePath(workspaceRoot, statePath) ?? statePath
-                const source = backlogScan.result.items.find((item) => item.relativePath === sourceRelativePath)
-                const result = await window.api.addOrUpdateBacklogLink({
-                  workspaceRoot,
-                  relativePath: sourceRelativePath,
-                  link: buildSprintEngineRunLink({ teamSlug, runRelativePath }),
-                  // An epic's status is derived from its children and its file is
-                  // never written a status of its own — the children below carry
-                  // the sprint's progress instead. Read off the scan, which knows
-                  // `type: epic` too; the path test only catches `backlog/epics/`.
-                  ...(source?.isEpic || isBacklogEpicPath(sourceRelativePath)
-                    ? {}
-                    : { status: 'in_progress' as const }),
-                })
-                if (!result.ok) throw new Error(result.message)
-                // Link every epic child to the run, remembering the status it held
-                // before the sprint so a cancel can put it back. The link starts
-                // `pending`, NOT `active`: a child moves to in_progress when its own
-                // task claims (the projection tick binds it and drives it), so an
-                // epic does not read as six items in flight the moment it launches.
-                for (const childPath of childRelativePaths ?? []) {
-                  const child = backlogScan.result.items.find((item) => item.relativePath === childPath)
-                  const childResult = await window.api.addOrUpdateBacklogLink({
-                    workspaceRoot,
-                    relativePath: childPath,
-                    link: buildSprintEngineRunLink({
-                      teamSlug,
-                      runRelativePath,
-                      status: 'pending',
-                      ...(child ? { priorStatus: child.status } : {}),
-                    }),
-                  })
-                  if (!childResult.ok) throw new Error(childResult.message)
-                }
-              },
-            },
-          )
-          persistLastPermissionPreset()
-          onClose()
-        } catch (error) {
-          if (error instanceof SprintEnginePlanSourcedError) {
-            setSePlanError(planSourcedErrorMessage(error))
-          } else {
-            setSePlanError(
-              error instanceof Error ? error.message : 'Could not create the sprint workspace.',
-            )
-          }
-        } finally {
-          setIsCreating(false)
-        }
-        return
-      }
-
-      setIsCreating(true)
-      try {
-        if (await persistAdvancedSetup(folderPath)) return
-        const args = await runSprintEngineNewTeamCreation(
-          {
-            folderPath,
-            teamName: sprintEngineConfig.name,
-            goal: sprintEngineConfig.goal,
-            roleCounts: sprintEngineEffectiveCreateRoleCounts,
-            visibleRoleCounts: sprintEngineEffectiveCreateRoleCounts,
-            maxParallelAgents: seMaxParallelAgents,
-            roleCliDefaults: seRoleCliDefaults,
-            roleModelOverrides: seRoleModelOverrides,
-            // The roster's effort levels ride the same `roleRuntimes` entry as
-            // the CLI/model pick (MC-1885).
-            roleReasoningOverrides: seRoleReasoningOverrides,
-            initialSpawnRoles: seInitialSpawnRoles,
-            startRunner: seAutomationMode !== 'manual',
-            autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
-            useWorktrees: seUseWorktrees,
-            // "Also works in" (item 1765): declared at init so a run that spans
-            // projects has every worktree from the start. Empty without worktree
-            // mode, which the engine requires for a multi-project run.
-            ...(seRepoDeclarations.length > 0 ? { repos: seRepoDeclarations } : {}),
-            cliPermissionPreset,
-          },
-          {
-            pathExists: window.api.pathExists,
-            initializeSprintEngineState: window.api.initializeSprintEngineState,
-          },
-        )
-        onCreate(args)
-        persistLastPermissionPreset()
-      } catch (error) {
-        if (error instanceof SprintEngineNewTeamCreationError) {
-          setSePlanError(newTeamCreationErrorMessage(error))
-        } else {
-          setSePlanError(
-            error instanceof Error ? error.message : 'Could not create the sprint workspace.',
-          )
-        }
       } finally {
         setIsCreating(false)
       }
@@ -2508,14 +1537,6 @@ export default function NewWorkspacePanel({
       roleCounts: SprintEngineRoleCounts
       roleCliDefaults: Required<SprintEngineRoleCliDefaults>
       cliPermissionPreset: SprintEngineCliPermissionPreset
-    } = {
-      // Raw state (see the guided scaffold sites): guided builds never
-      // involve an existing team.
-      startRunner: seStartRunner,
-      autoApproveArtifacts: seAutoApproveArtifacts,
-      roleCounts: runtimeState.buildRoleCounts,
-      roleCliDefaults: runtimeState.buildRoleCliDefaults,
-      cliPermissionPreset: runtimeState.buildCliPermissionPreset,
     },
   ) => {
     const finalRoleCounts = applyUserDisabledSprintEngineRoleCounts(
@@ -2528,7 +1549,7 @@ export default function NewWorkspacePanel({
           runtimeState,
           runOptions,
           finalRoleCounts,
-          rosterSummary: sprintEngineRosterSummary(finalRoleCounts, seRoleRegistry),
+          rosterSummary: sprintEngineRosterSummary(finalRoleCounts, rosterRoleRegistry),
           planningDecisions: guidedBriefPlanningDecisionNotes(runtimeState),
           planningValidationNotes: guidedBriefPlanningValidationNotes(runtimeState),
           buildHandoffRelativePath: guidedBriefBuildHandoffRelativePath(),
@@ -2562,7 +1583,7 @@ export default function NewWorkspacePanel({
   }
 
   const primaryLabel = isLastStep
-    ? createLabelFor(mode, isCreating || pendingCreate, seExistingTeam != null)
+    ? createLabelFor(mode, isCreating || pendingCreate)
     : 'Continue'
   // One skip control, not two: the flow's remaining pages are all defaulted the
   // moment createReady turns true, so from there the user can leave at any time.
@@ -2574,16 +1595,8 @@ export default function NewWorkspacePanel({
       : STEP_HEADING[step]
   const stepAnimationClass =
     direction === 'forward' ? 'wizard-step-in-forward' : 'wizard-step-in-backward'
-  // The sprint's source page (backlog picker, team cards) is the one wide page;
-  // its rebuilt config pages are a single reading column of at most ~640px
-  // (MC-1646), and every other page — including the sprint's own name+folder
-  // page — keeps the 560px measure the shared fields read at.
-  const wideStep = isSprintEngine && step === 'sprintengine-team'
-  const stepColumnClass = wideStep
-    ? ''
-    : isSprintEngine && step !== 'workspace'
-      ? 'max-w-[640px]'
-      : 'max-w-[560px]'
+  // Every page keeps the 560px measure the shared fields read at.
+  const stepColumnClass = 'max-w-[560px]'
 
   const guidedFlowVisible = guidedRuntimeState != null && !viewingIdeaAfterCommit
 
@@ -2612,7 +1625,7 @@ export default function NewWorkspacePanel({
             onStartBuild={handleGuidedStartBuild}
             cliRuntimes={appCliRuntimes}
             cliOptions={sprintEngineCliOptions}
-            sprintEngineRoleRegistry={seRoleRegistry}
+            sprintEngineRoleRegistry={rosterRoleRegistry}
             sprintEngineDisabledRoleIds={sprintEngineDisabledRoleIds}
           />
         </div>
@@ -2642,9 +1655,7 @@ export default function NewWorkspacePanel({
                 currentStepLabel={stepHeading.title}
                 stepLabels={stepLabels}
                 onStepSelect={jumpToStep}
-                // The sprint's six-page flow reads as named stations (MC-1646);
-                // the short two/three-page flows keep the quiet dash strip.
-                variant={isSprintEngine ? 'labeled' : 'dashes'}
+                variant="dashes"
               />
             ) : null}
             {allowClose ? (
@@ -2715,9 +1726,6 @@ export default function NewWorkspacePanel({
                       className={`flex w-full ${stepColumnClass} ${step === 'workspace' ? 'h-full' : ''} flex-col gap-7 px-6 py-5 ${stepAnimationClass}`}
                     >
                       {stepIndex > 0 ? (
-                        /* The sprint flow labels the control with what the sprint
-                           is about (the source item's title) instead of the word
-                           "Back" — the chevron alone carries the navigation. */
                         <button
                           type="button"
                           onClick={goBack}
@@ -2737,16 +1745,7 @@ export default function NewWorkspacePanel({
                               strokeLinejoin="round"
                             />
                           </svg>
-                          {mode === 'sprintengine' && seGoal.trim() ? (
-                            <span
-                              title={seGoal.trim()}
-                              className="min-w-0 truncate text-[color:var(--text-strong)]"
-                            >
-                              {seGoal.trim()}
-                            </span>
-                          ) : (
-                            'Back'
-                          )}
+                          Back
                         </button>
                       ) : null}
 
@@ -2778,99 +1777,10 @@ export default function NewWorkspacePanel({
               folderError={folderError}
               onSelectRecent={handleSelectRecentFolder}
               recentFolders={recentFolders}
-              folderHints={folderHints}
-              // A hint matching the selected flow is decoration, not signal
-              // (MC-1646): in the sprint flow every candidate folder would wear
-              // the same gold "Sprint" pill. Hints for OTHER flows still show.
-              suppressedHint={mode === 'sprintengine' ? 'sprintengine' : null}
               inputRef={nameInputRef}
             />
                         </>
                       ) : null}
-
-          {step === 'sprintengine-team' ? (
-            <ConfigStepSection stepId="sprintengine-team" headingRef={headingRef}>
-            <SprintEngineTeamStep
-              folderPath={folderPath}
-              projectOptions={sprintProjectOptions}
-              onSelectProject={handleSelectSprintProject}
-              onBrowseProject={() => void pickFolder()}
-              declaredRepos={seDeclaredRepos}
-              onToggleRepo={handleToggleSprintRepo}
-              onBrowseRepo={handleBrowseSprintRepo}
-              repoError={seRepoError}
-              isScanning={folderScan.isScanning}
-              existingTeams={folderScan.result.teams}
-              unreadableTeams={folderScan.result.unreadableTeams}
-              backlogScan={backlogScan.result}
-              backlogScanning={backlogScan.isScanning}
-              sourceFromFile={seSourceFromFile}
-              onSelectBacklogItem={handleSelectBacklogItem}
-              onChooseFile={() => void handlePickSourceFile()}
-              onBackToBacklog={handleBackToBacklog}
-              path={sePath}
-              onChangePath={(p) => {
-                setSePath(p)
-                setSeExistingTeam(null)
-                setSeAgentCliOverrides({})
-                if (p !== 'plan') {
-                  setSePlanPath('')
-                  setSePlanRelativePath('')
-                  setSePlanContent(null)
-                  setSeSourcePlanKind('unknown')
-                  setSeSourceBundle(null)
-                  setSeSourceFromFile(false)
-                }
-                // "Also works in" belongs to a run started here. A run loaded
-                // from a saved team keeps the repo set it was created with, and
-                // one launched from a backlog item works in that item's project
-                // — so leaving this path drops the selection rather than holding
-                // one the create call would never send.
-                if (p !== 'new') {
-                  applyDeclaredSprintRepos([])
-                  setSeRepoError(null)
-                }
-                setSePlanError(null)
-              }}
-              planPath={sePlanPath}
-              planRelativePath={sePlanRelativePath}
-              sourcePlanKind={seSourcePlanKind}
-              onChangeSourcePlanKind={setSeSourcePlanKind}
-              sourceBundle={seSourceBundle}
-              onChangeSourceBundleKind={(index, kind) => {
-                setSeSourceBundle((current) => {
-                  if (!current) return current
-                  return current.map((item, itemIndex) => itemIndex === index ? { ...item, kind } : item)
-                })
-                const item = seSourceBundle?.[index]
-                if (
-                  item?.sourcePath === sePlanPath
-                  && (kind === 'product_plan' || kind === 'architect_plan' || kind === 'unknown')
-                ) {
-                  setSeSourcePlanKind(kind)
-                }
-              }}
-              planError={sePlanError}
-              existingTeamSlug={seExistingTeam?.slug ?? ''}
-              onSelectExistingTeam={handleSelectExistingTeam}
-              teamName={seTeamName}
-              onChangeTeamName={(value) => {
-                setSeExistingTeam(null)
-                setSeAgentCliOverrides({})
-                setSeTeamName(value)
-                setSeTeamNameTouched(true)
-                setSePlanError(null)
-              }}
-              goal={seGoal}
-              onChangeGoal={(value) => {
-                setSeExistingTeam(null)
-                setSeAgentCliOverrides({})
-                setSeGoal(value)
-                setSePlanError(null)
-              }}
-            />
-            </ConfigStepSection>
-          ) : null}
 
           {step === 'guided-idea' ? (
             <ConfigStepSection stepId="guided-idea" headingRef={headingRef}>
@@ -2965,124 +1875,6 @@ export default function NewWorkspacePanel({
               broken={moduleStepBroken}
               onBroken={() => setModuleStepBroken(true)}
             />
-          ) : null}
-
-          {/* The sprint's rebuilt config pages (MC-1646): Team, Tools & skills,
-              and Review & start — one reading column each. */}
-          {step === 'sprintengine-roster' ? (
-            <ConfigStepSection stepId="sprintengine-roster" headingRef={headingRef}>
-            <>
-                {seExistingTeam != null ? (
-                  <p className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-meta leading-5 text-[color:var(--tone-warn)]">
-                    Loading <span className="font-semibold">{seExistingTeam.displayName}</span> — team size is read-only; the agent for each role can still be changed before launch.
-                  </p>
-                ) : null}
-                {sePlanError ? (
-                  <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]">
-                    {sePlanError}
-                  </div>
-                ) : null}
-                <SprintEngineRosterPanel
-                  rosterMode={seExistingTeam != null ? 'roles' : seRosterMode}
-                  // An existing run's formation is fixed, so the segmented
-                  // control is withheld.
-                  onChangeRosterMode={seExistingTeam != null ? undefined : setSeRosterMode}
-                  roleCounts={visibleSprintEngineRoleCounts}
-                  roleCliDefaults={seRoleCliDefaults}
-                  roleModelOverrides={seRoleModelOverrides}
-                  // Effort is offered only where a picked level actually
-                  // reaches the launch. A NEW run carries it into init as part
-                  // of `roleRuntimes`; an EXISTING run's seats already carry
-                  // their level in run.yaml and the creation path has no field
-                  // that would carry a re-pick into it — changing a live run's
-                  // seat runtime is the mid-run IPC verb, which is not this
-                  // task. So the rows there render no effort control at all
-                  // rather than one that silently forgets.
-                  {...(seExistingTeam == null
-                    ? {
-                        roleReasoningOverrides: seRoleReasoningOverrides,
-                        onSetRoleReasoning: setRoleReasoning,
-                      }
-                    : {})}
-                  onSetRoleCount={setRoleCount}
-                  onSetRoleCli={setRoleCli}
-                  onSetRoleModel={setRoleModel}
-                  cliOptions={sprintEngineCliOptions}
-                  registry={seRoleRegistry}
-                  registryStatus={seRoleRegistryStatus}
-                  disabledRoleIds={effectiveSprintEngineDisabledRoleIds}
-                  rosterDisabled={seExistingTeam != null}
-                  hasExistingTeam={seExistingTeam != null}
-                  rosters={sprintEngineRosters}
-                  selectedRosterId={seSelectedRosterId}
-                  selectedRosterDirty={selectedSprintEngineRosterDirty}
-                  onSelectRoster={handleSelectSprintEngineRoster}
-                  onSaveRoster={handleSaveSprintEngineRoster}
-                  onUpdateRoster={handleUpdateSprintEngineRoster}
-                  onRenameRoster={handleRenameSprintEngineRoster}
-                  onDeleteRoster={handleDeleteSprintEngineRoster}
-                  poolAgentCount={seMaxParallelAgents}
-                  onChangePoolAgentCount={setSeMaxParallelAgents}
-                />
-              </>
-            </ConfigStepSection>
-          ) : null}
-
-          {step === 'sprintengine-tools' ? (
-            <ConfigStepSection stepId="sprintengine-tools" headingRef={headingRef}>
-            <SprintEngineToolsPanel
-                mcpCatalog={integrationsMcpCatalog}
-                mcpSettings={mcpSettings ?? null}
-                onToggleMcp={toggleMcpInWizard}
-                message={integrationsMessage}
-                knowledgeProjectRoot={folderPath && knowledgeStepEligible ? folderPath : null}
-                committedKnowledgeRoot={committedKnowledgeRoot}
-                onCommitKnowledge={handleCommitKnowledgeRoot}
-                knowledgeAutoAppliedRef={knowledgeAutoAppliedRef}
-                designSystemAttachRoot={designSystemAttachEligible && folderPath ? folderPath : null}
-                designSystemAttachSelection={dsAttachSelection}
-                onSelectDesignSystemAttach={(source) => {
-                  setDsAttachSelection(source)
-                  setAdvancedSetupError(null)
-                }}
-              />
-            </ConfigStepSection>
-          ) : null}
-
-          {step === 'sprintengine-start' ? (
-            <ConfigStepSection stepId="sprintengine-start" headingRef={headingRef}>
-            <SprintEngineStartPanel
-                workspaceName={name}
-                folderPath={folderPath}
-                objective={seGoal.trim()}
-                rosterMode={seRosterMode}
-                hasExistingTeam={seExistingTeam != null}
-                existingTeamName={seExistingTeam?.displayName ?? null}
-                roleCounts={visibleSprintEngineRoleCounts}
-                registry={seRoleRegistry}
-                disabledRoleIds={effectiveSprintEngineDisabledRoleIds}
-                cliOptions={sprintEngineCliOptions}
-                roleCliDefaults={seRoleCliDefaults}
-                roleModelOverrides={seRoleModelOverrides}
-                poolAgentCount={seMaxParallelAgents}
-                selectedToolNames={selectedMcpServers.map(mcpServerDisplayName)}
-                onEditStep={(target) => jumpToStep(steps.indexOf(target))}
-                cliPermissionPreset={cliPermissionPreset}
-                onChangeCliPermissionPreset={setCliPermissionPreset}
-                automationMode={seAutomationMode}
-                onChangeAutomationMode={setSeAutomationMode}
-                maxParallelAgents={seMaxParallelAgents}
-                onChangeMaxParallelAgents={setSeMaxParallelAgents}
-                // In pool mode the Team page's stepper owns this value; showing
-                // the same number twice would read as two controls.
-                showMaxParallelAgents={seExistingTeam != null || seUseSpecialistRoles}
-                useWorktrees={seUseWorktrees}
-                onChangeUseWorktrees={handleChangeUseWorktrees}
-                worktreesDisabled={seExistingTeam != null}
-                declaredRepoNames={seDeclaredRepos.map((repo) => repo.displayName)}
-                createError={sePlanError}
-              />
-            </ConfigStepSection>
           ) : null}
 
           {showAdvancedSetup ? (
@@ -3198,8 +1990,6 @@ function WorkspaceStep({
   folderError,
   onSelectRecent,
   recentFolders,
-  folderHints,
-  suppressedHint,
   inputRef,
 }: {
   name: string
@@ -3212,9 +2002,6 @@ function WorkspaceStep({
   folderError: string | null
   onSelectRecent: (path: string) => void
   recentFolders: string[]
-  folderHints: ReturnType<typeof useFolderHints>
-  /** Hint chip suppressed because it matches the selected flow (MC-1646). */
-  suppressedHint: 'sprintengine' | null
   inputRef: React.MutableRefObject<HTMLInputElement | null>
 }) {
   const trimmedPath = folderDraftPath.trim()
@@ -3297,20 +2084,14 @@ function WorkspaceStep({
             Recent
           </div>
           <div className="flex min-h-[88px] flex-1 flex-col gap-0.5 overflow-y-auto pr-1">
-            {recentFolders.map((recent) => {
-              const hint = folderHints.get(recent)
-              const hints: Array<'sprintengine'> = []
-              if (hint?.hasSprintEngineTeam && suppressedHint !== 'sprintengine') hints.push('sprintengine')
-              return (
-                <RecentFolderRow
-                  key={recent}
-                  path={recent}
-                  active={isSameFolder(folderDraftPath, recent)}
-                  hints={hints}
-                  onSelect={onSelectRecent}
-                />
-              )
-            })}
+            {recentFolders.map((recent) => (
+              <RecentFolderRow
+                key={recent}
+                path={recent}
+                active={isSameFolder(folderDraftPath, recent)}
+                onSelect={onSelectRecent}
+              />
+            ))}
           </div>
         </div>
       ) : null}
@@ -3992,503 +2773,6 @@ function GuidedChoiceCard({
   )
 }
 
-function BacklogPickerNote({ children, tone }: { children: ReactNode; tone?: 'error' }): JSX.Element {
-  return (
-    <div
-      className={`
-        rounded-md border border-dashed border-[color:var(--border-default)] px-3 py-4
-        text-center text-meta leading-5
-        ${tone === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}
-      `}
-    >
-      {children}
-    </div>
-  )
-}
-
-// Backlog as a first-class Sprint Engine source: the same scanBacklog() items the
-// Backlog panel shows, rendered with the shared BacklogRowContent so the two
-// surfaces can't drift. Each state (scanning, no folder, empty, unreadable,
-// ready) has its own copy — a failed scan never reads as an empty backlog.
-function BacklogSourcePicker({
-  scan,
-  scanning,
-  selectedPath,
-  onSelect,
-}: {
-  scan: BacklogScanResult
-  scanning: boolean
-  selectedPath: string
-  onSelect: (item: BacklogItem) => void
-}): JSX.Element {
-  const now = useRelativeNow()
-  // Most-recent first (by modifiedAt), matching the Backlog panel's default
-  // 'recent' order. The raw scan is path-sorted (ascending id ≈ oldest first),
-  // which surfaced stale items at the top.
-  const sortedItems = useMemo(
-    () => [...scan.items].sort((a, b) => compareBacklogItems(a, b, 'recent')),
-    [scan.items],
-  )
-  // Bring an already-selected item into view when the picker opens: after the
-  // recency sort a previously-picked older item can sit far down the scroll
-  // area. `block: 'nearest'` only scrolls when it isn't already visible, so
-  // clicking a visible row never yanks the list.
-  const selectedRef = useRef<HTMLButtonElement | null>(null)
-  useEffect(() => {
-    if (selectedPath && selectedRef.current) {
-      selectedRef.current.scrollIntoView({ block: 'nearest' })
-    }
-  }, [selectedPath, sortedItems])
-  if (scanning && scan.items.length === 0) {
-    return <BacklogPickerNote>Scanning the backlog…</BacklogPickerNote>
-  }
-  if (scan.state === 'missing-folder') {
-    return <BacklogPickerNote>No backlog/ folder in this project yet. Start a new team, or choose a file.</BacklogPickerNote>
-  }
-  if (scan.state === 'error') {
-    const detail = scan.errors[0]
-    return (
-      <BacklogPickerNote tone="error">
-        {detail ? `Couldn’t read the backlog: ${detail.message}` : 'Couldn’t read the backlog.'}
-      </BacklogPickerNote>
-    )
-  }
-  if (scan.items.length === 0) {
-    return <BacklogPickerNote>Backlog is empty. Start a new team, or choose a file.</BacklogPickerNote>
-  }
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="max-h-[280px] overflow-y-auto rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-        {sortedItems.map((item) => {
-          const selected = item.path === selectedPath
-          return (
-            <button
-              key={item.id}
-              ref={selected ? selectedRef : undefined}
-              type="button"
-              aria-pressed={selected}
-              onClick={() => onSelect(item)}
-              className={`
-                block w-full cursor-pointer border-b border-[color:var(--border-subtle)]
-                px-3 py-2 text-left transition-colors last:border-b-0
-                focus-visible:focus-ring-inset
-                ${
-                  selected
-                    ? 'bg-[color:var(--bg-selected)]'
-                    : 'hover:bg-[color:var(--bg-hover)]'
-                }
-              `}
-            >
-              <BacklogRowContent item={item} now={now} selected={selected} />
-              {item.status === 'in_progress' || item.status === 'needs_input' ? (
-                <div className="mt-1 truncate pl-[22px] text-micro leading-4 text-[color:var(--text-subtle)]">
-                  {item.status === 'needs_input' ? 'In progress — awaiting input' : 'Already in progress'}
-                </div>
-              ) : null}
-            </button>
-          )
-        })}
-      </div>
-      {scan.state === 'partial' && scan.errors.length > 0 ? (
-        <div className="text-micro leading-4 text-[color:var(--text-subtle)]">
-          {scan.errors.length} item{scan.errors.length === 1 ? '' : 's'} couldn’t be read.
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function SprintEngineTeamStep(props: {
-  folderPath: string | null
-  // The project fields (item 1765, mockup §3). `folderPath` above is the primary
-  // project — one folder, shared with the workspace step, not a second copy.
-  projectOptions: readonly SprintProjectOption[]
-  onSelectProject: (folderPath: string) => void
-  onBrowseProject: () => void
-  declaredRepos: readonly SprintDeclaredRepo[]
-  onToggleRepo: (folderPath: string, displayName: string) => void
-  onBrowseRepo: () => void
-  repoError: string | null
-  isScanning: boolean
-  existingTeams: ExistingTeam[]
-  unreadableTeams: UnreadableTeam[]
-  backlogScan: BacklogScanResult
-  backlogScanning: boolean
-  sourceFromFile: boolean
-  onSelectBacklogItem: (item: BacklogItem) => void
-  onChooseFile: () => void
-  onBackToBacklog: () => void
-  path: SprintEnginePath
-  onChangePath: (path: SprintEnginePath) => void
-  planPath: string
-  planRelativePath: string
-  sourcePlanKind: SprintEngineSourcePlanKind
-  onChangeSourcePlanKind: (kind: SprintEngineSourcePlanKind) => void
-  sourceBundle: SprintEngineSourceBundleItem[] | null
-  onChangeSourceBundleKind: (index: number, kind: SprintEngineSourceBundleKind) => void
-  planError: string | null
-  existingTeamSlug: string
-  onSelectExistingTeam: (slug: string) => void
-  teamName: string
-  onChangeTeamName: (value: string) => void
-  goal: string
-  onChangeGoal: (value: string) => void
-}) {
-  const {
-    folderPath,
-    projectOptions,
-    onSelectProject,
-    onBrowseProject,
-    declaredRepos,
-    onToggleRepo,
-    onBrowseRepo,
-    repoError,
-    isScanning,
-    existingTeams,
-    unreadableTeams,
-    backlogScan,
-    backlogScanning,
-    sourceFromFile,
-    onSelectBacklogItem,
-    onChooseFile,
-    onBackToBacklog,
-    path,
-    onChangePath,
-    planPath,
-    planRelativePath,
-    sourcePlanKind,
-    onChangeSourcePlanKind,
-    sourceBundle,
-    onChangeSourceBundleKind,
-    planError,
-    existingTeamSlug,
-    onSelectExistingTeam,
-    teamName,
-    onChangeTeamName,
-    goal,
-    onChangeGoal,
-  } = props
-
-  const [planTypeEditing, setPlanTypeEditing] = useState(false)
-  useEffect(() => {
-    setPlanTypeEditing(false)
-  }, [planPath])
-
-  const backlogItems = backlogScan.items
-  const backlogCount = backlogItems.length
-  const teamAvailable = existingTeams.length > 0
-  const planKindLabel = SOURCE_PLAN_KIND_LABELS[sourcePlanKind]
-  const hasSourceBundle = Boolean(sourceBundle?.length)
-
-  return (
-    <div className="flex flex-col gap-5">
-      {/* Which project holds the run, and which others it works in (mockup §3).
-          The extra projects are withheld on the plan and existing-team paths: a
-          launch from a backlog item runs in that item's own project, and a saved
-          team's repo set was fixed when it was created. Either can still bring a
-          project in mid-run through `sprintengine.vcs.request_repo`. */}
-      <SprintEngineProjectPanel
-        projects={projectOptions}
-        primaryFolderPath={folderPath}
-        onSelectPrimary={onSelectProject}
-        onBrowsePrimary={onBrowseProject}
-        declaredRepos={declaredRepos}
-        onToggleRepo={onToggleRepo}
-        onBrowseRepo={onBrowseRepo}
-        repoError={repoError}
-        showRepos={path === 'new'}
-      />
-
-      {/* One row, not a ~270px stack: the source choice must leave the team
-          name and objective — the flow's only required input — above the fold. */}
-      <div
-        role="radiogroup"
-        aria-label="Sprint starting point"
-        className="grid grid-cols-1 gap-1.5 sm:grid-cols-3"
-      >
-        <PathRadio
-          checked={path === 'new'}
-          label="Start a new team"
-          hint="Define an objective, pick specialists, run from scratch."
-          onSelect={() => onChangePath('new')}
-        />
-        <PathRadio
-          checked={path === 'existing'}
-          disabled={!teamAvailable}
-          label="Load an existing team"
-          hint={
-            isScanning
-              ? 'Scanning the folder for saved teams…'
-              : teamAvailable
-                ? `${existingTeams.length} team${existingTeams.length === 1 ? '' : 's'} saved in this folder.`
-                : !folderPath
-                  ? 'Pick a folder to detect saved teams.'
-                  : 'No saved teams in this folder.'
-          }
-          onSelect={() => onChangePath('existing')}
-        />
-        <PathRadio
-          checked={path === 'plan'}
-          disabled={!folderPath}
-          label="Start from backlog"
-          hint={
-            backlogScanning
-              ? 'Scanning the backlog…'
-              : !folderPath
-                ? 'Pick a folder to detect backlog items.'
-                : backlogCount > 0
-                  ? `${backlogCount} backlog item${backlogCount === 1 ? '' : 's'} in backlog/.`
-                  : 'No backlog items yet — or choose a file.'
-          }
-          onSelect={() => onChangePath('plan')}
-        />
-      </div>
-
-      {/* A sprint the app found but refuses to open (today: a run store from an
-          older Multicode). Dropping it from the picker with no message reads as a
-          lost sprint, so it is named here with its remedy. */}
-      {unreadableTeams.length > 0 ? (
-        <div className="flex flex-col gap-1 rounded-[var(--radius-md)] border border-[color:var(--tone-warn)] px-3 py-2">
-          {unreadableTeams.map((team) => (
-            <p key={team.slug} className="text-micro leading-4 text-[color:var(--text-muted)]">
-              <span className="font-medium text-[color:var(--text-strong)]">{team.slug}</span> can’t be opened.{' '}
-              {team.message}
-            </p>
-          ))}
-        </div>
-      ) : null}
-
-      {path === 'existing' ? (
-        <div className="flex flex-col gap-2">
-          <FieldLabel>Team</FieldLabel>
-          <Select<string>
-            ariaLabel="Team"
-            items={existingTeams.map((team) => ({ value: team.slug, label: team.displayName }))}
-            value={existingTeamSlug || null}
-            onChange={onSelectExistingTeam}
-            disabled={isScanning || existingTeams.length === 0}
-            placeholder="Select a team…"
-            className="w-full"
-          />
-        </div>
-      ) : null}
-
-      {path === 'plan' ? (
-        sourceFromFile ? (
-          // ---- Hand-picked file: a deliberate one-off outside the backlog. ----
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-3">
-              <FieldLabel>Source file</FieldLabel>
-              <button
-                type="button"
-                onClick={onBackToBacklog}
-                className="
-                  rounded-sm text-meta leading-5 text-[color:var(--text-muted)] underline-offset-2
-                  hover:text-[color:var(--text-default)] hover:underline focus-visible:focus-ring
-                "
-              >
-                Back to backlog
-              </button>
-            </div>
-            {hasSourceBundle ? (
-              <div className="rounded-md border border-[color:var(--border-default)]">
-                {sourceBundle?.map((item, index) => {
-                  const label = SOURCE_BUNDLE_KIND_LABELS[item.kind] ?? item.kind.replace(/_/g, ' ')
-                  return (
-                    <div
-                      key={`${item.sourceRelativePath}-${index}`}
-                      className="
-                        grid grid-cols-[minmax(0,1fr)_150px] items-center gap-3 border-b
-                        border-[color:var(--border-subtle)] px-3 py-2 last:border-b-0
-                      "
-                    >
-                      <div className="min-w-0">
-                        <TruncatedText
-                          as="div"
-                          text={item.sourceRelativePath}
-                          className="text-meta leading-5 text-[color:var(--text-default)]"
-                        />
-                        <div className="text-micro leading-4 text-[color:var(--text-muted)]">
-                          {label}
-                        </div>
-                      </div>
-                      <Select<SprintEngineSourceBundleKind>
-                        ariaLabel={`Source type for ${item.sourceRelativePath}`}
-                        items={SOURCE_BUNDLE_KIND_OPTIONS}
-                        value={item.kind}
-                        onChange={(value) => onChangeSourceBundleKind(index, value)}
-                        className="w-full"
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="flex items-center gap-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
-                <TruncatedText
-                  as="span"
-                  text={planRelativePath || planBasename(planPath)}
-                  className="min-w-0 flex-1 font-mono text-micro leading-5 text-[color:var(--text-default)]"
-                />
-                <button
-                  type="button"
-                  onClick={onChooseFile}
-                  className="
-                    shrink-0 rounded-sm text-meta leading-5 text-[color:var(--text-muted)] underline-offset-2
-                    hover:text-[color:var(--text-default)] hover:underline focus-visible:focus-ring
-                  "
-                >
-                  Change
-                </button>
-              </div>
-            )}
-            {/* A hand-picked file's kind is genuinely inferred, so the override
-                survives here (a backlog item already knows its kind). */}
-            {planPath && !hasSourceBundle ? (
-              planTypeEditing ? (
-                <div className="flex flex-col gap-2">
-                  <FieldLabel>Plan type</FieldLabel>
-                  <Select<SprintEngineSourcePlanKind>
-                    ariaLabel="Plan type"
-                    items={SOURCE_PLAN_KIND_OPTIONS}
-                    value={sourcePlanKind}
-                    onChange={(value) => {
-                      onChangeSourcePlanKind(value)
-                      setPlanTypeEditing(false)
-                    }}
-                    className="w-full"
-                  />
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 text-meta leading-5 text-[color:var(--text-muted)]">
-                  <span>Plan type</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="text-[color:var(--text-default)]">{planKindLabel}</span>
-                  <span aria-hidden="true">·</span>
-                  <button
-                    type="button"
-                    onClick={() => setPlanTypeEditing(true)}
-                    aria-label="Change plan type"
-                    className="
-                      rounded-sm text-[color:var(--text-default)] underline-offset-2
-                      hover:underline focus-visible:focus-ring
-                    "
-                  >
-                    Change
-                  </button>
-                </div>
-              )
-            ) : null}
-          </div>
-        ) : (
-          // ---- Backlog list: the first-class source. ----
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-3">
-              <FieldLabel>Backlog item</FieldLabel>
-              <button
-                type="button"
-                onClick={onChooseFile}
-                className="
-                  rounded-sm text-meta leading-5 text-[color:var(--text-muted)] underline-offset-2
-                  hover:text-[color:var(--text-default)] hover:underline focus-visible:focus-ring
-                "
-              >
-                Choose a file instead…
-              </button>
-            </div>
-            <BacklogSourcePicker
-              scan={backlogScan}
-              scanning={backlogScanning}
-              selectedPath={planPath}
-              onSelect={onSelectBacklogItem}
-            />
-          </div>
-        )
-      ) : null}
-
-      {planError ? (
-        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]">
-          {planError}
-        </div>
-      ) : null}
-
-      {path !== 'existing' ? (
-        <label className="flex flex-col gap-2">
-          <FieldLabel>Team name</FieldLabel>
-          <input
-            value={teamName}
-            onChange={(event) => onChangeTeamName(event.target.value)}
-            placeholder="Interface Team"
-            className="
-              block h-11 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5
-              text-heading font-medium text-[color:var(--text-strong)] outline-none transition-colors
-              placeholder:text-[color:var(--text-disabled)]
-              hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
-            "
-          />
-        </label>
-      ) : null}
-
-      {path === 'new' ? (
-        <label className="flex flex-col gap-2">
-          <FieldLabel>Objective</FieldLabel>
-          <textarea
-            value={goal}
-            onChange={(event) => onChangeGoal(event.target.value)}
-            placeholder="What outcome should this team deliver?"
-            className="
-              min-h-[120px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
-              text-heading leading-6 text-[color:var(--text-strong)] outline-none transition-colors
-              placeholder:text-[color:var(--text-disabled)]
-              hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
-            "
-          />
-        </label>
-      ) : null}
-    </div>
-  )
-}
-
-function planSourcedErrorMessage(error: SprintEnginePlanSourcedError): string {
-  switch (error.code) {
-    case 'missing-folder':
-      return 'Pick a folder before creating from a plan.'
-    case 'missing-plan-option':
-      return 'Selected plan is no longer available. Pick it again on the previous step.'
-    case 'missing-plan-content':
-      return 'Plan content was not loaded. Re-select the plan on the previous step.'
-    case 'missing-team-name':
-      return 'Add a team name on the previous step.'
-    case 'plan-not-on-disk':
-      return 'Selected source file is not available.'
-    case 'team-exists':
-      return 'A sprint with this name already exists.'
-    case 'unknown':
-      return error.message && error.message !== error.code
-        ? error.message
-        : 'Could not create the sprint workspace.'
-  }
-}
-
-function newTeamCreationErrorMessage(error: SprintEngineNewTeamCreationError): string {
-  switch (error.code) {
-    case 'missing-folder':
-      return 'Pick a folder before creating the sprint workspace.'
-    case 'team-exists':
-      return 'A sprint with this name already exists.'
-    case 'init-failed':
-      return error.message && error.message !== error.code
-        ? error.message
-        : 'Could not initialize the sprint run state.'
-    case 'invalid-projection':
-      return 'The sprint initialized but did not return a readable run projection.'
-    case 'unknown':
-      return error.message && error.message !== error.code
-        ? error.message
-        : 'Could not create the sprint workspace.'
-  }
-}
-
 function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): string {
   switch (error.code) {
     case 'missing-product-brief':
@@ -4513,17 +2797,14 @@ function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): s
   }
 }
 
-function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam: boolean): string {
+function createLabelFor(mode: CreationMode, isCreating: boolean): string {
   if (isCreating) return 'Creating…'
-  if (mode === 'sprintengine' && hasExistingTeam) return 'Load team'
   if (mode === REVIEW_WORKSPACE_MODE) return 'Start walkthrough'
   switch (mode) {
     // 'chat' drives create from the embedded composer's own CTA, not this footer,
     // so the footer is hidden for it; the label is defined for completeness.
     case 'chat':
       return 'Start chat'
-    case 'sprintengine':
-      return 'Start sprint'
     case 'switchboard':
       return 'Create Switchboard'
     case 'guided-brief':
@@ -4539,8 +2820,6 @@ function isStepReady(
   step: StepId,
   readiness: {
     workspaceStepReady: boolean
-    sprintEngineTeamReady: boolean
-    sprintEngineRosterReady: boolean
     guidedIdeaReady: boolean
     reviewSourceReady: boolean
     moduleStepReady: boolean
@@ -4552,19 +2831,6 @@ function isStepReady(
     case 'mcp-servers':
       return true
     case 'knowledge':
-      return true
-    case 'sprintengine-team':
-      return readiness.sprintEngineTeamReady
-    case 'sprintengine-roster':
-      return readiness.sprintEngineRosterReady
-    // The tools and review-&-start pages are refinement pages, not intent ones:
-    // every control on them is already defaulted (integrations, automation,
-    // permissions, parallelism, worktrees), so neither can ever block create.
-    // That is what keeps "Skip the rest and create" honest from the roster page
-    // on (the skip-to-create invariant in creationStepFlows).
-    case 'sprintengine-tools':
-      return true
-    case 'sprintengine-start':
       return true
     case 'guided-idea':
       return readiness.guidedIdeaReady
@@ -4591,13 +2857,6 @@ function getStepBlockingMessage(args: {
   name: string
   moduleStepReady: boolean
   moduleStepBlockedHint: string | null
-  sePath: SprintEnginePath
-  sePlanReady: boolean
-  seExistingTeam: ExistingTeam | null
-  seTeamDetailsReady: boolean
-  totalAgents: number
-  sePlainAgents: boolean
-  toolsSelectedCount: number
   guidedIdea: string
   guidedHasUi: GuidedBriefHasUi | null
   guidedSeedMode: DesignSystemSeedMode
@@ -4611,13 +2870,6 @@ function getStepBlockingMessage(args: {
     step,
     workspaceFolderReady,
     name,
-    sePath,
-    sePlanReady,
-    seExistingTeam,
-    seTeamDetailsReady,
-    totalAgents,
-    sePlainAgents,
-    toolsSelectedCount,
     guidedIdea,
     guidedHasUi,
     guidedSeedMode,
@@ -4640,30 +2892,6 @@ function getStepBlockingMessage(args: {
       return committedKnowledgeRoot
         ? `Knowledge folder: ${committedKnowledgeRoot} — continue, or change it.`
         : 'Pick a knowledge folder, or skip to set it later in Settings.'
-    case 'sprintengine-team':
-      if (sePath === 'plan' && !sePlanReady) return 'Select a backlog item or source file.'
-      if (seExistingTeam) return 'Existing team loaded — continue.'
-      if (!seTeamDetailsReady) {
-        return sePath === 'plan' ? 'Add a team name.' : 'Add a team name and an objective.'
-      }
-      return 'Continue to the roster.'
-    case 'sprintengine-roster':
-      if (seExistingTeam) return 'Ready to load team.'
-      // A plain agent pool needs no staffed role: it seats the roleless coordinator.
-      if (sePlainAgents) return 'Ready to create.'
-      if (totalAgents === 0) return 'Turn on at least one role.'
-      return 'Ready to create.'
-    // The tools page's hint reports the live selection instead of a readiness
-    // gate — the page is optional and can never block create.
-    case 'sprintengine-tools':
-      return toolsSelectedCount === 0
-        ? 'No tools selected — the sprint runs without integrations.'
-        : `${toolsSelectedCount} tool${toolsSelectedCount === 1 ? '' : 's'} selected.`
-    // The review-&-start page is the sprint's last step, so its hint is the one
-    // the footer shows next to the Start sprint action.
-    case 'sprintengine-start':
-      if (seExistingTeam) return 'Ready to load team.'
-      return 'Ready to create.'
     case 'module-step':
       if (!args.moduleStepReady) return args.moduleStepBlockedHint ?? 'Complete the configuration to create.'
       return 'Ready to create.'

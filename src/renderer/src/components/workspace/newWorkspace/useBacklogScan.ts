@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   scanBacklog,
   type BacklogFilesystemAdapter,
@@ -32,12 +32,15 @@ async function scanBacklogReadOnly(folderPath: string): Promise<BacklogScanResul
 export function useBacklogScan(folderPath: string | null): {
   isScanning: boolean
   result: BacklogScanResult
+  /** Re-run the same scan on demand (the header Rescan affordance). Resolves
+   *  when this scan lands or is superseded by a newer one. */
+  rescan: () => Promise<void>
 } {
   const [result, setResult] = useState<BacklogScanResult>(EMPTY)
   const [isScanning, setIsScanning] = useState(false)
   const tokenRef = useRef(0)
 
-  useEffect(() => {
+  const rescan = useCallback(async (): Promise<void> => {
     if (!folderPath) {
       tokenRef.current += 1
       setResult(EMPTY)
@@ -46,23 +49,25 @@ export function useBacklogScan(folderPath: string | null): {
     }
     const token = (tokenRef.current += 1)
     setIsScanning(true)
-    void scanBacklogReadOnly(folderPath)
-      .then((next) => {
-        if (token !== tokenRef.current) return
-        setResult(next)
-      })
-      .catch((error: unknown) => {
-        if (token !== tokenRef.current) return
+    try {
+      const next = await scanBacklogReadOnly(folderPath)
+      if (token === tokenRef.current) setResult(next)
+    } catch (error) {
+      if (token === tokenRef.current) {
         setResult({
           state: 'error',
           items: [],
           errors: [{ relativePath: 'backlog/', message: error instanceof Error ? error.message : String(error) }],
         })
-      })
-      .finally(() => {
-        if (token === tokenRef.current) setIsScanning(false)
-      })
+      }
+    } finally {
+      if (token === tokenRef.current) setIsScanning(false)
+    }
   }, [folderPath])
 
-  return useMemo(() => ({ isScanning, result }), [isScanning, result])
+  useEffect(() => {
+    void rescan()
+  }, [rescan])
+
+  return useMemo(() => ({ isScanning, result, rescan }), [isScanning, result, rescan])
 }

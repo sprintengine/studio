@@ -1,5 +1,6 @@
 import { getRendererHost, selectModuleEnabled } from '../../../modules'
 import type { ModuleEnablementOverrides } from '../../../../../shared/modules/manifest'
+import { SPRINT_ENGINE_WORKSPACE_MODE } from '../../../types/workspace'
 import { CommentIcon, StandardWorkspaceTypeIcon } from '../../AppIcons'
 import type { ModeCardModel } from './types'
 
@@ -45,7 +46,7 @@ export function buildModeModels(moduleOverrides: ModuleEnablementOverrides): Mod
       description: definition.description,
       icon: definition.icon,
     }))
-  const featuredIds = ['sprintengine', 'guided-brief']
+  const featuredIds = [SPRINT_ENGINE_WORKSPACE_MODE, 'guided-brief']
   const byId = new Map(contributed.map((model) => [model.id, model]))
   const featured = featuredIds
     .map((id) => byId.get(id))

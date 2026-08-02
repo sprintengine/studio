@@ -81,7 +81,6 @@ export type {
   SprintEngineRosterSession,
   SprintEngineRosterSessions,
   SprintEngineRoster,
-  SprintEngineRosterMode,
   SprintEngineRunnerPolicy,
   SprintEngineRunSettings,
   SprintEngineRuntimeAgent,

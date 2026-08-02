@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { getRendererHost } from '../../../modules'
+import { SPRINT_ENGINE_WORKSPACE_MODE } from '../../../types/workspace'
 import { STEPS_BY_MODE, stepsForMode } from './creationStepFlows'
 
 // 'standard' is shell-owned and resolves to the standard flow directly.
@@ -16,8 +17,27 @@ assert.deepEqual(stepsForMode('chat'), ['workspace'], 'chat resolves to the shel
 // Contributed types resolve through their registry creationStepsId. The bundled
 // modules register eagerly when ./creationStepFlows pulls in ../../../modules.
 assert.deepEqual(stepsForMode('switchboard'), STEPS_BY_MODE.switchboard, 'switchboard resolves via the registry')
-assert.deepEqual(stepsForMode('sprintengine'), STEPS_BY_MODE.sprintengine, 'sprintengine resolves via the registry')
 assert.deepEqual(stepsForMode('guided-brief'), STEPS_BY_MODE['guided-brief'], 'guided-brief resolves via the registry')
+
+// The sprint flow is deleted (MC-2062): sprint creation is the New sprint
+// dialog, so the registry entry names no flow, the flow registry carries none,
+// and no step of any flow is a sprint step. The mode still resolves — to the
+// zero-config shared fields — because the hub must never crash on a persisted
+// mode id; every live route to it opens the dialog instead of the hub.
+assert.ok(!(SPRINT_ENGINE_WORKSPACE_MODE in STEPS_BY_MODE), 'the flow registry carries no sprint flow')
+for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
+  for (const step of steps) {
+    assert.ok(
+      !step.startsWith(`${SPRINT_ENGINE_WORKSPACE_MODE}-`),
+      `${flowId} carries no sprint step (${step})`,
+    )
+  }
+}
+assert.deepEqual(
+  stepsForMode(SPRINT_ENGINE_WORKSPACE_MODE),
+  ['workspace'],
+  'the sprint mode id falls back to the zero-config flow instead of crashing the hub',
+)
 
 // A mode id with no registry entry routes to the standard flow without
 // throwing, so a persisted unknown/plugin mode never strands the hub.
@@ -38,17 +58,7 @@ for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
   assert.ok(!(steps as string[]).includes('mode'), `${flowId} flow carries no retired mode pivot`)
 }
 
-// The novice critical paths stay short. The sprint's config pages (MC-1646) —
-// team roster, optional tools & skills, review & start — are each one reading
-// column, all fully defaulted, and all behind "Skip the rest and create" once
-// the team page's objective is answered.
-assert.deepEqual(STEPS_BY_MODE.sprintengine, [
-  'workspace',
-  'sprintengine-team',
-  'sprintengine-roster',
-  'sprintengine-tools',
-  'sprintengine-start',
-])
+// The novice critical paths stay short.
 assert.deepEqual(STEPS_BY_MODE['guided-brief'], ['workspace', 'guided-idea'])
 
 // Creating a standard workspace is folder -> Create, full stop. The layout step
@@ -60,24 +70,18 @@ assert.deepEqual(STEPS_BY_MODE.standard, ['workspace'], 'standard creation has n
 
 // The footer's "Skip the rest and create" is only honest if every step AFTER a
 // flow's required-intent step is defaulted — skipping must never silently accept
-// a blank the user was actually meant to fill in. The intent steps are the only
-// ones that carry something the hub cannot default. Pin that: nothing may sit
-// after an intent step unless it is a known-defaulted refinement step.
-const INTENT_STEPS = ['guided-idea', 'sprintengine-team'] as const
-const DEFAULTED_REFINEMENT_STEPS = [
-  'sprintengine-roster',
-  'sprintengine-tools',
-  'sprintengine-start',
-] as const
+// a blank the user was actually meant to fill in. With the sprint flow gone
+// there is no defaulted refinement step left, so the invariant tightens: an
+// intent step must be its flow's LAST step.
+const INTENT_STEPS = ['guided-idea', 'review-source'] as const
 for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
   const intentIndex = steps.findIndex((step) => (INTENT_STEPS as readonly string[]).includes(step))
   if (intentIndex < 0) continue
-  for (const step of steps.slice(intentIndex + 1)) {
-    assert.ok(
-      (DEFAULTED_REFINEMENT_STEPS as readonly string[]).includes(step),
-      `${flowId}: '${step}' follows an intent step, so it must be defaulted or "Skip the rest and create" would skip a required field`,
-    )
-  }
+  assert.equal(
+    intentIndex,
+    steps.length - 1,
+    `${flowId}: the intent step must be last — a step after it must be defaulted, and no defaulted refinement steps remain`,
+  )
 }
 
 // Zero-config quick flows are exactly the shared fields — the hub shows no

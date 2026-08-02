@@ -22,7 +22,6 @@ import type {
   SprintEngineRoleReasoningOverrides,
   SprintEngineRoleRegistry,
   SprintEngineRoster,
-  SprintEngineRosterMode,
 } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import {
@@ -42,7 +41,6 @@ import {
   pruneSprintEngineRoleCliDefaults,
   pruneSprintEngineRoleModelOverrides,
   resolveInitialSprintEngineRoster,
-  resolveSprintEngineRosterMode,
   sprintEngineRosterMatches,
 } from './savedRosters'
 
@@ -75,8 +73,6 @@ export type RosterEditorOptions = {
 
 export type RosterEditorResult = {
   // --- The props SprintEngineRosterPanel consumes, verbatim ---------------
-  rosterMode: SprintEngineRosterMode
-  onChangeRosterMode: (mode: SprintEngineRosterMode) => void
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides: SprintEngineRoleModelOverrides
@@ -104,13 +100,14 @@ export type RosterEditorResult = {
   onUpdateRoster: (id: string, name: string) => void
   onRenameRoster: (id: string, name: string) => void
   onDeleteRoster: (id: string) => void
+  // Plain-agents concurrency, consumed by the create surface's
+  // PlainAgentsPanel — not by SprintEngineRosterPanel (MC-2064).
   poolAgentCount: number
   onChangePoolAgentCount: (value: number) => void
 
   // --- Escape hatches the wizard's own create path still needs ------------
   /** The raw stored counts, BEFORE user-disabled roles are masked out. */
   rawRoleCounts: SprintEngineRoleCounts
-  useSpecialistRoles: boolean
   setRoleCounts: React.Dispatch<React.SetStateAction<SprintEngineRoleCounts>>
   setRoleCliDefaults: React.Dispatch<React.SetStateAction<Required<SprintEngineRoleCliDefaults>>>
   setRoleModelOverrides: React.Dispatch<React.SetStateAction<SprintEngineRoleModelOverrides>>
@@ -205,19 +202,16 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
   // change, and this run's schema numbers are pinned to 69 and 70).
   const [roleReasoningOverrides, setRoleReasoningOverrides] = useState<SprintEngineRoleReasoningOverrides>({})
   const [selectedRosterId, setSelectedRosterId] = useState<string | null>(() => initial.selectedRosterId)
-  const [useSpecialistRoles, setUseSpecialistRoles] = useState(() => initial.mode === 'roles')
-  // Run-level concurrency cap, surfaced on the roster step's pool panel.
-  // Plain-agent runs default to 2, specialist runs to 3 (MC-1585).
-  const [poolAgentCount, setPoolAgentCount] = useState(() => (initial.mode === 'roles' ? 3 : 2))
+  // Run-level concurrency cap, surfaced on the create surface's plain-agents
+  // panel. Plain-agent runs default to 2, roster runs to 3 (MC-1585). Whether
+  // this is a plain-agents session is the SELECTION — the built-in "No roles"
+  // reference — not a stored formation (MC-2064).
+  const [poolAgentCount, setPoolAgentCount] = useState(
+    () => (isNoRolesRosterRef(initial.selectedRosterId) ? 2 : 3),
+  )
 
   const [registry, setRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [registryStatus, setRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
-
-  // The formation segmented control is a projection of the one stored axis.
-  const rosterMode: SprintEngineRosterMode = useSpecialistRoles ? 'roles' : 'pool'
-  const onChangeRosterMode = useCallback((mode: SprintEngineRosterMode) => {
-    setUseSpecialistRoles(mode === 'roles')
-  }, [])
 
   // Existing runs render canonical projection state; user settings must not
   // hide roles already configured on them.
@@ -334,11 +328,10 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
       return
     }
     // The built-in is synthetic and not in `rosters`, so it needs its own
-    // branch. Selecting it means "no roster": switch to pool formation and
-    // leave the specialist rows alone so switching back restores them.
+    // branch. Selecting it means "no roster": the role rows are left alone so
+    // selecting a roster (or Custom) again restores them.
     if (isNoRolesRosterRef(id)) {
       onDetachFromExistingRun?.()
-      setUseSpecialistRoles(false)
       setSelectedRosterId(NO_ROLES_ROSTER_ID)
       setSprintEngineLastSelectedRoster(NO_ROLES_ROSTER_ID)
       return
@@ -354,8 +347,6 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
     setRoleReasoningOverrides({})
     setRoleCounts(cloneRoleCounts(roster.roleCounts))
     setRoleCliDefaults(roleCliDefaultsFromRoster(roster))
-    // Restore the SAVED formation rather than re-deriving it from roleCounts.
-    setUseSpecialistRoles(resolveSprintEngineRosterMode(roster, true, roster.roleCounts) === 'roles')
     setSelectedRosterId(roster.id)
     setSprintEngineLastSelectedRoster(roster.id)
   }, [rosters, onDetachFromExistingRun, setSprintEngineLastSelectedRoster])
@@ -363,26 +354,24 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
   const onSaveRoster = useCallback((name: string) => {
     const id = saveSprintEngineRoster({
       name,
-      mode: rosterMode,
       roleCounts: cloneRoleCounts(visibleRoleCounts),
       roleCliDefaults: pruneSprintEngineRoleCliDefaults(visibleRoleCounts, roleCliDefaults),
       roleModelOverrides: pruneSprintEngineRoleModelOverrides(visibleRoleCounts, roleModelOverrides),
     })
     if (id) setSelectedRosterId(id)
-  }, [saveSprintEngineRoster, rosterMode, visibleRoleCounts, roleCliDefaults, roleModelOverrides])
+  }, [saveSprintEngineRoster, visibleRoleCounts, roleCliDefaults, roleModelOverrides])
 
   // "Update" re-saves the current (edited) rows under the roster's existing name.
   const onUpdateRoster = useCallback((id: string, name: string) => {
     saveSprintEngineRoster({
       id,
       name,
-      mode: rosterMode,
       roleCounts: cloneRoleCounts(visibleRoleCounts),
       roleCliDefaults: pruneSprintEngineRoleCliDefaults(visibleRoleCounts, roleCliDefaults),
       roleModelOverrides: pruneSprintEngineRoleModelOverrides(visibleRoleCounts, roleModelOverrides),
     })
     setSelectedRosterId(id)
-  }, [saveSprintEngineRoster, rosterMode, visibleRoleCounts, roleCliDefaults, roleModelOverrides])
+  }, [saveSprintEngineRoster, visibleRoleCounts, roleCliDefaults, roleModelOverrides])
 
   // "Rename" changes only the name, leaving the saved roster intact — so
   // renaming never silently overwrites a roster with the current edited rows.
@@ -415,15 +404,12 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
           visibleRoleCounts,
           roleCliDefaults,
           roleModelOverrides,
-          rosterMode,
         )
       : false),
-    [selectedRoster, visibleRoleCounts, roleCliDefaults, roleModelOverrides, rosterMode],
+    [selectedRoster, visibleRoleCounts, roleCliDefaults, roleModelOverrides],
   )
 
   return {
-    rosterMode,
-    onChangeRosterMode,
     roleCounts: visibleRoleCounts,
     roleCliDefaults,
     roleModelOverrides,
@@ -449,7 +435,6 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
     onChangePoolAgentCount: setPoolAgentCount,
 
     rawRoleCounts: roleCounts,
-    useSpecialistRoles,
     setRoleCounts,
     setRoleCliDefaults,
     setRoleModelOverrides,

@@ -198,6 +198,7 @@ export function BacklogItemContextMenu({
   x,
   y,
   item,
+  selectionCount,
   actions,
   epicChoices,
   dependencyChoices,
@@ -211,6 +212,12 @@ export function BacklogItemContextMenu({
   x: number
   y: number
   item: BacklogItem
+  // How many rows the menu acts on (MC-2060). Above one, the menu shows only
+  // the module-contributed actions (already resolved selection-aware by the
+  // caller): every other section edits ONE item, and aiming a single-item
+  // mutation at whichever row was under the pointer while N rows are painted
+  // selected is a misclick, not a feature. Absent/1 = today's full menu.
+  selectionCount?: number
   actions: BacklogActions
   // Existing epics this item can be moved into (excludes the item itself).
   epicChoices: ReadonlyArray<BacklogEpicChoice>
@@ -232,6 +239,37 @@ export function BacklogItemContextMenu({
   // and the candidate items it may depend on (every other non-epic item).
   const dependsOn = item.dependsOn ?? []
   const dependencyCandidates = dependencyChoices.filter((candidate) => candidate.id !== item.id)
+
+  if ((selectionCount ?? 1) > 1) {
+    return (
+      <ContextMenu
+        x={x}
+        y={y}
+        ariaLabel={`Backlog selection actions: ${selectionCount} items`}
+        onClose={onClose}
+        surfaceClassName="min-w-[240px]"
+      >
+        {itemActions.length > 0 ? (
+          itemActions.map((itemAction) => (
+            <MenuItem
+              key={itemAction.id}
+              disabled={itemAction.disabled}
+              onClick={() => {
+                itemAction.run()
+                onClose()
+              }}
+            >
+              {itemAction.label}
+            </MenuItem>
+          ))
+        ) : (
+          <MenuItem disabled onClick={() => {}}>
+            No actions for this selection
+          </MenuItem>
+        )}
+      </ContextMenu>
+    )
+  }
 
   return (
     <ContextMenu

@@ -434,7 +434,6 @@ async function main(): Promise<void> {
     await act(async () => {
       root.render(
         <SprintEngineRosterPanel
-          rosterMode="roles"
           roleCounts={{ developer: 1 } as never}
           roleCliDefaults={{ developer: 'codex' } as never}
           roleModelOverrides={{ developer: 'gpt-5.6-sol' } as never}
@@ -455,8 +454,6 @@ async function main(): Promise<void> {
           onUpdateRoster={() => {}}
           onRenameRoster={() => {}}
           onDeleteRoster={() => {}}
-          poolAgentCount={2}
-          onChangePoolAgentCount={() => {}}
           {...(props as unknown as Partial<Parameters<typeof SprintEngineRosterPanel>[0]>)}
         />,
       )
@@ -584,31 +581,21 @@ async function main(): Promise<void> {
     assert.equal(WORKSPACE_STORE_VERSION, 70, 'the store version is untouched by the effort producer')
   })
 
-  // The wizard's launch call sites cannot be observed from a mounted row: the
-  // question is whether the picked map is handed to the creation controllers at
-  // all, and whether it is WITHHELD where it could not land. Asserted at the
-  // source, the way MC-1884's suite asserts its own host wiring.
-  await check('SEAM: the wizard hands the level to both run-creating paths, and withholds it from an existing run', async () => {
+  // The creation surface's launch call site cannot be observed from a mounted
+  // row: the question is whether the picked map is handed to the creation
+  // controller at all. Asserted at the source, the way MC-1884's suite asserts
+  // its own host wiring. The wizard's sprint paths died with MC-2062; the New
+  // sprint dialog is the one run-creating surface now.
+  await check('SEAM: the New sprint dialog hands the level into run init beside the model', async () => {
     const { readFileSync } = await import('node:fs')
     const source = readFileSync(
-      join(process.cwd(), 'src/renderer/src/components/workspace/NewWorkspacePanel.tsx'),
+      join(process.cwd(), 'src/renderer/src/components/workspace/newSprint/NewSprintDialog.tsx'),
       'utf8',
-    )
-    // The creation inputs are the sites where the level rides BESIDE the model
-    // into run init; the third occurrence in this file is the roster rows' own
-    // prop, asserted separately below.
-    const handoffs = source.match(
-      /roleModelOverrides: seRoleModelOverrides,\n(?:\s*\/\/[^\n]*\n)*\s*roleReasoningOverrides: seRoleReasoningOverrides,/g,
-    ) ?? []
-    assert.equal(
-      handoffs.length,
-      2,
-      'both run-creating paths (new team, plan-sourced) carry the map into init',
     )
     assert.match(
       source,
-      /seExistingTeam == null\s*\?\s*\{\s*roleReasoningOverrides: seRoleReasoningOverrides,\s*onSetRoleReasoning: setRoleReasoning,/,
-      'the roster rows offer the control only where a pick reaches the launch',
+      /roleModelOverrides: editor\.roleModelOverrides,\n\s*roleReasoningOverrides: editor\.roleReasoningOverrides,/,
+      'the dialog create carries the map into init beside the model picks',
     )
   })
 

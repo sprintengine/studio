@@ -444,8 +444,10 @@ const backlogDoorSource = readFileSync(
   ),
   'utf8',
 )
+// The wizard's backlog source picker died with the sprint flow (MC-2062); the
+// New sprint dialog is the creation surface that composes the shared row now.
 const sourcePickerSource = readFileSync(
-  join(process.cwd(), 'src/renderer/src/components/workspace/NewWorkspacePanel.tsx'),
+  join(process.cwd(), 'src/renderer/src/components/workspace/newSprint/NewSprintDialog.tsx'),
   'utf8',
 )
 const contextMenuSource = readFileSync(
@@ -893,15 +895,17 @@ run('relationship search requires a query and matches human-facing Backlog IDs',
 })
 
 run('row context menu reuses module-contributed Sprint actions', () => {
-  assert.match(backlogPanelSource, /externalActionsForItem\(menuItem\)/, 'the exact row is resolved through the shared module action registry')
+  // The optional second argument is the whole multi-selection (MC-2060); the
+  // single-row path still resolves through the same shared registry call.
+  assert.match(backlogPanelSource, /externalActionsForItem\(menuItem, menuSelectionItems \?\? undefined\)/, 'the exact row is resolved through the shared module action registry')
   assert.match(contextMenuSource, /itemActions\.map\(\(itemAction\)/, 'visible module actions render in the row menu')
   assert.match(contextMenuSource, /itemAction\.run\(\)/, 'activation uses the existing action run path')
 })
 
-run('the new-workspace source picker renders the same shared row interior', () => {
+run('the New sprint dialog source picker renders the same shared row interior', () => {
   assert.match(
     sourcePickerSource,
-    /<BacklogRowContent item=\{item\} now=\{now\} selected=\{selected\} \/>/,
+    /<BacklogRowContent item=\{item\} now=\{Date\.now\(\)\} selected=\{picked\} plainTitle \/>/,
     'the picker composes BacklogRowContent — with its own selection flag, so the picked row lifts its ink like every other Tier 1 row',
   )
 })

@@ -662,6 +662,12 @@ export type SprintEngineSourcePlanKind =
   // A backlog epic launched as a reference-based sprint. Only ever a root plan
   // kind — the epic's children carry their own leaf kinds in the source bundle.
   | 'epic'
+  // Several backlog items and/or epics launched as ONE sprint (MC-2060/2061):
+  // the general shape of which the epic launch is the single-epic special case.
+  // Only ever a root plan kind — the bundle carries the selection: selected
+  // epics as `epic`-kind entries (membership scopes), work items marked
+  // `selectedItem`/`epicChild`. A selection of exactly one epic stays `epic`.
+  | 'selection'
 
 export type SprintEngineSourceBundleKind =
   | SprintEngineSourcePlanKind
@@ -679,9 +685,17 @@ export type SprintEngineSourceBundleItem = {
    * This entry IS one of the launched epic's child items — a unit of work the
    * planner mints exactly one task for — rather than supporting reading
    * material (an attached mockup, a design-system note) that happens to share
-   * the bundle. Only set on an `epic` launch; the engine ignores it elsewhere.
+   * the bundle. Set on `epic` and `selection` launches; ignored elsewhere.
    */
   epicChild?: boolean
+  /**
+   * The `selection` counterpart of {@link epicChild}: this entry IS a
+   * directly-selected backlog item — a unit of work, but not a child of any
+   * selected epic. The engine re-classifies marked work entries from their own
+   * `epic:` frontmatter at init (`normalize_selection_bundle`), so the two
+   * markers only need to be honest, not perfect.
+   */
+  selectedItem?: boolean
 }
 
 export type SprintEngineSource = {
@@ -701,6 +715,8 @@ export type SprintEngineSourceBundleStateItem = {
   capturedAt?: string
   /** See {@link SprintEngineSourceBundleItem.epicChild}. */
   epicChild?: boolean
+  /** See {@link SprintEngineSourceBundleItem.selectedItem}. */
+  selectedItem?: boolean
 }
 
 /**
@@ -1047,17 +1063,11 @@ export type SprintEngineSavedRoster = {
 // directory slug (`.multi-code/sprintengine/<team>/run.yaml`) and appears as
 // `teamSlug` / `teamName` / `teamDirectoryPath`. The two used to share the word
 // and met in the same signatures; keep them apart.
-// How a roster is formed. 'roles' = the user staffs named specialist roles.
-// 'pool' = NO ROLES: no souls, no specialist prompts, no architect — one plain
-// agent per task up to the run's max-concurrency setting, with one of them
-// doing the planning. (MC-1889 removed a third formation where the architect
-// staffed from a model palette.)
 //
-// Lives in shared, not the renderer, because `src/shared` cannot import
-// renderer modules (tsconfig.web boundary) and both the wizard and the
-// plan-sourced launch path need it. SprintEngineRosterPanel re-exports it so
-// its call sites are unchanged.
-export type SprintEngineRosterMode = 'roles' | 'pool'
+// A roster is a SET OF ROLES, nothing else (MC-2064, superseding MC-1875's
+// `mode` formation axis). "No roles" is not a kind of roster — it is the
+// alternative to having one, a level above rosters, represented only by the
+// built-in reference below.
 
 // The built-in "No roles" (non-)roster: no souls, no specialists, no architect
 // — one plain agent per task up to the run's max-concurrency setting, with one
@@ -1086,12 +1096,6 @@ export function isNoRolesRosterRef(ref: string | null | undefined): boolean {
 export type SprintEngineRoster = {
   id: string
   name: string
-  // The formation this roster was SAVED in, so reloading it restores what the
-  // user chose rather than re-deriving a guess from `roleCounts`. ABSENT is a
-  // documented state, not an accident: every roster saved before MC-1875 has no
-  // mode, and those fall back to the legacy staffs-specialists guess so they
-  // load exactly as they did before.
-  mode?: SprintEngineRosterMode
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: SprintEngineRoleCliDefaults
   // Per-role explicit launch model (see SprintEngineSavedRoster). Absent on

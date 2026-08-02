@@ -73,6 +73,13 @@ function sourceTypeGuidance(
       'Then write `plan.md` as a thin manifest that references each source document by project-root-relative path with a per-document verification note, and build the full task graph covering every child item. Do not re-author valid design prose into plan.md.',
     ].join('\n\n')
   }
+  if (sourcePlanKind === 'selection') {
+    return [
+      'Source type: backlog selection (several items and/or epics launched as one sprint). The selected backlog items — and each selected epic with its open children — are the canonical plan; they ride the source bundle, referenced in place, not copied.',
+      "`sprintengine.init` mints a plan task that sequences the selection: exactly one task per selected work item (a directly-selected item, or an open child of a selected epic), deduped. As the planner: read every referenced document, verify each against the current code, and update stale or incomplete design content in the backlog files themselves (in worktree-mode runs, edit the copies in their own project's worktree so the updates ride that project's pull request).",
+      'Then write `plan.md` as a thin manifest that references each source document by project-root-relative path with a per-document verification note, and build the full task graph covering every selected work item. Do not re-author valid design prose into plan.md.',
+    ].join('\n\n')
+  }
   if (classifyByBundle) {
     const kinds = Array.from(new Set(bundle.map((item) => item.kind)))
     if (kinds.length === 1) {

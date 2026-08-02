@@ -649,7 +649,10 @@ async function main(): Promise<void> {
     await view.click(trigger)
     assert.equal(dom.window.document.activeElement, view.search(), 'search takes focus on open')
     await act(async () => {
-      dom.window.dispatchEvent(
+      // Through the focused element, as a real keypress travels — the popover's
+      // Escape listener sits on document (so it beats window-level dialog
+      // handlers), and an event dispatched directly on window never reaches it.
+      ;(dom.window.document.activeElement ?? dom.window.document.body).dispatchEvent(
         new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
       )
     })

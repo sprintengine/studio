@@ -1,13 +1,11 @@
-// Leaf controls used by the new-workspace wizard and the Guided Brief build
-// handoff. Extracted from NewWorkspacePanel.tsx so the wizard orchestrator
-// stays focused on step state and navigation; these row primitives are pure
-// presentation and have no closure ties to the wizard reducer.
+// Leaf controls used by the creation hub and the Guided Brief build handoff.
+// Extracted from NewWorkspacePanel.tsx so the hub orchestrator stays focused on
+// step state and navigation; these row primitives are pure presentation and
+// have no closure ties to the hub.
 //
-// MC-1646: the sprint wizard's own pages no longer render through
-// RosterAndRunSettings — its Team / Tools / Start pages live in
-// SprintEngineRosterPanel / SprintEngineToolsPanel / SprintEngineStartPanel.
-// RosterAndRunSettings remains as the Guided Brief build handoff's
-// single-column roster + run-settings surface.
+// The sprint wizard pages that once consumed these are gone (MC-2062: sprint
+// creation is the New sprint dialog). RosterAndRunSettings remains as the
+// Guided Brief build handoff's single-column roster + run-settings surface.
 
 import React from 'react'
 import type {

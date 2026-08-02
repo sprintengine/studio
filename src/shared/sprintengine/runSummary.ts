@@ -89,6 +89,7 @@ const BACKLOG_PATH = /^backlog[\\/]/i
 // seed source identically.
 const SOURCE_KIND_LABELS: Record<string, string> = {
   epic: 'Epic',
+  selection: 'Selection',
   product_plan: 'Product plan',
   architect_plan: 'Architect plan',
   markdown: 'Markdown',
@@ -105,9 +106,12 @@ function deriveSourceLabel(state: SprintEngineState | null): string | null {
   const source = state?.source
   const path = source?.path
   if (!source || !path) return null
+  const planKind = typeof source.planKind === 'string' ? source.planKind : undefined
+  // A selection's root is its anchor backlog item (MC-2060) — the plan kind is
+  // the honest provenance, so it wins over the path-based single-item read.
+  if (planKind === 'selection') return 'Selection'
   if (BACKLOG_EPICS_PATH.test(path)) return 'Epic'
   if (BACKLOG_PATH.test(path)) return 'Backlog item'
-  const planKind = typeof source.planKind === 'string' ? source.planKind : undefined
   return (
     (planKind && SOURCE_KIND_LABELS[planKind])
     ?? SOURCE_KIND_LABELS[source.kind]

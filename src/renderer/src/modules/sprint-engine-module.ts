@@ -169,18 +169,50 @@ export const sprintEngineRendererModule: RendererModule = {
       label: 'Run a Sprint',
       category: 'execute',
       order: 10,
+      // On a multi-selection the one action acts on the whole selection
+      // (MC-2060) — same entry point, selection-aware label, one sprint.
+      getLabel: ({ selection }) =>
+        selection && selection.items.length > 1
+          ? `Start a sprint from these ${selection.items.length} items`
+          : 'Run a Sprint',
       // An item already handed to an agent shows "Open agent" as its execute
       // action instead — running a fresh Sprint over work an agent already owns
       // would fork the effort, so the Sprint entry point drops out entirely.
-      isVisible: ({ item }) =>
-        item.status !== 'archived'
-        && item.status !== 'completed'
-        && !hasSprintEngineRunLink(item)
-        && !hasAgentLink(item),
+      // A selection is eligible only when every member is (one linked or
+      // terminal row would otherwise ride into the bundle silently).
+      isVisible: ({ item, selection }) =>
+        (selection?.items ?? [item]).every(
+          (candidate) =>
+            candidate.status !== 'archived'
+            && candidate.status !== 'completed'
+            && !hasSprintEngineRunLink(candidate)
+            && !hasAgentLink(candidate),
+        ),
       getState: ({ startSourcePlan }) => startSourcePlan ? 'enabled' : 'disabled',
       async run(context) {
         if (!context.startSourcePlan) return
         const startSourcePlan = context.startSourcePlan
+
+        // A multi-selection seeds through the same sourceBundle seam an epic
+        // launch uses: one bundle holding every selected item, epics expanded
+        // to their open children (MC-2060). A selection of exactly one plain
+        // item builds no plan here and falls through to the single-item flow
+        // below, byte-identical to a plain right-click.
+        if (context.selection) {
+          const { buildBacklogSelectionSourcePlan } = await import(
+            '../components/backlog/backlogSelectionSourcePlan'
+          )
+          const selectionPlan = buildBacklogSelectionSourcePlan({
+            workspaceRoot: context.workspaceRoot,
+            items: context.selection.items,
+            projectItems: context.selection.projectItems,
+          })
+          if (selectionPlan) {
+            startSourcePlan(selectionPlan)
+            return
+          }
+        }
+
         let sourceContent = await context.readSource()
 
         // A proxy item mirrors a tracker issue. Backlog launches are reference-

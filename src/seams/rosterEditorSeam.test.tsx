@@ -80,8 +80,6 @@ async function main(): Promise<void> {
       // fails here rather than in production.
       return (
         <SprintEngineRosterPanel
-          rosterMode={editor.rosterMode}
-          onChangeRosterMode={editor.onChangeRosterMode}
           roleCounts={editor.roleCounts}
           roleCliDefaults={editor.roleCliDefaults}
           roleModelOverrides={editor.roleModelOverrides}
@@ -102,8 +100,6 @@ async function main(): Promise<void> {
           onUpdateRoster={editor.onUpdateRoster}
           onRenameRoster={editor.onRenameRoster}
           onDeleteRoster={editor.onDeleteRoster}
-          poolAgentCount={editor.poolAgentCount}
-          onChangePoolAgentCount={editor.onChangePoolAgentCount}
         />
       )
     }
@@ -152,9 +148,7 @@ async function main(): Promise<void> {
     assert.equal(wizard().selectedRosterId, NO_ROLES_ROSTER_ID)
     assert.equal(manager().selectedRosterId, NO_ROLES_ROSTER_ID)
     // Divergence is the failure this guards: two surfaces reading the same store
-    // into different formations is the rebuilt-lookalike outcome.
-    assert.equal(wizard().rosterMode, 'pool')
-    assert.equal(wizard().rosterMode, manager().rosterMode)
+    // into different selections is the rebuilt-lookalike outcome.
     assert.deepEqual(wizard().roleCounts, manager().roleCounts)
   })
 
@@ -201,10 +195,10 @@ async function main(): Promise<void> {
     // registry fetch would be an optimisation; sharing this would be a bug.
     assert.notEqual(a().setRoleCounts, b().setRoleCounts, 'each instance owns its own state')
 
-    await act(async () => { a().onChangeRosterMode('roles') })
+    await act(async () => { a().onSetRoleCount('developer', 0) })
     await settle()
-    assert.equal(a().rosterMode, 'roles', 'the edited instance changed')
-    assert.equal(b().rosterMode, 'pool', 'the other instance did NOT — no cross-talk')
+    assert.equal(a().roleCounts.developer, 0, 'the edited instance changed')
+    assert.equal(b().roleCounts.developer, 1, 'the other instance did NOT — no cross-talk')
   })
 
   await check('SEAM: an EXPLICIT roster ref beats a stale last-used selection', async () => {
