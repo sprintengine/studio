@@ -21,6 +21,7 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'agent-runtime',
   'backlog',
   'design',
+  'design-wizard',
   'dev-tools',
   'git',
   'memory-graph',
