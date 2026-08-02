@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Global door surfaces on `RendererHost` (MC-1854):
+  `registerGlobalSurface({ id, Component })` publishes the full-page surface
+  behind a sidebar nav entry with the same id. A global surface is a
+  first-class, instance-global extension point: no workspace type, panel, or
+  project scope is required to own a top-level door. `Component` is zero-prop,
+  eager or `React.lazy()` (`GlobalSurfaceComponent`). The shell gates the
+  mount on your module's live enablement — while the module is uninstalled or
+  disabled it renders an explicit "not installed" door (name, one sentence,
+  one CTA into Extensions) and never clears the user's persisted spot, so
+  reinstalling lands them back on the door. An id already claimed by another
+  module is a registration error, reported as a module load error that gates
+  off the failing module's other contributions.
+
 - Per-module workspace state on `RendererHost` (MC-1573):
   `getWorkspaceModuleState<T>(workspaceId)` /
   `setWorkspaceModuleState(workspaceId, state)` — your module's own durable

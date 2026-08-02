@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import {
+  DoorModuleNotInstalledSurface,
   MissingModulePanelSurface,
   ModuleNotInstalledSurface,
   marketplaceModuleForComponent,
@@ -73,8 +74,28 @@ function testModeLabelFallsBackToCapitalizedId(): void {
   assert.equal(moduleLabelForMode('calendar'), 'Calendar')
 }
 
+// MC-1854: the door-level absence surface — door name, one sentence, one CTA
+// into Extensions — with copy that stays honest between "not installed" and
+// "installed but disabled".
+function testDoorNotInstalledSurfaceNamesTheDoorAndOffersExtensions(): void {
+  const html = renderToStaticMarkup(
+    <DoorModuleNotInstalledSurface label="Reviews" onOpenExtensions={() => {}} />
+  )
+  assert.match(html, /Reviews/)
+  assert.match(html, /The Reviews module isn’t installed\./)
+  assert.match(html, /Find it in Extensions/, 'the single CTA is present')
+  assert.match(html, /aria-label="Door module not installed"/)
+
+  const disabled = renderToStaticMarkup(
+    <DoorModuleNotInstalledSurface label="Reviews" installed onOpenExtensions={() => {}} />
+  )
+  assert.match(disabled, /The Reviews module is turned off\./)
+  assert.doesNotMatch(disabled, /isn’t installed\./, 'a disabled module is never called uninstalled')
+}
+
 testMarketplaceMappingRequiresModuleKindAndPrefix()
 testNotInstalledSurfaceNamesTheModuleAndOffersInstall()
 testMissingPanelSurfaceFallsBackUntilResolved()
 testModeLabelFallsBackToCapitalizedId()
+testDoorNotInstalledSurfaceNamesTheDoorAndOffersExtensions()
 console.log('ModuleAbsenceSurfaces tests passed')

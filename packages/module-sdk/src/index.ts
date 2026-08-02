@@ -1259,6 +1259,29 @@ export type SidebarNavEntryDefinition = {
   Component: SidebarNavEntryComponent
 }
 
+// ── Global door surfaces ─────────────────────────────────────────────────────
+
+export type GlobalSurfaceComponent =
+  | ComponentType
+  | LazyExoticComponent<ComponentType>
+
+/**
+ * The full-page surface behind a top-level door. A global surface is a
+ * first-class extension point: it is instance-global, needs no workspace
+ * type, panel, or project scope, and owns its own data and layout. Pair it
+ * with a sidebar nav entry whose open action routes to the same `id` — the
+ * shell mounts the surface over the workspace card region when that door
+ * opens, gated on your module's live enablement. The component is zero-prop,
+ * eager or `React.lazy()`. While your module is uninstalled or disabled, the
+ * shell renders an explicit "not installed" door in its place and keeps the
+ * user's spot; re-enabling restores the surface without a reload.
+ */
+export type GlobalSurfaceDefinition = {
+  /** Matches the id the door opens. Non-empty; unique across all modules. */
+  id: string
+  Component: GlobalSurfaceComponent
+}
+
 // ── Live runtime surfaces (renderer) ─────────────────────────────────────────
 
 export type WorkspaceFileWatchEvent = {
@@ -1331,6 +1354,15 @@ export type RendererHost = {
    * `order`, so toggling your module shows/hides the door without a reload.
    */
   registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
+  /**
+   * Contribute the door-routed full-page surface behind a sidebar nav entry
+   * with the same id. Registered once at boot; the shell gates the mount on
+   * your module's enablement, so the toggle swaps the page for the explicit
+   * "not installed" door (and back) without a reload. An id already claimed
+   * by another module is a registration error, reported as a module load
+   * error that gates off your module's other contributions.
+   */
+  registerGlobalSurface(definition: GlobalSurfaceDefinition): void
   /**
    * The workspace's Backlog items as read-only views. Declare the
    * `backlog.read` permission (install-time disclosure). Mutations go through

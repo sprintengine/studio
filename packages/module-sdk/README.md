@@ -68,7 +68,15 @@ contracts, so a published version always matches the app version it ships with.
   `SidebarNavEntryDefinition` of `{ id, order, Component }`; the door shows
   only while your module is enabled and sits at its `order`, so the module
   toggle adds/removes it without a reload, and the row acts on the local
-  window's store), `invoke` (call your own
+  window's store), `registerGlobalSurface` (the full-page surface behind
+  that door — a `GlobalSurfaceDefinition` of `{ id, Component }` whose `id`
+  matches the one the nav entry opens; a global surface is a first-class,
+  instance-global extension point needing no workspace type, panel, or
+  project scope, and its zero-prop `Component` may be eager or
+  `React.lazy()`; while your module is uninstalled or disabled the shell
+  shows an explicit "not installed" door in its place and keeps the user's
+  spot, and an id already claimed by another module is reported as a module
+  load error), `invoke` (call your own
   `entry.main`'s `registerIpc` channels; see below), and the Backlog read
   API — `listBacklogItems(workspaceId)` / `watchBacklogItems(workspaceId, cb)`
   return `BacklogItemView`s from the same scan the Backlog panel uses (watch

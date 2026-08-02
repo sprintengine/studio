@@ -1220,6 +1220,116 @@ async function main(): Promise<void> {
     console.log('ok - all seven doors declare a rail while loading and while empty')
   }
 
+  // ═══ 9. The absent door and the workspace-less door (MC-1854) ═════════════
+  // Two halves of the published global-surface contract. First: a persisted
+  // `activeGlobalSurface` naming a surface that never registered resolves to
+  // the explicit not-installed door — named, one sentence, one CTA into
+  // Extensions — and the persisted id survives the visit untouched, so
+  // reinstalling the module lands the user back where they were. Second: a
+  // module that registers ONLY a nav entry + a global surface (no workspace
+  // type, no panel) gets a door that mounts, renders, and still resolves
+  // after a simulated reload — nothing in the mount path may assume a door
+  // has an owning workspace.
+  {
+    const { resolveActiveDoorSurface } = await import('./absentDoorSurface')
+    const host = getRendererHost()
+    const getSurface = (id: string): ReturnType<typeof host.getGlobalSurface> => host.getGlobalSurface(id)
+
+    // — The absent door —
+    useWorkspaceStore.setState({ activeGlobalSurface: 'atlas' } as never)
+    const extensionsOpens: string[] = []
+    const absent = resolveActiveDoorSurface(
+      useWorkspaceStore.getState().activeGlobalSurface as string,
+      getSurface,
+      () => true,
+      (view) => extensionsOpens.push(view),
+    )
+    const absentHost = dom.window.document.createElement('div')
+    dom.window.document.body.appendChild(absentHost)
+    const absentRoot = createRoot(absentHost)
+    await act(async () => {
+      absentRoot.render(React.createElement(absent.Component))
+    })
+    assert.match(absentHost.textContent ?? '', /Atlas/, 'the door is named')
+    assert.match(
+      absentHost.textContent ?? '',
+      /The Atlas module isn’t installed\./,
+      'and says its module is not installed',
+    )
+    const cta = [...absentHost.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Find it in Extensions',
+    )
+    assert.ok(cta, 'one CTA into Extensions')
+    await act(async () => {
+      cta.click()
+    })
+    assert.deepEqual(extensionsOpens, ['browse'], 'an uninstalled module deep-links to Browse')
+    assert.equal(
+      useWorkspaceStore.getState().activeGlobalSurface,
+      'atlas',
+      'rendering the absent door never clears the persisted id',
+    )
+    await act(async () => {
+      absentRoot.unmount()
+    })
+    absentHost.remove()
+
+    // — The workspace-less door —
+    host.hostFor('tide-tables').registerGlobalSurface({
+      id: 'tide-tables',
+      Component: () => React.createElement('div', null, 'Tide tables'),
+    })
+    useWorkspaceStore.setState({ activeGlobalSurface: 'tide-tables' } as never)
+    for (const visit of ['first open', 'after reload']) {
+      const resolved = resolveActiveDoorSurface(
+        useWorkspaceStore.getState().activeGlobalSurface as string,
+        getSurface,
+        () => true,
+        () => {},
+      )
+      assert.equal(resolved.moduleId, 'tide-tables', `the door resolves to its module (${visit})`)
+      const doorHost = dom.window.document.createElement('div')
+      dom.window.document.body.appendChild(doorHost)
+      const doorRoot = createRoot(doorHost)
+      await act(async () => {
+        doorRoot.render(React.createElement(resolved.Component))
+      })
+      assert.match(doorHost.textContent ?? '', /Tide tables/, `the workspace-less door renders (${visit})`)
+      await act(async () => {
+        doorRoot.unmount()
+      })
+      doorHost.remove()
+    }
+
+    // — Disabled, not uninstalled — the copy stays honest and the CTA lands
+    // on Installed, where the module's toggle lives.
+    const disabledOpens: string[] = []
+    const disabled = resolveActiveDoorSurface('tide-tables', getSurface, () => false, (view) =>
+      disabledOpens.push(view),
+    )
+    const disabledHost = dom.window.document.createElement('div')
+    dom.window.document.body.appendChild(disabledHost)
+    const disabledRoot = createRoot(disabledHost)
+    await act(async () => {
+      disabledRoot.render(React.createElement(disabled.Component))
+    })
+    assert.match(disabledHost.textContent ?? '', /The Tide-tables module is turned off\./)
+    const disabledCta = [...disabledHost.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Find it in Extensions',
+    )
+    assert.ok(disabledCta)
+    await act(async () => {
+      disabledCta.click()
+    })
+    assert.deepEqual(disabledOpens, ['installed'], 'a disabled module deep-links to Installed')
+    await act(async () => {
+      disabledRoot.unmount()
+    })
+    disabledHost.remove()
+
+    console.log('ok - the absent door says so and keeps the id; a workspace-less door mounts and survives reload')
+  }
+
   // Drop the shared scans (and their watchers) so this process can exit.
   resetScans()
   console.log('all global-door integration checks passed')

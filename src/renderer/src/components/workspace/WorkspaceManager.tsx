@@ -90,6 +90,7 @@ import { SidebarChrome } from './SidebarChrome'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
 import { GlobalSurfaceErrorBoundary } from './globalSurface/surfaceSubstrate'
+import { resolveActiveDoorSurface } from './globalSurface/absentDoorSurface'
 import {
   ContextRailColumn,
   ContextRailSlotContext,
@@ -351,6 +352,7 @@ export default function WorkspaceManager() {
   const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
   const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
   const closeGlobalSurface = useWorkspaceStore((s) => s.closeGlobalSurface)
+  const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const autoTitleWorkspaceFromPrompt = useWorkspaceStore((s) => s.autoTitleWorkspaceFromPrompt)
@@ -802,9 +804,11 @@ export default function WorkspaceManager() {
   )
   // Resolve the active door-routed full-page surface (global-surfaces epic 1704)
   // to its registered component, gated on the owning module's live enablement.
-  // A disabled or unregistered surface id resolves to null — the card region
-  // falls back to the active workspace rather than painting a blank page (a
-  // stale flag from before a module toggle can never strand the region).
+  // A disabled or unregistered surface id resolves to the explicit not-installed
+  // door (MC-1854) — the door says its module is absent and links into
+  // Extensions, rather than silently dropping the region back to the workspace.
+  // The persisted id is deliberately left intact: reinstalling or re-enabling
+  // the module lands the user back on the door they were in.
   //
   // Settings is the exception, and deliberately NOT a module's surface: module
   // enablement is edited inside Settings, so a Settings door that could be
@@ -813,11 +817,13 @@ export default function WorkspaceManager() {
   const activeGlobalSurfaceEntry = useMemo(() => {
     if (!activeGlobalSurface) return null
     if (activeGlobalSurface === 'settings') return CORE_SETTINGS_SURFACE
-    const entry = getRendererHost().getGlobalSurface(activeGlobalSurface)
-    if (!entry) return null
-    if (!selectModuleEnabled(moduleEnablement, entry.moduleId)) return null
-    return entry
-  }, [activeGlobalSurface, moduleEnablement])
+    return resolveActiveDoorSurface(
+      activeGlobalSurface,
+      (id) => getRendererHost().getGlobalSurface(id),
+      (moduleId) => selectModuleEnabled(moduleEnablement, moduleId),
+      (view) => openExtensionsSurface({ view }),
+    )
+  }, [activeGlobalSurface, moduleEnablement, openExtensionsSurface])
 
   // The first-run "you have no agent CLI" card. Two halves:
   //   - shouldShowFirstRunCliCard is the honest answer to "does this machine

@@ -77,6 +77,7 @@ import type {
   BacklogItemActionContext as AppBacklogItemActionContext,
   BacklogLinkProvider as AppBacklogLinkProvider,
   BacklogLinkProviderInput as AppBacklogLinkProviderInput,
+  GlobalSurfaceDefinition as AppGlobalSurfaceDefinition,
   ModuleCommandDefinition as AppModuleCommandDefinition,
   RendererHost as AppRendererHost,
   SettingsSectionDefinition as AppSettingsSectionDefinition,
@@ -142,6 +143,7 @@ import type {
   AutomationTriggerProvider as SdkAutomationTriggerProvider,
   JsonSchema as SdkJsonSchema,
   FileDropPayload as SdkFileDropPayload,
+  GlobalSurfaceDefinition as SdkGlobalSurfaceDefinition,
   MainHost as SdkMainHost,
   ModuleBridgeRefusalCode as SdkModuleBridgeRefusalCode,
   ModuleCommandContext as SdkModuleCommandContext,
@@ -301,6 +303,10 @@ expectType<Extends<SdkBacklogItemAction, AppBacklogItemAction>>()
 expectType<Extends<SdkBacklogLinkProvider, AppBacklogLinkProvider>>()
 expectType<Extends<SdkSettingsSectionDefinition, AppSettingsSectionDefinition>>()
 expectType<Extends<SdkSidebarNavEntryDefinition, AppSidebarNavEntryDefinition>>()
+// Global door surfaces (MC-1854): an SDK-typed surface stays registrable
+// against the in-app host (renderer-host.ts registerGlobalSurface); method
+// presence on RendererHost rides the host-soundness assertion above.
+expectType<Extends<SdkGlobalSurfaceDefinition, AppGlobalSurfaceDefinition>>()
 
 // Callback-input soundness: what the app passes into module callbacks
 // satisfies the SDK's (intentionally widened) read views.

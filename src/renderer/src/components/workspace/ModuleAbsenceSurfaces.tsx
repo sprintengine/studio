@@ -45,6 +45,38 @@ export function ModuleNotInstalledSurface({
   )
 }
 
+// A top-level door whose owning module is absent (MC-1854): the persisted
+// `activeGlobalSurface` id names a surface that never registered (module not
+// installed) or whose module is disabled. Same rule as the workspace surface
+// above — a labeled state with an install path, never a blank pane — and the
+// persisted id is never cleared: reinstalling lands the user back on this door.
+export function DoorModuleNotInstalledSurface({
+  label,
+  installed = false,
+  onOpenExtensions,
+}: {
+  label: string
+  /** True when the module is on the machine but disabled — the copy stays honest. */
+  installed?: boolean
+  onOpenExtensions: () => void
+}) {
+  return (
+    <div
+      role="note"
+      aria-label="Door module not installed"
+      className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"
+    >
+      <p className="text-meta font-semibold text-[color:var(--text-strong)]">{label}</p>
+      <p className="max-w-sm text-micro leading-5 text-[color:var(--text-muted)]">
+        {installed ? `The ${label} module is turned off.` : `The ${label} module isn’t installed.`}
+      </p>
+      <PrimaryButton size="sm" onClick={onOpenExtensions}>
+        Find it in Extensions
+      </PrimaryButton>
+    </div>
+  )
+}
+
 // True when the module id is present in this session — a bundled module active
 // in this build, or a third-party module the loader evaluated cleanly. A tab
 // whose module is present is stale chrome (an old panel id), not a missing
