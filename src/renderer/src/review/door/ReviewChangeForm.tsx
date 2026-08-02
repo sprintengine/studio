@@ -10,7 +10,7 @@ import { InlineNotice, Select } from '../../components/ui'
 import { PrimaryButton, GhostButton } from '../../components/ui/Buttons'
 import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { StatusDot } from '../../components/ui/StatusDot'
-import { ingestReviewChange, ReviewControllerError } from '../../components/workspace/newWorkspace/controllers/reviewController'
+import { ingestReviewChange, ReviewControllerError } from './reviewCreation'
 import { controlDefaultRoot, looksLikePrUrl, resolvePrProject, type PrProjectControl } from './reviewController'
 
 // "Review a change" (MC-1708 T6, mockup §4): the Reviews-door entry point that

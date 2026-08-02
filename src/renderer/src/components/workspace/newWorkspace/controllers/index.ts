@@ -32,7 +32,7 @@ export {
 export {
   runReviewCreation,
   ReviewControllerError,
-} from './reviewController'
+} from '../../../../review/door/reviewCreation'
 export {
   buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,

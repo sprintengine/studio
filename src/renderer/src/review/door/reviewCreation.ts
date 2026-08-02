@@ -1,5 +1,5 @@
-import type { ReviewGuideConfig, WorkspaceId } from '../../../../types/workspace'
-import type { ReviewIngestResult, ReviewSourceInput } from '../../../../../../shared/electron-api'
+import type { ReviewGuideConfig, WorkspaceId } from '../../types/workspace'
+import type { ReviewIngestResult, ReviewSourceInput } from '../../../../shared/electron-api'
 
 export type ReviewControllerInput = {
   name: string

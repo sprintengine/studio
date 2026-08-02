@@ -4,7 +4,7 @@ import type { ChangeMap } from '../../../../shared/review'
 import {
   computeChangeMapLayout,
   type ChangeMapLayoutNode,
-} from '../../utils/reviewChangeMapLayout'
+} from './changeMapLayout'
 
 interface ChangeMapViewProps {
   changeMap: ChangeMap

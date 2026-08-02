@@ -7,7 +7,7 @@ import {
   type WriteFetchLike,
   type WriteFetchResponseLike,
 } from './github-review-sync'
-import { registerReviewIpc } from '../../ipc/review-ipc'
+import { registerReviewIpc } from '../review-ipc'
 
 const tests: Array<{ name: string; body: () => Promise<void> | void }> = []
 function run(name: string, body: () => Promise<void> | void): void {

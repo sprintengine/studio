@@ -10,7 +10,7 @@
 // vertically centered against the tallest one. Edges are cubic beziers: a
 // horizontal S-curve between columns, a vertical one within a column.
 
-import type { ChangeMap, ChangeMapNode, ChangeMapNodeKind } from '../../../shared/review'
+import type { ChangeMap, ChangeMapNode, ChangeMapNodeKind } from '../../../../shared/review'
 
 // Geometry — even integers so every derived coordinate lands on a whole pixel
 // (column centering divides height gaps by two; horizontal/vertical control

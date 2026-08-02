@@ -27,21 +27,21 @@ import type {
   ReviewTarget,
 } from '../../shared/electron-api'
 import { validateReviewBrief, type ReviewWorkspaceState } from '../../shared/review'
-import { ReviewChangeSetService, reviewChangeSetDir } from '../review/changeset-service'
-import { enumerateReviews } from '../review/review-index'
-import { readReviewState, writeReviewState } from '../review/review-state-store'
-import type { ReviewGuideTerminalService } from '../review/guide-terminal-service'
-import { guideRunRegistry, type GuideRunRegistry } from '../review/guide-run-registry'
+import { ReviewChangeSetService, reviewChangeSetDir } from './changeset-service'
+import { enumerateReviews } from './review-index'
+import { readReviewState, writeReviewState } from './review-state-store'
+import type { ReviewGuideTerminalService } from './guide-terminal-service'
+import { guideRunRegistry, type GuideRunRegistry } from './guide-run-registry'
 // Named import that also runs the module's side effect: registering the
 // 'pull-request' source provider (MC-1678) so the service can ingest GitHub PR URLs
 // (the local branch/patch providers register from within changeset-service itself),
 // plus the PR-project matcher (MC-1787) the match-pr-project handler calls.
-import { matchPrProjectRoots } from '../review/providers/github-pr-provider'
+import { matchPrProjectRoots } from './providers/github-pr-provider'
 import {
   defaultReviewSyncDeps,
   postReview,
   type GithubReviewSyncDeps,
-} from '../review/providers/github-review-sync'
+} from './providers/github-review-sync'
 
 const BRIEF_FILE = 'brief.json'
 

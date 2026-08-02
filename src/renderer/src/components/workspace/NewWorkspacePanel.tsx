@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost } from '../../modules'
 import { ModuleCreationStepSection } from './newWorkspace/ModuleCreationStepSection'
 import { createGuidedBriefTemplate } from '../../modules/design-wizard-workspace-types'
-import { createReviewTemplate } from '../../modules/review-workspace-types'
+import { createReviewTemplate } from '../../review/workspaceTypes'
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
   REVIEW_WORKSPACE_MODE,

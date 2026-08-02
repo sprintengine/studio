@@ -4,7 +4,7 @@ import type { ReviewIngestResult, ReviewSourceInput } from '../../../../shared/e
 import {
   ingestReviewChange,
   ReviewControllerError,
-} from '../../components/workspace/newWorkspace/controllers/reviewController'
+} from './reviewCreation'
 import { controlDefaultRoot, looksLikePrUrl, resolvePrProject } from './reviewController'
 
 function run(name: string, body: () => Promise<void>): Promise<void> {

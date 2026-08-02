@@ -27,7 +27,7 @@ import {
   runReviewCreation,
   ReviewControllerError,
 } from './index'
-import type { ReviewControllerPorts } from './reviewController'
+import type { ReviewControllerPorts } from '../../../../review/door/reviewCreation'
 import type { ReviewGuideConfig } from '../../../../types/workspace'
 import { getRendererHost } from '../../../../modules'
 import type { GuidedBriefScaffoldPorts, GuidedBriefStartBuildPorts } from './types'

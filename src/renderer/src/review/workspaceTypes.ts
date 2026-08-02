@@ -1,4 +1,4 @@
-import type { RendererHost } from './renderer-host'
+import type { RendererHost } from '../modules/renderer-host'
 import type { LayoutTemplate, PreviewSlot } from '../types/workspace'
 import { REVIEW_WORKSPACE_MODE } from '../types/workspace'
 import { ReviewWorkspaceTypeIcon } from '../components/AppIcons'
