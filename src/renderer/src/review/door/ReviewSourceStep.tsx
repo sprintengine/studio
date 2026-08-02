@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
-import { CliModelPickerButton, StatusDot, Switch } from '../../ui'
-import type { GitBranchSnapshot, ReviewSourceInput, ReviewSourceProbe } from '../../../../../shared/electron-api'
-import type { AgentCli } from '../../../types/workspace'
-import { type AgentCliCatalogOption } from './cliRuntimeOptions'
+import { CliModelPickerButton, StatusDot, Switch } from '../../components/ui'
+import type { GitBranchSnapshot, ReviewSourceInput, ReviewSourceProbe } from '../../../../shared/electron-api'
+import type { AgentCli } from '../../types/workspace'
+import { type AgentCliCatalogOption } from '../../components/workspace/newWorkspace/cliRuntimeOptions'
 
 // The "Review a change set" creation step — source picker (PR / branch / patch),
 // live detection card, and walkthrough context (knowledge graph, guide runtime,

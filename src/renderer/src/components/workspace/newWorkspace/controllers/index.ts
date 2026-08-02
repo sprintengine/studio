@@ -29,10 +29,10 @@ export {
   buildAutomationsCreation,
   AutomationsControllerError,
 } from './automationsController'
-export {
-  runReviewCreation,
-  ReviewControllerError,
-} from '../../../../review/door/reviewCreation'
+// Review's creation controller is deliberately NOT re-exported here (MC-1856):
+// this barrel is core's, and core does not import the review module. Its one
+// caller reaches src/renderer/src/review directly, which is the edge MC-1857
+// severs when the module leaves the tree.
 export {
   buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,

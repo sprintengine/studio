@@ -84,7 +84,7 @@ import {
   stepWithinFlow,
 } from './newWorkspace/stepNavigation'
 import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
-import { ReviewSourceStep, type ReviewProbeState } from './newWorkspace/ReviewSourceStep'
+import { ReviewSourceStep, type ReviewProbeState } from '../../review/door/ReviewSourceStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS } from './newWorkspace/savedRosters'
@@ -101,12 +101,13 @@ import {
   buildModuleTypeCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
-  runReviewCreation,
-  ReviewControllerError,
   runDesignSystemScaffold,
   runGuidedBriefScaffold,
   runGuidedBriefStartBuild,
 } from './newWorkspace/controllers'
+// Reached directly, not through core's controllers barrel: this is one of the
+// residual core→review edges MC-1857 severs (see that item's requirements).
+import { runReviewCreation, ReviewControllerError } from '../../review/door/reviewCreation'
 
 // The shell-owned mode models (chat, standard) and the rail ordering live in
 // newWorkspace/modeModels.ts, shared with the CreationRail contract test.
