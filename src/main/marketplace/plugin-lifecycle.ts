@@ -89,6 +89,17 @@ export function createMarketplacePluginLifecycleService(services: MarketplacePlu
   }
 }
 
+// Read-only view of the install receipts for update detection: the receipt's
+// `version` is the bundle version that was installed (guaranteed equal to the
+// registry entry's `latest` at install time by the registry-mismatch gate).
+export async function readMarketplacePluginInstallReceipts(
+  receiptStorePath: string
+): Promise<{ ok: true; receipts: MarketplacePluginInstallReceipt[] } | { ok: false; message: string }> {
+  const store = await loadInstallStore(receiptStorePath)
+  if (!store.ok) return store
+  return { ok: true, receipts: Object.values(store.store.plugins) }
+}
+
 export async function installOrUpdateMarketplacePlugin(
   input: MarketplacePluginRegistryInstallInput,
   services: MarketplacePluginLifecycleServices

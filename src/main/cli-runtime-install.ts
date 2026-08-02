@@ -539,3 +539,96 @@ export async function installCli(
     error: ok ? null : (runError ?? (detected.installed ? null : 'CLI not found on PATH after install.')),
   }
 }
+
+// Builds the descriptor that runs the CLI's own updater: the resolved binary
+// with the manifest `update.args`, in the target shell so PATH resolution
+// matches detection and terminal launches.
+export function buildUpdateDescriptor(input: {
+  binary: string
+  args: string[]
+  target: PluginInstallPlatform
+}): SpawnDescriptor {
+  const { binary, args, target } = input
+  if (isPosixTarget(target)) {
+    return shellDescriptorForScript(target, [binary, ...args].map(posixSingleQuote).join(' '))
+  }
+  return shellDescriptorForScript(target, `& ${[binary, ...args].map(powerShellSingleQuote).join(' ')}`)
+}
+
+// Update an installed CLI (MC-1873). No staleness detection: a CLI's "latest"
+// belongs to the vendor's channel, so this is an action, not a state. Where
+// the manifest declares an `update` spec the CLI's own updater runs; otherwise
+// the install spec is re-run, which for npm installs is exactly "update to
+// latest" and no-ops when current.
+export async function updateCli(
+  cli: AgentCli,
+  runtime: Partial<CliRuntimeSettings> | undefined,
+  onData?: (chunk: string) => void,
+): Promise<CliInstallResult> {
+  const manifest = getPluginManifest(cli)
+  if (!manifest) {
+    return {
+      ok: false,
+      cli,
+      installed: false,
+      version: null,
+      resolvedPath: null,
+      log: '',
+      error: `No plugin manifest found for "${cli}".`,
+    }
+  }
+  const target = resolveInstallPlatform(process.platform, runtime?.useWsl ?? false)
+
+  if (manifest.update?.args?.length) {
+    const binary = resolveBinary(manifest, runtime)
+    const banner = `$ ${[binary, ...manifest.update.args].join(' ')}\n`
+    onData?.(banner)
+    let log = banner
+    const capture = (chunk: string): void => {
+      log += chunk
+      onData?.(chunk)
+    }
+    const updateEnv = managedInstallEnv() ?? undefined
+    let runError: string | null = null
+    try {
+      const outcome = await runDescriptor(
+        buildUpdateDescriptor({ binary, args: manifest.update.args, target }),
+        capture,
+        updateEnv,
+      )
+      if (outcome.code !== 0) {
+        runError = `Update command exited with code ${outcome.code}.`
+      }
+    } catch (error) {
+      runError = error instanceof Error ? error.message : String(error)
+    }
+    const detected = await detectCli(cli, runtime, updateEnv)
+    const ok = detected.installed && runError === null
+    return {
+      ok,
+      cli,
+      installed: detected.installed,
+      version: detected.version,
+      resolvedPath: detected.resolvedPath,
+      log,
+      error: ok ? null : (runError ?? (detected.installed ? null : 'CLI not found on PATH after update.')),
+    }
+  }
+
+  const methods = await cliInstallMethods(cli, runtime)
+  const method = methods.find((entry) => entry.recommended && entry.available)
+    ?? methods.find((entry) => entry.available)
+    ?? methods[0]
+  if (!method) {
+    return {
+      ok: false,
+      cli,
+      installed: false,
+      version: null,
+      resolvedPath: null,
+      log: '',
+      error: `No update path for ${cli} on ${target}: the manifest declares no update spec and no install methods.`,
+    }
+  }
+  return installCli({ cli, methodId: method.id }, runtime, onData)
+}
