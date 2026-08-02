@@ -122,7 +122,7 @@ import {
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
 import { attentionQueueBadge, buildAttentionQueueItems } from '../../utils/attentionQueue'
-import { isReviewGuideAgentId } from './globalSurface/reviews/reviewGuideTerminal'
+import { isReviewGuideAgentId } from '../../review/door/reviewGuideTerminal'
 import { residentAgentWorkspaceIds } from '../../utils/workspaceResidency'
 import {
   EMPTY_WORKSPACE_NAVIGATION_HISTORY,

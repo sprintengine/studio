@@ -10,7 +10,7 @@ import { REVIEW_WORKSPACE_MODE } from '../types/workspace'
 // import leaves the eager module-registry graph store-free, matching the other
 // module doors.
 const ReviewsNavEntry = React.lazy(() =>
-  import('../components/workspace/globalSurface/reviews/ReviewsNavEntry').then((m) => ({ default: m.ReviewsNavEntry })),
+  import('../review/door/ReviewsNavEntry').then((m) => ({ default: m.ReviewsNavEntry })),
 )
 
 // The Reviews full-page surface (global-surfaces epic 1704), mounted by
@@ -18,7 +18,7 @@ const ReviewsNavEntry = React.lazy(() =>
 // its bundle (the walkthrough tree — Monaco, guide chat) stays off the wire until
 // the door is opened, and never loads while the module is disabled.
 const ReviewsGlobalSurface = React.lazy(
-  () => import('../components/workspace/globalSurface/reviews/ReviewsGlobalSurface'),
+  () => import('../review/door/ReviewsGlobalSurface'),
 )
 
 // Review renderer module. Matches the main-side `review` module id so the single

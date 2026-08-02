@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import type { ChangeMap } from '../../../shared/review'
 import { computeChangeMapLayout, describeChangeMap } from './reviewChangeMapLayout'
-import { mockupChangeMap, mockupChangeMapStepIds } from '../components/panels/review/fixtures'
+import { mockupChangeMap, mockupChangeMapStepIds } from '../review/canvas/fixtures'
 
 function run(name: string, body: () => void): void {
   try {

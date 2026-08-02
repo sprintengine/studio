@@ -763,7 +763,7 @@ async function main(): Promise<void> {
   // the real store with several workspaces resident is the exact trigger; the
   // unstubbed review IPC resolving `{ ok: false }` is fine — a degraded pane
   // is a pass, a render loop is the failure.
-  const { default: ReviewsGlobalSurface } = await import('./reviews/ReviewsGlobalSurface')
+  const { default: ReviewsGlobalSurface } = await import('../../../review/door/ReviewsGlobalSurface')
   useWorkspaceStore.setState({ activeGlobalSurface: 'reviews' } as never)
   const reviewsRoot = createRoot(container)
   await act(async () => {
