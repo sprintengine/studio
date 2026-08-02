@@ -10,6 +10,7 @@ import type {
   MarketplacePluginVerifyResult,
   MarketplaceRegistryReadInput,
   MarketplaceRegistryReadResult,
+  MarketplaceUpdateStatesResult,
 } from '../../shared/electron-api'
 
 type MarketplaceIpcRenderer = {
@@ -37,6 +38,10 @@ type MarketplaceIpcRenderer = {
     channel: 'marketplace:plugins:uninstall',
     input: MarketplacePluginUninstallInput
   ): Promise<MarketplacePluginUninstallResult>
+  invoke(
+    channel: 'marketplace:plugins:update-states',
+    input?: MarketplaceRegistryReadInput
+  ): Promise<MarketplaceUpdateStatesResult>
 }
 
 export function createMarketplaceApi(renderer: MarketplaceIpcRenderer) {
@@ -65,6 +70,10 @@ export function createMarketplaceApi(renderer: MarketplaceIpcRenderer) {
       input: MarketplacePluginUninstallInput
     ): Promise<MarketplacePluginUninstallResult> =>
       renderer.invoke('marketplace:plugins:uninstall', input),
+    readMarketplacePluginUpdateStates: (
+      input?: MarketplaceRegistryReadInput
+    ): Promise<MarketplaceUpdateStatesResult> =>
+      renderer.invoke('marketplace:plugins:update-states', input),
   } satisfies Pick<
     ElectronApi,
     | 'readMarketplaceRegistry'
@@ -73,6 +82,7 @@ export function createMarketplaceApi(renderer: MarketplaceIpcRenderer) {
     | 'installMarketplacePluginFromRegistry'
     | 'updateMarketplacePluginFromRegistry'
     | 'uninstallMarketplacePlugin'
+    | 'readMarketplacePluginUpdateStates'
   >
 }
 

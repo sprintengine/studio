@@ -9,7 +9,7 @@ import type {
   CliRuntimeSettings,
 } from '../../shared/electron-api'
 import { invalidateCliAvailability } from '../cli-availability'
-import { cliInstallMethods, detectCli, installCli } from '../cli-runtime-install'
+import { cliInstallMethods, detectCli, installCli, updateCli } from '../cli-runtime-install'
 
 type DetectInput = { cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }
 type MethodsInput = { cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }
@@ -31,6 +31,19 @@ export function registerCliRuntimeIpc(ipcMain: IpcMain): void {
     })
     // Drop any cached "not installed" probe so the next availability detect for
     // this CLI re-runs against the freshly installed binary.
+    if (result.ok && result.installed) invalidateCliAvailability(input.cli)
+    return result
+  })
+  // Update action (MC-1873): the CLI's own updater where the manifest declares
+  // one, else a re-run of the install spec. Streams onto the same output
+  // channel installs use so one listener serves both flows.
+  ipcMain.handle('cli-runtime:update', async (event, input: DetectInput): Promise<CliInstallResult> => {
+    const channel = `cli-runtime:install-output:${input.cli}`
+    const result = await updateCli(input.cli, input.runtime, (chunk) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(channel, chunk)
+      }
+    })
     if (result.ok && result.installed) invalidateCliAvailability(input.cli)
     return result
   })

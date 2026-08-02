@@ -212,6 +212,7 @@ export type PluginManifest = {
   auth?: ManifestAuth
   detect?: PluginDetectSpec
   install?: PluginInstallSpec
+  update?: PluginUpdateSpec
 }
 
 // Platform keys for install metadata. `wsl` is a logical target used when the
@@ -223,6 +224,16 @@ export type PluginInstallPlatform = 'darwin' | 'linux' | 'win32' | 'wsl'
 // defaults to `['--version']` when omitted.
 export type PluginDetectSpec = {
   versionArgs?: string[]
+}
+
+// How to update an installed CLI through its own updater: `args` run against
+// the resolved binary (e.g. `["update"]` for claude-code), mirroring
+// `detect.versionArgs`. Absent, the Update action re-runs the `install` spec —
+// idempotent for npm installs. There is deliberately NO staleness detection
+// for CLIs (MC-1873): a CLI's "latest" belongs to the vendor's channel, not
+// the marketplace registry.
+export type PluginUpdateSpec = {
+  args: string[]
 }
 
 // One installable path for a CLI on a given platform. `shell` is run in the

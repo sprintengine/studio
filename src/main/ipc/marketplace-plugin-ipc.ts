@@ -8,11 +8,16 @@ import type {
   MarketplacePluginUninstallInput,
   MarketplacePluginUninstallResult,
   MarketplacePluginVerifyResult,
+  MarketplaceRegistryReadInput,
+  MarketplaceUpdateStatesResult,
 } from '../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../shared/marketplace'
 import type { AppServices } from '../app-services'
 import { writeDiagnosticLog } from '../diagnostics-service'
 import { createMarketplacePluginLifecycleService, defaultMarketplacePluginInstallStorePath } from '../marketplace/plugin-lifecycle'
+import { readMarketplaceUpdateStates } from '../marketplace/update-detection'
+import { defaultUserModuleRoot } from '../modules/user-module-registry'
+import { createDefaultMarketplaceRegistryClient } from './marketplace-registry-ipc'
 import { defaultMarketplacePluginStagingRoot, type MarketplaceInstallLog } from '../marketplace/plugin-download'
 import { createMarketplacePluginVerifier } from '../marketplace/plugin-verify'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
@@ -119,6 +124,29 @@ export function registerMarketplacePluginIpc(
     async (_event, input: MarketplacePluginRegistryInstallInput): Promise<MarketplacePluginRegistryInstallResult> => {
       try {
         return await lifecycle.updateFromRegistry(input)
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+
+  // Per-installed-entry update detection (MC-1873). Constructed lazily so the
+  // registry client (and its cache read) only exists once the surface asks.
+  let updateStatesRegistryReader: ReturnType<typeof createDefaultMarketplaceRegistryClient> | undefined
+  ipcMain.handle(
+    'marketplace:plugins:update-states',
+    async (_event, input?: MarketplaceRegistryReadInput): Promise<MarketplaceUpdateStatesResult> => {
+      try {
+        updateStatesRegistryReader ??= createDefaultMarketplaceRegistryClient()
+        return await readMarketplaceUpdateStates(
+          {
+            registryReader: updateStatesRegistryReader,
+            receiptStorePath: defaultMarketplacePluginInstallStorePath(app.getPath('userData')),
+            moduleRoot: defaultUserModuleRoot,
+            trustContext,
+          },
+          input ?? {}
+        )
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }

@@ -99,6 +99,9 @@
   "detect": {
     "versionArgs": ["--version"]
   },
+  "update": {
+    "args": ["update"]
+  },
   "install": {
     "darwin": [
       {

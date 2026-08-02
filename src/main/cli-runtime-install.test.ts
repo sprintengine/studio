@@ -5,6 +5,7 @@ import {
   buildExistsDescriptor,
   buildInstallDescriptor,
   buildProbeDescriptor,
+  buildUpdateDescriptor,
   buildUserShellProbeDescriptor,
   parseProbeOutput,
   resolveInstallPlatform,
@@ -108,6 +109,22 @@ function main(): void {
   assert.equal(buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'wsl', shell: '/bin/zsh' }), null)
   assert.equal(buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: undefined }), null)
   assert.equal(buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: '  ' }), null)
+
+  // Update descriptor: the CLI's own updater (manifest update.args) runs
+  // against the resolved binary in the target shell, mirroring the probe.
+  const posixUpdate = buildUpdateDescriptor({ binary: 'claude', args: ['update'], target: 'darwin' })
+  assert.equal(posixUpdate.file, 'bash')
+  assert.equal(posixUpdate.args[0], '-lc')
+  assert.equal(posixUpdate.args[1], "'claude' 'update'")
+  const wslUpdate = buildUpdateDescriptor({ binary: 'claude', args: ['update'], target: 'wsl' })
+  assert.equal(wslUpdate.file, 'wsl.exe')
+  assert.deepEqual(wslUpdate.args.slice(0, 3), ['-e', 'bash', '-lc'])
+  const winUpdate = buildUpdateDescriptor({ binary: 'claude', args: ['update'], target: 'win32' })
+  assert.equal(winUpdate.file, 'powershell.exe')
+  assert.equal(winUpdate.args.at(-1), "& 'claude' 'update'")
+  // A runtime command override with awkward characters stays safely quoted.
+  const quotedUpdate = buildUpdateDescriptor({ binary: "/o'dd/claude", args: ['update'], target: 'linux' })
+  assert.match(quotedUpdate.args[1], /'\/o'\\''dd\/claude' 'update'/)
 
   // Unmanaged-binary probe (git/gh): the three outcomes stay distinct. Versions
   // below are synthetic fixtures; real ones only ever come from a real probe.

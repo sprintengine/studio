@@ -211,6 +211,7 @@ import type {
 } from './design-system/attach'
 import type { ConversationProviderListEntry, ConversationProviderModel, PluginRegistryListEntry } from './plugin-manifest'
 import type { MarketplaceComponentKind, MarketplaceIndex, MarketplaceManifestIssue, MarketplacePluginEntry } from './marketplace/manifest'
+import type { MarketplaceUpdateStateEntry } from './marketplace/update-state'
 import type { CapabilityPermission } from './modules/permissions'
 import type {
   ConversationEvent,
@@ -663,6 +664,30 @@ export type MarketplaceRegistryReadResult =
       statusCode?: number
       issues?: MarketplaceManifestIssue[]
     }
+
+// Per-installed-entry update detection (MC-1873). `checked: false` is the
+// honest "couldn't check for updates" shape — the registry read failed, so
+// every entry carries `state: 'unknown'`, never "up to date". The `ok: false`
+// arm is a local failure (unreadable receipt store), not a registry one.
+export type MarketplaceUpdateStatesResult =
+  | {
+      ok: true
+      checked: true
+      registryState: MarketplaceRegistryState
+      registrySource: 'network' | 'cache' | 'bundled' | 'seed'
+      stale: boolean
+      fetchedAt: string
+      registryMessage?: string
+      entries: MarketplaceUpdateStateEntry[]
+    }
+  | {
+      ok: true
+      checked: false
+      registryState: MarketplaceRegistryState
+      registryMessage?: string
+      entries: MarketplaceUpdateStateEntry[]
+    }
+  | { ok: false; message: string }
 
 export type ConversationProviderListResult =
   | { ok: true; providers: ConversationProviderListEntry[] }
@@ -2941,6 +2966,7 @@ export type ElectronApi = {
   installMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
   updateMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
   uninstallMarketplacePlugin: (input: MarketplacePluginUninstallInput) => Promise<MarketplacePluginUninstallResult>
+  readMarketplacePluginUpdateStates: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceUpdateStatesResult>
   reloadPlugins: () => Promise<PluginRegistryListResult>
   conversationProvidersList: (input?: ConversationProvidersListInput) => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>
@@ -3099,6 +3125,7 @@ export type ElectronApi = {
   cliDetect: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliDetectResult>
   cliInstallMethods: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallMethodInfo[]>
   cliInstall: (input: CliInstallInput, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>
+  cliUpdate: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>
   onCliInstallOutput: (cli: AgentCli, cb: (chunk: string) => void) => () => void
   openSprintEngineArtifact: (statePath: string, artifactPath: string) => Promise<SprintEngineArtifactCommandResult>
   approveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>

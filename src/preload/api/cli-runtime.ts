@@ -21,10 +21,12 @@ export const cliRuntimeApi = {
     ipcRenderer.invoke('cli-runtime:install-methods', { cli, runtime }),
   cliInstall: (input: CliInstallInput, runtime?: RuntimeOverride): Promise<CliInstallResult> =>
     ipcRenderer.invoke('cli-runtime:install', { ...input, runtime }),
+  cliUpdate: (cli: AgentCli, runtime?: RuntimeOverride): Promise<CliInstallResult> =>
+    ipcRenderer.invoke('cli-runtime:update', { cli, runtime }),
   onCliInstallOutput: (cli: AgentCli, cb: (chunk: string) => void): (() => void) => {
     const ch = `cli-runtime:install-output:${cli}`
     const handler = (_: IpcRendererEvent, chunk: string): void => cb(chunk)
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
-} satisfies Pick<ElectronApi, 'cliDetect' | 'cliInstallMethods' | 'cliInstall' | 'onCliInstallOutput'>
+} satisfies Pick<ElectronApi, 'cliDetect' | 'cliInstallMethods' | 'cliInstall' | 'cliUpdate' | 'onCliInstallOutput'>
