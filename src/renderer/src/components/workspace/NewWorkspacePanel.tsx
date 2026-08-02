@@ -1387,12 +1387,14 @@ export default function NewWorkspacePanel({
         await runReviewCreation(
           { name, folderPath, source, guideConfig: reviewGuideConfig },
           {
-            addReviewWorkspace: ({ name: reviewName, folderPath: reviewFolder, guideConfig }) =>
+            // guideConfig is consumed by the guide run through runReviewCreation
+            // itself; it is deliberately NOT stamped onto the workspace row
+            // (MC-1856 — it was write-only state nothing ever read back).
+            addReviewWorkspace: ({ name: reviewName, folderPath: reviewFolder }) =>
               addWorkspace(createReviewTemplate(), {
                 name: reviewName,
                 folderPath: reviewFolder,
                 mode: REVIEW_WORKSPACE_MODE,
-                reviewGuideConfig: guideConfig,
                 windowId: workspaceWindowId,
               }),
             removeWorkspace,

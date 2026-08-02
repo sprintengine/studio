@@ -6,8 +6,6 @@ import type {
   Workspace,
   WorkspaceBacklogState,
   WorkspaceGitPanelState,
-  ReviewWorkspaceState,
-  ReviewGuideConfig,
   WorkspaceId,
   WorkspaceWindowId,
   WorkspaceWindowState,
@@ -295,7 +293,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
       seedAgent?: SoloChatSeed | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
       guidedBriefState?: GuidedBriefRuntimeState | null
-      reviewGuideConfig?: ReviewGuideConfig | null
       mode?: Workspace['mode']
       // Executor-triggered creation: skip the door-surface clear (MC-1833).
       background?: boolean
@@ -313,7 +310,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setFileExplorerExpandedPaths: (id: WorkspaceId, expandedPaths: string[]) => void
   setFileExplorerSelectedPath: (id: WorkspaceId, selectedPath: string | null) => void
   setBacklogViewState: (id: WorkspaceId, patch: Partial<WorkspaceBacklogState>) => void
-  setReviewWorkspaceState: (id: WorkspaceId, reviewState: ReviewWorkspaceState | null) => void
   setGitPanelState: (id: WorkspaceId, patch: Partial<Omit<WorkspaceGitPanelState, 'commitDraftsByScopeId'>>) => void
   setGitCommitDraft: (id: WorkspaceId, scopeId: string, text: string) => void
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void

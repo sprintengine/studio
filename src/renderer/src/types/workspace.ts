@@ -974,14 +974,14 @@ export type Workspace = {
   folderMissing?: boolean
   worktree?: WorkspaceWorktree | null
   sprintEngineContext?: SprintEngineWorkspaceContext | null
-  // The human's mutable review progress (files read, view mode, line comments)
-  // for a `review` workspace (MC-1675). Kept OUTSIDE the change set / brief so a
-  // re-run never clobbers it; null until the walkthrough surface (MC-1680) writes
-  // it. The change set itself lives on disk, not here.
+  // LEGACY, READ-ONLY (MC-1856). The human's review progress on a `review`-mode
+  // workspace (MC-1675). The `review` workspace type retired in MC-1708, so
+  // nothing writes this any more — it survives ONLY so persisted rows written
+  // before that retirement can still be lifted onto disk by
+  // `collectReviewStateMigrations`, which is core's job (see the comment there).
+  // Live review progress lives on disk beside the change set, not on a
+  // workspace row. Do not add readers.
   reviewState?: ReviewWorkspaceState | null
-  // Guide preparation choices captured at creation (MC-1677), read by the guide
-  // run (MC-1679). Absent on non-review workspaces.
-  reviewGuideConfig?: ReviewGuideConfig | null
   templateId: string
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>

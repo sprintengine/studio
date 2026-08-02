@@ -73,7 +73,7 @@ import {
   REVIEW_WORKSPACE_MODE,
   REVIEWS_HOST_WORKSPACE_MODE,
 } from '../../types/workspace'
-import type { ReviewGuideConfig, ReviewWorkspaceState } from '../../types/workspace'
+import type { ReviewWorkspaceState } from '../../types/workspace'
 import { deriveWorkspaceTitle } from '../../../../shared/workspace-title'
 import { SPRINT_ENGINE_MODULE_ID, reconcileWorkspaceModuleState } from './workspaceModuleState'
 // TerminalSessionSnapshot is a global ambient type from src/renderer/src/env.d.ts.
@@ -117,6 +117,14 @@ export type ReviewStateMigration = {
   state: ReviewWorkspaceState
 }
 
+// THE ONE SANCTIONED REVIEW EXCEPTION IN CORE (MC-1856). Everything else review
+// owns lives in src/renderer/src/review, src/main/review and src/shared/review,
+// and core does not import them. This function stays because it is not review
+// behaviour: it is a one-time retirement of CORE's OWN persisted workspace rows,
+// rows core wrote and only core can drop. Handing it to the review module would
+// make dropping dead core state depend on that module being installed and
+// enabled. It reads the legacy `Workspace.reviewState` field and nothing else.
+//
 // The `review` workspace type retired (MC-1708): reviews are instance-level disk
 // objects, so persisted review-mode rows are dropped — but only AFTER their
 // reviewer state is lifted onto disk. This is the pure half: from the persisted
@@ -306,9 +314,6 @@ export interface WorkspacesSliceActions {
       templateAgentCli?: AgentCli | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
       guidedBriefState?: import('../../types/workspace').GuidedBriefRuntimeState | null
-      // Guide preparation choices for a review workspace (MC-1677), persisted on
-      // the new workspace for the guide run to consume.
-      reviewGuideConfig?: ReviewGuideConfig | null
       mode?: Workspace['mode']
       // Externally-triggered creation (the automation executor's hidden host):
       // it must not dismiss whatever the operator is reading, so a background
@@ -338,9 +343,6 @@ export interface WorkspacesSliceActions {
   setFileExplorerExpandedPaths: (id: WorkspaceId, expandedPaths: string[]) => void
   setFileExplorerSelectedPath: (id: WorkspaceId, selectedPath: string | null) => void
   setBacklogViewState: (id: WorkspaceId, patch: Partial<WorkspaceBacklogState>) => void
-  // Replace a review workspace's human review progress (MC-1675); pass null to
-  // clear it. Declared here AND on the WorkspaceStore interface (dual-declaration).
-  setReviewWorkspaceState: (id: WorkspaceId, reviewState: ReviewWorkspaceState | null) => void
   setGitPanelState: (id: WorkspaceId, patch: Partial<Omit<WorkspaceGitPanelState, 'commitDraftsByScopeId'>>) => void
   setGitCommitDraft: (id: WorkspaceId, scopeId: string, text: string) => void
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
@@ -1250,12 +1252,6 @@ export function createWorkspacesSlice(
           folderMissing: false,
           ...(options?.worktree ? { worktree: options.worktree } : {}),
           sprintEngineContext,
-          // Review workspaces start with no human review progress (populated by
-          // the walkthrough surface, MC-1680) and carry the guide preparation
-          // choices captured at creation for the guide run (MC-1679) to consume.
-          ...(isReview
-            ? { reviewState: null, reviewGuideConfig: options?.reviewGuideConfig ?? null }
-            : {}),
           templateId: template.id,
           layoutModel: isGuidedBrief
             ? guidedBriefLayoutModel()
@@ -1442,13 +1438,6 @@ export function createWorkspacesSlice(
         if (!ws) return
         const current = ws.backlogState ?? defaultWorkspaceBacklogState()
         ws.backlogState = normalizeWorkspaceBacklogState({ ...current, ...patch })
-      }),
-
-    setReviewWorkspaceState: (id, reviewState) =>
-      set((state) => {
-        const ws = state.workspaces.find((w) => w.id === id)
-        if (!ws) return
-        ws.reviewState = reviewState
       }),
 
     setGitPanelState: (id, patch) =>
