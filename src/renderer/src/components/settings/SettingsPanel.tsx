@@ -1185,7 +1185,12 @@ export default function SettingsPanel({
   // the Connectors surface upstream in the store, so they never reach here.)
   const [activeSettingsTab, setActiveSettingsTab] = useState<string>(() => {
     const resolved = resolveInitialSettingsTab(initialTab)
-    return isSettingsTabId(resolved) ? resolved : 'general'
+    if (isSettingsTabId(resolved)) return resolved
+    // A deep-link may land on a contributed section (the voice-dictation tab
+    // since MC-1861); a section that isn't actually visible falls back to the
+    // first visible tab via the effect below.
+    if (typeof resolved === 'string' && resolved.startsWith(MODULE_SECTION_TAB_PREFIX)) return resolved
+    return 'general'
   })
 
   useEffect(() => {
