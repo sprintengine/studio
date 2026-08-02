@@ -203,20 +203,25 @@ const bundlesAndPlugins = picked
   )
 const projection = toMarketplaceIndex(bundlesAndPlugins, { inlineIcons: true })
 
-// Repo-authored first-party entries ride through (MC-2036: the nightly
-// automation starters). They are hand-written here, not projected from the
-// snapshot, so a regenerate that only wrote the projection would delete them —
-// silently, inside a diff too large to notice it in. An entry qualifies when it
-// owns a committed plugins/<id>/ bundle AND the projection did not emit it: the
+// Repo-authored first-party entries ride through. They are not projected from
+// the snapshot, so a regenerate that only wrote the projection would delete
+// them — silently, inside a diff too large to notice it in. Two populations
+// qualify, and only when the projection did not emit the id (the
 // snapshot-owned signed bundles keep coming from the projection, so nothing is
-// carried twice.
+// carried twice):
+//   - MC-2036 automation starters: entries owning a committed plugins/<id>/
+//     bundle.
+//   - MC-1858 inline-CLI entries (`cli` block, no bundle): generated from the
+//     bundled plugin manifests by `npm run catalogue:cli-entries` and carried
+//     verbatim here; cli-entries.test.ts fails the build if they drift.
 const marketplacePath = path.join(repoRoot, 'resources', 'marketplace', 'marketplace.json')
 const projectedIds = new Set(projection.index.plugins.map((plugin) => plugin.id))
 const carried = existsSync(marketplacePath)
   ? (JSON.parse(readFileSync(marketplacePath, 'utf8')).plugins ?? []).filter(
       (plugin) =>
         !projectedIds.has(plugin.id) &&
-        existsSync(path.join(repoRoot, 'resources', 'marketplace', 'plugins', plugin.id, 'plugin.json'))
+        (plugin.cli !== undefined ||
+          existsSync(path.join(repoRoot, 'resources', 'marketplace', 'plugins', plugin.id, 'plugin.json')))
     )
   : []
 projection.index.plugins = [...projection.index.plugins, ...carried]

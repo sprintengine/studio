@@ -3,6 +3,9 @@
   "displayName": "Kimi K3",
   "publisher": "multicode",
   "version": 1,
+  "summary": "Kimi K3 through the Claude Code CLI, pointed at Moonshot's endpoint.",
+  "category": "Agent CLI",
+  "icon": "icon.svg",
   "binary": "claude",
   "auth": {
     "type": "api-key",

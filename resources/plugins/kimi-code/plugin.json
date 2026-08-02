@@ -3,6 +3,9 @@
   "displayName": "Kimi Code",
   "publisher": "moonshotai",
   "version": 1,
+  "summary": "Moonshot AI's Kimi Code coding agent, driven in a terminal.",
+  "category": "Agent CLI",
+  "icon": "icon.svg",
   "binary": "kimi",
   "permissionPresets": {
     "default": {

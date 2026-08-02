@@ -3,6 +3,9 @@
   "displayName": "Generic Shell",
   "publisher": "multicode",
   "version": 1,
+  "summary": "A bare shell runtime for driving any command-line program as an agent.",
+  "category": "Agent CLI",
+  "icon": "icon.svg",
   "binary": "sh",
   "permissionPresets": {
     "default": {

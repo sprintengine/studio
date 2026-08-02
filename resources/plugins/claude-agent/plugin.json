@@ -4,6 +4,9 @@
   "displayName": "Claude Code",
   "publisher": "multicode",
   "version": 1,
+  "summary": "Claude conversation agents in the app, run through the Claude Agent SDK.",
+  "category": "Agent Runtime",
+  "icon": "icon.svg",
   "providerType": "agent-harness",
   "models": [
     {

@@ -271,6 +271,53 @@ function assertInlineIconMatchesCommittedMark(
 }
 
 /**
+ * An inline-CLI entry (MC-1858) surfaces an app-bundled agent CLI plugin as
+ * marketplace content: no bundle, no bytes to download — the install action is
+ * the bundled plugin's `install` spec executed by the CLI runtime installer.
+ * Two rules replace the signature gate:
+ *
+ * - `publisher.verified` may be claimed only when the named publisher is a
+ *   verified publisher in trusted-publishers.json: identity is proven by the
+ *   signed app bundle the plugin ships inside, and the trust-anchor file keeps
+ *   an arbitrary index entry from wearing the badge under an unknown name.
+ * - The referenced bundled plugin manifest must exist. This is checkable only
+ *   in the app repo, where the registry root sits beside resources/plugins;
+ *   the standalone registry repo has no bundled plugin tree, so there the
+ *   entry's contract is the schema plus the app-side seed-drift test
+ *   (cli-entries.test.ts), which regenerates every entry from the manifests.
+ */
+function validateInlineCliEntry(
+  root: string,
+  entry: MarketplacePluginEntry,
+  index: number,
+  trustedPublishers: TrustedPublisher[],
+  issues: VerificationIssue[]
+): void {
+  if (entry.cli === undefined) return
+  if (entry.publisher.verified) {
+    const trusted = trustedPublishers.find(
+      (publisher) => publisher.verified && publisher.name === entry.publisher.name
+    )
+    if (!trusted) {
+      issues.push(issue(
+        `marketplace.json.plugins[${index}].publisher.verified`,
+        'an inline-CLI entry may claim a verified publisher only under a name listed as verified in trusted-publishers.json.'
+      ))
+    }
+  }
+  const bundledPluginsRoot = join(root, '..', 'plugins')
+  if (existsSync(bundledPluginsRoot)) {
+    const manifestPath = join(bundledPluginsRoot, entry.cli.pluginId, 'plugin.json')
+    if (!existsSync(manifestPath)) {
+      issues.push(issue(
+        `marketplace.json.plugins[${index}].cli.pluginId`,
+        `no bundled plugin manifest at resources/plugins/${entry.cli.pluginId}/plugin.json; an inline-CLI entry must reference an app-bundled plugin.`
+      ))
+    }
+  }
+}
+
+/**
  * Every committed plugins/<id>/ payload must be claimed by an index entry that
  * this verifier actually checked — signed entries through `multicode-module
  * plugin verify`, unsigned non-code-bearing entries through
@@ -459,7 +506,13 @@ async function validateMarketplace(root: string, cliBundle: string): Promise<Ver
     // with no signature has nothing to bind. Enforcing this here is also what
     // keeps stripping a signature from silently downgrading a first-party
     // bundle into the unsigned lane.
-    if (entry.publisher.verified && entry.signature === undefined) {
+    //
+    // Inline-CLI entries (MC-1858) are the one exception: they ship no
+    // downloadable bytes a signature could bind. The referenced plugin already
+    // lives inside the signed app bundle and the install action executes that
+    // bundled plugin's `install` spec, so the app build itself is the identity
+    // proof. The claim is still gated — see validateInlineCliEntry.
+    if (entry.publisher.verified && entry.signature === undefined && entry.cli === undefined) {
       issues.push(issue(
         `marketplace.json.plugins[${index}].publisher.verified`,
         'a verified publisher is proven by a signature; an unsigned entry may not claim one.'
@@ -470,15 +523,19 @@ async function validateMarketplace(root: string, cliBundle: string): Promise<Ver
     const pluginManifestPath = join(pluginRoot, 'plugin.json')
     const hasCommittedPayload = isInsideOrEqual(root, pluginRoot) && existsSync(pluginManifestPath)
 
-    // Unsigned entries (source-bearing plugin references and inline-MCP
-    // configs) are legal post-MC-1434, and post-MC-2036 an unsigned entry may
-    // also ship a committed bundle when nothing in it is code-bearing — the
-    // automation starters do. Most reference external content only and have no
-    // local manifest at all; the schema/source-host/icon checks above are the
-    // whole publish contract for those.
+    // Unsigned entries (source-bearing plugin references, inline-MCP configs
+    // and inline-CLI entries) are legal post-MC-1434, and post-MC-2036 an
+    // unsigned entry may also ship a committed bundle when nothing in it is
+    // code-bearing — the automation starters do. Most reference external
+    // content only and have no local manifest at all; the
+    // schema/source-host/icon checks above are the whole publish contract for
+    // those.
     if (entry.signature === undefined) {
       if (entry.mcp !== undefined && entry.provides.join(',') !== 'mcp') {
         issues.push(issue(`marketplace.json.plugins[${index}].provides`, "inline-MCP entries must set provides to ['mcp']."))
+      }
+      if (entry.cli !== undefined) {
+        validateInlineCliEntry(root, entry, index, trustedPublishers, issues)
       }
       if (hasCommittedPayload) {
         claimedPayloadIds.add(entry.id)

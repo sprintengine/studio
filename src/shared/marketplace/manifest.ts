@@ -63,6 +63,18 @@ export type MarketplaceInlineMcp = {
   servers: McpServerConfig[]
 }
 
+// Inline-CLI registry entries surface an app-bundled agent CLI plugin as
+// marketplace content (MC-1858). They ship no bytes: the referenced plugin
+// already lives in the app bundle (resources/plugins/<pluginId>), and the
+// install action executes that plugin's `install` spec through the CLI runtime
+// installer — never the bundle download flow. Third-party CLI plugins keep
+// using signed bundle entries (`source` + components.cli).
+export type MarketplaceInlineCli = {
+  // Plugin-registry id of the bundled plugin (the pluginRegistryIdForCli
+  // mapping captured at generation time — not assumed equal to the entry id).
+  pluginId: string
+}
+
 // Digest of one file inside a bundled skill payload (captured at
 // catalogue-snapshot build time; bytes ship under resources/marketplace/
 // skills/<entryId>/<skill folder>/).
@@ -92,8 +104,9 @@ export type MarketplacePluginSkill = {
   contentDigest?: string
 }
 
-// A registry entry is either a bundle entry (has `source`) or an inline-MCP
-// entry (has `mcp`, `provides` is exactly ['mcp']), never both. `signature` is
+// A registry entry is exactly one of: a bundle entry (has `source`), an
+// inline-MCP entry (has `mcp`, `provides` is exactly ['mcp']), or an
+// inline-CLI entry (has `cli`, `provides` is exactly ['cli']). `signature` is
 // optional; trust classification is decided downstream, not by the schema.
 export type MarketplacePluginEntry = {
   id: string
@@ -109,6 +122,7 @@ export type MarketplacePluginEntry = {
   source?: string
   signature?: ModuleSignature
   mcp?: MarketplaceInlineMcp
+  cli?: MarketplaceInlineCli
   skills?: MarketplacePluginSkill[]
 }
 
@@ -354,6 +368,23 @@ function validateInlineMcp(value: unknown, path: string, issues: MarketplaceMani
   return servers.length === value.servers.length ? { servers } : undefined
 }
 
+// Same shape the SDK module-manifest probe enforces for entry ids; an inline
+// CLI's pluginId is a plugin-registry directory name, so it obeys the same
+// lowercase id grammar.
+const INLINE_CLI_PLUGIN_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/
+
+function validateInlineCli(value: unknown, path: string, issues: MarketplaceManifestIssue[]): MarketplaceInlineCli | undefined {
+  if (!isObject(value)) {
+    issues.push({ path, message: 'cli must be an object.' })
+    return undefined
+  }
+  if (typeof value.pluginId !== 'string' || !INLINE_CLI_PLUGIN_ID_PATTERN.test(value.pluginId)) {
+    issues.push({ path: `${path}.pluginId`, message: 'cli.pluginId must be a lowercase plugin id (a–z, 0–9, hyphen), 1–63 chars.' })
+    return undefined
+  }
+  return { pluginId: value.pluginId }
+}
+
 function validateMarketplaceEntry(value: unknown, index: number, issues: MarketplaceManifestIssue[]): MarketplacePluginEntry | undefined {
   const path = `plugins[${index}]`
   if (!isObject(value)) {
@@ -401,13 +432,15 @@ function validateMarketplaceEntry(value: unknown, index: number, issues: Marketp
     issues.push({ path: `${path}.category`, message: 'category or categories[] is required.' })
   }
 
-  // Bundle (source) XOR inline-MCP (mcp): exactly one shape.
+  // Bundle (source) XOR inline-MCP (mcp) XOR inline-CLI (cli): exactly one shape.
   const hasSource = value.source !== undefined
   const hasMcp = value.mcp !== undefined
-  if (hasSource && hasMcp) {
-    issues.push({ path, message: 'entry must be a bundle entry (source) or an inline-MCP entry (mcp), not both.' })
-  } else if (!hasSource && !hasMcp) {
-    issues.push({ path, message: 'entry must declare a bundle source or an inline mcp block.' })
+  const hasCli = value.cli !== undefined
+  const shapeCount = Number(hasSource) + Number(hasMcp) + Number(hasCli)
+  if (shapeCount > 1) {
+    issues.push({ path, message: 'entry must be exactly one of: bundle (source), inline-MCP (mcp), inline-CLI (cli).' })
+  } else if (shapeCount === 0) {
+    issues.push({ path, message: 'entry must declare a bundle source, an inline mcp block, or an inline cli block.' })
   }
 
   let source: string | undefined
@@ -424,6 +457,14 @@ function validateMarketplaceEntry(value: unknown, index: number, issues: Marketp
     mcp = validateInlineMcp(value.mcp, `${path}.mcp`, issues)
     if (provides && (provides.length !== 1 || provides[0] !== 'mcp')) {
       issues.push({ path: `${path}.provides`, message: "inline-MCP entries must set provides to ['mcp']." })
+    }
+  }
+
+  let cli: MarketplaceInlineCli | undefined
+  if (hasCli) {
+    cli = validateInlineCli(value.cli, `${path}.cli`, issues)
+    if (provides && (provides.length !== 1 || provides[0] !== 'cli')) {
+      issues.push({ path: `${path}.provides`, message: "inline-CLI entries must set provides to ['cli']." })
     }
   }
 
@@ -451,6 +492,7 @@ function validateMarketplaceEntry(value: unknown, index: number, issues: Marketp
   if (source !== undefined) entry.source = source
   if (moduleProbe.manifest.signature) entry.signature = moduleProbe.manifest.signature as ModuleSignature
   if (mcp) entry.mcp = mcp
+  if (cli) entry.cli = cli
   if (skills && skills.length > 0) entry.skills = skills
   return entry
 }

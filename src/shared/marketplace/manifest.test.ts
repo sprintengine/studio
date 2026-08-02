@@ -88,6 +88,21 @@ const VALID_INLINE_MCP_ENTRY = {
   },
 }
 
+// Inline-CLI entry (MC-1858): no bundle source, no signature — the entry
+// surfaces an app-bundled CLI plugin whose install spec the runtime installer
+// executes; `cli.pluginId` names that plugin in the plugin registry.
+const VALID_INLINE_CLI_ENTRY = {
+  id: 'claude-code',
+  name: 'Claude Code',
+  publisher: { name: 'Multicode Labs', verified: true },
+  summary: "Anthropic's terminal coding agent.",
+  category: 'Agent CLI',
+  icon: 'icons/claude-code.svg',
+  latest: 1,
+  provides: ['cli'],
+  cli: { pluginId: 'claude-code' },
+}
+
 function withoutField<T extends Record<string, unknown>>(value: T, field: string): Record<string, unknown> {
   const next: Record<string, unknown> = { ...value }
   delete next[field]
@@ -384,6 +399,45 @@ function testEntryRejectsNeitherSourceNorMcp(): void {
   assertRejectsAt({ ...VALID_MARKETPLACE, plugins: [bare] }, 'plugins[0]', validateMarketplaceIndex)
 }
 
+function testInlineCliEntryValidates(): void {
+  const result = validateMarketplaceIndex({ ...VALID_MARKETPLACE, plugins: [VALID_INLINE_CLI_ENTRY] })
+  assert.equal(result.ok, true, 'inline-CLI entry should validate')
+  if (result.ok) {
+    const entry = result.marketplace.plugins[0]
+    assert.deepEqual(entry.provides, ['cli'])
+    assert.equal(entry.source, undefined)
+    assert.deepEqual(entry.cli, { pluginId: 'claude-code' })
+  }
+}
+
+function testInlineCliRejectsOtherShapesAndBadPluginId(): void {
+  assertRejectsAt(
+    { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, source: 'https://github.com/multicode-labs/marketplace' }] },
+    'plugins[0]',
+    validateMarketplaceIndex
+  )
+  assertRejectsAt(
+    { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, mcp: VALID_INLINE_MCP_ENTRY.mcp }] },
+    'plugins[0]',
+    validateMarketplaceIndex
+  )
+  assertRejectsAt(
+    { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, provides: ['cli', 'skills'] }] },
+    'plugins[0].provides',
+    validateMarketplaceIndex
+  )
+  assertRejectsAt(
+    { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, cli: {} }] },
+    'plugins[0].cli.pluginId',
+    validateMarketplaceIndex
+  )
+  assertRejectsAt(
+    { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, cli: { pluginId: 'Not A Plugin Id' } }] },
+    'plugins[0].cli.pluginId',
+    validateMarketplaceIndex
+  )
+}
+
 function testInlineMcpRejectsNonMcpProvides(): void {
   const bad = { ...VALID_INLINE_MCP_ENTRY, provides: ['mcp', 'skills'] }
   assertRejectsAt({ ...VALID_MARKETPLACE, plugins: [bad] }, 'plugins[0].provides', validateMarketplaceIndex)
@@ -509,6 +563,8 @@ testBundledSkillsValidateAndSurvive()
 testBundledSkillContentDigestsValidateAndSurvive()
 testEntryRejectsSourceAndMcpTogether()
 testEntryRejectsNeitherSourceNorMcp()
+testInlineCliEntryValidates()
+testInlineCliRejectsOtherShapesAndBadPluginId()
 testInlineMcpRejectsNonMcpProvides()
 testInlineMcpRejectsInvalidAndEmptyServers()
 testCategoriesAndTagsMustBeStringArrays()
