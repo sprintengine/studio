@@ -3,7 +3,7 @@
 // service token, sidecar, notification), and entry.renderer registration
 // (panel, workspace type, Backlog action, command, settings section).
 
-import { createElement, useEffect, useState } from 'react'
+import { createElement, lazy, useEffect, useState } from 'react'
 
 import {
   createServiceToken,
@@ -18,11 +18,14 @@ import {
   type AutomationTriggerProvider,
   type BacklogItemAction,
   type CapabilityManifest,
+  type GlobalSurfaceDefinition,
   type McpToolRegistration,
   type ModuleCommandDefinition,
   type ModuleWorkspaceView,
   type RegisterMain,
   type RegisterRenderer,
+  type SidebarNavEntryDefinition,
+  type SidebarNavEntryRenderProps,
   type WorkspaceCreationStepProps,
   type WorkspaceLayoutTemplate,
   type WorkspacePanelComponent,
@@ -480,7 +483,31 @@ function quickCheck(host: Parameters<RegisterRenderer>[0]): ModuleCommandDefinit
   }
 }
 
+// The four contribution kinds this run published or extended, registered by ONE
+// module so the fixture proves they COMPOSE, not just that each compiles: a
+// sidebar door (MC-1854's companion), the full-page surface behind it
+// (registerGlobalSurface, MC-1854), an agent-facing gateway tool
+// (registerMcpTools, MC-1855, in registerMain above), and a top-bar control
+// (registerTopBarItem, MC-1861, below). The door and its surface share an id;
+// the surface is lazy, proving the published Component type accepts
+// React.lazy() the same way SidebarNavEntryComponent does.
+const outlookDoor: SidebarNavEntryDefinition = {
+  id: 'weather-deck-outlook',
+  order: 71,
+  Component: ({ collapsed }: SidebarNavEntryRenderProps) =>
+    createElement('button', { type: 'button' }, collapsed ? 'W' : 'Outlook'),
+}
+
+const outlookSurface: GlobalSurfaceDefinition = {
+  id: 'weather-deck-outlook',
+  Component: lazy(async () => ({
+    default: () => createElement('div', null, 'Ten-day outlook'),
+  })),
+}
+
 export const registerRenderer: RegisterRenderer = (host) => {
+  host.registerSidebarNavEntry(outlookDoor)
+  host.registerGlobalSurface(outlookSurface)
   host.registerPanel('weather-deck.forecast', createForecastPanel(host))
   host.registerWorkspaceType(forecastWorkspaceType)
   host.registerBacklogItemAction(markChecked)
