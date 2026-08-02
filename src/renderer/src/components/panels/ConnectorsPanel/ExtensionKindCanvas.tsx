@@ -14,9 +14,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { AGENT_BACKED_ACTION_KINDS, type AutomationDefinition } from '../../../../../shared/automations/contracts'
-import type { MarketplacePluginInstalledComponent } from '../../../../../shared/electron-api'
+import type {
+  AgentCli,
+  AgentCliAvailabilityMap,
+  CliInstallResult,
+  CliRuntimeSettings,
+  MarketplacePluginInstalledComponent,
+} from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import {
+  CliProviderStateLine,
   CloseIconButton,
   DefinitionList,
   GhostButton,
@@ -30,11 +37,16 @@ import {
   Tooltip,
   type StatusTone,
 } from '../../ui'
+import type { CliProbeStatus } from '../../ui/cliProviderState'
 import { PlusIcon } from '../../AppIcons'
+import { CliInstallControl } from '../../settings/CliInstallControl'
 import { PluginDetailPanel, PluginIcon, pluginTrust, resolveIconUrl } from '../../settings/BrowseStorefront'
+import { cliRuntimeForPlugin } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import { cadenceSummary } from '../AutomationsPanel/automationsFormat'
 import { formatRelativeMsAgo } from '../../../utils/relativeTime'
+import type { PluginCatalogEntry, PluginCatalogStatus } from '../../../types/workspace'
 import { ConnectorEntryRow, ConnectorSectionHeading } from './ConnectorRow'
+import { agentCliShelfRowState, type CliInstallMethodsLoad } from './agentCliShelfState'
 import { registryEntriesForKinds, searchConnectors } from './connectorsFacets'
 import type { ConnectorEntry } from './connectorsFacets'
 import type { ConnectorSources } from './useConnectorSources'
@@ -126,6 +138,202 @@ function AgentCliRegistryRow({
         ) : null
       }
     />
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Agent CLIs with runtime state (MC-1858): the inline entries
+// ---------------------------------------------------------------------------
+
+// Everything the CLI shelf needs from the app, passed in by the door so this
+// canvas stays store-free (the automationDefaultCli precedent). The runtime
+// state and its refreshers are the EXISTING detection stack — the availability
+// slice over `pluginsDetectAvailability` and the plugin catalog — never a
+// second mechanism.
+export type CliShelfRuntime = {
+  /** `window.api.platform`, for the "Not available on macOS" state. */
+  platform: string
+  availability: AgentCliAvailabilityMap
+  availabilityStatus: CliProbeStatus
+  /** The batch probe's own failure, stated once above the list (the settings
+   *  rule): every row would otherwise repeat one fact nine times. */
+  availabilityError: string | null
+  catalogEntries: PluginCatalogEntry[]
+  catalogStatus: PluginCatalogStatus
+  cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+  refreshAvailability: (options?: {
+    background?: boolean
+    force?: boolean
+    cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
+  }) => Promise<void>
+  refreshCatalog: () => Promise<void>
+  setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
+}
+
+// The inline agent-CLI rows: ProviderRow anatomy (the Settings → Agents list,
+// per the 07-26 manage-canvas mockup), state from the shared probe reading, and
+// install through CliInstallControl in the row's own disclosure — never
+// PluginDetailPanel's bundle-download flow.
+function AgentCliRuntimeRows({
+  entries,
+  registryUrl,
+  runtime,
+}: {
+  entries: ConnectorEntry[]
+  registryUrl: string | null
+  runtime: CliShelfRuntime
+}): JSX.Element {
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [installIntentId, setInstallIntentId] = useState<string | null>(null)
+  // Install methods per plugin id, probed lazily for definitively-missing CLIs
+  // only — the probe checks PATH prerequisites, so running it for installed
+  // rows would be spend with no reader.
+  const [methods, setMethods] = useState<Record<string, CliInstallMethodsLoad>>({})
+  const methodsRef = useRef(methods)
+  methodsRef.current = methods
+
+  const catalogById = useMemo(() => {
+    const map = new Map<string, PluginCatalogEntry>()
+    for (const entry of runtime.catalogEntries) map.set(entry.id, entry)
+    return map
+  }, [runtime.catalogEntries])
+
+  // One availability read on mount. The main process serves a 60s cache, so a
+  // shelf visit right after boot or Settings reads the same probe rather than
+  // spawning another login shell per CLI.
+  const { refreshAvailability, cliRuntimes } = runtime
+  useEffect(() => {
+    void refreshAvailability({ cliRuntimes })
+  }, [refreshAvailability, cliRuntimes])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.api?.cliInstallMethods !== 'function') return
+    for (const entry of entries) {
+      const pluginId = entry.plugin?.cli?.pluginId
+      if (!pluginId || methodsRef.current[pluginId]) continue
+      if (runtime.catalogStatus !== 'ready' || !catalogById.has(pluginId)) continue
+      const availability = runtime.availability[pluginId]
+      // Only a definitive negative probe needs the methods answer — it decides
+      // Install vs "Not available on this platform".
+      if (!availability || availability.installed) continue
+      const override = cliRuntimeForPlugin(pluginId, runtime.cliRuntimes)
+      setMethods((current) => ({ ...current, [pluginId]: { status: 'loading' } }))
+      void window.api
+        .cliInstallMethods(pluginId, { command: override.command, useWsl: override.useWsl })
+        .then((loaded) => {
+          setMethods((current) => ({ ...current, [pluginId]: { status: 'ready', methods: loaded } }))
+        })
+        .catch(() => {
+          // An unanswered probe stays unknown: the row keeps its honest "Not
+          // installed" line with no button rather than guessing either way.
+          setMethods((current) => {
+            const next = { ...current }
+            delete next[pluginId]
+            return next
+          })
+        })
+    }
+  }, [entries, runtime.availability, runtime.catalogStatus, runtime.cliRuntimes, catalogById])
+
+  const onInstalled = useCallback(
+    (pluginId: AgentCli, result: CliInstallResult) => {
+      const override = cliRuntimeForPlugin(pluginId, runtime.cliRuntimes)
+      // Persist the resolved binary path the way Settings does, so launches use
+      // the binary the install actually produced.
+      if (result.resolvedPath && !override.command) {
+        runtime.setCliRuntime(pluginId, { command: result.resolvedPath, useWsl: override.useWsl })
+      }
+      void runtime.refreshCatalog()
+      // Force past the main-process TTL so the freshly installed CLI reads as
+      // installed here and in deployment pickers without an app restart.
+      void runtime.refreshAvailability({ force: true, cliRuntimes: runtime.cliRuntimes })
+    },
+    [runtime],
+  )
+
+  return (
+    <div>
+      {entries.map((entry) => {
+        const pluginId = entry.plugin?.cli?.pluginId ?? entry.id
+        const catalog = catalogById.get(pluginId)
+        const override = cliRuntimeForPlugin(pluginId, runtime.cliRuntimes)
+        const state = agentCliShelfRowState({
+          catalogStatus: runtime.catalogStatus,
+          inCatalog: Boolean(catalog),
+          availability: runtime.availability[pluginId],
+          availabilityStatus: runtime.availabilityStatus,
+          installMethods: methods[pluginId] ?? { status: 'unknown' },
+          platform: runtime.platform,
+          useWsl: override.useWsl,
+        })
+        return (
+          <ProviderRow
+            key={entry.key}
+            icon={
+              <PluginIcon
+                iconUrl={entry.plugin ? resolveIconUrl(registryUrl, entry.plugin.icon) : null}
+                name={entry.name}
+                size={22}
+              />
+            }
+            health={state.tone}
+            name={entry.name}
+            version={state.version}
+            stateLine={
+              state.words ??
+              (state.provider && catalog ? (
+                <CliProviderStateLine
+                  state={state.provider}
+                  binary={catalog.binary}
+                  useWsl={override.useWsl}
+                  // One list-wide fact, stated once above the band — not per row.
+                  probeError={null}
+                />
+              ) : (
+                ''
+              ))
+            }
+            expanded={expandedId === entry.key}
+            onExpandedChange={(next) => {
+              setInstallIntentId(null)
+              setExpandedId(next ? entry.key : null)
+            }}
+            actions={
+              state.action === 'install' ? (
+                <PrimaryButton
+                  size="xs"
+                  onClick={() => {
+                    setInstallIntentId(entry.key)
+                    setExpandedId(entry.key)
+                  }}
+                >
+                  Install
+                </PrimaryButton>
+              ) : null
+            }
+          >
+            <div className="space-y-2">
+              {entry.summary ? (
+                <p className="text-body leading-5 text-[color:var(--text-muted)]">{entry.summary}</p>
+              ) : null}
+              {catalog ? (
+                <CliInstallControl
+                  cli={pluginId}
+                  displayName={catalog.displayName}
+                  binary={catalog.binary}
+                  command={override.command}
+                  useWsl={override.useWsl}
+                  showName={false}
+                  showStatus={false}
+                  autoOpenInstall={installIntentId === entry.key}
+                  onInstalled={(result) => onInstalled(pluginId, result)}
+                />
+              ) : null}
+            </div>
+          </ProviderRow>
+        )
+      })}
+    </div>
   )
 }
 
@@ -571,6 +779,7 @@ export function ExtensionKindCanvas({
   kind,
   sources,
   workspaceRoot,
+  cliRuntime,
   automationDefaultCli,
   onOpenAutomation,
   onAutomationAdded,
@@ -578,6 +787,10 @@ export function ExtensionKindCanvas({
   kind: ExtensionKind
   sources: ConnectorSources
   workspaceRoot: string | null
+  /** Runtime state + installers for the `cli` kind (MC-1858), read from the
+   *  store by the door and passed down so this canvas stays store-free. Without
+   *  it, inline CLI entries fall back to the plain registry row. */
+  cliRuntime?: CliShelfRuntime
   /** The CLI an agent-backed automation falls back to when its own config names
    *  none. Only the app settings hold it, so the door reads it and passes it in;
    *  an install that would need it and does not get it is refused by the
@@ -816,6 +1029,15 @@ export function ExtensionKindCanvas({
         </div>
       ) : null}
 
+      {/* The batch probe failing is one fact for the whole list (the settings
+          rule): stated here once, while each row reads "availability unknown"
+          without repeating the reason. */}
+      {kind === 'cli' && cliRuntime && cliRuntime.availabilityStatus === 'error' && cliRuntime.availabilityError ? (
+        <div className="mt-4">
+          <InlineNotice tone="warn">{`Agent CLIs could not be checked: ${cliRuntime.availabilityError}`}</InlineNotice>
+        </div>
+      ) : null}
+
       {entries.length === 0 ? (
         <p className="px-1 py-10 text-center text-body text-[color:var(--text-muted)]">{copy.empty}</p>
       ) : matched.length === 0 ? (
@@ -828,15 +1050,27 @@ export function ExtensionKindCanvas({
             {isAutomation ? null : <ConnectorSectionHeading label={copy.label} count={matched.length} />}
             {kind === 'cli' ? (
               <div>
-                {matched.map((entry) => (
-                  <AgentCliRegistryRow
-                    key={entry.key}
-                    entry={entry}
+                {/* Inline entries (`cli.pluginId`, the bundled twelve) carry
+                    runtime state and install through the CLI runtime; signed
+                    third-party CLI bundles keep the storefront Get flow. */}
+                {cliRuntime ? (
+                  <AgentCliRuntimeRows
+                    entries={matched.filter((entry) => entry.plugin?.cli)}
                     registryUrl={sources.registryUrl}
-                    selected={selectedKey === entry.key}
-                    onOpen={() => setSelectedKey(entry.key)}
+                    runtime={cliRuntime}
                   />
-                ))}
+                ) : null}
+                {matched
+                  .filter((entry) => !(cliRuntime && entry.plugin?.cli))
+                  .map((entry) => (
+                    <AgentCliRegistryRow
+                      key={entry.key}
+                      entry={entry}
+                      registryUrl={sources.registryUrl}
+                      selected={selectedKey === entry.key}
+                      onOpen={() => setSelectedKey(entry.key)}
+                    />
+                  ))}
               </div>
             ) : isAutomation ? (
               <div>
