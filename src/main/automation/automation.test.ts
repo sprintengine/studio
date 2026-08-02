@@ -14,6 +14,9 @@ import {
   STUDIO_MCP_SERVER_INFO_FILENAME,
 } from './automation-service'
 import { createMcpSocketServer, type McpConnectionContext, type McpToolRegistration } from './mcp-socket-server'
+import { createMainKernel } from '../module-host/main-host'
+import { createFakeIpcMain } from '../module-host/ipc-main-fake.test-helper'
+import { loadMainModules, type CapabilityModule } from '../module-host/load-modules'
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
 import { createRendererAutomationDelegate } from './renderer-delegate'
 import { createGatewayAuditStore, STUDIO_GATEWAY_AUDIT_FILENAME } from './gateway-audit'
@@ -267,12 +270,7 @@ async function testStudioGatewayStartsDespiteLegacyDisabledSetting(): Promise<vo
       resolveUserDataDir: () => dir,
       appVersion: '0.0.0-test',
       resolveBridgeScriptPath: () => BRIDGE_SCRIPT,
-      tools: [],
-      sprintEngineMcpHub: {
-        callRunTool: async () => {
-          throw new Error('unexpected run proxy call')
-        },
-      },
+      resolveGatewayTools: () => [],
     })
     const started = await service.initialize()
     assert.equal(started.enabled, true)
@@ -663,7 +661,7 @@ async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
     socketPath,
     serverName: 'multicode-automation',
     serverVersion: '0.0.0-test',
-    tools: [echoTool],
+    resolveTools: () => [echoTool],
   })
 
   // Not started → nothing listens.
@@ -773,7 +771,7 @@ async function testStaleSocketFileIsReplacedOnStart(): Promise<void> {
     socketPath,
     serverName: 'multicode-automation',
     serverVersion: '0.0.0-test',
-    tools: [],
+    resolveTools: () => [],
   })
   await server.start()
   assert.equal(server.isRunning(), true, 'stale socket file does not block startup')
@@ -833,7 +831,7 @@ async function testBridgePipesStdioToSocketAndExitsOnServerStop(): Promise<void>
     socketPath,
     serverName: 'multicode-automation',
     serverVersion: '0.0.0-test',
-    tools: [
+    resolveTools: () => [
       {
         name: 'workspace.list',
         description: 'test tool',
@@ -875,7 +873,7 @@ async function testConcurrentBridgesKeepResponsesAndAttributionIsolated(): Promi
     socketPath,
     serverName: 'sprintengine-studio',
     serverVersion: '0.0.0-test',
-    tools: [{
+    resolveTools: () => [{
       name: 'agent.identity',
       description: 'test attribution',
       inputSchema: { type: 'object' },
@@ -2327,7 +2325,9 @@ async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promi
         }
       },
     },
-  })
+    resolveModuleTools: () => [],
+    isModuleEnabled: () => true,
+  })()
   assert.equal(tools.length, SPRINTENGINE_TOOL_NAMES.length + 1)
   assert.equal(SPRINTENGINE_TOOL_NAMES.every((name) => tools.some((candidate) => candidate.name === name)), true)
 
@@ -2344,7 +2344,13 @@ async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promi
   assert.deepEqual(calls, [{ runId: 'run-a', toolName: 'sprintengine.task.next', arguments: { role: 'developer' } }])
 
   assert.throws(
-    () => createStudioGatewayTools({ appTools: [appTool, appTool], sprintEngineMcpHub: { callRunTool: async () => ({}) } }),
+    () =>
+      createStudioGatewayTools({
+        appTools: [appTool, appTool],
+        sprintEngineMcpHub: { callRunTool: async () => ({}) },
+        resolveModuleTools: () => [],
+        isModuleEnabled: () => true,
+      }),
     /Duplicate SprintEngine Studio MCP tool/
   )
   assert.equal(isStudioGatewayMutation('backlog.update'), true)
@@ -2354,6 +2360,81 @@ async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promi
   assert.equal(isStudioGatewayMutation('sprintengine.vcs.commit'), true)
   assert.equal(isStudioGatewayMutation('sprintengine.plan.add_task'), true)
   assert.equal(isStudioGatewayMutation('sprintengine.task.list'), false)
+}
+
+// MC-1855: two modules registering the same tool name → the second is rejected
+// as a module load error, the first registration wins, and the gateway keeps
+// serving. Also proves an SDK-shaped third-party module's tool reaches the
+// gateway through loadMainModules (the external-project fixture's shape).
+async function testModuleMcpToolContributionOwnershipAndCollisions(): Promise<void> {
+  const registrationOf = (name: string, answer: string): McpToolRegistration => ({
+    name,
+    description: `test tool ${answer}`,
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => ({ content: [{ type: 'text', text: answer }], structuredContent: { answer } }),
+  })
+  const moduleOf = (id: string, tools: McpToolRegistration[]): CapabilityModule => ({
+    manifest: {
+      id,
+      displayName: id,
+      version: 1,
+      publisher: 'example-author',
+      summary: 'test module',
+      defaultEnabled: true,
+      source: 'third-party',
+    },
+    registerMain: (host) => host.registerMcpTools(tools),
+  })
+  const { kernel, report } = loadMainModules({
+    ipcMain: createFakeIpcMain().ipcMain,
+    modules: [
+      moduleOf('first-owner', [registrationOf('weather_deck_forecast', 'first')]),
+      moduleOf('second-owner', [
+        registrationOf('second_owner_extra', 'extra'),
+        registrationOf('weather_deck_forecast', 'second'),
+      ]),
+    ],
+  })
+  assert.deepEqual(report.loaded, ['first-owner'], 'first registration wins')
+  assert.equal(report.errors.length, 1)
+  assert.equal(report.errors[0]?.id, 'second-owner', 'the collision is a module load error')
+  assert.match(report.errors[0]?.message ?? '', /already registered by module "first-owner"/)
+
+  const warnings: string[] = []
+  const resolveGatewayTools = createStudioGatewayTools({
+    appTools: [],
+    sprintEngineMcpHub: { callRunTool: async () => ({}) },
+    resolveModuleTools: () => kernel.mcpToolRegistrations(),
+    isModuleEnabled: () => true,
+    warn: (text) => warnings.push(text),
+  })
+  const served = resolveGatewayTools()
+  const forecast = tool(served, 'weather_deck_forecast')
+  const answered = await forecast.handler({})
+  assert.deepEqual(answered.structuredContent, { answer: 'first' }, 'the gateway keeps serving the first owner')
+  assert.equal(
+    served.some((registration) => registration.name === 'second_owner_extra'),
+    false,
+    'a rejected batch registers nothing, not half'
+  )
+  assert.deepEqual(warnings, [], 'a kernel-rejected collision never reaches the gateway merge')
+
+  // A module shadowing a CORE tool name is skipped with a warning; core wins.
+  const shadowWarnings: string[] = []
+  const coreTool = registrationOf('workspace.list', 'core')
+  const shadowed = createStudioGatewayTools({
+    appTools: [coreTool],
+    sprintEngineMcpHub: { callRunTool: async () => ({}) },
+    resolveModuleTools: () => [
+      { moduleId: 'first-owner', moduleDisplayName: 'first-owner', registration: registrationOf('workspace.list', 'shadow') },
+    ],
+    isModuleEnabled: () => true,
+    warn: (text) => shadowWarnings.push(text),
+  })()
+  const coreAnswer = await tool(shadowed, 'workspace.list').handler({})
+  assert.deepEqual(coreAnswer.structuredContent, { answer: 'core' })
+  assert.equal(shadowWarnings.length, 1)
+  assert.match(shadowWarnings[0] ?? '', /collides with a core gateway tool/)
 }
 
 async function testStudioGatewayAuditIsRedactedAndRotated(): Promise<void> {
@@ -2498,6 +2579,10 @@ function reviewValidBrief(): ReviewBrief {
 
 // Seed a review directory with an ingested change set under a temp project root,
 // and build the review tools scoped to it. `emitted` captures brief-run events.
+// The tools are routed through the REAL contribution path (MC-1855): a module
+// host kernel owns the registration under the `review` module id, and the
+// gateway resolver gates every call on the module's live enablement — exactly
+// the seam review-module.ts registers through in the app.
 function reviewHarness(): {
   tools: McpToolRegistration[]
   projectRoot: string
@@ -2505,6 +2590,8 @@ function reviewHarness(): {
   emitted: BriefRunEvent[]
   /** Flip the Review module the way Settings does, mid-session. */
   setModuleEnabled: (enabled: boolean) => void
+  /** Re-resolve the gateway's review tool names, as a fresh tools/list would. */
+  listReviewToolNames: () => string[]
 } {
   const projectRoot = mkdtempSync(join(tmpdir(), 'review-gw-'))
   const reviewDir = reviewChangeSetDir(projectRoot, REVIEW_ID)
@@ -2512,12 +2599,35 @@ function reviewHarness(): {
   writeFileSync(join(reviewDir, 'changeset.json'), `${JSON.stringify(reviewFixtureChangeSet(projectRoot), null, 2)}\n`)
   const emitted: BriefRunEvent[] = []
   let moduleEnabled = true
-  const tools = createReviewGatewayTools({
-    isReviewModuleEnabled: () => moduleEnabled,
-    listOpenProjectRoots: () => [projectRoot],
-    homeDir: () => homedir(),
-    emitBriefRunEvent: (event) => emitted.push(event),
+  const kernel = createMainKernel(createFakeIpcMain().ipcMain, {
+    resolveModuleManifest: (moduleId) =>
+      moduleId === 'review'
+        ? {
+            id: 'review',
+            displayName: 'Review',
+            version: 1,
+            publisher: 'multicode',
+            summary: 'Guided review.',
+            defaultEnabled: true,
+          }
+        : undefined,
   })
+  kernel.hostFor('review').registerMcpTools(
+    createReviewGatewayTools({
+      listOpenProjectRoots: () => [projectRoot],
+      homeDir: () => homedir(),
+      emitBriefRunEvent: (event) => emitted.push(event),
+    })
+  )
+  const resolveGatewayTools = createStudioGatewayTools({
+    appTools: [],
+    sprintEngineMcpHub: { callRunTool: async () => ({}) },
+    resolveModuleTools: () => kernel.mcpToolRegistrations(),
+    isModuleEnabled: (moduleId) => moduleId !== 'review' || moduleEnabled,
+  })
+  // The resolver also carries the canonical run tools; the review tests address
+  // the review slice only.
+  const tools = resolveGatewayTools().filter((registration) => registration.name.startsWith('review_'))
   return {
     tools,
     projectRoot,
@@ -2526,6 +2636,10 @@ function reviewHarness(): {
     setModuleEnabled: (enabled) => {
       moduleEnabled = enabled
     },
+    listReviewToolNames: () =>
+      resolveGatewayTools()
+        .filter((registration) => registration.name.startsWith('review_'))
+        .map((registration) => registration.name),
   }
 }
 
@@ -2658,13 +2772,13 @@ async function testReviewToolsRejectUnknownTargetAndStripAbsolutePaths(): Promis
 // The tools stay registered — an agent still sees the capability, and learns why
 // it is refusing — but every one of them refuses before touching a file.
 async function testReviewToolsRefuseWhileTheModuleIsDisabled(): Promise<void> {
-  const { tools, projectRoot, reviewDir, emitted, setModuleEnabled } = reviewHarness()
+  const { tools, projectRoot, reviewDir, emitted, setModuleEnabled, listReviewToolNames } = reviewHarness()
   try {
     setModuleEnabled(false)
     assert.deepEqual(
-      tools.map((registration) => registration.name),
+      listReviewToolNames(),
       ['review_list_pending', 'review_get_changeset', 'review_get_brief', 'review_submit_brief'],
-      'registration is static: a disabled module still lists its tools'
+      'a disabled module still lists its tools on a fresh tools/list resolution'
     )
 
     const calls: Array<[string, Record<string, unknown>]> = [
@@ -2746,6 +2860,7 @@ const tests = [
   testBridgeFailsClearlyWithoutDiscoveryFile,
   testBridgeReportsStaleDiscoveryFile,
   testStudioGatewayMergesCanonicalRunToolsAndRoutesContext,
+  testModuleMcpToolContributionOwnershipAndCollisions,
   testStudioGatewayAuditIsRedactedAndRotated,
   testReviewSubmitBriefHappyPathWritesAtomicallyAndEmits,
   testReviewSubmitBriefInvalidReturnsEveryErrorAndWritesNothing,

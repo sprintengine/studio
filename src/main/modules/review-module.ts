@@ -1,4 +1,5 @@
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
+import { createReviewGatewayTools } from '../automation/studio-gateway-tools'
 import { registerReviewIpc } from '../ipc/review-ipc'
 import {
   ReviewChangeSetServiceToken,
@@ -11,6 +12,7 @@ import { createReviewChangeSetService } from '../review/changeset-service'
 import { BRIEF_RUN_EVENT_CHANNEL, type BriefRunEvent } from '../review/brief-run-service'
 import {
   createReviewGuideTerminalService,
+  recordGuideRunEvent,
   REVIEW_GUIDE_SKILL_ID,
 } from '../review/guide-terminal-service'
 import { getPluginById } from '../plugin-registry-instance'
@@ -50,10 +52,10 @@ export const reviewModule: CapabilityModule = {
         if (!win.isDestroyed()) win.webContents.send(BRIEF_RUN_EVENT_CHANNEL, event)
       }
     }
-    // Provided under a token as well as held here: the Studio gateway's
-    // review_submit_brief sink is registered in app-services, and a landed brief
-    // ends the run, so it resolves this service to release the guide's terminal
-    // back to the idle reaper instead of reaching into the terminal runtime.
+    // Provided under a token as well as held here so other modules can resolve
+    // the guide service without importing across the module boundary. The
+    // gateway's review_submit_brief sink registers below (registerMcpTools) and
+    // uses the local handle directly.
     const guideTerminals = host.provideService(ReviewGuideTerminalServiceToken, () =>
       createReviewGuideTerminalService({
         listWorkspaces: () => workspaceSyncService.getSnapshot().state.workspaces,
@@ -90,6 +92,43 @@ export const reviewModule: CapabilityModule = {
       })
     )
     host.onShutdown(() => guideTerminals.dispose())
+
+    // Review's four MCP tools on the Studio gateway (MC-1855): contributed
+    // through the module host, so availability follows this module's enablement
+    // live at the gateway — a disabled Review module keeps the tools listed and
+    // answers calls with the actionable enable error (MC-1805 owner ruling).
+    // They validate and persist the guide's brief server-side; a caller-named
+    // projectRoot is trusted only when it is an open project folder, and a
+    // landed brief broadcasts the brief-run event so an open Reviews door
+    // reloads it with no app restart.
+    host.registerMcpTools(
+      createReviewGatewayTools({
+        listOpenProjectRoots: () =>
+          workspaceSyncService
+            .getSnapshot()
+            .state.workspaces.map((workspace) => workspace.folderPath)
+            .filter(
+              (folderPath): folderPath is string =>
+                typeof folderPath === 'string' && folderPath.length > 0
+            ),
+        homeDir: () => app.getPath('home'),
+        emitBriefRunEvent: (event) => {
+          // The tool knows nothing about runs, so record the landed brief
+          // against the guide-run registry before announcing it: without this a
+          // terminal guide would finish while the run-status IPC still reported
+          // it working, and the next start would join a run that already
+          // delivered.
+          recordGuideRunEvent(event)
+          // The guide took its terminal out of the idle reaper's reach for the
+          // duration of the run; a delivered brief is where that run ends, and
+          // the reviewer may never open the terminal to end it any other way.
+          if (event.phase === 'done') guideTerminals.clearReapExempt(event.workspaceId)
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) win.webContents.send(BRIEF_RUN_EVENT_CHANNEL, event)
+          }
+        },
+      })
+    )
 
     registerReviewIpc(host.ipcMain, {
       changeSetService,

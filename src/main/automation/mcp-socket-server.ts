@@ -1,6 +1,13 @@
 import { createServer, type Server, type Socket } from 'net'
 import { chmodSync, existsSync, unlinkSync } from 'fs'
 
+import type {
+  McpConnectionContext,
+  McpConnectionMetadata,
+  McpToolRegistration,
+  McpToolResult,
+} from '../../shared/modules/mcp-tools'
+
 // Minimal MCP server over a local socket: newline-delimited JSON-RPC 2.0 —
 // the same framing as MCP's stdio transport, carried on a Unix domain socket
 // (POSIX) or named pipe (Windows) so access is gated by filesystem permissions
@@ -21,37 +28,22 @@ const MAX_LINE_BYTES = 1024 * 1024
 
 const FALLBACK_PROTOCOL_VERSION = '2025-03-26'
 
-export type McpToolResult = {
-  content: Array<{ type: 'text'; text: string }>
-  structuredContent?: Record<string, unknown>
-  isError?: boolean
-}
-
-export type McpToolRegistration = {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
-  handler: (args: Record<string, unknown>, context?: McpConnectionContext) => Promise<McpToolResult>
-}
-
-export type McpConnectionMetadata = {
-  kind: 'studio-agent' | 'external-local'
-  workspaceId?: string
-  agentId?: string
-  agentName?: string
-  cliId?: string
-  sprintRunId?: string
-}
-
-export type McpConnectionContext = {
-  metadata: McpConnectionMetadata
-}
+// Canonical MCP tool/connection shapes moved to src/shared/modules/mcp-tools
+// (MC-1855) so the module host and SDK can share them; re-exported here for
+// the automation-surface importers.
+export type { McpConnectionContext, McpConnectionMetadata, McpToolRegistration, McpToolResult }
 
 export type McpSocketServerOptions = {
   socketPath: string
   serverName: string
   serverVersion: string
-  tools: McpToolRegistration[]
+  /**
+   * The current tool set, evaluated on every tools/list and tools/call rather
+   * than captured at construction: module-contributed tools follow module
+   * enablement live (MC-1855), and the gateway is constructed before modules
+   * load, so a snapshot here would be permanently stale.
+   */
+  resolveTools: () => McpToolRegistration[]
   onToolCall?: (event: {
     context: McpConnectionContext
     tool: string
@@ -67,6 +59,8 @@ export type McpSocketServer = {
   start(): Promise<void>
   stop(): Promise<void>
   isRunning(): boolean
+  /** Tell every connected client the tool set changed (module enable/disable). */
+  notifyToolsListChanged(): void
 }
 
 export function createMcpSocketServer(options: McpSocketServerOptions): McpSocketServer {
@@ -212,7 +206,7 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
           kind: 'result',
           value: {
             protocolVersion: requested,
-            capabilities: { tools: { listChanged: false } },
+            capabilities: { tools: { listChanged: true } },
             serverInfo: { name: options.serverName, version: options.serverVersion },
           },
         }
@@ -225,12 +219,12 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
         return {
           kind: 'result',
           value: {
-            tools: options.tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
+            tools: options.resolveTools().map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
           },
         }
       case 'tools/call': {
         const name = typeof params.name === 'string' ? params.name : ''
-        const tool = options.tools.find((candidate) => candidate.name === name)
+        const tool = options.resolveTools().find((candidate) => candidate.name === name)
         if (!tool) {
           return { kind: 'error', code: JSONRPC_INVALID_PARAMS, errorMessage: `Unknown tool "${name}".` }
         }
@@ -256,6 +250,11 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
     start,
     stop,
     isRunning: () => server !== null,
+    notifyToolsListChanged: () => {
+      for (const socket of sockets) {
+        respond(socket, { jsonrpc: '2.0', method: 'notifications/tools/list_changed' })
+      }
+    },
   }
 }
 

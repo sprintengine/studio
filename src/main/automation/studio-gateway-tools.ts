@@ -10,6 +10,7 @@ import {
 } from '../../shared/review'
 import { homePathLeak } from '../../shared/review/pathSafety'
 import type { SprintEngineMcpHubService } from '../sprintengine-mcp-hub'
+import type { McpToolContribution } from '../module-host/main-host'
 import { createReviewChangeSetService, reviewChangeSetDir } from '../review/changeset-service'
 import { enumerateReviews } from '../review/review-index'
 import {
@@ -21,7 +22,7 @@ import type {
   McpConnectionContext,
   McpToolRegistration,
   McpToolResult,
-} from './mcp-socket-server'
+} from '../../shared/modules/mcp-tools'
 
 const APP_MUTATION_TOOLS = new Set([
   'agent.launch',
@@ -61,36 +62,83 @@ const APP_MUTATION_TOOLS = new Set([
 ])
 const RUN_MUTATION_TOOLS = new Set<string>(SPRINTENGINE_MUTATING_TOOL_NAMES)
 
+// Builds the gateway's per-request tool resolver. Core tools (the app tools
+// plus the canonical Sprint Engine run tools) are merged once, failing fast at
+// construction on a duplicate. Module-contributed tools are read from the host
+// kernel on EVERY call — the gateway is constructed before modules load, and
+// availability must follow module enablement live (MC-1855) — and each one is
+// gated on its owner's enablement: a disabled module's tools stay listed and
+// answer an actionable enable error instead of running (MC-1805 re-homed).
 export function createStudioGatewayTools(options: {
   appTools: McpToolRegistration[]
   sprintEngineMcpHub: Pick<SprintEngineMcpHubService, 'callRunTool'>
-  reviewTools?: McpToolRegistration[]
-}): McpToolRegistration[] {
-  const names = new Set<string>()
-  const merged: McpToolRegistration[] = []
-  for (const registration of options.appTools) addUnique(registration)
-  for (const registration of options.reviewTools ?? []) addUnique(registration)
-  for (const definition of SPRINTENGINE_TOOL_DEFINITIONS) {
-    addUnique({
-      name: definition.name,
-      description: definition.description,
-      inputSchema: definition.inputSchema as unknown as Record<string, unknown>,
-      handler: (args, context) => callRunTool(
-        options.sprintEngineMcpHub,
-        definition.name,
-        args,
-        context ?? { metadata: { kind: 'external-local' } }
-      ),
-    })
-  }
-  return merged
-
-  function addUnique(registration: McpToolRegistration): void {
-    if (names.has(registration.name)) {
-      throw new Error(`Duplicate SprintEngine Studio MCP tool registration: ${registration.name}`)
+  /** Module-contributed tools, from the host kernel; empty until modules load. */
+  resolveModuleTools: () => ReadonlyArray<McpToolContribution>
+  /** Live enablement of a contributing module; resolved per call, never captured. */
+  isModuleEnabled: (moduleId: string) => boolean
+  warn?: (message: string) => void
+}): () => McpToolRegistration[] {
+  const coreNames = new Set<string>()
+  const requireUnique = (name: string): void => {
+    if (coreNames.has(name)) {
+      throw new Error(`Duplicate SprintEngine Studio MCP tool registration: ${name}`)
     }
-    names.add(registration.name)
-    merged.push(registration)
+    coreNames.add(name)
+  }
+  for (const registration of options.appTools) requireUnique(registration.name)
+  const runTools: McpToolRegistration[] = SPRINTENGINE_TOOL_DEFINITIONS.map((definition) => ({
+    name: definition.name,
+    description: definition.description,
+    inputSchema: definition.inputSchema as unknown as Record<string, unknown>,
+    handler: (args, context) => callRunTool(
+      options.sprintEngineMcpHub,
+      definition.name,
+      args,
+      context ?? { metadata: { kind: 'external-local' } }
+    ),
+  }))
+  for (const registration of runTools) requireUnique(registration.name)
+
+  return () => {
+    const merged = [...options.appTools]
+    const names = new Set(coreNames)
+    for (const contribution of options.resolveModuleTools()) {
+      const { registration } = contribution
+      // Module-vs-module collisions are already rejected at registration by
+      // the kernel; this guards a module shadowing a CORE tool name, which the
+      // kernel cannot know. First (core) wins so the gateway keeps serving.
+      if (names.has(registration.name)) {
+        options.warn?.(
+          `MCP tool "${registration.name}" from module "${contribution.moduleId}" collides with a core gateway tool and is not served.`
+        )
+        continue
+      }
+      names.add(registration.name)
+      merged.push(gateOnModuleEnablement(contribution, options.isModuleEnabled))
+    }
+    merged.push(...runTools)
+    return merged
+  }
+}
+
+// The user's module switch reaches the MCP surface (MC-1805 owner ruling): the
+// tool keeps being advertised so an agent learns the capability exists, and a
+// call while the owner is disabled answers one plain, actionable sentence as a
+// normal MCP tool result — never a protocol error, never the orphaned handler.
+function gateOnModuleEnablement(
+  contribution: McpToolContribution,
+  isModuleEnabled: (moduleId: string) => boolean
+): McpToolRegistration {
+  const { moduleId, moduleDisplayName, registration } = contribution
+  return {
+    ...registration,
+    handler: async (args, context) =>
+      isModuleEnabled(moduleId)
+        ? registration.handler(args, context)
+        : toolError(
+            `${moduleId}_module_disabled`,
+            `The ${moduleDisplayName} module is disabled. Enable it in Settings → Modules to use ${moduleId} tools.`
+          ),
   }
 }
 
@@ -104,12 +152,6 @@ export function isStudioGatewayMutation(toolName: string): boolean {
 // so the tool code stays free of the workspace store, os, and BrowserWindow, and
 // so contract tests drive each one directly.
 export interface ReviewGatewayBackends {
-  /**
-   * Whether the `review` capability module is enabled right now. Resolved per
-   * call, never captured, so switching the module off in Settings takes effect
-   * on the next tool call rather than at the next app start.
-   */
-  isReviewModuleEnabled: () => boolean
   /** Absolute folder paths of the projects currently open in the app. */
   listOpenProjectRoots: () => string[]
   /** The user's home directory, for the outgoing-payload leak guard. */
@@ -125,10 +167,6 @@ export interface ReviewGatewayBackends {
 // A review id is the on-disk directory name; it must satisfy the same constraint
 // changeset-service enforces so a crafted value can never escape the review root.
 const REVIEW_ID_PATTERN = /^[A-Za-z0-9._-]+$/
-
-// The one sentence a disabled Review module answers with (owner ruling, MC-1805).
-const REVIEW_MODULE_DISABLED =
-  'The Review module is disabled. Enable it in Settings → Modules to use review tools.'
 
 const REVIEW_TARGET_SCHEMA = {
   type: 'object',
@@ -278,21 +316,11 @@ export function createReviewGatewayTools(backends: ReviewGatewayBackends): McpTo
     },
   }
 
-  // The user's module switch reaches the MCP surface too (MC-1805). Registration
-  // stays static — the tools are still listed, so an agent learns the capability
-  // exists and why it is refusing rather than that the tool vanished — but a
-  // disabled module means every handler answers with the same plain sentence
-  // before it reads or writes anything. Applied by wrapping the whole set, so a
-  // tool added here later cannot forget the check.
-  return [reviewListPending, reviewGetChangeset, reviewGetBrief, reviewSubmitBrief].map(
-    (registration) => ({
-      ...registration,
-      handler: async (args: Record<string, unknown>, context?: McpConnectionContext) =>
-        backends.isReviewModuleEnabled()
-          ? registration.handler(args, context)
-          : toolError('review_module_disabled', REVIEW_MODULE_DISABLED),
-    })
-  )
+  // The MC-1805 disabled-module refusal is no longer wrapped here: these tools
+  // register through `MainHost.registerMcpTools` (review-module.ts), and the
+  // gateway's contribution point gates every module-owned tool on its owner's
+  // live enablement (`gateOnModuleEnablement` above).
+  return [reviewListPending, reviewGetChangeset, reviewGetBrief, reviewSubmitBrief]
 }
 
 // Strip the one absolute machine path a change set carries — a branch source's

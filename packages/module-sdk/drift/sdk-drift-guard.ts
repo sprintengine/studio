@@ -61,6 +61,12 @@ import type {
   ModuleNotifyInput as AppModuleNotifyInput,
 } from '../../../src/shared/modules/notifications'
 import type { MainHost as AppMainHost, SidecarSpec as AppSidecarSpec } from '../../../src/main/module-host/main-host'
+import type {
+  McpConnectionContext as AppMcpConnectionContext,
+  McpConnectionMetadata as AppMcpConnectionMetadata,
+  McpToolRegistration as AppMcpToolRegistration,
+  McpToolResult as AppMcpToolResult,
+} from '../../../src/shared/modules/mcp-tools'
 import type { ModuleWorkspaceContextService as AppModuleWorkspaceContextService } from '../../../src/main/modules/module-workspace-service'
 import type {
   ModuleStorageErrorCode as AppModuleStorageErrorCode,
@@ -145,6 +151,10 @@ import type {
   FileDropPayload as SdkFileDropPayload,
   GlobalSurfaceDefinition as SdkGlobalSurfaceDefinition,
   MainHost as SdkMainHost,
+  McpConnectionContext as SdkMcpConnectionContext,
+  McpConnectionMetadata as SdkMcpConnectionMetadata,
+  McpToolRegistration as SdkMcpToolRegistration,
+  McpToolResult as SdkMcpToolResult,
   ModuleBridgeRefusalCode as SdkModuleBridgeRefusalCode,
   ModuleCommandContext as SdkModuleCommandContext,
   ModuleCommandDefinition as SdkModuleCommandDefinition,
@@ -267,6 +277,17 @@ expectType<IsExact<AppModuleAutomationsError, SdkModuleAutomationsError>>()
 expectType<IsExact<AppModuleAutomationsService, SdkModuleAutomationsService>>()
 expectType<IsExact<AppActionContext, SdkActionContext>>()
 expectType<IsExact<AppAutomationActionProvider, SdkAutomationActionProvider>>()
+
+// MCP tool contributions (MC-1855): the wire shapes mirror exactly — an
+// optional-property drift on a tool registration would silently change what
+// external modules can put on the gateway — and the contribution method is
+// pinned exactly (the one-directional host assertion below would let a
+// parameter widening ride through unnoticed).
+expectType<IsExact<AppMcpToolResult, SdkMcpToolResult>>()
+expectType<IsExact<AppMcpToolRegistration, SdkMcpToolRegistration>>()
+expectType<IsExact<AppMcpConnectionMetadata, SdkMcpConnectionMetadata>>()
+expectType<IsExact<AppMcpConnectionContext, SdkMcpConnectionContext>>()
+expectType<IsExact<AppMainHost['registerMcpTools'], SdkMainHost['registerMcpTools']>>()
 
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()

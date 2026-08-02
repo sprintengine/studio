@@ -18,6 +18,7 @@ import {
   type AutomationTriggerProvider,
   type BacklogItemAction,
   type CapabilityManifest,
+  type McpToolRegistration,
   type ModuleCommandDefinition,
   type ModuleWorkspaceView,
   type RegisterMain,
@@ -39,7 +40,7 @@ export const manifest: CapabilityManifest = {
   summary: 'Forecast panel and quick-check command.',
   defaultEnabled: true,
   source: 'third-party',
-  permissions: ['network', 'ipc:workspace-read', 'ipc:invoke', 'automations.manage', 'backlog.read', 'agents:companion', 'storage'],
+  permissions: ['network', 'ipc:workspace-read', 'ipc:invoke', 'ipc:agents', 'automations.manage', 'backlog.read', 'agents:companion', 'storage'],
   dependsOn: ['automations', 'agent-runtime'],
   entry: {
     main: 'dist/main.cjs',
@@ -64,6 +65,37 @@ const forecastTrigger: AutomationTriggerProvider = {
   }),
 }
 
+// An agent-reachable MCP tool on the Studio gateway (declares `ipc:agents`).
+// Availability follows the module's enablement live: while Weather Deck is
+// disabled the tool stays listed and answers an actionable enable error.
+const forecastTool: McpToolRegistration = {
+  name: 'weather_deck_forecast',
+  description: 'Read the current forecast for a city.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      city: { type: 'string', description: 'City to forecast.' },
+    },
+    required: ['city'],
+    additionalProperties: false,
+  },
+  handler: async (args) => {
+    const city = typeof args.city === 'string' ? args.city.trim() : ''
+    if (!city) {
+      return {
+        content: [{ type: 'text', text: 'invalid_arguments: "city" must be a city name.' }],
+        structuredContent: { ok: false, error: { code: 'invalid_arguments', message: '"city" must be a city name.' } },
+        isError: true,
+      }
+    }
+    const structured = { city, summary: 'clear' }
+    return {
+      content: [{ type: 'text', text: JSON.stringify(structured) }],
+      structuredContent: structured,
+    }
+  },
+}
+
 const forecastAction: AutomationActionProvider = {
   kind: 'weather-deck.refresh-forecast',
   configSchema: {
@@ -84,6 +116,7 @@ export const registerMain: RegisterMain = (host) => {
   }))
   registerAutomationTrigger(host, forecastTrigger)
   registerAutomationAction(host, forecastAction)
+  host.registerMcpTools([forecastTool])
   host.registerIpc('weather-deck:forecast', async (_event, city: unknown) => {
     if (typeof city !== 'string' || city.trim().length === 0) {
       throw new Error('weather-deck:forecast requires a city name.')

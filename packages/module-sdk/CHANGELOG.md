@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- MCP tool contributions on `MainHost` (MC-1855):
+  `registerMcpTools(tools: McpToolRegistration[])` puts agent-facing MCP tools
+  on Multicode's always-on Studio gateway, owned by your module's id the way
+  IPC channels are. A tool name another module already registered is a
+  registration error and the whole batch is rejected (no partial
+  registration). Availability follows your module's live enablement at the
+  gateway: while the module is registered but disabled the tools stay listed
+  on `tools/list`, and `tools/call` answers a normal MCP tool result carrying
+  an actionable "enable it in Settings → Modules" error instead of running —
+  toggling needs no app restart, and connected clients are nudged with
+  `notifications/tools/list_changed`. Tools of a module that never loaded are
+  not listed. New mirrored types: `McpToolRegistration`, `McpToolResult`,
+  `McpConnectionContext`, `McpConnectionMetadata` (all exact-identity
+  drift-guarded). Keep JSON-Schema array fields arrays end to end.
+  Disclosure: an MCP tool is agent-reachable capability — declare
+  `ipc:agents`.
+
 - Global door surfaces on `RendererHost` (MC-1854):
   `registerGlobalSurface({ id, Component })` publishes the full-page surface
   behind a sidebar nav entry with the same id. A global surface is a

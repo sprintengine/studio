@@ -193,12 +193,56 @@ export type SidecarSpec = {
   startOn?: 'startup' | 'demand'
 }
 
+// ── MCP tools on the Studio gateway (MC-1855) ─────────────────────────────────
+
+/** A normal MCP tool result; `isError: true` marks a tool-domain failure. */
+export type McpToolResult = {
+  content: Array<{ type: 'text'; text: string }>
+  structuredContent?: Record<string, unknown>
+  isError?: boolean
+}
+
+/** Who is calling over the gateway socket, as far as the connection declared. */
+export type McpConnectionMetadata = {
+  kind: 'studio-agent' | 'external-local'
+  workspaceId?: string
+  agentId?: string
+  agentName?: string
+  cliId?: string
+  sprintRunId?: string
+}
+
+export type McpConnectionContext = {
+  metadata: McpConnectionMetadata
+}
+
+/**
+ * One MCP tool contributed to the always-on Studio gateway. `inputSchema` is a
+ * JSON Schema object; array-typed fields must stay arrays end to end. Tool
+ * names are a public contract for agents — pick stable, module-prefixed names.
+ */
+export type McpToolRegistration = {
+  name: string
+  description: string
+  inputSchema: Record<string, unknown>
+  handler: (args: Record<string, unknown>, context?: McpConnectionContext) => Promise<McpToolResult>
+}
+
 export type MainHost = {
   /** The module currently registering; stamped by the host. */
   readonly moduleId: string
   /** Raw Electron ipcMain; typed `unknown` to keep the SDK Electron-free. */
   readonly ipcMain: unknown
   registerIpc(channel: string, handler: IpcInvokeHandler): void
+  /**
+   * Contribute MCP tools to the Studio gateway, owned by this module's id. A
+   * tool name another module already registered is a registration error (the
+   * whole batch is rejected). Availability follows the module's enablement
+   * live: a disabled module's tools stay listed on the gateway and answer
+   * calls with an actionable enable error instead of running. An MCP tool is
+   * agent-reachable capability — declare the `ipc:agents` permission.
+   */
+  registerMcpTools(tools: McpToolRegistration[]): void
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T

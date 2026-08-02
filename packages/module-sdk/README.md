@@ -41,8 +41,13 @@ contracts, so a published version always matches the app version it ships with.
   checks the declaration. Declare it if and only if your module uses the
   bridge or genuinely needs the broad legacy surface.
 - **Main host**: `registerIpc` (channel ownership enforced), service tokens,
-  startup/shutdown hooks, `registerSidecar`, and `notify(severity, title,
-  body?)` (identity stamped by the host, per-module flood-bounded).
+  startup/shutdown hooks, `registerSidecar`, `notify(severity, title,
+  body?)` (identity stamped by the host, per-module flood-bounded), and
+  `registerMcpTools(tools)` — agent-facing MCP tools on the always-on Studio
+  gateway, owned by your module's id with duplicate-name rejection. Tool
+  availability follows your module's enablement live: a disabled module's
+  tools stay listed and answer an actionable enable error instead of running.
+  Declare `ipc:agents`.
 - **Renderer host**: `registerPanel`, `registerWorkspaceType` (workspace
   types may now ship `supervisors` — render-nothing background components
   the shell mounts while your module is enabled, inside a crash boundary and
