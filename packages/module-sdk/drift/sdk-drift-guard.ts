@@ -326,14 +326,17 @@ expectType<Extends<SdkBacklogItemAction, AppBacklogItemAction>>()
 expectType<Extends<SdkBacklogLinkProvider, AppBacklogLinkProvider>>()
 expectType<Extends<SdkSettingsSectionDefinition, AppSettingsSectionDefinition>>()
 expectType<Extends<SdkSidebarNavEntryDefinition, AppSidebarNavEntryDefinition>>()
-// Global door surfaces (MC-1854): an SDK-typed surface stays registrable
-// against the in-app host (renderer-host.ts registerGlobalSurface); method
-// presence on RendererHost rides the host-soundness assertion above.
-expectType<Extends<SdkGlobalSurfaceDefinition, AppGlobalSurfaceDefinition>>()
-// Top bar items (MC-1861): an SDK-typed item stays registrable against the
-// in-app host (renderer-host.ts registerTopBarItem); method presence on
-// RendererHost rides the host-soundness assertion above.
-expectType<Extends<SdkTopBarItemDefinition, AppTopBarItemDefinition>>()
+// Global door surfaces (MC-1854) and top bar items (MC-1861). Pinned exactly,
+// not merely `Extends<Sdk…, App…>`: the one-directional form catches an SDK
+// type that the host would reject, but NOT an app-side widening — drop `order`
+// from the app's item definition and `Extends` still passes while the SDK keeps
+// documenting an ordering the host no longer implements. The host-soundness
+// assertion above does not close it either, because TS compares method
+// parameters bivariantly. Same discipline as registerMcpTools below/above.
+expectType<IsExact<AppGlobalSurfaceDefinition, SdkGlobalSurfaceDefinition>>()
+expectType<IsExact<AppTopBarItemDefinition, SdkTopBarItemDefinition>>()
+expectType<IsExact<AppRendererHost['registerGlobalSurface'], SdkRendererHost['registerGlobalSurface']>>()
+expectType<IsExact<AppRendererHost['registerTopBarItem'], SdkRendererHost['registerTopBarItem']>>()
 
 // Callback-input soundness: what the app passes into module callbacks
 // satisfies the SDK's (intentionally widened) read views.
