@@ -238,11 +238,10 @@ async function testBriefLandingReleasesTheGuideTerminal(): Promise<void> {
       delay: async () => {},
     })
 
-    // The gateway's brief sink as app-services builds it: record the run event,
-    // then release the guide's terminal on a delivered brief.
+    // The gateway's brief sink as review-module builds it: record the run
+    // event, then release the guide's terminal on a delivered brief.
     const emitted: BriefRunEvent[] = []
     const tools = createReviewGatewayTools({
-      isReviewModuleEnabled: () => true,
       listOpenProjectRoots: () => [projectRoot],
       homeDir: () => homedir(),
       emitBriefRunEvent: (event) => {
@@ -300,9 +299,13 @@ async function testBriefLandingReleasesTheGuideTerminal(): Promise<void> {
 async function testDisabledReviewModuleRefusesEveryGatewayTool(): Promise<void> {
   const projectRoot = mkdtempSync(join(tmpdir(), 'multicode-seam-review-disabled-'))
   try {
-    const { createReviewGatewayTools } = await import('../main/automation/studio-gateway-tools')
+    const { createReviewGatewayTools, createStudioGatewayTools } = await import(
+      '../main/automation/studio-gateway-tools'
+    )
+    const { createMainKernel } = await import('../main/module-host/main-host')
     const { reviewChangeSetDir } = await import('../main/review/changeset-service')
     const { reviewModule } = await import('../main/modules/review-module')
+    const { ipcMain } = await import('electron')
 
     const reviewId = 'review_seam'
     const reviewDir = reviewChangeSetDir(projectRoot, reviewId)
@@ -310,21 +313,33 @@ async function testDisabledReviewModuleRefusesEveryGatewayTool(): Promise<void> 
     writeFileSync(join(reviewDir, 'changeset.json'), `${JSON.stringify(changeSetFixture(projectRoot))}\n`, 'utf8')
 
     // Enablement as main resolves it: the set of enabled main-module ids, asked
-    // per call. Asking for the id the review module actually declares is the
-    // seam — a gateway checking a name no module carries would refuse forever,
-    // and a test that hard-codes 'review' on both sides could not tell.
+    // per call under the id the CONTRIBUTION carries (MC-1855). The review
+    // tools register through the module host under the review module's own
+    // manifest id — the seam is that the id the gateway asks about is the one
+    // the module declared, not a name hard-coded on both sides.
     const enabledModuleIds = new Set<string>([reviewModule.manifest.id])
     const asked: string[] = []
     const emitted: BriefRunEvent[] = []
-    const tools = createReviewGatewayTools({
-      isReviewModuleEnabled: () => {
-        asked.push('review')
-        return enabledModuleIds.has('review')
-      },
-      listOpenProjectRoots: () => [projectRoot],
-      homeDir: () => homedir(),
-      emitBriefRunEvent: (event) => emitted.push(event),
+    const kernel = createMainKernel(ipcMain, {
+      resolveModuleManifest: (moduleId) =>
+        moduleId === reviewModule.manifest.id ? reviewModule.manifest : undefined,
     })
+    kernel.hostFor(reviewModule.manifest.id).registerMcpTools(
+      createReviewGatewayTools({
+        listOpenProjectRoots: () => [projectRoot],
+        homeDir: () => homedir(),
+        emitBriefRunEvent: (event) => emitted.push(event),
+      })
+    )
+    const tools = createStudioGatewayTools({
+      appTools: [],
+      sprintEngineMcpHub: { callRunTool: async () => ({}) },
+      resolveModuleTools: () => kernel.mcpToolRegistrations(),
+      isModuleEnabled: (moduleId) => {
+        asked.push(moduleId)
+        return enabledModuleIds.has(moduleId)
+      },
+    })().filter((registration) => registration.name.startsWith('review_'))
     assert.equal(reviewModule.manifest.id, 'review', 'the gateway asks about the module that owns review')
 
     // The user switches Review off in Settings, mid-session.
@@ -354,6 +369,10 @@ async function testDisabledReviewModuleRefusesEveryGatewayTool(): Promise<void> 
     assert.equal(existsSync(join(reviewDir, 'brief.json')), false, 'no brief was written on a disabled capability')
     assert.deepEqual(emitted, [], 'and nothing was announced to open windows')
     assert.equal(asked.length, calls.length, 'enablement is read per call, never captured at registration')
+    assert.ok(
+      asked.every((moduleId) => moduleId === reviewModule.manifest.id),
+      'every check names the id the module registered under'
+    )
 
     // Switching it back on works on the next call, not the next restart.
     enabledModuleIds.add('review')
