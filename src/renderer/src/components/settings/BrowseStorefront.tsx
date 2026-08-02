@@ -361,7 +361,7 @@ function PluginSkillsList({ skills }: { skills: NonNullable<MarketplacePluginEnt
 // inline-MCP entry has no capability permissions, so it discloses the executable
 // server config the trust grant will run instead. Copy avoids any purchase/paywall
 // framing (D4) and states plainly that trust is install-time, not a runtime sandbox.
-function TrustPrompt({
+export function TrustPrompt({
   tier,
   permissions,
   inlineServers,
