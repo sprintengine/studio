@@ -717,6 +717,42 @@ assert.deepEqual(
   'resetAllKeybindings clears all persisted keybinding deltas',
 )
 
+// Writes through a migrated command id must clear state persisted under its
+// legacy id (LEGACY_COMMAND_ID_ALIASES), or the legacy-honoring read paths
+// resurrect it and e.g. a pre-rename disable can never be undone (MC-1533
+// re-namespacing; ported from extraction-branch commits 52d05235/0e57e36f).
+store.setCommandKeybindingDisabled('watchtower.run.review', true)
+store.setCommandKeybindingDisabled('switchboard.watchtower.run.review', false)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.keybindings.disabled['watchtower.run.review'],
+  undefined,
+  're-enabling under the current id clears a legacy-id disabled flag',
+)
+store.setCommandKeybindings('watchtower.run.review', ['Primary+R'])
+store.setCommandKeybindings('switchboard.watchtower.run.review', ['Primary+Shift+R'])
+assert.equal(
+  useWorkspaceStore.getState().appSettings.keybindings.overrides['watchtower.run.review'],
+  undefined,
+  'overriding under the current id drops the legacy-id override',
+)
+store.setCommandKeybindings('switchboard.watchtower.run.review', [])
+assert.equal(
+  useWorkspaceStore.getState().appSettings.keybindings.overrides['switchboard.watchtower.run.review'],
+  undefined,
+  'clearing under the current id removes its override',
+)
+store.setCommandKeybindings('watchtower.run.review', ['Primary+R'])
+store.setCommandKeybindingDisabled('watchtower.run.review', true)
+store.resetCommandKeybindings('switchboard.watchtower.run.review')
+assert.deepEqual(
+  [
+    useWorkspaceStore.getState().appSettings.keybindings.overrides['watchtower.run.review'],
+    useWorkspaceStore.getState().appSettings.keybindings.disabled['watchtower.run.review'],
+  ],
+  [undefined, undefined],
+  'resetCommandKeybindings clears legacy-id override and disabled flag',
+)
+
 // setCliRuntime on a plugin-id key (no bundled default) must NOT pin the command
 // to the plugin id when only the WSL flag is toggled; a blank command resolves
 // to the manifest binary at launch (T4 AC3).
