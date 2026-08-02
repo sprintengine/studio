@@ -56,7 +56,7 @@ const VALID_MARKETPLACE = {
       category: 'dev-tools',
       icon: 'icons/dev-helper.svg',
       latest: 1,
-      source: 'https://github.com/multicode-labs/marketplace/plugins/dev-helper',
+      source: 'https://github.com/hotstacklabs/sprintengine-marketplace/plugins/dev-helper',
       provides: ['mcp', 'skills', 'module', 'cli'],
       signature: VALID_SIGNATURE,
     },
@@ -412,7 +412,7 @@ function testInlineCliEntryValidates(): void {
 
 function testInlineCliRejectsOtherShapesAndBadPluginId(): void {
   assertRejectsAt(
-    { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, source: 'https://github.com/multicode-labs/marketplace' }] },
+    { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, source: 'https://github.com/hotstacklabs/sprintengine-marketplace' }] },
     'plugins[0]',
     validateMarketplaceIndex
   )
@@ -470,7 +470,7 @@ function testCategoriesAndTagsMustBeStringArrays(): void {
 }
 
 function testCanonicalSourceConstantExported(): void {
-  assert.deepEqual(MARKETPLACE_CANONICAL_SOURCE, { owner: 'multicode-labs', repo: 'marketplace', ref: 'main' })
+  assert.deepEqual(MARKETPLACE_CANONICAL_SOURCE, { owner: 'hotstacklabs', repo: 'sprintengine-marketplace', ref: 'main' })
 }
 
 function testMarketplaceMissingTopLevelFields(): void {

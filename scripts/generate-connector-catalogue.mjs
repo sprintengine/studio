@@ -203,6 +203,38 @@ const bundlesAndPlugins = picked
   )
 const projection = toMarketplaceIndex(bundlesAndPlugins, { inlineIcons: true })
 
+// The snapshot package still names the pre-move registry repo in the `source`
+// of every signed bundle it projects (4 of them, baked into its data). Left
+// alone, a regenerate would quietly walk those URLs back to a repo that does
+// not exist, and — worse — the packaged-seed offline install would stop firing:
+// packagedMarketplacePluginRelativePath (plugin-download.ts) only serves the
+// bundled copy when owner/repo/ref match MARKETPLACE_CANONICAL_SOURCE exactly,
+// so a mismatched source silently downgrades an offline install to a network
+// fetch. Rewrite them onto the canonical source here, which is what that
+// constant already claims to be. Remove this once the snapshot ships the
+// current repo.
+// This is a plain-node script, so the TypeScript constant is read as text
+// rather than imported — the same shape verify-module-sdk-pack.mjs uses to
+// assert against the SDK's emitted types. Throwing on a miss is deliberate:
+// silently falling back to a literal is how the two drifted apart originally.
+const canonicalSourceFile = readFileSync(
+  path.join(repoRoot, 'src', 'shared', 'marketplace', 'canonical-source.ts'),
+  'utf8'
+)
+const canonicalOwner = canonicalSourceFile.match(/owner:\s*'([^']+)'/)?.[1]
+const canonicalRepo = canonicalSourceFile.match(/repo:\s*'([^']+)'/)?.[1]
+if (!canonicalOwner || !canonicalRepo) {
+  throw new Error('canonical-source.ts: could not read MARKETPLACE_CANONICAL_SOURCE owner/repo.')
+}
+const PRE_MOVE_SOURCE_PREFIX = 'https://github.com/multicode-labs/marketplace/'
+const canonicalSourcePrefix = `https://github.com/${canonicalOwner}/${canonicalRepo}/`
+let rewrittenSources = 0
+for (const plugin of projection.index.plugins) {
+  if (typeof plugin.source !== 'string' || !plugin.source.startsWith(PRE_MOVE_SOURCE_PREFIX)) continue
+  plugin.source = `${canonicalSourcePrefix}${plugin.source.slice(PRE_MOVE_SOURCE_PREFIX.length)}`
+  rewrittenSources += 1
+}
+
 // Repo-authored first-party entries ride through. They are not projected from
 // the snapshot, so a regenerate that only wrote the projection would delete
 // them — silently, inside a diff too large to notice it in. Two populations
@@ -272,7 +304,7 @@ console.log(
     `bundled: ${picked.length} (curated ${picked.filter((e) => e.tier === 'curated').length}, claude-plugins-official ${picked.filter((e) => e.sourceId === 'claude-plugins-official').length}, registry allowlist ${picked.filter((e) => e.sourceId === 'mcp-official-registry').length})`,
     `dropped by policy: ${dropped} unlisted official-registry entries (full-index search stays a hosted-registry feature)`,
     `catalog.json: ${servers.length} servers (${servers.filter((s) => s.skill).length} with launch skills)`,
-    `marketplace.json: ${projection.index.plugins.length} plugins (${projection.skipped.length} skipped: ${projection.skipped.map((s) => `${s.id} — ${s.reason}`).join('; ') || 'none'})`,
+    `marketplace.json: ${projection.index.plugins.length} plugins (${projection.skipped.length} skipped: ${projection.skipped.map((s) => `${s.id} — ${s.reason}`).join('; ') || 'none'}; ${rewrittenSources} source URL(s) rewritten to ${canonicalOwner}/${canonicalRepo})`,
     `repo-authored entries carried through: ${carried.length}${carried.length > 0 ? ` (${carried.map((plugin) => plugin.id).join(', ')})` : ''}`,
     `skill payloads: ${payloadFiles} files, ${(payloadBytes / (1024 * 1024)).toFixed(1)} MB across ${payloadPlugins} plugins under resources/marketplace/skills (${metadataOnlySkills} skills metadata-only — no bundled content)`,
   ].join('\n')

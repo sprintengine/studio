@@ -21,7 +21,7 @@ function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): Marketp
   return {
     classification: 'verified',
     permissions: [],
-    sourceUrl: 'https://github.com/multicode-labs/marketplace/tree/main/plugins/x',
+    sourceUrl: 'https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/x',
     ...overrides,
   }
 }

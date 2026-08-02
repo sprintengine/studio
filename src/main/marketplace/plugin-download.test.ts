@@ -23,13 +23,13 @@ import {
 } from './plugin-download'
 import { skillContentDigest } from './skill-content'
 
-const SOURCE_URL = 'https://github.com/multicode-labs/marketplace/tree/main/plugins/downloaded-plugin'
-const API_ROOT = 'https://api.github.com/repos/multicode-labs/marketplace/contents/plugins/downloaded-plugin?ref=main'
-const API_MCP = 'https://api.github.com/repos/multicode-labs/marketplace/contents/plugins/downloaded-plugin/mcp?ref=main'
-const RAW_PLUGIN = 'https://raw.githubusercontent.com/multicode-labs/marketplace/main/plugins/downloaded-plugin/plugin.json'
-const RAW_MCP = 'https://raw.githubusercontent.com/multicode-labs/marketplace/main/plugins/downloaded-plugin/mcp/server.json'
-const API_AUTOMATION = 'https://api.github.com/repos/multicode-labs/marketplace/contents/plugins/downloaded-plugin/automation?ref=main'
-const RAW_AUTOMATION = 'https://raw.githubusercontent.com/multicode-labs/marketplace/main/plugins/downloaded-plugin/automation/automation.json'
+const SOURCE_URL = 'https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/downloaded-plugin'
+const API_ROOT = 'https://api.github.com/repos/hotstacklabs/sprintengine-marketplace/contents/plugins/downloaded-plugin?ref=main'
+const API_MCP = 'https://api.github.com/repos/hotstacklabs/sprintengine-marketplace/contents/plugins/downloaded-plugin/mcp?ref=main'
+const RAW_PLUGIN = 'https://raw.githubusercontent.com/hotstacklabs/sprintengine-marketplace/main/plugins/downloaded-plugin/plugin.json'
+const RAW_MCP = 'https://raw.githubusercontent.com/hotstacklabs/sprintengine-marketplace/main/plugins/downloaded-plugin/mcp/server.json'
+const API_AUTOMATION = 'https://api.github.com/repos/hotstacklabs/sprintengine-marketplace/contents/plugins/downloaded-plugin/automation?ref=main'
+const RAW_AUTOMATION = 'https://raw.githubusercontent.com/hotstacklabs/sprintengine-marketplace/main/plugins/downloaded-plugin/automation/automation.json'
 const AUTOMATION_COMPONENT_PATH = 'automation/automation.json'
 
 type BundleFixture = {

@@ -25,7 +25,7 @@ function plugin(overrides: Partial<MarketplacePluginEntry> = {}): MarketplacePlu
     category: 'Testing',
     icon: 'icons/browser-automation.svg',
     latest: 1,
-    source: 'https://github.com/multicode-labs/marketplace/tree/main/plugins/browser-automation-mcp',
+    source: 'https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/browser-automation-mcp',
     provides: ['mcp'],
     signature: { algorithm: 'ed25519', publicKey: 'k', signature: 's' },
     ...overrides,
@@ -243,8 +243,8 @@ assert.equal(deriveBrowseView({ status: 'unsupported' }, '').status, 'unsupporte
   // "View source" href guard: http(s) sources pass through unchanged so the
   // link still renders and opens.
   assert.equal(
-    externalSourceHref('https://github.com/multicode-labs/marketplace/tree/main/plugins/x'),
-    'https://github.com/multicode-labs/marketplace/tree/main/plugins/x',
+    externalSourceHref('https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/x'),
+    'https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/x',
   )
   assert.equal(externalSourceHref('http://example.com/x'), 'http://example.com/x')
 }

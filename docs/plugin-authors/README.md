@@ -6,7 +6,7 @@ plugins. A marketplace submission is accepted only when the registry entry,
 `plugin.json`, declared component files, and ed25519 signature all validate
 through the same code paths the app uses.
 
-Registry pull requests target the standalone `multicode-labs/marketplace`
+Registry pull requests target the standalone `hotstacklabs/sprintengine-marketplace`
 repository layout:
 
 ```text
@@ -136,7 +136,7 @@ Example community entry:
   "category": "Documentation",
   "icon": "icons/acme-doc-search.svg",
   "latest": 1,
-  "source": "https://github.com/multicode-labs/marketplace/tree/main/plugins/acme-doc-search",
+  "source": "https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/acme-doc-search",
   "provides": ["mcp", "skills"],
   "signature": {
     "algorithm": "ed25519",
@@ -147,7 +147,7 @@ Example community entry:
 ```
 
 Add the icon at `icons/acme-doc-search.svg`. Registry sources must use the
-canonical `https://github.com/multicode-labs/marketplace/tree/main/plugins/<id>`
+canonical `https://github.com/hotstacklabs/sprintengine-marketplace/tree/main/plugins/<id>`
 layout. Community submissions should use `publisher.verified: false`; Multicode
 will install them only after the user grants trust in the marketplace trust gate.
 
