@@ -9,13 +9,20 @@
 // actions (launch / automation / remove) only delegate to handlers the host
 // already owns — a primitive with no handler simply shows no action.
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../../../../../shared/modules/manifest'
-import type { McpCatalogServer, WorkspaceSkill } from '../../../../../shared/electron-api'
+import type {
+  AgentCliAvailabilityMap,
+  MarketplaceUpdateStatesResult,
+  McpCatalogServer,
+  WorkspaceSkill,
+} from '../../../../../shared/electron-api'
+import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
+import type { CapabilityPermission } from '../../../../../shared/modules/permissions'
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type { PluginRegistryListEntry } from '../../../../../shared/plugin-manifest'
-import type { McpServerConfig } from '../../../types/workspace'
+import type { McpServerConfig, McpSettings } from '../../../types/workspace'
 import { GhostButton, InlineNotice, Popover, PrimaryButton, Spinner, StatusDot } from '../../ui'
 import { bracketedPaste } from '../../../utils/terminalDrop'
 import {
@@ -25,6 +32,8 @@ import {
 } from '../../../utils/skillInvocation'
 import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
 import { TRUST_PRESENTATION } from '../../settings/ThirdPartyModuleList'
+import { pluginTrust } from '../../settings/BrowseStorefront'
+import { classifyVerification, summarizeInstallResult } from '../../settings/installFlow'
 import {
   deriveInstalledExtensions,
   type ExtensionsInstalledView,
@@ -33,6 +42,12 @@ import {
   type SourceNotice,
 } from '../../settings/extensionsInstalled'
 import { ConnectorRow, ConnectorSectionHeading } from './ConnectorRow'
+import {
+  ModuleUpdateBanner,
+  type ModuleUpdateFlow,
+  type ModuleUpdateNotice,
+} from './ExtensionUpdateBanner'
+import { cliOnlyRegistryIds, deriveManageUpdateBanner } from './extensionUpdates'
 
 // Per-row actions, all optional: the host wires only the handlers that exist
 // today (no new IPC), and rows without a matching handler carry no affordance.
@@ -43,6 +58,9 @@ type InventoryActions = {
   onLaunchConnector?: (connector: AgentComposerConnector) => void
   onUseInAutomation?: (serverId: string) => void
   onRemoveMcpServer?: (serverId: string) => void
+  // A module-bundle update can carry MCP servers; reflecting them in the store
+  // keeps the MCP group live without a re-list (the storefront install rule).
+  onUpsertMcpServer?: (server: McpServerConfig) => void
   // Keyed by the skill's directory name (the inventory row id for skills).
   onRemoveSkill?: (dirName: string) => void
   // "Use in agent → New agent…": spawn a fresh agent with the skill attached
@@ -51,10 +69,29 @@ type InventoryActions = {
   onUseSkillInNewAgent?: (skill: WorkspaceSkill) => void
 }
 
+// The banner's update run: what is being verified/updated now, what is queued
+// behind it ("Update all"), and the trust re-classification pause. Internal —
+// the banner renders the derived ModuleUpdateFlow.
+type ModuleUpdateRun =
+  | { status: 'idle' }
+  | { status: 'busy'; label: string }
+  | {
+      status: 'needs-trust'
+      entry: MarketplacePluginEntry
+      queue: string[]
+      permissions: CapabilityPermission[]
+      files: string[] | null
+      pinnedRef: string | null
+    }
+
 export function InstalledExtensionsInventory({
   mcpServers,
   moduleOverrides,
   workspaceRoot,
+  registryPlugins,
+  mcpSettings,
+  cliAvailability,
+  onCliUpdated,
   ...actions
 }: {
   // MCP servers reflect the store live, so the inventory's MCP group updates
@@ -62,10 +99,30 @@ export function InstalledExtensionsInventory({
   mcpServers: McpServerConfig[]
   moduleOverrides: ModuleEnablementOverrides
   workspaceRoot: string | null
+  // The marketplace registry entries the surface already loaded: the update
+  // action needs the full entry (updateFromRegistry input), and cli-only
+  // entries are excluded from the banner's delta claims.
+  registryPlugins?: MarketplacePluginEntry[]
+  // Forwarded into the update input so a bundle's MCP servers merge the same
+  // way the storefront install merges them.
+  mcpSettings?: McpSettings
+  // Which CLI binaries are really installed: only those rows offer Update
+  // (updating an absent binary is the shelf's Install, not this surface's job).
+  cliAvailability?: AgentCliAvailabilityMap
+  // After a CLI update ran, the host force-reprobes availability so the row
+  // reflects the binary the updater actually left behind.
+  onCliUpdated?: () => void
 } & InventoryActions) {
   const [modules, setModules] = useState<LoadedSource<ThirdPartyModuleListResult>>({ status: 'loading' })
   const [skills, setSkills] = useState<LoadedSource<WorkspaceSkill[]>>({ status: 'loading' })
   const [clis, setClis] = useState<LoadedSource<PluginRegistryListEntry[]>>({ status: 'loading' })
+  // null until the first read lands (or forever on a build predating the API):
+  // no update claim either way. Never rendered as "up to date".
+  const [updateStates, setUpdateStates] = useState<MarketplaceUpdateStatesResult | null>(null)
+  const [updateRun, setUpdateRun] = useState<ModuleUpdateRun>({ status: 'idle' })
+  const [updateNotice, setUpdateNotice] = useState<ModuleUpdateNotice | null>(null)
+  const [updatingCliId, setUpdatingCliId] = useState<string | null>(null)
+  const [cliNotice, setCliNotice] = useState<ModuleUpdateNotice | null>(null)
 
   const loadModules = useCallback(async () => {
     if (typeof window.api.listThirdPartyModules !== 'function') {
@@ -117,10 +174,24 @@ export function InstalledExtensionsInventory({
     }
   }, [workspaceRoot])
 
+  // Update detection (MC-1873). A thrown read is a failed check and renders
+  // couldn't-check — never silence that reads as "up to date".
+  const loadUpdateStates = useCallback(async (forceRefresh = false) => {
+    if (typeof window.api.readMarketplacePluginUpdateStates !== 'function') return
+    try {
+      setUpdateStates(
+        await window.api.readMarketplacePluginUpdateStates(forceRefresh ? { forceRefresh: true } : undefined),
+      )
+    } catch (error) {
+      setUpdateStates({ ok: false, message: errorMessage(error, 'Could not check for updates.') })
+    }
+  }, [])
+
   useEffect(() => {
     void loadModules()
     void loadClis()
-  }, [loadModules, loadClis])
+    void loadUpdateStates()
+  }, [loadModules, loadClis, loadUpdateStates])
 
   // Skills are workspace-scoped, so re-list when the active workspace changes
   // (loadSkills closes over workspaceRoot).
@@ -128,6 +199,178 @@ export function InstalledExtensionsInventory({
     setSkills({ status: 'loading' })
     void loadSkills()
   }, [loadSkills])
+
+  // After any update lands, the module list and the detection re-read together
+  // so the banner and the row settle to current in one pass, no app restart.
+  const settleAfterUpdate = useCallback(async () => {
+    await Promise.all([loadModules(), loadUpdateStates(true)])
+  }, [loadModules, loadUpdateStates])
+
+  // Walk the pending updates one at a time. The pre-update verify re-runs
+  // trust classification: a version now signed by a different key (or
+  // unsigned where it was signed) pauses on the disclosure prompt or blocks —
+  // never a silent grant. A block or error stops the walk; the banner still
+  // names what remains. A trust grant re-enters the walk with `grant` set for
+  // the entry the user just approved, skipping its second verify.
+  const processUpdateQueue = useCallback(
+    async (ids: string[], grant?: { id: string; pinnedRef: string | null }) => {
+      let updated = false
+      let pending = ids
+      while (pending.length > 0) {
+        const [id, ...rest] = pending
+        pending = rest
+        const entry = registryPlugins?.find((plugin) => plugin.id === id)
+        if (
+          !entry
+          || typeof window.api.verifyMarketplacePlugin !== 'function'
+          || typeof window.api.updateMarketplacePluginFromRegistry !== 'function'
+        ) {
+          setUpdateRun({ status: 'idle' })
+          setUpdateNotice({
+            tone: 'error',
+            message: entry
+              ? 'Updating extensions needs a newer app build. Update and restart.'
+              : 'The marketplace entry for this update is not available right now.',
+          })
+          if (updated) await settleAfterUpdate()
+          return
+        }
+
+        let trustGranted = false
+        let pinnedRef: string | null = null
+        if (grant?.id === id) {
+          trustGranted = true
+          pinnedRef = grant.pinnedRef
+          grant = undefined
+        } else {
+          setUpdateRun({ status: 'busy', label: `Checking ${entry.name}…` })
+          let verify
+          try {
+            verify = await window.api.verifyMarketplacePlugin(entry)
+          } catch (error) {
+            setUpdateRun({ status: 'idle' })
+            setUpdateNotice({ tone: 'error', message: errorMessage(error, 'Could not verify this update.') })
+            if (updated) await settleAfterUpdate()
+            return
+          }
+          const outcome = classifyVerification(verify, entry.provides)
+          if (outcome.kind === 'blocked') {
+            setUpdateRun({ status: 'idle' })
+            setUpdateNotice({
+              tone: outcome.classification === 'invalid' ? 'error' : 'warn',
+              message: outcome.message,
+            })
+            if (updated) await settleAfterUpdate()
+            return
+          }
+          if (outcome.kind === 'needs-trust') {
+            setUpdateRun({
+              status: 'needs-trust',
+              entry,
+              queue: pending,
+              permissions: outcome.permissions,
+              files: outcome.files ?? null,
+              pinnedRef: outcome.pinnedRef ?? null,
+            })
+            if (updated) await settleAfterUpdate()
+            return
+          }
+        }
+
+        setUpdateRun({ status: 'busy', label: `Updating ${entry.name}…` })
+        try {
+          const result = await window.api.updateMarketplacePluginFromRegistry({
+            entry,
+            trustGranted,
+            workspaceRoot: workspaceRoot ?? undefined,
+            mcpSettings,
+            ...(pinnedRef ? { claudePluginRef: pinnedRef } : {}),
+          })
+          if (!result.ok) {
+            const summary = summarizeInstallResult(result)
+            setUpdateRun({ status: 'idle' })
+            setUpdateNotice({
+              tone: summary.status === 'blocked' && summary.classification === 'unsigned' ? 'warn' : 'error',
+              message:
+                summary.status === 'blocked' || summary.status === 'error'
+                  ? summary.message
+                  : 'The update could not be completed.',
+            })
+            await settleAfterUpdate()
+            return
+          }
+          updated = true
+          if (result.mcpSettings && actions.onUpsertMcpServer) {
+            for (const server of Object.values(result.mcpSettings.servers)) actions.onUpsertMcpServer(server)
+          }
+          setUpdateNotice({ tone: 'good', message: `${entry.name} updated to v${result.version}.` })
+        } catch (error) {
+          setUpdateRun({ status: 'idle' })
+          setUpdateNotice({ tone: 'error', message: errorMessage(error, 'The update could not be completed.') })
+          await settleAfterUpdate()
+          return
+        }
+      }
+      setUpdateRun({ status: 'idle' })
+      if (updated) await settleAfterUpdate()
+    },
+    [registryPlugins, workspaceRoot, mcpSettings, actions, settleAfterUpdate],
+  )
+
+  const startBannerUpdate = useCallback(
+    (ids: string[]) => {
+      setUpdateNotice(null)
+      void processUpdateQueue(ids)
+    },
+    [processUpdateQueue],
+  )
+
+  // CLI half (owner-pinned): an Update action with no staleness detection —
+  // the manifest update spec (the CLI's own updater where one exists, else an
+  // idempotent re-run of the install). The outcome states what the updater
+  // left behind; it never claims a newer version existed beforehand.
+  const updateCli = useCallback(
+    async (id: string) => {
+      const name = (clis.status === 'ok' ? clis.value : []).find((plugin) => plugin.id === id)?.displayName ?? id
+      if (typeof window.api.cliUpdate !== 'function') {
+        setCliNotice({ tone: 'warn', message: 'Updating agent CLIs needs a newer app build. Update and restart.' })
+        return
+      }
+      setUpdatingCliId(id)
+      setCliNotice(null)
+      try {
+        const result = await window.api.cliUpdate(id)
+        if (result.ok) {
+          setCliNotice({
+            tone: 'good',
+            message: result.version ? `${name} is on ${result.version}.` : `${name} update finished.`,
+          })
+          onCliUpdated?.()
+        } else {
+          setCliNotice({ tone: 'error', message: result.error || `Could not update ${name}.` })
+        }
+      } catch (error) {
+        setCliNotice({ tone: 'error', message: errorMessage(error, `Could not update ${name}.`) })
+      } finally {
+        setUpdatingCliId(null)
+      }
+    },
+    [clis, onCliUpdated],
+  )
+
+  const banner = useMemo(
+    () => deriveManageUpdateBanner(updateStates, cliOnlyRegistryIds(registryPlugins ?? [])),
+    [updateStates, registryPlugins],
+  )
+  const updateFlow: ModuleUpdateFlow =
+    updateRun.status === 'needs-trust'
+      ? {
+          status: 'needs-trust',
+          tier: pluginTrust(updateRun.entry).tier,
+          permissions: updateRun.permissions,
+          files: updateRun.files,
+        }
+      : updateRun
 
   const view = deriveInstalledExtensions({
     mcpServers,
@@ -142,6 +385,31 @@ export function InstalledExtensionsInventory({
       view={view}
       actions={actions}
       skillUse={{ workspaceRoot, clis: clis.status === 'ok' ? clis.value : [] }}
+      cliUpdate={{
+        availability: cliAvailability,
+        updatingId: updatingCliId,
+        onUpdate: (id) => void updateCli(id),
+        notice: cliNotice,
+      }}
+      moduleUpdateSlot={
+        <ModuleUpdateBanner
+          banner={banner}
+          flow={updateFlow}
+          notice={updateNotice}
+          onUpdate={() => {
+            if (banner.kind === 'updates') startBannerUpdate(banner.updates.map((update) => update.id))
+          }}
+          onTrustConfirm={() => {
+            if (updateRun.status === 'needs-trust') {
+              void processUpdateQueue([updateRun.entry.id, ...updateRun.queue], {
+                id: updateRun.entry.id,
+                pinnedRef: updateRun.pinnedRef,
+              })
+            }
+          }}
+          onCancelTrust={() => setUpdateRun({ status: 'idle' })}
+        />
+      }
     />
   )
 }
@@ -152,6 +420,16 @@ export function InstalledExtensionsInventory({
 type SkillUseContext = {
   workspaceRoot: string | null
   clis: PluginRegistryListEntry[]
+}
+
+// Context for the per-row CLI Update action: which binaries are really
+// installed (only those rows offer it), the row currently updating, and the
+// outcome line rendered under the group.
+type CliUpdateContext = {
+  availability?: AgentCliAvailabilityMap
+  updatingId: string | null
+  onUpdate: (id: string) => void
+  notice: ModuleUpdateNotice | null
 }
 
 function NoticeList({ notices }: { notices: SourceNotice[] }) {
@@ -170,10 +448,17 @@ function InstalledView({
   view,
   actions,
   skillUse,
+  cliUpdate,
+  moduleUpdateSlot,
 }: {
   view: ExtensionsInstalledView
   actions: InventoryActions
   skillUse: SkillUseContext
+  cliUpdate?: CliUpdateContext
+  // The update banner (MC-1873): one calm line above the Capability modules
+  // group — per the owner ruling it lives here and only here, never on rows,
+  // never on the Skills surface.
+  moduleUpdateSlot?: ReactNode
 }) {
   if (view.status === 'loading') {
     return (
@@ -214,11 +499,22 @@ function InstalledView({
         {view.groups.map((group) => (
           <section key={group.kind} className="space-y-2">
             <ConnectorSectionHeading label={group.label} count={group.items.length} />
+            {group.kind === 'module' ? moduleUpdateSlot : null}
             <div className="divide-y divide-[color:var(--border-subtle)] overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
               {group.items.map((item) => (
-                <InstalledRow key={item.key} item={item} actions={actions} skillUse={skillUse} />
+                <InstalledRow key={item.key} item={item} actions={actions} skillUse={skillUse} cliUpdate={cliUpdate} />
               ))}
             </div>
+            {group.kind === 'cli' && cliUpdate?.notice ? (
+              cliUpdate.notice.tone === 'good' ? (
+                <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]" role="status">
+                  <StatusDot tone="good" />
+                  <span>{cliUpdate.notice.message}</span>
+                </div>
+              ) : (
+                <InlineNotice tone={cliUpdate.notice.tone}>{cliUpdate.notice.message}</InlineNotice>
+              )
+            ) : null}
           </section>
         ))}
       </div>
@@ -235,14 +531,17 @@ function InstalledRow({
   item,
   actions,
   skillUse,
+  cliUpdate,
 }: {
   item: InstalledExtension
   actions: InventoryActions
   skillUse: SkillUseContext
+  cliUpdate?: CliUpdateContext
 }) {
   const catalogEntry =
     item.kind === 'mcp' ? actions.catalogServers?.find((server) => server.id === item.id) : undefined
   const launchable = item.kind === 'mcp' && item.enabled === true
+  const cliUpdating = item.kind === 'cli' && cliUpdate?.updatingId === item.id
 
   const rowActions: ReactNode[] = []
   if (item.kind === 'mcp') {
@@ -274,6 +573,25 @@ function InstalledRow({
           aria-label={`Remove ${item.name}`}
         >
           Remove
+        </GhostButton>,
+      )
+    }
+  } else if (item.kind === 'cli') {
+    // Update with no version-delta claim (the owner-pinned CLI split: no
+    // staleness detection — the label never says a newer version exists).
+    // Offered only where the binary is really installed; an absent CLI's
+    // affordance is the shelf's Install, not an update.
+    if (cliUpdate && cliUpdate.availability?.[item.id]?.installed === true) {
+      rowActions.push(
+        <GhostButton
+          key="update"
+          size="sm"
+          disabled={cliUpdate.updatingId !== null}
+          onClick={() => cliUpdate.onUpdate(item.id)}
+          className="border border-[color:var(--border-default)]"
+          aria-label={`Update ${item.name}`}
+        >
+          {cliUpdating ? 'Updating…' : 'Update'}
         </GhostButton>,
       )
     }
@@ -323,7 +641,11 @@ function InstalledRow({
       }
       actions={
         rowActions.length > 0 ? (
-          <span className="flex items-center gap-2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <span
+            // A row mid-update keeps its action visible so the busy label
+            // never hides behind the hover reveal.
+            className={`flex items-center gap-2 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${cliUpdating ? 'opacity-100' : 'opacity-0'}`}
+          >
             {rowActions}
           </span>
         ) : undefined
