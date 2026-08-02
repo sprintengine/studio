@@ -1,5 +1,5 @@
 import { app, BrowserWindow } from 'electron'
-import { createReviewGatewayTools } from '../automation/studio-gateway-tools'
+import { createReviewGatewayTools } from '../review/gateway-tools'
 import { registerReviewIpc } from '../review/review-ipc'
 import {
   ReviewChangeSetServiceToken,

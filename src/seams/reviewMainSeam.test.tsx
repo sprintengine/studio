@@ -198,7 +198,7 @@ async function testProjectionWriteReachesTheDoorWithNoRuntimeOp(): Promise<void>
 async function testBriefLandingReleasesTheGuideTerminal(): Promise<void> {
   const projectRoot = mkdtempSync(join(tmpdir(), 'multicode-seam-review-brief-'))
   try {
-    const { createReviewGatewayTools } = await import('../main/automation/studio-gateway-tools')
+    const { createReviewGatewayTools } = await import('../main/review/gateway-tools')
     const {
       createReviewGuideTerminalService,
       recordGuideRunEvent,
@@ -299,7 +299,8 @@ async function testBriefLandingReleasesTheGuideTerminal(): Promise<void> {
 async function testDisabledReviewModuleRefusesEveryGatewayTool(): Promise<void> {
   const projectRoot = mkdtempSync(join(tmpdir(), 'multicode-seam-review-disabled-'))
   try {
-    const { createReviewGatewayTools, createStudioGatewayTools } = await import(
+    const { createReviewGatewayTools } = await import('../main/review/gateway-tools')
+    const { createStudioGatewayTools } = await import(
       '../main/automation/studio-gateway-tools'
     )
     const { createMainKernel } = await import('../main/module-host/main-host')

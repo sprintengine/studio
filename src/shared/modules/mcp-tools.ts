@@ -28,3 +28,32 @@ export type McpConnectionMetadata = {
 export type McpConnectionContext = {
   metadata: McpConnectionMetadata
 }
+
+// Result shaping every gateway tool needs, core-owned and module-owned alike.
+// They live beside the contract rather than in core's gateway file so a module
+// tree can answer in the gateway's own vocabulary without importing core's
+// gateway (MC-1856). Types above are drift-guarded against the SDK mirror;
+// these helpers are not part of that mirror.
+
+export function toolSuccess(structured: Record<string, unknown>): McpToolResult {
+  return {
+    content: [{ type: 'text', text: JSON.stringify(structured, null, 2) }],
+    structuredContent: structured,
+  }
+}
+
+export function toolError(code: string, message: string): McpToolResult {
+  return {
+    content: [{ type: 'text', text: `${code}: ${message}` }],
+    structuredContent: { ok: false, error: { code, message } },
+    isError: true,
+  }
+}
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function isMcpToolResult(value: unknown): value is McpToolResult {
+  return isRecord(value) && Array.isArray(value.content)
+}
