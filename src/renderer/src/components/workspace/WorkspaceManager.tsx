@@ -24,7 +24,6 @@ import {
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { useAutomationRequests } from '../../hooks/useAutomationRequests'
-import { useVoiceDictation } from '../../hooks/useVoiceDictation'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
 import {
   GENERAL_AGENT_ENGINE_KEY,
@@ -322,8 +321,6 @@ export default function WorkspaceManager() {
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
   const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
-  const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
-  const voiceDictation = useVoiceDictation()
   const firstRunCliCardDismissed = useWorkspaceStore((s) => s.appSettings.firstRunCliCardDismissed)
   const dismissFirstRunCliCard = useWorkspaceStore((s) => s.dismissFirstRunCliCard)
   const hasAdoptedAgentConfig = useWorkspaceStore((s) => s.appSettings.hasAdoptedAgentConfig)
@@ -687,7 +684,6 @@ export default function WorkspaceManager() {
     // The performance diagnostics panel is an engineering tool, offered only in
     // dev or when MULTICODE_DIAGNOSTICS=1 (matching the View-menu gate).
     if (window.api.isDevelopment || window.api.isDiagnosticsEnabled) context.diagnosticsEnabled = true
-    if (voiceDictationEnabled) context.voiceDictationEnabled = true
     // The Knowledge Graph toggle is the panel's only entry point (no rail
     // glyph), so its availability tracks the memory-graph module directly.
     if (selectModuleEnabled(moduleEnablement, 'memory-graph')) context.memoryGraphEnabled = true
@@ -715,7 +711,6 @@ export default function WorkspaceManager() {
     return context
   }, [
     workspaceActionsEnabled,
-    voiceDictationEnabled,
     moduleEnablement,
     activeCommandScopes,
     windowActiveWorkspaceId,
@@ -2731,11 +2726,6 @@ export default function WorkspaceManager() {
       dispatchPanelCommand(commandId, windowActiveWorkspaceId)
       return true
     }
-    if (commandId === 'voice.toggle') {
-      if (!voiceDictationEnabled) return false
-      voiceDictation.toggle()
-      return true
-    }
     if (commandId === 'specialist.spawn.architect') {
       setLastSelectedSpecialist('architect')
       setLastSpawnWasGeneral(false)
@@ -2791,8 +2781,6 @@ export default function WorkspaceManager() {
     workspaceWindowId,
     showNewWorkspacePanel,
     terminalSessions,
-    voiceDictationEnabled,
-    voiceDictation,
     moduleEnablement,
     setLastSelectedSpecialist,
     addNewSpecialist,
@@ -3333,10 +3321,6 @@ export default function WorkspaceManager() {
             markAllNotificationsRead={markAllNotificationsRead}
             clearNotifications={clearNotifications}
             resolveNotificationActions={resolveNotificationActions}
-            voiceDictationEnabled={voiceDictationEnabled}
-            voiceRecording={voiceDictation.recording}
-            voiceTranscribing={voiceDictation.transcribing}
-            toggleVoiceDictation={voiceDictation.toggle}
             specialistMenuOpen={specialistMenuOpen}
             setSpecialistMenuOpen={setSpecialistMenuOpen}
             agentCliOptions={agentCliCatalog}

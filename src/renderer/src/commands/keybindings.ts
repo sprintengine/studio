@@ -202,6 +202,10 @@ export function keybindingToKbdKeys(input: string | KeybindingChord, platform: K
 // keep working through this map. Keys are the CURRENT ids, values the legacy
 // ids they replaced; every read of persisted keybinding state consults it.
 export const LEGACY_COMMAND_ID_ALIASES: Record<string, string> = {
+  // Voice toggle moved from the shell registry onto the voice-dictation
+  // module (MC-1861), so a user-reassigned or user-disabled `voice.toggle`
+  // binding keeps winning over the module's default.
+  'voice-dictation.toggle': 'voice.toggle',
   'switchboard.watchtower.run.review': 'watchtower.run.review',
   'switchboard.watchtower.triage.inbox': 'watchtower.triage.inbox',
   'switchboard.watchtower.open.active-review': 'watchtower.open.active-review',

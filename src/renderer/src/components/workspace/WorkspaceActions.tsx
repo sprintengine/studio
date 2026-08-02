@@ -41,6 +41,7 @@ import { getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
 import { NotificationsPopover, type NotificationRowAction } from './topbar/NotificationsPopover'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
   getEffectiveKeybindingLabel,
   getSpecialistCommandId,
@@ -135,16 +136,6 @@ function NotificationBellIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M18.25 10.75V9.5a6.25 6.25 0 0 0-12.5 0v1.25c0 2.3-.8 3.6-1.55 4.38a1.24 1.24 0 0 0 .88 2.12h13.84a1.24 1.24 0 0 0 .88-2.12c-.75-.78-1.55-2.08-1.55-4.38Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M9.75 19.25a2.35 2.35 0 0 0 4.5 0" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function MicIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="9" y="3.25" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M5.75 11.5a6.25 6.25 0 0 0 12.5 0" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-      <path d="M12 17.75V20.5M8.75 20.5h6.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
     </svg>
   )
 }
@@ -422,12 +413,6 @@ export type WorkspaceActionsProps = {
   /** Resolve a notification's Open action(s); empty when no deep-link or reveal is possible. */
   resolveNotificationActions: (notification: AppNotification) => NotificationRowAction[]
 
-  /** Voice dictation (gated on the voice-dictation module). */
-  voiceDictationEnabled: boolean
-  voiceRecording: boolean
-  voiceTranscribing: boolean
-  toggleVoiceDictation: () => void
-
   specialistMenuOpen: boolean
   setSpecialistMenuOpen: React.Dispatch<React.SetStateAction<boolean>>
   selectedSpecialistAction: SpecialistAction
@@ -513,10 +498,6 @@ export function WorkspaceActions({
   markAllNotificationsRead,
   clearNotifications,
   resolveNotificationActions,
-  voiceDictationEnabled,
-  voiceRecording,
-  voiceTranscribing,
-  toggleVoiceDictation,
   specialistMenuOpen,
   setSpecialistMenuOpen,
   selectedSpecialistAction,
@@ -537,6 +518,13 @@ export function WorkspaceActions({
 }: WorkspaceActionsProps) {
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
+  // Module-contributed top-bar controls, gated on live enablement so a module
+  // toggle adds/removes its control without a reload (registry references are
+  // stable; the memo recomputes only when enablement changes).
+  const moduleTopBarItems = React.useMemo(
+    () => getRendererHost().getTopBarItems((moduleId) => selectModuleEnabled(moduleOverrides, moduleId)),
+    [moduleOverrides],
+  )
   // The active workspace type's top-bar view set, from the registry and gated by
   // module enablement (was VIEWS_FOR_MODE). getWorkspaceType returns a stable
   // reference, so this memo only recomputes when the mode or enablement changes;
@@ -768,38 +756,15 @@ export function WorkspaceActions({
           </Popover>
         </div>
 
-        {voiceDictationEnabled ? (
-          <Tooltip
-            content={
-              voiceRecording
-                ? withShortcut('Stop voice transcription', shortcutFor('voice.toggle'))
-                : voiceTranscribing
-                  ? 'Transcribing…'
-                  : withShortcut('Start voice transcription', shortcutFor('voice.toggle'))
-            }
-            placement="bottom"
-          >
-            <button
-              type="button"
-              onClick={toggleVoiceDictation}
-              disabled={voiceTranscribing}
-              aria-label={voiceRecording ? 'Stop voice transcription' : 'Start voice transcription'}
-              aria-pressed={voiceRecording}
-              className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-60 ${
-                voiceRecording
-                  ? 'border-[color:var(--tone-error)] bg-[color:var(--bg-hover)] text-[color:var(--tone-error)]'
-                  : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-              }`}
-            >
-              <MicIcon className="size-icon-md" />
-              {voiceRecording ? (
-                <span className="absolute -right-1 -top-1">
-                  <StatusDot tone="error" pulse label="Recording" />
-                </span>
-              ) : null}
-            </button>
-          </Tooltip>
-        ) : null}
+        {/* Module-contributed top-bar controls (registerTopBarItem): the mic
+          * button and its siblings render here, in the communication cluster's
+          * module slot. Enablement-filtered above, so a module toggle
+          * adds/removes its control live. */}
+        {moduleTopBarItems.map((item) => (
+          <React.Suspense key={item.id} fallback={null}>
+            <item.Component />
+          </React.Suspense>
+        ))}
 
         {/* top-bar-group: agent-spawn */}
         {workspaceActionsEnabled && !globalSurfaceActive ? (() => {

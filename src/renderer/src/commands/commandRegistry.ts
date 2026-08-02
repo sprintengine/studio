@@ -292,17 +292,6 @@ export const COMMAND_REGISTRY = [
     handlerPath: { kind: 'workspace-manager', handler: 'setDiagnosticsOpen(true)' },
   }),
   command({
-    id: 'voice.toggle',
-    title: 'Toggle Voice Transcription',
-    category: 'voice',
-    scopes: ['global'],
-    defaultKeybindings: ['Primary+Shift+1'],
-    availability: ['voiceDictationEnabled'],
-    handlerPath: { kind: 'workspace-manager', handler: 'voiceDictation.toggle()' },
-    keybindingContext: 'Allowed in editable targets so dictation can start while composing.',
-    allowInEditableTarget: true,
-  }),
-  command({
     id: 'specialist.spawn.architect',
     title: 'Spawn Architect Specialist',
     category: 'specialist',

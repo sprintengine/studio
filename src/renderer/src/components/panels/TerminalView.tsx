@@ -757,7 +757,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       terminalDiagnostics.recordInputDispatch(data)
     })
 
-    // Resume on a deliberate click of the frozen pane — voice-dictation users
+    // Resume on a deliberate click of the frozen pane — voice dictation users
     // (and anyone reading the painted view) never type, so waiting for a keystroke
     // would strand them. Bound to `click` (not `mousedown`/`focus`): a click is an
     // intentional tap, whereas `focus` can fire when the pane mounts/auto-focuses,

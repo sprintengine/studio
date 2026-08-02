@@ -20,7 +20,6 @@ for (const id of [
   'panel.knowledge-graph.toggle',
   'specialist.spawn.architect',
   'specialist.spawn.performance',
-  'voice.toggle',
   'sprintengine.refresh.board',
   'git.worktrees.open',
   'git.refresh',
