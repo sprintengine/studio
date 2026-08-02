@@ -2419,10 +2419,11 @@ async function testModuleMcpToolContributionOwnershipAndCollisions(): Promise<vo
   )
   assert.deepEqual(warnings, [], 'a kernel-rejected collision never reaches the gateway merge')
 
-  // A module shadowing a CORE tool name is skipped with a warning; core wins.
+  // A module shadowing a CORE tool name is skipped with a warning; core wins,
+  // and the warning fires once, not on every per-request resolution.
   const shadowWarnings: string[] = []
   const coreTool = registrationOf('workspace.list', 'core')
-  const shadowed = createStudioGatewayTools({
+  const resolveShadowed = createStudioGatewayTools({
     appTools: [coreTool],
     sprintEngineMcpHub: { callRunTool: async () => ({}) },
     resolveModuleTools: () => [
@@ -2430,10 +2431,12 @@ async function testModuleMcpToolContributionOwnershipAndCollisions(): Promise<vo
     ],
     isModuleEnabled: () => true,
     warn: (text) => shadowWarnings.push(text),
-  })()
+  })
+  const shadowed = resolveShadowed()
   const coreAnswer = await tool(shadowed, 'workspace.list').handler({})
   assert.deepEqual(coreAnswer.structuredContent, { answer: 'core' })
-  assert.equal(shadowWarnings.length, 1)
+  resolveShadowed()
+  assert.equal(shadowWarnings.length, 1, 'the collision warns once across resolutions')
   assert.match(shadowWarnings[0] ?? '', /collides with a core gateway tool/)
 }
 

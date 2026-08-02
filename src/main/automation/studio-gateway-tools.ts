@@ -98,6 +98,9 @@ export function createStudioGatewayTools(options: {
     ),
   }))
   for (const registration of runTools) requireUnique(registration.name)
+  // The resolver runs per request; a persistent shadowing module would emit the
+  // same collision warning on every tools/list without this once-guard.
+  const warnedCollisions = new Set<string>()
 
   return () => {
     const merged = [...options.appTools]
@@ -108,9 +111,13 @@ export function createStudioGatewayTools(options: {
       // the kernel; this guards a module shadowing a CORE tool name, which the
       // kernel cannot know. First (core) wins so the gateway keeps serving.
       if (names.has(registration.name)) {
-        options.warn?.(
-          `MCP tool "${registration.name}" from module "${contribution.moduleId}" collides with a core gateway tool and is not served.`
-        )
+        const collisionKey = `${contribution.moduleId}:${registration.name}`
+        if (!warnedCollisions.has(collisionKey)) {
+          warnedCollisions.add(collisionKey)
+          options.warn?.(
+            `MCP tool "${registration.name}" from module "${contribution.moduleId}" collides with a core gateway tool and is not served.`
+          )
+        }
         continue
       }
       names.add(registration.name)
