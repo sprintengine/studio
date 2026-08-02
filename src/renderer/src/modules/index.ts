@@ -6,6 +6,7 @@ import { agentRuntimeRendererModule } from './agent-runtime-module'
 import { automationsRendererModule } from './automations-module'
 import { backlogRendererModule } from './backlog-module'
 import { designRendererModule } from './design-module'
+import { designWizardRendererModule } from './design-wizard-module'
 import { devToolsRendererModule } from './dev-tools-module'
 import { gitRendererModule } from './git-module'
 import { memoryRendererModule } from './memory-module'
@@ -29,6 +30,7 @@ export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   gitRendererModule,
   switchboardRendererModule,
   sprintEngineRendererModule,
+  designWizardRendererModule,
   reviewRendererModule,
   automationsRendererModule,
   roadmapRendererModule,

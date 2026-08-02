@@ -74,8 +74,10 @@ async function sprintEngineBacklogOpenPorts(): Promise<SprintEngineBacklogLinkOp
 // so the single enablement override gates both processes consistently.
 //
 // Scope: this gates the user-facing Sprint Engine surfaces — the board panel,
-// the `sprintengine` workspace mode (and the dependent `guided-brief` mode), and
-// the always-mounted auto-run supervisor + state synchronizer. The Sprint Engine
+// the `sprintengine` workspace mode, and the always-mounted auto-run supervisor
+// + state synchronizer. The Design Wizard's `guided-brief` mode moved onto its
+// own `design-wizard` module (MC-1860), which reaches Sprint Engine through a
+// declared `dependsOn` instead of riding this module. The Sprint Engine
 // MCP hub stays foundational on the main side (lazily started only on a managed
 // run), and the `roles` settings tab stays available like the knowledge-graph
 // tab does for the memory-graph module.
@@ -93,7 +95,7 @@ export const sprintEngineRendererModule: RendererModule = {
     publisher: 'multicode',
     category: 'orchestration',
     summary:
-      'Autonomous multi-agent sprint board with quality gates. Disabling hides the board, the Sprint and Design Wizard workspace modes, and stops the auto-run supervisor.',
+      'Autonomous multi-agent sprint board with quality gates. Disabling hides the board and the Sprint workspace mode, and stops the auto-run supervisor.',
     defaultEnabled: true,
     dependsOn: ['agent-runtime'],
   },
@@ -112,7 +114,8 @@ export const sprintEngineRendererModule: RendererModule = {
     // The `roadmap` board panel + the sidebar Roadmap door belong to the dedicated
     // `roadmap` module (MC-1691), and the `roadmap` workspace type was retired
     // (MC-1692) — Roadmap is an instance-global sidebar door now, not a per-project
-    // workspace. So this only registers the Sprint Engine + Design Wizard types.
+    // workspace. The Design Wizard type belongs to `design-wizard` (MC-1860), so
+    // this only registers the Sprint Engine type.
     registerSprintEngineWorkspaceTypes(host)
     host.registerBacklogLinkProvider({
       moduleId: SPRINT_ENGINE_MODULE_ID,

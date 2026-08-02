@@ -6,12 +6,8 @@ import { createAgentConfigImportService } from './agent-config-import'
 import { createAgentStateService } from './agent-state-service'
 import { createAutomationService } from './automation/automation-service'
 import { createAutomationTools } from './automation/automation-tools'
-import { createReviewGatewayTools } from './automation/studio-gateway-tools'
-import { BRIEF_RUN_EVENT_CHANNEL } from './review/brief-run-service'
-import {
-  recordGuideRunEvent,
-  type ReviewGuideTerminalService,
-} from './review/guide-terminal-service'
+import { createStudioGatewayTools } from './automation/studio-gateway-tools'
+import type { McpToolContribution } from './module-host/main-host'
 import { createRendererAutomationDelegate } from './automation/renderer-delegate'
 import { AutomationsStore } from './automations/store'
 import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
@@ -73,11 +69,6 @@ import { createWorkspaceSyncRoutingSnapshotStore } from './workspace-sync-routin
 import { createWorkspaceSyncService } from './workspace-sync-service'
 import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
-
-// All the review gateway's brief sink needs from the review module's guide
-// service: release a delivered run's terminal back to the idle reaper. Narrow on
-// purpose — a brief landing must not become a second way to drive the guide.
-type ReviewGuideReapRelease = Pick<ReviewGuideTerminalService, 'clearReapExempt'>
 
 export function createAppServices(diagnosticsEnabled: boolean) {
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
@@ -253,10 +244,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // nothing is enabled: a gateway tool that cannot learn its module's state must
   // report the capability as off rather than act on its behalf.
   let resolveModuleEnabled: (moduleId: string) => boolean = () => false
-  // The review guide's terminal service, provided by the review capability
-  // module. Resolved lazily like the front doors — null when the module never
-  // registered, in which case there is no guide terminal to release either.
-  let resolveReviewGuideTerminals: () => ReviewGuideReapRelease | null = () => null
+  // Module-contributed MCP tools on the Studio gateway (MC-1855), injected by
+  // index.ts from the host kernel after loadMainModules. The gateway is
+  // constructed before modules load, so until the seam is wired the registry
+  // reads empty — and because the tool set is evaluated per request, module
+  // tools appear on the very next call once modules are up.
+  let resolveModuleMcpTools: () => ReadonlyArray<McpToolContribution> = () => []
 
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
@@ -504,141 +497,130 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // Dev runs serve the script straight from the repo; packaged builds ship
     // it via the electron-builder extraResources entry (resources/automation).
     resolveBridgeScriptPath: resolveStudioMcpBridgeScriptPath,
-    sprintEngineMcpHub,
-    tools: createAutomationTools({
-      getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
-      listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
-      delegateToRenderer: (request) => automationDelegate.request(request),
-      listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
-      readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
-      // Same filesystem store the Automations IPC front door reads; roots are
-      // snapshot-resolved, so only open workspaces are reachable.
-      listAutomationDefinitions: (workspaceRoot) => new AutomationsStore(workspaceRoot).listDefinitions(),
-      listAutomationRuns: (workspaceRoot, automationId) => new AutomationsStore(workspaceRoot).listRuns(automationId),
-      backlogWrite: {
-        updateStatus: updateBacklogStatus,
-        updateType: updateBacklogType,
-        updateTriage: updateBacklogTriage,
-        updateEpic: updateBacklogEpic,
-        addOrUpdateLink: addOrUpdateBacklogLink,
-        repairIntegrity: repairBacklogIntegrity,
-      },
-      getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
-      // The instance roadmap's read + plan + steer surface for the roadmap.* tools;
-      // null until the automations module (which owns the orchestrator) is up.
-      getRoadmapFrontDoor: () => resolveRoadmapAppFrontDoor(),
-      listSprintRunStatePaths: (workspaceRoot) => discoverMobileSprintEngineStatePaths([workspaceRoot]),
-      readSprintEngineProjection: (statePath) => sprintEngineArtifacts.readProjection({ statePath }),
-      // Sprint lifecycle control (MC-1653): mode writes go through the main-owned
-      // intent service (same lane as the mobile relay/sprint.status), never the
-      // renderer delegate. Cancel is the composed op the IPC channel uses — the
-      // engine cancel write, then scheduler teardown on success — so a paused or
-      // manual run's live agents are also stopped (sprint-engine-module).
-      readSprintAutomationMode: (input) => sprintEngineAutomation.readAutomationMode(input),
-      setSprintAutomationMode: (input) => sprintEngineAutomation.setAutomationMode(input),
-      resumeSprintRun: (statePath) => sprintRuntime.applyResume(statePath),
-      cancelSprintRun: async (payload) => {
-        const result = await sprintEngineArtifacts.cancelRun(payload)
-        if (result.ok) {
-          sprintRuntime.cancelRun(payload.statePath)
-          // A roadmap lane may be running this sprint: reconcile now so the
-          // board parks promptly instead of on the next 60s engine tick.
-          void resolveRoadmapAppFrontDoor()?.reconcile().catch(() => undefined)
-        }
-        return result
-      },
-      // Sprint steering (MC-1654): artifact review + task mutation, all through
-      // the main-owned sprintEngineArtifacts handlers (two-lane rule, not the
-      // renderer delegate). Review mode is pinned 'user' — the external caller is
-      // a human-proxy surface, never the auto-runner's 'auto-run' policy path.
-      reviewSprintArtifact: (payload, action) => sprintEngineArtifacts.reviewArtifact(payload, action, 'user'),
-      commentSprintTask: (payload) => sprintEngineArtifacts.commentTask(payload),
-      // Like the IPC front door: a successful resolution lifts the
-      // external-input blocker, so wake the scheduler from `blocked`
-      // (paused/failed/terminal states untouched).
-      resolveSprintTaskInput: async (payload) => {
-        const result = await sprintEngineArtifacts.resolveTaskInput(payload)
-        if (result.ok) sprintRuntime.resumeIfBlocked(payload.statePath)
-        return result
-      },
-      setSprintTaskStatus: (payload) => sprintEngineArtifacts.setTaskStatus(payload),
-      createSprintTask: (payload) => sprintEngineArtifacts.createTask(payload),
-      updateSprintTask: (payload) => sprintEngineArtifacts.updateTask(payload),
-      // Sprint VCS + usage reads (MC-1655): PR open/refresh run the engine's own
-      // vcs CLI (main-owned, like the steering block); each re-reads the run
-      // projection so the tool can hand back the refreshed vcs block. Token usage
-      // computes straight off the ledger — the module's 15s render-storm cache
-      // (sprint-engine-module) is not needed at MCP call cadence, so this calls
-      // the underlying compute directly (it never throws, degrading to empty).
-      createSprintPullRequest: (payload) => sprintEngineArtifacts.createPullRequest(payload),
-      refreshSprintPullRequestStatus: (payload) => sprintEngineArtifacts.refreshPullRequestStatus(payload),
-      readSprintTokenUsage: (statePath) => computeSprintEngineTokenUsageReport(statePath, sprintTokenUsageDeps()),
-      // Agent-at-launch worktrees (agent.launch isolation + every connector
-      // launch): derive the `agent/<slug>` branch and container the Worktree
-      // manager uses, then create through the shared git helper. Mirrors
-      // WorkspaceManager's own worktree-agent spawn (copyIncludedFiles carries
-      // the repo's worktree-include set into the isolated tree).
-      createAgentWorktree: async ({ workspaceRoot, name }) => {
-        const paths = agentWorktreePaths(workspaceRoot, name)
-        if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
-        const created = await createGitWorktree({
-          repoRoot: workspaceRoot,
-          containerPath: paths.containerPath,
-          destinationPath: paths.destinationPath,
-          branchName: paths.branchName,
-          baseRef: 'HEAD',
-          copyIncludedFiles: true,
+    // The gateway's tool set: core app tools + canonical run tools merged once,
+    // module-contributed tools (MC-1855) read from the host kernel per request
+    // and gated on their owner's live enablement.
+    resolveGatewayTools: createStudioGatewayTools({
+      sprintEngineMcpHub,
+      resolveModuleTools: () => resolveModuleMcpTools(),
+      isModuleEnabled: (moduleId) => resolveModuleEnabled(moduleId),
+      warn: (details) => {
+        void writeDiagnosticLog({
+          level: 'warning',
+          source: 'workspace',
+          title: 'Studio MCP gateway',
+          message: 'Studio MCP gateway',
+          details,
         })
-        if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
-        return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
       },
-      // backlog.work composes the target CLI's native skill invocation from the
-      // loaded plugin manifests.
-      listPlugins: () => getPluginRegistry().loaded(),
-      // backlog.work ensures the Backlog skill exists in the CLI's native dir
-      // before launch (same getStatus → install seam as Debug Mode). Reports
-      // whether the skill is now present; a false result is non-fatal.
-      ensureBuiltinSkillInstalled: async (workspaceRoot, skillId) => {
-        try {
-          const status = await builtinSkillManager.getStatus(workspaceRoot, skillId)
-          if (!status.ok) return false
-          if (status.status === 'missing' || status.status === 'update-available') {
-            const installed = await builtinSkillManager.install(workspaceRoot, skillId)
-            return installed.ok
+      appTools: createAutomationTools({
+        getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
+        listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
+        delegateToRenderer: (request) => automationDelegate.request(request),
+        listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
+        readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
+        // Same filesystem store the Automations IPC front door reads; roots are
+        // snapshot-resolved, so only open workspaces are reachable.
+        listAutomationDefinitions: (workspaceRoot) => new AutomationsStore(workspaceRoot).listDefinitions(),
+        listAutomationRuns: (workspaceRoot, automationId) => new AutomationsStore(workspaceRoot).listRuns(automationId),
+        backlogWrite: {
+          updateStatus: updateBacklogStatus,
+          updateType: updateBacklogType,
+          updateTriage: updateBacklogTriage,
+          updateEpic: updateBacklogEpic,
+          addOrUpdateLink: addOrUpdateBacklogLink,
+          repairIntegrity: repairBacklogIntegrity,
+        },
+        getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
+        // The instance roadmap's read + plan + steer surface for the roadmap.* tools;
+        // null until the automations module (which owns the orchestrator) is up.
+        getRoadmapFrontDoor: () => resolveRoadmapAppFrontDoor(),
+        listSprintRunStatePaths: (workspaceRoot) => discoverMobileSprintEngineStatePaths([workspaceRoot]),
+        readSprintEngineProjection: (statePath) => sprintEngineArtifacts.readProjection({ statePath }),
+        // Sprint lifecycle control (MC-1653): mode writes go through the main-owned
+        // intent service (same lane as the mobile relay/sprint.status), never the
+        // renderer delegate. Cancel is the composed op the IPC channel uses — the
+        // engine cancel write, then scheduler teardown on success — so a paused or
+        // manual run's live agents are also stopped (sprint-engine-module).
+        readSprintAutomationMode: (input) => sprintEngineAutomation.readAutomationMode(input),
+        setSprintAutomationMode: (input) => sprintEngineAutomation.setAutomationMode(input),
+        resumeSprintRun: (statePath) => sprintRuntime.applyResume(statePath),
+        cancelSprintRun: async (payload) => {
+          const result = await sprintEngineArtifacts.cancelRun(payload)
+          if (result.ok) {
+            sprintRuntime.cancelRun(payload.statePath)
+            // A roadmap lane may be running this sprint: reconcile now so the
+            // board parks promptly instead of on the next 60s engine tick.
+            void resolveRoadmapAppFrontDoor()?.reconcile().catch(() => undefined)
           }
-          // installed / local / modified: already present in the native dir.
-          return true
-        } catch {
-          return false
-        }
-      },
-    }),
-    // Review tools on the same gateway (plan §3.3). They validate and persist the
-    // guide's brief server-side; a caller-named projectRoot is trusted only when it
-    // is an open project folder, and a landed brief broadcasts the brief-run event
-    // so an open Reviews door reloads it with no app restart.
-    reviewTools: createReviewGatewayTools({
-      isReviewModuleEnabled: () => resolveModuleEnabled('review'),
-      listOpenProjectRoots: () =>
-        workspaceSyncService
-          .getSnapshot()
-          .state.workspaces.map((workspace) => workspace.folderPath)
-          .filter((folderPath): folderPath is string => typeof folderPath === 'string' && folderPath.length > 0),
-      homeDir: () => app.getPath('home'),
-      emitBriefRunEvent: (event) => {
-        // The tool knows nothing about runs, so record the landed brief against
-        // the guide-run registry before announcing it: without this a terminal
-        // guide would finish while the run-status IPC still reported it working,
-        // and the next start would join a run that already delivered.
-        recordGuideRunEvent(event)
-        // The guide took its terminal out of the idle reaper's reach for the
-        // duration of the run; a delivered brief is where that run ends, and the
-        // reviewer may never open the terminal to end it any other way.
-        if (event.phase === 'done') resolveReviewGuideTerminals()?.clearReapExempt(event.workspaceId)
-        for (const window of BrowserWindow.getAllWindows()) {
-          if (!window.isDestroyed()) window.webContents.send(BRIEF_RUN_EVENT_CHANNEL, event)
-        }
-      },
+          return result
+        },
+        // Sprint steering (MC-1654): artifact review + task mutation, all through
+        // the main-owned sprintEngineArtifacts handlers (two-lane rule, not the
+        // renderer delegate). Review mode is pinned 'user' — the external caller is
+        // a human-proxy surface, never the auto-runner's 'auto-run' policy path.
+        reviewSprintArtifact: (payload, action) => sprintEngineArtifacts.reviewArtifact(payload, action, 'user'),
+        commentSprintTask: (payload) => sprintEngineArtifacts.commentTask(payload),
+        // Like the IPC front door: a successful resolution lifts the
+        // external-input blocker, so wake the scheduler from `blocked`
+        // (paused/failed/terminal states untouched).
+        resolveSprintTaskInput: async (payload) => {
+          const result = await sprintEngineArtifacts.resolveTaskInput(payload)
+          if (result.ok) sprintRuntime.resumeIfBlocked(payload.statePath)
+          return result
+        },
+        setSprintTaskStatus: (payload) => sprintEngineArtifacts.setTaskStatus(payload),
+        createSprintTask: (payload) => sprintEngineArtifacts.createTask(payload),
+        updateSprintTask: (payload) => sprintEngineArtifacts.updateTask(payload),
+        // Sprint VCS + usage reads (MC-1655): PR open/refresh run the engine's own
+        // vcs CLI (main-owned, like the steering block); each re-reads the run
+        // projection so the tool can hand back the refreshed vcs block. Token usage
+        // computes straight off the ledger — the module's 15s render-storm cache
+        // (sprint-engine-module) is not needed at MCP call cadence, so this calls
+        // the underlying compute directly (it never throws, degrading to empty).
+        createSprintPullRequest: (payload) => sprintEngineArtifacts.createPullRequest(payload),
+        refreshSprintPullRequestStatus: (payload) => sprintEngineArtifacts.refreshPullRequestStatus(payload),
+        readSprintTokenUsage: (statePath) => computeSprintEngineTokenUsageReport(statePath, sprintTokenUsageDeps()),
+        // Agent-at-launch worktrees (agent.launch isolation + every connector
+        // launch): derive the `agent/<slug>` branch and container the Worktree
+        // manager uses, then create through the shared git helper. Mirrors
+        // WorkspaceManager's own worktree-agent spawn (copyIncludedFiles carries
+        // the repo's worktree-include set into the isolated tree).
+        createAgentWorktree: async ({ workspaceRoot, name }) => {
+          const paths = agentWorktreePaths(workspaceRoot, name)
+          if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
+          const created = await createGitWorktree({
+            repoRoot: workspaceRoot,
+            containerPath: paths.containerPath,
+            destinationPath: paths.destinationPath,
+            branchName: paths.branchName,
+            baseRef: 'HEAD',
+            copyIncludedFiles: true,
+          })
+          if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
+          return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
+        },
+        // backlog.work composes the target CLI's native skill invocation from the
+        // loaded plugin manifests.
+        listPlugins: () => getPluginRegistry().loaded(),
+        // backlog.work ensures the Backlog skill exists in the CLI's native dir
+        // before launch (same getStatus → install seam as Debug Mode). Reports
+        // whether the skill is now present; a false result is non-fatal.
+        ensureBuiltinSkillInstalled: async (workspaceRoot, skillId) => {
+          try {
+            const status = await builtinSkillManager.getStatus(workspaceRoot, skillId)
+            if (!status.ok) return false
+            if (status.status === 'missing' || status.status === 'update-available') {
+              const installed = await builtinSkillManager.install(workspaceRoot, skillId)
+              return installed.ok
+            }
+            // installed / local / modified: already present in the native dir.
+            return true
+          } catch {
+            return false
+          }
+        },
+      }),
     }),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
@@ -663,8 +645,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     setModuleEnabledResolver(resolver: (moduleId: string) => boolean): void {
       resolveModuleEnabled = resolver
     },
-    setReviewGuideTerminalsResolver(resolver: () => ReviewGuideReapRelease | null): void {
-      resolveReviewGuideTerminals = resolver
+    setModuleMcpToolsResolver(resolver: () => ReadonlyArray<McpToolContribution>): void {
+      resolveModuleMcpTools = resolver
     },
     builtinSkillManager,
     conversationRuntime,

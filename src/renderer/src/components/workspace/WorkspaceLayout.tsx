@@ -559,16 +559,23 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         case 'skills':
           return timedPanel('SkillsPanel', <SkillsPanel workspaceId={workspaceId} />)
         case 'guided-brief':
-          // Guided Brief hands its build off to a Sprint Engine run, so it
-          // follows sprint-engine enablement: a stale guided-brief workspace
-          // shows the explicit unavailable surface when Sprint Engine is
-          // disabled, matching the other modes.
-          return sprintEngineEnabled
+          // The Design Wizard is its own module (MC-1860). Its declared
+          // dependsOn ['sprint-engine'] means disabling Sprint Engine cascades
+          // here too. An existing guided-brief workspace whose module is off
+          // gets the labeled not-installed surface (MC-1532 pattern) rather
+          // than the generic panel fallback — the workspace IS this one pane.
+          return selectModuleEnabled(moduleOverrides, 'design-wizard')
             ? timedPanel(
               'GuidedBriefWorkspacePanel',
               <GuidedBriefWorkspacePanel workspaceId={workspaceId} />
             )
-            : DISABLED_SURFACE
+            : (
+              <ModuleNotInstalledSurface
+                label="Design Wizard"
+                installed
+                onOpenMarketplace={() => openSettingsOverlay({ initialTab: EXTENSIONS_BROWSE_DEEPLINK })}
+              />
+            )
         case 'sprintengine-run-summary':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineRunSummaryPanel', (

@@ -168,6 +168,51 @@ async function testRegistrationFailureExcludesModuleFromUniverse(): Promise<void
   })
 }
 
+// MC-1854: a third-party module claiming a global-surface id another module
+// already owns is a per-module LOAD ERROR — never a throw that kills the
+// registration pass — and its other contributions stay gated off with it.
+async function testClaimedGlobalSurfaceIdIsALoadError(): Promise<void> {
+  const kernel = createRendererHost()
+  const loaded = await loadThirdPartyRendererEntries(
+    kernel,
+    served([{ id: 'atlas-owner' }, { id: 'atlas-impostor' }, { id: 'atlas-bystander' }]),
+    importerFor({
+      'atlas-owner': {
+        registerRenderer: (host: RendererHost) => {
+          host.registerGlobalSurface({ id: 'atlas', Component: () => null })
+        },
+      },
+      'atlas-impostor': {
+        registerRenderer: (host: RendererHost) => {
+          host.registerSidebarNavEntry({ id: 'atlas-impostor', order: 90, Component: () => null })
+          host.registerGlobalSurface({ id: 'atlas', Component: () => null })
+        },
+      },
+      'atlas-bystander': {
+        registerRenderer: (host: RendererHost) => {
+          host.registerPanel('atlas-bystander.panel', () => null)
+        },
+      },
+    })
+  )
+  // The impostor is a load error; its neighbors — including one registered
+  // AFTER the failure — load cleanly.
+  assert.deepEqual(loaded.map((entry) => entry.id), ['atlas-owner', 'atlas-bystander'])
+  const state = getThirdPartyRendererLoadState('atlas-impostor')
+  assert.equal(state?.status, 'error')
+  assert.match(state.message, /Global surface "atlas" is already registered by module "atlas-owner"/)
+  // The claimed surface keeps its first owner...
+  assert.equal(kernel.getGlobalSurface('atlas')?.moduleId, 'atlas-owner')
+  // ...and the impostor's OTHER contributions do not register: it never joins
+  // the enablement universe, so the nav entry it got in before the throw is
+  // gated off everywhere consumers filter by enablement.
+  const loadedIds = new Set(loaded.map((entry) => entry.id))
+  assert.ok(
+    !kernel.getSidebarNavEntries((moduleId) => loadedIds.has(moduleId)).some((entry) => entry.id === 'atlas-impostor'),
+    'a failed module’s nav entry must not survive enablement filtering'
+  )
+}
+
 async function testAbsolutePathInErrorIsSanitized(): Promise<void> {
   const kernel = createRendererHost()
   await loadThirdPartyRendererEntries(
@@ -224,6 +269,7 @@ async function main(): Promise<void> {
   await testMissingRegisterRendererExportIsAnError()
   await testBrokenBundleIsIsolatedFromNeighbors()
   await testRegistrationFailureExcludesModuleFromUniverse()
+  await testClaimedGlobalSurfaceIdIsALoadError()
   await testAbsolutePathInErrorIsSanitized()
   await testServingFailuresAreRecorded()
   await testDuplicateIdKeepsFirstDefinition()

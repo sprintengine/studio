@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { RendererCommandDispatcher, type CommandDispatcherKeyEvent } from './commandDispatcher'
+import { COMMAND_REGISTRY } from './commandRegistry'
 import type { KeybindingSettings } from '../types/workspace'
 
 function key(event: Partial<CommandDispatcherKeyEvent>): CommandDispatcherKeyEvent {
@@ -103,21 +104,33 @@ result = dispatcher.resolve(
 )
 assert.equal(result.kind, 'unmatched')
 
+// The voice toggle is a module contribution now (MC-1861): it matches only
+// when the enabled-module contribution list carries it, and its
+// allowInEditableTarget flag keeps it firing in suppressed (editable) targets.
+const voiceModuleContribution = {
+  id: 'voice-dictation.toggle',
+  title: 'Toggle Voice Transcription',
+  category: 'voice',
+  scopes: ['global'] as const,
+  defaultKeybindings: ['Primary+Shift+1'],
+  allowInEditableTarget: true,
+}
 result = dispatcher.resolve(
   key({ key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true }),
   {
     activeScopes: ['global'],
     platform: 'linux',
-    availability: { voiceDictationEnabled: true },
+    commands: [...COMMAND_REGISTRY, voiceModuleContribution],
     isSuppressedTarget: suppressed,
     now: 80,
   },
 )
 assert.equal(result.kind, 'matched')
-assert.equal(result.kind === 'matched' ? result.commandId : null, 'voice.toggle')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'voice-dictation.toggle')
 
-// voice.toggle stays unmatched when dictation is disabled, so the keystroke
-// falls through instead of firing a silent no-op.
+// The binding stays unmatched when the module is disabled (its contribution
+// is filtered out of the command universe), so the keystroke falls through
+// instead of firing a silent no-op.
 result = dispatcher.resolve(
   key({ key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true }),
   { activeScopes: ['global'], platform: 'linux', isSuppressedTarget: suppressed, now: 85 },

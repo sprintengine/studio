@@ -12,7 +12,6 @@ import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import {
   AutomationsAppFrontDoorToken,
-  ReviewGuideTerminalServiceToken,
   RoadmapAppFrontDoorToken,
 } from './module-host/service-tokens'
 import { AGENT_RUNTIME_MANIFEST, createAgentRuntimeModule } from './modules/agent-runtime-module'
@@ -133,6 +132,10 @@ applyModuleEnablementLive = async (overrides) => {
   // stop any live hub. Re-enabling can reopen an already-registered module;
   // enabling one that was disabled at startup still takes effect after restart.
   await services.sprintEngineMcpHub.setModuleEnabled(enabledMainModuleIds.has('sprint-engine'))
+  // Module-contributed gateway tools follow enablement live (MC-1855): the
+  // gateway re-reads the registry and enablement per request, so only the
+  // connected MCP clients need a nudge to refresh their tool lists.
+  services.automationService.notifyToolsListChanged()
   return { ok: true }
 }
 // Automation server ← Automations module: resolved per tool call so a live
@@ -148,13 +151,12 @@ services.setRoadmapAppFrontDoorResolver(
 // Module enablement for gateway tools that belong to a capability module: the
 // resolved set is recomputed on every override the renderer pushes, so a module
 // switched off in Settings is off for MCP callers on their next call, not after
-// a restart. Today the review tools ask; MC-1805 is the ruling behind it.
+// a restart (MC-1805 is the ruling behind it).
 services.setModuleEnabledResolver((moduleId) => enabledMainModuleIds.has(moduleId))
-// Review guide ← the review module: a brief landing on the gateway ends the run,
-// so the sink releases the guide's terminal through the service that took it.
-services.setReviewGuideTerminalsResolver(
-  () => moduleLoad.kernel.hostFor('@host').getService(ReviewGuideTerminalServiceToken) ?? null
-)
+// Module-contributed MCP tools ← the host kernel (MC-1855). The gateway was
+// constructed above, before loadMainModules ran; this seam hands it the live
+// registry, and the per-request evaluation makes the tools visible immediately.
+services.setModuleMcpToolsResolver(() => moduleLoad.kernel.mcpToolRegistrations())
 recordThirdPartyMainLaunchReport(
   thirdPartyMainLoad.modules.map((module) => module.manifest.id),
   moduleLoad.report

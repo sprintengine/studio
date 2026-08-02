@@ -22,7 +22,7 @@ import {
   useConnectorsBrowseState,
 } from '../../../panels/ConnectorsPanel/ConnectorsBrowseCanvas'
 import { ConnectorsManage } from '../../../panels/ConnectorsPanel/ConnectorsManage'
-import { ExtensionKindCanvas } from '../../../panels/ConnectorsPanel/ExtensionKindCanvas'
+import { ExtensionKindCanvas, type CliShelfRuntime } from '../../../panels/ConnectorsPanel/ExtensionKindCanvas'
 import {
   buildConnectorEntries,
   launchableConnectors,
@@ -71,6 +71,44 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   // is refused rather than creating a job that fails at 02:00.
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
   const sources = useConnectorSources(activeWorkspaceRoot)
+
+  // The Agent CLIs canvas shows runtime state (MC-1858): the door reads the
+  // existing detection stack — the availability slice and the plugin catalog —
+  // and hands it down so the canvas stays store-free. No second mechanism.
+  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
+  const cliAvailabilityError = useWorkspaceStore((s) => s.cliAvailabilityError)
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
+  const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
+  const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
+  const cliShelfRuntime = useMemo<CliShelfRuntime>(
+    () => ({
+      platform: window.api.platform,
+      availability: cliAvailability,
+      availabilityStatus: cliAvailabilityStatus,
+      availabilityError: cliAvailabilityError,
+      catalogEntries: pluginCatalogEntries,
+      catalogStatus: pluginCatalogStatus,
+      cliRuntimes,
+      refreshAvailability: refreshCliAvailability,
+      refreshCatalog: refreshPluginCatalog,
+      setCliRuntime,
+    }),
+    [
+      cliAvailability,
+      cliAvailabilityStatus,
+      cliAvailabilityError,
+      pluginCatalogEntries,
+      pluginCatalogStatus,
+      cliRuntimes,
+      refreshCliAvailability,
+      refreshPluginCatalog,
+      setCliRuntime,
+    ],
+  )
 
   const [section, setSection] = useState<ExtensionsSection>('marketplace')
   // The door lands on Featured (the launchable connectors); the facet doubles
@@ -346,12 +384,20 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
       case 'modules':
         return <ExtensionKindCanvas kind="module" sources={sources} workspaceRoot={activeWorkspaceRoot} />
       case 'agent-clis':
-        return <ExtensionKindCanvas kind="cli" sources={sources} workspaceRoot={activeWorkspaceRoot} />
+        return (
+          <ExtensionKindCanvas
+            kind="cli"
+            sources={sources}
+            workspaceRoot={activeWorkspaceRoot}
+            cliRuntime={cliShelfRuntime}
+          />
+        )
       case 'installed':
         return (
           <ConnectorsManage
             activeWorkspaceRoot={activeWorkspaceRoot}
             catalogServers={catalog}
+            registryPlugins={plugins}
             onLaunchConnector={launchConnector}
             onUseInAutomation={useInAutomation}
             onUseSkillInNewAgent={useSkillInNewAgent}

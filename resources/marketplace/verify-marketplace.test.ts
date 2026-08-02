@@ -76,7 +76,7 @@ function testUnsignedEntriesNeedNoLocalManifest(): void {
   const unsigned = marketplace.plugins.filter((plugin) => plugin.signature === undefined)
   assert.ok(unsigned.length > 0, 'generated seed must carry unsigned entries')
   for (const plugin of unsigned) {
-    assert.ok(plugin.mcp !== undefined || typeof plugin.source === 'string')
+    assert.ok(plugin.mcp !== undefined || plugin.cli !== undefined || typeof plugin.source === 'string')
   }
   const signed = marketplace.plugins.find((plugin) => plugin.signature !== undefined)
   assert.ok(signed, 'generated seed must carry a signed entry')
@@ -84,6 +84,43 @@ function testUnsignedEntriesNeedNoLocalManifest(): void {
   const result = runVerifier(root)
   assert.equal(result.status, 1)
   assert.match(result.stderr, new RegExp(`plugins/${signed.id as string}/plugin.json`))
+}
+
+function testInlineCliVerifiedClaimIsBoundToTrustedPublisherNames(): void {
+  // Inline-CLI entries may claim a verified publisher without a signature (the
+  // referenced plugin ships inside the signed app bundle), but only under a
+  // name listed as verified in trusted-publishers.json — an arbitrary name
+  // must not wear the badge.
+  const root = copySeedRegistry('inline-cli-publisher-registry')
+  const path = join(root, 'marketplace.json')
+  const marketplace = JSON.parse(readFileSync(path, 'utf8')) as {
+    plugins: Array<Record<string, unknown>>
+  }
+  const inlineCli = marketplace.plugins.find((plugin) => plugin.cli !== undefined)
+  assert.ok(inlineCli, 'generated seed must carry inline-CLI entries')
+  ;(inlineCli.publisher as Record<string, unknown>).name = 'Unknown Author'
+  writeFileSync(path, JSON.stringify(marketplace, null, 2))
+  const result = runVerifier(root)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /publisher\.verified.*trusted-publishers\.json/)
+}
+
+function testInlineCliMustReferenceABundledPluginInTheAppRepoLayout(): void {
+  // With a bundled plugin tree beside the registry root (the app repo layout),
+  // every inline-CLI entry must reference an existing plugin manifest; a
+  // dangling pluginId fails the publish. The plain copySeedRegistry roots have
+  // no sibling plugins tree (the standalone registry repo case), where the
+  // check deliberately does not apply.
+  const appRepo = join(workDir, 'inline-cli-app-repo')
+  const root = join(appRepo, 'marketplace')
+  mkdirSync(appRepo, { recursive: true })
+  cpSync(seedRoot, root, { recursive: true })
+  cpSync(join(process.cwd(), 'resources', 'plugins'), join(appRepo, 'plugins'), { recursive: true })
+  assert.equal(runVerifier(root).status, 0, 'seed with the full bundled plugin tree must verify')
+  rmSync(join(appRepo, 'plugins', 'claude-code'), { recursive: true, force: true })
+  const result = runVerifier(root)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /resources\/plugins\/claude-code\/plugin\.json/)
 }
 
 function testStrippedSignatureCannotKeepAVerifiedPublisher(): void {
@@ -387,6 +424,8 @@ function testPublishScriptsTargetRegistryRoot(): void {
 try {
   testSampleRegistryPasses()
   testUnsignedEntriesNeedNoLocalManifest()
+  testInlineCliVerifiedClaimIsBoundToTrustedPublisherNames()
+  testInlineCliMustReferenceABundledPluginInTheAppRepoLayout()
   testStrippedSignatureCannotKeepAVerifiedPublisher()
   testUnclaimedPayloadDirFails()
   testUnsignedAutomationPayloadIsDigestChecked()

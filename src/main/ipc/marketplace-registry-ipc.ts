@@ -55,7 +55,10 @@ export function registerMarketplaceRegistryIpc(
   )
 }
 
-function createDefaultMarketplaceRegistryClient(): MarketplaceRegistryClient {
+// Also the registry reader the update-state detection uses
+// (marketplace-plugin-ipc), so both surfaces share one cache and one
+// bundled-first/override policy.
+export function createDefaultMarketplaceRegistryClient(): MarketplaceRegistryClient {
   return new MarketplaceRegistryClient({
     registryUrl: configuredMarketplaceRegistryUrl(),
     cachePath: defaultMarketplaceRegistryCachePath(app.getPath('userData')),

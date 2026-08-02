@@ -3,6 +3,9 @@
   "displayName": "Grok Build",
   "publisher": "xai",
   "version": 1,
+  "summary": "xAI's Grok Build coding agent, driven in a terminal.",
+  "category": "Agent CLI",
+  "icon": "icon.svg",
   "binary": "grok",
   "permissionPresets": {
     "default": {

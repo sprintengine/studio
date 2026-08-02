@@ -3,6 +3,9 @@
   "displayName": "Cursor",
   "publisher": "anysphere",
   "version": 1,
+  "summary": "Cursor's terminal coding agent (cursor-agent).",
+  "category": "Agent CLI",
+  "icon": "icon.svg",
   "binary": "cursor-agent",
   "$comment": "Cursor's docs now present `agent` as the primary command, but the installer still ships `cursor-agent` and `agent` is far too generic a name to probe for (`command -v agent` can false-positive on unrelated binaries). `cursor-agent` remains supported as the stable alias, so it is both the probe target and the launch binary.",
   "permissionPresets": {

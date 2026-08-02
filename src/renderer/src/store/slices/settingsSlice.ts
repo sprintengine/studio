@@ -57,7 +57,7 @@ import {
   type WindowMaterial,
 } from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
-import { collapseDuplicateKeybindings } from '../../commands/keybindings'
+import { LEGACY_COMMAND_ID_ALIASES, collapseDuplicateKeybindings } from '../../commands/keybindings'
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 50
 
@@ -1627,10 +1627,17 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         if (!commandId.trim()) return
         const current = normalizeKeybindingSettings(state.appSettings.keybindings)
         const normalized = normalizeCommandKeybindings(keybindings)
+        const legacyId = LEGACY_COMMAND_ID_ALIASES[commandId]
         if (normalized.length === 0) {
           delete current.overrides[commandId]
+          // Clearing must also drop a persisted legacy-id override, or the
+          // read paths would resurrect the stale binding.
+          if (legacyId) delete current.overrides[legacyId]
         } else {
           current.overrides[commandId] = normalized
+          // The new-id override now owns the binding; the legacy entry would
+          // only shadow future clears.
+          if (legacyId) delete current.overrides[legacyId]
         }
         state.appSettings.keybindings = current
       }),
@@ -1639,10 +1646,15 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         if (!commandId.trim()) return
         const current = normalizeKeybindingSettings(state.appSettings.keybindings)
+        // A migrated command's persisted state may live under its legacy id
+        // (LEGACY_COMMAND_ID_ALIASES) — writes must clear it, or re-enabling
+        // could never stick (the read paths honor the legacy key).
+        const legacyId = LEGACY_COMMAND_ID_ALIASES[commandId]
         if (disabled) {
           current.disabled[commandId] = true
         } else {
           delete current.disabled[commandId]
+          if (legacyId) delete current.disabled[legacyId]
         }
         state.appSettings.keybindings = current
       }),
@@ -1651,8 +1663,13 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         if (!commandId.trim()) return
         const current = normalizeKeybindingSettings(state.appSettings.keybindings)
+        const legacyId = LEGACY_COMMAND_ID_ALIASES[commandId]
         delete current.overrides[commandId]
         delete current.disabled[commandId]
+        if (legacyId) {
+          delete current.overrides[legacyId]
+          delete current.disabled[legacyId]
+        }
         state.appSettings.keybindings = current
       }),
 

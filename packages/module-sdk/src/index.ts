@@ -76,6 +76,7 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'agent-runtime',
   'backlog',
   'design',
+  'design-wizard',
   'dev-tools',
   'git',
   'memory-graph',
@@ -193,12 +194,56 @@ export type SidecarSpec = {
   startOn?: 'startup' | 'demand'
 }
 
+// ── MCP tools on the Studio gateway (MC-1855) ─────────────────────────────────
+
+/** A normal MCP tool result; `isError: true` marks a tool-domain failure. */
+export type McpToolResult = {
+  content: Array<{ type: 'text'; text: string }>
+  structuredContent?: Record<string, unknown>
+  isError?: boolean
+}
+
+/** Who is calling over the gateway socket, as far as the connection declared. */
+export type McpConnectionMetadata = {
+  kind: 'studio-agent' | 'external-local'
+  workspaceId?: string
+  agentId?: string
+  agentName?: string
+  cliId?: string
+  sprintRunId?: string
+}
+
+export type McpConnectionContext = {
+  metadata: McpConnectionMetadata
+}
+
+/**
+ * One MCP tool contributed to the always-on Studio gateway. `inputSchema` is a
+ * JSON Schema object; array-typed fields must stay arrays end to end. Tool
+ * names are a public contract for agents — pick stable, module-prefixed names.
+ */
+export type McpToolRegistration = {
+  name: string
+  description: string
+  inputSchema: Record<string, unknown>
+  handler: (args: Record<string, unknown>, context?: McpConnectionContext) => Promise<McpToolResult>
+}
+
 export type MainHost = {
   /** The module currently registering; stamped by the host. */
   readonly moduleId: string
   /** Raw Electron ipcMain; typed `unknown` to keep the SDK Electron-free. */
   readonly ipcMain: unknown
   registerIpc(channel: string, handler: IpcInvokeHandler): void
+  /**
+   * Contribute MCP tools to the Studio gateway, owned by this module's id. A
+   * tool name another module already registered is a registration error (the
+   * whole batch is rejected). Availability follows the module's enablement
+   * live: a disabled module's tools stay listed on the gateway and answer
+   * calls with an actionable enable error instead of running. An MCP tool is
+   * agent-reachable capability — declare the `ipc:agents` permission.
+   */
+  registerMcpTools(tools: McpToolRegistration[]): void
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T
@@ -1157,7 +1202,6 @@ export type CommandAvailability =
   | 'always'
   | 'activeWorkspace'
   | 'activeFile'
-  | 'voiceDictationEnabled'
   | 'sprintengineWorkspace'
   | 'sprintengineHasArchitect'
   | 'sprintengineFocusAgentVisible'
@@ -1259,6 +1303,51 @@ export type SidebarNavEntryDefinition = {
   Component: SidebarNavEntryComponent
 }
 
+// ── Top bar items ────────────────────────────────────────────────────────────
+
+export type TopBarItemComponent =
+  | ComponentType
+  | LazyExoticComponent<ComponentType>
+
+/**
+ * A control your module contributes to the app's top bar (the title-strip
+ * control cluster). The item is a self-contained zero-prop component that owns
+ * its full behavior — state, tooltip, action — exactly like the shell's own
+ * controls; the host only owns placement and gating. The bar shows it only
+ * while your module is enabled and orders contributed items by `order`, so the
+ * toggle adds/removes the control without a reload. The top bar is dense:
+ * contribute a single compact control (an icon button), not a cluster.
+ */
+export type TopBarItemDefinition = {
+  id: string
+  /** Sort key among contributed top-bar items; lower renders first, ties break on id. */
+  order: number
+  Component: TopBarItemComponent
+}
+
+// ── Global door surfaces ─────────────────────────────────────────────────────
+
+export type GlobalSurfaceComponent =
+  | ComponentType
+  | LazyExoticComponent<ComponentType>
+
+/**
+ * The full-page surface behind a top-level door. A global surface is a
+ * first-class extension point: it is instance-global, needs no workspace
+ * type, panel, or project scope, and owns its own data and layout. Pair it
+ * with a sidebar nav entry whose open action routes to the same `id` — the
+ * shell mounts the surface over the workspace card region when that door
+ * opens, gated on your module's live enablement. The component is zero-prop,
+ * eager or `React.lazy()`. While your module is uninstalled or disabled, the
+ * shell renders an explicit "not installed" door in its place and keeps the
+ * user's spot; re-enabling restores the surface without a reload.
+ */
+export type GlobalSurfaceDefinition = {
+  /** Matches the id the door opens. Non-empty; unique across all modules. */
+  id: string
+  Component: GlobalSurfaceComponent
+}
+
 // ── Live runtime surfaces (renderer) ─────────────────────────────────────────
 
 export type WorkspaceFileWatchEvent = {
@@ -1331,6 +1420,23 @@ export type RendererHost = {
    * `order`, so toggling your module shows/hides the door without a reload.
    */
   registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
+  /**
+   * Contribute a control to the app's top bar. Registered once at boot; the
+   * bar filters by your module's enablement and orders by `order`, so
+   * toggling your module shows/hides the control without a reload. An id
+   * already claimed by another module is a registration error, reported as a
+   * module load error that gates off your module's other contributions.
+   */
+  registerTopBarItem(definition: TopBarItemDefinition): void
+  /**
+   * Contribute the door-routed full-page surface behind a sidebar nav entry
+   * with the same id. Registered once at boot; the shell gates the mount on
+   * your module's enablement, so the toggle swaps the page for the explicit
+   * "not installed" door (and back) without a reload. An id already claimed
+   * by another module is a registration error, reported as a module load
+   * error that gates off your module's other contributions.
+   */
+  registerGlobalSurface(definition: GlobalSurfaceDefinition): void
   /**
    * The workspace's Backlog items as read-only views. Declare the
    * `backlog.read` permission (install-time disclosure). Mutations go through

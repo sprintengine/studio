@@ -24,8 +24,10 @@ import type { SprintEngineMcpHubStatus } from '../sprintengine-mcp-hub'
 // shutdown stop the process. A module disabled before main registration still
 // needs an app restart after enabling so this ownership hook can be installed.
 // Making Sprint Engine fully live-unloadable additionally needs renderer gating
-// (panels, workspace mode, the always-on auto-run supervisor) and a decision on
-// the guided-brief dependency.
+// (panels, workspace mode, the always-on auto-run supervisor). The guided-brief
+// dependency is decided (MC-1860): the Design Wizard is its own `design-wizard`
+// renderer module declaring dependsOn ['sprint-engine'], so disabling Sprint
+// Engine cascades to it through the enablement resolver.
 export const sprintEngineModule: CapabilityModule = {
   manifest: {
     id: 'sprint-engine',

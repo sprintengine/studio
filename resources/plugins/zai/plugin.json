@@ -3,6 +3,9 @@
   "displayName": "Z.AI",
   "publisher": "multicode",
   "version": 1,
+  "summary": "GLM through the Claude Code CLI, pointed at Z.AI's endpoint.",
+  "category": "Agent CLI",
+  "icon": "icon.svg",
   "binary": "claude",
   "auth": {
     "type": "api-key",

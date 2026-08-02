@@ -3,6 +3,9 @@
   "displayName": "Claude Code",
   "publisher": "anthropic",
   "version": 1,
+  "summary": "Anthropic's Claude Code coding agent, driven in a terminal.",
+  "category": "Agent CLI",
+  "icon": "icon.svg",
   "binary": "claude",
   "permissionPresets": {
     "default": {
@@ -95,6 +98,9 @@
   },
   "detect": {
     "versionArgs": ["--version"]
+  },
+  "update": {
+    "args": ["update"]
   },
   "install": {
     "darwin": [

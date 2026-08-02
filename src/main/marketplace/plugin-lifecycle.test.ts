@@ -23,8 +23,10 @@ import { classifyModuleTrust, verifyModuleSignature, type ModuleTrustContext } f
 import { planThirdPartyMainModules } from '../modules/third-party-main-loader'
 import { discoverUserModules } from '../modules/user-module-registry'
 import type { InstallPluginResult } from '../plugin-install'
-import { createMarketplacePluginLifecycleService, type MarketplacePluginLifecycleServices } from './plugin-lifecycle'
+import { createMarketplacePluginLifecycleService, readMarketplacePluginInstallReceipts, type MarketplacePluginLifecycleServices } from './plugin-lifecycle'
+import { MarketplaceRegistryClient, configuredMarketplaceRegistryUrl } from './registry-client'
 import { skillContentDigest } from './skill-content'
+import { readMarketplaceUpdateStates } from './update-detection'
 import type { MarketplacePluginDownloadFetch } from './plugin-download'
 
 type BundleComponents = {
@@ -1273,6 +1275,178 @@ async function testClaudePluginRefusesForeignSkillDirCollision(): Promise<void> 
   })
 }
 
+// MC-1873: with the registry override serving latest=2 over an installed v1,
+// the update state reads update-available, the update runs through
+// updateFromRegistry, and the state settles to current in the same process —
+// no restart.
+async function testUpdateAvailabilitySettlesThroughRegistryUpdate(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const components: BundleComponents = { module: { path: 'module', id: 'update-module' } }
+    const bundleV1 = await writeBundle(temp, 'update-plugin-v1', components, signer, 1)
+    const bundleV2 = await writeBundle(temp, 'update-plugin-v2', components, signer, 2)
+    const folders = new Map([
+      ['update-plugin-v1', bundleV1.files],
+      ['update-plugin-v2', bundleV2.files],
+    ])
+    const { services, workspaceRoot, moduleRoot, receiptStorePath } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundleV1.fingerprint]) }
+    )
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const installed = await lifecycle.installFromRegistry({ entry: bundleV1.entry, workspaceRoot })
+    assert.equal(installed.ok, true, JSON.stringify(installed))
+
+    // The registry override env var is the fixture seam: the client reads the
+    // configured URL, which serves an index whose latest is 2.
+    const registryUrl = configuredMarketplaceRegistryUrl({
+      MULTICODE_MARKETPLACE_REGISTRY_URL: 'https://registry.test/marketplace.json',
+    } as unknown as NodeJS.ProcessEnv)
+    assert.equal(registryUrl, 'https://registry.test/marketplace.json')
+    const registryReader = new MarketplaceRegistryClient({
+      registryUrl,
+      cachePath: join(temp, 'registry-cache.json'),
+      usePackagedSeedFallback: false,
+      fetcher: async (url) =>
+        url === registryUrl
+          ? new Response(JSON.stringify({ schemaVersion: 1, plugins: [bundleV2.entry] }))
+          : new Response('not found', { status: 404 }),
+    })
+    const updateStateServices = {
+      registryReader,
+      receiptStorePath,
+      moduleRoot: () => moduleRoot,
+      trustContext: services.trustContext,
+    }
+
+    const before = await readMarketplaceUpdateStates(updateStateServices)
+    assert.equal(before.ok && before.checked, true)
+    if (!before.ok || !before.checked) return
+    assert.deepEqual(before.entries, [{
+      id: 'registry-plugin',
+      displayName: 'Registry Plugin',
+      availability: { state: 'update-available', installedVersion: 1, latestVersion: 2 },
+    }])
+
+    const updated = await lifecycle.updateFromRegistry({ entry: bundleV2.entry, workspaceRoot })
+    assert.equal(updated.ok, true, JSON.stringify(updated))
+    if (!updated.ok) return
+    assert.equal(updated.updated, true)
+
+    const after = await readMarketplaceUpdateStates(updateStateServices)
+    assert.equal(after.ok && after.checked, true)
+    if (!after.ok || !after.checked) return
+    assert.deepEqual(after.entries[0]?.availability, { state: 'current', installedVersion: 2, latestVersion: 2 })
+  })
+}
+
+function corruptSignature(signature: { algorithm: 'ed25519'; publicKey: string; signature: string }): {
+  algorithm: 'ed25519'
+  publicKey: string
+  signature: string
+} {
+  const flipped = signature.signature.startsWith('A') ? 'B' : 'A'
+  return { ...signature, signature: flipped + signature.signature.slice(1) }
+}
+
+// MC-1873 security half, part 1: an update whose signature no longer verifies
+// is blocked with the existing invalid-signature treatment, and the previous
+// install stays untouched.
+async function testUpdateWithInvalidSignatureIsBlocked(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const components: BundleComponents = { module: { path: 'module', id: 'update-module' } }
+    const bundleV1 = await writeBundle(temp, 'tamper-plugin-v1', components, signer, 1)
+    const bundleV2 = await writeBundle(temp, 'tamper-plugin-v2', components, signer, 2)
+    // The served v2 bundle and its registry entry carry a signature that no
+    // longer verifies over the manifest payload.
+    const manifest = JSON.parse(bundleV2.files.get('plugin.json')!) as { signature: Parameters<typeof corruptSignature>[0] }
+    manifest.signature = corruptSignature(manifest.signature)
+    bundleV2.files.set('plugin.json', `${JSON.stringify(manifest, null, 2)}\n`)
+    bundleV2.entry.signature = manifest.signature
+
+    const folders = new Map([
+      ['tamper-plugin-v1', bundleV1.files],
+      ['tamper-plugin-v2', bundleV2.files],
+    ])
+    const { services, workspaceRoot, moduleRoot, receiptStorePath } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundleV1.fingerprint]) }
+    )
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const installed = await lifecycle.installFromRegistry({ entry: bundleV1.entry, workspaceRoot })
+    assert.equal(installed.ok, true, JSON.stringify(installed))
+
+    const blocked = await lifecycle.updateFromRegistry({ entry: bundleV2.entry, workspaceRoot, trustGranted: true })
+    assert.equal(blocked.ok, false)
+    if (blocked.ok) return
+    assert.equal(blocked.classification, 'invalid')
+    assert.match(blocked.message, /signature is invalid/)
+
+    // The v1 install survives the blocked update byte-for-byte.
+    const receipts = await readMarketplacePluginInstallReceipts(receiptStorePath)
+    assert.equal(receipts.ok, true)
+    if (!receipts.ok) return
+    assert.equal(receipts.receipts[0]?.version, 1)
+    const installedManifest = JSON.parse(
+      await readFile(join(moduleRoot, 'update-module', 'manifest.json'), 'utf8')
+    ) as { version: number }
+    assert.equal(installedManifest.version, 1)
+  })
+}
+
+// MC-1873 security half, part 2: an update signed by a different publisher is
+// RE-classified — it re-prompts for trust instead of riding the previous
+// grant, and even once installed it is not load-eligible until re-trusted.
+async function testUpdateSignedByDifferentPublisherReprompts(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const originalSigner = generateKeyPairSync('ed25519')
+    const differentSigner = generateKeyPairSync('ed25519')
+    const components: BundleComponents = { module: { path: 'module', id: 'update-module' } }
+    const bundleV1 = await writeBundle(temp, 'rekey-plugin-v1', components, originalSigner, 1)
+    const bundleV2 = await writeBundle(temp, 'rekey-plugin-v2', components, differentSigner, 2)
+    const folders = new Map([
+      ['rekey-plugin-v1', bundleV1.files],
+      ['rekey-plugin-v2', bundleV2.files],
+    ])
+    // Only the ORIGINAL publisher key is trusted.
+    const { services, workspaceRoot, moduleRoot, receiptStorePath } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundleV1.fingerprint]) }
+    )
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const installed = await lifecycle.installFromRegistry({ entry: bundleV1.entry, workspaceRoot })
+    assert.equal(installed.ok, true, JSON.stringify(installed))
+    if (!installed.ok) return
+    assert.equal(installed.classification, 'verified')
+
+    const reprompted = await lifecycle.updateFromRegistry({ entry: bundleV2.entry, workspaceRoot })
+    assert.equal(reprompted.ok, false)
+    if (reprompted.ok) return
+    assert.equal(reprompted.classification, 'community')
+    assert.match(reprompted.message, /requires trust approval/)
+    const untouched = await readMarketplacePluginInstallReceipts(receiptStorePath)
+    assert.equal(untouched.ok && untouched.receipts[0]?.version, 1)
+
+    const granted = await lifecycle.updateFromRegistry({ entry: bundleV2.entry, workspaceRoot, trustGranted: true })
+    assert.equal(granted.ok, true, JSON.stringify(granted))
+    if (!granted.ok) return
+    assert.equal(granted.updated, true)
+    assert.equal(granted.classification, 'community')
+    // The updated module must not silently load under the old grant.
+    assert.equal(granted.loadEligible, false)
+    const modules = await discoverUserModules(moduleRoot, services.trustContext())
+    assert.equal(modules.modules[0]?.manifest.version, 2)
+    assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'signed')
+  })
+}
+
 async function main(): Promise<void> {
   await testVerifiedRegistryInstallFansOutAndRecordsReceipt()
   await testCommunityBundleRequiresTrustGrant()
@@ -1284,6 +1458,9 @@ async function main(): Promise<void> {
   await testDigestMismatchedRegistryInstallDoesNotFanOut()
   await testSkillInstallFailureRollsBackResidue()
   await testUpdateAndUninstallRemoveOldComponents()
+  await testUpdateAvailabilitySettlesThroughRegistryUpdate()
+  await testUpdateWithInvalidSignatureIsBlocked()
+  await testUpdateSignedByDifferentPublisherReprompts()
   await testAutomationInstallRecordsReceiptAndSurvivesUninstall()
   await testFailedUpdateRollsBackReplacementAndKeepsReceipt()
   await testReceiptStoreValidationRejectsMalformedAndUnsafeState()

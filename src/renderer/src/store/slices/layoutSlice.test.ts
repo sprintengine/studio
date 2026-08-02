@@ -18,7 +18,7 @@ import {
   stripSettingsTabsFromLayout,
   stripSprintEnginesNavFromLayout,
 } from './layoutSlice'
-import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
+import { createGuidedBriefTemplate } from '../../modules/design-wizard-workspace-types'
 import { createSwitchboardTemplate } from '../../modules/switchboard-workspace-types'
 import { guidedBriefLayoutModel } from './guidedBriefSlice'
 

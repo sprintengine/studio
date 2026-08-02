@@ -41,8 +41,13 @@ contracts, so a published version always matches the app version it ships with.
   checks the declaration. Declare it if and only if your module uses the
   bridge or genuinely needs the broad legacy surface.
 - **Main host**: `registerIpc` (channel ownership enforced), service tokens,
-  startup/shutdown hooks, `registerSidecar`, and `notify(severity, title,
-  body?)` (identity stamped by the host, per-module flood-bounded).
+  startup/shutdown hooks, `registerSidecar`, `notify(severity, title,
+  body?)` (identity stamped by the host, per-module flood-bounded), and
+  `registerMcpTools(tools)` — agent-facing MCP tools on the always-on Studio
+  gateway, owned by your module's id with duplicate-name rejection. Tool
+  availability follows your module's enablement live: a disabled module's
+  tools stay listed and answer an actionable enable error instead of running.
+  Declare `ipc:agents`.
 - **Renderer host**: `registerPanel`, `registerWorkspaceType` (workspace
   types may now ship `supervisors` — render-nothing background components
   the shell mounts while your module is enabled, inside a crash boundary and
@@ -68,7 +73,20 @@ contracts, so a published version always matches the app version it ships with.
   `SidebarNavEntryDefinition` of `{ id, order, Component }`; the door shows
   only while your module is enabled and sits at its `order`, so the module
   toggle adds/removes it without a reload, and the row acts on the local
-  window's store), `invoke` (call your own
+  window's store), `registerGlobalSurface` (the full-page surface behind
+  that door — a `GlobalSurfaceDefinition` of `{ id, Component }` whose `id`
+  matches the one the nav entry opens; a global surface is a first-class,
+  instance-global extension point needing no workspace type, panel, or
+  project scope, and its zero-prop `Component` may be eager or
+  `React.lazy()`; while your module is uninstalled or disabled the shell
+  shows an explicit "not installed" door in its place and keeps the user's
+  spot, and an id already claimed by another module is reported as a module
+  load error), `registerTopBarItem` (a control in the app's top-bar
+  title-strip cluster — a `TopBarItemDefinition` of `{ id, order, Component }`;
+  the zero-prop `Component` owns its full behavior and may be eager or
+  `React.lazy()`, the bar shows it only while your module is enabled and
+  orders contributed items by `order`, and the top bar is dense: contribute
+  one compact control, not a cluster), `invoke` (call your own
   `entry.main`'s `registerIpc` channels; see below), and the Backlog read
   API — `listBacklogItems(workspaceId)` / `watchBacklogItems(workspaceId, cb)`
   return `BacklogItemView`s from the same scan the Backlog panel uses (watch

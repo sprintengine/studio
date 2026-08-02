@@ -3,12 +3,12 @@ import { chmodSync, existsSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { AutomationServerStatus } from '../../shared/automation'
+import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../../shared/product-identity'
-import type { SprintEngineMcpHubService } from '../sprintengine-mcp-hub'
 import { readAutomationSettings, writeAutomationSettings } from './automation-settings'
 import { createGatewayAuditStore } from './gateway-audit'
-import { createMcpSocketServer, type McpToolRegistration } from './mcp-socket-server'
-import { createStudioGatewayTools, isStudioGatewayMutation } from './studio-gateway-tools'
+import { createMcpSocketServer } from './mcp-socket-server'
+import { isStudioGatewayMutation } from './studio-gateway-tools'
 
 // Owns the always-on Studio MCP gateway lifecycle, local socket endpoint, and
 // discovery files external clients read to find it. The old enabled setting is
@@ -24,10 +24,14 @@ const MAX_POSIX_SOCKET_PATH = 90
 type AutomationServiceOptions = {
   resolveUserDataDir: () => string
   appVersion: string
-  tools: McpToolRegistration[]
-  /** Review tools on the gateway (plan §3.3); merged alongside the app tools. */
-  reviewTools?: McpToolRegistration[]
-  sprintEngineMcpHub: Pick<SprintEngineMcpHubService, 'callRunTool'>
+  /**
+   * The gateway's current tool set (core + module-contributed), evaluated per
+   * request. Injected as a lazy resolver because the gateway is constructed at
+   * startup module scope, BEFORE `loadMainModules` populates the module-host
+   * tool registry — a captured array here could never see module tools, and
+   * module enablement must be honored live (MC-1855).
+   */
+  resolveGatewayTools: () => McpToolRegistration[]
   /** Absolute path of the shipped stdio bridge script, when the app knows it. */
   resolveBridgeScriptPath?: () => string | null
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
@@ -97,16 +101,11 @@ export function createAutomationService(options: AutomationServiceOptions) {
       resolveUserDataDir: options.resolveUserDataDir,
       log: (text) => warn('Studio MCP audit', text),
     })
-    const tools = createStudioGatewayTools({
-      appTools: options.tools,
-      reviewTools: options.reviewTools,
-      sprintEngineMcpHub: options.sprintEngineMcpHub,
-    })
     const next = createMcpSocketServer({
       socketPath,
       serverName: STUDIO_MCP_SERVER_ID,
       serverVersion: options.appVersion,
-      tools,
+      resolveTools: options.resolveGatewayTools,
       onToolCall: ({ context, tool, args, durationMs, result, error }) => {
         if (!isStudioGatewayMutation(tool)) return
         audit.record({ connection: context.metadata, tool, args, durationMs, result, error })
@@ -151,7 +150,12 @@ export function createAutomationService(options: AutomationServiceOptions) {
     options.logDiagnostic?.({ level: 'warning', title, message: title, details })
   }
 
-  return { initialize, getStatus, setEnabled, shutdown }
+  /** A module enable/disable changed tool availability; tell connected clients. */
+  function notifyToolsListChanged(): void {
+    server?.notifyToolsListChanged()
+  }
+
+  return { initialize, getStatus, setEnabled, shutdown, notifyToolsListChanged }
 }
 
 export function resolveSocketPath(

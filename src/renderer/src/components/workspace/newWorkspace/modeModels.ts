@@ -29,9 +29,10 @@ export const STANDARD_MODE_MODEL: ModeCardModel = {
 export const CREATION_RAIL_GROUP_BREAK_INDEX = 2
 
 // The two shell-owned entries lead, then Sprint Engine and Design Wizard are
-// surfaced ahead of the remaining registry-contributed types (both gated by the
-// sprint-engine module, so absent when it is disabled). The rest keep their
-// pickerOrder. getWorkspaceTypes returns a fresh array, so callers memoise this
+// surfaced ahead of the remaining registry-contributed types (gated by the
+// sprint-engine and design-wizard modules respectively — and design-wizard
+// dependsOn sprint-engine, so disabling Sprint Engine hides both). The rest
+// keep their pickerOrder. getWorkspaceTypes returns a fresh array, so callers memoise this
 // on the stable moduleOverrides reference (Zustand v5: selector-derived arrays
 // must not be rebuilt each render).
 export function buildModeModels(moduleOverrides: ModuleEnablementOverrides): ModeCardModel[] {

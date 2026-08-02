@@ -11,7 +11,6 @@ import type {
   SprintEngineRoleRegistry,
   SprintEngineRoleRegistryMetadata,
   SprintEngineRoleRegistryWarning,
-  VoiceDictationModel,
 } from '../../types/workspace'
 import AppThemePicker from './AppThemePicker'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
@@ -36,8 +35,6 @@ import {
   ProviderStateId,
   RefreshIcon,
   resolveCliProviderState,
-  Select,
-  type SelectItem,
   Spinner,
   StatusDot,
   Switch,
@@ -76,7 +73,6 @@ import {
   KnowledgeGraphSettingsIcon,
   ModulesSettingsIcon,
   MobileSettingsIcon,
-  VoiceDictationSettingsIcon,
   LearnSettingsIcon,
   PlusIcon,
 } from '../AppIcons'
@@ -125,29 +121,6 @@ type GitHubTokenUiStatus = Awaited<ReturnType<typeof window.api.getGitHubTokenSt
 const EMPTY_USER_MODELS: string[] = []
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 
-const VOICE_MODEL_ITEMS: SelectItem<VoiceDictationModel>[] = [
-  { value: 'tiny', label: 'Whisper tiny — fastest, least accurate' },
-  { value: 'base', label: 'Whisper base' },
-  { value: 'small', label: 'Whisper small — recommended' },
-  { value: 'medium', label: 'Whisper medium' },
-  { value: 'large-v2', label: 'Whisper large-v2' },
-  { value: 'large-v3', label: 'Whisper large-v3' },
-  { value: 'large-v3-turbo', label: 'Whisper large-v3-turbo' },
-]
-
-const VOICE_LANGUAGE_ITEMS: SelectItem<string>[] = [
-  { value: 'auto', label: 'Auto-detect' },
-  { value: 'en', label: 'English' },
-  { value: 'es', label: 'Spanish' },
-  { value: 'fr', label: 'French' },
-  { value: 'de', label: 'German' },
-  { value: 'it', label: 'Italian' },
-  { value: 'pt', label: 'Portuguese' },
-  { value: 'nl', label: 'Dutch' },
-  { value: 'ja', label: 'Japanese' },
-  { value: 'zh', label: 'Chinese' },
-]
-
 type SettingsTabId =
   | 'general'
   | 'profile'
@@ -162,7 +135,6 @@ type SettingsTabId =
   | 'knowledge-graph'
   | 'learn'
   | 'mobile'
-  | 'voice-dictation'
 
 // Line-weight rail glyph. Built-in tabs carry one from AppIcons; module sections
 // reuse their own contributed `moduleSection.icon` (same shape).
@@ -190,7 +162,6 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'knowledge-graph', label: 'Knowledge graph', icon: KnowledgeGraphSettingsIcon },
   { id: 'modules', label: 'Modules', icon: ModulesSettingsIcon },
   { id: 'mobile', label: 'Mobile', icon: MobileSettingsIcon },
-  { id: 'voice-dictation', label: 'Voice dictation', icon: VoiceDictationSettingsIcon },
   { id: 'learn', label: 'Learn', icon: LearnSettingsIcon },
 ]
 
@@ -201,7 +172,7 @@ const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
   { label: 'agents', ids: ['agents', 'providers', 'roles'] },
   { label: 'workspace', ids: ['github', 'trackers', 'knowledge-graph', 'modules'] },
-  { label: 'companion', ids: ['mobile', 'voice-dictation', 'learn'] },
+  { label: 'companion', ids: ['mobile', 'learn'] },
 ]
 
 // A rail entry: a built-in tab, or a module-contributed section rendered after
@@ -240,7 +211,6 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'knowledge-graph'
     || value === 'learn'
     || value === 'mobile'
-    || value === 'voice-dictation'
   )
 }
 
@@ -255,6 +225,9 @@ function resolveInitialSettingsTab(initialTab: string | null | undefined): strin
     return 'general'
   }
   if (initialTab === 'specialist-packs') return 'modules'
+  // Voice dictation moved onto the module-contributed section path (MC-1861);
+  // legacy deep-links (Learn center, persisted routes) land on its section tab.
+  if (initialTab === 'voice-dictation') return moduleSectionTabId('voice-dictation')
   return initialTab ?? null
 }
 
@@ -1134,10 +1107,6 @@ export default function SettingsPanel({
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
   // The Mobile tab gates on the mobile-relay module; hide it when disabled.
   const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
-  // The Voice dictation tab gates on the voice-dictation module.
-  const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
-  const voiceDictation = useWorkspaceStore((s) => s.appSettings.voiceDictation)
-  const setVoiceDictationSettings = useWorkspaceStore((s) => s.setVoiceDictationSettings)
   const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
   // Module-contributed sections render after every built-in tab, in the
   // registry's stable order (order hint, then id). Disabling a module drops
@@ -1148,11 +1117,7 @@ export default function SettingsPanel({
   )
   const visibleSettingsTabs = useMemo(
     (): SettingsTabDescriptor[] => [
-      ...settingsTabs.filter(
-        (tab) =>
-          (tab.id !== 'mobile' || mobileRelayEnabled) &&
-          (tab.id !== 'voice-dictation' || voiceDictationEnabled)
-      ),
+      ...settingsTabs.filter((tab) => tab.id !== 'mobile' || mobileRelayEnabled),
       ...moduleSections.map((section) => ({
         id: moduleSectionTabId(section.id),
         label: section.label,
@@ -1160,7 +1125,7 @@ export default function SettingsPanel({
         moduleSection: section,
       })),
     ],
-    [mobileRelayEnabled, voiceDictationEnabled, moduleSections]
+    [mobileRelayEnabled, moduleSections]
   )
   const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
@@ -1220,7 +1185,12 @@ export default function SettingsPanel({
   // the Connectors surface upstream in the store, so they never reach here.)
   const [activeSettingsTab, setActiveSettingsTab] = useState<string>(() => {
     const resolved = resolveInitialSettingsTab(initialTab)
-    return isSettingsTabId(resolved) ? resolved : 'general'
+    if (isSettingsTabId(resolved)) return resolved
+    // A deep-link may land on a contributed section (the voice-dictation tab
+    // since MC-1861); a section that isn't actually visible falls back to the
+    // first visible tab via the effect below.
+    if (typeof resolved === 'string' && resolved.startsWith(MODULE_SECTION_TAB_PREFIX)) return resolved
+    return 'general'
   })
 
   useEffect(() => {
@@ -2691,73 +2661,6 @@ export default function SettingsPanel({
       {activeSettingsTab === 'modules' ? <ModulesSettingsTab /> : null}
 
       {activeSettingsTab === 'mobile' && mobileRelayEnabled ? <MobileSettingsTab /> : null}
-
-      {activeSettingsTab === 'voice-dictation' && voiceDictationEnabled ? (
-        <div
-          role="tabpanel"
-          id="settings-panel-voice-dictation"
-          aria-labelledby="settings-tab-voice-dictation"
-          className="space-y-4"
-        >
-          <p className="text-body leading-5 text-[color:var(--text-muted)]">
-            Press the microphone in the top bar (or {window.api.platform === 'darwin' ? 'Cmd+Shift+1' : 'Ctrl+Shift+1'}) to record, then again to stop.
-            The audio is sent to a Multivoice transcription host and the text is copied to your clipboard.
-            The server can run on this machine, on your network, or be hosted remotely — point the URL at wherever it lives.
-          </p>
-
-          <Field label="Server URL" htmlFor="voice-server-url" help="Base URL of the Multivoice transcription host.">
-            <input
-              id="voice-server-url"
-              value={voiceDictation.serverUrl}
-              onChange={(event) => setVoiceDictationSettings({ serverUrl: event.target.value })}
-              placeholder="http://127.0.0.1:48173"
-              className={INPUT_CLASS}
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-            />
-          </Field>
-
-          <Field
-            label="Auth token"
-            htmlFor="voice-auth-token"
-            help="Optional. Sent as an Authorization: Bearer header when set."
-          >
-            <input
-              id="voice-auth-token"
-              type="password"
-              value={voiceDictation.authToken}
-              onChange={(event) => setVoiceDictationSettings({ authToken: event.target.value })}
-              placeholder="(none)"
-              className={INPUT_CLASS}
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-            />
-          </Field>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Whisper model" htmlFor="voice-model" help="The host loads or downloads this model.">
-              <Select
-                ariaLabel="Whisper model"
-                items={VOICE_MODEL_ITEMS}
-                value={voiceDictation.model}
-                onChange={(model: VoiceDictationModel) => setVoiceDictationSettings({ model })}
-                className="h-control-md w-full"
-              />
-            </Field>
-            <Field label="Language" htmlFor="voice-language">
-              <Select
-                ariaLabel="Language"
-                items={VOICE_LANGUAGE_ITEMS}
-                value={voiceDictation.language}
-                onChange={(language: string) => setVoiceDictationSettings({ language })}
-                className="h-control-md w-full"
-              />
-            </Field>
-          </div>
-        </div>
-      ) : null}
 
       {activeTab.moduleSection ? (
         <div

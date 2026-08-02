@@ -3,6 +3,9 @@
   "displayName": "OpenCode",
   "publisher": "sst",
   "version": 1,
+  "summary": "The OpenCode coding agent, driven in a terminal.",
+  "category": "Agent CLI",
+  "icon": "icon.svg",
   "binary": "opencode",
   "permissionPresets": {
     "default": {

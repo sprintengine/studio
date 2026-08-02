@@ -3,6 +3,9 @@
   "displayName": "Codex",
   "publisher": "openai",
   "version": 1,
+  "summary": "OpenAI's Codex coding agent, driven in a terminal.",
+  "category": "Agent CLI",
+  "icon": "icon.svg",
   "binary": "codex",
   "permissionPresets": {
     "default": {

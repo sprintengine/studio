@@ -4,6 +4,9 @@
   "displayName": "OpenRouter",
   "publisher": "multicode",
   "version": 1,
+  "summary": "OpenRouter's model catalog as a conversation model provider.",
+  "category": "Model Provider",
+  "icon": "icon.svg",
   "providerType": "model-provider",
   "models": [
     {

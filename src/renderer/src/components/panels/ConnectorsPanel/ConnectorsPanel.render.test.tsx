@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { renderToStaticMarkup } from 'react-dom/server'
 
@@ -292,6 +293,91 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
     ),
     /The marketplace is unavailable: registry down\./,
   )
+}
+
+// --- the agent CLIs shelf with runtime state (MC-1858) ----------------------
+
+{
+  const seed = JSON.parse(readFileSync('resources/marketplace/marketplace.json', 'utf8')) as {
+    plugins: MarketplacePluginEntry[]
+  }
+  const seedClis = seed.plugins.filter((plugin) => plugin.provides.includes('cli'))
+  assert.equal(seedClis.length, 12, 'the packaged seed carries the twelve bundled agent CLIs')
+
+  const catalogEntry = (id: string, binary: string) =>
+    ({ id, displayName: id, source: 'bundled', version: 1, binary, resumeSession: false, sessionIdFromCaller: false }) as never
+  // The nine runtime-installable CLI plugins; the provider trio (claude-agent,
+  // openrouter, xai) is deliberately absent — no binary, nothing to install.
+  const runtimeCatalog = [
+    'claude-code', 'codex', 'cursor', 'generic-shell', 'grok', 'kimi-claude', 'kimi-code', 'opencode', 'zai',
+  ].map((id) => catalogEntry(id, id === 'claude-code' ? 'claude' : id === 'cursor' ? 'cursor-agent' : id))
+
+  const runtime = {
+    platform: 'darwin',
+    availability: {
+      'claude-code': { cli: 'claude-code', installed: true, resolvedPath: '/usr/local/bin/claude', version: '2.4.1' },
+      cursor: { cli: 'cursor', installed: false, resolvedPath: null, version: null },
+      // every other CLI probe "failed" (omitted) — those rows must read unknown,
+      // never installable.
+    },
+    availabilityStatus: 'ready' as const,
+    availabilityError: null,
+    catalogEntries: runtimeCatalog,
+    catalogStatus: 'ready' as const,
+    cliRuntimes: {},
+    refreshAvailability: async () => {},
+    refreshCatalog: async () => {},
+    setCliRuntime: noop,
+  }
+
+  const markup = renderToStaticMarkup(
+    <ExtensionKindCanvas
+      kind="cli"
+      sources={kindSources(ready(seedClis))}
+      workspaceRoot="/repo"
+      cliRuntime={runtime}
+    />,
+  )
+
+  // All twelve bundled entries render as rows — each disclosable row carries
+  // exactly one "<name> details" chevron button.
+  assert.equal((markup.match(/ details"/g) ?? []).length, 12, 'all 12 bundled CLI entries render')
+
+  // Installed: probe version in the mono slot, the shared Ready vocabulary,
+  // and the resolved binary path as the state line's identifier.
+  assert.match(markup, /2\.4\.1/)
+  assert.match(markup, /Ready/)
+  assert.match(markup, /\/usr\/local\/bin\/claude/)
+
+  // Definitively absent: the honest negative, named binary. (The Install button
+  // itself needs the install-methods probe, which only runs in a live DOM — the
+  // interaction test drives it.)
+  assert.match(markup, /Not installed — no cursor-agent on PATH/)
+
+  // The provider trio has nothing to runtime-install and says so.
+  assert.equal((markup.match(/Built into the app — nothing to install/g) ?? []).length, 3)
+
+  // A CLI whose probe failed must not render as installable — the pickers'
+  // signal, kept consistent here.
+  assert.match(markup, /Availability unknown/)
+  assert.doesNotMatch(markup, />Install</)
+
+  // No trust-tier vocabulary on the runtime rows: installed-or-not is the state
+  // this shelf carries.
+  assert.doesNotMatch(markup, /published by/)
+
+  // The batch probe failing is stated once above the list, and rows stay up.
+  const probeDown = renderToStaticMarkup(
+    <ExtensionKindCanvas
+      kind="cli"
+      sources={kindSources(ready(seedClis))}
+      workspaceRoot="/repo"
+      cliRuntime={{ ...runtime, availability: {}, availabilityStatus: 'error', availabilityError: 'no shell' }}
+    />,
+  )
+  assert.match(probeDown, /Agent CLIs could not be checked: no shell/)
+  assert.equal((probeDown.match(/ details"/g) ?? []).length, 12, 'rows still render under a failed probe')
+  assert.doesNotMatch(probeDown, />Install</)
 }
 
 // --- the automations shelf (MC-2034) ---------------------------------------

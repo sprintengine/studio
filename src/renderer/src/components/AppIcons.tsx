@@ -864,16 +864,6 @@ export function MobileSettingsIcon({ className }: IconProps) {
   )
 }
 
-export function VoiceDictationSettingsIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="9.5" y="3" width="5" height="10" rx="2.5" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M6.5 11a5.5 5.5 0 0 0 11 0" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M12 16.5V20M9 20h6" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
 export function LearnSettingsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">

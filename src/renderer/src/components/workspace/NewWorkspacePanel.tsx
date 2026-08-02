@@ -5,8 +5,8 @@ import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost } from '../../modules'
 import { ModuleCreationStepSection } from './newWorkspace/ModuleCreationStepSection'
-import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
-import { createReviewTemplate } from '../../modules/review-workspace-types'
+import { createGuidedBriefTemplate } from '../../modules/design-wizard-workspace-types'
+import { createReviewTemplate } from '../../review/workspaceTypes'
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
   REVIEW_WORKSPACE_MODE,
@@ -84,7 +84,7 @@ import {
   stepWithinFlow,
 } from './newWorkspace/stepNavigation'
 import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
-import { ReviewSourceStep, type ReviewProbeState } from './newWorkspace/ReviewSourceStep'
+import { ReviewSourceStep, type ReviewProbeState } from '../../review/door/ReviewSourceStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS } from './newWorkspace/savedRosters'
@@ -101,12 +101,13 @@ import {
   buildModuleTypeCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
-  runReviewCreation,
-  ReviewControllerError,
   runDesignSystemScaffold,
   runGuidedBriefScaffold,
   runGuidedBriefStartBuild,
 } from './newWorkspace/controllers'
+// Reached directly, not through core's controllers barrel: this is one of the
+// residual core→review edges MC-1857 severs (see that item's requirements).
+import { runReviewCreation, ReviewControllerError } from '../../review/door/reviewCreation'
 
 // The shell-owned mode models (chat, standard) and the rail ordering live in
 // newWorkspace/modeModels.ts, shared with the CreationRail contract test.
@@ -1387,12 +1388,14 @@ export default function NewWorkspacePanel({
         await runReviewCreation(
           { name, folderPath, source, guideConfig: reviewGuideConfig },
           {
-            addReviewWorkspace: ({ name: reviewName, folderPath: reviewFolder, guideConfig }) =>
+            // guideConfig is consumed by the guide run through runReviewCreation
+            // itself; it is deliberately NOT stamped onto the workspace row
+            // (MC-1856 — it was write-only state nothing ever read back).
+            addReviewWorkspace: ({ name: reviewName, folderPath: reviewFolder }) =>
               addWorkspace(createReviewTemplate(), {
                 name: reviewName,
                 folderPath: reviewFolder,
                 mode: REVIEW_WORKSPACE_MODE,
-                reviewGuideConfig: guideConfig,
                 windowId: workspaceWindowId,
               }),
             removeWorkspace,

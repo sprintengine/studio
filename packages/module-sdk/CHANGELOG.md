@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- Top-bar items on `RendererHost` (MC-1861):
+  `registerTopBarItem({ id, order, Component })` contributes a control to the
+  app's top-bar title-strip cluster. The `Component` is zero-prop and
+  self-contained — state, tooltip, action — eager or `React.lazy()`
+  (`TopBarItemComponent`); the bar filters by your module's live enablement
+  and orders contributed items by `order` (ties on id), so a module toggle
+  adds/removes the control without a reload. Duplicate ids are a registration
+  error naming the owner. The top bar is dense: contribute a single compact
+  control (an icon button), not a cluster. First consumer: the bundled
+  voice-dictation module's mic button. Also removed `voiceDictationEnabled`
+  from `CommandAvailability` — the voice toggle is a module command now
+  (`voice-dictation.toggle`); module commands gate on enablement through the
+  contribution list, not a shell availability enum entry.
+
+- MCP tool contributions on `MainHost` (MC-1855):
+  `registerMcpTools(tools: McpToolRegistration[])` puts agent-facing MCP tools
+  on Multicode's always-on Studio gateway, owned by your module's id the way
+  IPC channels are. A tool name another module already registered is a
+  registration error and the whole batch is rejected (no partial
+  registration). Availability follows your module's live enablement at the
+  gateway: while the module is registered but disabled the tools stay listed
+  on `tools/list`, and `tools/call` answers a normal MCP tool result carrying
+  an actionable "enable it in Settings → Modules" error instead of running —
+  toggling needs no app restart, and connected clients are nudged with
+  `notifications/tools/list_changed`. Tools of a module that never loaded are
+  not listed. New mirrored types: `McpToolRegistration`, `McpToolResult`,
+  `McpConnectionContext`, `McpConnectionMetadata` (all exact-identity
+  drift-guarded). Keep JSON-Schema array fields arrays end to end.
+  Disclosure: an MCP tool is agent-reachable capability — declare
+  `ipc:agents`.
+
+- Global door surfaces on `RendererHost` (MC-1854):
+  `registerGlobalSurface({ id, Component })` publishes the full-page surface
+  behind a sidebar nav entry with the same id. A global surface is a
+  first-class, instance-global extension point: no workspace type, panel, or
+  project scope is required to own a top-level door. `Component` is zero-prop,
+  eager or `React.lazy()` (`GlobalSurfaceComponent`). The shell gates the
+  mount on your module's live enablement — while the module is uninstalled or
+  disabled it renders an explicit "not installed" door (name, one sentence,
+  one CTA into Extensions) and never clears the user's persisted spot, so
+  reinstalling lands them back on the door. An id already claimed by another
+  module is a registration error, reported as a module load error that gates
+  off the failing module's other contributions.
+
 - Per-module workspace state on `RendererHost` (MC-1573):
   `getWorkspaceModuleState<T>(workspaceId)` /
   `setWorkspaceModuleState(workspaceId, state)` — your module's own durable

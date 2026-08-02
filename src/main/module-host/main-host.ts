@@ -5,6 +5,7 @@ import {
   type ModuleBridgeInvokeResult,
 } from '../../shared/modules/bridge'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
+import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import {
   MODULE_NOTIFICATIONS_EVENT_CHANNEL,
   validateModuleNotifyInput,
@@ -79,6 +80,15 @@ export type SidecarRuntimeStatus = {
   error?: string
 }
 
+// One MCP tool a module contributed to the Studio gateway, with the ownership
+// the gateway needs to gate calls on the owner's live enablement (MC-1855).
+export type McpToolContribution = {
+  moduleId: string
+  /** The owner's manifest displayName when resolvable, for user-facing errors. */
+  moduleDisplayName: string
+  registration: McpToolRegistration
+}
+
 // Returned by registerSidecar so an owner can trigger a demand-spawned sidecar
 // through the kernel-tracked path (status + failure notification included).
 export type SidecarHandle = {
@@ -97,6 +107,16 @@ export type MainHost = {
    */
   readonly ipcMain: IpcMain
   registerIpc(channel: string, handler: IpcInvokeHandler): void
+  /**
+   * Contribute MCP tools to the always-on Studio gateway. Registrations are
+   * owned by this module's id exactly as IPC channels are: a name another
+   * module already holds is a registration error, and the whole batch is
+   * validated before any tool lands so a rejected batch registers nothing.
+   * Availability follows the owner's live enablement at the gateway — tools
+   * of a disabled-but-registered module stay listed and answer an actionable
+   * enable error instead of running (MC-1805/MC-1855).
+   */
+  registerMcpTools(tools: McpToolRegistration[]): void
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T
@@ -133,6 +153,8 @@ export type MainKernel = {
   hostFor(moduleId: string): MainHost
   /** channel -> owning module id, for diagnostics and collision reports. */
   ownedChannels(): ReadonlyMap<string, string>
+  /** Module-contributed Studio gateway tools, in registration order. */
+  mcpToolRegistrations(): ReadonlyArray<McpToolContribution>
   startupHooks(): ReadonlyArray<StartupHook>
   shutdownBeginHooks(): ReadonlyArray<ShutdownBeginHook>
   shutdownHooks(): ReadonlyArray<ShutdownHook>
@@ -221,6 +243,9 @@ type ChannelEntry = { owner: string; handler?: IpcInvokeHandler }
 
 export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = {}): MainKernel {
   const channels = new Map<string, ChannelEntry>()
+  // name -> owning module + registration; insertion order is the gateway's
+  // listing order, mirroring the channel map's ownership discipline.
+  const mcpTools = new Map<string, { owner: string; registration: McpToolRegistration }>()
   const services = new Map<string, ServiceEntry>()
   let startupHooks: HookEntry<StartupHook>[] = []
   let shutdownBeginHooks: HookEntry<ShutdownBeginHook>[] = []
@@ -416,6 +441,27 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         channels.set(channel, { owner: moduleId, handler })
         ipcMain.handle(channel, handler)
       },
+      registerMcpTools(tools) {
+        // Validate the whole batch before landing any of it: a module whose
+        // registerMain fails on a collision must not leave half its tools
+        // behind on the always-serving gateway.
+        const batch = new Set<string>()
+        for (const tool of tools) {
+          const existing = mcpTools.get(tool.name)
+          if (existing) {
+            throw new Error(
+              `MCP tool "${tool.name}" is already registered by module "${existing.owner}".`
+            )
+          }
+          if (batch.has(tool.name)) {
+            throw new Error(`MCP tool "${tool.name}" is registered twice by module "${moduleId}".`)
+          }
+          batch.add(tool.name)
+        }
+        for (const tool of tools) {
+          mcpTools.set(tool.name, { owner: moduleId, registration: tool })
+        }
+      },
       provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T {
         if (services.has(token.key)) {
           throw new Error(
@@ -511,6 +557,9 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       channels.delete(channel)
       ipcMain.removeHandler(channel)
     }
+    for (const [toolName, entry] of [...mcpTools]) {
+      if (entry.owner === moduleId) mcpTools.delete(toolName)
+    }
     for (const [serviceKey, entry] of [...services]) {
       if (entry.moduleId === moduleId) services.delete(serviceKey)
     }
@@ -519,6 +568,12 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
   return {
     hostFor,
     ownedChannels: () => new Map([...channels].map(([channel, entry]) => [channel, entry.owner])),
+    mcpToolRegistrations: () =>
+      [...mcpTools.values()].map(({ owner, registration }) => ({
+        moduleId: owner,
+        moduleDisplayName: options.resolveModuleManifest?.(owner)?.displayName ?? owner,
+        registration,
+      })),
     startupHooks: () => startupHooks.map((entry) => entry.hook),
     shutdownBeginHooks: () => shutdownBeginHooks.map((entry) => entry.hook),
     shutdownHooks: () => shutdownHooks.map((entry) => entry.hook),

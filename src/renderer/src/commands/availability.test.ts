@@ -127,10 +127,6 @@ for (const id of ['terminal.focus', 'terminal.stop']) {
   assert.equal(isCommandIdEnabled(id, ['global'], { activeWorkspace: true, terminalActive: true }), false)
 }
 
-// Voice: global scope but gated on the dictation module being enabled.
-assert.equal(isCommandIdEnabled('voice.toggle', ['global'], {}), false)
-assert.equal(isCommandIdEnabled('voice.toggle', ['global'], { voiceDictationEnabled: true }), true)
-
 // Unknown ids never enable.
 assert.equal(isCommandIdEnabled('does.not.exist', sprintEngineScopes, sprintEngineContext), false)
 

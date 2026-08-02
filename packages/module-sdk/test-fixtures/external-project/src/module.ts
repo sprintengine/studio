@@ -3,7 +3,7 @@
 // service token, sidecar, notification), and entry.renderer registration
 // (panel, workspace type, Backlog action, command, settings section).
 
-import { createElement, useEffect, useState } from 'react'
+import { createElement, lazy, useEffect, useState } from 'react'
 
 import {
   createServiceToken,
@@ -18,10 +18,14 @@ import {
   type AutomationTriggerProvider,
   type BacklogItemAction,
   type CapabilityManifest,
+  type GlobalSurfaceDefinition,
+  type McpToolRegistration,
   type ModuleCommandDefinition,
   type ModuleWorkspaceView,
   type RegisterMain,
   type RegisterRenderer,
+  type SidebarNavEntryDefinition,
+  type SidebarNavEntryRenderProps,
   type WorkspaceCreationStepProps,
   type WorkspaceLayoutTemplate,
   type WorkspacePanelComponent,
@@ -39,7 +43,7 @@ export const manifest: CapabilityManifest = {
   summary: 'Forecast panel and quick-check command.',
   defaultEnabled: true,
   source: 'third-party',
-  permissions: ['network', 'ipc:workspace-read', 'ipc:invoke', 'automations.manage', 'backlog.read', 'agents:companion', 'storage'],
+  permissions: ['network', 'ipc:workspace-read', 'ipc:invoke', 'ipc:agents', 'automations.manage', 'backlog.read', 'agents:companion', 'storage'],
   dependsOn: ['automations', 'agent-runtime'],
   entry: {
     main: 'dist/main.cjs',
@@ -64,6 +68,37 @@ const forecastTrigger: AutomationTriggerProvider = {
   }),
 }
 
+// An agent-reachable MCP tool on the Studio gateway (declares `ipc:agents`).
+// Availability follows the module's enablement live: while Weather Deck is
+// disabled the tool stays listed and answers an actionable enable error.
+const forecastTool: McpToolRegistration = {
+  name: 'weather_deck_forecast',
+  description: 'Read the current forecast for a city.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      city: { type: 'string', description: 'City to forecast.' },
+    },
+    required: ['city'],
+    additionalProperties: false,
+  },
+  handler: async (args) => {
+    const city = typeof args.city === 'string' ? args.city.trim() : ''
+    if (!city) {
+      return {
+        content: [{ type: 'text', text: 'invalid_arguments: "city" must be a city name.' }],
+        structuredContent: { ok: false, error: { code: 'invalid_arguments', message: '"city" must be a city name.' } },
+        isError: true,
+      }
+    }
+    const structured = { city, summary: 'clear' }
+    return {
+      content: [{ type: 'text', text: JSON.stringify(structured) }],
+      structuredContent: structured,
+    }
+  },
+}
+
 const forecastAction: AutomationActionProvider = {
   kind: 'weather-deck.refresh-forecast',
   configSchema: {
@@ -84,6 +119,7 @@ export const registerMain: RegisterMain = (host) => {
   }))
   registerAutomationTrigger(host, forecastTrigger)
   registerAutomationAction(host, forecastAction)
+  host.registerMcpTools([forecastTool])
   host.registerIpc('weather-deck:forecast', async (_event, city: unknown) => {
     if (typeof city !== 'string' || city.trim().length === 0) {
       throw new Error('weather-deck:forecast requires a city name.')
@@ -447,7 +483,31 @@ function quickCheck(host: Parameters<RegisterRenderer>[0]): ModuleCommandDefinit
   }
 }
 
+// The four contribution kinds this run published or extended, registered by ONE
+// module so the fixture proves they COMPOSE, not just that each compiles: a
+// sidebar door (MC-1854's companion), the full-page surface behind it
+// (registerGlobalSurface, MC-1854), an agent-facing gateway tool
+// (registerMcpTools, MC-1855, in registerMain above), and a top-bar control
+// (registerTopBarItem, MC-1861, below). The door and its surface share an id;
+// the surface is lazy, proving the published Component type accepts
+// React.lazy() the same way SidebarNavEntryComponent does.
+const outlookDoor: SidebarNavEntryDefinition = {
+  id: 'weather-deck-outlook',
+  order: 71,
+  Component: ({ collapsed }: SidebarNavEntryRenderProps) =>
+    createElement('button', { type: 'button' }, collapsed ? 'W' : 'Outlook'),
+}
+
+const outlookSurface: GlobalSurfaceDefinition = {
+  id: 'weather-deck-outlook',
+  Component: lazy(async () => ({
+    default: () => createElement('div', null, 'Ten-day outlook'),
+  })),
+}
+
 export const registerRenderer: RegisterRenderer = (host) => {
+  host.registerSidebarNavEntry(outlookDoor)
+  host.registerGlobalSurface(outlookSurface)
   host.registerPanel('weather-deck.forecast', createForecastPanel(host))
   host.registerWorkspaceType(forecastWorkspaceType)
   host.registerBacklogItemAction(markChecked)
@@ -503,5 +563,12 @@ export const registerRenderer: RegisterRenderer = (host) => {
     label: 'Weather Deck',
     icon: () => null,
     Component: () => null,
+  })
+  // Top-bar control (MC-1861): a zero-prop, self-contained button in the
+  // title-strip control cluster, shown only while this module is enabled.
+  host.registerTopBarItem({
+    id: 'weather-deck',
+    order: 50,
+    Component: () => createElement('button', { type: 'button' }, '☀'),
   })
 }

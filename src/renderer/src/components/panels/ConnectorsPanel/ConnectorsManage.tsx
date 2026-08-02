@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type { BuiltinSkill, BuiltinSkillStatus, McpCatalogServer, WorkspaceSkill } from '../../../../../shared/electron-api'
+import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type { McpSettings } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -53,6 +54,7 @@ function ManageNote({ tone, children }: { tone: NoteTone; children: ReactNode })
 export function ConnectorsManage({
   activeWorkspaceRoot,
   catalogServers = [],
+  registryPlugins,
   onLaunchConnector,
   onUseInAutomation,
   onUseSkillInNewAgent,
@@ -61,6 +63,9 @@ export function ConnectorsManage({
   // The MCP catalog (already loaded by the surface) — enriches installed rows
   // with real icons and marks skill-linked entries launchable.
   catalogServers?: McpCatalogServer[]
+  // The marketplace registry entries the surface already loaded — the update
+  // banner's action needs the full entry to route through updateFromRegistry.
+  registryPlugins?: MarketplacePluginEntry[]
   onLaunchConnector?: (connector: AgentComposerConnector) => void
   onUseInAutomation?: (serverId: string) => void
   onUseSkillInNewAgent?: (skill: WorkspaceSkill) => void
@@ -69,6 +74,10 @@ export function ConnectorsManage({
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
   const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
+  // The CLI rows' Update affordance keys off the real availability probe, and
+  // a finished update force-reprobes so the row reads what the updater left.
+  const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
+  const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
 
   const [mcpMessage, setMcpMessage] = useState<string | null>(null)
   const [customMcpId, setCustomMcpId] = useState('')
@@ -212,6 +221,11 @@ export function ConnectorsManage({
           moduleOverrides={moduleEnablement}
           workspaceRoot={activeWorkspaceRoot}
           catalogServers={catalogServers}
+          registryPlugins={registryPlugins}
+          mcpSettings={mcpSettings}
+          cliAvailability={cliAvailability}
+          onCliUpdated={() => void refreshCliAvailability({ force: true })}
+          onUpsertMcpServer={upsertMcpServer}
           onLaunchConnector={onLaunchConnector}
           onUseInAutomation={onUseInAutomation}
           onRemoveMcpServer={(serverId) => {
