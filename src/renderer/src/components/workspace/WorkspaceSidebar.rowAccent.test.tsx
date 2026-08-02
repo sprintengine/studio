@@ -28,8 +28,9 @@ assert.ok(!seOff.glyph.includes('--tool-sprintengine'), 'disabled sprint-engine 
 const sbOff = rowAccent(ws('switchboard'), { switchboard: false })
 assert.ok(sbOff.glyph.includes('--text-muted'), 'disabled switchboard row uses the muted glyph')
 
-// guided-brief is registered under the sprint-engine module, so disabling
-// sprint-engine also degrades a guided-brief row.
+// guided-brief is owned by the design-wizard module (MC-1860), which declares
+// dependsOn ['sprint-engine'] — disabling sprint-engine cascades through the
+// enablement resolver and still degrades a guided-brief row.
 const gbOff = rowAccent(ws('guided-brief'), { 'sprint-engine': false })
 assert.ok(gbOff.glyph.includes('--text-muted'), 'disabling sprint-engine degrades the guided-brief row')
 

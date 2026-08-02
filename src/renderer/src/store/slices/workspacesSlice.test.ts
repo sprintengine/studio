@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { GuidedBriefRuntimeState, LayoutTemplate, Workspace, WorkspaceWindowState } from '../../types/workspace'
-import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
+import { createGuidedBriefTemplate } from '../../modules/design-wizard-workspace-types'
 import { getEditorBuffer } from '../../utils/editorBuffers'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'

@@ -55,8 +55,9 @@ assert.equal(
   undefined,
   'disabled sprint-engine module resolves to no definition (generic degradation)',
 )
-// guided-brief is registered under the sprint-engine module, so disabling
-// sprint-engine also degrades guided-brief.
+// guided-brief is owned by the design-wizard module (MC-1860), which declares
+// dependsOn ['sprint-engine'] — disabling sprint-engine cascades through the
+// enablement resolver and still degrades guided-brief.
 assert.equal(
   resolveEnabledWorkspaceType('guided-brief', { 'sprint-engine': false }),
   undefined,

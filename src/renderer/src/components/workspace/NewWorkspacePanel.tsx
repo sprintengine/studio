@@ -5,7 +5,7 @@ import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost } from '../../modules'
 import { ModuleCreationStepSection } from './newWorkspace/ModuleCreationStepSection'
-import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
+import { createGuidedBriefTemplate } from '../../modules/design-wizard-workspace-types'
 import { createReviewTemplate } from '../../modules/review-workspace-types'
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,

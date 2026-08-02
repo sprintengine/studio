@@ -22,9 +22,12 @@ export function moduleLabelForMode(mode: string): string {
 
 export function ModuleNotInstalledSurface({
   label,
+  installed = false,
   onOpenMarketplace,
 }: {
   label: string
+  /** True when the module is on the machine but disabled — the copy stays honest. */
+  installed?: boolean
   onOpenMarketplace: () => void
 }) {
   return (
@@ -33,10 +36,13 @@ export function ModuleNotInstalledSurface({
       aria-label="Module not installed"
       className="flex h-full flex-col items-center justify-center gap-3 bg-[color:var(--bg-app)] px-6 text-center"
     >
-      <p className="text-meta font-semibold text-[color:var(--text-strong)]">{label} isn’t installed</p>
+      <p className="text-meta font-semibold text-[color:var(--text-strong)]">
+        {installed ? `${label} is turned off` : `${label} isn’t installed`}
+      </p>
       <p className="max-w-sm text-micro leading-5 text-[color:var(--text-muted)]">
-        This workspace needs the {label} module. Your work here is safe on disk — install the module
-        and the workspace opens right where you left it.
+        {installed
+          ? `This workspace needs the ${label} module. Your work here is safe on disk — turn the module back on and the workspace opens right where you left it.`
+          : `This workspace needs the ${label} module. Your work here is safe on disk — install the module and the workspace opens right where you left it.`}
       </p>
       <PrimaryButton size="sm" onClick={onOpenMarketplace}>
         Find it in Connectors
