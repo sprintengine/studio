@@ -328,6 +328,33 @@ export type RegisteredSidebarNavEntry = SidebarNavEntryDefinition & {
   moduleId: string
 }
 
+// A control a module contributes to the app's top bar (the title-strip control
+// cluster WorkspaceActions renders). Mirrors registerSidebarNavEntry: the item
+// is a self-contained zero-prop component that owns its full behavior — state,
+// tooltip, action — exactly like the shell's own top-bar controls; the host
+// only owns placement + gating. Consumers filter by the owning module's
+// enablement and sort by `order`, so a module toggle adds/removes its control
+// live, without a reload, at a deterministic slot.
+export type TopBarItemComponent =
+  | ComponentType
+  | LazyExoticComponent<ComponentType>
+
+export type TopBarItemDefinition = {
+  id: string
+  /**
+   * Sort key among contributed top-bar items; lower renders first, ties break
+   * on id. The shell's own controls are not part of this ordering — contributed
+   * items render together in the bar's module slot (after Notifications).
+   */
+  order: number
+  /** The control. Rendered as its own element so it may use hooks and own its behavior. */
+  Component: TopBarItemComponent
+}
+
+export type RegisteredTopBarItem = TopBarItemDefinition & {
+  moduleId: string
+}
+
 // A door-routed full-page surface a module contributes (global-surfaces epic
 // 1704). The companion to a sidebar nav door: the door calls
 // `openGlobalSurface(id)` on the local window's store, and WorkspaceManager
@@ -405,6 +432,13 @@ export type RendererHost = {
    * the door without a reload. The row acts on the local window's store.
    */
   registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
+  /**
+   * Contribute a control to the app's top bar (the title-strip control
+   * cluster). Registered unconditionally at boot; the bar filters by this
+   * module's enablement and orders by `order`, so a module toggle shows/hides
+   * the control without a reload. Duplicate ids throw.
+   */
+  registerTopBarItem(definition: TopBarItemDefinition): void
   /**
    * Contribute a door-routed full-page surface (global-surfaces epic 1704),
    * mounted by WorkspaceManager over the workspace card region when a door
@@ -560,6 +594,13 @@ export type RendererKernel = {
    */
   getSidebarNavEntries(moduleEnabled?: (moduleId: string) => boolean): RegisteredSidebarNavEntry[]
   /**
+   * Contributed top-bar controls for enabled modules, sorted by `order` then
+   * id so the bar reads the same across reloads. WorkspaceActions renders
+   * these in the bar's module slot, so a module toggle adds/removes a control
+   * without a reload.
+   */
+  getTopBarItems(moduleEnabled?: (moduleId: string) => boolean): RegisteredTopBarItem[]
+  /**
    * The full-page surface registered under `id`, with its owning module — so
    * WorkspaceManager can gate the mount on that module's enablement. Undefined
    * when no surface (or a disabled/absent module's surface) claims the id.
@@ -634,6 +675,7 @@ export function createRendererHost(): RendererKernel {
   const moduleCommands = new Map<string, RegisteredModuleCommand>()
   const settingsSections = new Map<string, RegisteredSettingsSection>()
   const sidebarNavEntries = new Map<string, RegisteredSidebarNavEntry>()
+  const topBarItems = new Map<string, RegisteredTopBarItem>()
   const globalSurfaces = new Map<string, RegisteredGlobalSurface>()
   let workspaceAside: RegisteredWorkspaceAside | null = null
   let backlogReader: { moduleId: string; reader: BacklogReader } | null = null
@@ -805,6 +847,18 @@ export function createRendererHost(): RendererKernel {
             )
           }
           sidebarNavEntries.set(definition.id, { ...definition, moduleId })
+        },
+        registerTopBarItem(definition) {
+          if (definition.id.trim().length === 0) {
+            throw new Error('Top bar item id must be a non-empty string.')
+          }
+          const existing = topBarItems.get(definition.id)
+          if (existing) {
+            throw new Error(
+              `Top bar item "${definition.id}" is already registered by module "${existing.moduleId}".`
+            )
+          }
+          topBarItems.set(definition.id, { ...definition, moduleId })
         },
         registerGlobalSurface(definition) {
           if (definition.id.trim().length === 0) {
@@ -990,6 +1044,14 @@ export function createRendererHost(): RendererKernel {
     getSidebarNavEntries(moduleEnabled) {
       return [...sidebarNavEntries.values()]
         .filter((entry) => !moduleEnabled || moduleEnabled(entry.moduleId))
+        .sort((a, b) => {
+          const order = a.order - b.order
+          return order === 0 ? a.id.localeCompare(b.id) : order
+        })
+    },
+    getTopBarItems(moduleEnabled) {
+      return [...topBarItems.values()]
+        .filter((item) => !moduleEnabled || moduleEnabled(item.moduleId))
         .sort((a, b) => {
           const order = a.order - b.order
           return order === 0 ? a.id.localeCompare(b.id) : order

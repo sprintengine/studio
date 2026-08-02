@@ -87,6 +87,7 @@ import type {
   ModuleCommandDefinition as AppModuleCommandDefinition,
   RendererHost as AppRendererHost,
   SettingsSectionDefinition as AppSettingsSectionDefinition,
+  TopBarItemDefinition as AppTopBarItemDefinition,
   SettingsSectionProps as AppSettingsSectionProps,
   SidebarNavEntryDefinition as AppSidebarNavEntryDefinition,
   WorkspaceCreationStepProps as AppWorkspaceCreationStepProps,
@@ -182,6 +183,7 @@ import type {
   SettingsSectionProps as SdkSettingsSectionProps,
   SidebarNavEntryDefinition as SdkSidebarNavEntryDefinition,
   SidecarSpec as SdkSidecarSpec,
+  TopBarItemDefinition as SdkTopBarItemDefinition,
   TriggerKind as SdkTriggerKind,
   WorkspaceCreationStepProps as SdkWorkspaceCreationStepProps,
   WorkspaceLayoutTemplate as SdkWorkspaceLayoutTemplate,
@@ -328,6 +330,10 @@ expectType<Extends<SdkSidebarNavEntryDefinition, AppSidebarNavEntryDefinition>>(
 // against the in-app host (renderer-host.ts registerGlobalSurface); method
 // presence on RendererHost rides the host-soundness assertion above.
 expectType<Extends<SdkGlobalSurfaceDefinition, AppGlobalSurfaceDefinition>>()
+// Top bar items (MC-1861): an SDK-typed item stays registrable against the
+// in-app host (renderer-host.ts registerTopBarItem); method presence on
+// RendererHost rides the host-soundness assertion above.
+expectType<Extends<SdkTopBarItemDefinition, AppTopBarItemDefinition>>()
 
 // Callback-input soundness: what the app passes into module callbacks
 // satisfies the SDK's (intentionally widened) read views.

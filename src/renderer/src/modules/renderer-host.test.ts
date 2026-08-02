@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import { createRendererHost, type WorkspaceTypeDefinition } from './renderer-host'
 import type { NotificationActionContext } from './renderer-host'
+import { voiceDictationRendererModule } from './voice-dictation-module'
 import type { AppNotification, LayoutTemplate } from '../types/workspace'
 
 const template: LayoutTemplate = {
@@ -334,6 +335,91 @@ assert.deepEqual(
 )
 
 console.log('renderer host sidebar nav entry tests passed')
+
+// --- Top bar items (the title-strip host contribution point, MC-1861) ---------
+
+const topBarHost = createRendererHost()
+const topBarComponent = () => {
+  throw new Error('top bar item component should not be evaluated during registration')
+}
+topBarHost.hostFor('voice-dictation').registerTopBarItem({ id: 'voice-dictation', order: 10, Component: topBarComponent })
+topBarHost.hostFor('acme.compass').registerTopBarItem({ id: 'compass', order: 5, Component: topBarComponent })
+
+assert.equal(
+  topBarHost.getTopBarItems().find((item) => item.id === 'voice-dictation')?.moduleId,
+  'voice-dictation',
+  'top bar items record their owning module for enablement gating',
+)
+assert.throws(
+  () => topBarHost.hostFor('impostor').registerTopBarItem({ id: 'voice-dictation', order: 1, Component: topBarComponent }),
+  /Top bar item "voice-dictation" is already registered by module "voice-dictation"/,
+  'duplicate top bar item ids fail with an explicit error naming the owner',
+)
+assert.throws(
+  () => topBarHost.hostFor('voice-dictation').registerTopBarItem({ id: '  ', order: 1, Component: topBarComponent }),
+  /non-empty string/,
+  'blank top bar item ids are rejected',
+)
+assert.deepEqual(
+  topBarHost.getTopBarItems().map((item) => item.id),
+  ['compass', 'voice-dictation'],
+  'top bar items sort by order then id — deterministic across reloads',
+)
+assert.deepEqual(
+  topBarHost.getTopBarItems((moduleId) => moduleId !== 'voice-dictation').map((item) => item.id),
+  ['compass'],
+  'a disabled module\'s top bar control is filtered out reactively — the toggle needs no reload',
+)
+assert.deepEqual(
+  topBarHost.getTopBarItems(() => true).map((item) => item.id),
+  ['compass', 'voice-dictation'],
+  're-enabling restores the control without re-registration',
+)
+
+console.log('renderer host top bar item tests passed')
+
+// --- Voice dictation module contributions (MC-1861 phase 1) -------------------
+// The real module registers all three surfaces through the host — the top-bar
+// mic, the `voice-dictation.toggle` command, and the settings section — so the
+// enablement filter alone adds/removes every voice entry point, with no
+// selectModuleEnabled('voice-dictation') checks left in core consumers.
+
+const voiceKernel = createRendererHost()
+voiceDictationRendererModule.registerRenderer?.(voiceKernel.hostFor('voice-dictation'))
+
+const voiceEnabled = () => true
+const voiceDisabled = (moduleId: string) => moduleId !== 'voice-dictation'
+assert.equal(
+  voiceKernel.getTopBarItems(voiceEnabled).some((item) => item.id === 'voice-dictation'),
+  true,
+  'voice module contributes the top-bar mic control',
+)
+assert.equal(
+  voiceKernel.getModuleCommands(voiceEnabled).some((command) => command.id === 'voice-dictation.toggle'),
+  true,
+  'voice module contributes the toggle command under its namespaced id',
+)
+assert.deepEqual(
+  voiceKernel.getModuleCommand('voice-dictation.toggle')?.defaultKeybindings,
+  ['primary+shift+1'],
+  'the toggle keeps its default binding through the module path (host-normalized form)',
+)
+assert.equal(
+  voiceKernel.getSettingsSections(voiceEnabled).some((section) => section.id === 'voice-dictation'),
+  true,
+  'voice module contributes the settings section',
+)
+assert.equal(
+  [
+    ...voiceKernel.getTopBarItems(voiceDisabled),
+    ...voiceKernel.getModuleCommands(voiceDisabled),
+    ...voiceKernel.getSettingsSections(voiceDisabled),
+  ].length,
+  0,
+  'disabling the module removes the mic, the shortcut, and the settings tab because nothing registered them',
+)
+
+console.log('voice dictation module contribution tests passed')
 
 // --- Global surfaces (door-routed full-page surface registry, epic 1704) -------
 

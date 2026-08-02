@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Top-bar items on `RendererHost` (MC-1861):
+  `registerTopBarItem({ id, order, Component })` contributes a control to the
+  app's top-bar title-strip cluster. The `Component` is zero-prop and
+  self-contained — state, tooltip, action — eager or `React.lazy()`
+  (`TopBarItemComponent`); the bar filters by your module's live enablement
+  and orders contributed items by `order` (ties on id), so a module toggle
+  adds/removes the control without a reload. Duplicate ids are a registration
+  error naming the owner. The top bar is dense: contribute a single compact
+  control (an icon button), not a cluster. First consumer: the bundled
+  voice-dictation module's mic button. Also removed `voiceDictationEnabled`
+  from `CommandAvailability` — the voice toggle is a module command now
+  (`voice-dictation.toggle`); module commands gate on enablement through the
+  contribution list, not a shell availability enum entry.
+
 - MCP tool contributions on `MainHost` (MC-1855):
   `registerMcpTools(tools: McpToolRegistration[])` puts agent-facing MCP tools
   on Multicode's always-on Studio gateway, owned by your module's id the way

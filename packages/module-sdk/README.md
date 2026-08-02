@@ -81,7 +81,12 @@ contracts, so a published version always matches the app version it ships with.
   `React.lazy()`; while your module is uninstalled or disabled the shell
   shows an explicit "not installed" door in its place and keeps the user's
   spot, and an id already claimed by another module is reported as a module
-  load error), `invoke` (call your own
+  load error), `registerTopBarItem` (a control in the app's top-bar
+  title-strip cluster — a `TopBarItemDefinition` of `{ id, order, Component }`;
+  the zero-prop `Component` owns its full behavior and may be eager or
+  `React.lazy()`, the bar shows it only while your module is enabled and
+  orders contributed items by `order`, and the top bar is dense: contribute
+  one compact control, not a cluster), `invoke` (call your own
   `entry.main`'s `registerIpc` channels; see below), and the Backlog read
   API — `listBacklogItems(workspaceId)` / `watchBacklogItems(workspaceId, cb)`
   return `BacklogItemView`s from the same scan the Backlog panel uses (watch

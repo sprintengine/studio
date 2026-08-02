@@ -76,6 +76,7 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'agent-runtime',
   'backlog',
   'design',
+  'design-wizard',
   'dev-tools',
   'git',
   'memory-graph',
@@ -1201,7 +1202,6 @@ export type CommandAvailability =
   | 'always'
   | 'activeWorkspace'
   | 'activeFile'
-  | 'voiceDictationEnabled'
   | 'sprintengineWorkspace'
   | 'sprintengineHasArchitect'
   | 'sprintengineFocusAgentVisible'
@@ -1303,6 +1303,28 @@ export type SidebarNavEntryDefinition = {
   Component: SidebarNavEntryComponent
 }
 
+// ── Top bar items ────────────────────────────────────────────────────────────
+
+export type TopBarItemComponent =
+  | ComponentType
+  | LazyExoticComponent<ComponentType>
+
+/**
+ * A control your module contributes to the app's top bar (the title-strip
+ * control cluster). The item is a self-contained zero-prop component that owns
+ * its full behavior — state, tooltip, action — exactly like the shell's own
+ * controls; the host only owns placement and gating. The bar shows it only
+ * while your module is enabled and orders contributed items by `order`, so the
+ * toggle adds/removes the control without a reload. The top bar is dense:
+ * contribute a single compact control (an icon button), not a cluster.
+ */
+export type TopBarItemDefinition = {
+  id: string
+  /** Sort key among contributed top-bar items; lower renders first, ties break on id. */
+  order: number
+  Component: TopBarItemComponent
+}
+
 // ── Global door surfaces ─────────────────────────────────────────────────────
 
 export type GlobalSurfaceComponent =
@@ -1398,6 +1420,14 @@ export type RendererHost = {
    * `order`, so toggling your module shows/hides the door without a reload.
    */
   registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
+  /**
+   * Contribute a control to the app's top bar. Registered once at boot; the
+   * bar filters by your module's enablement and orders by `order`, so
+   * toggling your module shows/hides the control without a reload. An id
+   * already claimed by another module is a registration error, reported as a
+   * module load error that gates off your module's other contributions.
+   */
+  registerTopBarItem(definition: TopBarItemDefinition): void
   /**
    * Contribute the door-routed full-page surface behind a sidebar nav entry
    * with the same id. Registered once at boot; the shell gates the mount on

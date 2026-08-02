@@ -537,4 +537,11 @@ export const registerRenderer: RegisterRenderer = (host) => {
     icon: () => null,
     Component: () => null,
   })
+  // Top-bar control (MC-1861): a zero-prop, self-contained button in the
+  // title-strip control cluster, shown only while this module is enabled.
+  host.registerTopBarItem({
+    id: 'weather-deck',
+    order: 50,
+    Component: () => createElement('button', { type: 'button' }, '☀'),
+  })
 }
