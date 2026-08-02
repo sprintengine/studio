@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { createElement } from 'react'
+import { JSDOM } from 'jsdom'
+import { act, createElement, type ReactElement } from 'react'
+import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import type {
@@ -66,6 +68,51 @@ import {
   type TranscriptEntry,
   type TranscriptToolEntry,
 } from './AgentChatView'
+
+// Most of this suite reads static markup, which needs no DOM. The composer
+// context menu is the exception: ContextMenu portals its surface to
+// document.body (4a384239, so a transformed ancestor cannot clip it), and
+// react-dom/server renders nothing for a portal — it does not even have a
+// document to portal into. Those three cases therefore mount into a real DOM
+// and read the body back, the same way CliModelPicker.test.tsx drives its
+// portaled popovers.
+const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+  url: 'http://localhost',
+  pretendToBeVisual: true,
+})
+const anyGlobal = globalThis as unknown as Record<string, unknown>
+anyGlobal.window = dom.window
+anyGlobal.document = dom.window.document
+// This suite bundles as ESM, so it is always strict: a plain assignment to
+// Node's getter-only `navigator` throws rather than silently failing the way it
+// does in the CJS suites.
+Object.defineProperty(globalThis, 'navigator', {
+  value: dom.window.navigator,
+  configurable: true,
+  writable: true,
+})
+anyGlobal.HTMLElement = dom.window.HTMLElement
+anyGlobal.Node = dom.window.Node
+anyGlobal.getComputedStyle = dom.window.getComputedStyle
+anyGlobal.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window)
+anyGlobal.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window)
+anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
+
+// Mounts a portaling element and returns the whole body's markup, so the
+// portaled surface is in reach of the same substring assertions the static
+// cases use. Unmounts before returning: the menu registers window listeners.
+function renderPortalMarkup(element: ReactElement): string {
+  const container = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(container)
+  const root = createRoot(container)
+  act(() => {
+    root.render(element)
+  })
+  const markup = dom.window.document.body.innerHTML
+  act(() => root.unmount())
+  container.remove()
+  return markup
+}
 
 let seq = 0
 function ev(type: ConversationEventType, payload?: Record<string, unknown>): ConversationEvent {
@@ -347,7 +394,7 @@ assert.equal(editingShortcut('darwin', 'X'), '⌘X')
 assert.equal(editingShortcut('win32', 'V'), 'Ctrl+V')
 
 const menuState = { x: 20, y: 40, selectionStart: 2, selectionEnd: 7, clipboardText: 'pasted' }
-const composerMenuMarkup = renderToStaticMarkup(
+const composerMenuMarkup = renderPortalMarkup(
   createElement(ComposerContextMenu, {
     menu: menuState,
     send: composerSendAction(idleSend),
@@ -368,7 +415,7 @@ assert.doesNotMatch(composerMenuMarkup, /disabled=""/, 'with a selection and a f
 
 // Nothing selected and an empty clipboard: the editing actions say so rather
 // than sitting enabled and doing nothing.
-const emptyMenuMarkup = renderToStaticMarkup(
+const emptyMenuMarkup = renderPortalMarkup(
   createElement(ComposerContextMenu, {
     menu: { ...menuState, selectionEnd: 2, clipboardText: '' },
     send: composerSendAction({ ...idleSend, hasText: false }),
@@ -388,7 +435,7 @@ assert.equal(
 
 // A composer that cannot be edited (provider not ready) still allows Copy — it
 // reads the field — but never offers to rewrite it.
-const readOnlyMenuMarkup = renderToStaticMarkup(
+const readOnlyMenuMarkup = renderPortalMarkup(
   createElement(ComposerContextMenu, {
     menu: menuState,
     send: composerSendAction({ ...idleSend, ready: false }),
