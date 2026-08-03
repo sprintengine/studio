@@ -281,7 +281,6 @@ assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprintengine.
 // The dispatcher matches against the merge-point output (shell registry +
 // enabled module commands). These cases pin the enablement-reactive behavior
 // and the no-silent-shadowing rule.
-import { COMMAND_REGISTRY } from './commandRegistry'
 import type { CommandContribution } from './types'
 
 const moduleCommand: CommandContribution = {
