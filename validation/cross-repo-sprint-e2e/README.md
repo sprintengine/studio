@@ -73,14 +73,14 @@ Per the standing E2E policy, that means:
       workspace: `git -C ../multicode-mobile rev-parse --is-inside-work-tree` →
       `true`. Paths here are written relative to the workspace, the way
       `run.yaml` stores them; substitute your own checkout locations.
-- [ ] `gh auth status` succeeds for `hotstacklabs`.
+- [ ] `gh auth status` succeeds for `sprintengine`.
 - [ ] Working trees of both repos are clean. An orphan step cannot be read
       against a dirty baseline.
 
 ### Use A Throwaway Base In Both Repos
 
-**These are real repositories with real remotes** (`hotstacklabs/multicode`,
-`hotstacklabs/multicode-mobile`). This session pushes **real branches** and
+**These are real repositories with real remotes** (`sprintengine/studio`,
+`sprintengine/mobile-app`). This session pushes **real branches** and
 opens **real pull requests** against both, and A11 **merges** them to prove
 merge order. Merging throwaway sprint commits into `main` is not acceptable, so
 do not let `main` be the base.

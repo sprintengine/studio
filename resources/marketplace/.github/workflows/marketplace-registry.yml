@@ -35,7 +35,7 @@ jobs:
       - name: Checkout Multicode validation tooling
         uses: actions/checkout@v4
         with:
-          repository: ${{ vars.MULTICODE_APP_REPOSITORY || 'hotstacklabs/multicode' }}
+          repository: ${{ vars.MULTICODE_APP_REPOSITORY || 'sprintengine/studio' }}
           ref: ${{ vars.MULTICODE_APP_REF || 'main' }}
           path: multicode
 

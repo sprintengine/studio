@@ -705,8 +705,8 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "hotstacklabs",
-      "repo": "multicode"
+      "owner": "sprintengine",
+      "repo": "studio"
     }
   },
   "dependencies": {
