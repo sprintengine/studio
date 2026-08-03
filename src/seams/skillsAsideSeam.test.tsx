@@ -584,7 +584,7 @@ async function main(): Promise<void> {
 
     // And every row title is an id the resolver returned. A surface inventing a
     // row is the same defect as inventing a count, one level up.
-    const rowTitles = [...markup.matchAll(/aria-label="Use ([^"]+?) in Claude Code"/g)].map((m) => m[1])
+    const rowTitles = [...markup.matchAll(/aria-label="Send ([^"]+?) to Claude Code"/g)].map((m) => m[1])
     const resolved = new Set(result.skills.map((skill) => skill.id))
     for (const title of rowTitles) assert.ok(resolved.has(title), `the pane invented a row: ${title}`)
   })
@@ -734,7 +734,7 @@ async function main(): Promise<void> {
     assert.ok(result.ok)
 
     const paneMarkup = renderPane(result, { catalogue: builtinCatalogue }, 'Claude Code')
-    const paneRows = [...paneMarkup.matchAll(/aria-label="Use ([^"]+?) in Claude Code"/g)]
+    const paneRows = [...paneMarkup.matchAll(/aria-label="Send ([^"]+?) to Claude Code"/g)]
       .map((match) => match[1])
       .sort()
 
@@ -1093,7 +1093,7 @@ async function main(): Promise<void> {
       })
 
       const row = [...container.querySelectorAll('[draggable="true"]')].find((candidate) =>
-        candidate.querySelector(`[aria-label="Use ${input.skillId} in ${input.paneLabel}"]`))
+        candidate.querySelector(`[aria-label="Send ${input.skillId} to ${input.paneLabel}"]`))
       assert.ok(row, `the pane must offer ${input.skillId} as a drag handle`)
       const dragEvent = new dom.window.Event('dragstart', { bubbles: true }) as Event & {
         dataTransfer?: DataTransfer

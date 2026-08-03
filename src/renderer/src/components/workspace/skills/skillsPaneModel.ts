@@ -20,13 +20,23 @@ import {
 } from '../../../../../shared/skills'
 import type { AgentSkillTarget, BuiltinSkill } from '../../../../../shared/electron-api'
 
-/** What the resolver answered, once, for the focused agent. */
+/** The deduplicated capability inventory represented in the pane. */
 export type CapabilitySnapshot = {
   support: 'native' | 'prompt-shim' | 'unsupported'
+  /** Every distinct harness represented by the workspace's agents. */
+  harnessIds?: string[]
+  /** Kept for single-agent consumers and older snapshots. */
   harnessId: string
   skills: AgentSkill[]
-  servers: AgentMcpServer[]
+  servers: CapabilityServer[]
   diagnostics: CapabilityDiagnostic[]
+}
+
+export type CapabilityServer = AgentMcpServer & {
+  /** Every agent CLI whose declared config resolves this server. */
+  pluginIds?: string[]
+  /** Every winning config path, deduplicated across those CLIs. */
+  configPaths?: string[]
 }
 
 export type SkillsPaneInput = {
@@ -49,7 +59,7 @@ export type SkillsPaneInput = {
   /** The last add/remove that did not fully succeed, if it has not been dismissed. */
   writeReport: SkillWriteReport | null
   /**
-   * The last Use that never reached the prompt. A drag onto a terminal reports
+   * The last Send that never reached the prompt. A drag onto a terminal reports
    * at the cursor; a click has no cursor to report at, so the pane says it.
    */
   useError: SkillUseError | null
@@ -92,6 +102,8 @@ export type PaneServerRow = {
   toolCount: number | null
   scope: 'workspace' | 'user'
   configPath: string
+  pluginIds: string[]
+  configPaths: string[]
 }
 
 export type PaneNotice =
@@ -186,6 +198,7 @@ function catalogueRow(skill: BuiltinSkill): PaneSkillRow {
 }
 
 function serverRow(server: AgentMcpServer): PaneServerRow {
+  const aggregated = server as CapabilityServer
   return {
     key: `server:${server.id}`,
     serverId: server.id,
@@ -194,6 +207,8 @@ function serverRow(server: AgentMcpServer): PaneServerRow {
     toolCount: typeof server.toolCount === 'number' ? server.toolCount : null,
     scope: server.scope,
     configPath: server.configPath,
+    pluginIds: aggregated.pluginIds ?? [],
+    configPaths: aggregated.configPaths ?? [server.configPath],
   }
 }
 
@@ -325,7 +340,11 @@ export function buildSkillsPaneView(input: SkillsPaneInput): SkillsPaneView {
   // report each of those as written, and leave this list unchanged.
   const reachable = new Set(snapshot.skills.map((skill) => skill.id))
   const installable = input.catalogue.filter(
-    (skill) => !reachable.has(skill.id) && builtinInstallsIntoHarness(skill, snapshot.harnessId),
+    (skill) =>
+      !reachable.has(skill.id)
+      && (snapshot.harnessIds ?? [snapshot.harnessId]).some((harnessId) =>
+        builtinInstallsIntoHarness(skill, harnessId),
+      ),
   )
   const available = normalized
     ? installable

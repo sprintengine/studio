@@ -14,6 +14,7 @@ import type { AutomationDefinition } from '../../../../../../shared/automations/
 import type { WorkspaceSkill } from '../../../../../../shared/electron-api'
 import type { AgentComposerConnector } from '../../agentComposer/AgentComposer'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
+import { McpGlyph, SkillsGlyph } from '../../../ui/CapabilityGlyphs'
 import { automationsDoorTarget } from '../../../automations/runTarget'
 import { dispatchAutomationSurfaceTarget } from '../automations/automationSurfaceTarget'
 import { AutomationServerSettings } from '../../../settings/AutomationServerSettings'
@@ -451,38 +452,10 @@ function FeaturedGlyph(): JSX.Element {
   )
 }
 
-function McpGlyph(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-muted)]" aria-hidden="true">
-      <path
-        d="M5.5 2v3M10.5 2v3M4 5h8v3.5a4 4 0 0 1-8 0zM8 12.5V14"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 function InstalledGlyph(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-muted)]" aria-hidden="true">
       <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function SkillsGlyph(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-muted)]" aria-hidden="true">
-      <path
-        d="M3 3h10v10H3zM3 6h10M6 6v7"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
     </svg>
   )
 }

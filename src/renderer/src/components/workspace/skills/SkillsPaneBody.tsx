@@ -4,6 +4,7 @@ import React from 'react'
 // the skill picker, which reaches the workspace store, and this file is a pure
 // render of a view model that its test renders without one.
 import { GhostButton, IconButton, PrimaryButton } from '../../ui/Buttons'
+import { McpGlyph, SkillsGlyph } from '../../ui/CapabilityGlyphs'
 import { InlineNotice } from '../../ui/InlineNotice'
 import { Spinner } from '../../ui/Spinner'
 import { Tooltip } from '../../ui/Tooltip'
@@ -52,7 +53,7 @@ type BodyProps = SkillsPaneActions & {
   /**
    * False for a CLI with no invocation to park — it reads no skills, or there is
    * no workspace to resolve one against. Those rows offer neither the drag nor
-   * the Use action, rather than a control that cannot do anything.
+   * the Send action, rather than a control that cannot do anything.
    */
   canUse: boolean
   agentLabel: string
@@ -65,7 +66,7 @@ const CHEVRON_DOWN = 'M4 6.5 8 10l4-3.5'
 
 function Chevron({ open }: { open: boolean }) {
   return (
-    <svg viewBox="0 0 16 16" fill="none" className="icon-sm shrink-0" aria-hidden="true">
+    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
       <path
         d={open ? CHEVRON_DOWN : CHEVRON_RIGHT}
         stroke="currentColor"
@@ -128,6 +129,7 @@ function Row({
   title,
   supporting,
   trailing,
+  glyph,
   tooltip,
   open,
   actions,
@@ -138,6 +140,7 @@ function Row({
   title: string
   supporting: string
   trailing?: React.ReactNode
+  glyph: React.ReactNode
   tooltip: string
   open: boolean
   actions: React.ReactNode[]
@@ -155,8 +158,15 @@ function Row({
       aria-label={ariaLabel}
       className="interactive flex min-w-0 flex-1 items-baseline gap-2 px-3 py-1.5 text-left focus-visible:focus-ring"
     >
-      <span className="self-center text-[color:var(--text-subtle)]">
-        <Chevron open={open} />
+      {/* Same one-slot disclosure used by project folders in WorkspaceSidebar:
+          identity at rest, direction only while the row is being driven. */}
+      <span className="relative flex size-icon-sm shrink-0 self-center items-center justify-center text-[color:var(--text-subtle)]">
+        <span className="inline-flex transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0">
+          {glyph}
+        </span>
+        <span className="absolute inset-0 m-auto inline-flex items-center justify-center opacity-0 transition-[opacity,transform] group-hover/row:opacity-100 group-focus-within/row:opacity-100">
+          <Chevron open={open} />
+        </span>
       </span>
       {/* The title claims the width it needs and the supporting clause takes
           what is left, so a long description truncates long before the skill's
@@ -250,37 +260,52 @@ function SkillRow({
     ? [
       ...(usable
         ? [
-          <IconButton
+          <Tooltip
             key="use"
-            aria-label={`Use ${row.skillId} in ${agentLabel}`}
-            onClick={() => onUse(row.skillId)}
-            // A remove in flight is about to take the skill away; naming it at
-            // the prompt in that window would park an invocation for something
-            // that is on its way out.
-            disabled={pending}
+            content={`Send to ${agentLabel}`}
+            placement="bottom"
           >
-            <ArrowRightGlyph />
-          </IconButton>,
+            <IconButton
+              aria-label={`Send ${row.skillId} to ${agentLabel}`}
+              onClick={() => onUse(row.skillId)}
+              // A remove in flight is about to take the skill away; naming it at
+              // the prompt in that window would park an invocation for something
+              // that is on its way out.
+              disabled={pending}
+            >
+              <ArrowRightGlyph />
+            </IconButton>
+          </Tooltip>,
         ]
         : []),
-      <IconButton
+      <Tooltip
         key="remove"
-        aria-label={`Remove ${row.skillId}`}
-        onClick={() => onRemove(row.skillId)}
-        disabled={pending}
+        content={`Remove ${row.skillId}`}
+        placement="bottom"
       >
-        {pending ? <Spinner /> : <MinusGlyph />}
-      </IconButton>,
+        <IconButton
+          aria-label={`Remove ${row.skillId}`}
+          onClick={() => onRemove(row.skillId)}
+          disabled={pending}
+        >
+          {pending ? <Spinner /> : <MinusGlyph />}
+        </IconButton>
+      </Tooltip>,
     ]
     : [
-      <IconButton
+      <Tooltip
         key="add"
-        aria-label={`Add ${row.skillId}`}
-        onClick={() => onAdd(row.skillId)}
-        disabled={pending || !canWrite}
+        content={`Add ${row.skillId}`}
+        placement="bottom"
       >
-        {pending ? <Spinner /> : <PlusGlyph />}
-      </IconButton>,
+        <IconButton
+          aria-label={`Add ${row.skillId}`}
+          onClick={() => onAdd(row.skillId)}
+          disabled={pending || !canWrite}
+        >
+          {pending ? <Spinner /> : <PlusGlyph />}
+        </IconButton>
+      </Tooltip>,
     ]
 
   return (
@@ -288,6 +313,7 @@ function SkillRow({
       <Row
         title={row.title}
         supporting={row.supporting}
+        glyph={<SkillsGlyph className="icon-sm shrink-0" />}
         tooltip={row.description}
         open={open}
         actions={actions}
@@ -304,22 +330,22 @@ function SkillRow({
           ) : (
             <p className="mb-2 text-[color:var(--text-muted)]">This skill declares no description.</p>
           )}
-          <p className="mb-3 text-micro text-[color:var(--text-muted)]">
-            {row.installed ? row.sourceLabel : 'Not in this workspace yet'}
-            {row.installed && row.pluginIds.length > 0
-              ? ` · Read by ${row.pluginIds.join(', ')}`
-              : ''}
-            {row.installed && implicitInvocation
-              ? ` · ${agentLabel} may also run it unprompted when the description matches`
-              : ''}
-          </p>
+          {row.installed && implicitInvocation ? (
+            <p className="mb-3 text-micro text-[color:var(--text-muted)]">
+              {agentLabel} may also run it unprompted when the description matches.
+            </p>
+          ) : !row.installed ? (
+            <p className="mb-3 text-micro text-[color:var(--text-muted)]">
+              Not in this workspace yet
+            </p>
+          ) : null}
           {/* Exactly one accent fill in this pane, and it is the disclosure's
               primary: Use for a skill the agent has, Add for one it does not. */}
           <div className="flex items-center gap-2">
             {row.installed ? (
               usable ? (
                 <PrimaryButton size="xs" onClick={() => onUse(row.skillId)}>
-                  Use in {agentLabel}
+                  Send to {agentLabel}
                 </PrimaryButton>
               ) : null
             ) : (
@@ -355,6 +381,7 @@ function ServerRow({
       <Row
         title={row.title}
         supporting={row.supporting}
+        glyph={<McpGlyph className="icon-sm shrink-0" />}
         // Only when the config stated one. A server with no declared tool count
         // renders no count at all rather than a zero it did not earn.
         trailing={
@@ -364,7 +391,7 @@ function ServerRow({
             </span>
           )
         }
-        tooltip={`${row.serverId} — ${row.supporting} · ${row.configPath}`}
+        tooltip={`${row.serverId} — ${row.supporting} · ${row.configPaths.join(', ')}`}
         open={open}
         actions={[]}
         ariaLabel={row.serverId}
@@ -373,9 +400,12 @@ function ServerRow({
       {open ? (
         <DetailShell>
           <p className="mb-3 text-micro text-[color:var(--text-muted)]">
+            {row.pluginIds.length > 0 ? `Read by ${row.pluginIds.join(', ')} · ` : ''}
             {row.scope === 'workspace' ? 'This workspace' : 'Your user config'}
             {' · '}
-            <span className="font-mono text-[color:var(--text-subtle)]">{row.configPath}</span>
+            <span className="font-mono text-[color:var(--text-subtle)]">
+              {row.configPaths.join(', ')}
+            </span>
             {row.toolCount === null ? '' : ` · ${row.toolCount} tools`}
           </p>
           <div className="flex items-center gap-2">

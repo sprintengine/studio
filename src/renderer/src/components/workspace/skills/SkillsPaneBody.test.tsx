@@ -215,6 +215,19 @@ assert.match(rows, /aria-label="Remove backlog"/, 'installed rows offer remove')
 // Reveal is opacity-only and rides focus as well as hover, so the actions are
 // reachable by keyboard and revealing one never reflows the row.
 assert.match(rows, /opacity-0[^"]*group-hover\/row:opacity-100[^"]*group-focus-within\/row:opacity-100/)
+assert.match(rows, /M3 3h10v10H3zM3 6h10M6 6v7/, 'skill rows reuse the Extensions glyph')
+assert.match(
+  rows,
+  /group-hover\/row:opacity-0 group-focus-within\/row:opacity-0/,
+  'the glyph yields its fixed slot to the disclosure chevron on hover or focus',
+)
+
+const serverRow = render({ snapshot: snapshot({ servers: [SERVER] }) })
+assert.match(
+  serverRow,
+  /M5\.5 2v3M10\.5 2v3M4 5h8v3\.5a4 4 0 0 1-8 0zM8 12\.5V14/,
+  'MCP rows reuse the Extensions glyph',
+)
 
 // `targetPolicy` is what makes this row offerable at all: the catalogue only
 // shows built-ins an Add would land in the focused agent's own harness.
@@ -249,6 +262,15 @@ assert.doesNotMatch(
   'selection never uses the accent fill',
 )
 assert.doesNotMatch(expanded, /border-l-2/, 'selection never uses a left bar')
+assert.doesNotMatch(expanded, /Built in/, 'expanded skills omit provenance metadata')
+assert.doesNotMatch(expanded, /Read by/, 'expanded skills omit runtime readership metadata')
+
+const expandedImplicit = render(
+  { snapshot: snapshot({ skills: [SKILL] }) },
+  { expandedKey: 'skill:backlog', implicitInvocation: true },
+)
+assert.match(expandedImplicit, /Claude Code may also run it unprompted/)
+assert.doesNotMatch(expandedImplicit, /Built in|Read by/)
 
 // --- a partial write is visible as partial -----------------------------------
 const partial = render({
@@ -276,12 +298,12 @@ assert.equal((restart.match(/Restart Claude Code/g) ?? []).length, 1, 'one banne
 // anyone not using a mouse — the drag is never the only way to reach it.
 const usable = render({ snapshot: snapshot({ skills: [SKILL] }) })
 assert.match(usable, /draggable="true"/, 'an installed skill can be dragged onto a terminal')
-assert.match(usable, /aria-label="Use backlog in Claude Code"/, 'and clicked, for the keyboard')
+assert.match(usable, /aria-label="Send backlog to Claude Code"/, 'and clicked, for the keyboard')
 
 // A CLI that reads no skills has no invocation to park: neither affordance.
 const notUsable = render({ snapshot: snapshot({ skills: [SKILL] }) }, { canUse: false })
 assert.doesNotMatch(notUsable, /draggable="true"/, 'unsupported: no drag handle')
-assert.doesNotMatch(notUsable, /aria-label="Use backlog/, 'unsupported: no Use action')
+assert.doesNotMatch(notUsable, /aria-label="Send backlog/, 'unsupported: no Send action')
 assert.match(notUsable, /aria-label="Remove backlog"/, 'the row itself is unchanged')
 
 // A skill the agent does not have yet is Add-only — Use would name something
@@ -292,7 +314,7 @@ const notInstalled = render({
   query: 'review',
 })
 assert.doesNotMatch(notInstalled, /draggable="true"/)
-assert.doesNotMatch(notInstalled, /aria-label="Use review-guide/)
+assert.doesNotMatch(notInstalled, /aria-label="Send review-guide/)
 
 // The disclosure keeps exactly one accent fill, and for an installed skill it
 // is Use — never a second Add beside it.
@@ -300,10 +322,10 @@ const expandedUsable = render(
   { snapshot: snapshot({ skills: [SKILL] }) },
   { expandedKey: 'skill:backlog' },
 )
-assert.match(expandedUsable, /Use in Claude Code/)
+assert.match(expandedUsable, /Send to Claude Code/)
 assert.doesNotMatch(expandedUsable, />Add</, 'an installed skill is never offered Add')
 
-// --- a Use that did not land is reported, never silent -----------------------
+// --- a Send that did not land is reported, never silent ----------------------
 const useFailed = render({
   snapshot: snapshot({ skills: [SKILL] }),
   useError: { skillId: 'backlog', message: 'Terminal session is no longer running.' },

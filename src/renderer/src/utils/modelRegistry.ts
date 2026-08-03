@@ -991,12 +991,15 @@ export type FocusedAgentTab = {
  * that read the Model directly would answer once and then go stale the moment
  * the user switched tabs.
  *
- * The active tabset wins, because that is the one the user is driving. With no
- * tabset marked active — a freshly restored layout, before any click — the
- * first agent tab in document order stands in, which is the tab the user is
- * looking at in the common single-tabset case.
+ * The active agent tabset wins. When an auxiliary pane is active, a still-
+ * visible previous agent wins; this is what lets an aside keep acting on the
+ * content beside it after the user clicks inside the aside. With neither, the
+ * first visible agent tab in document order stands in.
  */
-export function focusedAgentTabInLayout(model: IJsonModel | undefined | null): FocusedAgentTab | null {
+export function focusedAgentTabInLayout(
+  model: IJsonModel | undefined | null,
+  previous: FocusedAgentTab | null = null,
+): FocusedAgentTab | null {
   if (!model) return null
 
   const selectedAgentOf = (tabset: JsonLayoutNode): FocusedAgentTab | null => {
@@ -1008,7 +1011,7 @@ export function focusedAgentTabInLayout(model: IJsonModel | undefined | null): F
     return { agentId, sessionId: tab.config?.sessionId ?? null }
   }
 
-  let fallback: FocusedAgentTab | null = null
+  const visible: FocusedAgentTab[] = []
   let active: FocusedAgentTab | null = null
 
   const visit = (node: JsonLayoutNode | undefined): void => {
@@ -1016,8 +1019,8 @@ export function focusedAgentTabInLayout(model: IJsonModel | undefined | null): F
     if (node.type === 'tabset') {
       const focused = selectedAgentOf(node)
       if (focused) {
+        visible.push(focused)
         if (node.active) active = focused
-        else if (!fallback) fallback = focused
       }
       return
     }
@@ -1025,7 +1028,12 @@ export function focusedAgentTabInLayout(model: IJsonModel | undefined | null): F
   }
 
   visit((model as unknown as { layout?: JsonLayoutNode }).layout)
-  return active ?? fallback
+  if (active) return active
+  if (previous) {
+    const remembered = visible.find((candidate) => candidate.agentId === previous.agentId)
+    if (remembered) return remembered
+  }
+  return visible[0] ?? null
 }
 
 export function removeComponentTab(workspaceId: string, component: string): boolean {
@@ -1300,7 +1308,26 @@ function revealRailComponent(
   const railTabset = findRailTabset(model, side)
   const targetId = railTabset ? railTabset.getId() : model.getRoot().getId()
   const location = railTabset ? DockLocation.CENTER : RAILS[side].dock
-  model.doAction(Actions.addNode({ type: 'tab', name, component }, targetId, location, -1, true))
+  const previousActiveTabsetId = side === 'right' ? model.getActiveTabset()?.getId() : undefined
+  // The right rail is an aside acting on the content beside it. Opening it must
+  // not replace the active agent with the aside itself before the pane can
+  // capture its target. The left rail remains a navigation destination and
+  // keeps the existing selected behaviour.
+  model.doAction(
+    Actions.addNode(
+      { type: 'tab', name, component },
+      targetId,
+      location,
+      -1,
+      side !== 'right',
+    ),
+  )
+  if (previousActiveTabsetId) {
+    // FlexLayout clears the old `active` flag while docking a new root sibling,
+    // even when the new tab was added unselected. Restore the content target
+    // explicitly so a freshly mounted aside never guesses from layout order.
+    model.doAction(Actions.setActiveTabset(previousActiveTabsetId))
+  }
 
   // Enforce single-select on this edge, then hide the strip on whichever tabset
   // now holds the lone switch.

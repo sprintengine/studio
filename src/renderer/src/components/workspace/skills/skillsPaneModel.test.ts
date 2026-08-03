@@ -7,7 +7,13 @@ import {
   type CapabilitySnapshot,
   type SkillsPaneInput,
 } from './skillsPaneModel'
-import type { AgentSkill, AgentMcpServer, CapabilityDiagnostic } from '../../../../../shared/skills'
+import { mergeWorkspaceAgentCapabilities } from './useWorkspaceAgentCapabilities'
+import type {
+  AgentCapabilitiesResult,
+  AgentSkill,
+  AgentMcpServer,
+  CapabilityDiagnostic,
+} from '../../../../../shared/skills'
 import type { BuiltinSkill } from '../../../../../shared/electron-api'
 
 function skill(overrides: Partial<AgentSkill> & Pick<AgentSkill, 'id'>): AgentSkill {
@@ -319,7 +325,7 @@ for (const reason of ['unreadable', 'malformed'] as const) {
   assert.equal(view.notices[0].kind, 'write-failed')
 }
 
-// --- a Use that never reached the prompt is said, not swallowed -------------
+// --- a Send that never reached the prompt is said, not swallowed ------------
 {
   const view = buildSkillsPaneView(
     input({
@@ -362,6 +368,54 @@ for (const reason of ['unreadable', 'malformed'] as const) {
     input({ snapshot: null, unavailableMessage: 'Open a project folder.' }),
   )
   assert.equal(noWorkspace.body.kind, 'unavailable')
+}
+
+// --- workspace inventory is the union; the action target is a separate axis --
+{
+  type Successful = Extract<AgentCapabilitiesResult, { ok: true }>
+  const answer = (
+    harnessId: string,
+    skills: AgentSkill[],
+    servers: AgentMcpServer[],
+  ): Successful => ({
+    ok: true,
+    support: 'native',
+    harnessId,
+    skills,
+    servers,
+    diagnostics: [],
+  })
+  const merged = mergeWorkspaceAgentCapabilities([
+    {
+      pluginId: 'claude-code',
+      result: answer(
+        'claude',
+        [skill({ id: 'backlog', pluginIds: ['claude-code', 'kimi-claude', 'zai'] })],
+        [server({ id: 'github', configPath: '.mcp.json' })],
+      ),
+    },
+    {
+      pluginId: 'codex',
+      result: answer(
+        'codex',
+        [
+          skill({ id: 'backlog', invocation: '$backlog', pluginIds: ['codex'] }),
+          skill({ id: 'codex-only', invocation: '$codex-only', pluginIds: ['codex'] }),
+        ],
+        [server({ id: 'github', configPath: '.codex/config.toml' })],
+      ),
+    },
+  ])
+
+  assert.deepEqual(merged.harnessIds, ['claude', 'codex'])
+  assert.deepEqual(merged.skills.map((entry) => entry.id), ['backlog', 'codex-only'])
+  assert.deepEqual(
+    merged.skills.find((entry) => entry.id === 'backlog')?.pluginIds,
+    ['claude-code', 'codex', 'kimi-claude', 'zai'],
+  )
+  assert.equal(merged.servers.length, 1, 'the same MCP server is one workspace row')
+  assert.deepEqual(merged.servers[0].pluginIds, ['claude-code', 'codex'])
+  assert.deepEqual(merged.servers[0].configPaths, ['.mcp.json', '.codex/config.toml'])
 }
 
 console.log('skillsPaneModel: ok')

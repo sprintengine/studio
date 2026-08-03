@@ -617,6 +617,49 @@ function skillsTabsets(model: Model): TabsetJson[] {
   unregisterModel(WS)
 }
 
+// Opening the right aside preserves the active agent tabset. If it selected
+// itself here, the pane would mount with no remembered target and fall back to
+// the first agent in document order.
+{
+  const model = Model.fromJson({
+    global: {},
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          selected: 0,
+          children: [
+            { type: 'tab', component: 'agent', name: 'First', config: { agentId: 'a-first' } },
+          ],
+        },
+        {
+          type: 'tabset',
+          active: true,
+          selected: 0,
+          children: [
+            {
+              type: 'tab',
+              component: 'agent',
+              name: 'Current',
+              config: { agentId: 'a-current', sessionId: 's-current' },
+            },
+          ],
+        },
+      ],
+    },
+  })
+  registerModel(WS, model)
+  togglePanelRailComponent(WS, 'skills', 'Skills and MCPs')
+  assert.deepEqual(
+    focusedAgentTabInLayout(model.toJson()),
+    { agentId: 'a-current', sessionId: 's-current' },
+    'opening Skills must not retarget from the current agent to the first agent',
+  )
+  unregisterModel(WS)
+}
+
 // Re-toggling Skills collapses its pane; revealing it again re-docks right.
 {
   const model = freshModel()
@@ -635,7 +678,8 @@ function skillsTabsets(model: Model): TabsetJson[] {
 {
   const model = freshModel()
   registerModel(WS, model)
-  // Revealing Skills selects its pane, making it the active tabset.
+  // Revealing Skills keeps the content tabset active; it is an aside acting on
+  // that content, not a new send target.
   revealNavRailComponent(WS, 'skills', 'Skills and MCPs')
   assert.equal(addTerminalTab(WS, 'term-2', 'Terminal'), true)
   assert.deepEqual(tabsets(model).map(componentsOf), [['agent', 'terminal'], ['skills']])
@@ -829,6 +873,29 @@ function bothRailsModel(): Model {
     focusedAgentTabInLayout(twoTabsets),
     { agentId: 'a-2', sessionId: 's-2' },
     'the active tabset’s selected tab wins',
+  )
+
+  const asideActive: IJsonModel = {
+    global: {},
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        { type: 'tabset', selected: 0, children: [tab('a-left')] },
+        { type: 'tabset', selected: 0, children: [tab('a-right', 's-right')] },
+        {
+          type: 'tabset',
+          active: true,
+          selected: 0,
+          children: [{ type: 'tab', component: 'skills', name: 'Skills and MCPs' }],
+        },
+      ],
+    },
+  }
+  assert.deepEqual(
+    focusedAgentTabInLayout(asideActive, { agentId: 'a-right', sessionId: 's-right' }),
+    { agentId: 'a-right', sessionId: 's-right' },
+    'clicking the aside keeps the last focused agent instead of falling back to the first one',
   )
 
   const noActive: IJsonModel = {

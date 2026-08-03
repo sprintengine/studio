@@ -13,8 +13,10 @@ import {
   type SkillWriteReport,
 } from './skillsPaneModel'
 import { useAgentCapabilities } from './useAgentCapabilities'
+import { useWorkspaceAgentCapabilities } from './useWorkspaceAgentCapabilities'
 
-// The workspace's right-docked pane: what the focused agent can actually reach.
+// The workspace's right-docked pane: the union of what every agent in the
+// workspace can reach, with its Send action aimed at the last focused agent.
 //
 // The header carries the pane's name and nothing else. The agent's name is on
 // the tab that is already selected, its liveness belongs on that tab, and the
@@ -30,15 +32,24 @@ export function SkillsPanel({ workspaceId }: Props) {
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null,
   )
   // Derived from the persisted layout, which `onModelChange` rewrites on every
-  // layout mutation — selecting an agent tab included. That is what makes the
-  // pane follow the focused agent instead of answering once at mount.
+  // layout mutation. The previous target is retained when the user clicks the
+  // aside itself; otherwise the aside would become active and the first agent
+  // in document order would silently replace the real target.
   const layoutModel = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel,
   )
-  const focused = useMemo(() => focusedAgentTabInLayout(layoutModel), [layoutModel])
-  const agent = useWorkspaceStore((s) =>
-    focused ? s.workspaces.find((w) => w.id === workspaceId)?.agents?.[focused.agentId] : undefined,
+  const focusedRef = useRef<ReturnType<typeof focusedAgentTabInLayout>>(null)
+  const focused = useMemo(
+    () => focusedAgentTabInLayout(layoutModel, focusedRef.current),
+    [layoutModel],
   )
+  useEffect(() => {
+    focusedRef.current = focused
+  }, [focused])
+  const workspaceAgents = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents,
+  )
+  const agent = focused ? workspaceAgents?.[focused.agentId] : undefined
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
 
@@ -47,11 +58,22 @@ export function SkillsPanel({ workspaceId }: Props) {
     () => pluginCatalogEntries.find((entry) => entry.id === pluginId) ?? null,
     [pluginCatalogEntries, pluginId],
   )
-  // The tab's own name is what the user reads on screen; the CLI's display name
-  // is what a sentence about the CLI ("Codex does not read skills") needs.
-  const agentLabel = plugin?.displayName ?? pluginId ?? null
+  // Send targets one live agent, so name that agent rather than its runtime.
+  // The runtime label remains a fallback for restored records without a name.
+  const agentLabel = agent?.name ?? plugin?.displayName ?? pluginId ?? null
 
-  const capabilities = useAgentCapabilities(workspaceRoot, pluginId)
+  const currentCapabilities = useAgentCapabilities(workspaceRoot, pluginId)
+  const workspacePluginIds = useMemo(
+    () => [
+      ...new Set(
+        Object.values(workspaceAgents ?? {})
+          .map((entry) => entry.cli)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ].sort(),
+    [workspaceAgents],
+  )
+  const capabilities = useWorkspaceAgentCapabilities(workspaceRoot, workspacePluginIds)
 
   const [query, setQuery] = useState('')
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
@@ -70,7 +92,7 @@ export function SkillsPanel({ workspaceId }: Props) {
     setExpandedKey(null)
     setWriteReport(null)
     setUseError(null)
-  }, [pluginId])
+  }, [focused?.agentId])
 
   useEffect(() => {
     let cancelled = false
@@ -93,10 +115,13 @@ export function SkillsPanel({ workspaceId }: Props) {
   const canWrite = Boolean(
     workspaceRoot && capabilities.snapshot && readsSkills(capabilities.snapshot.support),
   )
-  // The same two conditions as Add, for the other verb: the invocation is
-  // rendered from what is in this CLI's harness directory, so it needs the
-  // workspace root, and a CLI that reads no skills has none to park.
-  const canUse = canWrite
+  // Send is contextual even though the list is workspace-wide. The target
+  // agent's own capability answer decides whether it can receive an invocation.
+  const canUse = Boolean(
+    workspaceRoot
+    && currentCapabilities.snapshot
+    && readsSkills(currentCapabilities.snapshot.support),
+  )
 
   // The tab the pane is following. `terminalWrite` is addressed by session, and
   // the layout is where a tab's session id lives; the agent record's own id is
@@ -261,7 +286,10 @@ export function SkillsPanel({ workspaceId }: Props) {
         onUse={(skillId) => void runUse(skillId)}
         onDragStart={(skillId, dataTransfer) =>
           setSkillDropData(dataTransfer, { version: 1, skillId, workspaceId })}
-        onRetry={capabilities.refetch}
+        onRetry={() => {
+          capabilities.refetch()
+          currentCapabilities.refetch()
+        }}
         onOpenExtensions={() => openExtensionsSurface({ view: 'installed' })}
         onDismissWriteReport={() => setWriteReport(null)}
         onDismissUseError={() => setUseError(null)}
