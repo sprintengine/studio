@@ -2,6 +2,64 @@
 
 ## Unreleased
 
+- The four module-boundary surfaces (MC-2090). Each was discovered separately by
+  a task trying to put a door behind a real module boundary; they are published
+  together so a contribution API does not grow four subtly different escape
+  hatches for the same problems.
+
+  - **A module-owned event channel.** `MainHost.emit(topic, payload?)` pushes to
+    `RendererHost.subscribe(topic, cb)` — the subscribe verb the request/response
+    bridge (`RendererHost.invoke`) does not have, and without which a module's
+    renderer half cannot learn that its main half finished something. Identity is
+    stamped from the emitting host's scope, so only your module's subscribers see
+    it and you can never emit as another module. Delivery: fan-out to every open
+    window, FIFO per module, **no replay** (an event emitted with no window open
+    is dropped — events are signals, so keep the durable answer readable through
+    an IPC channel and let the event say "read it again"), and **no flood
+    bound** (unlike `notify`, dropping one would make a subscriber wrong).
+    Delivery pauses while your module is disabled and resumes on re-enable; the
+    returned closure unsubscribes. `subscribe` before the shell wires the source
+    is a working no-op, never a throw. New mirrored type: `ModuleEventEnvelope`.
+
+  - **App-level module state on `RendererHost`.** `getModuleAppState<T>(key)` /
+    `setModuleAppState(key, value)` / `watchModuleAppState(cb)` — the scope above
+    `getWorkspaceModuleState`, for state that belongs to your module rather than
+    to a single workspace: remembered defaults, the last thing the user opened.
+    It is renderer-side and **synchronous** on purpose: these values are read
+    inside render, and routing them through the `entry.main`
+    `ModuleStorageService` would change render timing (an async hydration flashes
+    a default before the remembered value lands). Scoped to your module, persists
+    with app settings, survives a disable/enable cycle, and shares a keyspace
+    with your contributed Settings section's values — which are app-level module
+    state by another name. `undefined` read / `false` write mean "not set" and
+    "not stored", never a deletion signal. Pair `get` + `watch` with
+    `useSyncExternalStore` for a reactive read. Disclosure: `storage`.
+
+  - **Module-owned agent-id namespaces.**
+    `RendererHost.registerAgentIdNamespace({ prefix, label })` claims every agent
+    id starting with `prefix` for your module, and names what the shell calls
+    those sessions where no workspace claims them. A module that spawns agents
+    outside a window's knowledge — a background guide, a companion — owned ids
+    the shell previously had to recognise by importing the module's own
+    predicate. Keep the prefix distinctive and terminated (`'review-guide-'`, not
+    `'review'`); a prefix overlapping one another module already claimed is a
+    registration error. The shell gates resolution on live enablement.
+    Disclosure: `ipc:agents`. New mirrored type: `AgentIdNamespaceDefinition`.
+
+  - **An async create hook on `WorkspaceTypeDefinition`.**
+    `createWorkspace(request, host)` lets a type own its whole create action when
+    creating it is orchestration rather than a layout choice — probe a source,
+    materialize it on disk, roll back on failure. `createTemplate` stays
+    synchronous and keeps answering only "what layout?". Resolve to mean
+    "created, close the hub"; reject to leave the hub open with the create still
+    available. The host lends exactly two capabilities: `createWorkspace()` mints
+    the row (running your `createTemplate`) and `removeWorkspace(id)` takes it
+    back, so a create that fails after minting leaves no empty workspace behind.
+    `request.setStepValue` writes into your creation step's value, which is where
+    a failed hook reports — your step owns that page's body. Absent ⇒ the hub
+    creates from `createTemplate` directly, unchanged. New mirrored types:
+    `WorkspaceTypeCreateRequest`, `WorkspaceTypeCreateHost`.
+
 - Top-bar items on `RendererHost` (MC-1861):
   `registerTopBarItem({ id, order, Component })` contributes a control to the
   app's top-bar title-strip cluster. The `Component` is zero-prop and

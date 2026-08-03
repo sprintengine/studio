@@ -4,6 +4,7 @@ import type { RendererModule } from './renderer-host'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { collectReviewStateMigrations } from '../store/slices/workspacesSlice'
 import { REVIEW_WORKSPACE_MODE } from '../types/workspace'
+import { REVIEW_GUIDE_AGENT_ID_PREFIX } from '../review/door/reviewGuideTerminal'
 
 // The Reviews door (MC-1708 T6). Lazy — and deliberately not a top-level import —
 // because the nav entry reaches the workspace store; keeping it behind a dynamic
@@ -44,6 +45,11 @@ export const reviewRendererModule: RendererModule = {
     // After Roadmap (order 40) in the top-nav cluster — mockup §4 sidebar order.
     host.registerSidebarNavEntry({ id: 'reviews', order: 50, Component: ReviewsNavEntry })
     host.registerGlobalSurface({ id: 'reviews', Component: ReviewsGlobalSurface })
+    // The guide runs as an ordinary agent terminal that main spawned without a
+    // window's knowledge, so no workspace row claims it. Claiming the prefix is
+    // what lets the shell label those sessions and adopt one when the reviewer
+    // opens it (MC-1911), without core knowing the id shape.
+    host.registerAgentIdNamespace({ prefix: REVIEW_GUIDE_AGENT_ID_PREFIX, label: 'Reviews' })
     armReviewWorkspaceRetirement()
   },
 }

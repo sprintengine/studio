@@ -1486,102 +1486,51 @@ assert.equal(
   'setGuidedBriefConversationSessions(false) opts out',
 )
 
-// The Reviews door's remembered selection (MC-1785). Reached through
-// useWorkspaceStore, so this also pins the setter's dual declaration — a setter
-// missing from the WorkspaceStore interface would not typecheck here.
-const reviewStore = useWorkspaceStore.getState()
-assert.equal(
-  defaultAppSettings().lastSelectedReview,
-  null,
-  'a fresh profile remembers no review, so the door auto-selects attention-first',
-)
-reviewStore.setLastSelectedReview({ reviewId: 'rv_b', workspaceRoot: '/proj/multicode' })
+// The two review keys that used to live here moved onto review's own app-level
+// module state (MC-2090); their behavior is pinned in reviewAppState.test.ts.
+// What stays core's job is the one-time lift of a profile that still carries
+// them — core's own persisted rows, which only core can read once the field is
+// gone from AppSettings. Same shape as the MC-1708 review-workspace retirement.
+const liftedFromLegacy = normalizeAppSettings(
+  {
+    reviewGuideDefaults: { depth: 'thorough', cli: 'codex', model: 'gpt-5-codex' },
+    lastSelectedReview: { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' },
+  } as never,
+  [],
+).moduleSettings
 assert.deepEqual(
-  useWorkspaceStore.getState().appSettings.lastSelectedReview,
-  { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' },
-  'the opened review is remembered with its owning project root',
+  liftedFromLegacy['module:review'],
+  {
+    'guide-defaults': { depth: 'thorough', cli: 'codex', model: 'gpt-5-codex' },
+    'last-selected-review': { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' },
+  },
+  'a profile predating the move keeps both values, in the module namespace',
 )
-reviewStore.setLastSelectedReview(null)
-assert.equal(
-  useWorkspaceStore.getState().appSettings.lastSelectedReview,
-  null,
-  'clearing a dead preference stores null',
+// Values pass through untouched: the owning module normalizes what it reads, so
+// core keeps no knowledge of their shape.
+assert.deepEqual(
+  normalizeAppSettings({ reviewGuideDefaults: { depth: 'exhaustive' } } as never, [])
+    .moduleSettings['module:review'],
+  { 'guide-defaults': { depth: 'exhaustive' } },
+  'the lift copies verbatim — validation belongs to the module that reads it',
 )
-// A half-written pair cannot survive: either id missing means there is nothing
-// to restore, so hydration falls back to attention-first rather than a partial.
-reviewStore.setLastSelectedReview({ reviewId: 'rv_b', workspaceRoot: '  ' })
-assert.equal(
-  useWorkspaceStore.getState().appSettings.lastSelectedReview,
-  null,
-  'a pair missing its project root normalizes away',
-)
+// A value the module has already written wins: the lift must never clobber a
+// newer choice with the legacy one it superseded.
 assert.deepEqual(
   normalizeAppSettings(
-    { lastSelectedReview: { reviewId: ' rv_b ', workspaceRoot: ' /proj/multicode ' } } as never,
+    {
+      reviewGuideDefaults: { depth: 'brief', cli: null, model: null },
+      moduleSettings: { 'module:review': { 'guide-defaults': { depth: 'thorough', cli: null, model: null } } },
+    } as never,
     [],
-  ).lastSelectedReview,
-  { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' },
-  'hydration trims a persisted pair',
+  ).moduleSettings['module:review'],
+  { 'guide-defaults': { depth: 'thorough', cli: null, model: null } },
+  'an already-migrated value is not overwritten by the legacy key',
 )
 assert.equal(
-  normalizeAppSettings({ lastSelectedReview: { reviewId: 'rv_b' } } as never, []).lastSelectedReview,
-  null,
-  'hydration drops a persisted pair that lost its project root',
-)
-
-// MC-1788: the guide preparation choices (depth + agent) are remembered where the
-// guide is invoked, not configured in a settings tab. The store is where they
-// outlive the door's unmount, so this pins both the patch semantics the banner
-// controls rely on and the hydration a restart goes through.
-assert.deepEqual(
-  defaultAppSettings().reviewGuideDefaults,
-  { depth: 'standard', cli: null, model: null },
-  'a fresh profile prepares at standard depth with no agent picked yet',
-)
-const cliBeforeGuidePicks = useWorkspaceStore.getState().appSettings.lastSelectedCli
-reviewStore.setReviewGuideDefaults({ depth: 'thorough' })
-assert.deepEqual(
-  useWorkspaceStore.getState().appSettings.reviewGuideDefaults,
-  { depth: 'thorough', cli: null, model: null },
-  'choosing a depth leaves the agent choice alone',
-)
-reviewStore.setReviewGuideDefaults({ cli: 'codex', model: 'gpt-5-codex' })
-assert.deepEqual(
-  useWorkspaceStore.getState().appSettings.reviewGuideDefaults,
-  { depth: 'thorough', cli: 'codex', model: 'gpt-5-codex' },
-  'and choosing an agent leaves the depth alone — the two choices are independent',
-)
-reviewStore.setReviewGuideDefaults({ cli: 'claude-code', model: null })
-assert.deepEqual(
-  useWorkspaceStore.getState().appSettings.reviewGuideDefaults,
-  { depth: 'thorough', cli: 'claude-code', model: null },
-  'a new agent drops the model picked for the previous one',
-)
-assert.equal(
-  useWorkspaceStore.getState().appSettings.lastSelectedCli,
-  cliBeforeGuidePicks,
-  'the guide agent is stored under its own key, so it never rewrites what New chat spawns',
-)
-assert.deepEqual(
-  normalizeAppSettings({ reviewGuideDefaults: { depth: 'thorough', cli: ' codex ', model: ' gpt-5-codex ' } } as never, [])
-    .reviewGuideDefaults,
-  { depth: 'thorough', cli: 'codex', model: 'gpt-5-codex' },
-  'a restart restores the last-used pair, trimmed',
-)
-assert.deepEqual(
-  normalizeAppSettings({ reviewGuideDefaults: { depth: 'exhaustive' } } as never, []).reviewGuideDefaults,
-  { depth: 'standard', cli: null, model: null },
-  'a depth the guide cannot render falls back to standard instead of riding to the prompt',
-)
-assert.deepEqual(
-  normalizeAppSettings({ reviewGuideDefaults: { model: 'gpt-5-codex' } } as never, []).reviewGuideDefaults,
-  { depth: 'standard', cli: null, model: null },
-  'a stored model with no engine to run it is dropped',
-)
-assert.deepEqual(
-  normalizeAppSettings({} as never, []).reviewGuideDefaults,
-  { depth: 'standard', cli: null, model: null },
-  'a profile predating the choices hydrates to the defaults',
+  normalizeAppSettings({} as never, []).moduleSettings['module:review'],
+  undefined,
+  'a profile with neither key gains no namespace at all',
 )
 
 // Appearance: windowMaterial is a second axis beside theme (MC-1907).

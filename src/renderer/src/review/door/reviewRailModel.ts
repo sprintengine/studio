@@ -1,6 +1,6 @@
 import type { ReviewIndexEntry } from '../../../../shared/electron-api'
 import { REVIEW_STATE_PRESENTATION, type ReviewProgressState } from '../../../../shared/review/review-state'
-import type { LastSelectedReview } from '../../types/workspace'
+import type { LastSelectedReview } from './reviewAppState'
 import type { Tone } from '../../components/ui/tokens'
 
 // Pure projections for the Reviews-door rail (MC-1708 T6, mockup §4). Each review

@@ -60,7 +60,13 @@ contracts, so a published version always matches the app version it ships with.
   value arrives in `createTemplate(context?: { stepValue?: unknown })`; the
   shell holds the value for the pane's lifetime only and persists nothing —
   a throwing step component degrades to your type's zero-config create with
-  an inline notice, never a blocked hub),
+  an inline notice, never a blocked hub, and `createWorkspace(request, host)`,
+  the async create hook for a type whose creation is orchestration rather than
+  a layout choice: resolve to mean "created, close the hub", reject to leave it
+  open; `host.createWorkspace()` mints the row and `host.removeWorkspace(id)`
+  takes it back, so a create that fails after minting leaves nothing behind,
+  and `request.setStepValue` is where the failure goes — your step owns that
+  page's body. Absent ⇒ the hub creates from `createTemplate` directly),
   `registerBacklogItemAction`, `registerBacklogLinkProvider`,
   `registerCommand` (registered id is namespaced `<moduleId>.<id>`; scope
   `panel:<moduleId>` activates while a workspace of your module's mode is
@@ -114,7 +120,33 @@ contracts, so a published version always matches the app version it ships with.
   JSON-serializable; read resolves `undefined` and write reports `false`
   when the workspace is unknown or the shell hasn't wired workspace state
   yet — retry later, never treat either as a deletion signal; declare
-  `storage`).
+  `storage`), and app-level module state —
+  `getModuleAppState<T>(key)` / `setModuleAppState(key, value)` /
+  `watchModuleAppState(cb)`, the scope above the per-workspace bag, for what
+  belongs to your module rather than to a single workspace (remembered
+  defaults, the last thing the user opened). Renderer-side and synchronous on
+  purpose: these are read inside render, and routing them through the
+  `entry.main` storage service would change render timing. Persists with app
+  settings, survives a disable/enable cycle, shares a keyspace with your
+  Settings section's values, and pairs with `useSyncExternalStore` for a
+  reactive read; declare `storage`. Plus `subscribe(topic, cb)` — the receiving
+  end of `MainHost.emit`, scoped to your module, with no replay (see below) —
+  and `registerAgentIdNamespace({ prefix, label })`, which claims every agent id
+  starting with `prefix` for your module and names what the shell calls those
+  sessions where no workspace claims them; a prefix overlapping another
+  module's is a registration error, and resolution is gated on your module's
+  live enablement (declare `ipc:agents`).
+- **Module events (main → renderer)**: `MainHost.emit(topic, payload?)` pushes
+  to your own `RendererHost.subscribe(topic, cb)` — the subscribe verb
+  `invoke` does not have. Identity is stamped from the emitting host's scope,
+  so only your module's subscribers receive it. One emit reaches every open
+  window, ordering is FIFO per module, and **nothing is replayed**: an event
+  emitted with no window open is dropped and a window opened later sees nothing
+  earlier, so keep the durable answer readable through an IPC channel and let
+  the event say "read it again". Unlike `notify`, emission is not flood-bounded
+  — dropping an event would make a subscriber wrong. Delivery pauses while your
+  module is disabled and resumes on re-enable; call the returned unsubscriber
+  on unmount. Payloads cross IPC and must be structured-cloneable.
 - **Automations providers**: `registerAutomationTrigger` and
   `registerAutomationAction` register trusted module providers with the
   Automations registry using the current `host.moduleId`. Declare

@@ -9,7 +9,7 @@ import {
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
 import { createReviewChangeSetService } from '../review/changeset-service'
-import { BRIEF_RUN_EVENT_CHANNEL, type BriefRunEvent } from '../review/brief-run-service'
+import { BRIEF_RUN_EVENT_TOPIC, type BriefRunEvent } from '../review/brief-run-service'
 import {
   createReviewGuideTerminalService,
   recordGuideRunEvent,
@@ -45,12 +45,12 @@ export const reviewModule: CapabilityModule = {
     const workspaceSyncService = host.requireService(WorkspaceSyncServiceToken)
     const launchSettings = host.requireService(SprintEngineLaunchSettingsToken)
 
-    // The guide terminal (MC-1783). Phase events fan out to every open window so
-    // any review tab can render live progress.
+    // The guide terminal (MC-1783). Phase events go out on this module's own
+    // event channel (MC-2090), which fans out to every open window so any review
+    // tab can render live progress — and which the renderer half subscribes to
+    // through the SDK rather than a preload entry of its own.
     const emit = (event: BriefRunEvent): void => {
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) win.webContents.send(BRIEF_RUN_EVENT_CHANNEL, event)
-      }
+      host.emit(BRIEF_RUN_EVENT_TOPIC, event)
     }
     // Provided under a token as well as held here so other modules can resolve
     // the guide service without importing across the module boundary. The
@@ -123,9 +123,7 @@ export const reviewModule: CapabilityModule = {
           // duration of the run; a delivered brief is where that run ends, and
           // the reviewer may never open the terminal to end it any other way.
           if (event.phase === 'done') guideTerminals.clearReapExempt(event.workspaceId)
-          for (const win of BrowserWindow.getAllWindows()) {
-            if (!win.isDestroyed()) win.webContents.send(BRIEF_RUN_EVENT_CHANNEL, event)
-          }
+          host.emit(BRIEF_RUN_EVENT_TOPIC, event)
         },
       })
     )

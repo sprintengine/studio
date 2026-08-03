@@ -25,12 +25,7 @@ import {
   runSprintEngineNewTeamCreation,
   runSprintEnginePlanSourcedCreation,
 } from './index'
-import {
-  runReviewCreation,
-  ReviewControllerError,
-  type ReviewControllerPorts,
-} from '../../../../review/door/reviewCreation'
-import type { ReviewGuideConfig } from '../../../../types/workspace'
+import { runModuleTypeCreation } from './moduleTypeController'
 import { getRendererHost } from '../../../../modules'
 import type { GuidedBriefScaffoldPorts, GuidedBriefStartBuildPorts } from './types'
 import type { SprintEngineStateInitializeInput } from '../../../../../../shared/electron-api'
@@ -243,6 +238,90 @@ function testBuildModuleTypeCreation(): void {
   assert.deepEqual(contexts[0], { stepValue: { goal: 'ship' } }, 'stepValue reaches createTemplate')
   buildModuleTypeCreation({ mode: 'controller-step-module', name: 'x', folderPath: '/p' })
   assert.deepEqual(contexts[1], { stepValue: undefined }, 'no step value passes undefined, never throws')
+}
+
+// The async create hook (MC-2090): a type whose creation is orchestration owns
+// its whole create action, with the shell lending exactly two capabilities.
+async function testRunModuleTypeCreation(): Promise<void> {
+  // A type WITHOUT the hook reports false, so the caller falls through to the
+  // plain build-and-onCreate path unchanged.
+  const untouched = await runModuleTypeCreation(
+    { mode: 'controller-test-module', name: 'x', folderPath: '/p', setStepValue: () => {} },
+    { addWorkspace: () => assert.fail('a hookless type must not mint a workspace'), removeWorkspace: () => {} },
+  )
+  assert.equal(untouched, false, 'a type with no createWorkspace hook is not module-owned')
+
+  let behavior: 'ok' | 'rollback' = 'ok'
+  const minted: string[] = []
+  const removed: string[] = []
+  const stepValues: unknown[] = []
+  let mintCount = 0
+  getRendererHost()
+    .hostFor('controller-async-module')
+    .registerWorkspaceType({
+      id: 'controller-async-module',
+      label: 'Controller Async',
+      description: 'Module type that owns its create action.',
+      icon: () => null,
+      createTemplate: () => ({
+        id: 'controller-async-template',
+        name: 'Controller Async',
+        description: 'test',
+        previewSlots: [],
+        layout: { layout: { type: 'row', children: [] } },
+      }),
+      createWorkspace: async (request, host) => {
+        assert.equal(request.folderPath, '/repo')
+        assert.deepEqual(request.stepValue, { source: 'pr' })
+        const workspaceId = host.createWorkspace({ name: request.name.trim() || 'Async' })
+        if (behavior === 'ok') return
+        // Materialization failed after the row was minted: roll it back, then
+        // report through the step the module owns.
+        host.removeWorkspace(workspaceId)
+        request.setStepValue({ error: 'could not ingest' })
+        throw new Error('ingest failed')
+      },
+    })
+
+  const ports = {
+    addWorkspace: (args: { name: string; folderPath: string | null }) => {
+      mintCount += 1
+      minted.push(args.name)
+      return `ws-${mintCount}`
+    },
+    removeWorkspace: (id: string) => removed.push(id),
+  }
+  const input = {
+    mode: 'controller-async-module',
+    name: '  My async  ',
+    folderPath: '/repo',
+    stepValue: { source: 'pr' },
+    setStepValue: (value: unknown) => stepValues.push(value),
+  }
+
+  const owned = await runModuleTypeCreation(input, ports)
+  assert.equal(owned, true, 'a type with the hook reports module-owned')
+  assert.deepEqual(minted, ['My async'], 'the hook mints through the shell, with its own name')
+  assert.deepEqual(removed, [], 'a successful hook never rolls back')
+
+  behavior = 'rollback'
+  await assert.rejects(
+    () => runModuleTypeCreation(input, ports),
+    (error: unknown) => error instanceof Error && error.message === 'ingest failed',
+    'a rejecting hook propagates so the hub stays open',
+  )
+  assert.deepEqual(removed, ['ws-2'], 'a hook that fails after minting rolls the workspace back')
+  assert.deepEqual(stepValues, [{ error: 'could not ingest' }], 'the failure reaches the module’s own step')
+
+  // A missing folder never reaches the hook.
+  await assert.rejects(
+    () => runModuleTypeCreation({ ...input, folderPath: null }, ports),
+    (error: unknown) => error instanceof ModuleTypeControllerError && error.code === 'missing-folder',
+  )
+  await assert.rejects(
+    () => runModuleTypeCreation({ ...input, mode: 'never-registered-mode' }, ports),
+    (error: unknown) => error instanceof ModuleTypeControllerError && error.code === 'unknown-type',
+  )
 }
 
 function testBuildSwitchboardCreation(): void {
@@ -1876,6 +1955,7 @@ async function testSprintEngineNewTeamDeclaresRepos(): Promise<void> {
 async function main(): Promise<void> {
   testBuildStandardCreation()
   testBuildModuleTypeCreation()
+  await testRunModuleTypeCreation()
   testBuildSwitchboardCreation()
   testBuildSprintEngineExistingTeamCreation()
   testBuildSprintEngineNewTeamCreation()
@@ -1905,109 +1985,9 @@ async function main(): Promise<void> {
   await testGuidedBriefStartBuildHandoffPath()
   await testGuidedBriefStartBuildDesignPresetHandoff()
   await testGuidedBriefStartBuildAdvancedSetupFailsClosed()
-  await testReviewCreation()
   console.log('newWorkspace controllers.test.ts: ok')
 }
 
-const REVIEW_GUIDE: ReviewGuideConfig = {
-  engineCli: 'claude-code',
-  engineModel: null,
-  depth: 'standard',
-  knowledgeGraph: true,
-}
-
-async function testReviewCreation(): Promise<void> {
-  const branchSource = { kind: 'branch', repoRoot: '/repo', baseRef: 'main', headRef: 'feature' } as const
-
-  // Missing folder never creates a workspace.
-  {
-    let created = 0
-    await assert.rejects(
-      () =>
-        runReviewCreation(
-          { name: 'R', folderPath: null, source: branchSource, guideConfig: REVIEW_GUIDE },
-          {
-            addReviewWorkspace: () => {
-              created += 1
-              return 'ws-x'
-            },
-            removeWorkspace: () => {},
-            ingestSource: async () => ({ ok: true, changeset: {} as never }),
-          },
-        ),
-      (error: unknown) => error instanceof ReviewControllerError && error.code === 'missing-folder',
-    )
-    assert.equal(created, 0, 'no workspace is created without a folder')
-  }
-
-  // Happy path: create, ingest ok, no rollback, returns the id.
-  {
-    const removed: string[] = []
-    const ingestTargets: Array<{ workspaceRoot: string; workspaceId: string }> = []
-    const ports: ReviewControllerPorts = {
-      addReviewWorkspace: ({ name, folderPath, guideConfig }) => {
-        assert.equal(name, 'My review')
-        assert.equal(folderPath, '/repo')
-        assert.equal(guideConfig, REVIEW_GUIDE)
-        return 'ws-1'
-      },
-      removeWorkspace: (id) => removed.push(id),
-      ingestSource: async (input, target) => {
-        assert.deepEqual(input, branchSource)
-        ingestTargets.push(target)
-        return { ok: true, changeset: {} as never }
-      },
-    }
-    const id = await runReviewCreation(
-      { name: 'My review', folderPath: '/repo', source: branchSource, guideConfig: REVIEW_GUIDE },
-      ports,
-    )
-    assert.equal(id, 'ws-1')
-    assert.deepEqual(removed, [], 'a successful ingest never rolls back')
-    assert.deepEqual(ingestTargets, [{ workspaceRoot: '/repo', workspaceId: 'ws-1' }])
-  }
-
-  // Ingest returns ok:false -> roll the workspace back and surface the message.
-  {
-    const removed: string[] = []
-    await assert.rejects(
-      () =>
-        runReviewCreation(
-          { name: 'R', folderPath: '/repo', source: branchSource, guideConfig: REVIEW_GUIDE },
-          {
-            addReviewWorkspace: () => 'ws-2',
-            removeWorkspace: (id) => removed.push(id),
-            ingestSource: async () => ({ ok: false, error: 'Couldn’t find "main".' }),
-          },
-        ),
-      (error: unknown) =>
-        error instanceof ReviewControllerError &&
-        error.code === 'ingest-failed' &&
-        error.message === 'Couldn’t find "main".',
-    )
-    assert.deepEqual(removed, ['ws-2'], 'a failed ingest rolls the workspace back')
-  }
-
-  // Ingest throwing also rolls back.
-  {
-    const removed: string[] = []
-    await assert.rejects(
-      () =>
-        runReviewCreation(
-          { name: 'R', folderPath: '/repo', source: branchSource, guideConfig: REVIEW_GUIDE },
-          {
-            addReviewWorkspace: () => 'ws-3',
-            removeWorkspace: (id) => removed.push(id),
-            ingestSource: async () => {
-              throw new Error('IPC blew up')
-            },
-          },
-        ),
-      (error: unknown) => error instanceof ReviewControllerError && error.code === 'ingest-failed',
-    )
-    assert.deepEqual(removed, ['ws-3'], 'a thrown ingest rolls the workspace back')
-  }
-}
 
 main().catch((error) => {
   console.error(error)

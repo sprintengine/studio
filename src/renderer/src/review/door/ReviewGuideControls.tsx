@@ -19,6 +19,7 @@ import { RUN_PHASE_LABEL } from '../canvas/ReviewCanvas'
 import type { ReviewSession } from '../canvas/useReviewSession'
 import { StopGuideRunButton } from './ReviewGuideStop'
 import type { GuideTerminalLink } from './useGuideTerminal'
+import { useReviewGuideDefaults, writeReviewGuideDefaults } from './reviewAppState'
 
 // The store-bound guide controls on the Reviews door (MC-1783). The canvas stays
 // a pure projection of a session, so everything that needs the plugin catalog,
@@ -26,9 +27,10 @@ import type { GuideTerminalLink } from './useGuideTerminal'
 // through its `guideActions` slot.
 
 // The two preparation choices, and the controls that change them (MC-1788): how
-// deep a walkthrough to build, and which agent builds it. Both are persisted as
-// `reviewGuideDefaults`, so the next review opens on the pair the reviewer used
-// last and a freshness re-run reuses them without asking. That key is deliberately
+// deep a walkthrough to build, and which agent builds it. Both are persisted in
+// this module's own app-level state (reviewAppState), so the next review opens
+// on the pair the reviewer used last and a freshness re-run reuses them without
+// asking. That key is deliberately
 // separate from `lastSelectedCli`: picking a guide agent must not change what
 // "New chat" spawns. A first-time reviewer, having picked nothing, gets the agent
 // CLI they use elsewhere rather than a hardcoded engine.
@@ -49,8 +51,7 @@ export function useReviewGuideRuntime(): ReviewGuideRuntime {
   const cliAvailability = useWorkspaceStore((state) => state.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((state) => state.cliAvailabilityStatus)
   const lastSelectedCli = useWorkspaceStore((state) => state.appSettings.lastSelectedCli)
-  const defaults = useWorkspaceStore((state) => state.appSettings.reviewGuideDefaults)
-  const setDefaults = useWorkspaceStore((state) => state.setReviewGuideDefaults)
+  const defaults = useReviewGuideDefaults()
 
   // The same catalog every other spawn picker offers, filtered to the CLIs whose
   // binary is actually installed — offering the guide an engine that is not there
@@ -67,13 +68,14 @@ export function useReviewGuideRuntime(): ReviewGuideRuntime {
   // catalog does offer, so the picker never opens on a runtime that cannot run.
   const cli = resolveAvailableAgentCli(defaults.cli ?? lastSelectedCli, catalog, catalog[0]?.value ?? lastSelectedCli)
 
-  const setDepth = useCallback((depth: ReviewBriefRunDepth) => setDefaults({ depth }), [setDefaults])
+  const setDepth = useCallback((depth: ReviewBriefRunDepth) => writeReviewGuideDefaults({ depth }), [])
   // A new engine drops the model picked for the previous one; a model pick keeps
   // the engine it belongs to. Both write through the same normalizing setter.
-  const setCli = useCallback((next: AgentCli) => setDefaults({ cli: next, model: null }), [setDefaults])
+  const setCli = useCallback((next: AgentCli) => writeReviewGuideDefaults({ cli: next, model: null }), [])
   const setModel = useCallback(
-    (nextCli: AgentCli, nextModel: string | null) => setDefaults({ cli: nextCli, model: nextModel }),
-    [setDefaults],
+    (nextCli: AgentCli, nextModel: string | null) =>
+      writeReviewGuideDefaults({ cli: nextCli, model: nextModel }),
+    [],
   )
 
   return {

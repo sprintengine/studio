@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron'
+import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
   ElectronApi,
   ModuleEnablementOverrides,
@@ -9,6 +9,8 @@ import type {
   ModuleBridgeInvokeResult,
 } from '../../shared/modules/bridge'
 import { MODULE_BRIDGE_INVOKE_CHANNEL } from '../../shared/modules/bridge'
+import type { ModuleEventEnvelope } from '../../shared/modules/events'
+import { MODULE_EVENTS_CHANNEL } from '../../shared/modules/events'
 import type {
   ThirdPartyModuleInstallResult,
   ThirdPartyModuleListResult,
@@ -30,6 +32,14 @@ type ModulesIpcRenderer = {
     channel: typeof MODULE_BRIDGE_INVOKE_CHANNEL,
     request: ModuleBridgeInvokeRequest
   ): Promise<ModuleBridgeInvokeResult>
+  on(
+    channel: typeof MODULE_EVENTS_CHANNEL,
+    listener: (event: IpcRendererEvent, envelope: ModuleEventEnvelope) => void
+  ): unknown
+  removeListener(
+    channel: typeof MODULE_EVENTS_CHANNEL,
+    listener: (event: IpcRendererEvent, envelope: ModuleEventEnvelope) => void
+  ): unknown
 }
 
 export function createModulesApi(renderer: ModulesIpcRenderer) {
@@ -47,6 +57,15 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
       renderer.invoke(THIRD_PARTY_RENDERER_ENTRIES_CHANNEL),
     moduleBridgeInvoke: (channel: string, payload?: unknown): Promise<ModuleBridgeInvokeResult> =>
       renderer.invoke(MODULE_BRIDGE_INVOKE_CHANNEL, { channel, payload }),
+    // Every module's events ride this one channel; the renderer kernel fans
+    // them out to the owning module's subscribers. The preload stays neutral —
+    // it never inspects `sourceModuleId`, exactly as it never inspects a
+    // notification's.
+    onModuleEvent: (cb: (envelope: ModuleEventEnvelope) => void) => {
+      const handler = (_: IpcRendererEvent, envelope: ModuleEventEnvelope) => cb(envelope)
+      renderer.on(MODULE_EVENTS_CHANNEL, handler)
+      return () => renderer.removeListener(MODULE_EVENTS_CHANNEL, handler)
+    },
   } satisfies Pick<
     ElectronApi,
     | 'setModuleEnablement'
@@ -55,6 +74,7 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
     | 'setThirdPartyModuleTrust'
     | 'listThirdPartyRendererEntries'
     | 'moduleBridgeInvoke'
+    | 'onModuleEvent'
   >
 }
 

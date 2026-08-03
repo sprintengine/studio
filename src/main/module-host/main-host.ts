@@ -4,6 +4,11 @@ import {
   MODULE_BRIDGE_INVOKE_CHANNEL,
   type ModuleBridgeInvokeResult,
 } from '../../shared/modules/bridge'
+import {
+  MODULE_EVENTS_CHANNEL,
+  validateModuleEventTopic,
+  type ModuleEventEnvelope,
+} from '../../shared/modules/events'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import {
@@ -146,6 +151,16 @@ export type MainHost = {
    * flood-bounded per module (identical repeats and rate overruns are dropped).
    */
   notify(input: ModuleNotifyInput): void
+  /**
+   * Push an event to this module's renderer half — the subscribe verb the
+   * request/response bridge does not have. The source module id is stamped
+   * from this host's scope, so only this module's `RendererHost.subscribe`
+   * receives it; an empty or over-long topic throws. Fan-out reaches every open
+   * window, ordering is FIFO per module, and nothing is replayed to a window
+   * opened later: see the delivery contract in shared/modules/events.ts.
+   * The payload crosses IPC and must be structured-cloneable.
+   */
+  emit(topic: string, payload?: unknown): void
 }
 
 export type MainKernel = {
@@ -184,11 +199,20 @@ export type MainKernel = {
   emitNotification(sourceModuleId: string, input: ModuleNotifyInput): void
   /** Recent notifications (bounded), newest last — replayed to late-opening windows. */
   recentNotifications(): ReadonlyArray<ModuleNotification>
+  /**
+   * Infrastructure-only event entry, the twin of `emitNotification`: stamps
+   * `sourceModuleId` and `emittedAt`, then delivers. Module code never sees the
+   * kernel — it emits through its scoped host's `emit`. Nothing is buffered:
+   * module events are signals, not diagnostics (see shared/modules/events.ts).
+   */
+  emitModuleEvent(sourceModuleId: string, topic: string, payload?: unknown): void
 }
 
 export type MainKernelOptions = {
   /** Sends one notification to every open renderer window. Absent in tests. */
   deliverNotification?: (notification: ModuleNotification) => void
+  /** Sends one module event to every open renderer window. Absent in tests. */
+  deliverModuleEvent?: (event: ModuleEventEnvelope) => void
   /** Clock override for flood-bound tests. */
   now?: () => number
   /**
@@ -256,9 +280,11 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
   const floodStateByModule = new Map<string, ModuleNotificationFloodState>()
   let started = false
 
-  // The notifications event channel belongs to the host kernel; reserving it
-  // here makes a module's attempt to claim the name a registration error.
+  // The notifications and module-events channels belong to the host kernel;
+  // reserving them here makes a module's attempt to claim either a
+  // registration error.
   channels.set(MODULE_NOTIFICATIONS_EVENT_CHANNEL, { owner: '@host' })
+  channels.set(MODULE_EVENTS_CHANNEL, { owner: '@host' })
 
   // The renderer→module-main bridge dispatcher. Routes an invoke to a channel
   // a third-party module registered via registerIpc, applying the four
@@ -327,6 +353,21 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     recent.push(notification)
     if (recent.length > NOTIFICATION_BUFFER_LIMIT) recent.splice(0, recent.length - NOTIFICATION_BUFFER_LIMIT)
     options.deliverNotification?.(notification)
+  }
+
+  function emitModuleEvent(sourceModuleId: string, topic: string, payload?: unknown): void {
+    const validated = validateModuleEventTopic(topic)
+    if (!validated.ok) {
+      throw new Error(`Module "${sourceModuleId}" ${validated.message}`)
+    }
+    // Deliberately unbuffered and unbounded: a dropped event makes a
+    // subscriber wrong, where a dropped notification only costs a message.
+    options.deliverModuleEvent?.({
+      sourceModuleId,
+      topic: validated.topic,
+      ...(payload === undefined ? {} : { payload }),
+      emittedAt: now(),
+    })
   }
 
   function passesFloodBound(
@@ -522,6 +563,9 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       notify(input) {
         emitNotification(moduleId, input)
       },
+      emit(topic, payload) {
+        emitModuleEvent(moduleId, topic, payload)
+      },
     }
   }
 
@@ -581,6 +625,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     sidecarStatuses: () => [...sidecarEntries.values()].map(sidecarStatusOf),
     emitNotification,
     recentNotifications: () => recent,
+    emitModuleEvent,
     async runStartup(): Promise<void> {
       started = true
       await runHooks(startupHooks, 'startup')

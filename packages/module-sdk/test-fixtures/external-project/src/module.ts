@@ -22,6 +22,7 @@ import {
   type McpToolRegistration,
   type ModuleCommandDefinition,
   type ModuleWorkspaceView,
+  type AgentIdNamespaceDefinition,
   type RegisterMain,
   type RegisterRenderer,
   type SidebarNavEntryDefinition,
@@ -31,6 +32,8 @@ import {
   type WorkspacePanelComponent,
   type WorkspacePanelProps,
   type WorkspaceTypeCreateContext,
+  type WorkspaceTypeCreateHost,
+  type WorkspaceTypeCreateRequest,
   type WorkspaceTypeDefinition,
   WorkspaceContextToken,
 } from '@multicode/module-sdk'
@@ -231,6 +234,19 @@ export const registerMain: RegisterMain = (host) => {
     guide.dispose()
     return summary
   })
+  // The module-owned event channel (MC-2090): the subscribe verb the
+  // request/response bridge does not have. `emit` stamps this module's identity,
+  // so only this module's renderer subscribers see it. Nothing is replayed, so
+  // the channel below stays the way a late panel reads the current value —
+  // the event only says "read it again".
+  host.registerIpc('weather-deck:refresh-outlook', async (_event, city: unknown) => {
+    const name = typeof city === 'string' ? city.trim() : ''
+    if (!name) throw new Error('weather-deck:refresh-outlook requires a city name.')
+    const outlook = { city: name, summary: 'clear', refreshedAt: 0 }
+    host.emit('outlook-refreshed', outlook)
+    return outlook
+  })
+  host.registerIpc('weather-deck:read-outlook', async () => ({ city: 'Dublin', summary: 'clear', refreshedAt: 0 }))
   host.registerSidecar({ id: 'weather-deck-poller', kind: 'process', description: 'Background forecast poller.' })
   host.onStartup(() => {
     host.notify({ severity: 'info', title: 'Weather Deck ready' })
@@ -249,6 +265,42 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
     const [workspace, setWorkspace] = useState<ModuleWorkspaceView | null>(null)
     const [liveAgents, setLiveAgents] = useState(0)
     const [briefingCount, setBriefingCount] = useState(0)
+    const [outlook, setOutlook] = useState<string | null>(null)
+    useEffect(() => {
+      // App-level module state (MC-2090): the scope above per-workspace state,
+      // for what belongs to the module rather than to a single workspace. Read
+      // is synchronous, so it can seed initial render without an async flash;
+      // the watch keeps it live when another surface writes it.
+      const seed = host.getModuleAppState<string>('last-outlook')
+      if (seed) setOutlook(seed)
+      const offState = host.watchModuleAppState((values) => {
+        const next = values['last-outlook']
+        setOutlook(typeof next === 'string' ? next : null)
+      })
+      // Events are signals, not state: read the durable value through the
+      // module's own channel first, then let the event say "read it again".
+      // A subscriber that assumed replay would render nothing until the next
+      // refresh happened to fire.
+      void host.invoke('weather-deck:read-outlook')
+        .then((current) => {
+          const record = current as { summary?: unknown }
+          if (typeof record.summary === 'string') setOutlook(record.summary)
+        })
+        .catch(() => undefined)
+      const offEvent = host.subscribe('outlook-refreshed', (payload) => {
+        const record = payload as { summary?: unknown }
+        if (typeof record.summary !== 'string') return
+        // The write reports whether it was stored; a false means the shell has
+        // not wired app state yet, so keep rendering from memory and retry on
+        // the next event rather than assuming success.
+        host.setModuleAppState('last-outlook', record.summary)
+        setOutlook(record.summary)
+      })
+      return () => {
+        offState()
+        offEvent()
+      }
+    }, [])
     useEffect(() => {
       // Renderer half of the cross-surface briefing: bridge → main channel
       // (workspace context + storage round-trip) → per-module workspace
@@ -379,7 +431,7 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
         ? 'Backlog unavailable'
         : backlogCount === null
           ? 'Loading backlog…'
-          : `${backlogCount} backlog items${workspace?.folderPath ? ` in ${workspace.folderPath}` : ''} · ${liveAgents} live agents · briefing #${briefingCount}`
+          : `${backlogCount} backlog items${workspace?.folderPath ? ` in ${workspace.folderPath}` : ''} · ${liveAgents} live agents · briefing #${briefingCount}${outlook ? ` · ${outlook}` : ''}`
     )
   }
 }
@@ -424,11 +476,46 @@ function ForecastSupervisor(): null {
 // Module-owned config step in the creation hub: the collected value reaches
 // createTemplate(context) on create; isReady gates the Create button.
 function ForecastCityStep({ value, setValue }: WorkspaceCreationStepProps) {
-  return createElement('input', {
-    value: typeof value === 'string' ? value : '',
-    placeholder: 'City to forecast',
-    onChange: (event: { target: { value: string } }) => setValue(event.target.value),
-  })
+  // The value is a plain string while the user types, and the object shape the
+  // create hook writes back on failure — so the step renders its own error
+  // rather than the hub inventing a place to put another module's message.
+  const failure = value && typeof value === 'object' ? (value as { city?: string; error?: string }) : null
+  return createElement(
+    'div',
+    null,
+    createElement('input', {
+      value: failure ? failure.city ?? '' : typeof value === 'string' ? value : '',
+      placeholder: 'City to forecast',
+      onChange: (event: { target: { value: string } }) => setValue(event.target.value),
+    }),
+    failure?.error ? createElement('p', null, failure.error) : null,
+  )
+}
+
+// The async create hook (MC-2090): this type's creation is orchestration, not a
+// layout choice — the city has to resolve against the service before a workspace
+// is worth minting, and a resolve that fails after minting must take the row back
+// with it. `createTemplate` stays synchronous and answers only "what layout?".
+async function createForecastWorkspace(
+  request: WorkspaceTypeCreateRequest,
+  host: WorkspaceTypeCreateHost,
+): Promise<void> {
+  const city = typeof request.stepValue === 'string' ? request.stepValue.trim() : ''
+  const workspaceId = host.createWorkspace({ name: request.name.trim() || `Forecast: ${city}` })
+  try {
+    await resolveForecastCity(city, request.folderPath)
+  } catch (error) {
+    // Roll the row back, then report through the step this module owns — the hub
+    // has no surface for another module's failure, and `setStepValue` is how the
+    // step's own body renders it.
+    host.removeWorkspace(workspaceId)
+    request.setStepValue({ city, error: error instanceof Error ? error.message : String(error) })
+    throw error
+  }
+}
+
+async function resolveForecastCity(city: string, folderPath: string): Promise<void> {
+  if (!city) throw new Error(`No city to forecast for ${folderPath}.`)
 }
 
 const forecastWorkspaceType: WorkspaceTypeDefinition = {
@@ -441,10 +528,14 @@ const forecastWorkspaceType: WorkspaceTypeDefinition = {
     heading: 'Which city?',
     description: 'The forecast panel opens on this city.',
     Component: ForecastCityStep,
-    isReady: (value) => typeof value === 'string' && value.trim().length > 0,
+    isReady: (value) =>
+      typeof value === 'string'
+        ? value.trim().length > 0
+        : Boolean((value as { city?: string } | null)?.city?.trim()),
     blockedHint: 'Name a city to forecast.',
   },
   createTemplate: createForecastTemplate,
+  createWorkspace: createForecastWorkspace,
   supervisors: [{ Component: ForecastSupervisor, scope: 'global' }],
   // Sidebar status from module-owned state (sync — a supervisor-maintained
   // cache in real modules). Only called for this type's own workspaces, so no
@@ -491,6 +582,14 @@ function quickCheck(host: Parameters<RegisterRenderer>[0]): ModuleCommandDefinit
 // (registerTopBarItem, MC-1861, below). The door and its surface share an id;
 // the surface is lazy, proving the published Component type accepts
 // React.lazy() the same way SidebarNavEntryComponent does.
+// The agent ids this module owns (MC-2090). Its forecaster agents are spawned
+// outside any window's knowledge, so no workspace row claims their sessions; the
+// prefix is how the shell knows whose they are and what to call them.
+const forecasterAgents: AgentIdNamespaceDefinition = {
+  prefix: 'weather-deck-forecaster-',
+  label: 'Weather Deck',
+}
+
 const outlookDoor: SidebarNavEntryDefinition = {
   id: 'weather-deck-outlook',
   order: 71,
@@ -506,6 +605,7 @@ const outlookSurface: GlobalSurfaceDefinition = {
 }
 
 export const registerRenderer: RegisterRenderer = (host) => {
+  host.registerAgentIdNamespace(forecasterAgents)
   host.registerSidebarNavEntry(outlookDoor)
   host.registerGlobalSurface(outlookSurface)
   host.registerPanel('weather-deck.forecast', createForecastPanel(host))

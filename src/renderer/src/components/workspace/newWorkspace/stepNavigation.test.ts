@@ -151,8 +151,12 @@ assert.equal(
 assert.equal(stepWithinFlow(STEPS_BY_MODE.switchboard, 'workspace'), 'workspace', 'a one-page flow stays put')
 
 // A step outside the flow reads as page 0, so a stale step can never index past
-// the flow's end and hand Continue an undefined page.
-assert.equal(stepIndexIn(LONG, 'review-source'), 0, 'an unknown step reads as the first page')
-assert.equal(nextStepFrom(ready('review-source')), 'guided-idea', 'and advances from there, not off the end')
+// the flow's end and hand Continue an undefined page. 'review-source' is the
+// retired id this actually happens with (the review flow left with MC-2090), so
+// it stands in for any step a persisted or in-flight `step` state can name that
+// the current flow no longer has.
+const RETIRED = 'review-source' as StepId
+assert.equal(stepIndexIn(LONG, RETIRED), 0, 'an unknown step reads as the first page')
+assert.equal(nextStepFrom(ready(RETIRED)), 'guided-idea', 'and advances from there, not off the end')
 
 console.log('stepNavigation.test.ts: ok')

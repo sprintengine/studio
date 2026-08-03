@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   const React = await import('react')
   const { act } = React
   const { createRoot } = await import('react-dom/client')
-  const { useWorkspaceStore } = await import('../../store/workspaceStore')
+  const { readReviewGuideDefaults } = await import('./reviewAppState')
   const { ReviewGuideActions, useReviewGuideRuntime } = await import('./ReviewGuideControls')
   type ReviewGuideRuntime = import('./ReviewGuideControls').ReviewGuideRuntime
   type ReviewSession = import('../canvas/useReviewSession').ReviewSession
@@ -94,7 +94,9 @@ async function main(): Promise<void> {
     }
   }
 
-  const depthInStore = () => useWorkspaceStore.getState().appSettings.reviewGuideDefaults.depth
+  // The choice is remembered in review's own app-level module state (MC-2090),
+  // not in core's settings — read it back the way the module does.
+  const depthInStore = () => readReviewGuideDefaults().depth
 
   // A fresh profile: three plain choices, standard selected, and the one-liner for
   // it on screen — the difference between the three is never left to a tooltip.

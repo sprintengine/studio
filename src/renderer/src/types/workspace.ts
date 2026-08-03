@@ -147,7 +147,6 @@ export type {
   SpecialistActionId,
 } from '../../../shared/sprintengine/agent-state'
 import type { ReviewWorkspaceState } from '../../../shared/review'
-import type { ReviewBriefRunDepth } from '../../../shared/electron-api'
 
 export type { ReviewWorkspaceState }
 
@@ -615,42 +614,6 @@ export type AppSettings = {
    * normalizeAppSettings.
    */
   guidedBriefConversationSessionsOptInReset: boolean
-  /**
-   * The review the user last opened in the Reviews door, so reopening the door
-   * restores it instead of snapping to the attention-first first row. Both the
-   * review id and its owning project root are stored, because review ids are
-   * only unique within a project. Cleared when the remembered review is absent
-   * from a freshly loaded index (deleted externally). `null` means fall back to
-   * attention-first auto-select. See ReviewsGlobalSurface.
-   */
-  lastSelectedReview: LastSelectedReview | null
-  /**
-   * The preparation choices the reviewer last used for a guide walkthrough: how
-   * deep to render it, and which agent renders it. They are offered where the
-   * guide is invoked (the prepare banner in the Reviews door), never in a
-   * settings tab, and a freshness re-run reuses them without asking again. See
-   * ReviewGuideControls.
-   */
-  reviewGuideDefaults: ReviewGuideDefaults
-}
-
-/** A remembered Reviews-door selection: a review id scoped to its project root. */
-export type LastSelectedReview = {
-  reviewId: string
-  workspaceRoot: string
-}
-
-/**
- * Last-used review-guide preparation choices. `cli: null` means the reviewer has
- * never picked one for the guide, which resolves to the agent CLI they last used
- * elsewhere rather than a hardcoded engine — and keeps this key independent of
- * `lastSelectedCli`, so picking a guide agent never changes what "New chat"
- * spawns. `model` is only meaningful for the `cli` it was picked for.
- */
-export type ReviewGuideDefaults = {
-  depth: ReviewBriefRunDepth
-  cli: AgentCli | null
-  model: string | null
 }
 
 /**
@@ -931,22 +894,6 @@ export type WorkspaceGitPanelState = {
 export type WorkspaceWorktree = {
   branch?: string
   baseRef?: string
-}
-
-/**
- * How the background guide agent should prepare a review walkthrough, chosen in
- * the creation flow (MC-1677) and consumed by the guide run (MC-1679). Persisted
- * so reopening a review workspace keeps the choice; the guide is "an agent like
- * any workspace agent", so `engineCli`/`engineModel` follow the same shape as a
- * workspace agent runtime (null model = the engine's default).
- */
-export type ReviewGuideConfig = {
-  engineCli: AgentCli
-  engineModel: string | null
-  // How much the guide explains before you start reading (MC-1679 depth mapping).
-  depth: 'brief' | 'standard' | 'thorough'
-  // Whether the guide reads this project's knowledge graph while preparing.
-  knowledgeGraph: boolean
 }
 
 /**

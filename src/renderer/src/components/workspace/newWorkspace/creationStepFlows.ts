@@ -8,8 +8,8 @@ import type { CreationMode } from './types'
 //
 // Every flow is shaped: 'workspace' (always required — you must pick a folder),
 // then AT MOST ONE required-intent step, then only defaulted refinement steps.
-// The intent steps ('guided-idea', 'review-source') carry something only the
-// user knows, so they are never defaulted. Everything after them is seeded with
+// The intent step ('guided-idea') carries something only the user knows, so it
+// is never defaulted. Everything after it is seeded with
 // a working default, which is what lets the footer offer "Skip the rest and
 // create" the moment the intent step is answered. Adding a new step that cannot
 // be defaulted breaks that promise — put it before the refinement steps, and
@@ -23,7 +23,6 @@ export type StepId =
   | 'mcp-servers'
   | 'knowledge'
   | 'guided-idea'
-  | 'review-source'
   // A module-contributed config step (WorkspaceTypeDefinition.creationStep):
   // heading/body come from the registered step, not the shell's heading map.
   | 'module-step'
@@ -32,7 +31,7 @@ export type StepId =
 // type points at one of these via its creationStepsId; 'standard' is the
 // shell-owned default and the fallback for any mode whose registry entry is
 // missing or names an unknown flow.
-export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'guided-brief' | 'review'
+export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'guided-brief'
 
 // Default flows keep only the steps a person needs to reach the thing they came
 // to make. The developer-configuration steps — 'mcp-servers' and
@@ -56,10 +55,6 @@ export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
   // single-surface template (control center + right-docked run terminals) means
   // no layout-picker step.
   automations: ['workspace'],
-  // Name/folder, then the single required-intent step: what are you reviewing?
-  // Everything after it (knowledge graph, guide, depth) is defaulted, so the
-  // footer offers "Skip the rest and create" as soon as a source resolves.
-  review: ['workspace', 'review-source'],
   // All three Design Wizard presets (full-brief, frontend-design,
   // design-system) share this flow: the preset is chosen inside the
   // 'guided-idea' step, not by a separate flow id, because presets live inside

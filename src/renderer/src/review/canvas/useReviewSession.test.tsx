@@ -34,6 +34,8 @@ async function main(): Promise<void> {
   const { createRoot } = await import('react-dom/client')
   const { useReviewSession } = await import('./useReviewSession')
   const { fixtureChangeSet, fixtureBrief } = await import('./fixtures')
+  const { getRendererHost } = await import('../../modules')
+  const { BRIEF_RUN_EVENT_TOPIC } = await import('../../../../shared/review')
   type ReviewSession = import('./useReviewSession').ReviewSession
   type ReviewBrief = import('../../../../shared/review').ReviewBrief
   type ReviewComment = import('../../../../shared/review').ReviewComment
@@ -72,6 +74,22 @@ async function main(): Promise<void> {
     // the guide-run lifecycle the hook subscribes to.
     let briefValue: ReviewBrief | null = null
     let runEventCb: ((event: ReviewBriefRunEvent) => void) | null = null
+    // Guide progress arrives on the module-owned event channel (MC-2090), so the
+    // harness stands in for the preload source the kernel fans out from — and
+    // asserts the envelope routing (source module + topic) on the way through,
+    // which a raw callback capture would not.
+    getRendererHost().setModuleEventSource((deliver) => {
+      runEventCb = (event) =>
+        deliver({
+          sourceModuleId: 'review',
+          topic: BRIEF_RUN_EVENT_TOPIC,
+          payload: event,
+          emittedAt: 0,
+        })
+      return () => {
+        runEventCb = null
+      }
+    })
     const starts: { cli?: string; depth?: string; restart?: boolean; hostWorkspaceId?: string }[] = []
     const api = {
       reviewReadState: async () => ({ ok: true, state: stored }),
@@ -82,10 +100,6 @@ async function main(): Promise<void> {
         return { ok: true }
       },
       reviewPostReview: () => new Promise<ReviewPostReviewResult>((res) => (resolvePost = res)),
-      onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => {
-        runEventCb = cb
-        return () => {}
-      },
       reviewBriefRunStatus: async () => runStatus,
       // A freshness re-run re-ingests before it restarts the guide. The fixture PR
       // is re-fetched unchanged; what this suite watches is the start that follows.

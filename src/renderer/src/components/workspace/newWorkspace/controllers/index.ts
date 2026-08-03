@@ -20,6 +20,7 @@ export { buildStandardCreation } from './standardController'
 export {
   buildModuleTypeCreation,
   ModuleTypeControllerError,
+  runModuleTypeCreation,
 } from './moduleTypeController'
 export {
   buildSwitchboardCreation,

@@ -19,16 +19,14 @@ import type { ReviewGuideTerminal, TerminalSessionSnapshot } from '../../../../s
 // The agent id — NOT the terminal session id, which is minted per spawn because
 // a Claude-harness CLI is launched with `--session-id <it>` and rejects
 // anything that is not a UUID.
-const REVIEW_GUIDE_AGENT_ID_PREFIX = 'review-guide-'
+//
+// This module claims the prefix as an agent-id namespace (MC-2090), which is how
+// core answers "whose session is this, and what do I call it?" without importing
+// a predicate from here. Registered in review-module.ts.
+export const REVIEW_GUIDE_AGENT_ID_PREFIX = 'review-guide-'
 
 export function reviewGuideAgentId(reviewId: string): string {
   return `${REVIEW_GUIDE_AGENT_ID_PREFIX}${reviewId}`
-}
-
-// True for any agent id the review guide owns. Used where a session has to be
-// recognised as a guide without knowing which review it belongs to.
-export function isReviewGuideAgentId(agentId: string): boolean {
-  return agentId.startsWith(REVIEW_GUIDE_AGENT_ID_PREFIX)
 }
 
 export interface ResolvedGuideTerminal {

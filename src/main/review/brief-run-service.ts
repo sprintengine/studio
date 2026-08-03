@@ -19,9 +19,9 @@ import { join } from 'path'
 import { validateReviewBrief, type ReviewBrief } from '../../shared/review'
 import type { GuideRunPhase } from './guide-run-registry'
 
-// The IPC channel the review module forwards BriefRunEvent over. Exported so the
-// host wiring and the renderer bridge name it from one place.
-export const BRIEF_RUN_EVENT_CHANNEL = 'review:brief-run-event'
+// The topic this module emits BriefRunEvent on lives in the shared tree, so the
+// renderer subscriber names the same constant (shared/review/brief-run-events).
+export { BRIEF_RUN_EVENT_TOPIC } from '../../shared/review'
 
 const BRIEF_FILE = 'brief.json'
 

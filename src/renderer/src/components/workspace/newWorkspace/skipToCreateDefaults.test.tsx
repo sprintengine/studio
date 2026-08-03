@@ -26,7 +26,7 @@ const rosterEditorSource = readFileSync(join(HERE, 'useRosterEditor.ts'), 'utf8'
 // could never leave a page — answered or defaulted — unseen.
 // ---------------------------------------------------------------------------
 
-const INTENT_STEPS = ['guided-idea', 'review-source'] as const
+const INTENT_STEPS = ['guided-idea'] as const
 for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
   assert.equal(steps[0], 'workspace', `${flowId} leads with the shared fields`)
   const rest = steps.slice(1)

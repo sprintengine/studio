@@ -15,12 +15,10 @@ import type {
   AppSettings,
   CliRuntimeSettings,
   KeybindingSettings,
-  LastSelectedReview,
   LearningSettings,
   McpServerConfig,
   McpSettings,
   NewChatAgentChoice,
-  ReviewGuideDefaults,
   SprintEngineRoleId,
   AgentConversationRuntime,
   SprintEngineRoleCliDefaults,
@@ -594,35 +592,6 @@ export function normalizeConversationModel(
   return { providerId, modelId }
 }
 
-// Persisted last-opened Reviews-door selection. Keeps only a well-formed pair
-// (both ids non-empty); anything else — legacy absence, a half-written blob —
-// resets to null so the door falls back to attention-first auto-select.
-export function normalizeLastSelectedReview(
-  input: LastSelectedReview | null | undefined,
-): LastSelectedReview | null {
-  if (!input || typeof input !== 'object') return null
-  const reviewId = typeof input.reviewId === 'string' ? input.reviewId.trim() : ''
-  const workspaceRoot = typeof input.workspaceRoot === 'string' ? input.workspaceRoot.trim() : ''
-  if (!reviewId || !workspaceRoot) return null
-  return { reviewId, workspaceRoot }
-}
-
-const REVIEW_GUIDE_DEPTHS: ReviewGuideDefaults['depth'][] = ['brief', 'standard', 'thorough']
-
-// The reviewer's last-used guide preparation choices. An unknown persisted depth
-// falls back to `standard` rather than riding a value the guide skill cannot
-// render, and a model is dropped without the CLI it was picked for — a model id
-// only means something to one engine.
-export function normalizeReviewGuideDefaults(input: Partial<ReviewGuideDefaults> | null | undefined): ReviewGuideDefaults {
-  const source = input && typeof input === 'object' ? input : {}
-  const depth = REVIEW_GUIDE_DEPTHS.includes(source.depth as ReviewGuideDefaults['depth'])
-    ? (source.depth as ReviewGuideDefaults['depth'])
-    : 'standard'
-  const cli = typeof source.cli === 'string' && source.cli.trim() ? source.cli.trim() : null
-  const model = cli && typeof source.model === 'string' && source.model.trim() ? source.model.trim() : null
-  return { depth, cli, model }
-}
-
 // Persisted specialist menu order. Keeps only known ids and drops duplicates;
 // missing ids are resolved against the canonical roster at render time, so an
 // incomplete or stale list is safe to store.
@@ -712,6 +681,39 @@ export function normalizeModuleSettings(value: unknown): Record<string, Record<s
     result[key] = { ...(entry as Record<string, unknown>) }
   }
   return result
+}
+
+// Settings keys that were core's before their owning module had a place to keep
+// them, mapped to where they live now (MC-2090). The same one-time-retirement
+// shape as `collectReviewStateMigrations`, and core's job for the same reason:
+// these are core's OWN persisted rows, and only core can read them once the
+// field is gone from `AppSettings`. Values pass through untouched — the owning
+// module normalizes what it reads, so core keeps no knowledge of their shape.
+//
+// Each entry dies when a profile that predates the move can no longer exist.
+const RETIRED_MODULE_SETTINGS: ReadonlyArray<{ from: string; moduleId: string; key: string }> = [
+  { from: 'reviewGuideDefaults', moduleId: 'review', key: 'guide-defaults' },
+  { from: 'lastSelectedReview', moduleId: 'review', key: 'last-selected-review' },
+]
+
+// Lift any retired key still on a persisted settings blob into its module's
+// namespace, without overwriting a value the module has already written there.
+function liftRetiredModuleSettings(
+  moduleSettings: Record<string, Record<string, unknown>>,
+  settings: Partial<AppSettings> | undefined,
+): Record<string, Record<string, unknown>> {
+  if (!settings) return moduleSettings
+  const source = settings as Record<string, unknown>
+  let lifted = moduleSettings
+  for (const { from, moduleId, key } of RETIRED_MODULE_SETTINGS) {
+    const value = source[from]
+    if (value === undefined || value === null) continue
+    const namespace = moduleSettingsNamespace(moduleId)
+    const entry = lifted[namespace] ?? {}
+    if (key in entry) continue
+    lifted = { ...lifted, [namespace]: { ...entry, [key]: value } }
+  }
+  return lifted
 }
 
 // Architect is the only role Sprint Engine planning truly requires. It is
@@ -953,8 +955,6 @@ export const defaultAppSettings = (): AppSettings => ({
   mcp: defaultMcpSettings(),
   lastSelectedCli: 'claude-code',
   lastSelectedConversationModel: null,
-  lastSelectedReview: null,
-  reviewGuideDefaults: { depth: 'standard', cli: null, model: null },
   lastSelectedSpecialist: 'architect',
   lastSpawnWasGeneral: false,
   lastNewChatAgent: { kind: 'general' },
@@ -1018,8 +1018,6 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     mcp: normalizeMcpSettings(settings?.mcp),
     lastSelectedCli: normalizeSelectedCli(settings?.lastSelectedCli, defaults.lastSelectedCli),
     lastSelectedConversationModel: normalizeConversationModel(settings?.lastSelectedConversationModel),
-    lastSelectedReview: normalizeLastSelectedReview(settings?.lastSelectedReview),
-    reviewGuideDefaults: normalizeReviewGuideDefaults(settings?.reviewGuideDefaults),
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
     lastSpawnWasGeneral: settings?.lastSpawnWasGeneral ?? defaults.lastSpawnWasGeneral,
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
@@ -1055,7 +1053,10 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     appearance: normalizeAppearanceSettings(settings?.appearance),
     voiceDictation: normalizeVoiceDictationSettings(settings?.voiceDictation),
     modules: normalizeModuleOverrides(settings?.modules),
-    moduleSettings: normalizeModuleSettings(settings?.moduleSettings),
+    moduleSettings: liftRetiredModuleSettings(
+      normalizeModuleSettings(settings?.moduleSettings),
+      settings,
+    ),
     // Existing installs (already have workspaces) are treated as chosen so the
     // first-run chooser only appears for a genuinely fresh install.
     modulesChosen: settings?.modulesChosen ?? workspaces.length > 0,
@@ -1180,14 +1181,6 @@ export interface SettingsSliceActions {
   removeMcpServer: (serverId: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
-  /** Remember (or clear with `null`) the review last opened in the Reviews door. */
-  setLastSelectedReview: (selection: LastSelectedReview | null) => void
-  /**
-   * Remember the guide preparation choices made on the prepare banner. Patches
-   * merge over the stored value, so changing the depth leaves the agent alone;
-   * pass `model: null` alongside a new `cli` to drop a model that engine cannot run.
-   */
-  setReviewGuideDefaults: (patch: Partial<ReviewGuideDefaults>) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSpawnWasGeneral: (value: boolean) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
@@ -1477,19 +1470,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setLastSelectedConversationModel: (selection) =>
       set((state) => {
         state.appSettings.lastSelectedConversationModel = normalizeConversationModel(selection)
-      }),
-
-    setLastSelectedReview: (selection) =>
-      set((state) => {
-        state.appSettings.lastSelectedReview = normalizeLastSelectedReview(selection)
-      }),
-
-    setReviewGuideDefaults: (patch) =>
-      set((state) => {
-        state.appSettings.reviewGuideDefaults = normalizeReviewGuideDefaults({
-          ...state.appSettings.reviewGuideDefaults,
-          ...patch,
-        })
       }),
 
     setLastSelectedSpecialist: (specialistId) =>

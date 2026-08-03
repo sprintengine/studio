@@ -158,6 +158,26 @@ export type ModuleNotification = {
   emittedAt: number
 }
 
+// ── Module events (main → renderer) ──────────────────────────────────────────
+
+/**
+ * The wire shape of one event, as `MainHost.emit` stamps it and the host
+ * delivers it. Your module never constructs or receives this directly —
+ * `emit(topic, payload)` builds it and `RendererHost.subscribe(topic, cb)`
+ * hands `cb` the payload alone — but it is published so the routing contract is
+ * inspectable: identity and time are the host's, topic and payload are yours.
+ */
+export type ModuleEventEnvelope = {
+  /** Stamped by the host kernel from the emitting module's scope. */
+  sourceModuleId: string
+  /** Module-chosen event name. Scoped to the module, so it needs no prefix. */
+  topic: string
+  /** Structured-cloneable payload; absent for a bare signal. */
+  payload?: unknown
+  /** Epoch ms at emission, assigned by the kernel. */
+  emittedAt: number
+}
+
 // ── Main-process host (entry.main) ───────────────────────────────────────────
 
 /**
@@ -262,6 +282,29 @@ export type MainHost = {
    * host's scope; emission is flood-bounded per module.
    */
   notify(input: ModuleNotifyInput): void
+  /**
+   * Push an event to your module's renderer half — the subscribe verb the
+   * request/response bridge does not have. The receiving end is
+   * `RendererHost.subscribe(topic, cb)`.
+   *
+   * Identity is stamped from this host's scope, so only your module's
+   * subscribers receive it and you can never emit as another module. An empty
+   * or over-128-character topic throws. The payload crosses IPC and must be
+   * structured-cloneable.
+   *
+   * Delivery contract:
+   * - **Fan-out** — one emit reaches every open window; the channel has no
+   *   addressing, so per-window state is yours to key on.
+   * - **Ordering** — FIFO per module: a `started` never lands after its `done`.
+   * - **No replay** — an event emitted with no window open is dropped, and a
+   *   window opened later sees nothing earlier. Events are signals, not state:
+   *   keep the durable answer readable through an IPC channel and let events
+   *   say "read it again". A subscriber must be correct having missed every
+   *   event before it subscribed.
+   * - **No flood bound** — unlike `notify`, nothing is dropped for rate;
+   *   emitting sanely is your module's responsibility.
+   */
+  emit(topic: string, payload?: unknown): void
 }
 
 /** The export contract of `entry.main`: `export function registerMain(host) { … }`. */
@@ -1045,6 +1088,44 @@ export type WorkspaceTypeCreateContext = {
 }
 
 /**
+ * What the creation hub hands your type's async create hook.
+ * `createTemplate` is synchronous by design — it answers "what layout?" — so a
+ * type whose creation is real orchestration (probe a source, materialize it on
+ * disk, roll back on failure) puts that work in `createWorkspace` instead.
+ */
+export type WorkspaceTypeCreateRequest = {
+  /** The name field's value, untrimmed. Empty means the user named nothing. */
+  name: string
+  /** The materialized folder. The hub creates/opens it before calling. */
+  folderPath: string
+  /** The creation step's collected value; undefined without a step. */
+  stepValue?: unknown
+  /**
+   * Write back into your creation step's value. Your step owns that page's
+   * body, and the step value is the state both halves share — so a hook that
+   * fails puts the reason here and the step renders it, rather than throwing
+   * prose at a generic error surface.
+   */
+  setStepValue: (value: unknown) => void
+}
+
+/**
+ * The shell capabilities an async create hook may use. Deliberately two: mint
+ * this type's workspace, and take it back.
+ */
+export type WorkspaceTypeCreateHost = {
+  /**
+   * Create the workspace from your `createTemplate` and return its id — the
+   * same row the zero-config path would have made. `name` overrides the
+   * request's (use it for your own fallback); the step value reaches
+   * `createTemplate` either way.
+   */
+  createWorkspace(input?: { name?: string }): string
+  /** Remove a workspace this hook created. The rollback half of the pair. */
+  removeWorkspace(workspaceId: string): void
+}
+
+/**
  * A contributed workspace type.
  */
 export type WorkspaceTypeDefinition = {
@@ -1055,6 +1136,16 @@ export type WorkspaceTypeDefinition = {
   accentToken?: string
   searchTerms?: string[]
   createTemplate(context?: WorkspaceTypeCreateContext): WorkspaceLayoutTemplate
+  /**
+   * Own this type's create action. When present the hub calls this instead of
+   * creating the workspace itself: resolve to mean "created, close the hub";
+   * reject to leave the hub open with the create still available. Call
+   * `host.createWorkspace()` to mint the row (that is what runs
+   * `createTemplate`) and `host.removeWorkspace(id)` to roll it back — a
+   * create that fails after minting must not leave an empty workspace behind.
+   * Absent ⇒ the hub creates from `createTemplate` directly.
+   */
+  createWorkspace?(request: WorkspaceTypeCreateRequest, host: WorkspaceTypeCreateHost): Promise<void>
   topBarViews?: {
     label: string
     views: WorkspaceTypeTopBarView[]
@@ -1348,6 +1439,30 @@ export type GlobalSurfaceDefinition = {
   Component: GlobalSurfaceComponent
 }
 
+// ── Agent id namespaces ──────────────────────────────────────────────────────
+
+/**
+ * An agent-id namespace your module claims. A module that spawns agents outside
+ * a window's knowledge — a background guide, a companion — owns ids the shell
+ * then has to reason about without knowing whose they are: what to call the
+ * session when no workspace claims it, and whether the id is one it may adopt
+ * onto a workspace. This is how it asks you instead of guessing.
+ */
+export type AgentIdNamespaceDefinition = {
+  /**
+   * Every agent id starting with this belongs to your module. Keep it
+   * distinctive and terminated (`'review-guide-'`, not `'review'`) so it cannot
+   * swallow another module's ids. A prefix overlapping one already claimed is a
+   * registration error.
+   */
+  prefix: string
+  /**
+   * What the shell calls sessions in this namespace that no workspace claims,
+   * e.g. "Reviews". Sentence case; it is a group name in a session list.
+   */
+  label: string
+}
+
 // ── Live runtime surfaces (renderer) ─────────────────────────────────────────
 
 export type WorkspaceFileWatchEvent = {
@@ -1482,6 +1597,59 @@ export type RendererHost = {
    * permission (install-time disclosure).
    */
   setWorkspaceModuleState(workspaceId: string, state: unknown): boolean
+  /**
+   * Read one key from your module's APP-level state — the scope above
+   * `getWorkspaceModuleState`, for state that belongs to your module rather
+   * than to a single workspace: remembered defaults, the last thing the user
+   * opened. Synchronous and store-backed, so a renderer selector can derive
+   * from it without an IPC round trip changing render timing (which is why
+   * this exists alongside the `entry.main` `ModuleStorageService`).
+   * `undefined` means the key has never been set, or the shell has not wired
+   * the store yet (early boot) — never a throw and never a deletion signal.
+   * Scoped to your module: one module can never read another's. Persists with
+   * app settings and survives a disable/enable cycle. It shares a keyspace with
+   * your contributed Settings section's values, which are app-level module
+   * state by another name. Declare the `storage` permission.
+   */
+  getModuleAppState<T = unknown>(key: string): T | undefined
+  /**
+   * Write one key in your module's app-level state; `undefined` deletes it.
+   * Keep values JSON-serializable — they persist into app settings verbatim.
+   * False means the write was NOT stored (empty key, or the shell has not
+   * wired the store yet) — surface it or retry; never assume success. Declare
+   * the `storage` permission.
+   */
+  setModuleAppState(key: string, value: unknown): boolean
+  /**
+   * Observe your module's app-level state: `cb` fires with the whole namespace
+   * on every change (not on subscribe — read the current value with
+   * `getModuleAppState`). Returns the unsubscriber; call it on unmount. Pair
+   * the two with `useSyncExternalStore` for a reactive read.
+   */
+  watchModuleAppState(cb: (values: Readonly<Record<string, unknown>>) => void): () => void
+  /**
+   * Subscribe to events your `entry.main` pushed with `MainHost.emit` — the
+   * subscribe verb `invoke` does not have. Scoped to your module: another
+   * module's events never reach you, and yours never reach it. `cb` receives
+   * the emitted payload. Returns the unsubscriber; call it on unmount.
+   *
+   * Nothing is replayed, so a subscriber must be correct having missed every
+   * event emitted before it subscribed — read current state through
+   * `invoke` and let events tell you when to read it again. Delivery stops
+   * while your module is disabled and resumes when it is re-enabled.
+   */
+  subscribe(topic: string, cb: (payload: unknown) => void): () => void
+  /**
+   * Claim an agent-id namespace for your module: every agent id starting with
+   * `prefix` is yours, and `label` is what the shell calls those sessions where
+   * no workspace claims them. Without it, an agent your module spawned outside
+   * a window's knowledge is an unlabelled, unadoptable session. Registered once
+   * at boot; the shell gates on your module's live enablement. A prefix
+   * overlapping one another module already claimed is a registration error,
+   * reported as a module load error that gates off your other contributions.
+   * Declare the `ipc:agents` permission.
+   */
+  registerAgentIdNamespace(definition: AgentIdNamespaceDefinition): void
   /**
    * The workspace's *effective working root*: where its live work happens.
    * `ModuleWorkspaceView.folderPath` deliberately reports the durable primary

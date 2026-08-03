@@ -1,10 +1,9 @@
-import { ipcRenderer, type IpcRendererEvent } from 'electron'
+import { ipcRenderer } from 'electron'
 import type {
   ElectronApi,
   ReviewAskGuideInput,
   ReviewAskGuideResult,
   ReviewBriefReadResult,
-  ReviewBriefRunEvent,
   ReviewBriefRunInput,
   ReviewBriefRunResult,
   ReviewChangeSetReadResult,
@@ -51,11 +50,6 @@ export const reviewApi = {
   reviewList: (roots: string[]): Promise<ReviewListResult> => ipcRenderer.invoke('review:list', roots),
   reviewMatchPrProject: (url: string, roots: string[]): Promise<ReviewMatchPrProjectResult> =>
     ipcRenderer.invoke('review:match-pr-project', url, roots),
-  onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => {
-    const handler = (_: IpcRendererEvent, event: ReviewBriefRunEvent) => cb(event)
-    ipcRenderer.on('review:brief-run-event', handler)
-    return () => ipcRenderer.removeListener('review:brief-run-event', handler)
-  },
 } satisfies Pick<
   ElectronApi,
   | 'reviewDetectSource'
@@ -72,5 +66,4 @@ export const reviewApi = {
   | 'reviewWriteState'
   | 'reviewList'
   | 'reviewMatchPrProject'
-  | 'onReviewBriefRunEvent'
 >

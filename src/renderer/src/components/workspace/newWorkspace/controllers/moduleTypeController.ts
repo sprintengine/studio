@@ -1,4 +1,8 @@
 import { getRendererHost } from '../../../../modules'
+import type {
+  WorkspaceTypeCreateHost,
+  WorkspaceTypeCreateRequest,
+} from '../../../../modules/renderer-host'
 import type { WorkspaceMode } from '../../../../types/workspace'
 import type { OnCreateArgs } from './types'
 
@@ -32,4 +36,58 @@ export function buildModuleTypeCreation(input: ModuleTypeControllerInput): OnCre
     folderPath: input.folderPath,
     mode: input.mode as WorkspaceMode,
   }
+}
+
+export type ModuleTypeAsyncCreationInput = ModuleTypeControllerInput & {
+  /** Write back into the module's creation step value (MC-2090). */
+  setStepValue: (value: unknown) => void
+}
+
+export type ModuleTypeAsyncCreationPorts = {
+  /** Mints the row from a template, returning its id. The store's addWorkspace. */
+  addWorkspace: (args: OnCreateArgs) => string
+  removeWorkspace: (workspaceId: string) => void
+}
+
+/**
+ * Run a contributed type's own async create hook (MC-2090). The module owns the
+ * orchestration; the shell owns only the two capabilities it needs — mint this
+ * type's workspace, and take it back — so a hook that fails after minting can
+ * roll back rather than leaving an empty row behind.
+ *
+ * Returns false when the type has no hook, so the caller falls through to the
+ * plain `buildModuleTypeCreation` path unchanged. A hook that rejects
+ * propagates: the hub stays open with the create still available.
+ */
+export async function runModuleTypeCreation(
+  input: ModuleTypeAsyncCreationInput,
+  ports: ModuleTypeAsyncCreationPorts,
+): Promise<boolean> {
+  const definition = getRendererHost().getWorkspaceType(input.mode)
+  if (!definition) throw new ModuleTypeControllerError('unknown-type')
+  if (!definition.createWorkspace) return false
+  if (!input.folderPath) throw new ModuleTypeControllerError('missing-folder')
+  const folderPath = input.folderPath
+  const request: WorkspaceTypeCreateRequest = {
+    name: input.name,
+    folderPath,
+    stepValue: input.stepValue,
+    setStepValue: input.setStepValue,
+  }
+  // `createWorkspace` runs the SAME build the zero-config path would have run,
+  // so the layout a type gets is identical whichever branch created it, and the
+  // step value reaches createTemplate either way.
+  const host: WorkspaceTypeCreateHost = {
+    createWorkspace: (options) =>
+      ports.addWorkspace(
+        buildModuleTypeCreation({
+          ...input,
+          name: options?.name ?? input.name,
+          folderPath,
+        }),
+      ),
+    removeWorkspace: ports.removeWorkspace,
+  }
+  await definition.createWorkspace(request, host)
+  return true
 }

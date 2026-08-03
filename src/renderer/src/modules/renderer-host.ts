@@ -1,5 +1,6 @@
 import type { ComponentType, LazyExoticComponent } from 'react'
 
+import type { ModuleEventEnvelope } from '../../../shared/modules/events'
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 import { COMMAND_REGISTRY } from '../commands/commandRegistry'
@@ -99,6 +100,42 @@ export type WorkspaceTypeCreateContext = {
   stepValue?: unknown
 }
 
+// What the hub hands a type's async create hook (MC-2090). `createTemplate` is
+// synchronous by design — it answers "what layout?" — so a type whose creation
+// is real orchestration (probe a source, materialize it on disk, roll back on
+// failure) had nowhere to put that work and left the hub driving it through a
+// hard-coded branch. This is the contribution point for it.
+export type WorkspaceTypeCreateRequest = {
+  /** The name field's value, untrimmed. Empty means the user named nothing. */
+  name: string
+  /** The materialized folder. The hub creates/opens it before calling. */
+  folderPath: string
+  /** The creation step's collected value; undefined without a step. */
+  stepValue?: unknown
+  /**
+   * Write back into the creation step's value. The step is where a module
+   * renders its own failure (it owns that page's body), and the step value is
+   * the one piece of state the two halves share — so a hook that fails puts
+   * the reason here rather than throwing prose at a shell error surface.
+   */
+  setStepValue: (value: unknown) => void
+}
+
+// The shell capabilities an async create hook may use. Deliberately two: mint
+// this type's workspace, and take it back. Anything else the module wants it
+// does through its own surfaces.
+export type WorkspaceTypeCreateHost = {
+  /**
+   * Create the workspace from this type's `createTemplate` and return its id —
+   * the same row the zero-config path would have made. `name` overrides the
+   * request's (use it for the type's own fallback, e.g. "Review"); the step
+   * value reaches `createTemplate` either way.
+   */
+  createWorkspace(input?: { name?: string }): string
+  /** Remove a workspace this hook created. The rollback half of the pair. */
+  removeWorkspace(workspaceId: string): void
+}
+
 export type WorkspaceTypeDefinition = {
   id: string
   label: string
@@ -107,6 +144,16 @@ export type WorkspaceTypeDefinition = {
   accentToken?: string
   searchTerms?: string[]
   createTemplate(context?: WorkspaceTypeCreateContext): LayoutTemplate
+  /**
+   * Own this type's create action (MC-2090). When present the hub calls this
+   * instead of creating the workspace itself: resolve to mean "created, close
+   * the hub"; reject to leave the hub open with the create still available.
+   * Call `host.createWorkspace()` to mint the row (that is what runs
+   * `createTemplate`) and `host.removeWorkspace(id)` to roll it back — a create
+   * that fails after minting must not leave an empty workspace behind.
+   * Absent ⇒ the hub creates from `createTemplate` directly, unchanged.
+   */
+  createWorkspace?(request: WorkspaceTypeCreateRequest, host: WorkspaceTypeCreateHost): Promise<void>
   topBarViews?: {
     label: string
     views: WorkspaceTypeTopBarView[]
@@ -397,6 +444,30 @@ export type RegisteredWorkspaceAside = WorkspaceAsideDefinition & {
   moduleId: string
 }
 
+// An agent-id namespace a module claims (MC-2090). A module that spawns agents
+// outside a window's knowledge — a background guide, a companion — owns ids the
+// shell then has to reason about without knowing whose they are: what to call
+// the session when no workspace row claims it, and whether the id is one it may
+// adopt onto a workspace. Both questions used to be answered by core importing
+// the module's own `isXAgentId` predicate; this is the seam that replaces it.
+export type AgentIdNamespaceDefinition = {
+  /**
+   * Every agent id starting with this belongs to the claiming module. Keep it
+   * distinctive and terminated (`'review-guide-'`, not `'review'`) so it cannot
+   * swallow a sibling's ids.
+   */
+  prefix: string
+  /**
+   * What the shell calls sessions in this namespace that no workspace claims,
+   * e.g. "Reviews". Sentence case; it is a group name in a session list.
+   */
+  label: string
+}
+
+export type RegisteredAgentIdNamespace = AgentIdNamespaceDefinition & {
+  moduleId: string
+}
+
 // Read access to the workspace's Backlog for module renderers. The kernel owns
 // only the seam: the backlog module provides the implementation (shared scan +
 // watcher), and the scoped host methods below route through it — the kernel
@@ -416,6 +487,26 @@ export type WorkspaceModuleStateStore = {
   /** False when the write was not stored (unknown workspace, reserved key). */
   set(workspaceId: string, moduleId: string, state: unknown): boolean
 }
+
+// Backing store for the app-level module-state accessors (MC-2090). Same seam
+// shape as WorkspaceModuleStateStore, one scope up: modules/index.ts wires it
+// over the app-settings `module:<id>` namespace that already backs contributed
+// Settings sections, so a module's app-level state and its settings section
+// share one keyspace and one persistence path.
+export type ModuleAppStateStore = {
+  /** The module's whole namespace; `{}` when it has never written. */
+  get(moduleId: string): Readonly<Record<string, unknown>>
+  /** False when the write was not stored (empty key, store not wired). */
+  set(moduleId: string, key: string, value: unknown): boolean
+  /** Fires whenever the module's namespace changes. Returns the unsubscriber. */
+  subscribe(moduleId: string, cb: (values: Readonly<Record<string, unknown>>) => void): () => void
+}
+
+// Source of main→renderer module events (MC-2090). The kernel owns only the
+// seam: modules/index.ts wires it over `window.api.onModuleEvent`, and the
+// scoped host's `subscribe` filters the stream to the calling module's own
+// events. One preload listener backs every module's subscriptions.
+export type ModuleEventSource = (cb: (envelope: ModuleEventEnvelope) => void) => () => void
 
 export type RendererHost = {
   registerPanel(componentId: string, component: WorkspacePanelComponent): void
@@ -495,6 +586,55 @@ export type RendererHost = {
    * `storage`.
    */
   setWorkspaceModuleState(workspaceId: string, state: unknown): boolean
+  /**
+   * Read one key from your module's APP-level state (MC-2090) — the scope
+   * above `getWorkspaceModuleState`, for state that belongs to the module
+   * rather than to any one workspace: remembered defaults, the last thing the
+   * user opened. Synchronous and store-backed, so a renderer selector can
+   * derive from it without an IPC round trip changing render timing.
+   * `undefined` means the key has never been set (or the shell has not wired
+   * the store yet, at early boot) — never a throw and never a deletion signal.
+   * Scoped to the calling module: one module can never read another's.
+   * Persists with app settings and survives a disable/enable cycle.
+   * Disclosure permission: `storage`.
+   */
+  getModuleAppState<T = unknown>(key: string): T | undefined
+  /**
+   * Write one key in your module's app-level state; `undefined` deletes it.
+   * Keep values JSON-serializable — they persist into app settings verbatim.
+   * False means the write was NOT stored (empty key, or the shell has not
+   * wired the store yet) — surface it or retry; never assume success.
+   * Disclosure permission: `storage`.
+   */
+  setModuleAppState(key: string, value: unknown): boolean
+  /**
+   * Observe your module's app-level state: `cb` fires with the current values
+   * on every change (not on subscribe — read the current value with
+   * `getModuleAppState`). Returns the unsubscriber; call it on unmount. Pair
+   * the two with `useSyncExternalStore` for a reactive read.
+   */
+  watchModuleAppState(cb: (values: Readonly<Record<string, unknown>>) => void): () => void
+  /**
+   * Subscribe to events your module's `entry.main` pushed with
+   * `MainHost.emit` (MC-2090) — the subscribe verb `invoke` does not have.
+   * Scoped to your module: another module's events never reach you, and yours
+   * never reach it. `cb` receives the emitted payload. Returns the
+   * unsubscriber; call it on unmount. Nothing is replayed, so a subscriber
+   * must be correct having missed every event emitted before it subscribed —
+   * read current state through an invoke and let events keep it fresh. See the
+   * delivery contract in shared/modules/events.ts.
+   */
+  subscribe(topic: string, cb: (payload: unknown) => void): () => void
+  /**
+   * Claim an agent-id namespace for your module (MC-2090): every agent id
+   * starting with `prefix` is yours, and `label` is what the shell calls those
+   * sessions where no workspace claims them. Without this, an agent your
+   * module spawned outside a window's knowledge is an unlabelled, unadoptable
+   * session. Registered once at boot; the shell gates on your module's live
+   * enablement. A prefix that overlaps one another module already claimed is a
+   * registration error. Disclosure permission: `ipc:agents`.
+   */
+  registerAgentIdNamespace(definition: AgentIdNamespaceDefinition): void
   /**
    * The workspace's *effective working root*: where its live work happens.
    * `ModuleWorkspaceView.folderPath` deliberately reports the durable primary
@@ -619,6 +759,16 @@ export type RendererKernel = {
    */
   getWorkspaceAside(): RegisteredWorkspaceAside | undefined
   /**
+   * The module namespace owning `agentId`, or undefined when no enabled module
+   * claims it. The shell asks this instead of importing a module's own id
+   * predicate — it is how a session no workspace claims gets a group label,
+   * and how core knows an unrecorded agent id is adoptable.
+   */
+  getAgentIdNamespace(
+    agentId: string,
+    moduleEnabled?: (moduleId: string) => boolean
+  ): RegisteredAgentIdNamespace | undefined
+  /**
    * Enablement source for host methods that must gate on a module's live
    * enablement without a caller-supplied predicate (the Backlog read API).
    * Wired once at boot by modules/index.ts from the workspace store; absent
@@ -638,6 +788,24 @@ export type RendererKernel = {
    * false. The kernel scopes every call by the owning module's id.
    */
   setWorkspaceModuleStateStore(store: WorkspaceModuleStateStore): void
+  /**
+   * Backing store for the app-level module-state accessors (MC-2090). Wired
+   * once at boot by modules/index.ts over the app-settings `module:<id>`
+   * namespace; until it lands reads resolve undefined and writes report false.
+   * A watch registered before it lands is held by the kernel and attaches here,
+   * because modules register synchronously at import and this wiring is a
+   * microtask later. The kernel scopes every call by the owning module's id.
+   */
+  setModuleAppStateStore(store: ModuleAppStateStore): void
+  /**
+   * Source for `RendererHost.subscribe`. Wired once at boot by modules/index.ts
+   * over `window.api.onModuleEvent`. The kernel owns the subscriber set, so ONE
+   * listener on this source backs every module's subscriptions and a subscribe
+   * made before the source lands still receives once it does — module code
+   * never has to guard the wiring window. Absent (tests, windowless bundles)
+   * nothing is delivered, which is indistinguishable from nothing being emitted.
+   */
+  setModuleEventSource(source: ModuleEventSource): void
   /**
    * Working-root source for `RendererHost.getWorkingRoot`. Wired once at boot
    * by modules/index.ts (store + worktree resolution); absent (early boot,
@@ -677,11 +845,50 @@ export function createRendererHost(): RendererKernel {
   const sidebarNavEntries = new Map<string, RegisteredSidebarNavEntry>()
   const topBarItems = new Map<string, RegisteredTopBarItem>()
   const globalSurfaces = new Map<string, RegisteredGlobalSurface>()
+  const agentIdNamespaces = new Map<string, RegisteredAgentIdNamespace>()
   let workspaceAside: RegisteredWorkspaceAside | null = null
   let backlogReader: { moduleId: string; reader: BacklogReader } | null = null
   let moduleEnabledResolver: ((moduleId: string) => boolean) | null = null
   let workspaceResolver: ((workspaceId: string) => ModuleWorkspaceView | null) | null = null
   let workspaceModuleStateStore: WorkspaceModuleStateStore | null = null
+  let moduleAppStateStore: ModuleAppStateStore | null = null
+  // Both backings are wired a microtask after boot, but modules register
+  // synchronously at import — so a module that subscribes inside
+  // `registerRenderer` would silently get a dead subscription. The kernel owns
+  // the subscriber sets instead and attaches to each backing when it lands, so
+  // an early subscribe survives the wiring window. The event set also means ONE
+  // source listener backs every module's subscriptions, however many there are.
+  type ModuleEventSubscriber = { moduleId: string; topic: string; cb: (payload: unknown) => void }
+  const moduleEventSubscribers = new Set<ModuleEventSubscriber>()
+  let detachModuleEventSource: (() => void) | null = null
+  type ModuleAppStateWatcher = {
+    moduleId: string
+    cb: (values: Readonly<Record<string, unknown>>) => void
+    detach?: () => void
+  }
+  const moduleAppStateWatchers = new Set<ModuleAppStateWatcher>()
+
+  const dispatchModuleEvent = (envelope: ModuleEventEnvelope): void => {
+    for (const subscriber of [...moduleEventSubscribers]) {
+      if (envelope.sourceModuleId !== subscriber.moduleId || envelope.topic !== subscriber.topic) continue
+      // Live gate on every delivery, not just at subscribe (the Backlog watcher
+      // pattern): a subscription stops receiving the moment the user disables
+      // the owning module, and resumes on re-enable.
+      if (moduleEnabledResolver && !moduleEnabledResolver(subscriber.moduleId)) continue
+      try {
+        subscriber.cb(envelope.payload)
+      } catch (error) {
+        // A throwing subscriber must not break the shared dispatch loop for
+        // every other module on the one source listener.
+        console.error(`[modules] event subscriber from module "${subscriber.moduleId}" threw:`, error)
+      }
+    }
+  }
+
+  const attachModuleAppStateWatcher = (watcher: ModuleAppStateWatcher): void => {
+    if (!moduleAppStateStore || watcher.detach) return
+    watcher.detach = moduleAppStateStore.subscribe(watcher.moduleId, watcher.cb)
+  }
   let workingRootResolver: ((workspaceId: string) => string | null) | null = null
   let workspaceFileWatcher: WorkspaceFileWatcher | null = null
   let agentSessionWatcher: AgentSessionWatcher | null = null
@@ -872,6 +1079,26 @@ export function createRendererHost(): RendererKernel {
           }
           globalSurfaces.set(definition.id, { ...definition, moduleId })
         },
+        registerAgentIdNamespace(definition) {
+          const prefix = definition.prefix.trim()
+          if (prefix.length === 0) {
+            throw new Error('Agent id namespace prefix must be a non-empty string.')
+          }
+          if (definition.label.trim().length === 0) {
+            throw new Error(`Agent id namespace "${prefix}" must have a non-empty label.`)
+          }
+          // Overlap, not equality: a prefix that contains — or is contained by —
+          // an existing one makes ownership of a concrete id ambiguous, and the
+          // resolver would answer by registration order rather than by design.
+          for (const existing of agentIdNamespaces.values()) {
+            if (prefix.startsWith(existing.prefix) || existing.prefix.startsWith(prefix)) {
+              throw new Error(
+                `Agent id namespace "${prefix}" overlaps "${existing.prefix}", already claimed by module "${existing.moduleId}".`
+              )
+            }
+          }
+          agentIdNamespaces.set(prefix, { ...definition, prefix, moduleId })
+        },
         registerWorkspaceAside(definition) {
           if (definition.id.trim().length === 0) {
             throw new Error('Workspace aside id must be a non-empty string.')
@@ -932,6 +1159,34 @@ export function createRendererHost(): RendererKernel {
           return workspaceModuleStateStore
             ? workspaceModuleStateStore.set(workspaceId, moduleId, state)
             : false
+        },
+        getModuleAppState<T = unknown>(key: string): T | undefined {
+          if (!moduleAppStateStore) return undefined
+          return moduleAppStateStore.get(moduleId)[key] as T | undefined
+        },
+        setModuleAppState(key, value) {
+          return moduleAppStateStore ? moduleAppStateStore.set(moduleId, key, value) : false
+        },
+        watchModuleAppState(cb) {
+          const watcher: ModuleAppStateWatcher = { moduleId, cb }
+          moduleAppStateWatchers.add(watcher)
+          // Held by the kernel, not the store, so a watch registered before the
+          // store is wired attaches when it lands rather than silently dying.
+          attachModuleAppStateWatcher(watcher)
+          return () => {
+            moduleAppStateWatchers.delete(watcher)
+            watcher.detach?.()
+          }
+        },
+        subscribe(topic, cb) {
+          // The kernel owns the subscriber set (see dispatchModuleEvent): one
+          // source listener backs every module's subscriptions, and a subscribe
+          // made before the source is wired still receives once it lands.
+          const subscriber: ModuleEventSubscriber = { moduleId, topic, cb }
+          moduleEventSubscribers.add(subscriber)
+          return () => {
+            moduleEventSubscribers.delete(subscriber)
+          }
         },
         async getWorkingRoot(workspaceId) {
           return workingRootResolver ? workingRootResolver(workspaceId) : null
@@ -1068,11 +1323,36 @@ export function createRendererHost(): RendererKernel {
     getWorkspaceAside() {
       return workspaceAside ?? undefined
     },
+    getAgentIdNamespace(agentId, moduleEnabled) {
+      // Longest prefix first, so a future nested claim resolves to the more
+      // specific owner rather than to whichever registered first. Registration
+      // already rejects overlaps, making this a belt to that brace.
+      const candidates = [...agentIdNamespaces.values()].sort(
+        (a, b) => b.prefix.length - a.prefix.length
+      )
+      return candidates.find(
+        (namespace) =>
+          agentId.startsWith(namespace.prefix)
+          && (!moduleEnabled || moduleEnabled(namespace.moduleId))
+      )
+    },
     setModuleEnablementResolver(resolver) {
       moduleEnabledResolver = resolver
     },
     setWorkspaceModuleStateStore(store) {
       workspaceModuleStateStore = store
+    },
+    setModuleAppStateStore(store) {
+      moduleAppStateStore = store
+      // Attach anything that watched before the store landed (a module's
+      // registerRenderer runs synchronously, this wiring a microtask later).
+      for (const watcher of moduleAppStateWatchers) attachModuleAppStateWatcher(watcher)
+    },
+    setModuleEventSource(source) {
+      // One listener on the source, whoever subscribed and whenever. Re-wiring
+      // replaces the old attachment rather than stacking a second dispatcher.
+      detachModuleEventSource?.()
+      detachModuleEventSource = source(dispatchModuleEvent)
     },
     setWorkspaceResolver(resolver) {
       workspaceResolver = resolver

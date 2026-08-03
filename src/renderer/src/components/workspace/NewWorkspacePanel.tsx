@@ -6,20 +6,16 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost } from '../../modules'
 import { ModuleCreationStepSection } from './newWorkspace/ModuleCreationStepSection'
 import { createGuidedBriefTemplate } from '../../modules/design-wizard-workspace-types'
-import { createReviewTemplate } from '../../review/workspaceTypes'
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
-  REVIEW_WORKSPACE_MODE,
   SPRINT_ENGINE_WORKSPACE_MODE,
 } from '../../types/workspace'
-import type { GitBranchSnapshot, ReviewSourceInput } from '../../../../shared/electron-api'
 import type {
   AgentCli,
   AgentId,
   DesignSystemSeedSource,
   LayoutTemplate,
   McpCatalogServer,
-  ReviewGuideConfig,
   SprintEngineAutoState,
   SprintEngineCliPermissionPreset,
   SprintEngineRoleId,
@@ -84,14 +80,10 @@ import {
   stepWithinFlow,
 } from './newWorkspace/stepNavigation'
 import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
-import { ReviewSourceStep, type ReviewProbeState } from '../../review/door/ReviewSourceStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS } from './newWorkspace/savedRosters'
-import {
-  resolveAvailableAgentCli,
-  selectAgentCliCatalog,
-} from './newWorkspace/cliRuntimeOptions'
+import { selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { remapRoleCliDefaultsToAvailable, useRosterEditor } from './newWorkspace/useRosterEditor'
 import {
   DesignSystemScaffoldError,
@@ -104,10 +96,8 @@ import {
   runDesignSystemScaffold,
   runGuidedBriefScaffold,
   runGuidedBriefStartBuild,
+  runModuleTypeCreation,
 } from './newWorkspace/controllers'
-// Reached directly, not through core's controllers barrel: this is one of the
-// residual core→review edges MC-1857 severs (see that item's requirements).
-import { runReviewCreation, ReviewControllerError } from '../../review/door/reviewCreation'
 
 // The shell-owned mode models (chat, standard) and the rail ordering live in
 // newWorkspace/modeModels.ts, shared with the CreationRail contract test.
@@ -128,10 +118,6 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
   'guided-idea': {
     title: 'Tell us about your idea',
     subtitle: 'A sentence or two, in plain words. We’ll ask the rest.',
-  },
-  'review-source': {
-    title: 'What are you reviewing?',
-    subtitle: 'Point this workspace at one set of changes — a pull request, a branch, or a pasted patch.',
   },
   // Placeholder only — a module step renders its own registered heading via
   // ModuleCreationStepSection, and stepHeading/stepLabels substitute it too.
@@ -324,26 +310,6 @@ export default function NewWorkspacePanel({
   const [cliPermissionPreset] = useState<SprintEngineCliPermissionPreset>(
     lastSpawnPermissionPreset,
   )
-
-  // Review workspace creation state (MC-1677). The source segment leads with
-  // Pull request (per the accepted mockup); the GitHub provider (MC-1678) is
-  // registered, so a URL probes live.
-  const [reviewSourceKind, setReviewSourceKind] = useState<ReviewSourceInput['kind']>('pull-request')
-  const [reviewPrUrl, setReviewPrUrl] = useState('')
-  const [reviewBrBase, setReviewBrBase] = useState('')
-  const [reviewBrHead, setReviewBrHead] = useState('')
-  const [reviewBranches, setReviewBranches] = useState<GitBranchSnapshot | null>(null)
-  const [reviewPatchText, setReviewPatchText] = useState('')
-  const [reviewPatchLabel, setReviewPatchLabel] = useState('')
-  // The live source probe (review:detect-source) for the current fields.
-  const [reviewProbe, setReviewProbe] = useState<ReviewProbeState>({ status: 'idle' })
-  const [reviewKgEnabled, setReviewKgEnabled] = useState(true)
-  const [reviewGuideCli, setReviewGuideCli] = useState<AgentCli>(
-    () => useWorkspaceStore.getState().appSettings.lastSelectedCli ?? 'claude-code',
-  )
-  const [reviewGuideModel, setReviewGuideModel] = useState<string | null>(null)
-  const [reviewDepth, setReviewDepth] = useState<'brief' | 'standard' | 'thorough'>('standard')
-  const [reviewError, setReviewError] = useState<string | null>(null)
 
   // Module-contributed creation step (WorkspaceTypeDefinition.creationStep):
   // the collected value lives here for the pane's lifetime only and resets on
@@ -549,107 +515,6 @@ export default function NewWorkspacePanel({
     return key ? projectKnowledgeRoots?.[key] ?? null : null
   }, [folderPath, projectKnowledgeRoots])
 
-  const isReview = mode === REVIEW_WORKSPACE_MODE
-  // The typed source the probe + ingest consume, or null when the fields are not
-  // yet fillable (empty URL/patch, or a branch pair not chosen).
-  const reviewSourceInput = useMemo<ReviewSourceInput | null>(() => {
-    if (reviewSourceKind === 'pull-request') {
-      const url = reviewPrUrl.trim()
-      return url ? { kind: 'pull-request', url } : null
-    }
-    if (reviewSourceKind === 'branch') {
-      const baseRef = reviewBrBase.trim()
-      const headRef = reviewBrHead.trim()
-      if (!folderPath || !baseRef || !headRef) return null
-      return { kind: 'branch', repoRoot: folderPath, baseRef, headRef }
-    }
-    if (reviewPatchText.trim().length === 0) return null
-    const label = reviewPatchLabel.trim()
-    return label ? { kind: 'patch', text: reviewPatchText, label } : { kind: 'patch', text: reviewPatchText }
-  }, [reviewSourceKind, reviewPrUrl, reviewBrBase, reviewBrHead, folderPath, reviewPatchText, reviewPatchLabel])
-
-  // Debounced live probe (review:detect-source). Never throws to the UI — an
-  // unresolvable ref, an unregistered provider (pull-request until MC-1678), or
-  // an unparsable patch comes back as an inline error that keeps Start
-  // walkthrough disabled.
-  useEffect(() => {
-    if (!isReview) return
-    if (!reviewSourceInput) {
-      setReviewProbe({ status: 'idle' })
-      return
-    }
-    const input = reviewSourceInput
-    let cancelled = false
-    const timer = setTimeout(() => {
-      setReviewProbe({ status: 'probing' })
-      void window.api
-        .reviewDetectSource(input)
-        .then((probe) => {
-          if (cancelled) return
-          setReviewProbe(
-            probe.ok
-              ? { status: 'ok', probe }
-              : { status: 'error', message: probe.error ?? 'Could not read this source.' },
-          )
-        })
-        .catch((error: unknown) => {
-          if (cancelled) return
-          setReviewProbe({ status: 'error', message: error instanceof Error ? error.message : String(error) })
-        })
-    }, 350)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [isReview, reviewSourceInput])
-
-  // Load local branches for the Branch source so the base/head pickers offer
-  // real refs (and seed sensible defaults: head = current branch, base = the
-  // project's mainline).
-  useEffect(() => {
-    if (!isReview || reviewSourceKind !== 'branch' || !folderPath) return
-    let cancelled = false
-    void window.api
-      .getGitBranches(folderPath)
-      .then((snapshot) => {
-        if (cancelled) return
-        setReviewBranches(snapshot)
-        setReviewBrHead((current) => current || snapshot.current || '')
-        setReviewBrBase((current) => current || pickReviewBaseDefault(snapshot))
-      })
-      .catch(() => {
-        if (!cancelled) setReviewBranches(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isReview, reviewSourceKind, folderPath])
-
-  // Default the knowledge-graph toggle on only when the project actually has one.
-  useEffect(() => {
-    if (!isReview) return
-    setReviewKgEnabled(Boolean(committedKnowledgeRoot))
-  }, [isReview, committedKnowledgeRoot])
-
-  // Keep the guide engine clamped to an installed CLI once detection is
-  // trustworthy, mirroring the roster pickers — never offer/seed an uninstalled
-  // agent as the guide.
-  useEffect(() => {
-    if (!isReview || cliAvailabilityStatus !== 'ready') return
-    setReviewGuideCli((current) => resolveAvailableAgentCli(current, sprintEngineCliOptions, current))
-  }, [isReview, cliAvailabilityStatus, sprintEngineCliOptions])
-
-  const reviewSourceReady = reviewProbe.status === 'ok'
-  const reviewGuideConfig = useMemo<ReviewGuideConfig>(
-    () => ({
-      engineCli: reviewGuideCli,
-      engineModel: reviewGuideModel,
-      depth: reviewDepth,
-      knowledgeGraph: reviewKgEnabled,
-    }),
-    [reviewGuideCli, reviewGuideModel, reviewDepth, reviewKgEnabled],
-  )
-
   // Persist the optional Advanced setup selections to the real project on disk:
   // write the MCP agent config through the same mcp:sync path Settings uses,
   // install each selected skill pack, then attach the selected design system
@@ -783,17 +648,11 @@ export default function NewWorkspacePanel({
   // The optional Advanced setup disclosure rides the flow's final page, for any
   // flow with real config steps; the zero-config quick flows (chat, switchboard,
   // automations) defer that configuration to Settings, exactly as before.
-  // Review's source page owns its own "Walkthrough context" rows (knowledge graph,
-  // guide, depth), so the generic Advanced setup disclosure would duplicate the
-  // knowledge control — suppress it.
   // 'standard' is listed explicitly because it no longer HAS a config step: the
   // layout picker it used to ride on was removed, and gating purely on
   // configSteps.length would have taken create-time MCP / knowledge / design-system
   // access down with it. Only the layout page was ruled out, not this disclosure.
-  const showAdvancedSetup =
-    (configSteps.length > 0 || mode === 'standard')
-    && isLastStep
-    && mode !== REVIEW_WORKSPACE_MODE
+  const showAdvancedSetup = (configSteps.length > 0 || mode === 'standard') && isLastStep
 
   // The rail's type list — shell-owned Chat + Workspace, then the enabled
   // registry-contributed types (see modeModels.ts for the ordering contract).
@@ -1007,7 +866,6 @@ export default function NewWorkspacePanel({
   const stepReadiness = {
     workspaceStepReady,
     guidedIdeaReady,
-    reviewSourceReady,
     moduleStepReady,
   }
   // Every non-chat create requires the name+folder fields plus the mode's own
@@ -1042,9 +900,6 @@ export default function NewWorkspacePanel({
     guidedSeedMode,
     guidedSeedReady,
     committedKnowledgeRoot,
-    reviewProbeStatus: reviewProbe.status,
-    reviewProbeMessage: reviewProbe.status === 'error' ? reviewProbe.message : null,
-    reviewHasSource: reviewSourceInput != null,
   })
 
   const handleSelectMode = (next: CreationMode) => {
@@ -1377,62 +1232,48 @@ export default function NewWorkspacePanel({
       return
     }
 
-    if (mode === REVIEW_WORKSPACE_MODE) {
-      // Start walkthrough: create the workspace, then materialize its change set.
-      // Guarded on a resolved source, so the probe already validated it.
-      if (!folderPath || !reviewSourceInput || !reviewSourceReady) return
-      const source = reviewSourceInput
-      setIsCreating(true)
-      setReviewError(null)
-      try {
-        await runReviewCreation(
-          { name, folderPath, source, guideConfig: reviewGuideConfig },
-          {
-            // guideConfig is consumed by the guide run through runReviewCreation
-            // itself; it is deliberately NOT stamped onto the workspace row
-            // (MC-1856 — it was write-only state nothing ever read back).
-            addReviewWorkspace: ({ name: reviewName, folderPath: reviewFolder }) =>
-              addWorkspace(createReviewTemplate(), {
-                name: reviewName,
-                folderPath: reviewFolder,
-                mode: REVIEW_WORKSPACE_MODE,
-                windowId: workspaceWindowId,
-              }),
-            removeWorkspace,
-            ingestSource: window.api.reviewIngestSource,
-          },
-        )
-        onClose()
-      } catch (error) {
-        setReviewError(
-          error instanceof ReviewControllerError && error.message !== error.code
-            ? error.message
-            : error instanceof Error
-              ? error.message
-              : 'Could not create the review.',
-        )
-      } finally {
-        setIsCreating(false)
-      }
-      return
-    }
-
     // Module-contributed workspace types (no shell branch above): the
     // registered definition's createTemplate() is the layout; the flow showed
     // no layout picker (see stepsForMode), so nothing here overrides it.
     if (mode !== 'standard' && getRendererHost().getWorkspaceType(mode)) {
       if (!folderPath) return
-      const args = buildModuleTypeCreation({
+      const creationInput = {
         mode,
         name,
         folderPath,
         stepValue: moduleStepBroken ? undefined : moduleStepValue,
-      })
+      }
       setIsCreating(true)
       try {
+        // Advanced setup writes to the real project on disk, so a failure there
+        // must abort before anything is created — whichever branch creates.
         if (await persistAdvancedSetup(folderPath)) return
-        onCreate(args)
+        // A type may own its whole create action (MC-2090) when creating it is
+        // orchestration rather than a layout choice. The template is built only
+        // on the branch that uses it: the module-owned path runs `createTemplate`
+        // itself, through `host.createWorkspace()`.
+        const ownedByModule = await runModuleTypeCreation(
+          { ...creationInput, setStepValue: setModuleStepValue },
+          {
+            addWorkspace: (created) =>
+              addWorkspace(created.template, {
+                name: created.name,
+                folderPath: created.folderPath,
+                mode: created.mode,
+                windowId: workspaceWindowId,
+              }),
+            removeWorkspace,
+          },
+        )
+        if (!ownedByModule) onCreate(buildModuleTypeCreation(creationInput))
         onClose()
+      } catch (error) {
+        // A rejected create hook leaves the hub open with the create still
+        // available. The module reports WHY through its own step (that is what
+        // `setStepValue` is for) — the hub has no surface of its own to render
+        // another module's failure in, and inventing one would put the same
+        // message in two places.
+        console.error(`[modules] workspace type "${mode}" failed to create:`, error)
       } finally {
         setIsCreating(false)
       }
@@ -1824,45 +1665,6 @@ export default function NewWorkspacePanel({
               folderPath={folderPath}
               error={guidedError}
             />
-            </ConfigStepSection>
-          ) : null}
-
-          {step === 'review-source' ? (
-            <ConfigStepSection stepId="review-source" headingRef={headingRef}>
-              <ReviewSourceStep
-                sourceKind={reviewSourceKind}
-                onChangeSourceKind={(kind) => {
-                  setReviewSourceKind(kind)
-                  setReviewProbe({ status: 'idle' })
-                  setReviewError(null)
-                }}
-                prUrl={reviewPrUrl}
-                onChangePrUrl={setReviewPrUrl}
-                branches={reviewBranches}
-                baseRef={reviewBrBase}
-                headRef={reviewBrHead}
-                onChangeBaseRef={setReviewBrBase}
-                onChangeHeadRef={setReviewBrHead}
-                patchText={reviewPatchText}
-                onChangePatchText={setReviewPatchText}
-                patchLabel={reviewPatchLabel}
-                onChangePatchLabel={setReviewPatchLabel}
-                probe={reviewProbe}
-                knowledgeRoot={committedKnowledgeRoot}
-                knowledgeEnabled={reviewKgEnabled}
-                onChangeKnowledgeEnabled={setReviewKgEnabled}
-                guideCli={reviewGuideCli}
-                guideModel={reviewGuideModel}
-                guideCliOptions={sprintEngineCliOptions}
-                onChangeGuideCli={(nextCli) => {
-                  setReviewGuideCli(nextCli)
-                  setReviewGuideModel(null)
-                }}
-                onChangeGuideModel={(_cli, model) => setReviewGuideModel(model)}
-                depth={reviewDepth}
-                onChangeDepth={setReviewDepth}
-                createError={reviewError}
-              />
             </ConfigStepSection>
           ) : null}
 
@@ -2802,7 +2604,6 @@ function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): s
 
 function createLabelFor(mode: CreationMode, isCreating: boolean): string {
   if (isCreating) return 'Creating…'
-  if (mode === REVIEW_WORKSPACE_MODE) return 'Start walkthrough'
   switch (mode) {
     // 'chat' drives create from the embedded composer's own CTA, not this footer,
     // so the footer is hidden for it; the label is defined for completeness.
@@ -2824,7 +2625,6 @@ function isStepReady(
   readiness: {
     workspaceStepReady: boolean
     guidedIdeaReady: boolean
-    reviewSourceReady: boolean
     moduleStepReady: boolean
   },
 ): boolean {
@@ -2837,21 +2637,9 @@ function isStepReady(
       return true
     case 'guided-idea':
       return readiness.guidedIdeaReady
-    case 'review-source':
-      return readiness.reviewSourceReady
     case 'module-step':
       return readiness.moduleStepReady
   }
-}
-
-// The base ref a review's Branch source defaults to: the project mainline if
-// present (never the branch being reviewed), else the first other local branch.
-function pickReviewBaseDefault(snapshot: GitBranchSnapshot): string {
-  const names = snapshot.branches.map((branch) => branch.name)
-  for (const preferred of ['main', 'master', 'develop']) {
-    if (preferred !== snapshot.current && names.includes(preferred)) return preferred
-  }
-  return names.find((name) => name !== snapshot.current) ?? ''
 }
 
 function getStepBlockingMessage(args: {
@@ -2865,9 +2653,6 @@ function getStepBlockingMessage(args: {
   guidedSeedMode: DesignSystemSeedMode
   guidedSeedReady: boolean
   committedKnowledgeRoot: string | null
-  reviewProbeStatus: 'idle' | 'probing' | 'ok' | 'error'
-  reviewProbeMessage: string | null
-  reviewHasSource: boolean
 }): string {
   const {
     step,
@@ -2878,9 +2663,6 @@ function getStepBlockingMessage(args: {
     guidedSeedMode,
     guidedSeedReady,
     committedKnowledgeRoot,
-    reviewProbeStatus,
-    reviewProbeMessage,
-    reviewHasSource,
   } = args
 
   switch (step) {
@@ -2907,11 +2689,5 @@ function getStepBlockingMessage(args: {
           : 'The brand demo is unavailable — pick another starting point.'
       }
       return 'Ready to capture the idea.'
-    case 'review-source':
-      if (!reviewHasSource) return 'Point the workspace at a pull request, branch, or patch.'
-      if (reviewProbeStatus === 'probing') return 'Reading the changes…'
-      if (reviewProbeStatus === 'error') return reviewProbeMessage ?? 'Could not read this source.'
-      if (reviewProbeStatus === 'ok') return 'Ready to start the walkthrough.'
-      return 'Point the workspace at a pull request, branch, or patch.'
   }
 }

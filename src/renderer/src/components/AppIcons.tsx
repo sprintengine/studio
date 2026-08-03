@@ -137,18 +137,6 @@ export function GuidedBriefWorkspaceTypeIcon({ className }: IconProps) {
   )
 }
 
-export function ReviewWorkspaceTypeIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M5.5 7.5H14" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M5.5 11H11" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M5.5 14.5H9" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <circle cx="15" cy="14.5" r="3.75" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M17.9 17.4L20.5 20" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
 export function StandardWorkspaceTypeIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">

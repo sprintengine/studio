@@ -18,6 +18,7 @@ import { ReviewCanvasTools, buildReviewsSurfaceBar } from './ReviewSurfaceBar'
 import { AskGuideDrawer, ReviewGuideActions, useReviewGuideRuntime } from './ReviewGuideControls'
 import { ensureReviewsHostWorkspace } from './reviewsHostWorkspace'
 import { useGuideTerminal } from './useGuideTerminal'
+import { useLastSelectedReview, writeLastSelectedReview } from './reviewAppState'
 
 // How often the open door re-scans the review index so the rail's states stay
 // honest (a sibling window posting, a walkthrough finishing) without ever
@@ -52,8 +53,8 @@ export default function ReviewsGlobalSurface(): JSX.Element {
 
   // The door unmounts on close, so the last-opened review is remembered in
   // persisted settings rather than component state — reopening restores it.
-  const lastSelectedReview = useWorkspaceStore((state) => state.appSettings.lastSelectedReview)
-  const setLastSelectedReview = useWorkspaceStore((state) => state.setLastSelectedReview)
+  const lastSelectedReview = useLastSelectedReview()
+  const setLastSelectedReview = writeLastSelectedReview
 
   const [index, setIndex] = useState<IndexPhase>({ phase: 'loading' })
   const [selected, setSelected] = useState<SelectedReview | null>(null)

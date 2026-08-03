@@ -232,6 +232,7 @@ import type {
   ConversationTranscriptResult,
 } from './conversation-runtime'
 import type { ModuleBridgeInvokeResult } from './modules/bridge'
+import type { ModuleEventEnvelope } from './modules/events'
 import type {
   ModuleTrustStatus,
   ThirdPartyModuleInstallResult,
@@ -3265,6 +3266,8 @@ export type ElectronApi = {
   listThirdPartyRendererEntries: () => Promise<ThirdPartyRendererEntriesResult>
   /** Renderer→module-main bridge: invoke a channel a third-party module registered via registerIpc. Refusals are structured, not rejections. */
   moduleBridgeInvoke: (channel: string, payload?: unknown) => Promise<ModuleBridgeInvokeResult>
+  /** Every capability module's main→renderer events on one host-owned channel; the renderer kernel fans them out by `sourceModuleId`. Returns the unsubscriber. */
+  onModuleEvent: (cb: (envelope: ModuleEventEnvelope) => void) => () => void
   /** Sanitized per-run + per-agent feedback analysis for the run summary (read-only). */
   summarizeSprintEngineFeedback: (statePath: string) => Promise<SprintEngineMcpReadResult>
   /** Per-task / per-agent / run token usage computed from the run's durable
@@ -3401,5 +3404,4 @@ export type ElectronApi = {
   reviewWriteState: (target: ReviewTarget, state: ReviewWorkspaceState) => Promise<ReviewStateWriteResult>
   reviewList: (roots: string[]) => Promise<ReviewListResult>
   reviewMatchPrProject: (url: string, roots: string[]) => Promise<ReviewMatchPrProjectResult>
-  onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => () => void
 }

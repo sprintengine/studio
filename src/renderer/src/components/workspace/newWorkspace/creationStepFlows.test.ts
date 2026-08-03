@@ -73,7 +73,7 @@ assert.deepEqual(STEPS_BY_MODE.standard, ['workspace'], 'standard creation has n
 // a blank the user was actually meant to fill in. With the sprint flow gone
 // there is no defaulted refinement step left, so the invariant tightens: an
 // intent step must be its flow's LAST step.
-const INTENT_STEPS = ['guided-idea', 'review-source'] as const
+const INTENT_STEPS = ['guided-idea'] as const
 for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
   const intentIndex = steps.findIndex((step) => (INTENT_STEPS as readonly string[]).includes(step))
   if (intentIndex < 0) continue

@@ -197,7 +197,7 @@ export function registerReviewIpc(
   // Start the guide run for a review. The guide is a terminal agent under the
   // review's project, so this resolves once its terminal has the prompt — not
   // when the walkthrough exists. The brief lands later through
-  // review_submit_brief, which announces itself on BRIEF_RUN_EVENT_CHANNEL and
+  // review_submit_brief, which announces itself on BRIEF_RUN_EVENT_TOPIC and
   // is what the panel re-reads on. One guide per review: a start against a live
   // run joins it (result carries `joined`) unless the caller asked for a restart.
   // `guide` names the terminal, so the caller can show and focus it.

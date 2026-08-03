@@ -1,5 +1,6 @@
 import type { IpcMain } from 'electron'
 
+import type { ModuleEventEnvelope } from '../../shared/modules/events'
 import type {
   CapabilityManifest,
   ModuleEnablementOverrides,
@@ -76,6 +77,8 @@ export function loadMainModules(options: {
   launchErrors?: MainModuleLoadError[]
   /** Sends a module notification to every open renderer window. */
   deliverNotification?: (notification: ModuleNotification) => void
+  /** Sends a module event to every open renderer window. */
+  deliverModuleEvent?: (event: ModuleEventEnvelope) => void
   /** Clock override for notification flood-bound tests. */
   now?: () => number
 }): LoadMainModulesResult {
@@ -89,6 +92,7 @@ export function loadMainModules(options: {
 
   const kernel = createMainKernel(ipcMain, {
     deliverNotification: options.deliverNotification,
+    deliverModuleEvent: options.deliverModuleEvent,
     now: options.now,
     resolveModuleManifest: (moduleId) => byId.get(moduleId)?.manifest,
   })

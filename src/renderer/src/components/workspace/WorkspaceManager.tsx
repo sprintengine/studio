@@ -122,7 +122,6 @@ import {
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
 import { attentionQueueBadge, buildAttentionQueueItems } from '../../utils/attentionQueue'
-import { isReviewGuideAgentId } from '../../review/door/reviewGuideTerminal'
 import { residentAgentWorkspaceIds } from '../../utils/workspaceResidency'
 import {
   EMPTY_WORKSPACE_NAVIGATION_HISTORY,
@@ -318,6 +317,13 @@ export default function WorkspaceManager() {
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)
   const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
+  // One stable predicate for every registry read in this component. The store
+  // hands out a new `appSettings.modules` reference only when enablement really
+  // changes, so this is one identity per change rather than one per render.
+  const moduleEnabled = useCallback(
+    (moduleId: string) => selectModuleEnabled(moduleEnablement, moduleId),
+    [moduleEnablement],
+  )
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
   const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
@@ -716,18 +722,21 @@ export default function WorkspaceManager() {
     windowActiveWorkspaceId,
     terminalSessions,
   ])
-  // Names the bucket a session with no workspace row is listed under. The review
-  // guide now runs as an agent terminal inside its project workspace, so it is
-  // normally not detached at all; a session left over from a closed project still
-  // reads as "Reviews" through its per-review guide agent id.
+  // Names the bucket a session with no workspace row is listed under. A module
+  // that spawns agents outside a window's knowledge (the review guide runs as an
+  // agent terminal in its project workspace) claims its own agent-id prefix and
+  // supplies the label — core asks the registry rather than importing any
+  // module's own id predicate.
   const resolveDetachedSessionLabel = useCallback(
-    (workspaceId: string): string | null =>
-      [...terminalSessions, ...conversationSessions].some(
-        (summary) => summary.workspaceId === workspaceId && isReviewGuideAgentId(summary.agentId ?? ''),
-      )
-        ? 'Reviews'
-        : null,
-    [terminalSessions, conversationSessions],
+    (workspaceId: string): string | null => {
+      for (const summary of [...terminalSessions, ...conversationSessions]) {
+        if (summary.workspaceId !== workspaceId) continue
+        const owner = getRendererHost().getAgentIdNamespace(summary.agentId ?? '', moduleEnabled)
+        if (owner) return owner.label
+      }
+      return null
+    },
+    [terminalSessions, conversationSessions, moduleEnabled],
   )
   // Resolution runs against EVERY workspace, not just this window's, so a session
   // hosted in another window resolves to its real workspace and is filtered out
@@ -783,13 +792,14 @@ export default function WorkspaceManager() {
       .slice(0, WORKSPACE_LAYOUT_WARM_HIDDEN_LIMIT)
     return new Set(warm)
   }, [renderedWorkspaceIds, windowActiveWorkspaceId])
-  const workspaceTypeSupervisors = useMemo(() => {
-    const moduleEnabled = (moduleId: string) => selectModuleEnabled(moduleEnablement, moduleId)
-    return collectWorkspaceTypeSupervisors(
-      getRendererHost().getWorkspaceTypes(moduleEnabled),
-      ownsGlobalSupervisors,
-    )
-  }, [moduleEnablement, ownsGlobalSupervisors, moduleRegistryGeneration])
+  const workspaceTypeSupervisors = useMemo(
+    () =>
+      collectWorkspaceTypeSupervisors(
+        getRendererHost().getWorkspaceTypes(moduleEnabled),
+        ownsGlobalSupervisors,
+      ),
+    [moduleEnabled, ownsGlobalSupervisors, moduleRegistryGeneration],
+  )
   // The merge point output for keyboard dispatch: shell registry + enabled
   // module commands. Recomputed when enablement changes, so toggling a module
   // adds/removes its keybindings without a reload.
@@ -3029,7 +3039,9 @@ export default function WorkspaceManager() {
     // same one the Reviews door performs — and without it the reviewer lands in
     // the Reviews host with no tab (MC-1911).
     const agentId =
-      item.agentId && (workspace.agents[item.agentId] || isReviewGuideAgentId(item.agentId))
+      item.agentId
+      && (workspace.agents[item.agentId]
+        || getRendererHost().getAgentIdNamespace(item.agentId, moduleEnabled))
         ? item.agentId
         : null
     const status = await window.api.terminalStatus(item.sessionId)

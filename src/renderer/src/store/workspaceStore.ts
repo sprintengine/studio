@@ -28,8 +28,6 @@ import type {
   AgentConfigAdoptionResult,
   AgentConversationRuntime,
   AppSettings,
-  LastSelectedReview,
-  ReviewGuideDefaults,
   UsageTelemetrySettings,
   VoiceDictationSettings,
   CliRuntimeSettings,
@@ -223,8 +221,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   removeMcpServer: (serverId: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
-  setLastSelectedReview: (selection: LastSelectedReview | null) => void
-  setReviewGuideDefaults: (patch: Partial<ReviewGuideDefaults>) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSpawnWasGeneral: (value: boolean) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void

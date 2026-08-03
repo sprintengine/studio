@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
+import { MODULE_EVENTS_CHANNEL } from '../shared/modules/events'
 import { MODULE_NOTIFICATIONS_EVENT_CHANNEL } from '../shared/modules/notifications'
 import { parseAuthCallbackFromArgv } from './auth-service'
 import { registerAppLifecycle } from './app-lifecycle'
@@ -102,6 +103,15 @@ const moduleLoad = loadMainModules({
     for (const window of BrowserWindow.getAllWindows()) {
       if (window.isDestroyed() || window.webContents.isDestroyed()) continue
       window.webContents.send(MODULE_NOTIFICATIONS_EVENT_CHANNEL, notification)
+    }
+  },
+  // Module events fan out to every open window on the one host-owned channel;
+  // the renderer kernel routes each envelope to its own module's subscribers.
+  // Nothing is buffered for windows opened later — see shared/modules/events.ts.
+  deliverModuleEvent: (event) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+      window.webContents.send(MODULE_EVENTS_CHANNEL, event)
     }
   },
 })

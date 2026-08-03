@@ -93,6 +93,25 @@ for (const module of ACTIVE_RENDERER_MODULES) {
   module.registerRenderer?.(rendererHost.hostFor(module.manifest.id))
 }
 
+// One shared empty namespace for a module that has never written app-level
+// state. A stable reference, not a fresh `{}` per read: the app-state watcher
+// compares the previous and next namespace by identity, and a new object each
+// read would fire every subscriber on every unrelated store update.
+const EMPTY_MODULE_APP_STATE: Readonly<Record<string, unknown>> = Object.freeze({})
+
+// Same-keys-same-values, one level deep. The stored values are themselves stable
+// references across an unrelated write, so this is the right depth: it answers
+// "did MY namespace change?" without walking JSON the module owns.
+function shallowEqualEntries(
+  a: Readonly<Record<string, unknown>>,
+  b: Readonly<Record<string, unknown>>
+): boolean {
+  if (a === b) return true
+  const keys = Object.keys(a)
+  if (keys.length !== Object.keys(b).length) return false
+  return keys.every((key) => Object.is(a[key], b[key]))
+}
+
 // Host methods that gate on live enablement without a caller-supplied
 // predicate (the Backlog read API) resolve it through this hook. The store
 // import is deferred so the eager module-registry graph stays store-free
@@ -108,6 +127,7 @@ for (const module of ACTIVE_RENDERER_MODULES) {
 if (typeof window !== 'undefined') {
   Promise.all([
     import('../store/workspaceStore'),
+    import('../store/slices/settingsSlice'),
     import('../hooks/terminalSessionsStore'),
     import('../utils/modelRegistry'),
     import('../components/workspace/newWorkspace/cliRuntimeOptions'),
@@ -117,7 +137,7 @@ if (typeof window !== 'undefined') {
     import('./agent-session-watch'),
     import('./agent-spawn'),
   ])
-    .then(([{ useWorkspaceStore }, terminalSessions, modelRegistry, cliRuntimeOptions, agentNames, workspaceWorktree, { createWorkspaceFileWatcher }, { createAgentSessionWatcher }, { createModuleAgentSpawner }]) => {
+    .then(([{ useWorkspaceStore }, { moduleSettingsNamespace }, terminalSessions, modelRegistry, cliRuntimeOptions, agentNames, workspaceWorktree, { createWorkspaceFileWatcher }, { createAgentSessionWatcher }, { createModuleAgentSpawner }]) => {
       rendererHost.setModuleEnablementResolver((moduleId) =>
         selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
       )
@@ -139,6 +159,42 @@ if (typeof window !== 'undefined') {
         set: (workspaceId, moduleId, state) =>
           useWorkspaceStore.getState().setWorkspaceModuleState(workspaceId, moduleId, state),
       })
+      // App-level module state (MC-2090): the `module:<id>` namespace inside
+      // app settings that already backs contributed Settings sections. Reads
+      // are synchronous off the store — that is the whole point, so a module's
+      // selector keeps its render timing — and writes go through the same
+      // store action the Settings surface uses, so persistence is identical.
+      rendererHost.setModuleAppStateStore({
+        get: (moduleId) =>
+          useWorkspaceStore.getState().appSettings.moduleSettings[
+            moduleSettingsNamespace(moduleId)
+          ] ?? EMPTY_MODULE_APP_STATE,
+        set: (moduleId, key, value) => {
+          if (moduleId.trim().length === 0 || key.trim().length === 0) return false
+          useWorkspaceStore.getState().setModuleSettingValue(moduleId, key, value)
+          return true
+        },
+        subscribe: (moduleId, cb) => {
+          const namespace = moduleSettingsNamespace(moduleId)
+          const read = (state: { appSettings: { moduleSettings: Record<string, Record<string, unknown>> } }) =>
+            state.appSettings.moduleSettings[namespace] ?? EMPTY_MODULE_APP_STATE
+          return useWorkspaceStore.subscribe((state, prev) => {
+            const next = read(state)
+            // Shallow by value, not by identity: the store's write action
+            // renormalizes the WHOLE bag, so any module's write hands every
+            // other module a fresh namespace object. Comparing identity would
+            // wake every module's subscribers on every module's write — the
+            // contract this surface documents is "fires when YOUR namespace
+            // changes".
+            if (!shallowEqualEntries(next, read(prev))) cb(next)
+          })
+        },
+      })
+      // One preload listener backs every module's subscriptions; the kernel
+      // filters each envelope down to the module and topic that asked for it.
+      if (typeof window.api?.onModuleEvent === 'function') {
+        rendererHost.setModuleEventSource((cb) => window.api.onModuleEvent(cb))
+      }
       // Effective working root (MC-1535): the worktree for worktree-backed
       // workspaces, the primary checkout otherwise. Every live-runtime surface
       // below resolves workspace-relative paths against this, never against

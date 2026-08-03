@@ -53,6 +53,7 @@ import type {
   TriggerKind as AppTriggerKind,
 } from '../../../src/shared/automations/contracts'
 import type { ModuleBridgeRefusalCode as AppModuleBridgeRefusalCode } from '../../../src/shared/modules/bridge'
+import type { ModuleEventEnvelope as AppModuleEventEnvelope } from '../../../src/shared/modules/events'
 import type { FileDropPayload as AppFileDropPayload } from '../../../src/renderer/src/utils/terminalDrop'
 import { MULTICODE_FILE_DROP_MIME as APP_FILE_DROP_MIME } from '../../../src/renderer/src/utils/terminalDrop'
 import type {
@@ -79,6 +80,7 @@ import {
   WorkspaceServiceToken as AppWorkspaceServiceToken,
 } from '../../../src/main/module-host/service-tokens'
 import type {
+  AgentIdNamespaceDefinition as AppAgentIdNamespaceDefinition,
   BacklogItemAction as AppBacklogItemAction,
   BacklogItemActionContext as AppBacklogItemActionContext,
   BacklogLinkProvider as AppBacklogLinkProvider,
@@ -93,6 +95,8 @@ import type {
   WorkspaceCreationStepProps as AppWorkspaceCreationStepProps,
   WorkspacePanelComponent as AppWorkspacePanelComponent,
   WorkspaceTypeCreateContext as AppWorkspaceTypeCreateContext,
+  WorkspaceTypeCreateHost as AppWorkspaceTypeCreateHost,
+  WorkspaceTypeCreateRequest as AppWorkspaceTypeCreateRequest,
   WorkspaceTypeCreationStep as AppWorkspaceTypeCreationStep,
   WorkspaceTypeDefinition as AppWorkspaceTypeDefinition,
   WorkspaceTypeSupervisor as AppWorkspaceTypeSupervisor,
@@ -119,6 +123,7 @@ import type {
 import type { LayoutTemplate as AppLayoutTemplate, PreviewSlot as AppPreviewSlot } from '../../../src/renderer/src/types/workspace'
 
 import type {
+  AgentIdNamespaceDefinition as SdkAgentIdNamespaceDefinition,
   BacklogItemAction as SdkBacklogItemAction,
   BacklogItemActionContext as SdkBacklogItemActionContext,
   BacklogItemLink as SdkBacklogItemLink,
@@ -157,6 +162,7 @@ import type {
   McpToolRegistration as SdkMcpToolRegistration,
   McpToolResult as SdkMcpToolResult,
   ModuleBridgeRefusalCode as SdkModuleBridgeRefusalCode,
+  ModuleEventEnvelope as SdkModuleEventEnvelope,
   ModuleCommandContext as SdkModuleCommandContext,
   ModuleCommandDefinition as SdkModuleCommandDefinition,
   ModuleEntry as SdkModuleEntry,
@@ -192,6 +198,8 @@ import type {
   WorkspaceRunGlyph as SdkWorkspaceRunGlyph,
   WorkspaceRunGlyphInput as SdkWorkspaceRunGlyphInput,
   WorkspaceTypeCreateContext as SdkWorkspaceTypeCreateContext,
+  WorkspaceTypeCreateHost as SdkWorkspaceTypeCreateHost,
+  WorkspaceTypeCreateRequest as SdkWorkspaceTypeCreateRequest,
   WorkspaceTypeCreationStep as SdkWorkspaceTypeCreationStep,
   WorkspaceTypeDefinition as SdkWorkspaceTypeDefinition,
   WorkspaceTypeSupervisor as SdkWorkspaceTypeSupervisor,
@@ -337,6 +345,36 @@ expectType<IsExact<AppGlobalSurfaceDefinition, SdkGlobalSurfaceDefinition>>()
 expectType<IsExact<AppTopBarItemDefinition, SdkTopBarItemDefinition>>()
 expectType<IsExact<AppRendererHost['registerGlobalSurface'], SdkRendererHost['registerGlobalSurface']>>()
 expectType<IsExact<AppRendererHost['registerTopBarItem'], SdkRendererHost['registerTopBarItem']>>()
+
+// ── The four module-boundary surfaces (MC-2090) ──────────────────────────────
+// Each is pinned exactly rather than by `Extends`, for the reason spelled out
+// above: the one-directional host assertion compares method parameters
+// bivariantly, so an app-side widening (or a dropped optional) would ride
+// through unnoticed on all four.
+
+// 1. Async workspace creation: the hook and both of its wire shapes.
+expectType<IsExact<AppWorkspaceTypeCreateRequest, SdkWorkspaceTypeCreateRequest>>()
+expectType<IsExact<AppWorkspaceTypeCreateHost, SdkWorkspaceTypeCreateHost>>()
+expectType<IsExact<
+  NonNullable<AppWorkspaceTypeDefinition['createWorkspace']>,
+  NonNullable<SdkWorkspaceTypeDefinition['createWorkspace']>
+>>()
+
+// 2. Module-owned agent-id namespaces.
+expectType<IsExact<AppAgentIdNamespaceDefinition, SdkAgentIdNamespaceDefinition>>()
+expectType<IsExact<AppRendererHost['registerAgentIdNamespace'], SdkRendererHost['registerAgentIdNamespace']>>()
+
+// 3. App-level module state — the renderer-side, synchronously-readable scope
+// above the per-workspace bag. The accessor trio is pinned like MC-1573's pair.
+expectType<IsExact<AppRendererHost['getModuleAppState'], SdkRendererHost['getModuleAppState']>>()
+expectType<IsExact<AppRendererHost['setModuleAppState'], SdkRendererHost['setModuleAppState']>>()
+expectType<IsExact<AppRendererHost['watchModuleAppState'], SdkRendererHost['watchModuleAppState']>>()
+
+// 4. The module-owned event channel: the emit half on MainHost, the subscribe
+// half on RendererHost, and the envelope both processes agree on.
+expectType<IsExact<AppModuleEventEnvelope, SdkModuleEventEnvelope>>()
+expectType<IsExact<AppMainHost['emit'], SdkMainHost['emit']>>()
+expectType<IsExact<AppRendererHost['subscribe'], SdkRendererHost['subscribe']>>()
 
 // Callback-input soundness: what the app passes into module callbacks
 // satisfies the SDK's (intentionally widened) read views.

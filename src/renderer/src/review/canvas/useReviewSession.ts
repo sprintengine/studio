@@ -10,9 +10,12 @@ import type {
   ReviewComment,
   ReviewWorkspaceState,
 } from '../../../../shared/review'
+import { BRIEF_RUN_EVENT_TOPIC } from '../../../../shared/review'
+import { getRendererHost } from '../../modules'
 import type {
   ReviewAskGuideResult,
   ReviewBriefRunDepth,
+  ReviewBriefRunEvent,
   ReviewBriefRunPhase,
   ReviewGuideRunStatus,
   ReviewGuideTerminal,
@@ -358,7 +361,13 @@ export function useReviewSession({
   // asynchronously through the review MCP tools.
   useEffect(() => {
     if (!reviewId) return
-    const off = window.api.onReviewBriefRunEvent((event) => {
+    // The module's own event channel (MC-2090), not a preload entry: main emits
+    // through `MainHost.emit` and the host delivers only to this module's
+    // subscribers. Nothing is replayed, which is why the run status is also
+    // seeded from the registry on mount — a run that finished before this
+    // effect ran is read, not waited for.
+    const off = getRendererHost().hostFor('review').subscribe(BRIEF_RUN_EVENT_TOPIC, (payload) => {
+      const event = payload as ReviewBriefRunEvent
       if (event.workspaceId !== reviewId) return
       if (event.phase === 'done') {
         applyRun({ running: false, phase: 'done', error: null })
