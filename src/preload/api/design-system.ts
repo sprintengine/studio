@@ -13,6 +13,7 @@ import type {
 import type {
   DesignSystemAttachResult,
   DesignSystemAttachSource,
+  DesignSystemDetachResult,
 } from '../../shared/design-system/attach'
 
 export const designSystemApi = {
@@ -50,6 +51,8 @@ export const designSystemApi = {
     workspaceRoot: string,
   ): Promise<DesignSystemAttachResult> =>
     ipcRenderer.invoke('design-system:attach', source, workspaceRoot),
+  detachDesignSystemBundle: (workspaceRoot: string): Promise<DesignSystemDetachResult> =>
+    ipcRenderer.invoke('design-system:detach', workspaceRoot),
 } satisfies Pick<
   ElectronApi,
   | 'regenerateDesignSystemDerivedFiles'
@@ -63,4 +66,5 @@ export const designSystemApi = {
   | 'registerDesignSystemFolder'
   | 'forgetDesignSystemFolder'
   | 'attachDesignSystemBundle'
+  | 'detachDesignSystemBundle'
 >

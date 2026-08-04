@@ -208,6 +208,7 @@ import type {
 import type {
   DesignSystemAttachResult,
   DesignSystemAttachSource,
+  DesignSystemDetachResult,
 } from './design-system/attach'
 import type { ConversationProviderListEntry, ConversationProviderModel, PluginRegistryListEntry } from './plugin-manifest'
 import type { MarketplaceComponentKind, MarketplaceIndex, MarketplaceManifestIssue, MarketplacePluginEntry } from './marketplace/manifest'
@@ -3256,6 +3257,8 @@ export type ElectronApi = {
   forgetDesignSystemFolder: (id: string) => Promise<{ ok: true; forgotten: boolean }>
   /** Attach a design-system bundle (library entry or browsed folder) to a workspace as a one-time copy at design-system/, provenance stamped. Refuses if design-system/ already exists. */
   attachDesignSystemBundle: (source: DesignSystemAttachSource, workspaceRoot: string) => Promise<DesignSystemAttachResult>
+  /** Remove the workspace's design-system/ copy. Idempotent; the caller owns the destructive confirmation. */
+  detachDesignSystemBundle: (workspaceRoot: string) => Promise<DesignSystemDetachResult>
   /** List installed third-party capability modules with trust, permissions, and launch readiness. */
   listThirdPartyModules: () => Promise<ThirdPartyModuleListResult>
   /** Install a third-party capability module from a folder (validated, not executed). */

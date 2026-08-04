@@ -55,6 +55,7 @@ import {
   type VersionControlRowView,
 } from './versionControlProviders'
 import { ProjectKnowledgeList } from './ProjectKnowledgeList'
+import { DesignSystemSettings } from './DesignSystemSettings'
 import CliIcon from '../CliIcon'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { CliInstallControl } from './CliInstallControl'
@@ -71,6 +72,7 @@ import {
   GithubSettingsIcon,
   TrackersSettingsIcon,
   KnowledgeGraphSettingsIcon,
+  DesignSystemSettingsIcon,
   ModulesSettingsIcon,
   MobileSettingsIcon,
   LearnSettingsIcon,
@@ -133,6 +135,7 @@ type SettingsTabId =
   | 'providers'
   | 'roles'
   | 'knowledge-graph'
+  | 'design-system'
   | 'learn'
   | 'mobile'
 
@@ -160,6 +163,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'github', label: 'Version control', icon: GithubSettingsIcon },
   { id: 'trackers', label: 'Trackers', icon: TrackersSettingsIcon },
   { id: 'knowledge-graph', label: 'Knowledge graph', icon: KnowledgeGraphSettingsIcon },
+  { id: 'design-system', label: 'Design system', icon: DesignSystemSettingsIcon },
   { id: 'modules', label: 'Modules', icon: ModulesSettingsIcon },
   { id: 'mobile', label: 'Mobile', icon: MobileSettingsIcon },
   { id: 'learn', label: 'Learn', icon: LearnSettingsIcon },
@@ -171,7 +175,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
 const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
   { label: 'agents', ids: ['agents', 'providers', 'roles'] },
-  { label: 'workspace', ids: ['github', 'trackers', 'knowledge-graph', 'modules'] },
+  { label: 'workspace', ids: ['github', 'trackers', 'knowledge-graph', 'design-system', 'modules'] },
   { label: 'companion', ids: ['mobile', 'learn'] },
 ]
 
@@ -209,6 +213,7 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'providers'
     || value === 'roles'
     || value === 'knowledge-graph'
+    || value === 'design-system'
     || value === 'learn'
     || value === 'mobile'
   )
@@ -2643,6 +2648,37 @@ export default function SettingsPanel({
               </div>
             ) : null}
           </div>
+        </div>
+      ) : null}
+
+      {activeSettingsTab === 'design-system' ? (
+        <div
+          role="tabpanel"
+          id="settings-panel-design-system"
+          aria-labelledby="settings-tab-design-system"
+          className="space-y-4"
+        >
+          <div className="space-y-1">
+            <SettingsSectionTitle
+              action={
+                activeSprintEngineRoot ? (
+                  <span
+                    className="max-w-[260px] truncate font-mono text-meta text-[color:var(--text-subtle)]"
+                    title={activeSprintEngineRoot}
+                  >
+                    {basename(activeSprintEngineRoot)}
+                  </span>
+                ) : undefined
+              }
+            >
+              Design system
+            </SettingsSectionTitle>
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">
+              Agents building UI in this workspace read the attached bundle and conform to it.
+            </p>
+          </div>
+
+          <DesignSystemSettings workspaceRoot={activeSprintEngineRoot} />
         </div>
       ) : null}
 

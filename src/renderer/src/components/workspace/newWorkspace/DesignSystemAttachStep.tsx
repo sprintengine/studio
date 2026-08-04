@@ -59,6 +59,12 @@ export type DesignSystemAttachStepProps = {
   workspaceRoot: string
   selection: DesignSystemAttachSource | null
   onSelect: (source: DesignSystemAttachSource | null) => void
+  /**
+   * The wizard lede explains the copy-at-create mechanics; the Settings
+   * section already carries that meaning in its own chrome, so it suppresses
+   * the paragraph rather than restating it with different timing.
+   */
+  variant?: 'create' | 'settings'
 }
 
 function sourceKey(source: DesignSystemAttachSource | null): string {
@@ -78,7 +84,12 @@ export function clearStaleAttachSelection(input: {
   if (input.existingBundle === true && input.selection != null) input.onSelect(null)
 }
 
-export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: DesignSystemAttachStepProps) {
+export function DesignSystemAttachStep({
+  workspaceRoot,
+  selection,
+  onSelect,
+  variant = 'create',
+}: DesignSystemAttachStepProps) {
   const [library, setLibrary] = useState<LibraryState>({ kind: 'loading' })
   // null = pre-check still running. True renders the conflict state: attach
   // never overwrites, so an existing design-system/ disables the picker.
@@ -151,10 +162,12 @@ export function DesignSystemAttachStep({ workspaceRoot, selection, onSelect }: D
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-meta leading-5 text-[color:var(--text-muted)]">
-        Copies a released bundle into <span className="font-mono text-[color:var(--text-default)]">design-system/</span> when
-        the workspace is created; agents launched here are told to conform to it.
-      </p>
+      {variant === 'create' ? (
+        <p className="text-meta leading-5 text-[color:var(--text-muted)]">
+          Copies a released bundle into <span className="font-mono text-[color:var(--text-default)]">design-system/</span> when
+          the workspace is created; agents launched here are told to conform to it.
+        </p>
+      ) : null}
       <div role="group" aria-label="Design system to attach" className="flex flex-col gap-1.5">
         <AttachChoiceRow
           active={selectedKey === 'none'}

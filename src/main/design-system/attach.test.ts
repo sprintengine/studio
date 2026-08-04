@@ -3,7 +3,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rea
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { attachDesignSystemBundle, DESIGN_SYSTEM_ATTACH_DIRNAME } from './attach'
+import { attachDesignSystemBundle, detachDesignSystemBundle, DESIGN_SYSTEM_ATTACH_DIRNAME } from './attach'
 import { designSystemRegistrationId } from '../../shared/design-system/library'
 import type { LibraryPaths } from './library-registry'
 
@@ -297,6 +297,72 @@ run('a missing target workspace folder refuses before anything is copied', async
     rmSync(workspace, { recursive: true, force: true })
   }
 })
+
+run('detach removes an attached design-system/ and is idempotent', async () => {
+  const libraryRoot = makeLibraryWithExample('1.0.0')
+  const workspace = mkdtempSync(join(tmpdir(), 'ds-detach-ws-'))
+  try {
+    const attached = await attachDesignSystemBundle(
+      { kind: 'library', id: designSystemRegistrationId(join(libraryRoot, 'example', '1.0.0')) },
+      workspace,
+      libraryPathsFor(libraryRoot),
+    )
+    assert.equal(attached.ok, true)
+
+    const removed = await detachDesignSystemBundle(workspace)
+    assert.deepEqual(removed, { ok: true, removed: true })
+    assert.ok(!existsSync(join(workspace, DESIGN_SYSTEM_ATTACH_DIRNAME)))
+
+    // Nothing left to remove is still ok — detach is idempotent.
+    const again = await detachDesignSystemBundle(workspace)
+    assert.deepEqual(again, { ok: true, removed: false })
+
+    // And the workspace can attach again afterwards — the Replace flow.
+    const reattached = await attachDesignSystemBundle(
+      { kind: 'library', id: designSystemRegistrationId(join(libraryRoot, 'example', '1.0.0')) },
+      workspace,
+      libraryPathsFor(libraryRoot),
+    )
+    assert.equal(reattached.ok, true)
+  } finally {
+    rmSync(libraryRoot, { recursive: true, force: true })
+    rmSync(workspace, { recursive: true, force: true })
+  }
+})
+
+run('detach on a symlinked design-system/ removes the link, never the target', async () => {
+  const bundle = makeExampleCopy('ds-detach-real-')
+  const workspace = mkdtempSync(join(tmpdir(), 'ds-detach-ws-'))
+  try {
+    symlinkSync(bundle, join(workspace, DESIGN_SYSTEM_ATTACH_DIRNAME))
+    const removed = await detachDesignSystemBundle(workspace)
+    assert.deepEqual(removed, { ok: true, removed: true })
+    assert.ok(!lstatExists(join(workspace, DESIGN_SYSTEM_ATTACH_DIRNAME)), 'the link must be gone')
+    assert.ok(existsSync(join(bundle, 'design-system.json')), 'the linked folder must be untouched')
+  } finally {
+    rmSync(bundle, { recursive: true, force: true })
+    rmSync(workspace, { recursive: true, force: true })
+  }
+})
+
+run('detach refuses a missing workspace root', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'ds-detach-ws-'))
+  try {
+    const result = await detachDesignSystemBundle(join(workspace, 'does-not-exist'))
+    assert.equal(result.ok, false)
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
+  }
+})
+
+function lstatExists(path: string): boolean {
+  try {
+    lstatSync(path)
+    return true
+  } catch {
+    return false
+  }
+}
 
 async function main(): Promise<void> {
   for (const test of tests) {

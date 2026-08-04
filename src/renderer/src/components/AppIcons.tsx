@@ -832,6 +832,16 @@ export function KnowledgeGraphSettingsIcon({ className }: IconProps) {
   )
 }
 
+export function DesignSystemSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="7.2" cy="7.5" r="2.6" stroke="currentColor" strokeWidth={iconStroke} />
+      <rect x="14" y="4.9" width="5.2" height="5.2" rx="1.2" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M12 13.6l3.6 5.9H8.4z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 export function ModulesSettingsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">

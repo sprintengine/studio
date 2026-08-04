@@ -51,3 +51,11 @@ export type DesignSystemAttachResult =
       stage: DesignSystemAttachFailureStage
       message: string
     }
+
+/**
+ * Result of removing `<workspace>/design-system/`. `removed: false` means
+ * there was nothing to remove — detach is idempotent, so that is still ok.
+ */
+export type DesignSystemDetachResult =
+  | { ok: true; removed: boolean }
+  | { ok: false; message: string }

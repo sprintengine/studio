@@ -1,4 +1,4 @@
-import { cp, readFile, rename, rm, stat, writeFile } from 'fs/promises'
+import { cp, lstat, readFile, rename, rm, stat, writeFile } from 'fs/promises'
 import { join } from 'path'
 
 import {
@@ -9,6 +9,7 @@ import {
 import type {
   DesignSystemAttachResult,
   DesignSystemAttachSource,
+  DesignSystemDetachResult,
 } from '../../shared/design-system/attach'
 import { findEscapingSymlink } from './bundle-copy-confinement'
 import { readDesignSystemLibraryEntry, type LibraryPaths } from './library-registry'
@@ -199,4 +200,43 @@ export async function attachDesignSystemBundle(
   }
 
   return { ok: true, name: manifest.name, version: manifest.version, attachedAt, path: targetDir }
+}
+
+/**
+ * Detach: remove `<workspace>/design-system/` outright. The caller owns the
+ * confirmation — this deletes local edits along with the copy, and a bundle
+ * authored in place rather than attached is deleted the same way. A symlinked
+ * `design-system/` removes the LINK only (lstat, not stat), never the folder
+ * it points at; nothing here ever writes outside the workspace root.
+ */
+export async function detachDesignSystemBundle(
+  workspaceRoot: string,
+): Promise<DesignSystemDetachResult> {
+  if ((await statKind(workspaceRoot)) !== 'dir') {
+    return { ok: false, message: `The workspace folder does not exist: ${workspaceRoot}` }
+  }
+  const targetDir = join(workspaceRoot, DESIGN_SYSTEM_ATTACH_DIRNAME)
+  let kind: 'missing' | 'dir' | 'link' | 'other'
+  try {
+    const info = await lstat(targetDir)
+    kind = info.isSymbolicLink() ? 'link' : info.isDirectory() ? 'dir' : 'other'
+  } catch {
+    kind = 'missing'
+  }
+  if (kind === 'missing') return { ok: true, removed: false }
+  try {
+    if (kind === 'dir') {
+      await rm(targetDir, { recursive: true })
+    } else {
+      await rm(targetDir, { force: true })
+    }
+    return { ok: true, removed: true }
+  } catch (error) {
+    return {
+      ok: false,
+      message: `Could not remove ${DESIGN_SYSTEM_ATTACH_DIRNAME}/: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    }
+  }
 }

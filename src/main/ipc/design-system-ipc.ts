@@ -8,6 +8,7 @@ import type { DesignSystemBundleReadResult } from '../../shared/design-system/bu
 import type {
   DesignSystemAttachResult,
   DesignSystemAttachSource,
+  DesignSystemDetachResult,
 } from '../../shared/design-system/attach'
 import { regenerateDesignSystemDerivedFiles } from '../design-system/derived-file-runner'
 import { forkBundleScriptInUtilityProcess } from '../design-system/utility-process-fork'
@@ -27,7 +28,7 @@ import {
   registerDesignSystemFolder,
   type LibraryPaths,
 } from '../design-system/library-registry'
-import { attachDesignSystemBundle } from '../design-system/attach'
+import { attachDesignSystemBundle, detachDesignSystemBundle } from '../design-system/attach'
 import { readDesignSystemBundle } from '../design-system/bundle-read'
 
 /** The two paths the library needs: its registry file, and the legacy copy root. */
@@ -165,6 +166,17 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
         return Promise.resolve({ ok: false, stage: 'request', message: 'No workspace root provided.' })
       }
       return attachDesignSystemBundle(parsedSource, workspaceRoot, libraryPaths())
+    },
+  )
+  // Detach: remove the workspace's design-system/ copy (the Settings surface's
+  // Detach/Replace path). The renderer owns the destructive confirmation.
+  ipcMain.handle(
+    'design-system:detach',
+    (_event, workspaceRoot: unknown): Promise<DesignSystemDetachResult> => {
+      if (typeof workspaceRoot !== 'string' || workspaceRoot.trim().length === 0) {
+        return Promise.resolve({ ok: false, message: 'No workspace root provided.' })
+      }
+      return detachDesignSystemBundle(workspaceRoot)
     },
   )
 }
