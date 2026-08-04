@@ -180,7 +180,7 @@ export function CursorErrorPopover({
         // Hidden until measured so the first paint never flashes at 0,0.
         visibility: placement ? 'visible' : 'hidden',
       }}
-      className={['cursor-error-popover z-50', expanded ? 'cursor-default' : 'cursor-pointer'].join(' ')}
+      className={['cursor-error-popover z-[var(--z-popover)]', expanded ? 'cursor-default' : 'cursor-pointer'].join(' ')}
     >
       {placement ? (
         <>
@@ -201,7 +201,7 @@ export function CursorErrorPopover({
         className={[
           'cursor-error-surface',
           // design-tokens-allow: popover elevation reuses the canonical OverflowMenu/Popover shadow shape (directional drop, not a glow CTA)
-          'rounded-[6px] border shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]',
+          'rounded-[6px] border shadow-[var(--shadow-popover)]',
           expanded ? 'overflow-y-auto' : 'overflow-hidden',
         ].join(' ')}
       >

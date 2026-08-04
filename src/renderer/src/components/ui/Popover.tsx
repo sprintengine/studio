@@ -268,8 +268,8 @@ export function Popover({
               }}
               className={[
                 // design-tokens-allow: canonical popover elevation shared by anchored app-shell surfaces
-                'popover-enter z-50 rounded-[7px] border border-[color:var(--border-strong)]',
-                'bg-[color:var(--bg-surface-raised)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]',
+                'popover-enter z-[var(--z-popover)] rounded-[7px] border border-[color:var(--border-strong)]',
+                'bg-[color:var(--bg-surface-raised)] shadow-[var(--shadow-popover)]',
                 surfaceClassName ?? '',
               ].join(' ')}
             >

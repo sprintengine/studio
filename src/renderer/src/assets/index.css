@@ -373,6 +373,22 @@
   --shadow-popover: var(--sem-shadow-popover);
   --shadow-modal: var(--sem-shadow-modal);
 
+  /* The overlay stacking ladder, aliased from the bundle so there is ONE ladder
+     of record (MC-2119). The app used to carry a second one in a comment at the
+     top of `Modal.tsx` — z-10 HUD / z-20 panes / z-30 panel popovers / z-40
+     shell popovers / z-50 modals — and the two disagreed about the top of the
+     stack. The kit already sat on the token values everywhere except there:
+     Drawer at 40, Popover and Tooltip at 50, ContextMenu and PointerPopover at
+     60. Only Modal was off, at 50 — which put it BELOW the menu tier, so a
+     context menu opened over a dialog painted on top of it.
+     Overlay surfaces consume these; in-flow depth (a sticky header, an in-canvas
+     HUD) stays on the app's low `z-10`/`z-20` utilities. */
+  --z-drawer: var(--sem-z-drawer);
+  --z-popover: var(--sem-z-popover);
+  --z-menu: var(--sem-z-menu);
+  --z-modal: var(--sem-z-modal);
+  --z-toast: var(--sem-z-toast);
+
   /* How much theme ink is mixed into the FileExplorer file-type badge label.
      0% on dark = the badge keeps its pure language hue; the Light theme raises
      this so the same hue is darkened toward ink and clears AA on white instead

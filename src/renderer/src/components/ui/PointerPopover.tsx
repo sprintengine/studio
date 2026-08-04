@@ -83,12 +83,12 @@ export function PointerPopover({
       ref={ref}
       role={popupRole}
       aria-label={ariaLabel}
-      // zIndex 60 keeps it above the z-50 Popover/Tooltip layer, matching ContextMenu.
-      style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 60 }}
+      // The menu tier (`--z-menu`) keeps it above the popover/tooltip layer, matching ContextMenu.
+      style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: 'var(--z-menu)' }}
       className={[
         'rounded-[7px] border border-[color:var(--border-strong)]',
         // design-tokens-allow: canonical popover elevation shared by anchored app-shell surfaces (matches Popover)
-        'bg-[color:var(--bg-surface-raised)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]',
+        'bg-[color:var(--bg-surface-raised)] shadow-[var(--shadow-popover)]',
         surfaceClassName ?? '',
       ].join(' ')}
     >

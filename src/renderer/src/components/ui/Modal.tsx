@@ -1,10 +1,20 @@
-// Z-index ladder for the renderer. Use these tiers, not arbitrary values:
-//   z-10 — in-canvas HUD, tooltips, in-card raise, editor overlays
-//   z-20 — docked inspector panes (Task Detail, Memory Preview)
-//   z-30 — panel-internal popovers and action menus (CLI picker, board overflow)
-//   z-[35] — workspace-canvas overlays that must stay below topbar popovers (Settings overlay)
-//   z-40 — app-shell popovers and dropdowns (notifications, sessions, account, view menus)
-//   z-50 — modals and the command palette (always above everything else)
+// Z-index ladder for the renderer. ONE ladder of record, and it is the design
+// system's — `--sem-z-*`, aliased into the app as `--z-*` in assets/index.css
+// (MC-2119). This comment used to declare a second one, and the two disagreed
+// about the top of the stack:
+//
+//   in-flow depth       z-10 in-canvas HUD / in-card raise, z-20 docked panes,
+//                       z-30 panel-internal popovers, z-[35] canvas overlays
+//                       — app utilities; these describe depth within a pane,
+//                       not overlay layers, and stay as they are.
+//   overlay layers      --z-drawer 40, --z-popover 50, --z-menu 60,
+//                       --z-modal 70, --z-toast 80.
+//
+// The kit already sat on the token values everywhere except here: Drawer 40,
+// Popover and Tooltip 50, ContextMenu and PointerPopover 60. Modal alone used
+// 50 while claiming to be "always above everything else" — which put it a tier
+// BELOW the menus, so a context menu opened over a dialog painted on top of it.
+// Consuming the token both fixes that and removes the second ladder.
 import React, { useEffect, useRef } from 'react'
 import { CloseIconButton } from './Buttons'
 import { TruncatedText } from './TruncatedText'
@@ -52,7 +62,7 @@ export function Modal({ open, onClose, labelledBy, width = 560, children, contai
       // Scrim: `.overlay-scrim`, matching the Command Palette and every other
       // full-screen overlay so modals read as one system. No backdrop-filter —
       // see the class definition for the framerate cliff it causes.
-      className={`overlay-scrim ${contained ? 'absolute' : 'fixed'} inset-0 z-50 flex items-center justify-center p-6`}
+      className={`overlay-scrim ${contained ? 'absolute' : 'fixed'} inset-0 z-[var(--z-modal)] flex items-center justify-center p-6`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -146,7 +156,9 @@ const PRIMARY_STYLES =
 
 export function ModalButton({ variant = 'ghost', className, ...rest }: ModalButtonProps) {
   const base =
-    'rounded-md px-3.5 py-2 text-sm font-semibold transition-colors focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-45'
+    // `text-heading`, not Tailwind's `text-sm` — the same 14px, but on the
+    // ramp, so it moves if the ramp moves (MC-2119).
+    'rounded-md px-3.5 py-2 text-heading font-semibold transition-colors focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-45'
   const styles: Record<ButtonVariant, string> = {
     primary: PRIMARY_STYLES,
     ghost:

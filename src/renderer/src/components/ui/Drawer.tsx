@@ -164,7 +164,7 @@ function DrawerRoot({ open, onClose, title, ariaLabel, width = 360, children }: 
   if (lifecycle === 'closed') return null
 
   return (
-    <div className="fixed inset-0 z-40">
+    <div className="fixed inset-0 z-[var(--z-drawer)]">
       <div
         aria-hidden="true"
         className="overlay-scrim absolute inset-0 transition-opacity duration-200"

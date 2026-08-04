@@ -257,7 +257,7 @@ export function Tooltip({
                 visibility: coords ? 'visible' : 'hidden',
               }}
               className={[
-                'popover-enter pointer-events-none z-50',
+                'popover-enter pointer-events-none z-[var(--z-popover)]',
                 multiline
                   ? 'max-w-[420px] whitespace-pre-wrap break-words'
                   : 'whitespace-nowrap',

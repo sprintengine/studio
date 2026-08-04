@@ -7,8 +7,8 @@ import type { HighlightColor } from '../../types/workspace'
 
 // Pointer-positioned context menu. Unlike Popover (anchored to a trigger
 // element), this surface opens at viewport coordinates — a right-click point
-// or a kebab button corner — and clamps itself inside the viewport. zIndex 60
-// keeps it above the z-50 Popover/Tooltip layer.
+// or a kebab button corner — and clamps itself inside the viewport. The menu tier
+// (`--z-menu`) keeps it above the popover/tooltip layer (`--z-popover`).
 //
 // PORTALLED to document.body. It used to render in place with `position:
 // fixed`, on the assumption that fixed always resolves against the viewport.
@@ -39,9 +39,9 @@ import type { HighlightColor } from '../../types/workspace'
 
 // design-tokens-allow: popover-elevation reuses the OverflowMenu shadow shape (no glow CTA pattern)
 const MENU_SURFACE_CLASS =
-  'rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1 text-body text-[color:var(--text-default)] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]'
+  'rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1 text-body text-[color:var(--text-default)] shadow-[var(--shadow-popover)]'
 
-const MENU_Z_INDEX = 60
+const MENU_Z_INDEX = 'var(--z-menu)'
 
 type ClampOptions = {
   /**

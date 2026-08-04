@@ -581,7 +581,7 @@ export const InlineSkillPicker = forwardRef<
         // Positioning (bottom-full / left offset) belongs to the caller's anchor.
         'absolute z-30 mb-2 flex max-h-[340px] w-[380px] flex-col overflow-hidden',
         'rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)]',
-        'shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]', // design-tokens-allow: mirrors the shared Popover elevation for an input-anchored surface
+        'shadow-[var(--shadow-popover)]', // the shared Popover elevation, for an input-anchored surface
         className ?? '',
       ].join(' ')}
     >
