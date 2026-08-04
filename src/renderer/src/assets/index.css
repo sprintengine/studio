@@ -383,6 +383,7 @@
      context menu opened over a dialog painted on top of it.
      Overlay surfaces consume these; in-flow depth (a sticky header, an in-canvas
      HUD) stays on the app's low `z-10`/`z-20` utilities. */
+  --z-sticky: var(--sem-z-sticky);
   --z-drawer: var(--sem-z-drawer);
   --z-popover: var(--sem-z-popover);
   --z-menu: var(--sem-z-menu);

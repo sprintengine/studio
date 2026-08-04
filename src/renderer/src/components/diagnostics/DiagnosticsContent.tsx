@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ProcessMetricKind, ProcessMetricsSnapshot, TerminalReapEvent, WorkspaceMemorySample } from '../../../../shared/electron-api'
 import { Select } from '../ui/Select'
+import { Table } from '../ui/Table'
 import { Tabs, TabPanel, type TabItem } from '../ui/Tabs'
 import { getLiveTerminalSessionsSnapshot, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
@@ -150,26 +151,20 @@ function msOrDash(value: number | null): string {
   return value === null ? '—' : String(Math.round(value))
 }
 
+// Local aliases onto the kit's table chrome (MC-2117). These were the app's
+// third `<table>` styling and the only one with a sticky header; `ui/Table`
+// promoted that behaviour, so what is left here is the one thing that was local
+// to diagnostics — every cell is `whitespace-nowrap`, because a wrapped PID or
+// byte count destroys the column scan these tables exist for.
 function Th({ children, numeric }: { children: React.ReactNode; numeric?: boolean }) {
-  return (
-    <th
-      className={`sticky top-0 z-10 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1.5 font-medium text-[color:var(--text-muted)] ${
-        numeric ? 'text-right' : 'text-left'
-      }`}
-    >
-      {children}
-    </th>
-  )
+  return <Table.Head numeric={numeric}>{children}</Table.Head>
 }
 
 function Td({ children, numeric, title }: { children: React.ReactNode; numeric?: boolean; title?: string }) {
   return (
-    <td
-      title={title}
-      className={`whitespace-nowrap px-2 py-1 text-[color:var(--text-default)] ${numeric ? 'text-right tabular-nums' : 'text-left'}`}
-    >
+    <Table.Cell numeric={numeric} title={title} className="whitespace-nowrap">
       {children}
-    </td>
+    </Table.Cell>
   )
 }
 
@@ -602,7 +597,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
         <section>
           <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">Processes</h2>
           {metrics && metrics.processes.length > 0 ? (
-            <table className="w-full border-collapse">
+            <Table>
               <thead>
                 <tr>
                   <Th>Kind</Th>
@@ -627,7 +622,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           ) : (
             <p className="text-[color:var(--text-muted)]">Process metrics unavailable.</p>
           )}
@@ -798,7 +793,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             Perf events ({perfRollup.length})
           </h2>
           {perfRollup.length > 0 ? (
-            <table className="w-full border-collapse">
+            <Table>
               <thead>
                 <tr>
                   <Th>Scope</Th>
@@ -823,7 +818,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           ) : (
             <p className="text-[color:var(--text-muted)]">
               No perf events captured yet. They accrue as SprintEngine refresh/auto-run and other instrumented paths run.
@@ -858,7 +853,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             </div>
           </div>
           {sortedRows.length > 0 ? (
-            <table className="w-full border-collapse">
+            <Table>
               <thead>
                 <tr>
                   <Th>Workspace</Th>
@@ -922,7 +917,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           ) : (
             <p className="text-[color:var(--text-muted)]">No terminal sessions.</p>
           )}
@@ -940,7 +935,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             reaped agent keeps its resume flags and relaunches with --resume on reopen.
           </p>
           {metrics?.reapEvents && metrics.reapEvents.length > 0 ? (
-            <table className="w-full border-collapse">
+            <Table>
               <thead>
                 <tr>
                   <Th numeric>Reaped</Th>
@@ -976,7 +971,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           ) : (
             <p className="text-[color:var(--text-muted)]">Nothing reaped yet this session.</p>
           )}
@@ -1001,7 +996,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             so these sum to less than the app total. &quot;Live for&quot; is since the oldest live terminal started.
           </p>
           {workspacesByMemory.length > 0 ? (
-            <table className="w-full border-collapse">
+            <Table>
               <thead>
                 <tr>
                   <Th>Workspace</Th>
@@ -1042,7 +1037,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   )
                 })}
               </tbody>
-            </table>
+            </Table>
           ) : (
             <p className="text-[color:var(--text-muted)]">No workspace terminals.</p>
           )}
@@ -1063,7 +1058,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             Active timers / supervisors ({timerRows.length})
           </h2>
           {timerRows.length > 0 ? (
-            <table className="w-full border-collapse">
+            <Table>
               <thead>
                 <tr>
                   <Th>Label</Th>
@@ -1086,7 +1081,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           ) : (
             <p className="text-[color:var(--text-muted)]">No registered recurring timers.</p>
           )}
@@ -1114,7 +1109,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             IPC throughput {ipcThroughput ? `(${ipcThroughput.channels.length} channels)` : ''}
           </h2>
           {ipcThroughput && ipcThroughput.channels.length > 0 ? (
-            <table className="w-full border-collapse">
+            <Table>
               <thead>
                 <tr>
                   <Th>Channel</Th>
@@ -1137,7 +1132,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           ) : (
             <p className="text-[color:var(--text-muted)]">
               IPC accounting is active only when diagnostics is enabled (dev or MULTICODE_DIAGNOSTICS=1).
@@ -1151,7 +1146,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             Recent replay profiles ({profiles.length})
           </h2>
           {profiles.length > 0 ? (
-            <table className="w-full border-collapse">
+            <Table>
               <thead>
                 <tr>
                   <Th>When</Th>
@@ -1181,7 +1176,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table>
           ) : (
             <p className="text-[color:var(--text-muted)]">
               No replay profiles captured in this window. Profiles are recorded in the window that owns the terminals

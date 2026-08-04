@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
 import { WorkspaceTypeIcon } from '../AppIcons'
-import { InboxRow, LIFECYCLE_LABEL, LifecycleGlyph, PanelHeader, Popover, Tooltip, TruncatedText } from '../ui'
+import { Badge, InboxRow, LIFECYCLE_LABEL, LifecycleGlyph, PanelHeader, Popover, Tooltip, TruncatedText } from '../ui'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import type { AttentionQueueBadge } from '../../utils/attentionQueue'
@@ -27,12 +27,9 @@ export type AttentionQueueSurface = {
   onOpenItem: (item: SessionItem) => void | Promise<void>
 }
 
-// Per-tone badge fill. attentionQueueBadge already collapses "nothing waiting"
-// to a null tone, so this only ever maps the two live attention tones.
-const BADGE_TONE_VAR: Record<'warn' | 'error', string> = {
-  warn: 'var(--tone-warn)',
-  error: 'var(--tone-error)',
-}
+// The per-tone badge fill this used to carry is `ui/Badge`'s now (MC-2117);
+// `attentionQueueBadge` already collapses "nothing waiting" to a null tone, so
+// the two live attention tones pass straight through as a `Tone`.
 
 function triggerAriaLabel(count: number): string {
   if (count === 0) return 'Attention queue — all caught up'
@@ -128,13 +125,16 @@ export function AttentionQueuePopover({
           >
             <AttentionQueueIcon className="icon-sm" />
             {badge.tone ? (
-              <span
-                aria-hidden="true"
-                className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-surface)] px-1 text-micro font-bold leading-none tabular-nums text-[color:var(--bg-app)]"
-                style={{ backgroundColor: BADGE_TONE_VAR[badge.tone] }}
-              >
-                {badge.count > 99 ? '99+' : badge.count}
-              </span>
+              // The trigger sits on a raised surface, so the badge's separating
+              // border is that surface rather than the app ground.
+              <Badge
+                corner
+                decorative
+                tone={badge.tone}
+                count={badge.count}
+                max={99}
+                className="border-[color:var(--bg-surface)]"
+              />
             ) : null}
           </button>
         </Tooltip>

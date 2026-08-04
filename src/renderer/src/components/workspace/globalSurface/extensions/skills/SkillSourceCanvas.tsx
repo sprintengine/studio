@@ -13,7 +13,7 @@
 import React from 'react'
 
 import type { ScanResult, SkillSource } from '../../../../../../../shared/skills'
-import { GhostButton, InboxSearchInput, InlineNotice, OutlineButton, PrimaryButton } from '../../../../ui'
+import { EmptyState as KitEmptyState, GhostButton, InboxSearchInput, InlineNotice, OutlineButton, PrimaryButton } from '../../../../ui'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { formatRelativeTime } from '../../../../../utils/time'
 import { SkillRow } from './SkillRow'
@@ -428,7 +428,12 @@ export function SectionHead({
   )
 }
 
-/** The one "there is nothing to list, and here is why" block on this surface. */
+/**
+ * The one "there is nothing to list, and here is why" block on this surface.
+ *
+ * Now the kit's `EmptyState` at list density (MC-2117). Re-exported under this
+ * name because `SkillsDiscover` imports it from here; the local styling is gone.
+ */
 export function EmptyState({
   title,
   body,
@@ -438,13 +443,7 @@ export function EmptyState({
   body?: string
   action?: React.ReactNode
 }): JSX.Element {
-  return (
-    <div className="px-3 py-10 text-center">
-      <p className="text-body text-[color:var(--text-muted)]">{title}</p>
-      {body ? <p className="mt-1 text-meta text-[color:var(--text-subtle)]">{body}</p> : null}
-      {action ? <div className="mt-3 flex justify-center">{action}</div> : null}
-    </div>
-  )
+  return <KitEmptyState density="list" title={title} body={body} action={action} />
 }
 
 function groupLabelOf(groups: SkillGroupTab[], name: string): string {

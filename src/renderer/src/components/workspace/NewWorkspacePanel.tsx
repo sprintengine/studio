@@ -52,7 +52,7 @@ import {
 } from '../../utils/sprintengine'
 import MulticodeMark from '../brand/MulticodeMark'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { CliModelPickerButton, CloseIconButton, Field, FOCUS_RING_CLASS, GhostButton, TruncatedText, WizardProgress } from '../ui'
+import { Checkbox, CliModelPickerButton, CloseIconButton, Field, GhostButton, TruncatedText, WizardProgress } from '../ui'
 import {
   analyzeWorkspaceTargetPath,
   defaultWorkspaceFolderPath,
@@ -2527,12 +2527,12 @@ function GuidedRoleToggle({
             onChangeModel(nextModel)
           }}
         />
-        <input
-          type="checkbox"
+        <Checkbox
           checked={effectiveChecked}
           disabled={disabled || locked}
-          onChange={(event) => onChange(event.currentTarget.checked)}
-          className={`h-4 w-4 shrink-0 accent-[color:var(--accent-primary)] disabled:cursor-not-allowed ${FOCUS_RING_CLASS}`}
+          onChange={onChange}
+          ariaLabel={title}
+          className="shrink-0"
         />
       </span>
     </div>

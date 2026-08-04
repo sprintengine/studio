@@ -8,6 +8,7 @@ import {
   RoleGlyph,
   Section,
   StatusDot,
+  Table,
   Tooltip,
   TruncatedText,
   type LifecycleState,
@@ -444,12 +445,20 @@ const NA = <span className="text-[color:var(--text-disabled)]">—</span>
 const AGENT_COL_W = 216
 const NUM_COL_W = 116
 const tableWidthFor = (numCols: number) => AGENT_COL_W + numCols * NUM_COL_W
-// The table gets the Tailwind `table-fixed` class (see `TABLE_CLASS`); this only
+// The table is `ui/Table` with `fixed` (Tailwind `table-fixed`); this style only
 // pins its overall width so the fixed column tracks have an exact box to divide.
 const tableStyleFor = (numCols: number) => ({ width: tableWidthFor(numCols) })
 // `table-fixed` makes the browser take column widths from the `<colgroup>` rather
 // than auto-sizing to content, so all three tables share the same column tracks.
-const TABLE_CLASS = 'table-fixed border-collapse text-meta'
+// The table element itself is now `ui/Table` with `fixed` (MC-2117), so
+// border-collapse and the base type step are the kit's.
+//
+// The HEADER classes below stay local and deliberately diverge from
+// `Table.Head`: this is a dense comparison matrix whose labels carry full words,
+// wrap to two lines and bottom-align just above their numbers, with per-column
+// separators. `Table.Head`'s single-line sticky header is right for a scrolling
+// log and wrong for a 4-row matrix — sharing the chrome does not mean every
+// table wears one header.
 
 // One `<colgroup>` shape for all three tables: the agent column, then `numCols`
 // equal numeric columns. This is what pins the columns to the same x across tables.
@@ -676,7 +685,7 @@ function ImplementationTable({
     <div className="mt-1">
       <WorkTypeHeading label="Implementation" count={rows.length} />
       <div className="overflow-x-auto">
-        <table className={TABLE_CLASS} style={tableStyleFor(1 + measuredIssueTypes.length)}>
+        <Table fixed style={tableStyleFor(1 + measuredIssueTypes.length)}>
           <ColGroup numCols={1 + measuredIssueTypes.length} />
           <thead>
             <tr>
@@ -724,7 +733,7 @@ function ImplementationTable({
               )
             })}
           </tbody>
-        </table>
+        </Table>
       </div>
       {anySelfReported ? (
         <p className="mt-1.5 text-micro text-[color:var(--text-disabled)]">
@@ -741,7 +750,7 @@ function ReviewTable({ rows }: { rows: SprintEngineAgentRow[] }) {
     <div className="mt-5">
       <WorkTypeHeading label="Reviews" count={rows.length} />
       <div className="overflow-x-auto">
-        <table className={TABLE_CLASS} style={tableStyleFor(4)}>
+        <Table fixed style={tableStyleFor(4)}>
           <ColGroup numCols={4} />
           <thead>
             <tr>
@@ -794,7 +803,7 @@ function ReviewTable({ rows }: { rows: SprintEngineAgentRow[] }) {
               )
             })}
           </tbody>
-        </table>
+        </Table>
       </div>
     </div>
   )
@@ -820,7 +829,7 @@ function PlanningTable({
       <WorkTypeHeading label="Planning" count={rows.length > 0 ? rows.length : undefined} />
       {rows.length > 0 ? (
         <div className="overflow-x-auto">
-          <table className={TABLE_CLASS} style={tableStyleFor(4)}>
+          <Table fixed style={tableStyleFor(4)}>
             <ColGroup numCols={4} />
             <thead>
               <tr>
@@ -875,7 +884,7 @@ function PlanningTable({
                 )
               })}
             </tbody>
-          </table>
+          </Table>
         </div>
       ) : null}
 

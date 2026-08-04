@@ -12,7 +12,7 @@
 
 import React from 'react'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
-import { ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { Badge, ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, Tooltip, TruncatedText } from '../ui'
 import {
   groupSessionItems,
   sessionsAttentionTone,
@@ -595,12 +595,7 @@ export function WorkspaceActions({
                       <SessionsIcon className="size-icon-md" />
                     </ChangePulse>
                     {sessions.length > 0 ? (
-                      <span
-                        className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] px-1 text-micro font-bold leading-none tabular-nums text-[color:var(--bg-app)]"
-                        style={{ backgroundColor: `var(--tone-${sessionsTone})` }}
-                      >
-                        {sessions.length > 99 ? '99+' : sessions.length}
-                      </span>
+                      <Badge corner decorative tone={sessionsTone} count={sessions.length} max={99} />
                     ) : null}
                   </button>
                 </Tooltip>
@@ -741,9 +736,7 @@ export function WorkspaceActions({
                     <NotificationBellIcon className="size-icon-md" />
                   </ChangePulse>
                   {unreadErrorCount > 0 ? (
-                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-error)] px-1 text-micro font-bold leading-none tabular-nums text-[color:var(--bg-app)]">
-                      {unreadErrorCount > 99 ? '99+' : unreadErrorCount}
-                    </span>
+                    <Badge corner decorative tone="error" count={unreadErrorCount} max={99} />
                   ) : null}
                 </button>
               </Tooltip>

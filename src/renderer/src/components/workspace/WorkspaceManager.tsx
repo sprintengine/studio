@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
 import { shouldAutoOpenCreationHub, shouldShowFirstRunCliCard } from '../../store/onboardingState'
 import { planAgentConfigAdoption } from '../onboarding/agentConfigAdoption'
+import { EmptyState as KitEmptyState, PrimaryButton } from '../ui'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -182,7 +183,7 @@ const NewSprintDialog = React.lazy(() => import('./newSprint/NewSprintDialog'))
 // user reaches for it (Cmd-K palette, the diagnostics overlay, the startup-tip
 // modal), so its subtree — and the diagnostics report formatter / learning
 // catalog it pulls — is fetched at open time, not at boot.
-const CommandPalette = React.lazy(() => import('../CommandPalette'))
+const CommandPalette = React.lazy(() => import('../ui/CommandPalette'))
 // Settings rides the door substrate but belongs to the app, not to a module —
 // see the resolution below for why it can never be module-gated. Shaped like a
 // registered surface so the mount path stays identical to every other door.
@@ -3916,18 +3917,14 @@ async function terminateWorkspaceTerminals(workspace: Workspace): Promise<void> 
   )
 }
 
+// The kit's EmptyState (MC-2117). This shipped in `--text-disabled` ink with a
+// hand-rolled `rounded bg-…` button — a sentence meant to be read, greyed out as
+// if it were a dead control, beside the one thing on screen you can actually do.
 function EmptyState({ onNew }: { onNew: () => void }) {
   return (
-    <div className="flex h-full items-center justify-center">
-      <div className="space-y-4 text-center">
-        <p className="text-sm text-[color:var(--text-disabled)]">No workspace open</p>
-        <button
-          onClick={onNew}
-          className="rounded bg-[color:var(--bg-surface-raised)] px-4 py-2 text-sm font-medium text-[color:var(--text-strong)] transition-colors hover:bg-[color:var(--bg-hover)]"
-        >
-          New Workspace
-        </button>
-      </div>
-    </div>
+    <KitEmptyState
+      title="No workspace open"
+      action={<PrimaryButton onClick={onNew}>New workspace</PrimaryButton>}
+    />
   )
 }

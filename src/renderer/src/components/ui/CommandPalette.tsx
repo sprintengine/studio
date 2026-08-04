@@ -1,24 +1,24 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { LAYOUT_TEMPLATES } from '../layouts/templates'
-import { orderSpecialistActions } from '../specialists/specialistActions'
-import { listSpecialistPacks, resolveEnabledSpecialists } from '../specialists/specialistPacks'
-import { useWorkspaceStore } from '../store/workspaceStore'
-import type { SpecialistActionId, Workspace, WorkspaceId, WorkspaceWindowId } from '../types/workspace'
-import type { BuiltinSkill, WorkspaceSkill } from '../../../shared/electron-api'
-import { focusOrAddComponentTab, revealNavRailComponent, togglePanelRailComponent } from '../utils/modelRegistry'
-import { openFileSurface } from '../utils/openFileSurface'
-import { isHiddenFromRail } from '../utils/workspaceVisibility'
+import { LAYOUT_TEMPLATES } from '../../layouts/templates'
+import { orderSpecialistActions } from '../../specialists/specialistActions'
+import { listSpecialistPacks, resolveEnabledSpecialists } from '../../specialists/specialistPacks'
+import { useWorkspaceStore } from '../../store/workspaceStore'
+import type { SpecialistActionId, Workspace, WorkspaceId, WorkspaceWindowId } from '../../types/workspace'
+import type { BuiltinSkill, WorkspaceSkill } from '../../../../shared/electron-api'
+import { focusOrAddComponentTab, revealNavRailComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
+import { openFileSurface } from '../../utils/openFileSurface'
+import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import {
   getEffectiveKeybindingLabel,
   getSpecialistCommandId,
   platformKeybindingsFromApiPlatform,
-} from '../commands/effectiveKeybindings'
-import { isCommandEnabled, isCommandIdEnabled, type CommandAvailabilityContext } from '../commands/availability'
-import type { CommandScope, ModuleCommandContext } from '../commands/types'
-import { getRendererHost, selectModuleEnabled } from '../modules'
-import { commandMatchesQuery, workspaceSearchKeywords } from './commandPaletteSearch'
-import { dispatchPanelCommandEvent } from '../utils/panelCommands'
-import { FOCUS_RING_CLASS, TruncatedText } from './ui'
+} from '../../commands/effectiveKeybindings'
+import { isCommandEnabled, isCommandIdEnabled, type CommandAvailabilityContext } from '../../commands/availability'
+import type { CommandScope, ModuleCommandContext } from '../../commands/types'
+import { getRendererHost, selectModuleEnabled } from '../../modules'
+import { commandMatchesQuery, workspaceSearchKeywords } from '../commandPaletteSearch'
+import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
+import { FOCUS_RING_CLASS, TruncatedText } from './index'
 
 // The four canonical source groups the global-search palette organizes results
 // into (T6), plus a Files group for the active workspace's open editors. The
@@ -515,12 +515,12 @@ export default function CommandPalette({
 
   return (
     <div
-      className="overlay-scrim fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
+      className="overlay-scrim fixed inset-0 z-[var(--z-modal)] flex items-start justify-center pt-[15vh]"
       onClick={(event) => event.target === event.currentTarget && onClose()}
     >
       <div className="w-[600px] max-w-[95vw] overflow-hidden rounded-xl border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)]">
         <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-4 py-3">
-          <span className="text-sm text-[color:var(--text-disabled)]">⌘</span>
+          <span className="text-heading text-[color:var(--text-disabled)]">⌘</span>
           <input
             ref={inputRef}
             value={query}
@@ -535,13 +535,13 @@ export default function CommandPalette({
             aria-expanded={filtered.length > 0}
             aria-controls="command-palette-results"
             aria-activedescendant={activeOptionId}
-            className={`flex-1 bg-transparent text-sm text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+            className={`flex-1 bg-transparent text-heading text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
           />
         </div>
 
         <div id="command-palette-results" role="listbox" aria-label="Search results" className="max-h-[360px] overflow-y-auto py-1">
           {filtered.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-[color:var(--text-disabled)]">No results</p>
+            <p className="px-4 py-3 text-meta text-[color:var(--text-disabled)]">No results</p>
           ) : (
             groupedResults.map((group) => (
               <div key={group.key} role="group" aria-label={group.label}>
@@ -572,7 +572,7 @@ export default function CommandPalette({
                       }`}
                     >
                       <div className="min-w-0">
-                        <TruncatedText as="div" text={command.label} className="text-sm" />
+                        <TruncatedText as="div" text={command.label} className="text-heading" />
                         {command.description && (
                           <TruncatedText as="div" text={command.description} className="mt-0.5 text-micro text-[color:var(--text-disabled)]" />
                         )}

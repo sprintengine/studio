@@ -101,18 +101,19 @@ type Axis = keyof typeof AXES
  */
 const BASELINE: Record<Axis, Record<string, number>> = {
   radius: {
-    'components/workspace': 198,
+    'components/workspace': 197,
     'components/panels': 173,
     'components/settings': 36,
     'components/backlog': 21,
-    'components/ui': 15,
+    // Rose 15 → 17 when CommandPalette MOVED into the kit (MC-2117) carrying its
+    // own two radii. Nothing regressed; the debt changed address.
+    'components/ui': 17,
     'components/worktree': 9,
     'components/diagnostics': 7,
     utils: 4,
-    'components/learn': 3,
-    'components/CommandPalette.tsx': 2,
     'components/automations': 2,
     'components/auxWindows': 2,
+    'components/learn': 2,
     modules: 2,
     review: 2,
   },
@@ -130,29 +131,23 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     'components/panels': 14,
     'components/ui': 3,
     'components/memory': 2,
-    'components/CommandPalette.tsx': 1,
     'components/auxWindows': 1,
     'components/backlog': 1,
-    'components/diagnostics': 1,
     'components/onboarding': 1,
   },
   type: {
     'components/panels': 23,
     utils: 6,
-    'components/CommandPalette.tsx': 4,
     'components/diagnostics': 2,
-    'components/workspace': 2,
   },
   icon: {
-    'components/workspace': 45,
-    'components/panels': 32,
+    'components/workspace': 44,
+    'components/panels': 31,
     'components/ui': 22,
     'components/backlog': 8,
     'components/auxWindows': 1,
     'components/brand': 1,
-    'components/learn': 1,
     'components/settings': 1,
-    'components/worktree': 1,
     review: 1,
   },
 }
@@ -257,7 +252,7 @@ run('the ladder the kit consumes is the one the bundle publishes', () => {
   // The `--z-*` aliases must actually resolve to `--sem-z-*`. Without this the
   // kit could consume a second ladder that merely looked like the first.
   const appCss = readFileSync(join(RENDERER, 'assets/index.css'), 'utf8')
-  for (const tier of ['drawer', 'popover', 'menu', 'modal', 'toast']) {
+  for (const tier of ['sticky', 'drawer', 'popover', 'menu', 'modal', 'toast']) {
     assert.match(
       appCss,
       new RegExp(`--z-${tier}:\\s*var\\(--sem-z-${tier}\\)`),

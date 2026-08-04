@@ -98,13 +98,60 @@ export function PathRadio({
   // run-settings Automation group), where the full card treatment is too tall.
   dense?: boolean
 }) {
+  const buttonRef = React.useRef<HTMLButtonElement | null>(null)
+
+  // Roving tabindex hands the tab stop to the CHECKED radio, so a group with
+  // nothing checked yet would have no tab stop at all and drop out of the tab
+  // order entirely. The first radio takes it until a choice is made.
+  React.useEffect(() => {
+    const node = buttonRef.current
+    if (!node || checked) return
+    const group = node.closest('[role="radiogroup"]')
+    if (!group || group.querySelector('[role="radio"][tabindex="0"]')) return
+    const first = group.querySelector<HTMLButtonElement>('[role="radio"]:not(:disabled)')
+    if (first === node) node.tabIndex = 0
+  }, [checked])
+
+  // A `role="radio"` with no arrow-key movement is worse than an unstyled native
+  // radio: the ARIA contract promises the group is one tab stop that Arrow keys
+  // walk, so a keyboard user could Tab in but never reach the other options
+  // (MC-2117). Selection follows focus, as SegmentedControl already does.
+  //
+  // The group is the CALLER's `role="radiogroup"` element rather than this
+  // component, so siblings are found through the DOM. That keeps the fix
+  // entirely inside the primitive — no call site has to be rewired to get a
+  // working radio group.
+  const move = (delta: number, from: HTMLElement): void => {
+    const group = from.closest('[role="radiogroup"]')
+    if (!group) return
+    const radios = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]:not(:disabled)')]
+    const index = radios.indexOf(from as HTMLButtonElement)
+    if (index === -1 || radios.length === 0) return
+    // Wraps, per the radio-group pattern — unlike a list cursor, which clamps.
+    const next = radios[(index + delta + radios.length) % radios.length]
+    next?.focus()
+    next?.click()
+  }
+
   return (
     <button
+      ref={buttonRef}
       type="button"
       role="radio"
       aria-checked={checked}
       disabled={disabled}
       onClick={onSelect}
+      // Roving: the checked option is the group's single tab stop.
+      tabIndex={checked ? 0 : -1}
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+          event.preventDefault()
+          move(1, event.currentTarget)
+        } else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+          event.preventDefault()
+          move(-1, event.currentTarget)
+        }
+      }}
       className={`
         grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border text-left
         ${dense ? 'px-2.5 py-2' : 'px-3.5 py-3'}

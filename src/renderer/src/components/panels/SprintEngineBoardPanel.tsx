@@ -22,6 +22,7 @@ import {
  Spinner,
  StatusDot,
  Section,
+ Checkbox,
  Select,
  Tabs,
  TruncatedText,
@@ -3392,15 +3393,11 @@ export function SprintRunBoard({
  </div>
 
  {hasResidentWorkspace ? (
- <label className="flex cursor-pointer items-center gap-2 text-meta text-[color:var(--text-default)]">
- <input
- type="checkbox"
+ <Checkbox
  checked={addMemberSpawnNow}
- onChange={(event) => setAddMemberSpawnNow(event.target.checked)}
- className="h-3.5 w-3.5 accent-[color:var(--accent-primary)]"
+ onChange={setAddMemberSpawnNow}
+ label="Spawn the agent terminal now"
  />
- Spawn the agent terminal now
- </label>
  ) : null}
 
  {!hasResidentWorkspace ? (

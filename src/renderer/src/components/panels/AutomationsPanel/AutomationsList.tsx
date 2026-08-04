@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { GhostButton, LifecycleGlyph, OverflowMenu, type OverflowMenuItem, PrimaryButton, Spinner, TruncatedText } from '../../ui'
+import { EmptyState, GhostButton, LifecycleGlyph, OverflowMenu, type OverflowMenuItem, PrimaryButton, Spinner, TruncatedText } from '../../ui'
 import type { AutomationDefinition } from '../../../../../shared/automations/contracts'
 import {
   DEFINITION_LIFECYCLE,
@@ -204,12 +204,12 @@ function DefinitionRow({
 
 export function DetailEmptyState({ hasDefinitions }: { hasDefinitions: boolean }) {
   return (
-    <div className="flex h-full items-center justify-center px-6 text-center">
-      <p className="max-w-xs text-micro leading-5 text-[color:var(--text-muted)]">
-        {hasDefinitions
+    <EmptyState
+      title={
+        hasDefinitions
           ? 'Select an automation to see its run history and details.'
-          : 'Create an automation to schedule agents on this project.'}
-      </p>
-    </div>
+          : 'Create an automation to schedule agents on this project.'
+      }
+    />
   )
 }

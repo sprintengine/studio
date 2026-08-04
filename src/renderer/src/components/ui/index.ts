@@ -63,6 +63,21 @@ export { Field } from './Field'
 export { Input } from './Input'
 export { Select } from './Select'
 export type { SelectItem } from './Select'
+export { Checkbox } from './Checkbox'
+export type { CheckboxProps } from './Checkbox'
+export { Badge } from './Badge'
+export type { BadgeProps, BadgeTone } from './Badge'
+export { Table } from './Table'
+export type { TableProps, TableCellProps } from './Table'
+export { EmptyState } from './EmptyState'
+export type { EmptyStateProps } from './EmptyState'
+export { Combobox } from './Combobox'
+export type { ComboboxOption, ComboboxProps } from './Combobox'
+// System vocabulary, not an app screen: the palette is the reference combobox
+// (correct `aria-activedescendant` ARIA, which `Combobox` shares bones with) and
+// it lived outside the kit, unexported and undocumented (MC-2117). Default
+// export kept so `React.lazy(() => import('./ui/CommandPalette'))` still works.
+export { default as CommandPalette } from './CommandPalette'
 export { Drawer } from './Drawer'
 export type { DrawerProps } from './Drawer'
 export { SidePane, SidePaneHeader } from './SidePane'

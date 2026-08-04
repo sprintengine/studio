@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Modal, ModalButton } from '../ui/Modal'
-import { CloseIconButton, StatusDot } from '../ui'
+import { Checkbox, CloseIconButton, StatusDot } from '../ui'
 import { Tooltip } from '../ui/Tooltip'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { LEARNING_CATEGORY_LABELS } from '../../content/learning/types'
@@ -146,15 +146,11 @@ export function TipStartupModal({
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-5 py-3">
-        <label className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)] hover:text-[color:var(--text-muted)] transition-colors">
-          <input
-            type="checkbox"
-            checked={showTipsOnStartup}
-            onChange={(event) => setLearningShowTipsOnStartup(event.target.checked)}
-            className="h-3 w-3 rounded border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--accent-primary)] focus-visible:focus-ring"
-          />
-          Show on startup
-        </label>
+        <Checkbox
+          checked={showTipsOnStartup}
+          onChange={setLearningShowTipsOnStartup}
+          label="Show on startup"
+        />
 
         <div className="flex items-center gap-2">
           {canNavigate ? (

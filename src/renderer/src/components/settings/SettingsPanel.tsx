@@ -2090,13 +2090,12 @@ export default function SettingsPanel({
                         autoComplete="off"
                         className={`${ROW_INPUT_CLASS} w-60`}
                       />
-                      <PrimaryButton
-                        size="md"
-                        onClick={() => void saveGitHubToken()}
-                        disabled={githubTokenPending || !githubTokenDraft.trim()}
-                      >
-                        Save
-                      </PrimaryButton>
+                      {/* Cancel before Save — the shared order every other
+                          dialog and editor in the app uses (the role editor
+                          above, `Modal.Footer`, `ConfirmDialog`). This row was
+                          the one place that flipped it, so the confirming
+                          button moved under the pointer depending on which
+                          surface you were on (MC-2117). */}
                       {githubTokenStatus?.configured ? (
                         <GhostButton
                           size="md"
@@ -2108,6 +2107,13 @@ export default function SettingsPanel({
                           Cancel
                         </GhostButton>
                       ) : null}
+                      <PrimaryButton
+                        size="md"
+                        onClick={() => void saveGitHubToken()}
+                        disabled={githubTokenPending || !githubTokenDraft.trim()}
+                      >
+                        Save
+                      </PrimaryButton>
                     </>
                   ) : (
                     <>

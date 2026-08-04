@@ -9,7 +9,7 @@ import type {
   TrackerWriteBackTransitionEvent,
 } from '../../../../shared/electron-api'
 import {
-  FOCUS_RING_PEER_CLASS,
+  Checkbox,
   GhostButton,
   InlineNotice,
   Select,
@@ -406,8 +406,10 @@ function ConnectionFrame({
   )
 }
 
-// A ticked lifecycle event. A native checkbox carries the semantics and keyboard
-// path; the visual box is decorative and hidden from assistive tech.
+// A ticked lifecycle event. This was the most complete of the five hand-rolled
+// checkboxes — the styled-peer box that motivated `FOCUS_RING_PEER_CLASS` — and
+// it is what `ui/Checkbox` was promoted from (MC-2117). It stays only as a
+// row-level wrapper for the `py-1 gap-2.5` rhythm this settings list uses.
 function CommentCheck({
   label,
   checked,
@@ -417,40 +419,7 @@ function CommentCheck({
   checked: boolean
   onChange: (next: boolean) => void
 }) {
-  return (
-    <label className="flex cursor-pointer select-none items-center gap-2.5 py-1 text-body text-[color:var(--text-default)]">
-      <span className="relative inline-flex size-icon-sm shrink-0 items-center justify-center">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(event) => onChange(event.target.checked)}
-          className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
-        />
-        <span
-          aria-hidden="true"
-          className={[
-            'inline-flex size-icon-sm items-center justify-center rounded-[3px] border transition-colors',
-            // The <input> is the tab stop; this box is what the user sees, so it
-            // takes the shared treatment on the input's focus. Previously a
-            // hand-rolled ring with a `ring-offset-color` pinned to
-            // --bg-surface-raised — which is wrong the moment this row sits on
-            // any other surface. The outline's gap needs no such guess.
-            FOCUS_RING_PEER_CLASS,
-            checked
-              ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
-              : 'border-[color:var(--border-default)] bg-[color:var(--bg-app)]',
-          ].join(' ')}
-        >
-          {checked ? (
-            <svg viewBox="0 0 16 16" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth={2.2}>
-              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          ) : null}
-        </span>
-      </span>
-      {label}
-    </label>
-  )
+  return <Checkbox checked={checked} onChange={onChange} label={label} size="body" className="gap-2.5 py-1" />
 }
 
 // One preview comment card mirroring the tracker's comment UI: the Multicode

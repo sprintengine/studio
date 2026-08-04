@@ -5,7 +5,7 @@ import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { pathJoin, samePath, trimPath } from '../../utils/paths'
 import { slugifyWorktreeName, worktreeContainerPath, worktreeIdFromPath } from '../../utils/workspaceWorktree'
-import { Field, FOCUS_RING_CLASS, LifecycleGlyph, OverflowMenu, Select, Spinner, type LifecycleState, type SelectItem } from '../ui'
+import { Checkbox, Field, FOCUS_RING_CLASS, LifecycleGlyph, OverflowMenu, Select, Spinner, type LifecycleState, type SelectItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 type WorktreeMessage = {
@@ -451,16 +451,13 @@ export default function WorktreeManager({
                   className="w-full"
                 />
               </div>
-              <label className="flex w-fit items-center gap-2 text-micro text-[color:var(--text-subtle)]">
-                <input
-                  type="checkbox"
-                  checked={copyIncludedFiles}
-                  onChange={(event) => setCopyIncludedFiles(event.target.checked)}
-                  disabled={formDisabled}
-                  className="h-3.5 w-3.5 accent-[color:var(--accent-primary)]"
-                />
-                Copy .worktreeinclude files
-              </label>
+              <Checkbox
+                checked={copyIncludedFiles}
+                onChange={setCopyIncludedFiles}
+                disabled={formDisabled}
+                label="Copy .worktreeinclude files"
+                className="w-fit"
+              />
               <div className="flex items-center justify-end gap-1.5 pt-0.5">
                 <button
                   type="button"
