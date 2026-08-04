@@ -68,7 +68,6 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
         && previous.requested === requested
         && previous.progress?.installing === progress.installing
         && previous.progress?.methodLabel === progress.methodLabel
-        && previous.progress?.error === progress.error
       ) {
         return previous
       }

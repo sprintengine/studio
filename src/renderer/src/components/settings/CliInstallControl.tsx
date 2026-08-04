@@ -46,12 +46,12 @@ export type CliInstallControlProps = {
 }
 
 // What the host needs to render the install where its button already is: whether
-// one is running, which method it runs (the row's state line names it), and the
-// failure, which stays visible in the disclosure rather than replacing the row.
+// one is running, and which method it runs (the row's state line names it). A
+// failure is deliberately NOT here — it stays in the disclosure, beside the log
+// that explains it, rather than replacing what the row says about the CLI.
 export type CliInstallProgress = {
   installing: boolean
   methodLabel: string | null
-  error: string | null
 }
 
 // The method a row installs when nobody picked one: the recommended one that can
@@ -195,9 +195,10 @@ export function CliInstallControl({
     const known = methodsRef.current ?? methods
     const available = known ?? (hostDriven ? await loadMethods() : null)
     if (!available || !mountedRef.current) return
+    const fallbackId = preferredMethodId(available)
     const chosen =
       available.find((method) => method.id === selectedMethodId)
-      ?? available.find((method) => method.id === preferredMethodId(available))
+      ?? available.find((method) => method.id === fallbackId)
       ?? null
     if (!chosen) {
       setInstallError(`No automatic installer is available for ${displayName} on this platform.`)
@@ -285,12 +286,8 @@ export function CliInstallControl({
   })
   useEffect(() => {
     if (!hostDriven) return
-    installStateListenerRef.current?.({
-      installing,
-      methodLabel: runningMethodLabel,
-      error: installError,
-    })
-  }, [hostDriven, installing, runningMethodLabel, installError])
+    installStateListenerRef.current?.({ installing, methodLabel: runningMethodLabel })
+  }, [hostDriven, installing, runningMethodLabel])
 
   const installed = detect?.installed === true
   const versionSuffix = detect?.version ? ` · ${detect.version}` : ''
