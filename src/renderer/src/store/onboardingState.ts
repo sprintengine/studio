@@ -28,3 +28,39 @@ export function shouldShowFirstRunCliCard(input: {
   if (input.cliAvailabilityStatus !== 'ready') return false
   return !Object.values(input.cliAvailability).some((entry) => entry?.installed === true)
 }
+
+// The auto-open's half of the same decision (MC-2094). The card renders only on
+// a resolved "nothing installed"; this answers the earlier question — may the
+// creation hub take the first-run window yet? — and the two differ on the
+// unresolved probe. 'loading' and 'error' render no card, but they are also no
+// basis for opening a hub on a machine that may not be able to honour it, so the
+// window is HELD rather than guessed away: nothing flashes in either direction.
+//
+// 'error' holds indefinitely, and that is deliberate — a probe that could not
+// run is not evidence the machine has a CLI. The empty stage keeps its own "New
+// Workspace" button, so holding the auto-open delays the hub, never blocks it.
+function isFirstRunCliCardPending(input: {
+  cliAvailabilityStatus: CliAvailabilityStatus
+  cliAvailability: AgentCliAvailabilityMap
+  firstRunCliCardDismissed: boolean
+}): boolean {
+  // Dismissal hands the window back immediately: "Not now" must drop the user
+  // into the hub, not leave them on an empty stage.
+  if (input.firstRunCliCardDismissed) return false
+  if (input.cliAvailabilityStatus !== 'ready') return true
+  return shouldShowFirstRunCliCard(input)
+}
+
+// Zero workspaces is what opens the creation hub, but no longer on its own: the
+// CLI question comes first on a fresh profile. Before this the hub opened
+// unconditionally on an empty profile, and the card — gated on the hub being
+// closed — could never appear in the one window it exists for.
+export function shouldAutoOpenCreationHub(input: {
+  workspaceCount: number
+  cliAvailabilityStatus: CliAvailabilityStatus
+  cliAvailability: AgentCliAvailabilityMap
+  firstRunCliCardDismissed: boolean
+}): boolean {
+  if (input.workspaceCount > 0) return false
+  return !isFirstRunCliCardPending(input)
+}

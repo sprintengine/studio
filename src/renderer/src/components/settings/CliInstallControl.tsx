@@ -28,6 +28,41 @@ export type CliInstallControlProps = {
   // When true (and the CLI is not installed), open the install method picker on
   // mount. Lets a parent's "Install" affordance jump straight into the flow.
   autoOpenInstall?: boolean
+  // Host-driven mode (MC-2094). The control keeps the install ENGINE — methods,
+  // selection, the streamed log — and gives up every affordance: no probe of its
+  // own, no Re-check, no Install, no Run install, no Cancel. The host's single
+  // row button is the only way in, and progress goes back up through
+  // `onInstallStateChange` so the row can report it where the button already is.
+  // Two identical Install buttons a few pixels apart is what this replaces, and
+  // it is opt-in precisely so Settings → Agents and the Agent CLIs canvas — both
+  // of which own no button of their own — keep the pair they render today.
+  hostDriven?: boolean
+  // "An install is wanted and has not started yet." The host raises it from its
+  // own Install button and drops it when the progress it gets back says the
+  // install finished, so a row that is collapsed and reopened later does not
+  // re-run an install it already ran. Only read in host-driven mode.
+  installRequested?: boolean
+  onInstallStateChange?: (progress: CliInstallProgress) => void
+}
+
+// What the host needs to render the install where its button already is: whether
+// one is running, which method it runs (the row's state line names it), and the
+// failure, which stays visible in the disclosure rather than replacing the row.
+export type CliInstallProgress = {
+  installing: boolean
+  methodLabel: string | null
+  error: string | null
+}
+
+// The method a row installs when nobody picked one: the recommended one that can
+// actually run, else anything that can, else the first — so the caller can still
+// report WHY it cannot run rather than silently finding nothing.
+function preferredMethodId(methods: CliInstallMethodInfo[]): string {
+  const preferred =
+    methods.find((method) => method.recommended && method.available)
+    ?? methods.find((method) => method.available)
+    ?? methods[0]
+  return preferred?.id ?? ''
 }
 
 // Detect-and-install control for a single agent CLI. Reused by the onboarding
@@ -44,6 +79,9 @@ export function CliInstallControl({
   showName = true,
   showStatus = true,
   autoOpenInstall = false,
+  hostDriven = false,
+  installRequested = false,
+  onInstallStateChange,
 }: CliInstallControlProps) {
   const [detect, setDetect] = useState<CliDetectResult | null>(null)
   const [detecting, setDetecting] = useState(true)
@@ -51,6 +89,7 @@ export function CliInstallControl({
   const [methods, setMethods] = useState<CliInstallMethodInfo[] | null>(null)
   const [selectedMethodId, setSelectedMethodId] = useState<string>('')
   const [installing, setInstalling] = useState(false)
+  const [runningMethodLabel, setRunningMethodLabel] = useState<string | null>(null)
   const [log, setLog] = useState('')
   const [installError, setInstallError] = useState<string | null>(null)
 
@@ -72,10 +111,17 @@ export function CliInstallControl({
     }
   }, [cli, command, useWsl])
 
-  // Re-detect whenever the CLI or its command/WSL override changes.
+  // Re-detect whenever the CLI or its command/WSL override changes. A host-driven
+  // control never probes: the host already holds the availability answer it
+  // renders the row from, and a second probe per row would be a second source of
+  // truth for the same fact (and eight more shell spawns on a first-run card).
   useEffect(() => {
+    if (hostDriven) {
+      setDetecting(false)
+      return
+    }
     void runDetect()
-  }, [runDetect])
+  }, [hostDriven, runDetect])
 
   const openInstall = useCallback(async () => {
     setExpanded(true)
@@ -91,6 +137,44 @@ export function CliInstallControl({
     setSelectedMethodId(preferred?.id ?? '')
   }, [cli, command, useWsl])
 
+  // The methods list, loaded once and kept: host-driven mode needs it to answer
+  // "install the recommended one" the moment the row's button is pressed, and
+  // re-asking on every press would put a spinner in front of an answer that has
+  // not changed. Invalidated by the same inputs the list is resolved from.
+  const methodsRef = useRef<CliInstallMethodInfo[] | null>(null)
+  // One probe, however many callers want the list: the panel asks for it as it
+  // opens and the install asks for it in the same commit when the press is what
+  // opened the panel.
+  const methodsInFlightRef = useRef<Promise<CliInstallMethodInfo[]> | null>(null)
+  useEffect(() => {
+    methodsRef.current = null
+    methodsInFlightRef.current = null
+  }, [cli, command, useWsl])
+
+  const loadMethods = useCallback(async (): Promise<CliInstallMethodInfo[]> => {
+    if (methodsRef.current) return methodsRef.current
+    if (methodsInFlightRef.current) return methodsInFlightRef.current
+    const request = window.api.cliInstallMethods(cli, { command, useWsl })
+    methodsInFlightRef.current = request
+    const available = await request.finally(() => {
+      if (methodsInFlightRef.current === request) methodsInFlightRef.current = null
+    })
+    methodsRef.current = available
+    if (mountedRef.current) {
+      setMethods(available)
+      // Only ever a default: a method the user picked themselves survives.
+      setSelectedMethodId((current) => current || preferredMethodId(available))
+    }
+    return available
+  }, [cli, command, useWsl])
+
+  // Host-driven rows show the method picker as soon as the disclosure can render
+  // it, so opening the chevron does not sit on "Loading install options…".
+  useEffect(() => {
+    if (!hostDriven) return
+    void loadMethods()
+  }, [hostDriven, loadMethods])
+
   // Honor a parent's request to jump straight into the install flow once the
   // probe confirms the CLI is missing. Runs once per arming.
   const autoOpenedRef = useRef(false)
@@ -105,7 +189,30 @@ export function CliInstallControl({
   }, [autoOpenInstall, detecting, detect, openInstall])
 
   const runInstall = useCallback(async () => {
-    if (!selectedMethodId) return
+    // Settings runs this from a picker that is already populated and already
+    // disabled on an unavailable method. A host-driven row runs it from a bare
+    // button, so the method has to be resolved — and refused — here instead.
+    const known = methodsRef.current ?? methods
+    const available = known ?? (hostDriven ? await loadMethods() : null)
+    if (!available || !mountedRef.current) return
+    const chosen =
+      available.find((method) => method.id === selectedMethodId)
+      ?? available.find((method) => method.id === preferredMethodId(available))
+      ?? null
+    if (!chosen) {
+      setInstallError(`No automatic installer is available for ${displayName} on this platform.`)
+      return
+    }
+    if (!chosen.available) {
+      setInstallError(
+        chosen.unavailableReason
+          ? `${chosen.label} is unavailable — ${chosen.unavailableReason}`
+          : `${chosen.label} is unavailable on this machine.`,
+      )
+      return
+    }
+    setSelectedMethodId(chosen.id)
+    setRunningMethodLabel(chosen.label)
     setInstalling(true)
     setInstallError(null)
     setLog('')
@@ -113,7 +220,7 @@ export function CliInstallControl({
       if (mountedRef.current) setLog((prev) => prev + chunk)
     })
     try {
-      const result = await window.api.cliInstall({ cli, methodId: selectedMethodId }, { command, useWsl })
+      const result = await window.api.cliInstall({ cli, methodId: chosen.id }, { command, useWsl })
       if (!mountedRef.current) return
       if (result.installed) {
         setDetect({
@@ -136,9 +243,54 @@ export function CliInstallControl({
       }
     } finally {
       unsubscribe()
-      if (mountedRef.current) setInstalling(false)
+      if (mountedRef.current) {
+        setInstalling(false)
+        setRunningMethodLabel(null)
+      }
     }
-  }, [cli, binary, command, useWsl, selectedMethodId, onInstalled])
+  }, [
+    cli,
+    binary,
+    command,
+    displayName,
+    useWsl,
+    hostDriven,
+    loadMethods,
+    methods,
+    selectedMethodId,
+    onInstalled,
+  ])
+
+  // The host's Install button is the only one in host-driven mode, so the request
+  // to install arrives as a prop — including on the very mount the press causes,
+  // since the disclosure this control lives in is what the press opens.
+  const handledInstallRequestRef = useRef(false)
+  useEffect(() => {
+    if (!hostDriven) return
+    if (!installRequested) {
+      handledInstallRequestRef.current = false
+      return
+    }
+    if (handledInstallRequestRef.current) return
+    handledInstallRequestRef.current = true
+    void runInstall()
+  }, [hostDriven, installRequested, runInstall])
+
+  // Progress goes back up so the row can render it where its button already is.
+  // Through a ref because the host builds this callback inline per row: depending
+  // on its identity would re-report on every render of the card.
+  const installStateListenerRef = useRef(onInstallStateChange)
+  useEffect(() => {
+    installStateListenerRef.current = onInstallStateChange
+  })
+  useEffect(() => {
+    if (!hostDriven) return
+    installStateListenerRef.current?.({
+      installing,
+      methodLabel: runningMethodLabel,
+      error: installError,
+    })
+  }, [hostDriven, installing, runningMethodLabel, installError])
 
   const installed = detect?.installed === true
   const versionSuffix = detect?.version ? ` · ${detect.version}` : ''
@@ -183,7 +335,10 @@ export function CliInstallControl({
             </span>
           </div>
         ) : null}
-        {!detecting && (
+        {/* Host-driven rows render no actions here at all: the row above owns the
+            one Install button, and a second one under it is the duplicate this
+            mode exists to remove. */}
+        {!detecting && !hostDriven && (
           <div className="flex shrink-0 items-center gap-2">
             <GhostButton
               size="sm"
@@ -207,8 +362,17 @@ export function CliInstallControl({
         </div>
       )}
 
-      {expanded && !installed && (
-        <div className="mt-2.5 rounded-[var(--radius-md)] border border-[color:var(--border-subtle)] p-3">
+      {/* Host-driven: the disclosure this control lives in IS the panel's
+          visibility, so it renders whenever it is mounted and draws no box of its
+          own inside the row's own indent. */}
+      {(hostDriven || (expanded && !installed)) && (
+        <div
+          className={
+            hostDriven
+              ? ''
+              : 'mt-2.5 rounded-[var(--radius-md)] border border-[color:var(--border-subtle)] p-3'
+          }
+        >
           {methods === null ? (
             <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]">
               <Spinner className="icon-sm" /> Loading install options…
@@ -217,7 +381,7 @@ export function CliInstallControl({
             <p className="text-body leading-5 text-[color:var(--text-muted)]">
               No automatic installer is available for {displayName} on this platform. Install{' '}
               <span className="font-mono text-[color:var(--text-default)]">{binary}</span> manually, then
-              set its path in the command field above.
+              set its path {hostDriven ? 'in Settings → Agents.' : 'in the command field above.'}
             </p>
           ) : (
             <>
@@ -230,26 +394,33 @@ export function CliInstallControl({
                   disabled={installing}
                   className="min-w-[220px]"
                 />
-                <PrimaryButton
-                  size="sm"
-                  onClick={() => void runInstall()}
-                  disabled={installing || !selectedMethod?.available}
-                  className="h-control-md"
-                >
-                  {installing ? 'Installing…' : 'Run install'}
-                </PrimaryButton>
-                {!installing && (
-                  <GhostButton
-                    size="sm"
-                    onClick={() => setExpanded(false)}
-                    className="h-control-md text-[color:var(--text-muted)]"
-                  >
-                    Cancel
-                  </GhostButton>
+                {/* The chevron reveals "a different way", never a second
+                    "start": host-driven, the picked method is all this panel
+                    offers, and the row's button runs it. */}
+                {hostDriven ? null : (
+                  <>
+                    <PrimaryButton
+                      size="sm"
+                      onClick={() => void runInstall()}
+                      disabled={installing || !selectedMethod?.available}
+                      className="h-control-md"
+                    >
+                      {installing ? 'Installing…' : 'Run install'}
+                    </PrimaryButton>
+                    {!installing && (
+                      <GhostButton
+                        size="sm"
+                        onClick={() => setExpanded(false)}
+                        className="h-control-md text-[color:var(--text-muted)]"
+                      >
+                        Cancel
+                      </GhostButton>
+                    )}
+                  </>
                 )}
               </div>
 
-              {selectedMethod && (
+              {selectedMethod && !hostDriven && (
                 <div className="mt-2">
                   <div className="mb-1 text-meta text-[color:var(--text-subtle)]">
                     Will run:

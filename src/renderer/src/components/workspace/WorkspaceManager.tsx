@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Actions, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
-import { shouldShowFirstRunCliCard } from '../../store/onboardingState'
+import { shouldAutoOpenCreationHub, shouldShowFirstRunCliCard } from '../../store/onboardingState'
 import { planAgentConfigAdoption } from '../onboarding/agentConfigAdoption'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
@@ -836,7 +836,10 @@ export default function WorkspaceManager() {
   //   - the region check keeps it out of the way of whatever the user is
   //     already looking at.
   // Deliberately NOT gated on having a workspace: a user who dismisses the
-  // creation hub on an empty profile still deserves the answer.
+  // creation hub on an empty profile still deserves the answer. The hub itself
+  // no longer races it on a fresh profile — the auto-open below waits on the
+  // same probe (MC-2094) — so `!showNewWorkspacePanel` stops being the thing
+  // that made this card unreachable and goes back to being what it reads as.
   const showFirstRunCliCard =
     shouldShowFirstRunCliCard({ cliAvailabilityStatus, cliAvailability, firstRunCliCardDismissed })
     && !activeGlobalSurfaceEntry
@@ -1665,14 +1668,25 @@ export default function WorkspaceManager() {
     void window.api.mobileBridgeUpdateWorkspaceRoots(roots).catch(() => {})
   }, [mobileRelayEnabled, mobileWorkspaceRootKey])
 
+  // Auto-open the new-workspace panel when there are no workspaces — unless the
+  // first-run CLI question still owns that window (MC-2094). Precedence lives
+  // HERE, at the opener, not on the card: the card's own "don't fight for the
+  // region" gate below stays exactly as it is, and it is satisfied because the
+  // hub simply has not opened yet. A scalar boolean, not the availability map, is
+  // what the effect depends on — a background re-probe hands back a fresh map
+  // object every time, and depending on that would re-open a hub the user closed.
+  const autoOpenCreationHub = shouldAutoOpenCreationHub({
+    workspaceCount: railWorkspaces.length,
+    cliAvailabilityStatus,
+    cliAvailability,
+    firstRunCliCardDismissed,
+  })
+
   useEffect(() => {
-    // Auto-open the new-workspace panel when there are no workspaces. This used
-    // to wait for the wizard to reach its workspace step so the panel did not pop
-    // behind an overlay; with no wizard, zero workspaces IS the whole condition.
-    if (railWorkspaces.length === 0) {
+    if (autoOpenCreationHub) {
       setShowNewWorkspacePanel(true)
     }
-  }, [railWorkspaces.length])
+  }, [autoOpenCreationHub])
 
   useEffect(() => {
     let disposed = false
@@ -3513,7 +3527,9 @@ export default function WorkspaceManager() {
         {/* The one first-run question the app cannot answer for itself. Held back
             while anything else owns the region — a door, the creation hub, the new
             chat panel — so it lands on a workspace the user has already reached
-            rather than competing with the thing they opened. */}
+            rather than competing with the thing they opened. On a fresh profile
+            nothing else has the region: the hub's auto-open waits for this
+            question to be answered or dismissed first (MC-2094). */}
         {showFirstRunCliCard ? (
           <React.Suspense fallback={null}>
             <FirstRunCliCard onDismiss={dismissFirstRunCliCard} />

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { AgentCli, AgentCliAvailabilityMap } from '../../../shared/electron-api'
-import { shouldShowFirstRunCliCard } from './onboardingState'
+import { shouldAutoOpenCreationHub, shouldShowFirstRunCliCard } from './onboardingState'
 
 function availability(entries: Record<string, boolean>): AgentCliAvailabilityMap {
   const map: AgentCliAvailabilityMap = {}
@@ -107,11 +107,144 @@ function testResolvedEmptyMapAsks(): void {
   )
 }
 
+// --- First-run precedence: who gets the empty profile's window (MC-2094) ---
+
+// THE BUG this precedence exists to fix. The card is gated on the creation hub
+// being closed, and an empty profile used to open the hub unconditionally — so
+// on the one machine the card is for, it could never appear. The hub waiting is
+// what makes the card reachable; assert both halves of that first run together.
+function testFreshProfileWithNoCliGivesTheWindowToTheCard(): void {
+  const machine = {
+    cliAvailabilityStatus: 'ready' as const,
+    cliAvailability: availability({ codex: false, 'claude-code': false }),
+    firstRunCliCardDismissed: false,
+  }
+  assert.equal(
+    shouldAutoOpenCreationHub({ workspaceCount: 0, ...machine }),
+    false,
+    'a fresh profile with no CLI must not auto-open the hub over the card',
+  )
+  assert.equal(
+    shouldShowFirstRunCliCard(machine),
+    true,
+    'and with the hub held back, the card is reachable in the window it exists for',
+  )
+}
+
+function testFreshProfileWithACliGoesStraightToTheHub(): void {
+  assert.equal(
+    shouldAutoOpenCreationHub({
+      workspaceCount: 0,
+      cliAvailabilityStatus: 'ready',
+      cliAvailability: availability({ codex: false, 'claude-code': true }),
+      firstRunCliCardDismissed: false,
+    }),
+    true,
+    'one installed CLI and first run is unchanged: hub opens, no card, no nagging',
+  )
+}
+
+// Neither surface may flash while the probe is unresolved. The card already
+// refuses to answer on 'loading'/'error'; the hub has to refuse too, or it opens
+// on a guess in exactly the window the card would have owned.
+function testUnresolvedProbeOpensNothing(): void {
+  for (const cliAvailabilityStatus of ['loading', 'error'] as const) {
+    assert.equal(
+      shouldAutoOpenCreationHub({
+        workspaceCount: 0,
+        cliAvailabilityStatus,
+        cliAvailability: {},
+        firstRunCliCardDismissed: false,
+      }),
+      false,
+      `the hub does not open on a guess while the probe is '${cliAvailabilityStatus}'`,
+    )
+    assert.equal(
+      shouldShowFirstRunCliCard({
+        cliAvailabilityStatus,
+        cliAvailability: {},
+        firstRunCliCardDismissed: false,
+      }),
+      false,
+      `and the card does not appear while the probe is '${cliAvailabilityStatus}'`,
+    )
+  }
+}
+
+// "Not now" hands the window back. Without this the dismissing user is left on
+// an empty stage, having closed the only thing on it.
+function testDismissalReleasesTheWindowToTheHub(): void {
+  assert.equal(
+    shouldAutoOpenCreationHub({
+      workspaceCount: 0,
+      cliAvailabilityStatus: 'ready',
+      cliAvailability: availability({ codex: false }),
+      firstRunCliCardDismissed: true,
+    }),
+    true,
+  )
+  // Dismissal outranks even an unresolved probe: the question is settled, so
+  // nothing is waiting on the answer any more.
+  assert.equal(
+    shouldAutoOpenCreationHub({
+      workspaceCount: 0,
+      cliAvailabilityStatus: 'loading',
+      cliAvailability: {},
+      firstRunCliCardDismissed: true,
+    }),
+    true,
+  )
+}
+
+// The hub auto-opens for one reason only: there is nothing to open. A profile
+// with workspaces is never interrupted, whatever the probe says.
+function testExistingWorkspacesNeverAutoOpenTheHub(): void {
+  assert.equal(
+    shouldAutoOpenCreationHub({
+      workspaceCount: 1,
+      cliAvailabilityStatus: 'ready',
+      cliAvailability: availability({ codex: false }),
+      firstRunCliCardDismissed: false,
+    }),
+    false,
+  )
+  assert.equal(
+    shouldAutoOpenCreationHub({
+      workspaceCount: 2,
+      cliAvailabilityStatus: 'ready',
+      cliAvailability: availability({ codex: true }),
+      firstRunCliCardDismissed: false,
+    }),
+    false,
+  )
+}
+
+// Installing dismisses the card by making its condition false — and the same
+// flip hands the window to the hub, so the user is not left staring at a card
+// that has just told them everything is fine.
+function testInstallingACliHandsTheWindowToTheHub(): void {
+  assert.equal(
+    shouldAutoOpenCreationHub({
+      workspaceCount: 0,
+      cliAvailabilityStatus: 'ready',
+      cliAvailability: availability({ codex: true, 'claude-code': false }),
+      firstRunCliCardDismissed: false,
+    }),
+    true,
+  )
+}
+
 testAsksOnlyWhenTheMachineReallyHasNoCli()
 testNeverFlashesBeforeTheProbeResolves()
 testAProbeErrorDoesNotAsk()
 testOneInstalledCliIsEnough()
 testDismissedWins()
 testResolvedEmptyMapAsks()
+testFreshProfileWithNoCliGivesTheWindowToTheCard()
+testFreshProfileWithACliGoesStraightToTheHub()
+testUnresolvedProbeOpensNothing()
+testDismissalReleasesTheWindowToTheHub()
+testExistingWorkspacesNeverAutoOpenTheHub()
+testInstallingACliHandsTheWindowToTheHub()
 
 console.log('onboarding-state tests passed')

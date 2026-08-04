@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
@@ -6,10 +6,11 @@ import {
   GhostButton,
   PrimaryButton,
   ProviderRow,
+  Spinner,
   resolveCliProviderState,
 } from '../ui'
 import CliIcon from '../CliIcon'
-import { CliInstallControl } from '../settings/CliInstallControl'
+import { CliInstallControl, type CliInstallProgress } from '../settings/CliInstallControl'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 
 // The one question that survived the onboarding wizard.
@@ -42,10 +43,38 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
   // One CLI open at a time — the point is to install one, not to compare four
   // expanded forms at once.
   const [openCli, setOpenCli] = useState<string | null>(null)
-  // Which row's Install button was pressed, so its install flow opens straight
-  // away instead of making the user find the same button again inside the
-  // expansion. Cleared whenever the disclosure is driven by the chevron.
-  const [installIntentCli, setInstallIntentCli] = useState<string | null>(null)
+  // The one install this card is running, if any. Install INSTALLS: pressing a
+  // row's button runs the recommended method immediately, rather than opening a
+  // picker carrying a second Install button that the first one only promised.
+  // One at a time, because only one row is open at a time and an open row is what
+  // an install streams into.
+  const [rowInstall, setRowInstall] = useState<{
+    cli: string
+    // Still asking for an install to be started. Held until one actually ran, so
+    // the first progress report (which arrives before the run begins) does not
+    // cancel the request that caused it.
+    requested: boolean
+    started: boolean
+    progress: CliInstallProgress | null
+  } | null>(null)
+
+  const noteInstallProgress = useCallback((cli: string, progress: CliInstallProgress) => {
+    setRowInstall((previous) => {
+      if (!previous || previous.cli !== cli) return previous
+      const started = previous.started || progress.installing
+      const requested = progress.installing || !started
+      if (
+        previous.started === started
+        && previous.requested === requested
+        && previous.progress?.installing === progress.installing
+        && previous.progress?.methodLabel === progress.methodLabel
+        && previous.progress?.error === progress.error
+      ) {
+        return previous
+      }
+      return { cli, requested, started, progress }
+    })
+  }, [])
 
   return (
     <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center p-8">
@@ -70,6 +99,8 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
               {rows.map((plugin) => {
                 const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
                 const state = resolveCliProviderState(cliAvailability[plugin.id], cliAvailabilityStatus)
+                const install = rowInstall?.cli === plugin.id ? rowInstall : null
+                const rowInstalling = install?.progress?.installing === true
                 return (
                   <ProviderRow
                     key={plugin.id}
@@ -82,40 +113,71 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
                     health={state.tone}
                     name={plugin.displayName}
                     version={state.version}
+                    // The state line reports the install while one runs: it is the
+                    // same fact the row is already stating, in the same place,
+                    // named by the method actually running.
                     stateLine={
-                      <CliProviderStateLine
-                        state={state}
-                        binary={plugin.binary}
-                        useWsl={override.useWsl}
-                        probeError={cliAvailabilityError}
-                      />
+                      rowInstalling ? (
+                        `Installing${install?.progress?.methodLabel ? ` via ${install.progress.methodLabel}` : ''}…`
+                      ) : (
+                        <CliProviderStateLine
+                          state={state}
+                          binary={plugin.binary}
+                          useWsl={override.useWsl}
+                          probeError={cliAvailabilityError}
+                        />
+                      )
                     }
                     // Only a CLI that still needs installing gets a disclosure —
-                    // its expansion is the real install flow. An installed one has
-                    // nothing behind the chevron here (its command override and
-                    // models live in Settings), and a chevron over an empty panel
-                    // is a promise the row cannot keep.
-                    expanded={openCli === plugin.id}
+                    // its expansion holds the install METHOD, and the running
+                    // install's output. An installed one has nothing behind the
+                    // chevron here (its command override and models live in
+                    // Settings), and a chevron over an empty panel is a promise
+                    // the row cannot keep.
+                    expanded={openCli === plugin.id || rowInstalling}
                     onExpandedChange={
-                      state.installed
-                        ? undefined
-                        : (next) => {
-                            setInstallIntentCli(null)
+                      // Exactly the rows that can be installed from here get one.
+                      // The panel holds the method the row's Install button will
+                      // run, so a row with no Install button — installed, or a
+                      // probe that never completed and may already be there —
+                      // would open on a picker that starts nothing.
+                      state.health === 'missing'
+                        ? (next) => {
+                            // A running install streams into this panel and the
+                            // control that runs it is unmounted when the row
+                            // closes, so the chevron cannot hide one.
+                            if (rowInstalling) return
                             setOpenCli(next ? plugin.id : null)
                           }
+                        : undefined
                     }
                     // Only a definitive negative probe earns an Install button; a
                     // CLI whose probe never completed may already be installed.
+                    // One button, one place: it stays put while the install runs,
+                    // going disabled and spinning where it already was.
                     actions={
                       state.health === 'missing' ? (
                         <PrimaryButton
                           size="xs"
+                          disabled={rowInstalling}
                           onClick={() => {
-                            setInstallIntentCli(plugin.id)
+                            setRowInstall({
+                              cli: plugin.id,
+                              requested: true,
+                              started: false,
+                              progress: null,
+                            })
                             setOpenCli(plugin.id)
                           }}
                         >
-                          Install
+                          {rowInstalling ? (
+                            <>
+                              <Spinner className="icon-sm" />
+                              Installing
+                            </>
+                          ) : (
+                            'Install'
+                          )}
                         </PrimaryButton>
                       ) : null
                     }
@@ -128,7 +190,9 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
                       useWsl={override.useWsl}
                       showName={false}
                       showStatus={false}
-                      autoOpenInstall={installIntentCli === plugin.id}
+                      hostDriven
+                      installRequested={install?.requested === true}
+                      onInstallStateChange={(progress) => noteInstallProgress(plugin.id, progress)}
                       onInstalled={(result) => {
                         if (result.resolvedPath && !override.command) {
                           setCliRuntime(plugin.id, { command: result.resolvedPath, useWsl: override.useWsl })
