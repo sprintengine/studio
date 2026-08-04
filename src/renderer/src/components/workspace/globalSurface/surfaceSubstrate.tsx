@@ -287,7 +287,10 @@ export function SurfaceRailHeader({
     // so nothing can pass beneath it and it paints nothing. This is that shape:
     // rows physically cannot reach it, so it needs no ground and inherits whatever
     // the column is made of — including transparent.
-    <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-2.5 pb-0 pt-2.5">
+    // Head inset is `--sem-space-sm` (8px), matching the pattern's `.rail-head`
+    // — deliberately WIDER than the scrollport's 4px, because the head holds
+    // full-width controls while the rows hold hover fills (MC-2101's grid).
+    <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-2 pb-0 pt-2">
       <button
         type="button"
         aria-current={newAffordance.selected ? 'true' : undefined}
@@ -332,6 +335,7 @@ export function SurfaceRail({
   scope,
   search,
   filter,
+  emptyNotice,
 }: {
   /** The rail's section label ("Roadmaps", "Automations", "Reviews"). */
   label: string
@@ -351,6 +355,18 @@ export function SurfaceRail({
   search?: SurfaceRailSearch
   /** Filter glyph beside the search field. Ignored without `search`. */
   filter?: SurfaceRailFilter
+  /** Why a narrowed rail is empty ("No sprints match."). Rendered only when the
+   *  rail has no rows; the door decides whether an empty rail means "nothing
+   *  matched" (say so) or "nothing exists yet" (leave it to the canvas's empty
+   *  state), because only the door can see the unfiltered set.
+   *
+   *  It lives here rather than in each door because as a SIBLING of the rail it
+   *  was wrong twice over: at `px-2` it sat 8px in while the rows it explains sat
+   *  at the row inset, and because the rail is `flex-1`, an empty list stretched
+   *  and flex-pushed the notice to the BOTTOM of the column — furthest from the
+   *  search field that caused it, right above the Back row. Five doors had
+   *  copy-pasted it; five doors had both bugs. */
+  emptyNotice?: React.ReactNode
 }): JSX.Element {
   const rowRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map())
 
@@ -450,13 +466,13 @@ export function SurfaceRail({
                 selection, so an unselected title has to sit a step below it —
                 and in a resting rail the lift drops back out with the fill. */}
             <span
-              className={`truncate text-meta font-medium ${
+              className={`truncate text-body font-medium ${
                 selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
               }`}
             >
               {row.title}
             </span>
-            <span className="truncate text-micro text-[color:var(--text-subtle)]">{row.stateLine}</span>
+            <span className="truncate text-meta text-[color:var(--text-subtle)]">{row.stateLine}</span>
           </span>
           {/* Reserve the trailing gutter so revealing the overflow never reflows
               the title mid-hover. */}
@@ -503,8 +519,17 @@ export function SurfaceRail({
         }
       />
       {/* The scrollport. It carries the rail's inset so the head above can sit
-          flush to the column's edges, the way the app sidebar's chrome does. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-2.5 pt-2">
+          flush to the column's edges, the way the app sidebar's chrome does.
+          4px (`--sem-space-2xs`) is the pattern's `.rail-rows` padding, and it
+          is what puts a row's TITLE on the column's 36px text grid:
+          4 (here) + 8 (row padding) + 16 (icon slot) + 8 (gap) — the same edge
+          the app sidebar's workspace rows and the Back row's label land on. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1 pb-2 pt-2">
+      {/* Under the head, at the row inset, where the rows would have been —
+          never flex-pushed to the bottom of the column. */}
+      {emptyNotice && rows.length === 0 ? (
+        <p className="px-2 pt-1 text-meta leading-4 text-[color:var(--text-muted)]">{emptyNotice}</p>
+      ) : null}
       {/* No heading over an ungrouped list, and none over a lone group. "Horizons"
           above a field that already reads "Search horizons…" is the placeholder
           said twice, and a "Recent" header spanning every row groups nothing —

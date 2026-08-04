@@ -107,39 +107,33 @@ export function DesignRail({
   ]
 
   return (
-    <div className="flex min-h-0 flex-col">
-      <SurfaceRail
-        label="Design systems"
-        rows={rows}
-        groups={groups}
-        // Exactly one focused selection across rail and canvas: while New holds
-        // it, no row is current.
-        selectedId={newSelected ? null : selectedId}
-        onSelect={onSelect}
-        newAffordance={{
-          label: 'New design system',
-          onActivate: onCreate,
-          selected: newSelected,
-        }}
-        search={{
-          value: search,
-          onChange: onSearch,
-          placeholder: 'Search design systems…',
-          ariaLabel: 'Search your design systems',
-        }}
-        filter={
-          anyBroken || status !== 'all'
-            ? { ariaLabel: 'Filter design systems', groups: filterGroups }
-            : undefined
-        }
-      />
-      {/* The lens is narrower than the systems behind it. Say so, rather than
-          letting a filtered-empty rail read as "you have no design systems". */}
-      {rows.length === 0 && entries.length > 0 ? (
-        <p className="px-2 pt-2 text-micro leading-4 text-[color:var(--text-muted)]">
-          No design systems match.
-        </p>
-      ) : null}
-    </div>
+    <SurfaceRail
+      label="Design systems"
+      rows={rows}
+      groups={groups}
+      // Exactly one focused selection across rail and canvas: while New holds
+      // it, no row is current.
+      selectedId={newSelected ? null : selectedId}
+      onSelect={onSelect}
+      newAffordance={{
+        label: 'New design system',
+        onActivate: onCreate,
+        selected: newSelected,
+      }}
+      search={{
+        value: search,
+        onChange: onSearch,
+        placeholder: 'Search design systems…',
+        ariaLabel: 'Search your design systems',
+      }}
+      filter={
+        anyBroken || status !== 'all'
+          ? { ariaLabel: 'Filter design systems', groups: filterGroups }
+          : undefined
+      }
+      // The lens is narrower than the systems behind it. Say so, rather than
+      // letting a filtered-empty rail read as "you have no design systems".
+      emptyNotice={entries.length > 0 ? 'No design systems match.' : undefined}
+    />
   )
 }

@@ -1647,11 +1647,22 @@ export default function WorkspaceSidebar({
           (item 1767, mockup §1) — the Sprints door lists every run across every
           project, and jumps into a run's terminals from its canvas.
 
-          Alignment grid: every text column starts 36px from the sidebar edge —
-          top-nav labels (mx-2 + px-2 + 12px icon + gap-2), section-header
-          labels (pl-4 + 14px icon slot + gap-1.5), workspace-row content
-          (mx-1.5 + 4px rail + pl-[26px]) and the fold row's chevron
-          (mx-1.5 + pl-[30px]). Keep these in step when touching any one. */}
+          Alignment grid, re-measured in situ 2026-08-05 (MC-2101). This comment
+          used to claim 36px for all four families; it was computing with icon
+          sizes that had since moved, and three of the four had drifted apart:
+
+            workspace-row content  mx-1.5 + 4px rail + pl-[26px]      = 36px
+            fold row chevron       mx-1.5 + pl-[30px]                 = 36px
+            section-header labels  pl-4 + 16px icon slot + gap-1.5    = 38px
+            top-nav labels         mx-2 + px-2 + 16px icon + gap-2    = 40px
+
+          36px is the grid of record — it is what the row families carry, and
+          what the door rails were ruled onto (design-system/patterns/
+          context-rail.html, "The alignment grid"), so a drill-in swaps the
+          column without moving its text edge. The 38/40px families are recorded
+          drift, not a second grid to build to; closing them is its own change.
+          Keep these in step when touching any one, and re-measure rather than
+          trusting the arithmetic above — that is exactly how it went stale. */}
       <nav
         ref={treeRef}
         className={`flex-1 overflow-y-auto pb-2 ${contextRailActive ? 'hidden' : ''}`}

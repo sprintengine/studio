@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import { LifecycleGlyph, type LifecycleState } from '../../components/ui'
 import {
   SurfaceRail,
@@ -36,9 +38,12 @@ export interface ReviewsRailProps {
   filter?: SurfaceRailFilter
   onSelect: (reviewId: string) => void
   onNewReview: () => void
+  /** Why a narrowed rail is empty. Only the door sees the unfiltered set, so it
+   *  decides; the substrate places it under the head at the row inset. */
+  emptyNotice?: ReactNode
 }
 
-export function ReviewsRail({ rows, selectedReviewId, newSelected, search, filter, onSelect, onNewReview }: ReviewsRailProps): JSX.Element {
+export function ReviewsRail({ rows, selectedReviewId, newSelected, search, filter, onSelect, onNewReview, emptyNotice }: ReviewsRailProps): JSX.Element {
   const railRows: SurfaceRailRow[] = rows.map((row) => ({
     id: row.reviewId,
     title: row.title,
@@ -62,6 +67,7 @@ export function ReviewsRail({ rows, selectedReviewId, newSelected, search, filte
       newAffordance={{ label: 'Review a change', selected: newSelected, onActivate: onNewReview }}
       search={search}
       filter={filter}
+      emptyNotice={emptyNotice}
     />
   )
 }

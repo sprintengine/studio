@@ -5525,7 +5525,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: var(--sem-space-xs) var(--sem-space-xs) var(--sem-space-sm);
+    padding: var(--sem-space-sm) var(--sem-space-2xs);
   }
 .ds-embed-pattern-context-rail .cr-group {
     font-size: var(--sem-font-size-micro);
@@ -19312,6 +19312,61 @@ measureAll()
       answers to one question.</li>
   </ul>
 
+  <p class="pat-heading">The alignment grid</p>
+  <p class="pat-caption">
+    A rail does not get a column to itself — it <em>replaces</em> one, and several
+    rails take turns in the same physical column. So the grid below is not this
+    pattern's house style; it is the contract that lets one rail follow another,
+    and follow the app sidebar it displaces, without the text edge moving.
+    Ruled 2026-08-05 (MC-2101) after all three candidate grids were measured and
+    none of them was being met.
+  </p>
+  <p class="pat-caption">
+    A door rail is a <strong>composition</strong>: this pattern's column (pinned
+    head, Back row, the swap) carrying <a href="list-surface.html">list-surface</a>'s
+    two-line row. That is why neither pattern alone described the shipped rails,
+    and why the reconciled numbers live here rather than in either one.
+  </p>
+  <ul class="pat-list">
+    <li><strong>Title x-offset: 36px.</strong> The number everything else serves.
+      It is <code>4 + 8 + 16 + 8</code> — scrollport inset, row padding, leading
+      icon slot, gap — and it is where the app sidebar's own workspace rows put
+      their text, so drilling in does not re-flow the column.</li>
+    <li><strong>Scrollport inset <code>space.2xs</code> (4px)</strong>, matching
+      list-surface's <code>.rail-rows</code>. Not 6px, and not the 10px that
+      shipped: no pattern has ever specified 10px anywhere.</li>
+    <li><strong>Head inset <code>space.sm</code> (8px)</strong>, matching
+      list-surface's <code>.rail-head</code>. Wider than the scrollport on
+      purpose — full-width controls against inset row fills.</li>
+    <li><strong>Row padding <code>space.2xs</code> / <code>space.sm</code>, gap
+      <code>space.sm</code></strong> — <code>.cr-row</code>, unchanged.</li>
+    <li><strong>Leading icon slot <code>icon.size.sm</code> (16px), fixed and
+      reserved by the rail</strong>, never sized by the surface filling it. A
+      surface may render a smaller mark inside it; it may not change the box.
+      This is the whole of MC-2098 and the only reason 36px is stable.</li>
+    <li><strong>Row type: title <code>font.size.body</code> (13px), state line
+      <code>font.size.meta</code> (12px)</strong> — list-surface's
+      <code>.rail-row</code>. The shipped rails ran one step smaller on both.</li>
+    <li><strong>Group heading inset 8px</strong>, aligned to the row's fill inner
+      edge rather than to its title.</li>
+    <li><strong>Back row <code>space.sm</code> / <code>space.lg</code> (8/12px),
+      <code>font.size.meta</code></strong> — <code>.cr-back</code>, which the
+      shipped row missed in both directions (10px inset, 14px type). At 12px its
+      label lands at <code>12 + 16 + 8 = 36px</code>: the same text edge as the
+      titles above it.</li>
+    <li><strong>The empty-filter notice belongs to the rail</strong>, rendered
+      inside the scrollport under the head at the row inset. As a sibling of a
+      <code>flex: 1</code> rail it is pushed to the bottom of the column when the
+      list is empty — furthest from the search field that emptied it.</li>
+  </ul>
+  <p class="pat-caption">
+    Measured, not assumed: the app sidebar's own comment claimed a 36px text
+    column for all four of its row families, but its top-nav rows compute to 40px
+    and its section headers to 38px — the comment was written against a 12px icon
+    that shipped at 16px. 36px is what its <em>workspace rows</em> and fold rows
+    actually use, and those are the rows a door rail replaces.
+  </p>
+
   <p class="pat-heading">Selection in a two-level rail</p>
   <ul class="pat-list">
     <li>The rail keeps <strong>one focused selection</strong>, at
@@ -19518,11 +19573,15 @@ measureAll()
     min-height: 0;
     overflow: hidden;
   }
+  /* 4px horizontal is the canonical scrollport inset — see &quot;The alignment grid&quot;
+     below. It is deliberately NARROWER than the head above it (8px): the head
+     holds full-width controls, the scrollport holds rows whose hover fill is
+     inset from the column edge. */
   .cr-scroll {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: var(--sem-space-xs) var(--sem-space-xs) var(--sem-space-sm);
+    padding: var(--sem-space-sm) var(--sem-space-2xs);
   }
   .cr-group {
     font-size: var(--sem-font-size-micro);
@@ -19794,6 +19853,61 @@ measureAll()
       answers to one question.&lt;/li&gt;
   &lt;/ul&gt;
 
+  &lt;p class=&quot;pat-heading&quot;&gt;The alignment grid&lt;/p&gt;
+  &lt;p class=&quot;pat-caption&quot;&gt;
+    A rail does not get a column to itself — it &lt;em&gt;replaces&lt;/em&gt; one, and several
+    rails take turns in the same physical column. So the grid below is not this
+    pattern's house style; it is the contract that lets one rail follow another,
+    and follow the app sidebar it displaces, without the text edge moving.
+    Ruled 2026-08-05 (MC-2101) after all three candidate grids were measured and
+    none of them was being met.
+  &lt;/p&gt;
+  &lt;p class=&quot;pat-caption&quot;&gt;
+    A door rail is a &lt;strong&gt;composition&lt;/strong&gt;: this pattern's column (pinned
+    head, Back row, the swap) carrying &lt;a href=&quot;list-surface.html&quot;&gt;list-surface&lt;/a&gt;'s
+    two-line row. That is why neither pattern alone described the shipped rails,
+    and why the reconciled numbers live here rather than in either one.
+  &lt;/p&gt;
+  &lt;ul class=&quot;pat-list&quot;&gt;
+    &lt;li&gt;&lt;strong&gt;Title x-offset: 36px.&lt;/strong&gt; The number everything else serves.
+      It is &lt;code&gt;4 + 8 + 16 + 8&lt;/code&gt; — scrollport inset, row padding, leading
+      icon slot, gap — and it is where the app sidebar's own workspace rows put
+      their text, so drilling in does not re-flow the column.&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;Scrollport inset &lt;code&gt;space.2xs&lt;/code&gt; (4px)&lt;/strong&gt;, matching
+      list-surface's &lt;code&gt;.rail-rows&lt;/code&gt;. Not 6px, and not the 10px that
+      shipped: no pattern has ever specified 10px anywhere.&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;Head inset &lt;code&gt;space.sm&lt;/code&gt; (8px)&lt;/strong&gt;, matching
+      list-surface's &lt;code&gt;.rail-head&lt;/code&gt;. Wider than the scrollport on
+      purpose — full-width controls against inset row fills.&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;Row padding &lt;code&gt;space.2xs&lt;/code&gt; / &lt;code&gt;space.sm&lt;/code&gt;, gap
+      &lt;code&gt;space.sm&lt;/code&gt;&lt;/strong&gt; — &lt;code&gt;.cr-row&lt;/code&gt;, unchanged.&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;Leading icon slot &lt;code&gt;icon.size.sm&lt;/code&gt; (16px), fixed and
+      reserved by the rail&lt;/strong&gt;, never sized by the surface filling it. A
+      surface may render a smaller mark inside it; it may not change the box.
+      This is the whole of MC-2098 and the only reason 36px is stable.&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;Row type: title &lt;code&gt;font.size.body&lt;/code&gt; (13px), state line
+      &lt;code&gt;font.size.meta&lt;/code&gt; (12px)&lt;/strong&gt; — list-surface's
+      &lt;code&gt;.rail-row&lt;/code&gt;. The shipped rails ran one step smaller on both.&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;Group heading inset 8px&lt;/strong&gt;, aligned to the row's fill inner
+      edge rather than to its title.&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;Back row &lt;code&gt;space.sm&lt;/code&gt; / &lt;code&gt;space.lg&lt;/code&gt; (8/12px),
+      &lt;code&gt;font.size.meta&lt;/code&gt;&lt;/strong&gt; — &lt;code&gt;.cr-back&lt;/code&gt;, which the
+      shipped row missed in both directions (10px inset, 14px type). At 12px its
+      label lands at &lt;code&gt;12 + 16 + 8 = 36px&lt;/code&gt;: the same text edge as the
+      titles above it.&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;The empty-filter notice belongs to the rail&lt;/strong&gt;, rendered
+      inside the scrollport under the head at the row inset. As a sibling of a
+      &lt;code&gt;flex: 1&lt;/code&gt; rail it is pushed to the bottom of the column when the
+      list is empty — furthest from the search field that emptied it.&lt;/li&gt;
+  &lt;/ul&gt;
+  &lt;p class=&quot;pat-caption&quot;&gt;
+    Measured, not assumed: the app sidebar's own comment claimed a 36px text
+    column for all four of its row families, but its top-nav rows compute to 40px
+    and its section headers to 38px — the comment was written against a 12px icon
+    that shipped at 16px. 36px is what its &lt;em&gt;workspace rows&lt;/em&gt; and fold rows
+    actually use, and those are the rows a door rail replaces.
+  &lt;/p&gt;
+
   &lt;p class=&quot;pat-heading&quot;&gt;Selection in a two-level rail&lt;/p&gt;
   &lt;ul class=&quot;pat-list&quot;&gt;
     &lt;li&gt;The rail keeps &lt;strong&gt;one focused selection&lt;/strong&gt;, at
@@ -19869,6 +19983,17 @@ measureAll()
     list” is built from. Create, then search with one filter glyph, then one
     divider, then the rows. Tokens and components alone never caught the defects
     this pattern exists to prevent — they are all composition defects.
+  </p>
+
+  <p class="pat-lede">
+    When this surface is the list inside a rail that <em>replaces</em> a column —
+    a door rail rather than a standalone panel — its row belongs to a shared
+    alignment grid, because several rails take turns in that one column. The row
+    numbers here (<code>.rail-rows</code> 4px, <code>.rail-row</code> 6/8px, title
+    <code>body</code> over meta <code>meta</code>) are the ones that grid adopts;
+    the rest of it — scrollport, leading icon slot, Back row, and the 36px title
+    edge they add up to — is ruled in
+    <a href="context-rail.html">context-rail</a> under "The alignment grid".
   </p>
 
   <h2 class="pat-heading">The anatomy</h2>
@@ -20206,6 +20331,17 @@ measureAll()
     list” is built from. Create, then search with one filter glyph, then one
     divider, then the rows. Tokens and components alone never caught the defects
     this pattern exists to prevent — they are all composition defects.
+  &lt;/p&gt;
+
+  &lt;p class=&quot;pat-lede&quot;&gt;
+    When this surface is the list inside a rail that &lt;em&gt;replaces&lt;/em&gt; a column —
+    a door rail rather than a standalone panel — its row belongs to a shared
+    alignment grid, because several rails take turns in that one column. The row
+    numbers here (&lt;code&gt;.rail-rows&lt;/code&gt; 4px, &lt;code&gt;.rail-row&lt;/code&gt; 6/8px, title
+    &lt;code&gt;body&lt;/code&gt; over meta &lt;code&gt;meta&lt;/code&gt;) are the ones that grid adopts;
+    the rest of it — scrollport, leading icon slot, Back row, and the 36px title
+    edge they add up to — is ruled in
+    &lt;a href=&quot;context-rail.html&quot;&gt;context-rail&lt;/a&gt; under &quot;The alignment grid&quot;.
   &lt;/p&gt;
 
   &lt;h2 class=&quot;pat-heading&quot;&gt;The anatomy&lt;/h2&gt;

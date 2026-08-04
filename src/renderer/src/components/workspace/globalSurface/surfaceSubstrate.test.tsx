@@ -197,7 +197,114 @@ async function main(): Promise<void> {
     mixed.unmount()
   }
 
-  // ── 5. the Automations glyph fits its own box ─────────────────────────────
+  // ── 5. the ruled alignment grid (MC-2101) ─────────────────────────────────
+  // patterns/context-rail.html, "The alignment grid": a row title sits 36px from
+  // the column edge, as 4 (scrollport) + 8 (row padding) + 16 (icon slot) + 8
+  // (gap). Asserted as the ARITHMETIC rather than as four unrelated class names,
+  // because the number is the contract and the four terms are just how it is
+  // currently spelled — and because 36px is also where the app sidebar's
+  // workspace rows put their text, which is what makes a drill-in not re-flow.
+
+  {
+    const view = mount(railWith(<svg className="icon-sm" />))
+    const px = (classes: string, prefix: string): number | null => {
+      // Tailwind spacing: `px-1` = 4px, `px-2` = 8px, `px-2.5` = 10px, `gap-2` = 8px.
+      const found = classes.match(new RegExp(`(?:^|\\s)${prefix}-(\\d+(?:\\.\\d+)?)(?:\\s|$)`))
+      return found ? Number(found[1]) * 4 : null
+    }
+    const scrollport = view.container.querySelector('.overflow-y-auto')
+    const rowButton = view.container.querySelector('li button')
+    assert.ok(scrollport && rowButton, 'the rail renders a scrollport with a row in it')
+
+    const scrollInset = px(scrollport!.getAttribute('class') ?? '', 'px')
+    const rowClasses = rowButton!.getAttribute('class') ?? ''
+    const rowInset = px(rowClasses, 'px')
+    const rowGap = px(rowClasses, 'gap')
+    assert.equal(scrollInset, 4, 'scrollport inset is space.2xs (4px) — the pattern\'s .rail-rows padding')
+    assert.equal(rowInset, 8, 'row padding is space.sm (8px) — .cr-row, unchanged')
+    assert.equal(rowGap, 8, 'the icon-to-title gap is space.sm (8px) — .cr-row, unchanged')
+    assert.equal(
+      (scrollInset ?? 0) + (rowInset ?? 0) + 16 + (rowGap ?? 0),
+      36,
+      'so a row title lands 36px from the column edge, where the app sidebar puts its workspace rows',
+    )
+
+    // Two-line row type, per list-surface's `.rail-row`. Both steps shipped one
+    // smaller (meta title over micro state line).
+    const title = rowButton!.querySelector('span > span')
+    assert.match(title?.getAttribute('class') ?? '', /\btext-body\b/, 'the row title is body (13px)')
+    assert.match(
+      title?.nextElementSibling?.getAttribute('class') ?? '',
+      /\btext-meta\b/,
+      'and the state line under it is meta (12px)',
+    )
+
+    // The head is deliberately WIDER than the scrollport: full-width controls
+    // against inset row fills. Equal insets here would be the bug in reverse.
+    const head = view.container.querySelector('.border-b')
+    assert.equal(px(head?.getAttribute('class') ?? '', 'px'), 8, 'the head insets at space.sm (8px)')
+    console.log('ok - rail rows land on the ruled 36px text grid')
+    view.unmount()
+  }
+
+  // ── 6. the empty-filter notice lives in the scrollport ────────────────────
+  // It used to be a sibling of a `flex-1` rail in five doors, which put it at the
+  // BOTTOM of the column exactly when the list was empty — furthest from the
+  // search field that emptied it, and at a different inset from the rows it
+  // explains. Both halves are asserted: inside the scrollport, and at row inset.
+
+  {
+    const withNotice = mount(
+      <SurfaceRail
+        label="Door"
+        rows={[]}
+        selectedId={null}
+        onSelect={() => undefined}
+        newAffordance={{ label: 'New thing', onActivate: () => undefined }}
+        emptyNotice="No things match."
+      />,
+    )
+    const scrollport = withNotice.container.querySelector('.overflow-y-auto')
+    const notice = Array.from(withNotice.container.querySelectorAll('p')).find((p) =>
+      p.textContent?.includes('No things match.'),
+    )
+    assert.ok(notice, 'the notice renders when a narrowed rail has no rows')
+    assert.ok(
+      scrollport!.contains(notice!),
+      'inside the scrollport — a sibling of the flex-1 rail gets pushed to the bottom of the column',
+    )
+    assert.equal(
+      notice!.previousElementSibling,
+      null,
+      'and it is the scrollport\'s first child, so it sits under the head where the rows would have been',
+    )
+    assert.equal(
+      notice!.getAttribute('class')?.match(/(?:^|\s)px-(\d+)/)?.[1],
+      '2',
+      'at the row inset (8px), not the 8px-from-column-edge a sibling had',
+    )
+    withNotice.unmount()
+
+    // A rail with rows says nothing: the notice explains an empty list only.
+    const withRows = mount(
+      <SurfaceRail
+        label="Door"
+        rows={[{ id: 'a', title: 'A row', stateLine: 'here' }]}
+        selectedId={null}
+        onSelect={() => undefined}
+        newAffordance={{ label: 'New thing', onActivate: () => undefined }}
+        emptyNotice="No things match."
+      />,
+    )
+    assert.ok(
+      !(withRows.container.textContent ?? '').includes('No things match.'),
+      'a rail that has rows never shows the empty-filter notice',
+    )
+    withRows.unmount()
+    console.log('ok - the empty-filter notice renders in the scrollport under the head')
+  }
+
+  // ── 7. the Automations glyph fits its own box ─────────────────────────────
   // `AutomationTypeGlyph` drew an `icon-md` (18px) svg inside a 16px flex box —
   // a 2px overflow on every automation row and in the editor head. Read from the
   // source because the sizes are class names jsdom never resolves to pixels.

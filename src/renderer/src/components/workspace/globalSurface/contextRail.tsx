@@ -198,7 +198,12 @@ export function ContextRailBackRow({ onBack }: { onBack: () => void }): JSX.Elem
     <button
       type="button"
       onClick={onBack}
-      className={`interactive flex shrink-0 items-center gap-2 border-t border-[color:var(--border-subtle)] px-2.5 py-2 text-left text-heading text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+      // `.cr-back` (patterns/context-rail.html): 8px vertical / 12px inset,
+      // meta type. It shipped at 10px and `text-heading` (14px) — a narrower
+      // inset and two type steps larger than its own spec. At 12px the label
+      // lands at 12 + 16 (glyph) + 8 (gap) = 36px, the same text edge as the
+      // rail titles above it (MC-2101).
+      className={`interactive flex shrink-0 items-center gap-2 border-t border-[color:var(--border-subtle)] px-3 py-2 text-left text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
     >
       <svg viewBox="0 0 16 16" fill="none" className="icon-sm shrink-0" aria-hidden="true">
         <path

@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import type { AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
 import { actionLabel } from '../../../panels/AutomationsPanel/automationsFormat'
 import { AutomationTypeGlyph } from '../../../panels/AutomationsPanel/AutomationTypeGlyph'
@@ -22,7 +24,7 @@ import { automationRailState } from './railState'
 // semantics, ↑/↓ + j/k keyboard navigation, and row layout are the substrate's;
 // this maps automation entries onto it and keeps the salience ordering upstream.
 export function AutomationsRail({
-  entries, selectedId, now, onSelect, onCreate, search, filter,
+  entries, selectedId, now, onSelect, onCreate, search, filter, emptyNotice,
 }: {
   entries: AutomationsInstanceEntry[]
   selectedId: string | null
@@ -31,6 +33,9 @@ export function AutomationsRail({
   onCreate: (anchor: { x: number; y: number }) => void
   search: SurfaceRailSearch
   filter?: SurfaceRailFilter
+  /** Why a narrowed rail is empty. Only the door sees the unfiltered set, so it
+   *  decides; the substrate places it under the head at the row inset. */
+  emptyNotice?: ReactNode
 }): JSX.Element {
   const rows: SurfaceRailRow[] = entries.map((entry) => {
     const rail = automationRailState(entry, now)
@@ -62,6 +67,7 @@ export function AutomationsRail({
       newAffordance={{ label: 'New automation', onActivate: onCreate }}
       search={search}
       filter={filter}
+      emptyNotice={emptyNotice}
     />
   )
 }

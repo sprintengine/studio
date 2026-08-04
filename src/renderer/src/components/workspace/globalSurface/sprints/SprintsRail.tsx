@@ -118,30 +118,28 @@ export function SprintsRail({
     },
   ]
   return (
-    <div className="flex min-h-0 flex-col">
-      <SurfaceRail
-        label="Sprints"
-        rows={rows}
-        groups={groups}
-        selectedId={selectedStatePath}
-        onSelect={onSelect}
-        newAffordance={{ label: 'New sprint', onActivate: onCreate }}
-        scope={projectScope}
-        search={{
-          value: search,
-          onChange: onSearch,
-          placeholder: 'Search sprints…',
-          ariaLabel: 'Search sprints across every project',
-        }}
-        filter={{ ariaLabel: 'Filter and sort sprints', groups: filterGroups }}
-      />
-      {/* The lens is narrower than the runs behind it. Say so, rather than
-          letting an empty rail read as "you have no sprints". */}
-      {rows.length === 0 && runs.length > 0 ? (
-        <p className="px-2 pt-2 text-micro leading-4 text-[color:var(--text-muted)]">
-          {search.trim() ? 'No sprints match.' : 'No sprints in this project.'}
-        </p>
-      ) : null}
-    </div>
+    <SurfaceRail
+      label="Sprints"
+      rows={rows}
+      groups={groups}
+      selectedId={selectedStatePath}
+      onSelect={onSelect}
+      newAffordance={{ label: 'New sprint', onActivate: onCreate }}
+      scope={projectScope}
+      search={{
+        value: search,
+        onChange: onSearch,
+        placeholder: 'Search sprints…',
+        ariaLabel: 'Search sprints across every project',
+      }}
+      filter={{ ariaLabel: 'Filter and sort sprints', groups: filterGroups }}
+      // The lens is narrower than the runs behind it. Say so, rather than
+      // letting an empty rail read as "you have no sprints". The substrate
+      // renders it under the head at the row inset; it used to be a sibling of
+      // the rail, which put it at the bottom of the column (MC-2101).
+      emptyNotice={
+        runs.length > 0 ? (search.trim() ? 'No sprints match.' : 'No sprints in this project.') : undefined
+      }
+    />
   )
 }

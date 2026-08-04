@@ -246,29 +246,23 @@ export default function ReviewsGlobalSurface(): JSX.Element {
   // still carries "Review a change", so a failed or still-loading scan is never a
   // dead end either.
   const rail = (
-    <div className="flex min-h-0 flex-col">
-      <ReviewsRail
-        rows={visibleRows}
-        selectedReviewId={selected?.reviewId ?? null}
-        newSelected={creating}
-        search={{
-          value: railSearch,
-          onChange: setRailSearch,
-          placeholder: 'Search reviews…',
-          ariaLabel: 'Search reviews across every project',
-        }}
-        filter={{ ariaLabel: 'Filter reviews', groups: railFilterGroups }}
-        onSelect={onSelect}
-        onNewReview={onNewReview}
-      />
-      {/* The lens is narrower than the reviews behind it. Say so, rather than
-          letting an empty rail read as "you have no reviews". */}
-      {visibleRows.length === 0 && rows.length > 0 ? (
-        <p className="px-2 pt-2 text-micro leading-4 text-[color:var(--text-muted)]">
-          No reviews match.
-        </p>
-      ) : null}
-    </div>
+    <ReviewsRail
+      rows={visibleRows}
+      selectedReviewId={selected?.reviewId ?? null}
+      newSelected={creating}
+      search={{
+        value: railSearch,
+        onChange: setRailSearch,
+        placeholder: 'Search reviews…',
+        ariaLabel: 'Search reviews across every project',
+      }}
+      filter={{ ariaLabel: 'Filter reviews', groups: railFilterGroups }}
+      onSelect={onSelect}
+      onNewReview={onNewReview}
+      // The lens is narrower than the reviews behind it. Say so, rather than
+      // letting an empty rail read as "you have no reviews".
+      emptyNotice={rows.length > 0 ? 'No reviews match.' : undefined}
+    />
   )
 
   return (

@@ -113,7 +113,10 @@ export function RoadmapRail({
   const menuRow = menu ? rows.find((row) => row.roadmapRef === menu.roadmapRef) ?? null : null
 
   return (
-    <div className="flex min-h-0 flex-col">
+    // The wrapper stays here (unlike the other door rails, which are now the
+    // SurfaceRail itself) because this rail also hosts its row ContextMenu.
+    // `flex-1` so the rail still fills the column with the wrapper in the way.
+    <div className="flex min-h-0 flex-1 flex-col">
       <SurfaceRail
         label="Horizons"
         rows={railRows}
@@ -126,12 +129,8 @@ export function RoadmapRail({
           placeholder: 'Search horizons…',
           ariaLabel: 'Search horizons',
         }}
+        emptyNotice={rows.length > 0 ? 'No horizons match.' : undefined}
       />
-      {visible.length === 0 && rows.length > 0 ? (
-        <p className="px-2 pt-2 text-micro leading-4 text-[color:var(--text-muted)]">
-          No horizons match.
-        </p>
-      ) : null}
       {menu && menuRow ? (
         <ContextMenu
           x={menu.x}

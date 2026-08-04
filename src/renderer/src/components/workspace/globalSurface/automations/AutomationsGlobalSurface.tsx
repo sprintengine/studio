@@ -339,29 +339,23 @@ export default function AutomationsGlobalSurface(): JSX.Element {
 
   // ── Rail ────────────────────────────────────────────────────────────────────
   const rail = (
-    <div className="flex min-h-0 flex-col">
-      <AutomationsRail
-        entries={visibleEntries}
-        selectedId={editorTarget ? null : selectedId}
-        now={now}
-        onSelect={(id) => { setSelectedId(id); setEditorTarget(null); setFocusRunId(null) }}
-        onCreate={openChooser}
-        search={{
-          value: railSearch,
-          onChange: setRailSearch,
-          placeholder: 'Search automations…',
-          ariaLabel: 'Search automations across every project',
-        }}
-        filter={{ ariaLabel: 'Filter automations', groups: railFilterGroups }}
-      />
-      {/* The lens is narrower than the automations behind it. Say so, rather
-          than letting an empty rail read as "you have no automations". */}
-      {visibleEntries.length === 0 && entries.length > 0 ? (
-        <p className="px-2 pt-2 text-micro leading-4 text-[color:var(--text-muted)]">
-          No automations match.
-        </p>
-      ) : null}
-    </div>
+    <AutomationsRail
+      entries={visibleEntries}
+      selectedId={editorTarget ? null : selectedId}
+      now={now}
+      onSelect={(id) => { setSelectedId(id); setEditorTarget(null); setFocusRunId(null) }}
+      onCreate={openChooser}
+      search={{
+        value: railSearch,
+        onChange: setRailSearch,
+        placeholder: 'Search automations…',
+        ariaLabel: 'Search automations across every project',
+      }}
+      filter={{ ariaLabel: 'Filter automations', groups: railFilterGroups }}
+      // The lens is narrower than the automations behind it. Say so, rather
+      // than letting an empty rail read as "you have no automations".
+      emptyNotice={entries.length > 0 ? 'No automations match.' : undefined}
+    />
   )
 
   return (
