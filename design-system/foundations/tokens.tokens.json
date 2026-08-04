@@ -797,7 +797,13 @@
             "com.multicode": {
               "seeded": true,
               "role": "typography",
-              "use": "Micro labels only — kbd shortcuts, dense chrome."
+              "use": "Micro labels only — kbd shortcuts, dense chrome.",
+              "platforms": {
+                "compact": {
+                  "$value": "11px",
+                  "$description": "Unchanged: 11px is legible at phone viewing distance and is already the floor."
+                }
+              }
             }
           }
         },
@@ -809,7 +815,13 @@
             "com.multicode": {
               "seeded": true,
               "role": "typography",
-              "use": "Identifiers, meta rows, help and error text."
+              "use": "Identifiers, meta rows, help and error text.",
+              "platforms": {
+                "compact": {
+                  "$value": "13px",
+                  "$description": "One step up. This tier carries identifiers and triage summaries on a phone, where 12px sits under the platform floor for supporting copy."
+                }
+              }
             }
           }
         },
@@ -821,7 +833,14 @@
             "com.multicode": {
               "seeded": true,
               "role": "typography",
-              "use": "The default text size for body copy, labels, and controls."
+              "use": "The default text size for body copy, labels, and controls.",
+              "platforms": {
+                "compact": {
+                  "$value": "15px",
+                  "$description": "One step up, to the iOS/Material body floor. `principles.md` sets 13px as a MINIMUM for primary content, so 15px exceeds the rule rather than breaking it."
+                },
+                "$note": "`compact` is the touch-scale ramp: same step NAMES and same step COUNT as the pointer scale, different values. It exists because a 13px body at 30cm on a phone is not the same physical size as a 13px body at 60cm on a monitor, and the two viewing distances do not cancel. Consumers that cannot load tokens.css at all (React Native) read these values and keep the names, so a surface stays portable between the two even though its pixels do not. NOT consumed by build-tokens.mjs — tokens.css is the pointer scale only, and reproduces byte-identically with these annotations present."
+              }
             }
           }
         },
@@ -833,7 +852,13 @@
             "com.multicode": {
               "seeded": true,
               "role": "typography",
-              "use": "Section headings inside panels and drawers."
+              "use": "Section headings inside panels and drawers.",
+              "platforms": {
+                "compact": {
+                  "$value": "15px",
+                  "$description": "Collapses onto body. A phone screen rarely earns four distinct sizes, and the '3 font sizes per view' ceiling applies here too — weight separates a heading from its body instead."
+                }
+              }
             }
           }
         },
@@ -845,7 +870,13 @@
             "com.multicode": {
               "seeded": true,
               "role": "typography",
-              "use": "Panel titles (H2) and inspector titles — keep at most 3 sizes per view."
+              "use": "Panel titles (H2) and inspector titles — keep at most 3 sizes per view.",
+              "platforms": {
+                "compact": {
+                  "$value": "22px",
+                  "$description": "The screen title, which on a phone is the whole page's heading rather than a panel's. The pointer-scale ramp tops out at 16px because a desktop title sits inside a dense composition; a phone title does not."
+                }
+              }
             }
           }
         }
