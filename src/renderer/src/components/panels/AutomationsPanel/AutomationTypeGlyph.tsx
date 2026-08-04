@@ -12,15 +12,18 @@ export function AutomationTypeGlyph({ kind }: { kind: string }): JSX.Element {
     <span
       role="img"
       aria-label={actionLabel(kind)}
-      className="flex h-4 w-4 shrink-0 items-center justify-center text-[color:var(--text-subtle)]"
+      className="flex size-icon-sm shrink-0 items-center justify-center text-[color:var(--text-subtle)]"
     >
       {TYPE_SHAPES[kind] ?? DEFAULT_SHAPE}
     </span>
   )
 }
 
+// The shapes are drawn on a 16 viewBox, so the box that holds them is `icon-sm`
+// (16px) too. It shipped as `icon-md` (18px) inside a 16px flex box, overflowing
+// by 2px on every automation row and in the editor head (MC-2098).
 const glyphSvg = (paths: JSX.Element): JSX.Element => (
-  <svg viewBox="0 0 16 16" fill="none" className="icon-md" aria-hidden="true">
+  <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
     {paths}
   </svg>
 )

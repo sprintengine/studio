@@ -392,6 +392,25 @@ export function SurfaceRail({
     ...(filter?.groups ?? []),
   ]
 
+  // The leading icon slot is the SUBSTRATE's contract, not the door's (MC-2098).
+  // Doors fill the slot; they never size it. Before this, `renderRow` laid out
+  // whatever glyph the door handed it, so the title's x-offset was
+  // `10 (scrollport) + 8 (row pad) + iconWidth + 8 (gap)` — and iconWidth was the
+  // only free variable: 16px on Sprints/Roadmap/Automations, 13px on Extensions'
+  // bare `icon-xs` svgs, 12px on Design's identity chip. Opening a different door
+  // in the same physical column therefore slid every row title 38↔42px, a visible
+  // re-flow of a column that is supposed to read as one continuous rail.
+  //
+  // A fixed `icon-sm` (16px) box pins that term. Doors may still render a smaller
+  // mark inside it — Design's 12px chip is a deliberate identity square, and
+  // Extensions' 13px marks are deliberately quiet — they simply center in a slot
+  // whose width no door can change.
+  //
+  // Reserved per-RAIL rather than per-row: a rail where only some rows carry a
+  // mark would otherwise ladder its own titles against each other, which is the
+  // same defect one level down.
+  const reserveIconSlot = rows.some((row) => row.icon)
+
   const renderRow = (row: SurfaceRailRow): JSX.Element => {
     const selected = row.id === selectedId
     return (
@@ -418,7 +437,14 @@ export function SurfaceRail({
             selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
           }`}
         >
-          {row.icon ?? null}
+          {reserveIconSlot ? (
+            <span
+              data-rail-icon-slot="true"
+              className="flex size-icon-sm shrink-0 items-center justify-center"
+            >
+              {row.icon ?? null}
+            </span>
+          ) : null}
           <span className="flex min-w-0 flex-1 flex-col">
             {/* The selected row's ink lift is the second channel of the
                 selection, so an unselected title has to sit a step below it —
