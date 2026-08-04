@@ -890,9 +890,20 @@ export interface MobileControlBacklogWorkspaceSnapshot {
   //
   // It rides the *backlog* workspace because that is the record both launch
   // surfaces already key off: `sprintengine.create` and `backlog.startSprintEngine`
-  // both carry a `workspacePath`, and both pick it from this list. Absent when the
-  // registry could not be read (or on a desktop that predates this field) — the
-  // phone then falls back to its bundled list.
+  // both carry a `workspacePath`, and both pick it from this list.
+  //
+  // ABSENT AND EMPTY MEAN DIFFERENT THINGS, and a reader must honour the
+  // difference:
+  //
+  // - absent → unknown. The registry could not be read, the catalog was shed by
+  //   the size ladder, or the desktop predates this field. A reader may fall back
+  //   to a bundled list, and should say that it is doing so.
+  // - `[]`   → known empty. The registry was read and this workspace has no roles.
+  //   MC-1587 un-shipped the bundled role pack, so roles now come only from an
+  //   installed pack or a user manifest, and having none is an ordinary state.
+  //   A reader must NOT fall back here: those invented ids would become the run's
+  //   `configuredRoles` (the legal role set `plan.add_task` enforces) and nothing
+  //   would be able to staff them.
   roles?: MobileControlRoleDescriptor[];
 }
 

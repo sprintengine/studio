@@ -413,8 +413,22 @@ export class MobileSprintEngineSnapshotService {
 
 // The role catalog rides the backlog workspace because that is the record the
 // phone's two launch surfaces pick a `workspacePath` from (MC-1543). It is read
-// per workspace and never blocks the backlog: a registry that cannot be read
-// yields no `roles`, and the phone falls back to its bundled list.
+// per workspace and never blocks the backlog.
+//
+// ABSENT AND EMPTY ARE DIFFERENT FACTS, and the phone acts on the difference:
+//
+// - `roles` absent  → the registry could not be read, the catalog was shed by the
+//                     size ladder, or the desktop predates the field. The phone
+//                     does not know, and falls back to its bundled list.
+// - `roles: []`     → the registry was read and this workspace genuinely has no
+//                     roles. Since MC-1587 un-shipped the bundled role pack that
+//                     is an ordinary state, not a fault. The phone must NOT fall
+//                     back here: those ten ids would become the run's
+//                     `configuredRoles` and nothing could staff them.
+//
+// This used to read `roles && roles.length > 0`, which collapsed the second case
+// into the first and made the phone offer invented roles precisely when the
+// desktop had told it there were none.
 async function readBacklogWorkspaceSnapshots(
   workspaceRoots: string[],
   generatedAt: string,
@@ -427,7 +441,7 @@ async function readBacklogWorkspaceSnapshots(
       if (!workspace) return null
       if (!includeRoleCatalogs) return workspace
       const roles = await readRoleCatalog(workspaceRoot).catch(() => undefined)
-      return roles && roles.length > 0 ? { ...workspace, roles } : workspace
+      return roles ? { ...workspace, roles } : workspace
     })
   )
   return settled

@@ -26,6 +26,7 @@ import {
   mobileControlProtocolVersion,
   validateMobileControlSnapshot,
   type MobileControlAutomationSnapshot,
+  type MobileControlRoleDescriptor,
   type MobileControlSnapshot,
 } from '../../../shared/mobile-control/protocol'
 import type { SwitchboardFolderStatus, SwitchboardTaskRecord, SwitchboardTaskStatus } from '../../../shared/switchboard'
@@ -62,6 +63,7 @@ async function main(): Promise<void> {
   await assertShedDropsRecentRunsBeforeAnySprintEngine()
   await assertRoleCatalogReducesRegistryPayload()
   await assertSnapshotSurfacesCreatedSpikeBacklogItem()
+  await assertEmptyRoleCatalogIsDistinctFromAnUnreadableOne()
   await assertSnapshotOmitsBacklogWhenWorkspaceHasNone()
   await assertSnapshotOmitsUnavailableWorkspaceKinds()
   await assertUnscopedSnapshotShedsTerminalRunsBeyondKeepWindow()
@@ -84,7 +86,7 @@ async function main(): Promise<void> {
 // mobileControlProtocol.regression.test.js. If you change the wire schema in
 // either copy, mirror the edit into the other repo and set both pins to the new
 // shared hash.
-const mobileProtocolSourceSha256 = 'ddf7d1d2b0e39f831107e64aec7d20851667c906af757b5a4ce863b81f42ce7d'
+const mobileProtocolSourceSha256 = '5b27c94d7e7c2821fd0390baaa63df0519403fc3e6cc736f087b201f0efbce69'
 
 function assertMobileProtocolCopyHasNotDrifted(): void {
   const source = readFileSync(join(process.cwd(), 'src/shared/mobile-control/protocol.ts'))
@@ -1504,6 +1506,64 @@ async function assertSnapshotSurfacesCreatedSpikeBacklogItem(): Promise<void> {
   assert.equal(item?.excerpt?.includes('30s stall'), true)
   assert.equal('roles' in (backlogWorkspace ?? {}), false, 'an unreadable registry omits roles rather than sending an empty catalog')
   service.shutdown()
+}
+
+// MC-1587 un-shipped the bundled role pack, so a workspace with no installed pack
+// genuinely has zero roles — an ordinary state, not a fault. This producer used to
+// gate on `roles && roles.length > 0`, which shipped that case as an ABSENT
+// catalog, indistinguishable from a registry it could not read. The phone answers
+// absent by offering its bundled ten, so a desktop reporting "no roles" made the
+// picker offer ten ids nothing could staff; they become the run's
+// `configuredRoles`, which `plan.add_task` enforces.
+async function assertEmptyRoleCatalogIsDistinctFromAnUnreadableOne(): Promise<void> {
+  const statePath = await writeStateFixture({
+    sprintengine: { name: 'Role Catalog Sprint Engine', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [],
+  })
+  const workspaceRoot = workspaceRootForStatePath(statePath)
+  await createBacklogItem({
+    workspaceRoot,
+    title: 'Anything, so the workspace has a backlog to carry the catalog',
+    description: 'The role catalog rides the backlog workspace record.',
+    type: 'spike',
+  })
+
+  const readWith = async (readRoleCatalog: (workspaceRoot: string) => Promise<MobileControlRoleDescriptor[] | undefined>) => {
+    const service = new MobileSprintEngineSnapshotService({
+      stateReaders: {
+        readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
+        getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
+        listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
+        readRoleCatalog,
+      },
+    })
+    const snapshot = await service.readSnapshot({
+      desktopSessionId: 'desktop_1',
+      statePaths: [statePath],
+      generatedAt,
+    })
+    service.shutdown()
+    return snapshot.backlog?.find((entry) => entry.workspacePath === workspaceRoot)
+  }
+
+  const unreadable = await readWith(async () => undefined)
+  assert.equal('roles' in (unreadable ?? {}), false, 'an unreadable registry sends no catalog at all')
+
+  const empty = await readWith(async () => [])
+  assert.equal('roles' in (empty ?? {}), true, 'a registry read that found nothing must still SAY so')
+  assert.deepEqual(empty?.roles, [], 'and it says so with an empty catalog, not by omission')
+
+  // The empty catalog has to survive the wire, or the producer is emitting
+  // something the validator would reject in the field.
+  const validated = validateMobileControlSnapshot({
+    protocolVersion: mobileControlProtocolVersion,
+    generatedAt,
+    desktopSessionId: 'desktop_1',
+    sprintEngines: [],
+    backlog: [empty],
+  } as unknown as MobileControlSnapshot)
+  assert.equal(validated.ok, true, validated.ok === false ? validated.error.message : undefined)
 }
 
 async function assertSnapshotOmitsBacklogWhenWorkspaceHasNone(): Promise<void> {
