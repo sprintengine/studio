@@ -873,60 +873,68 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   // failure or that wait in its own words, and a rail group under a "couldn't read
   // this horizon" canvas would be steps from the horizon before it.
   const rail = (
-    <div className="flex min-w-0 flex-col">
-      <div data-rail-group="outer-context" className="flex min-w-0 flex-col">
-        <RoadmapRail
-          rows={railRows}
-          selectedRef={effectiveSelectedRef}
-          search={railSearch}
-          onSelect={(ref) => {
-            setSelectedRef(ref)
-            setSelectedStepRef(null)
-            setBacklogOpen(false)
-          }}
-          onSearch={setRailSearch}
-          onNewRoadmap={() => void handleCreateRoadmap()}
-          actions={{
-            onMakeActive: (ref) => {
-              const file = roadmapFiles.find((candidate) => candidate.roadmapRef === ref)
-              if (file) void handleMakeActive(file)
-            },
-            ...(canRevealHomeFile ? { onRevealFile: handleRevealRoadmapFile } : {}),
-            onDelete: (ref) => {
-              if (deleting) return
-              void handleDeleteRoadmap(ref)
-            },
-          }}
-        />
-      </div>
-      {planItem ? (
-        <HorizonPlanColumn
-          plan={horizonPlan}
-          lanes={plan.draft.lanes}
-          selectedRef={selectedStepRef}
-          onSelect={(ref) => {
-            setSelectedStepRef(ref)
-            // Selecting a step is a request to SEE it, so it returns the pane
-            // from the backlog to the step's own detail.
-            setBacklogOpen(false)
-          }}
-          showProjectTag={spansProjects}
-          rosters={savedRosters}
-          policyRoster={plan.draft.policy.roster}
-          onManageRosters={() => setRosterManagerOpen(true)}
-          onLanes={plan.setLanes}
-          onAddRef={addRef}
-          onOpenItem={handleOpenStep}
-          onAddWork={() => setBacklogOpen((open) => !open)}
-          addWorkActive={backlogOpen}
-          libraryDragRef={libraryDrag}
-          steering={steering}
-          onRenameTrack={(laneIndex) => void handleRenameTrack(laneIndex)}
-          onRemoveTrack={(laneIndex) => void handleRemoveTrack(laneIndex)}
-          selectedHasRunStrip={selectedRun !== null}
-        />
-      ) : null}
-    </div>
+    // The rail IS the column — no wrapper (MC-2099). The plan is handed to the
+    // rail as its second level so both live in the rail's one scrollport; as a
+    // sibling it scrolled independently of the horizons it hangs off, and the
+    // wrapper that held the pair declared neither `min-h-0` nor `flex-1` while
+    // the rail inside it declared `flex-1`, so scroll ownership was split three
+    // ways for a column that should own exactly one.
+    //
+    // `outer-context` moved onto the horizons list itself (see `SurfaceRail`):
+    // as a wrapper around the pair it also caught the plan, whose selection is
+    // the focused one and must not rest.
+    <RoadmapRail
+      rows={railRows}
+      selectedRef={effectiveSelectedRef}
+      search={railSearch}
+      onSelect={(ref) => {
+        setSelectedRef(ref)
+        setSelectedStepRef(null)
+        setBacklogOpen(false)
+      }}
+      onSearch={setRailSearch}
+      onNewRoadmap={() => void handleCreateRoadmap()}
+      actions={{
+        onMakeActive: (ref) => {
+          const file = roadmapFiles.find((candidate) => candidate.roadmapRef === ref)
+          if (file) void handleMakeActive(file)
+        },
+        ...(canRevealHomeFile ? { onRevealFile: handleRevealRoadmapFile } : {}),
+        onDelete: (ref) => {
+          if (deleting) return
+          void handleDeleteRoadmap(ref)
+        },
+      }}
+      afterRows={
+        planItem ? (
+          <HorizonPlanColumn
+            plan={horizonPlan}
+            lanes={plan.draft.lanes}
+            selectedRef={selectedStepRef}
+            onSelect={(ref) => {
+              setSelectedStepRef(ref)
+              // Selecting a step is a request to SEE it, so it returns the pane
+              // from the backlog to the step's own detail.
+              setBacklogOpen(false)
+            }}
+            showProjectTag={spansProjects}
+            rosters={savedRosters}
+            policyRoster={plan.draft.policy.roster}
+            onManageRosters={() => setRosterManagerOpen(true)}
+            onLanes={plan.setLanes}
+            onAddRef={addRef}
+            onOpenItem={handleOpenStep}
+            onAddWork={() => setBacklogOpen((open) => !open)}
+            addWorkActive={backlogOpen}
+            libraryDragRef={libraryDrag}
+            steering={steering}
+            onRenameTrack={(laneIndex) => void handleRenameTrack(laneIndex)}
+            onRemoveTrack={(laneIndex) => void handleRemoveTrack(laneIndex)}
+            selectedHasRunStrip={selectedRun !== null}
+          />
+        ) : null
+      }
+    />
   )
 
   return (

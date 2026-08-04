@@ -304,7 +304,72 @@ async function main(): Promise<void> {
     console.log('ok - the empty-filter notice renders in the scrollport under the head')
   }
 
-  // ── 7. the Automations glyph fits its own box ─────────────────────────────
+  // ── 7. a two-level rail: one scrollport, one outer-context group ──────────
+  // The Horizon door lists horizons and, under them, the selected horizon's
+  // plan. Both were in one column but only one was in the scrollport, so they
+  // scrolled independently (MC-2099).
+  //
+  // The second claim is the subtler one, and it is a regression this change
+  // could easily have introduced: `[data-rail-group="outer-context"]` is a
+  // DESCENDANT selector that rests every selection beneath it. It used to sit on
+  // a wrapper around the whole rail, which was harmless only while the plan was
+  // a sibling. Moving the plan inside the rail would have put it under that
+  // marker too — and the plan's selection is the FOCUSED one, the single thing
+  // on screen that should read as chosen. So the marker moved onto the rows.
+
+  {
+    const twoLevel = mount(
+      <SurfaceRail
+        label="Horizons"
+        rows={[{ id: 'h1', title: 'Q3 platform', stateLine: 'active' }]}
+        selectedId="h1"
+        onSelect={() => undefined}
+        newAffordance={{ label: 'New horizon', onActivate: () => undefined }}
+        outerContext
+        afterRows={
+          <section data-testid="plan">
+            <button type="button" data-testid="plan-step" aria-current="true">
+              A step
+            </button>
+          </section>
+        }
+      />,
+    )
+    const scrollport = twoLevel.container.querySelector('.overflow-y-auto')
+    const plan = twoLevel.container.querySelector('[data-testid="plan"]')
+    assert.ok(plan, 'the second level renders')
+    assert.ok(
+      scrollport!.contains(plan!),
+      'inside the rail scrollport — a sibling scrolls separately from the list it hangs off',
+    )
+    assert.equal(
+      twoLevel.container.querySelectorAll('.overflow-y-auto').length,
+      1,
+      'and the column has exactly one scroll region',
+    )
+
+    const marker = twoLevel.container.querySelector('[data-rail-group="outer-context"]')
+    assert.ok(marker, 'the outer level is marked')
+    assert.equal(marker!.tagName, 'UL', 'the marker is on the ROWS, not on a wrapper around the whole rail')
+    assert.ok(
+      !marker!.contains(twoLevel.container.querySelector('[data-testid="plan-step"]')),
+      'so the inner level is outside it and keeps the one focused selection, instead of resting like context',
+    )
+    console.log('ok - a two-level rail has one scrollport and rests only its outer rows')
+    twoLevel.unmount()
+
+    // Without the flag there is no marker at all: a one-level rail's selection
+    // is the focused one, and a stray marker would rest it.
+    const oneLevel = mount(railWith(<svg className="icon-sm" />))
+    assert.equal(
+      oneLevel.container.querySelector('[data-rail-group]'),
+      null,
+      'a rail with one level marks no outer-context group',
+    )
+    oneLevel.unmount()
+  }
+
+  // ── 8. the Automations glyph fits its own box ─────────────────────────────
   // `AutomationTypeGlyph` drew an `icon-md` (18px) svg inside a 16px flex box —
   // a 2px overflow on every automation row and in the editor head. Read from the
   // source because the sizes are class names jsdom never resolves to pixels.

@@ -18,7 +18,7 @@
 // happens to be showing. The trigger is a sibling of the row button (one click
 // target per row) and the same menu opens on right-click.
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import { ContextMenu, LifecycleGlyph, MenuItem } from '../../ui'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
@@ -52,6 +52,7 @@ export function RoadmapRail({
   onSearch,
   onNewRoadmap,
   actions,
+  afterRows,
 }: {
   rows: ReadonlyArray<RoadmapRailRow>
   selectedRef: string | null
@@ -60,6 +61,9 @@ export function RoadmapRail({
   onSearch: (query: string) => void
   onNewRoadmap: () => void
   actions?: RoadmapRailActions
+  /** The selected horizon's plan — the rail's second level, rendered inside the
+   *  rail's own scrollport rather than beside it (MC-2099). */
+  afterRows?: ReactNode
 }): JSX.Element {
   // The open row menu: which horizon, and where it was opened from. One at a
   // time — opening another row's menu replaces it.
@@ -97,7 +101,9 @@ export function RoadmapRail({
                 const rect = event.currentTarget.getBoundingClientRect()
                 setMenu({ roadmapRef: row.roadmapRef, x: rect.left, y: rect.bottom })
               }}
-              className={`flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+              // `rounded-md`, matching the row it sits on — it shipped at
+              // `rounded` (4px) against the row's 6px (MC-2099).
+              className={`flex h-5 w-5 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
             >
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <circle cx="4" cy="8" r="1.2" fill="currentColor" />
@@ -130,6 +136,11 @@ export function RoadmapRail({
           ariaLabel: 'Search horizons',
         }}
         emptyNotice={rows.length > 0 ? 'No horizons match.' : undefined}
+        // The horizons are the OUTER level: which horizon you are in, not what
+        // you are working on. Their selection rests permanently so the plan's
+        // own selection is the one focused thing on screen.
+        outerContext
+        afterRows={afterRows}
       />
       {menu && menuRow ? (
         <ContextMenu

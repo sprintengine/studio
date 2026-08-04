@@ -336,6 +336,8 @@ export function SurfaceRail({
   search,
   filter,
   emptyNotice,
+  outerContext,
+  afterRows,
 }: {
   /** The rail's section label ("Roadmaps", "Automations", "Reviews"). */
   label: string
@@ -367,6 +369,21 @@ export function SurfaceRail({
    *  search field that caused it, right above the Back row. Five doors had
    *  copy-pasted it; five doors had both bugs. */
   emptyNotice?: React.ReactNode
+  /** This rail's rows are the OUTER level of a two-level rail — which horizon,
+   *  which project — so their selection rests permanently rather than competing
+   *  with the inner list's (assets/index.css, "Selection tiers").
+   *
+   *  Marked on the list itself, not on a wrapper around the whole rail: the CSS
+   *  rule is a descendant selector, so a marker further out also catches whatever
+   *  `afterRows` renders, and the inner list's real selection would quietly
+   *  render as resting. The group is the rows, not the column. */
+  outerContext?: boolean
+  /** A second level rendered INSIDE the scrollport, below the rows — the Horizon
+   *  door's plan under its horizons. It belongs in the scrollport rather than
+   *  beside the rail, because a rail column has one scroll region: as a sibling
+   *  it scrolled separately from the list it hangs off, and anything with its own
+   *  height cap became a third. */
+  afterRows?: React.ReactNode
 }): JSX.Element {
   const rowRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map())
 
@@ -548,16 +565,27 @@ export function SurfaceRail({
                 {group.rows.length}
               </span>
             </div>
-            <ul role="list" aria-label={`${label}: ${group.label}`} className="flex min-w-0 flex-col gap-0.5">
+            <ul
+              role="list"
+              aria-label={`${label}: ${group.label}`}
+              data-rail-group={outerContext ? 'outer-context' : undefined}
+              className="flex min-w-0 flex-col gap-0.5"
+            >
               {group.rows.map(renderRow)}
             </ul>
           </div>
         ))
       ) : (
-        <ul role="list" aria-label={label} className="flex min-w-0 flex-col gap-0.5">
+        <ul
+          role="list"
+          aria-label={label}
+          data-rail-group={outerContext ? 'outer-context' : undefined}
+          className="flex min-w-0 flex-col gap-0.5"
+        >
           {rows.map(renderRow)}
         </ul>
       )}
+      {afterRows}
       </div>
     </div>
   )

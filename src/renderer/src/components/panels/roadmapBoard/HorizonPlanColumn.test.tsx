@@ -354,6 +354,102 @@ run('rows are focusable targets the cursor can land on', () => {
   assert.match(render({ lanes: SIMPLE }), /data-step-row="true"/)
 })
 
+// ── MC-2099: the plan column sits on the rail's grid, and owns no scroll ─────
+// The plan shares a column with the horizons rail above it but shared none of
+// its geometry: an 8px group header against the rail's 18px, full-bleed hover
+// fills against inset ones, and a title 9px further right because of a drag
+// handle that occupied a column of its own. Each of those reads as "these two
+// lists are unrelated" in a column that is supposed to be one rail.
+
+run('step rows land on the rail grid: 8px row inset, 8px gap, one 16px icon slot', () => {
+  const markup = render({ lanes: SIMPLE })
+  const rowClasses = markup.match(/data-step-row="true"[^>]*class="([^"]*)"/)?.[1] ?? ''
+  assert.ok(rowClasses, 'a step row renders')
+  assert.match(rowClasses, /(?:^|\s)px-2(?:\s|$)/, 'row padding is 8px, as the rail rows use')
+  assert.match(rowClasses, /(?:^|\s)gap-2(?:\s|$)/, 'and the icon-to-title gap is 8px')
+  assert.ok(
+    !/(?:^|\s)pl-1\.5(?:\s|$)/.test(rowClasses),
+    'the 6px left padding that paired with a dedicated handle column is gone',
+  )
+  assert.match(rowClasses, /(?:^|\s)rounded-md(?:\s|$)/, 'and the fill is rounded like every sibling row')
+  // 4 (scrollport) + 8 (row padding) + 16 (icon slot) + 8 (gap) = the rail's
+  // own 36px text edge, which is the whole point of the three assertions above.
+  assert.equal(4 + 8 + 16 + 8, 36)
+})
+
+run('the drag handle shares the state glyph slot instead of adding a column', () => {
+  const markup = render({ lanes: SIMPLE })
+  assert.ok(
+    !markup.includes('w-[11px]'),
+    'no 11px handle column — it pushed the title off the rail grid and bought nothing, since the whole row is draggable',
+  )
+  assert.match(markup, /size-icon-sm/, 'the row leads with the shared 16px icon slot')
+  assert.match(
+    markup,
+    /group-hover\/step:opacity-0/,
+    'the state glyph fades on hover so the grip can take the same slot (the app sidebar folder-row idiom)',
+  )
+})
+
+run('the delivered fold adds no second scrollport', () => {
+  const markup = render({
+    lanes: lanesOf('## Delivery\n- backlog/done.md\n- backlog/one.md\n'),
+    boardLanes: [
+      {
+        lane: 'Delivery',
+        units: [
+          unit({ ref: 'backlog/done.md', title: 'Sprint Engine simplification', state: 'done' }),
+          unit({ ref: 'backlog/one.md', state: 'up_next' }),
+        ],
+        doneCount: 1,
+        total: 2,
+        reason: 'eligible',
+        attention: 'none',
+      },
+    ],
+  })
+  assert.ok(
+    !markup.includes('max-h-[40vh]'),
+    'delivered steps scroll with the column that owns them, not in a capped region of their own',
+  )
+  assert.ok(
+    !/class="[^"]*overflow-y-auto[^"]*"/.test(markup),
+    'and the plan column declares no scrollport at all — the rail it is rendered into owns the one scroll region',
+  )
+})
+
+run('the steering notice is the kit advisory, not a hand-rolled card', () => {
+  const markup = render({
+    lanes: lanesOf('## Delivery\n- backlog/one.md\n'),
+    boardLanes: [
+      {
+        lane: 'Delivery',
+        units: [unit({ state: 'paused' })],
+        doneCount: 0,
+        total: 1,
+        reason: 'blocked',
+        attention: 'paused',
+        parked: {
+          reason: 'start_failed',
+          itemRef: 'backlog/one.md',
+          at: '2026-07-27T00:00:00Z',
+          detail: 'the saved roster “opus” was not found',
+        },
+      },
+    ],
+  })
+  assert.ok(
+    !markup.includes('border-l-2'),
+    'the bespoke left-bar warn card is gone — InlineNotice already carries this shape',
+  )
+  assert.match(
+    markup,
+    /the saved roster “opus” was not found/,
+    'and the reason still renders inline — MC-1909: a pause you cannot act on must say WHY where it can be seen, so the detail rides `hint`, never `detail` behind a "Show details" disclosure',
+  )
+  assert.match(markup, />Resume</, 'the one action survives the swap')
+})
+
 if (failures > 0) {
   console.error(`\n${failures} render check(s) failed`)
   process.exit(1)

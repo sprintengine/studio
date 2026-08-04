@@ -35,6 +35,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ContextMenu,
   GhostButton,
+  InlineNotice,
   LifecycleGlyph,
   MenuItem,
   OverflowMenu,
@@ -659,25 +660,36 @@ function StepRow({
         aria-label={`${row.title}${row.sizeLabel ? `, ${row.sizeLabel} items` : ''}`}
         // Rounded like every other row in this rail: the plan is a group of the
         // rail now, not a column with its own full-bleed rows.
-        className={`flex h-[26px] w-full min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
+        // `px-2 gap-2` and the 16px slot below put the title on the rail's own
+        // 36px text edge (MC-2099, grid per MC-2101). The 26px single-line height
+        // stays — plan steps are deliberately denser than horizons; it was only
+        // the horizontal geometry that had drifted.
+        className={`flex h-[26px] w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
           selected
             ? 'bg-[color:var(--bg-selected)]'
             : 'hover:bg-[color:var(--bg-hover)]'
         } ${cursored ? 'ring-2 ring-inset ring-[color:var(--border-focus)]' : ''}`}
       >
-        <span
-          aria-hidden="true"
-          className="flex w-[11px] shrink-0 cursor-grab justify-center text-[color:var(--text-disabled)] opacity-0 transition-opacity group-hover/step:opacity-100"
-        >
-          <GripGlyph />
+        {/* One icon slot, the same swap the app sidebar's folder rows use: the
+            state glyph at rest, the grip on hover. A dedicated 11px handle column
+            is what pushed this title 9px past every other row in the column, and
+            it bought nothing — the whole row is `draggable`, so the grip is a
+            signal that dragging is possible, never the only place to grab. */}
+        <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
+          {/* Only a genuinely live run animates; a queued step's glyph is static.
+              A ref that resolves to nothing reads blocked, whatever its position. */}
+          <LifecycleGlyph
+            state={row.unresolved || row.projectUnavailable ? 'blocked' : roadmapUnitLifecycle[row.state]}
+            live={!row.unresolved && !row.projectUnavailable && row.state === 'running'}
+            className="shrink-0 transition-opacity group-hover/step:opacity-0"
+          />
+          <span
+            aria-hidden="true"
+            className="absolute inset-0 m-auto flex cursor-grab items-center justify-center text-[color:var(--text-disabled)] opacity-0 transition-opacity group-hover/step:opacity-100"
+          >
+            <GripGlyph />
+          </span>
         </span>
-        {/* Only a genuinely live run animates; a queued step's glyph is static.
-            A ref that resolves to nothing reads blocked, whatever its position. */}
-        <LifecycleGlyph
-          state={row.unresolved || row.projectUnavailable ? 'blocked' : roadmapUnitLifecycle[row.state]}
-          live={!row.unresolved && !row.projectUnavailable && row.state === 'running'}
-          className="shrink-0"
-        />
         {row.unresolved || row.projectUnavailable ? (
           // Surfaced, never silently dropped — but the two cases are different
           // problems and must not read the same. A step whose PROJECT is closed
@@ -762,28 +774,34 @@ function StepNotice({ row, steering }: { row: HorizonStepRow; steering: HorizonS
     else if (notice.kind === 'approval') steering.onApprove(row.laneTitle)
     else if (notice.kind === 'merge') steering.onMerge(row.laneTitle)
   }
+  // The kit's advisory, not a hand-rolled one (MC-2099). This shipped as its own
+  // `border-l-2 tone-warn` card — the same idea InlineNotice already carries,
+  // spelled differently, so the two drifted on radius, padding and ink.
+  //
+  // `hint` rather than `detail` for the reason: `detail` hides behind a "Show
+  // details" disclosure, and MC-1909's whole point is that a pause a person
+  // cannot act on must state WHY where they can see it. `hint` renders inline.
+  //
+  // `ml-8` hangs the card under the step's title (4px scrollport + 8px row
+  // padding + 16px icon slot + 8px gap = the 36px text edge), so the attention
+  // reads as belonging to that row rather than to the track.
   return (
-    <div className="mb-1.5 ml-6 mr-2 mt-0.5 flex items-start gap-2 rounded-r-[5px] border-l-2 border-[color:var(--tone-warn)] bg-[color:var(--tone-warn-soft)] px-2.5 py-1.5">
-      <div className="min-w-0 flex-1">
-        <p className="text-micro leading-4 text-[color:var(--text-muted)]">{notice.message}</p>
-        {/* What actually failed — the project, the branch, the underlying reason.
-            A pause a person cannot act on is the defect MC-1909 records; this is
-            the reason itself, not added explanation of it. */}
-        {notice.detail ? (
-          <p className="mt-0.5 whitespace-pre-wrap break-words text-micro leading-4 text-[color:var(--text-subtle)]">
-            {notice.detail}
-          </p>
-        ) : null}
-      </div>
-      {/* Only when there IS one action. A track stalled on a prerequisite is
-          fixed in the backlog, not here, so it states the reason and offers no
-          button rather than a control that cannot help. */}
-      {notice.actionLabel ? (
-        <PrimaryButton size="xs" disabled={busy} onClick={act} className="shrink-0">
-          {notice.actionLabel}
-        </PrimaryButton>
-      ) : null}
-    </div>
+    <InlineNotice
+      tone="warn"
+      title={notice.message}
+      hint={notice.detail}
+      className="mb-1.5 ml-8 mr-2 mt-0.5"
+      // Only when there IS one action. A track stalled on a prerequisite is
+      // fixed in the backlog, not here, so it states the reason and offers no
+      // button rather than a control that cannot help.
+      action={
+        notice.actionLabel ? (
+          <PrimaryButton size="xs" disabled={busy} onClick={act}>
+            {notice.actionLabel}
+          </PrimaryButton>
+        ) : undefined
+      }
+    />
   )
 }
 
@@ -818,7 +836,12 @@ function DeliveredFooter({
         </span>
       </button>
       {open ? (
-        <ul className="max-h-[40vh] overflow-y-auto pb-1">
+        // No height cap and no scrollport: the rail column owns exactly one
+        // scroll region and this list is inside it (MC-2099). `max-h-[40vh]
+        // overflow-y-auto` made delivered steps scroll independently of the plan
+        // they belong to — two wheels in one column, and neither showed how much
+        // was left in the other.
+        <ul className="pb-1">
           {delivered.rows.map((row) => (
             <li key={row.ref} className="list-none">
               <div className="group/step relative flex">
@@ -826,14 +849,17 @@ function DeliveredFooter({
                   type="button"
                   aria-current={row.ref === selectedRef ? 'true' : undefined}
                   onClick={() => onSelect(row.ref)}
-                  className={`flex h-[26px] w-full min-w-0 items-center gap-1.5 rounded-md pl-1.5 pr-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
+                  className={`flex h-[26px] w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
                     row.ref === selectedRef
                       ? 'bg-[color:var(--bg-selected)]'
                       : 'hover:bg-[color:var(--bg-hover)]'
                   }`}
                 >
-                  <span aria-hidden="true" className="w-[11px] shrink-0" />
-                  <LifecycleGlyph state="done" live={false} className="shrink-0" />
+                  {/* The same 16px slot the live steps use — a delivered row has
+                      no grip, but it must land on the same text edge. */}
+                  <span className="flex size-icon-sm shrink-0 items-center justify-center">
+                    <LifecycleGlyph state="done" live={false} className="shrink-0" />
+                  </span>
                   <span
                     className="min-w-0 flex-1 truncate text-meta text-[color:var(--text-muted)]"
                     title={row.title}
