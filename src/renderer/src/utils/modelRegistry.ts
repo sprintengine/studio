@@ -953,7 +953,7 @@ type JsonLayoutNode = {
   // one tabset the user is driving (flexlayout allows exactly one).
   selected?: number
   active?: boolean
-  config?: { agentId?: string; sessionId?: string }
+  config?: { agentId?: string; sessionId?: string; terminalId?: string }
 }
 
 // Walks a serialized IJsonModel and reports whether a tab with `component` is
@@ -1034,6 +1034,62 @@ export function focusedAgentTabInLayout(
     if (remembered) return remembered
   }
   return visible[0] ?? null
+}
+
+/** A terminal-bearing tab that is actually on screen: an agent pane or a plain terminal. */
+export type VisibleTerminalTab =
+  | { kind: 'agent'; agentId: string }
+  | { kind: 'terminal'; terminalId: string }
+
+/**
+ * The terminal a workspace is showing right now, or null when none is visible.
+ *
+ * Only ever reports a tab the user can SEE: a tabset's `selected` index, never a
+ * buried sibling. That distinction is the whole point — every mounted xterm calls
+ * `term.focus()` when it opens, including the ones stacked behind the visible tab,
+ * and focusing a hidden textarea is a no-op that drops focus to `<body>`. So the
+ * last terminal to mount wins the race and usually loses the focus. A caller that
+ * wants focus to land has to name the visible one.
+ *
+ * Prefers the tabset flexlayout marks `active` (the one the user is driving), then
+ * falls back to the first visible terminal in document order — which is what makes
+ * a freshly-opened workspace, where no tabset is active yet, still answer.
+ */
+export function visibleTerminalTabInLayout(
+  model: IJsonModel | undefined | null,
+): VisibleTerminalTab | null {
+  if (!model) return null
+
+  const selectedTerminalOf = (tabset: JsonLayoutNode): VisibleTerminalTab | null => {
+    const children = tabset.children ?? []
+    const tab = children[tabset.selected ?? 0]
+    if (!tab || tab.type !== 'tab') return null
+    if (tab.component === 'agent' && tab.config?.agentId) {
+      return { kind: 'agent', agentId: tab.config.agentId }
+    }
+    if (tab.component === 'terminal' && tab.config?.terminalId) {
+      return { kind: 'terminal', terminalId: tab.config.terminalId }
+    }
+    return null
+  }
+
+  let active: VisibleTerminalTab | null = null
+  let first: VisibleTerminalTab | null = null
+
+  const visit = (node: JsonLayoutNode | undefined): void => {
+    if (!node || active) return
+    if (node.type === 'tabset') {
+      const visible = selectedTerminalOf(node)
+      if (!visible) return
+      if (node.active) active = visible
+      else if (!first) first = visible
+      return
+    }
+    for (const child of node.children ?? []) visit(child)
+  }
+
+  visit((model as unknown as { layout?: JsonLayoutNode }).layout)
+  return active ?? first
 }
 
 export function removeComponentTab(workspaceId: string, component: string): boolean {

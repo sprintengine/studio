@@ -67,7 +67,7 @@ import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineS
 import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAutomationModeSync'
 import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
-import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, revealNavRailComponent, togglePanelRailComponent } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, revealNavRailComponent, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -86,6 +86,11 @@ import WorkspaceSidebar from './WorkspaceSidebar'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
+import {
+  TERMINAL_FOCUS_RETRY_DELAYS_MS,
+  focusRequestWouldInterrupt,
+  requestTerminalFocus,
+} from '../../utils/terminalFocusRequest'
 import { SidebarChrome } from './SidebarChrome'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
@@ -1541,6 +1546,54 @@ export default function WorkspaceManager() {
     // The newly active layer just flipped from visibility:hidden; terminals
     // parked behind it run their deferred fit now (terminalFitScheduler.ts).
     window.dispatchEvent(new Event(WORKSPACE_LAYER_REVEAL_EVENT))
+  }, [windowActiveWorkspaceId])
+
+  // Opening a workspace puts the cursor in the terminal you are looking at, so
+  // you can type into it without clicking first.
+  //
+  // Once per workspace per app session, not on every switch: coming back to a
+  // workspace you were already using should leave the keyboard wherever you left
+  // it (a file editor, the board), and layers are never unmounted on switch
+  // (they go `invisible`, not away), so "opened before" is exactly this latch.
+  //
+  // A terminal cannot be asked to focus until it is mounted, and AgentPanel
+  // lazy-loads TerminalView, so this re-asks on a short schedule until a pane
+  // answers — and stops early if the user has already started typing somewhere
+  // else, which is the only way this could be an interruption rather than a
+  // convenience.
+  const terminalFocusSeededWorkspaceIdsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const workspaceId = windowActiveWorkspaceId
+    if (!workspaceId) return undefined
+    if (terminalFocusSeededWorkspaceIdsRef.current.has(workspaceId)) return undefined
+    terminalFocusSeededWorkspaceIdsRef.current.add(workspaceId)
+
+    let settled = false
+    const attempt = (): void => {
+      if (settled) return
+      if (focusRequestWouldInterrupt(document.activeElement)) {
+        settled = true
+        return
+      }
+      const target = visibleTerminalTabInLayout(getModel(workspaceId)?.toJson())
+      // No terminal on screen (a Files-only or board-only layout, or a layout
+      // that has not registered yet) — nothing to focus, and never a reason to
+      // change which tab is selected.
+      if (!target) return
+      const handled = requestTerminalFocus(
+        target.kind === 'agent'
+          ? { workspaceId, agentId: target.agentId }
+          : { workspaceId, terminalId: target.terminalId },
+      )
+      if (handled) settled = true
+    }
+
+    attempt()
+    const timers = TERMINAL_FOCUS_RETRY_DELAYS_MS.map((delay) => window.setTimeout(attempt, delay))
+    return () => {
+      settled = true
+      for (const timer of timers) window.clearTimeout(timer)
+    }
   }, [windowActiveWorkspaceId])
 
   // Drive per-terminal paint visibility from the layer state. Active + warm

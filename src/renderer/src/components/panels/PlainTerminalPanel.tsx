@@ -14,6 +14,7 @@ import { registerTerminalInstance, unregisterTerminalInstance } from '../../util
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
+import { onTerminalFocusRequest } from '../../utils/terminalFocusRequest'
 import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import {
   hasCommitDropData,
@@ -211,6 +212,10 @@ export default function PlainTerminalPanel({
       focusTerminal,
       recordKeydown: terminalDiagnostics.recordContainerKeydown,
     })
+    // Opening a workspace hands the keyboard to its visible terminal
+    // (WorkspaceManager); the mount-time focusTerminal above can't do that job
+    // because it also fires in panes stacked behind the visible tab.
+    const disposeFocusRequest = onTerminalFocusRequest({ workspaceId, terminalId }, focusTerminal)
 
     if (cwdOverride || !(savedFolderPath && !folderReadyPath)) {
       void (async () => {
@@ -312,6 +317,7 @@ export default function PlainTerminalPanel({
       container.removeEventListener('click', focusTerminal)
       container.removeEventListener('focus', focusTerminal)
       disposeClipboardHandlers()
+      disposeFocusRequest()
       disposeData()
       disposeReplay()
       disposeExit()

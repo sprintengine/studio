@@ -19,6 +19,7 @@ import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
+import { onTerminalFocusRequest } from '../../utils/terminalFocusRequest'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
@@ -787,6 +788,12 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     }
     window.addEventListener('multicode:resume-terminal', onResumeRequest)
 
+    // Opening a workspace hands the keyboard to its visible terminal
+    // (WorkspaceManager). Answered here rather than by the mount-time
+    // focusTerminal above because that one fires in every mounted pane,
+    // including the ones stacked behind the visible tab.
+    const disposeFocusRequest = onTerminalFocusRequest({ workspaceId, agentId }, focusTerminal)
+
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
       void window.api.terminalResize(sessionId, cols, rows)
     })
@@ -1311,6 +1318,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       disposeExit()
       disposeError()
       window.removeEventListener('multicode:resume-terminal', onResumeRequest)
+      disposeFocusRequest()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
       fileLinkDisposable.dispose()
