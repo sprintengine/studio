@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Modal</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../button/component.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-row {
+    display: flex;
+    gap: var(--sem-space-md);
+    flex-wrap: wrap;
+    margin-bottom: var(--sem-space-lg);
+  }
+  .demo-input {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface-raised);
+    color: var(--sem-color-text-primary);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+  }
+  .demo-input::placeholder {
+    color: var(--sem-color-text-disabled);
+  }
+  .demo-input:focus-visible {
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
+  }
+  /* Shells are authored parked — statically visible, no scrim — so the
+     anatomy shows with scripts off; the catalog embeds this demo without
+     JavaScript. The live examples are opened by the script over the page. */
+  .demo-parked .ds-modal-scrim {
+    position: static;
+    z-index: auto;
+    padding: 0;
+    background: none;
+    justify-content: flex-start;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — the shell at rest, and a live confirm. Escape, the scrim, and the close button all mean cancel; focus is trapped while open and returns to the trigger after.</p>
+
+  <div class="demo-parked">
+    <div class="ds-modal-scrim">
+      <div class="ds-modal" role="dialog" aria-modal="true" aria-labelledby="parked-title" tabindex="-1">
+        <div class="ds-modal-header">
+          <div>
+            <h2 class="ds-modal-title" id="parked-title">Rename branch</h2>
+            <p class="ds-modal-subtitle">Open worktrees keep the old name until they next sync.</p>
+          </div>
+          <button type="button" class="ds-button ds-button--icon" aria-label="Close">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="ds-modal-body">
+          <input class="demo-input" aria-label="Branch name" placeholder="run/sprint-14" />
+        </div>
+        <div class="ds-modal-footer">
+          <button type="button" class="ds-button ds-button--ghost">Cancel</button>
+          <button type="button" class="ds-button ds-button--primary ds-button--md">Rename</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-row" data-live>
+    <button type="button" class="ds-button ds-button--ghost" data-open-confirm data-tone="danger">Delete workspace…</button>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the confirm variant, parked. The danger tone lives on the one control that does the damage; the shell and title stay neutral.</p>
+
+  <div class="demo-parked">
+    <div class="ds-modal-scrim">
+      <div class="ds-modal ds-modal--confirm" role="dialog" aria-modal="true" aria-labelledby="parked-confirm-title" tabindex="-1">
+        <div class="ds-modal-header">
+          <h2 class="ds-modal-title" id="parked-confirm-title">Delete workspace?</h2>
+          <button type="button" class="ds-button ds-button--icon" aria-label="Close">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="ds-modal-body">Its worktree and uncommitted changes are removed. This cannot be undone from here.</div>
+        <div class="ds-modal-footer">
+          <button type="button" class="ds-button ds-button--ghost">Cancel</button>
+          <button type="button" class="ds-button ds-button--danger ds-button--md">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-row" data-live>
+    <button type="button" class="ds-button ds-button--ghost" data-open-confirm data-tone="primary">Archive sprint…</button>
+  </div>
+</div>
+
+<!-- The live confirm the triggers open. One instance, moved over the page and
+     re-labelled per ask — one modal at a time is the contract, so one node is
+     also the honest implementation. -->
+<div class="ds-modal-scrim" id="live-scrim" hidden>
+  <div class="ds-modal ds-modal--confirm" role="dialog" aria-modal="true" aria-labelledby="live-title" tabindex="-1">
+    <div class="ds-modal-header">
+      <h2 class="ds-modal-title" id="live-title">Delete workspace?</h2>
+      <button type="button" class="ds-button ds-button--icon" aria-label="Close" data-cancel>
+        <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="ds-modal-body" id="live-body">Its worktree and uncommitted changes are removed. This cannot be undone from here.</div>
+    <div class="ds-modal-footer">
+      <button type="button" class="ds-button ds-button--ghost" data-cancel>Cancel</button>
+      <button type="button" class="ds-button ds-button--md" id="live-confirm">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Reference behaviour for the contract in component.md. What must survive a
+   framework rewrite: the focus trap, initial focus on the confirm button,
+   focus restored to the opener, Escape / scrim-press / close all meaning
+   cancel, and pointerdown on the scrim ITSELF — a drag that ends outside the
+   shell must not dismiss. */
+
+const scrim = document.getElementById('live-scrim')
+const shell = scrim.querySelector('.ds-modal')
+const titleOut = document.getElementById('live-title')
+const bodyOut = document.getElementById('live-body')
+const confirmButton = document.getElementById('live-confirm')
+
+const ASKS = {
+  danger: {
+    title: 'Delete workspace?',
+    body: 'Its worktree and uncommitted changes are removed. This cannot be undone from here.',
+    confirm: 'Delete',
+    buttonClass: 'ds-button ds-button--md ds-button--danger',
+  },
+  primary: {
+    title: 'Archive sprint?',
+    body: 'Its board leaves the rail. The run branch and its history stay.',
+    confirm: 'Archive',
+    buttonClass: 'ds-button ds-button--md ds-button--primary',
+  },
+}
+
+let opener = null
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function openModal(trigger) {
+  const ask = ASKS[trigger.dataset.tone]
+  titleOut.textContent = ask.title
+  bodyOut.textContent = ask.body
+  confirmButton.textContent = ask.confirm
+  confirmButton.className = ask.buttonClass
+  /* The overlay sits on the body; mirror the mode of the container that
+     opened it so it is lit by that container, not by the page default. */
+  const scope = trigger.closest('[data-mode]')
+  if (scope) scrim.setAttribute('data-mode', scope.dataset.mode)
+  opener = trigger
+  scrim.hidden = false
+  confirmButton.focus()
+}
+
+function closeModal() {
+  scrim.hidden = true
+  opener?.focus()
+  opener = null
+}
+
+for (const trigger of document.querySelectorAll('[data-open-confirm]')) {
+  trigger.addEventListener('click', () => openModal(trigger))
+}
+for (const cancel of scrim.querySelectorAll('[data-cancel]')) {
+  cancel.addEventListener('click', closeModal)
+}
+confirmButton.addEventListener('click', closeModal)
+
+/* Pointer-down on the scrim itself — not a click that merely ENDS there. */
+scrim.addEventListener('pointerdown', (event) => {
+  if (event.target === scrim) closeModal()
+})
+
+/* Escape cancels. In the full system a popover open inside the modal consumes
+   Escape first (topmost surface only); this demo hosts none. */
+document.addEventListener('keydown', (event) => {
+  if (!scrim.hidden && event.key === 'Escape') {
+    event.preventDefault()
+    closeModal()
+  }
+})
+
+/* The focus trap — the contract shipped Modal.tsx does not yet honour
+   (MC-2109). Tab from the last control wraps to the first and Shift+Tab from
+   the first wraps to the last; the scrimmed page is unreachable by keyboard. */
+document.addEventListener('keydown', (event) => {
+  if (scrim.hidden || event.key !== 'Tab') return
+  const focusables = [...shell.querySelectorAll(FOCUSABLE)]
+  if (focusables.length === 0) {
+    event.preventDefault()
+    shell.focus()
+    return
+  }
+  const first = focusables[0]
+  const last = focusables[focusables.length - 1]
+  const active = document.activeElement
+  if (event.shiftKey && (active === first || !shell.contains(active))) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (active === last || !shell.contains(active))) {
+    event.preventDefault()
+    first.focus()
+  }
+})
+</script>
+</body>
+</html>

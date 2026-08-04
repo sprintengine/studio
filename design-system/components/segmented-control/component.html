@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Segmented control</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-3xl);
+    flex-wrap: wrap;
+    margin: 0 0 var(--sem-space-lg);
+  }
+  .demo-row:last-child {
+    margin-bottom: 0;
+  }
+  /* The real consumer names the question beside the strip; the demo does the
+     same so each group is labelled by visible copy. */
+  .demo-field {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+    font-size: var(--sem-font-size-body);
+    color: var(--sem-color-text-default);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — arrow keys move the selection itself; the group is one tab stop.</p>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="l-scope">Scope</span>
+      <div class="ds-segmented-control" role="radiogroup" aria-labelledby="l-scope">
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">Open</button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">Mine</button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">All</button>
+      </div>
+    </span>
+    <span class="demo-field">
+      <span id="l-disabled">Diff view</span>
+      <div class="ds-segmented-control" role="radiogroup" aria-labelledby="l-disabled">
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">Unified</button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">Split</button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1" disabled>Inline</button>
+      </div>
+    </span>
+  </div>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="l-effort">Effort</span>
+      <div class="ds-segmented-control ds-segmented-control--sm" role="radiogroup" aria-labelledby="l-effort">
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">Low</button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">Medium</button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">High</button>
+      </div>
+    </span>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the selected segment is a neutral luminance step, so it survives grayscale.</p>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="d-scope">Scope</span>
+      <div class="ds-segmented-control" role="radiogroup" aria-labelledby="d-scope">
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">Open</button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">Mine</button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">All</button>
+      </div>
+    </span>
+    <span class="demo-field">
+      <span id="d-disabled">Diff view</span>
+      <div class="ds-segmented-control" role="radiogroup" aria-labelledby="d-disabled">
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">Unified</button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">Split</button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1" disabled>Inline</button>
+      </div>
+    </span>
+  </div>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="d-effort">Effort</span>
+      <div class="ds-segmented-control ds-segmented-control--sm" role="radiogroup" aria-labelledby="d-effort">
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">Low</button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">Medium</button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">High</button>
+      </div>
+    </span>
+  </div>
+</div>
+
+<script>
+/* Reference behaviour: one tab stop, selection follows focus. Rebuild
+   idiomatically in your framework — what must survive is the roving tabindex,
+   the wrap, and disabled segments being skipped, not this event wiring. */
+document.querySelectorAll('.ds-segmented-control').forEach((group) => {
+  const segments = Array.from(group.querySelectorAll('[role="radio"]'))
+  function select(segment) {
+    segments.forEach((other) => {
+      const checked = other === segment
+      other.setAttribute('aria-checked', String(checked))
+      other.tabIndex = checked ? 0 : -1
+    })
+    segment.focus()
+  }
+  group.addEventListener('click', (event) => {
+    const segment = event.target.closest('[role="radio"]')
+    if (segment && !segment.disabled) select(segment)
+  })
+  group.addEventListener('keydown', (event) => {
+    const delta =
+      event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 :
+      event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0
+    if (!delta) return
+    event.preventDefault()
+    const enabled = segments.filter((segment) => !segment.disabled)
+    const index = enabled.findIndex((segment) => segment.getAttribute('aria-checked') === 'true')
+    select(enabled[(index + delta + enabled.length) % enabled.length])
+  })
+})
+</script>
+</body>
+</html>

@@ -56,7 +56,7 @@
   color: var(--sem-color-text-primary);
 }
 
-/* Sizes: sm (28px, default) and md (32px). */
+/* Sizes: sm (size.control.sm, default) and md (size.control.md). */
 .ds-button--md {
   height: var(--sem-size-control-md);
 }

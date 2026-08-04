@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Section</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* A pane for the sections to live in: sections stack with space, no rules
+     between them. */
+  .demo-pane {
+    max-width: 320px;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-2xs) 0;
+  }
+  .demo-line {
+    margin: 0;
+    padding: var(--sem-space-2xs) 0;
+    font-size: var(--sem-font-size-body);
+    color: var(--sem-color-text-default);
+  }
+  .demo-line span {
+    color: var(--sem-color-text-muted);
+    font-size: var(--sem-font-size-meta);
+    margin-left: var(--sem-space-sm);
+  }
+  .demo-flush-row {
+    display: block;
+    padding: var(--sem-space-xs) var(--sem-space-lg);
+    font-size: var(--sem-font-size-body);
+    color: var(--sem-color-text-default);
+  }
+  .demo-flush-row:hover {
+    background: var(--sem-color-bg-hover);
+  }
+  .demo-action {
+    display: inline-flex;
+    align-items: center;
+    height: var(--sem-size-hit-target-min);
+    padding: 0 var(--sem-space-sm);
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-meta);
+    cursor: pointer;
+  }
+  .demo-action:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-action:focus-visible {
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — titled with count and one action; flush body for full-bleed rows.</p>
+  <div class="demo-pane">
+    <section class="ds-section" aria-labelledby="l-runs">
+      <div class="ds-section-header">
+        <div class="ds-section-heading">
+          <h3 class="ds-section-title" id="l-runs">Active runs</h3>
+          <span class="ds-section-count">3</span>
+        </div>
+        <div class="ds-section-action">
+          <button type="button" class="demo-action">New run</button>
+        </div>
+      </div>
+      <div class="ds-section-body">
+        <p class="demo-line">sprint-41 <span>running</span></p>
+        <p class="demo-line">docs-pass <span>queued</span></p>
+        <p class="demo-line">lint-sweep <span>queued</span></p>
+      </div>
+    </section>
+    <section class="ds-section ds-section--flush" aria-labelledby="l-recent">
+      <div class="ds-section-header">
+        <div class="ds-section-heading">
+          <h3 class="ds-section-title" id="l-recent">Recent branches</h3>
+          <span class="ds-section-count">2</span>
+        </div>
+      </div>
+      <div class="ds-section-body">
+        <a class="demo-flush-row" href="#">fix/replay-restore</a>
+        <a class="demo-flush-row" href="#">chore/token-sweep</a>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same structure from the same tokens.</p>
+  <div class="demo-pane">
+    <section class="ds-section" aria-labelledby="d-runs">
+      <div class="ds-section-header">
+        <div class="ds-section-heading">
+          <h3 class="ds-section-title" id="d-runs">Active runs</h3>
+          <span class="ds-section-count">3</span>
+        </div>
+        <div class="ds-section-action">
+          <button type="button" class="demo-action">New run</button>
+        </div>
+      </div>
+      <div class="ds-section-body">
+        <p class="demo-line">sprint-41 <span>running</span></p>
+        <p class="demo-line">docs-pass <span>queued</span></p>
+        <p class="demo-line">lint-sweep <span>queued</span></p>
+      </div>
+    </section>
+    <section class="ds-section ds-section--flush" aria-labelledby="d-recent">
+      <div class="ds-section-header">
+        <div class="ds-section-heading">
+          <h3 class="ds-section-title" id="d-recent">Recent branches</h3>
+          <span class="ds-section-count">2</span>
+        </div>
+      </div>
+      <div class="ds-section-body">
+        <a class="demo-flush-row" href="#">fix/replay-restore</a>
+        <a class="demo-flush-row" href="#">chore/token-sweep</a>
+      </div>
+    </section>
+  </div>
+</div>
+</body>
+</html>

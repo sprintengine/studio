@@ -1,0 +1,170 @@
+/* Side pane — the column that shares the page. Extracted from the source
+ * product's SidePane / SidePaneHeader primitives
+ * (src/renderer/src/components/ui/).
+ *
+ * Deliberately NOT an overlay: no portal, no scrim, no shadow, no z layer.
+ * The pane sits in the document flow beside a board or list and separates
+ * with one hairline on its inner edge — borders carry the structure; shadows
+ * belong to overlays. It inherits the panel's surface (no background of its
+ * own) so the hairline is the only separator at rest. */
+
+.ds-side-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  /* Layout rails, not tokens: the floor below which a detail column stops
+   * being readable. Presets below add the percent width and ceiling. */
+  min-width: 320px;
+  font-family: var(--sem-font-family-ui);
+  color: var(--sem-color-text-default);
+}
+
+/* Which inner edge carries the hairline. The outer edge is the panel's edge
+ * and draws nothing — no doubled borders where surfaces meet. */
+.ds-side-pane--left {
+  border-right: 1px solid var(--sem-color-border-default);
+}
+
+.ds-side-pane--right {
+  border-left: 1px solid var(--sem-color-border-default);
+}
+
+/* Width presets: percent of the panel with pixel rails, so the pane breathes
+ * with the window but can neither starve nor swallow its neighbour. Layout
+ * measures, not tokens. */
+.ds-side-pane--sm {
+  width: 38%;
+  max-width: 520px;
+}
+
+.ds-side-pane--md {
+  width: 42%;
+  max-width: 560px;
+}
+
+.ds-side-pane--lg {
+  width: 44%;
+  max-width: 560px;
+}
+
+/* A persisted drag width (inline style) keeps the floor above and this
+ * ceiling — max-width beats the inline width when they conflict, so a wide
+ * remembered pane cannot starve the board on a narrow window. */
+.ds-side-pane--resized {
+  flex-shrink: 0;
+  max-width: 65%;
+}
+
+/* The quiet secondary aside: one tone step of distance from the lane, and
+ * never a shadow to go with it. */
+.ds-side-pane--sunken {
+  background: var(--sem-color-bg-app);
+}
+
+/* The pane takes the whole row; the hairline is dropped because there is
+ * nothing left to separate from. */
+.ds-side-pane--expanded {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  border-left: 0;
+  border-right: 0;
+}
+
+/* One chrome band: title left, count and close right, one working edge over
+ * the scrolling body — the same header rhythm as the drawer, so a board and
+ * its aside read as one family. */
+.ds-side-pane-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-sm) var(--sem-space-lg);
+  border-bottom: 1px solid var(--sem-color-border-default);
+}
+
+.ds-side-pane-title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--sem-color-text-primary);
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-emphasis);
+  letter-spacing: var(--sem-font-tracking-tight);
+  line-height: var(--sem-font-line-tight);
+}
+
+/* Display-only; never hosts a control. */
+.ds-side-pane-count {
+  color: var(--sem-color-text-muted);
+  font-size: var(--sem-font-size-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Opt-in resize. A role="separator" straddling the hairline: a 6px hit strip
+ * (the guideline inside it is the visual), keyboard-operable, pointer
+ * captured on the handle so an iframe in the pane cannot swallow the drag. */
+.ds-side-pane-resize {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 6px;
+  z-index: var(--sem-z-sticky);
+  cursor: col-resize;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.ds-side-pane--right .ds-side-pane-resize {
+  left: 0;
+  transform: translateX(-50%);
+}
+
+.ds-side-pane--left .ds-side-pane-resize {
+  right: 0;
+  transform: translateX(50%);
+}
+
+/* The guideline: accent as a 1px hairline marking a genuinely live process —
+ * within the accent budget. Reduced strength on hover as the reach-for
+ * affordance, full strength while the drag is live. */
+.ds-side-pane-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--sem-color-accent-primary);
+  opacity: 0;
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-side-pane-resize:hover::after {
+  opacity: 0.6;
+}
+
+.ds-side-pane-resize[data-resizing="true"]::after {
+  opacity: 1;
+}
+
+.ds-side-pane-resize:focus-visible {
+  outline: var(--sem-focus-ring);
+  /* Negative offset: the handle straddles two surfaces, so an outset ring
+   * would draw over both panes' content. Clip-own-overflow controls take the
+   * negative offset rather than a second treatment. */
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-side-pane-resize::after {
+    transition: none;
+  }
+}

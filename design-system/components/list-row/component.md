@@ -93,3 +93,20 @@ Titles truncate to one line. If the full value matters, attach the system's
 - Disabled rows use the `disabled` attribute (or `aria-disabled="true"` when
   they must stay focusable to explain why).
 - Reduced motion removes the reveal fade but never the reveal itself.
+
+## Known drift
+
+Verified against `src/renderer/src/components/ui/InboxRow.tsx` (2026-08-04),
+the shipped counterpart of this row:
+
+- **Padding.** The reference CSS uses `space.xs` / `space.md` (6/10px);
+  shipped rows use `px-3 py-2` (12/8px).
+- **Title size.** This spec sets titles at `font.size.body`; shipped titles
+  sit at `font.size.meta`, one step smaller.
+- **`--resting` mechanics.** Shipped rows reach the resting tier via cascade
+  (`data-selection-pane` rules in `assets/index.css`) rather than this spec's
+  class modifier — same behaviour, different structure — and the
+  `data-actions` reserved-padding action host is not implemented (InboxRow's
+  trailing slot is display-only).
+
+MC-2118 owns ruling which side wins on each and reconciling this entry.

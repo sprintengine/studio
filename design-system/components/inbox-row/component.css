@@ -1,0 +1,198 @@
+/* Inbox row — the two-line triage row: leading status mark, title,
+ * supporting line, trailing timestamp. Extracted from the shipped InboxRow
+ * and InboxSearchInput primitives (src/renderer/src/components/ui/).
+ *
+ * Family contract: same neutral two-tier selection as list-row and
+ * task-card, background-only hover, top-aligned leading mark. No action
+ * host — a queue row opens its item; acting on it happens in the detail
+ * pane. Title canon is font.size.body per the list-row family; the shipped
+ * InboxRow's 12px title is MC-2118. */
+
+.ds-inbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-sm);
+  width: 100%;
+  padding: var(--sem-space-sm) var(--sem-space-lg);
+  border: 0;
+  background: transparent;
+  font-family: var(--sem-font-family-ui);
+  text-align: left;
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+button.ds-inbox-row {
+  cursor: pointer;
+}
+
+/* Hover is a background change only, and only off the selected row —
+ * bg.hover sits below bg.selected, so letting it win would dim the row the
+ * pointer is over. */
+button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
+  background: var(--sem-color-bg-hover);
+}
+
+.ds-inbox-row:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-inbox-row:disabled,
+.ds-inbox-row[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Selection ───────────────────────────────────────────────────────────
+ * The neutral fill plus the title's ink lift, and nothing else — never the
+ * accent, never a left bar. Two tiers so a multi-pane surface has exactly
+ * one focused selection (patterns/selection). */
+.ds-inbox-row--selected {
+  background: var(--sem-color-bg-selected);
+}
+
+.ds-inbox-row--selected .ds-inbox-row-title {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-inbox-row--resting {
+  background: var(--sem-color-bg-selected-resting);
+}
+
+/* ── Leading ─────────────────────────────────────────────────────────────
+ * A status-dot or a lifecycle glyph — one idiom per surface. The mark
+ * belongs to the FIRST line: the offset centres a 6px dot on the title's
+ * line box, so a two-line row does not float it between the lines. */
+.ds-inbox-row-leading {
+  flex: none;
+  margin-top: var(--sem-space-xs);
+}
+
+.ds-inbox-row-text {
+  min-width: 0;
+  flex: 1;
+}
+
+/* The title sits at text.default so the selected lift to text.primary is a
+ * real step — a list whose every title is already at full strength has
+ * nothing left to lift. MC-2118: shipped renders this a type step smaller. */
+.ds-inbox-row-title {
+  /* Block, not inline: the ellipsis below is inert on an inline box, and the
+   * two lines must stack. */
+  display: block;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-default);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-inbox-row-supporting {
+  display: block;
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Display-only: a timestamp or a count. Never interactive — the row itself
+ * is the button, and nesting a control inside it is invalid HTML. */
+.ds-inbox-row-trailing {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-muted);
+}
+
+/* ── Search field ────────────────────────────────────────────────────────
+ * The inbox surface's search row (patterns/list-surface): the wrapper owns
+ * the visible border box, the input inside it is the tab stop. Canon height
+ * is size.control.sm; the shipped 28px is off the ramp (see component.md). */
+.ds-inbox-search {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  box-sizing: border-box;
+  height: var(--sem-size-control-sm);
+  min-width: 0;
+  flex: 1;
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+}
+
+/* The ring is keyed to the input's own focus, never :focus-within — the
+ * clear button is a descendant with its own ring, and :focus-within would
+ * keep both painted at once. Plain :focus is right here: browsers treat
+ * text inputs as focus-visible on click anyway. */
+.ds-inbox-search:has(.ds-inbox-search-input:focus) {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-inbox-search-glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--sem-color-text-muted);
+}
+
+.ds-inbox-search-input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-inbox-search-input::placeholder {
+  color: var(--sem-color-text-subtle);
+}
+
+/* Suppress the UA's own clear affordance so the field shows one cross, not
+ * two — the styled button below is the one with a hit target and a label. */
+.ds-inbox-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* Exists only while there is text to clear. The hit target is the 24px
+ * minimum with the small glyph unchanged; the negative trailing margin
+ * pulls the transparent padding back into the field's own inset so the
+ * drawn cross stays where it was. */
+.ds-inbox-search-clear {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  margin-right: calc(-1 * var(--sem-space-xs));
+  padding: 0;
+  border: 0;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  cursor: pointer;
+}
+
+.ds-inbox-search-clear:hover {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-inbox-search-clear:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-inbox-row {
+    transition: none;
+  }
+}

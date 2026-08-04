@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spinner</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-xl);
+  }
+  .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-3xl);
+    flex-wrap: wrap;
+  }
+  .demo-subject {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    font-size: var(--sem-font-size-body);
+    color: var(--sem-color-text-default);
+  }
+  /* An empty panel for the overlay to center in. */
+  .demo-panel {
+    max-width: 360px;
+    height: 140px;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — the spinner sits beside the thing that is working; adjacent text names the state, so the mark is decorative.</p>
+  <div class="demo-row">
+    <span class="demo-subject">
+      <svg class="ds-spinner" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22" />
+        <path d="M8 3a5 5 0 0 1 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </svg>
+      Running sprint-41
+    </span>
+    <span class="demo-subject">
+      <svg class="ds-spinner ds-spinner--md" viewBox="0 0 16 16" fill="none" role="img" aria-label="Syncing sources" focusable="false">
+        <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22" />
+        <path d="M8 3a5 5 0 0 1 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </svg>
+    </span>
+  </div>
+
+  <p class="demo-label">The loading overlay — a panel with no shape to promise yet: pulsing good dot, one sentence.</p>
+  <div class="demo-panel">
+    <div class="ds-loading-overlay" role="status" aria-live="polite">
+      <div class="ds-loading-overlay-body">
+        <span class="ds-loading-overlay-dot" aria-hidden="true"></span>
+        <span class="ds-loading-overlay-label">Loading sessions…</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same marks from the same tokens.</p>
+  <div class="demo-row">
+    <span class="demo-subject">
+      <svg class="ds-spinner" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22" />
+        <path d="M8 3a5 5 0 0 1 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </svg>
+      Running sprint-41
+    </span>
+  </div>
+  <div class="demo-panel">
+    <div class="ds-loading-overlay" role="status" aria-live="polite">
+      <div class="ds-loading-overlay-body">
+        <span class="ds-loading-overlay-dot" aria-hidden="true"></span>
+        <span class="ds-loading-overlay-label">Loading sessions…</span>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

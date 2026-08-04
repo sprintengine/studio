@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tabs</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-panel {
+    max-width: 460px;
+    margin-bottom: var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    overflow: hidden;
+  }
+  .demo-panel .ds-tabs {
+    padding: 0 var(--sem-space-sm);
+  }
+  /* Short on purpose, with more rows than fit: the panel is a scroll
+     container, which is why it is a tab stop and why its focus ring draws
+     inward. */
+  .demo-panel .ds-tab-panel {
+    max-height: 96px;
+    padding: var(--sem-space-md) var(--sem-space-lg);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-panel .ds-tab-panel p {
+    margin: 0 0 var(--sem-space-sm);
+  }
+  /* The borderless variant's host band: the container draws the one line and
+     the trailing control shares it. */
+  .demo-band {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--sem-space-sm);
+    border-bottom: 1px solid var(--sem-color-border-default);
+  }
+  .demo-ghost {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    height: var(--sem-size-control-xs);
+    padding: 0 var(--sem-space-sm);
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-meta);
+    cursor: pointer;
+  }
+  .demo-ghost:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-default);
+  }
+  .demo-ghost:focus-visible {
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — Arrow keys move and activate; Home/End jump; Tab leaves the strip into the panel.</p>
+
+  <div class="demo-panel">
+    <div class="ds-tabs" role="tablist" aria-label="Inbox views" data-demo-tabs>
+      <button type="button" class="ds-tab" role="tab" id="lt-tab-queue" aria-selected="true" aria-controls="lt-panel-queue" tabindex="0">
+        <span class="ds-tab-icon" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><path d="M1.8 8h2.9l1 1.6h2.6l1-1.6h2.9M1.8 8v3.2h10.4V8M3.4 2.8h7.2l1.6 5.2H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </span>
+        <span>Queue</span>
+        <span class="ds-tab-count">12</span>
+        <span class="ds-tab-underline" aria-hidden="true"></span>
+      </button>
+      <button type="button" class="ds-tab" role="tab" id="lt-tab-done" aria-selected="false" aria-controls="lt-panel-done" tabindex="-1">
+        <span>Done</span>
+        <span class="ds-tab-count">86</span>
+        <span class="ds-tab-underline" aria-hidden="true"></span>
+      </button>
+      <button type="button" class="ds-tab" role="tab" id="lt-tab-archived" aria-selected="false" aria-controls="lt-panel-archived" tabindex="-1" disabled>
+        <span>Archived</span>
+        <span class="ds-tab-underline" aria-hidden="true"></span>
+      </button>
+    </div>
+    <div class="ds-tab-panel" role="tabpanel" id="lt-panel-queue" aria-labelledby="lt-tab-queue" tabindex="0">
+      <p>The queue view. This panel scrolls, so it is a tab stop of its own.</p>
+      <p>Its focus ring draws inward — an outward ring is clipped at the edge of a scrolling region.</p>
+      <p>Only the active panel is rendered; the demo swaps them.</p>
+    </div>
+    <div class="ds-tab-panel" role="tabpanel" id="lt-panel-done" aria-labelledby="lt-tab-done" tabindex="0" hidden>
+      <p>The done view.</p>
+    </div>
+    <div class="ds-tab-panel" role="tabpanel" id="lt-panel-archived" aria-labelledby="lt-tab-archived" tabindex="0" hidden>
+      <p>Archived.</p>
+    </div>
+  </div>
+
+  <p class="demo-label">Borderless — the band owns the hairline, so the trailing control shares the tabs' line instead of forcing a second one.</p>
+  <div class="demo-panel">
+    <div class="demo-band">
+      <div class="ds-tabs ds-tabs--borderless" role="tablist" aria-label="Run views" data-demo-tabs>
+        <button type="button" class="ds-tab" role="tab" id="lb-tab-all" aria-selected="true" aria-controls="lb-panel-all" tabindex="0">
+          <span>All</span>
+          <span class="ds-tab-underline" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="ds-tab" role="tab" id="lb-tab-failed" aria-selected="false" aria-controls="lb-panel-failed" tabindex="-1">
+          <span>Failed</span>
+          <span class="ds-tab-count">2</span>
+          <span class="ds-tab-underline" aria-hidden="true"></span>
+        </button>
+      </div>
+      <button type="button" class="demo-ghost">Rerun</button>
+    </div>
+    <div class="ds-tab-panel" role="tabpanel" id="lb-panel-all" aria-labelledby="lb-tab-all" tabindex="0">
+      <p>All runs.</p>
+    </div>
+    <div class="ds-tab-panel" role="tabpanel" id="lb-panel-failed" aria-labelledby="lb-tab-failed" tabindex="0" hidden>
+      <p>The two failed runs.</p>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same strip; the underline and ink lift come from the same tokens.</p>
+
+  <div class="demo-panel">
+    <div class="ds-tabs" role="tablist" aria-label="Inbox views" data-demo-tabs>
+      <button type="button" class="ds-tab" role="tab" id="dk-tab-queue" aria-selected="true" aria-controls="dk-panel-queue" tabindex="0">
+        <span>Queue</span>
+        <span class="ds-tab-count">12</span>
+        <span class="ds-tab-underline" aria-hidden="true"></span>
+      </button>
+      <button type="button" class="ds-tab" role="tab" id="dk-tab-done" aria-selected="false" aria-controls="dk-panel-done" tabindex="-1">
+        <span>Done</span>
+        <span class="ds-tab-count">86</span>
+        <span class="ds-tab-underline" aria-hidden="true"></span>
+      </button>
+      <button type="button" class="ds-tab" role="tab" id="dk-tab-archived" aria-selected="false" aria-controls="dk-panel-archived" tabindex="-1" disabled>
+        <span>Archived</span>
+        <span class="ds-tab-underline" aria-hidden="true"></span>
+      </button>
+    </div>
+    <div class="ds-tab-panel" role="tabpanel" id="dk-panel-queue" aria-labelledby="dk-tab-queue" tabindex="0">
+      <p>The queue view.</p>
+    </div>
+    <div class="ds-tab-panel" role="tabpanel" id="dk-panel-done" aria-labelledby="dk-tab-done" tabindex="0" hidden>
+      <p>The done view.</p>
+    </div>
+    <div class="ds-tab-panel" role="tabpanel" id="dk-panel-archived" aria-labelledby="dk-tab-archived" tabindex="0" hidden>
+      <p>Archived.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Reference behaviour for the contract in component.md: roving tabindex,
+   selection-follows-focus arrows with wraparound, Home/End, disabled tabs
+   skipped. Rebuild idiomatically in your framework — what must survive is
+   one tab stop per strip and arrows that both move and activate. */
+document.querySelectorAll('[data-demo-tabs]').forEach((list) => {
+  const tabs = () => Array.from(list.querySelectorAll('[role="tab"]'))
+  const enabled = () => tabs().filter((tab) => !tab.disabled)
+
+  function activate(tab, focus) {
+    tabs().forEach((other) => {
+      const selected = other === tab
+      other.setAttribute('aria-selected', String(selected))
+      other.tabIndex = selected ? 0 : -1
+      const panel = document.getElementById(other.getAttribute('aria-controls'))
+      if (panel) panel.hidden = !selected
+    })
+    if (focus) tab.focus()
+  }
+
+  list.addEventListener('click', (event) => {
+    const tab = event.target.closest('[role="tab"]')
+    if (tab && !tab.disabled) activate(tab, false)
+  })
+
+  list.addEventListener('keydown', (event) => {
+    const current = event.target.closest('[role="tab"]')
+    if (!current) return
+    const pool = enabled()
+    const index = pool.indexOf(current)
+    if (index === -1) return
+    let next = null
+    if (event.key === 'ArrowRight') next = pool[(index + 1) % pool.length]
+    else if (event.key === 'ArrowLeft') next = pool[(index - 1 + pool.length) % pool.length]
+    else if (event.key === 'Home') next = pool[0]
+    else if (event.key === 'End') next = pool[pool.length - 1]
+    if (next) {
+      event.preventDefault()
+      activate(next, true)
+    }
+  })
+})
+</script>
+</body>
+</html>

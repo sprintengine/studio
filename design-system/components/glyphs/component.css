@@ -1,0 +1,70 @@
+/* Glyphs — the sizing and ink contract for the icon vocabulary.
+ *
+ * A glyph owns its geometry and nothing else: ink comes from the surrounding
+ * text via currentColor, size comes from the --sem-icon-size-* ramp, and the
+ * hit area (when a glyph is interactive) comes from the owning control, never
+ * from the glyph growing to fill it. These classes are the whole contract —
+ * a glyph with a local width, height, or color is off-system.
+ *
+ * The vocabulary itself (which glyph means what, the two drawing grids, the
+ * stroke discipline) is documented in component.md; the shipped drawings live
+ * in src/renderer/src/components/AppIcons.tsx and the ui/ primitives. */
+
+.ds-glyph {
+  display: inline-block;
+  flex-shrink: 0;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  vertical-align: middle;
+}
+
+/* The ramp. sm is the default above — the rail canon — so only the other
+ * three steps need modifiers. There is no fifth step: a surface wanting 28px
+ * is off the ramp (see Known drift, MC-2119). */
+.ds-glyph--xs {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+.ds-glyph--md {
+  width: var(--sem-icon-size-md);
+  height: var(--sem-icon-size-md);
+}
+
+.ds-glyph--lg {
+  width: var(--sem-icon-size-lg);
+  height: var(--sem-icon-size-lg);
+}
+
+/* The reserved leading slot of a rail row: a fixed sm-sized box a smaller
+ * glyph centers inside instead of narrowing. This is what keeps sibling rows'
+ * titles on one x-offset when their glyphs differ (MC-2098). */
+.ds-glyph-slot {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+/* The only animated glyph state: the lifecycle in-progress arc while a run is
+ * genuinely live — "alive right now", the first of the two things motion may
+ * mean. A continuous rotation is not one of the three eased entrances, so it
+ * takes no easing token: linear, at the app's shipped 900ms period. */
+.ds-glyph--spin {
+  transform-origin: 50% 50%;
+  animation: ds-glyph-spin 900ms linear infinite;
+}
+
+@keyframes ds-glyph-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-glyph--spin {
+    animation: none;
+  }
+}

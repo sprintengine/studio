@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Truncated text</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../tooltip/component.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-readout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sem-space-md);
+    margin: 0;
+    padding: var(--sem-space-sm) var(--sem-space-3xl);
+    border-bottom: 1px solid var(--sem-color-border-default);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-muted);
+    font-size: var(--sem-font-size-meta);
+  }
+  .demo-readout b {
+    color: var(--sem-color-text-primary);
+    font-weight: var(--sem-font-weight-medium);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-pane {
+    max-width: 240px;
+    margin-bottom: var(--sem-space-lg);
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    /* Resizable on purpose: dragging the pane past a title's width is the
+       point of the demo — the tooltip must detach the moment the text fits. */
+    resize: horizontal;
+    overflow: hidden;
+    min-width: 140px;
+  }
+  .demo-row {
+    display: flex;
+    width: 100%;
+    padding: var(--sem-space-2xs) var(--sem-space-sm);
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-default);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+    text-align: left;
+    cursor: pointer;
+  }
+  .demo-row:hover {
+    background: var(--sem-color-bg-hover);
+  }
+  .demo-row:focus-visible {
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
+  }
+  .demo-blurb {
+    margin: 0;
+    padding: var(--sem-space-2xs) var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+</style>
+</head>
+<body>
+<p class="demo-readout">
+  <span>Drag a pane's corner to resize it. Clipped now: <b id="demo-clipped">—</b></span>
+  <span>Tooltips attach only to those.</span>
+</p>
+
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — single-line rows: the short title never gets a tooltip; the long ones do, until the pane grows past them.</p>
+
+  <div class="demo-pane">
+    <button type="button" class="demo-row">
+      <span class="ds-truncated-text" data-demo-truncated>Backlog</span>
+    </button>
+    <button type="button" class="demo-row">
+      <span class="ds-truncated-text" data-demo-truncated>design-system-conformance-check-report</span>
+    </button>
+    <button type="button" class="demo-row">
+      <span class="ds-truncated-text" data-demo-truncated>run/mc-2101-panel-header-rollout-groundwork</span>
+    </button>
+  </div>
+
+  <p class="demo-label">Multiline — the blurb clamps to two lines and earns its tooltip by height, only when a line is actually hidden.</p>
+  <div class="demo-pane" tabindex="0" aria-label="Skill description">
+    <p class="demo-blurb ds-truncated-text ds-truncated-text--multiline" data-demo-truncated data-demo-multiline>
+      Refuses sample data, stubbed transports, and disconnected UI state as completion evidence, and walks the reviewer through what actually ran.
+    </p>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — same measurement, same one tooltip surface.</p>
+
+  <div class="demo-pane">
+    <button type="button" class="demo-row">
+      <span class="ds-truncated-text" data-demo-truncated>workspace-knowledge</span>
+    </button>
+    <button type="button" class="demo-row">
+      <span class="ds-truncated-text" data-demo-truncated>terminal-first-review-guide-for-changesets</span>
+    </button>
+  </div>
+</div>
+
+<script>
+/* Reference behaviour for the contract in component.md: measure real
+   overflow with a +1px rounding tolerance, re-measure on resize, and attach
+   the ONE shared tooltip surface only while clipped. Rebuild idiomatically
+   in your framework — what must survive is the measurement (width for
+   single-line, height for multiline), the re-check on every resize, and a
+   tooltip that never appears over text the person can already read. */
+
+const tip = document.createElement('div')
+tip.className = 'ds-tooltip'
+tip.id = 'ds-truncated-tip'
+tip.setAttribute('role', 'tooltip')
+tip.hidden = true
+document.body.appendChild(tip)
+
+const clippedOut = document.getElementById('demo-clipped')
+const targets = Array.from(document.querySelectorAll('[data-demo-truncated]'))
+let owner = null
+let timer = null
+
+function isClipped(el) {
+  /* +1 guards against sub-pixel rounding reporting a false overflow. */
+  return el.hasAttribute('data-demo-multiline')
+    ? el.scrollHeight > el.clientHeight + 1
+    : el.scrollWidth > el.clientWidth + 1
+}
+
+function measureAll() {
+  let clipped = 0
+  targets.forEach((el) => {
+    const cut = isClipped(el)
+    if (cut) clipped += 1
+    else if (owner === el) hide()
+    el.toggleAttribute('data-clipped', cut)
+  })
+  clippedOut.textContent = String(clipped)
+}
+
+function show(el) {
+  tip.textContent = el.textContent.trim()
+  const scope = el.closest('[data-mode]')
+  if (scope) tip.setAttribute('data-mode', scope.dataset.mode)
+  else tip.removeAttribute('data-mode')
+  tip.hidden = false
+  const anchor = el.getBoundingClientRect()
+  const surface = tip.getBoundingClientRect()
+  const top = Math.max(8, anchor.top - surface.height - 8)
+  const left = Math.max(8, Math.min(anchor.left, window.innerWidth - surface.width - 8))
+  tip.style.setProperty('--ds-tooltip-top', Math.round(top) + 'px')
+  tip.style.setProperty('--ds-tooltip-left', Math.round(left) + 'px')
+  const trigger = el.closest('button, [tabindex]') ?? el
+  trigger.setAttribute('aria-describedby', tip.id)
+  owner = el
+}
+
+function hide() {
+  window.clearTimeout(timer)
+  timer = null
+  if (owner) {
+    const trigger = owner.closest('button, [tabindex]') ?? owner
+    trigger.removeAttribute('aria-describedby')
+    owner = null
+  }
+  tip.hidden = true
+}
+
+document.addEventListener('pointerover', (event) => {
+  const el = event.target.closest('[data-demo-truncated]')
+  if (!el || !el.hasAttribute('data-clipped')) {
+    if (owner || timer) hide()
+    return
+  }
+  if (el === owner) return
+  hide()
+  timer = window.setTimeout(() => show(el), 350)
+})
+
+document.addEventListener('focusin', (event) => {
+  const el =
+    event.target.closest('[data-demo-truncated]') ??
+    event.target.querySelector?.('[data-demo-truncated]')
+  if (el && el.hasAttribute('data-clipped') && event.target.matches(':focus-visible')) show(el)
+  else hide()
+})
+
+document.addEventListener('focusout', hide)
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') hide()
+})
+window.addEventListener('scroll', hide, true)
+
+const observer = new ResizeObserver(measureAll)
+targets.forEach((el) => {
+  observer.observe(el)
+  const pane = el.closest('.demo-pane')
+  if (pane) observer.observe(pane)
+})
+window.addEventListener('resize', measureAll)
+measureAll()
+</script>
+</body>
+</html>

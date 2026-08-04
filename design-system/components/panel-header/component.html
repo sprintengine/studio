@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Panel header</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-panel {
+    max-width: 460px;
+    margin-bottom: var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    overflow: hidden;
+  }
+  /* Deliberately narrow: the width at which the scope word has to evaporate
+     and the title itself starts truncating — the priority order the header
+     exists to enforce. */
+  .demo-panel--narrow {
+    max-width: 240px;
+  }
+  .demo-body {
+    padding: var(--sem-space-md) var(--sem-space-lg);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-ghost {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    height: var(--sem-size-control-xs);
+    padding: 0 var(--sem-space-sm);
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-meta);
+    cursor: pointer;
+  }
+  .demo-ghost:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-default);
+  }
+  .demo-ghost:focus-visible {
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
+  }
+  .demo-kebab {
+    display: grid;
+    place-items: center;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    padding: 0;
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
+  }
+  .demo-kebab:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-default);
+  }
+  .demo-kebab:focus-visible {
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
+  }
+  .demo-kebab svg {
+    width: var(--sem-icon-size-sm);
+    height: var(--sem-icon-size-sm);
+  }
+  /* A stand-in search row: what the --flush variant hands its hairline to.
+     The divider under this row is the panel's one divider. */
+  .demo-search-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-xs);
+    padding: 0 var(--sem-space-lg) var(--sem-space-sm);
+    border-bottom: 1px solid var(--sem-color-border-default);
+    background: var(--sem-color-bg-surface);
+  }
+  .demo-search {
+    box-sizing: border-box;
+    flex: 1;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface-raised);
+    color: var(--sem-color-text-default);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-meta);
+  }
+  .demo-search:focus-visible {
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — the full band: identity dot, title, count, scope, one action, one overflow.</p>
+
+  <div class="demo-panel">
+    <header class="ds-panel-header">
+      <div class="ds-panel-header-lead">
+        <span class="ds-panel-header-identity" aria-hidden="true"></span>
+        <h2 class="ds-panel-header-title">Backlog</h2>
+        <span class="ds-panel-header-count">47</span>
+        <span class="ds-panel-header-scope">This sprint</span>
+      </div>
+      <div class="ds-panel-header-actions">
+        <button type="button" class="demo-ghost">New item</button>
+        <button type="button" class="demo-kebab" aria-label="Backlog options">
+          <svg viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><circle cx="7" cy="3" r="1.1"/><circle cx="7" cy="7" r="1.1"/><circle cx="7" cy="11" r="1.1"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="demo-body">Panel content.</div>
+  </div>
+
+  <p class="demo-label">Progress — the 2px completion hairline on the bottom border: accent for accepted, warn for blocked.</p>
+  <div class="demo-panel">
+    <header class="ds-panel-header" style="--ds-panel-header-progress: 43%; --ds-panel-header-progress-warn: 14%;">
+      <div class="ds-panel-header-lead">
+        <h2 class="ds-panel-header-title">Milestones</h2>
+        <span class="ds-panel-header-count">3/7</span>
+      </div>
+      <div class="ds-panel-header-actions">
+        <button type="button" class="demo-kebab" aria-label="Milestone options">
+          <svg viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><circle cx="7" cy="3" r="1.1"/><circle cx="7" cy="7" r="1.1"/><circle cx="7" cy="11" r="1.1"/></svg>
+        </button>
+      </div>
+      <div
+        class="ds-panel-header-progress"
+        role="progressbar"
+        aria-valuemin="0"
+        aria-valuemax="7"
+        aria-valuenow="3"
+        aria-label="3 of 7 milestones accepted, 1 blocked"
+      >
+        <div class="ds-panel-header-progress-fill"></div>
+        <div class="ds-panel-header-progress-warn"></div>
+      </div>
+    </header>
+    <div class="demo-body">Panel content.</div>
+  </div>
+
+  <p class="demo-label">Flush — a search row follows, so the divider belongs under the search. One line per panel.</p>
+  <div class="demo-panel">
+    <header class="ds-panel-header ds-panel-header--flush">
+      <div class="ds-panel-header-lead">
+        <h2 class="ds-panel-header-title">Reviews</h2>
+        <span class="ds-panel-header-count">12</span>
+      </div>
+      <div class="ds-panel-header-actions">
+        <button type="button" class="demo-ghost">New review</button>
+      </div>
+    </header>
+    <div class="demo-search-row">
+      <input class="demo-search" type="search" aria-label="Search reviews" placeholder="Search reviews…" />
+    </div>
+    <div class="demo-body">The list starts here.</div>
+  </div>
+
+  <p class="demo-label">Narrow — the scope word evaporates first; the title truncates last.</p>
+  <div class="demo-panel demo-panel--narrow">
+    <header class="ds-panel-header">
+      <div class="ds-panel-header-lead">
+        <span class="ds-panel-header-identity" aria-hidden="true"></span>
+        <h2 class="ds-panel-header-title">Automation runs and schedules</h2>
+        <span class="ds-panel-header-count">128</span>
+        <span class="ds-panel-header-scope">All workspaces</span>
+      </div>
+      <div class="ds-panel-header-actions">
+        <button type="button" class="demo-kebab" aria-label="Automation options">
+          <svg viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><circle cx="7" cy="3" r="1.1"/><circle cx="7" cy="7" r="1.1"/><circle cx="7" cy="11" r="1.1"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="demo-body">Panel content.</div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same bands from the same tokens.</p>
+
+  <div class="demo-panel">
+    <header class="ds-panel-header">
+      <div class="ds-panel-header-lead">
+        <span class="ds-panel-header-identity" aria-hidden="true"></span>
+        <h2 class="ds-panel-header-title">Backlog</h2>
+        <span class="ds-panel-header-count">47</span>
+        <span class="ds-panel-header-scope">This sprint</span>
+      </div>
+      <div class="ds-panel-header-actions">
+        <button type="button" class="demo-ghost">New item</button>
+        <button type="button" class="demo-kebab" aria-label="Backlog options">
+          <svg viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><circle cx="7" cy="3" r="1.1"/><circle cx="7" cy="7" r="1.1"/><circle cx="7" cy="11" r="1.1"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="demo-body">Panel content.</div>
+  </div>
+
+  <div class="demo-panel">
+    <header class="ds-panel-header" style="--ds-panel-header-progress: 43%; --ds-panel-header-progress-warn: 14%;">
+      <div class="ds-panel-header-lead">
+        <h2 class="ds-panel-header-title">Milestones</h2>
+        <span class="ds-panel-header-count">3/7</span>
+      </div>
+      <div class="ds-panel-header-actions">
+        <button type="button" class="demo-kebab" aria-label="Milestone options">
+          <svg viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><circle cx="7" cy="3" r="1.1"/><circle cx="7" cy="7" r="1.1"/><circle cx="7" cy="11" r="1.1"/></svg>
+        </button>
+      </div>
+      <div
+        class="ds-panel-header-progress"
+        role="progressbar"
+        aria-valuemin="0"
+        aria-valuemax="7"
+        aria-valuenow="3"
+        aria-label="3 of 7 milestones accepted, 1 blocked"
+      >
+        <div class="ds-panel-header-progress-fill"></div>
+        <div class="ds-panel-header-progress-warn"></div>
+      </div>
+    </header>
+    <div class="demo-body">Panel content.</div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Toast</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../button/component.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-row {
+    display: flex;
+    gap: var(--sem-space-md);
+    flex-wrap: wrap;
+    margin-top: var(--sem-space-lg);
+  }
+  /* Parked regions show the tone set in flow, with scripts off — the catalog
+     embeds this demo without JavaScript. The live region at the end of the
+     body is the real fixed corner the buttons feed. */
+  .ds-toast-region.demo-parked {
+    position: static;
+    pointer-events: auto;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — the five tones. Neutral, good, and accent are polite and dismiss themselves; warn and danger interrupt and stay until dismissed. The buttons feed the live corner region.</p>
+
+  <div class="ds-toast-region demo-parked">
+    <div class="ds-toast ds-toast--neutral" role="status" aria-live="polite">
+      <span class="ds-toast-dot" aria-hidden="true"></span>
+      <div class="ds-toast-content">
+        <div class="ds-toast-title">Workspace synced</div>
+      </div>
+    </div>
+    <div class="ds-toast ds-toast--good" role="status" aria-live="polite">
+      <span class="ds-toast-dot" aria-hidden="true"></span>
+      <div class="ds-toast-content">
+        <div class="ds-toast-title">Sprint archived</div>
+        <div class="ds-toast-description">Its board left the rail; the run branch stays.</div>
+      </div>
+      <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="ds-toast ds-toast--accent" role="status" aria-live="polite">
+      <span class="ds-toast-dot" aria-hidden="true"></span>
+      <div class="ds-toast-content">
+        <div class="ds-toast-title">Review requested</div>
+        <div class="ds-toast-description">watchtower picked it up.</div>
+      </div>
+    </div>
+    <div class="ds-toast ds-toast--warn" role="alert" aria-live="assertive">
+      <span class="ds-toast-dot" aria-hidden="true"></span>
+      <div class="ds-toast-content">
+        <div class="ds-toast-title">Tracker write-back paused</div>
+        <div class="ds-toast-description">Changes queue locally until the connection returns.</div>
+      </div>
+      <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="ds-toast ds-toast--danger" role="alert" aria-live="assertive">
+      <span class="ds-toast-dot" aria-hidden="true"></span>
+      <div class="ds-toast-content">
+        <div class="ds-toast-title">Sprint failed to start</div>
+        <div class="ds-toast-description">The run branch could not be created.</div>
+      </div>
+      <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="demo-row">
+    <button type="button" class="ds-button ds-button--ghost" data-toast="good">Announce a result</button>
+    <button type="button" class="ds-button ds-button--ghost" data-toast="danger">Announce a failure</button>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same surface; the dark ramp's raised tone joins the hairline. Still no shadow, still no surface tint: the dot and the words carry the tone.</p>
+
+  <div class="ds-toast-region demo-parked">
+    <div class="ds-toast ds-toast--good" role="status" aria-live="polite">
+      <span class="ds-toast-dot" aria-hidden="true"></span>
+      <div class="ds-toast-content">
+        <div class="ds-toast-title">Sprint archived</div>
+        <div class="ds-toast-description">Its board left the rail; the run branch stays.</div>
+      </div>
+      <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="ds-toast ds-toast--danger" role="alert" aria-live="assertive">
+      <span class="ds-toast-dot" aria-hidden="true"></span>
+      <div class="ds-toast-content">
+        <div class="ds-toast-title">Sprint failed to start</div>
+        <div class="ds-toast-description">The run branch could not be created.</div>
+      </div>
+      <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="demo-row">
+    <button type="button" class="ds-button ds-button--ghost" data-toast="good">Announce a result</button>
+    <button type="button" class="ds-button ds-button--ghost" data-toast="danger">Announce a failure</button>
+  </div>
+</div>
+
+<!-- The live corner region: one per document, every producer routes here. -->
+<div class="ds-toast-region" id="live-region"></div>
+
+<script>
+/* Reference behaviour for the contract in component.md. What must survive a
+   framework rewrite is the tone table: role and aria-live chosen by tone,
+   polite tones auto-dismissing at 5 s, warn and danger staying until the
+   user dismisses them — plus the single region and no focus steal. */
+
+const AUTO_DISMISS_MS = 5000
+
+const TONES = {
+  good: {
+    role: 'status',
+    live: 'polite',
+    persist: false,
+    title: 'Sprint archived',
+    description: 'Its board left the rail; the run branch stays.',
+  },
+  danger: {
+    role: 'alert',
+    live: 'assertive',
+    persist: true,
+    title: 'Sprint failed to start',
+    description: 'The run branch could not be created.',
+  },
+}
+
+const region = document.getElementById('live-region')
+
+function dismiss(toast) {
+  window.clearTimeout(toast._timer)
+  toast.remove()
+}
+
+function announce(tone, scopeNode) {
+  const spec = TONES[tone]
+  const toast = document.createElement('div')
+  toast.className = 'ds-toast ds-toast--' + tone
+  toast.setAttribute('role', spec.role)
+  toast.setAttribute('aria-live', spec.live)
+  /* The region sits on the body; light each toast by the mode of the surface
+     that produced it. */
+  const scope = scopeNode.closest('[data-mode]')
+  if (scope) toast.setAttribute('data-mode', scope.dataset.mode)
+
+  const dot = document.createElement('span')
+  dot.className = 'ds-toast-dot'
+  dot.setAttribute('aria-hidden', 'true')
+
+  const content = document.createElement('div')
+  content.className = 'ds-toast-content'
+  const title = document.createElement('div')
+  title.className = 'ds-toast-title'
+  title.textContent = spec.title
+  const description = document.createElement('div')
+  description.className = 'ds-toast-description'
+  description.textContent = spec.description
+  content.append(title, description)
+
+  const close = document.createElement('button')
+  close.type = 'button'
+  close.className = 'ds-toast-dismiss'
+  close.setAttribute('aria-label', 'Dismiss')
+  close.innerHTML =
+    '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
+  close.addEventListener('click', () => dismiss(toast))
+
+  toast.append(dot, content, close)
+  region.appendChild(toast)
+
+  /* Polite tones leave on their own; warn and danger wait to be dismissed so
+     a failure can never be missed by looking away. No focus is taken either
+     way — announcement is the live region's job. */
+  if (!spec.persist) toast._timer = window.setTimeout(() => dismiss(toast), AUTO_DISMISS_MS)
+}
+
+for (const button of document.querySelectorAll('[data-toast]')) {
+  button.addEventListener('click', () => announce(button.dataset.toast, button))
+}
+
+/* The parked specimens' dismiss buttons work too. */
+for (const button of document.querySelectorAll('.demo-parked .ds-toast-dismiss')) {
+  button.addEventListener('click', () => button.closest('.ds-toast').remove())
+}
+</script>
+</body>
+</html>

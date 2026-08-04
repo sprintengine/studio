@@ -51,3 +51,15 @@ reserved for the primary action.
   from the attribute, and the ink lift to `text.primary` carries it visually.
 - Status dots are `aria-hidden` when adjacent text already carries the state;
   otherwise give them a `role="img"` label.
+
+## Known drift
+
+Verified against `src/renderer/src/components/ui/TaskCard.tsx` (2026-08-04):
+
+- **Identifier.** This spec says `font.size.meta` in `text.subtle`; shipped
+  identifiers are `font.size.micro` in both variants — in `text.subtle` on
+  the row variant but `text.muted` on the card variant.
+- **Title.** This spec says `font.size.body`; shipped titles are
+  `font.size.meta`, one step smaller.
+
+MC-2118 owns ruling which type step is canonical and reconciling this entry.

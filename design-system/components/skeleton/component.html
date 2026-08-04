@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Skeleton</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-xl);
+  }
+  .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-pane {
+    max-width: 320px;
+    padding: var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  /* A ghost list row: dot + title-and-meta column, sized like the real row it
+     stands in for. Composition belongs to the consumer, so it lives in the
+     demo, not in component.css. */
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+    padding: var(--sem-space-xs) 0;
+  }
+  .demo-row-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .demo-row-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-2xs);
+    flex: 1;
+  }
+  .demo-line-title {
+    height: 13px;
+  }
+  .demo-line-meta {
+    height: 10px;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* The terminal-replay composition: static ghost lines on the terminal
+     ground, fixed widths, no shimmer. */
+  .demo-terminal {
+    max-width: 420px;
+    padding: var(--sem-space-sm);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-app);
+    border: 1px solid var(--sem-color-border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-sm);
+    pointer-events: none;
+  }
+  .demo-terminal-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+  }
+  .demo-terminal .ds-skeleton {
+    height: 10px;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — ghost list rows (shimmering), aria-hidden, one status sentence for the region.</p>
+  <div class="demo-pane">
+    <span role="status" class="sr-only">Loading sessions…</span>
+    <div aria-hidden="true">
+      <div class="demo-row">
+        <div class="ds-skeleton demo-row-dot"></div>
+        <div class="demo-row-text">
+          <div class="ds-skeleton demo-line-title" style="width: 62%"></div>
+          <div class="ds-skeleton demo-line-meta" style="width: 34%"></div>
+        </div>
+      </div>
+      <div class="demo-row">
+        <div class="ds-skeleton demo-row-dot"></div>
+        <div class="demo-row-text">
+          <div class="ds-skeleton demo-line-title" style="width: 48%"></div>
+          <div class="ds-skeleton demo-line-meta" style="width: 41%"></div>
+        </div>
+      </div>
+      <div class="demo-row">
+        <div class="ds-skeleton demo-row-dot"></div>
+        <div class="demo-row-text">
+          <div class="ds-skeleton demo-line-title" style="width: 71%"></div>
+          <div class="ds-skeleton demo-line-meta" style="width: 28%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="demo-label">The terminal-replay composition — the static variant, many blocks at once, fixed widths.</p>
+  <div class="demo-terminal">
+    <span role="status" class="sr-only">Restoring terminal history…</span>
+    <div aria-hidden="true" class="demo-terminal-row"><div class="ds-skeleton ds-skeleton--static" style="width: 32px"></div><div class="ds-skeleton ds-skeleton--static" style="width: 38%"></div></div>
+    <div aria-hidden="true" class="demo-terminal-row"><div class="ds-skeleton ds-skeleton--static" style="width: 24px"></div><div class="ds-skeleton ds-skeleton--static" style="width: 22%"></div><div class="ds-skeleton ds-skeleton--static" style="width: 31%"></div></div>
+    <div aria-hidden="true" class="demo-terminal-row"><div class="ds-skeleton ds-skeleton--static" style="width: 40px"></div><div class="ds-skeleton ds-skeleton--static" style="width: 64%"></div></div>
+    <div aria-hidden="true" class="demo-terminal-row"><div class="ds-skeleton ds-skeleton--static" style="width: 20px"></div><div class="ds-skeleton ds-skeleton--static" style="width: 18%"></div><div class="ds-skeleton ds-skeleton--static" style="width: 44%"></div></div>
+    <div aria-hidden="true" class="demo-terminal-row"><div class="ds-skeleton ds-skeleton--static" style="width: 32px"></div><div class="ds-skeleton ds-skeleton--static" style="width: 52%"></div></div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same tokens flip the fill and the sweep to paper tints.</p>
+  <div class="demo-pane">
+    <span role="status" class="sr-only">Loading sessions…</span>
+    <div aria-hidden="true">
+      <div class="demo-row">
+        <div class="ds-skeleton demo-row-dot"></div>
+        <div class="demo-row-text">
+          <div class="ds-skeleton demo-line-title" style="width: 62%"></div>
+          <div class="ds-skeleton demo-line-meta" style="width: 34%"></div>
+        </div>
+      </div>
+      <div class="demo-row">
+        <div class="ds-skeleton demo-row-dot"></div>
+        <div class="demo-row-text">
+          <div class="ds-skeleton demo-line-title" style="width: 48%"></div>
+          <div class="ds-skeleton demo-line-meta" style="width: 41%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-terminal">
+    <span role="status" class="sr-only">Restoring terminal history…</span>
+    <div aria-hidden="true" class="demo-terminal-row"><div class="ds-skeleton ds-skeleton--static" style="width: 32px"></div><div class="ds-skeleton ds-skeleton--static" style="width: 38%"></div></div>
+    <div aria-hidden="true" class="demo-terminal-row"><div class="ds-skeleton ds-skeleton--static" style="width: 24px"></div><div class="ds-skeleton ds-skeleton--static" style="width: 22%"></div><div class="ds-skeleton ds-skeleton--static" style="width: 31%"></div></div>
+    <div aria-hidden="true" class="demo-terminal-row"><div class="ds-skeleton ds-skeleton--static" style="width: 40px"></div><div class="ds-skeleton ds-skeleton--static" style="width: 64%"></div></div>
+  </div>
+</div>
+</body>
+</html>

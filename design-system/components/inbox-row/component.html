@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Inbox row</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../status-dot/component.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-panes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--sem-space-lg);
+  }
+  .demo-pane {
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    overflow: hidden;
+  }
+  /* The list-surface anatomy above the rows: the search row, then the one
+     divider — the line that says "the list starts here". */
+  .demo-search-row {
+    display: flex;
+    padding: var(--sem-space-sm) var(--sem-space-lg);
+    border-bottom: 1px solid var(--sem-color-border-default);
+  }
+  .demo-pane-title {
+    margin: 0;
+    padding: var(--sem-space-sm) var(--sem-space-lg) var(--sem-space-2xs);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — an attention inbox. Two stacked lines, leading state, trailing freshness; the search row wears the surface's one divider.</p>
+
+  <div class="demo-panes">
+    <div class="demo-pane">
+      <div class="demo-search-row">
+        <div class="ds-inbox-search">
+          <span class="ds-inbox-search-glyph" aria-hidden="true">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="4.5" cy="4.5" r="3" stroke="currentColor" stroke-width="1.2"/><path d="M7 7l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </span>
+          <input class="ds-inbox-search-input" type="search" value="run" aria-label="Search inbox" placeholder="Search inbox…" data-demo-search />
+          <button type="button" class="ds-inbox-search-clear" aria-label="Clear search">
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5l5 5M7.5 2.5l-5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <button type="button" class="ds-inbox-row ds-inbox-row--selected" aria-current="true">
+        <span class="ds-inbox-row-leading" aria-hidden="true">
+          <span class="ds-status-dot ds-status-dot--danger"></span>
+        </span>
+        <span class="ds-inbox-row-text">
+          <span class="ds-inbox-row-title">Sprint 14 run failed</span>
+          <span class="ds-inbox-row-supporting">Gate check rejected the changeset at milestone 3</span>
+        </span>
+        <span class="ds-inbox-row-trailing">2m</span>
+      </button>
+      <button type="button" class="ds-inbox-row">
+        <span class="ds-inbox-row-leading" aria-hidden="true">
+          <span class="ds-status-dot ds-status-dot--warn"></span>
+        </span>
+        <span class="ds-inbox-row-text">
+          <span class="ds-inbox-row-title">Review requested</span>
+          <span class="ds-inbox-row-supporting">MC-2096 changeset walkthrough is waiting on you</span>
+        </span>
+        <span class="ds-inbox-row-trailing">14m</span>
+      </button>
+      <button type="button" class="ds-inbox-row">
+        <span class="ds-inbox-row-text">
+          <span class="ds-inbox-row-title">Backlog repair finished</span>
+          <span class="ds-inbox-row-supporting">4 orphaned items reattached to their epics</span>
+        </span>
+        <span class="ds-inbox-row-trailing">1h</span>
+      </button>
+      <button type="button" class="ds-inbox-row" disabled>
+        <span class="ds-inbox-row-text">
+          <span class="ds-inbox-row-title">Nightly automation digest</span>
+          <span class="ds-inbox-row-supporting">Unavailable while the source reindexes</span>
+        </span>
+        <span class="ds-inbox-row-trailing">6h</span>
+      </button>
+    </div>
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">A second pane — its remembered choice rests</p>
+      <button type="button" class="ds-inbox-row ds-inbox-row--resting" aria-current="true">
+        <span class="ds-inbox-row-leading" aria-hidden="true">
+          <span class="ds-status-dot ds-status-dot--merged"></span>
+        </span>
+        <span class="ds-inbox-row-text">
+          <span class="ds-inbox-row-title">MC-2101 merged</span>
+          <span class="ds-inbox-row-supporting">Panel header groundwork landed on main</span>
+        </span>
+        <span class="ds-inbox-row-trailing">3h</span>
+      </button>
+      <button type="button" class="ds-inbox-row">
+        <span class="ds-inbox-row-text">
+          <span class="ds-inbox-row-title">Workspace knowledge updated</span>
+          <span class="ds-inbox-row-supporting">Two entries touched in the last handoff</span>
+        </span>
+        <span class="ds-inbox-row-trailing">1d</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same queue from the same tokens.</p>
+
+  <div class="demo-panes">
+    <div class="demo-pane">
+      <div class="demo-search-row">
+        <div class="ds-inbox-search">
+          <span class="ds-inbox-search-glyph" aria-hidden="true">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="4.5" cy="4.5" r="3" stroke="currentColor" stroke-width="1.2"/><path d="M7 7l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </span>
+          <input class="ds-inbox-search-input" type="search" aria-label="Search inbox" placeholder="Search inbox…" data-demo-search />
+        </div>
+      </div>
+
+      <button type="button" class="ds-inbox-row ds-inbox-row--selected" aria-current="true">
+        <span class="ds-inbox-row-leading" aria-hidden="true">
+          <span class="ds-status-dot ds-status-dot--danger"></span>
+        </span>
+        <span class="ds-inbox-row-text">
+          <span class="ds-inbox-row-title">Sprint 14 run failed</span>
+          <span class="ds-inbox-row-supporting">Gate check rejected the changeset at milestone 3</span>
+        </span>
+        <span class="ds-inbox-row-trailing">2m</span>
+      </button>
+      <button type="button" class="ds-inbox-row">
+        <span class="ds-inbox-row-leading" aria-hidden="true">
+          <span class="ds-status-dot ds-status-dot--warn"></span>
+        </span>
+        <span class="ds-inbox-row-text">
+          <span class="ds-inbox-row-title">Review requested</span>
+          <span class="ds-inbox-row-supporting">MC-2096 changeset walkthrough is waiting on you</span>
+        </span>
+        <span class="ds-inbox-row-trailing">14m</span>
+      </button>
+      <button type="button" class="ds-inbox-row">
+        <span class="ds-inbox-row-text">
+          <span class="ds-inbox-row-title">Backlog repair finished</span>
+          <span class="ds-inbox-row-supporting">4 orphaned items reattached to their epics</span>
+        </span>
+        <span class="ds-inbox-row-trailing">1h</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Reference behaviour for the search field's contract: the clear affordance
+   exists only while there is text, and Escape with text clears it and
+   consumes the event so a hosting overlay does not also close. */
+document.querySelectorAll('[data-demo-search]').forEach((input) => {
+  const field = input.closest('.ds-inbox-search')
+
+  function syncClear() {
+    let clear = field.querySelector('.ds-inbox-search-clear')
+    if (input.value && !clear) {
+      clear = document.createElement('button')
+      clear.type = 'button'
+      clear.className = 'ds-inbox-search-clear'
+      clear.setAttribute('aria-label', 'Clear search')
+      clear.innerHTML =
+        '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5l5 5M7.5 2.5l-5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
+      field.appendChild(clear)
+    } else if (!input.value && clear) {
+      clear.remove()
+    }
+  }
+
+  input.addEventListener('input', syncClear)
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || input.value === '') return
+    event.preventDefault()
+    input.value = ''
+    syncClear()
+  })
+  field.addEventListener('click', (event) => {
+    if (event.target.closest('.ds-inbox-search-clear')) {
+      input.value = ''
+      syncClear()
+      input.focus()
+    }
+  })
+  syncClear()
+})
+</script>
+</body>
+</html>

@@ -1,0 +1,87 @@
+/* Spinner — the one "working right now" mark: faint track ring + rotating
+ * quarter arc in accent ink (src/renderer/src/components/ui/Spinner.tsx) —
+ * and the loading overlay, the centered panel state for content with no shape
+ * to skeleton (LoadingOverlay.tsx).
+ *
+ * The overlay deliberately does not contain the spinner: the accent arc marks
+ * a specific live process, and a merely-fetching panel has none to name — the
+ * pulsing status dot says "alive" at panel scale without spending the accent. */
+
+.ds-spinner {
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  color: var(--sem-color-accent-primary);
+  transform-origin: 50% 50%;
+  /* A loop, not a transition — the motion.duration tokens govern the three
+   * eased motions and do not apply here. Linear: a spinner that eases reads
+   * as stuttering. */
+  animation: ds-spinner-rotate 900ms linear infinite;
+}
+
+/* For size.control.md contexts. Nothing larger exists: a spinner past icon
+ * scale is a panel state, and panel states are the overlay's job. */
+.ds-spinner--md {
+  width: var(--sem-icon-size-md);
+  height: var(--sem-icon-size-md);
+}
+
+@keyframes ds-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The loading overlay: fills the panel, centers one quiet statement. */
+.ds-loading-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  font-family: var(--sem-font-family-ui);
+}
+
+.ds-loading-overlay-body {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-lg);
+}
+
+/* 8px, a deliberate step off the 6px row-scale status dot: panel scale.
+ * status.good, pulsing — alive, not accented. */
+.ds-loading-overlay-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sem-color-status-good);
+  animation: ds-loading-overlay-pulse 1800ms var(--sem-motion-ease-standard) infinite;
+}
+
+.ds-loading-overlay-label {
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+@keyframes ds-loading-overlay-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.78);
+  }
+}
+
+/* Reduced motion: the spinner freezes to its at-rest arc and the dot holds
+ * steady. Shape and label still carry the state — motion is never the sole
+ * signal. */
+@media (prefers-reduced-motion: reduce) {
+  .ds-spinner,
+  .ds-loading-overlay-dot {
+    animation: none;
+  }
+}

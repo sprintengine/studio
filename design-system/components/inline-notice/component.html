@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Inline notice</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<!-- Recovery actions are the button entry's ghost variant. -->
+<link rel="stylesheet" href="../button/component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-xl);
+  }
+  .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-scope {
+    max-width: 460px;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a structured failure card with collapsed detail and its recovery, and a plain warn advisory. Tone rides in the glyph and the tint; no left bar.</p>
+
+  <div class="demo-scope">
+    <div class="ds-inline-notice ds-inline-notice--danger" role="alert">
+      <svg class="ds-inline-notice-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.4" />
+        <path d="M6 6l4 4M10 6l-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      </svg>
+      <div class="ds-inline-notice-body">
+        <div class="ds-inline-notice-title">Could not connect to the tracker.</div>
+        <div class="ds-inline-notice-hint">Nothing was posted; the queue is held until the connection returns.</div>
+        <details class="ds-inline-notice-details">
+          <summary>Show details</summary>
+          <pre class="ds-inline-notice-detail">FetchError: request to https://tracker.internal/api/v2/issues failed
+  reason: getaddrinfo ENOTFOUND tracker.internal</pre>
+        </details>
+        <div class="ds-inline-notice-actions">
+          <button type="button" class="ds-button ds-button--ghost">Reconnect</button>
+          <button type="button" class="ds-button ds-button--ghost">Open settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-scope">
+    <div class="ds-inline-notice ds-inline-notice--warn" role="status">
+      <svg class="ds-inline-notice-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.4" />
+        <path d="M8 5.3v3.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        <circle cx="8" cy="10.7" r="0.9" fill="currentColor" />
+      </svg>
+      <div class="ds-inline-notice-body">Sync is paused while the rebase finishes.</div>
+      <div class="ds-inline-notice-trailing">
+        <button type="button" class="ds-button ds-button--ghost">Resume</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same cards from the same tokens; the neutral body ink keeps them readable on the tint.</p>
+
+  <div class="demo-scope">
+    <div class="ds-inline-notice ds-inline-notice--danger" role="alert">
+      <svg class="ds-inline-notice-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.4" />
+        <path d="M6 6l4 4M10 6l-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      </svg>
+      <div class="ds-inline-notice-body">
+        <div class="ds-inline-notice-title">Could not connect to the tracker.</div>
+        <div class="ds-inline-notice-hint">Nothing was posted; the queue is held until the connection returns.</div>
+        <details class="ds-inline-notice-details">
+          <summary>Show details</summary>
+          <pre class="ds-inline-notice-detail">FetchError: request to https://tracker.internal/api/v2/issues failed
+  reason: getaddrinfo ENOTFOUND tracker.internal</pre>
+        </details>
+        <div class="ds-inline-notice-actions">
+          <button type="button" class="ds-button ds-button--ghost">Reconnect</button>
+          <button type="button" class="ds-button ds-button--ghost">Open settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-scope">
+    <div class="ds-inline-notice ds-inline-notice--warn" role="status">
+      <svg class="ds-inline-notice-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.4" />
+        <path d="M8 5.3v3.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        <circle cx="8" cy="10.7" r="0.9" fill="currentColor" />
+      </svg>
+      <div class="ds-inline-notice-body">Sync is paused while the rebase finishes.</div>
+      <div class="ds-inline-notice-trailing">
+        <button type="button" class="ds-button ds-button--ghost">Resume</button>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,114 @@
+/* Modal — the one surface allowed to stop the page. Extracted from the source
+ * product's Modal / ConfirmDialog primitives (src/renderer/src/components/ui/).
+ *
+ * Header, content, actions — separated by space, never by rules: the shell
+ * draws its own edge and scrolls as one piece, so a divider under the title or
+ * above the buttons would cut a small surface into three boxed strips and buy
+ * nothing.
+ *
+ * Token canon over shipped literals (see Known drift in component.md):
+ * z.modal not z-50, shadow.modal not shadowless, radius.shell not 8px,
+ * space.3xl inset not 20px — MC-2109 / MC-2110. */
+
+/* The scrim owns the layer, the centring, and the breathing room the shell
+ * keeps from the viewport edge. A plain translucent layer — never
+ * backdrop-filter: full-viewport blur re-renders every frame anything behind
+ * it repaints, and separation already comes from the scrim tone plus the
+ * shell's shadow. */
+.ds-modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--sem-z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sem-space-3xl);
+  background: var(--sem-color-overlay-scrim);
+}
+
+.ds-modal {
+  box-sizing: border-box;
+  /* Content measures, not tokens: wide enough for a two-column form, narrow
+   * enough that the eye crosses it. Capped so no window is ever too small. */
+  width: 560px;
+  max-width: 95vw;
+  /* The SHELL scrolls, as one piece — which is why no internal rule was ever
+   * a scroll affordance. */
+  max-height: 92vh;
+  overflow-y: auto;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-shell);
+  background: var(--sem-color-bg-surface);
+  box-shadow: var(--sem-shadow-modal);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+}
+
+/* The shell is a landing site for programmatic focus (tabindex="-1"), not an
+ * interactive control — no ring on the box itself; focus-visible belongs to
+ * the controls inside it. */
+.ds-modal:focus {
+  outline: none;
+}
+
+/* The confirm variant: a two-button question, narrower because a question
+ * should read in one line. */
+.ds-modal--confirm {
+  width: 460px;
+}
+
+.ds-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sem-space-xl);
+  padding: var(--sem-space-3xl) var(--sem-space-3xl) 0;
+}
+
+.ds-modal-title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--sem-color-text-primary);
+  font-size: var(--sem-font-size-title);
+  font-weight: var(--sem-font-weight-emphasis);
+  letter-spacing: var(--sem-font-tracking-tight);
+  line-height: var(--sem-font-line-tight);
+}
+
+/* Optional — and only when it carries a consequence the title cannot. A
+ * subtitle restating the title is deleted, not styled. */
+.ds-modal-subtitle {
+  margin: var(--sem-space-2xs) 0 0;
+  color: var(--sem-color-text-muted);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-default);
+}
+
+.ds-modal-body {
+  padding: var(--sem-space-xl) var(--sem-space-3xl);
+}
+
+.ds-modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-sm) var(--sem-space-3xl) var(--sem-space-3xl);
+}
+
+/* The destructive confirm fill button/component.md prescribes: swap the
+ * primary fill to status.danger — never invent a third neutral-filled
+ * variant. Scoped to the modal because a destructive confirmation is the one
+ * place the swap is legal. No hover step: the danger ramp has no hover token,
+ * and inventing one here would be exactly the parallel-token mistake the
+ * contribution rules ban. */
+.ds-modal .ds-button--danger {
+  background: var(--sem-color-status-danger);
+  color: var(--sem-color-text-on-accent);
+}

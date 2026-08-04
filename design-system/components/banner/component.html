@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Banner</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<!-- The recovery action is the button entry's ghost variant, borrowed rather
+     than restyled. -->
+<link rel="stylesheet" href="../button/component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* The panel the strip belongs to: the banner sits at the top of the content
+     region, under the panel's own chrome. */
+  .demo-panel {
+    max-width: 420px;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+    overflow: hidden;
+    margin-bottom: var(--sem-space-xl);
+  }
+  .demo-panel:last-child {
+    margin-bottom: 0;
+  }
+  .demo-content {
+    padding: var(--sem-space-lg);
+    font-size: var(--sem-font-size-body);
+    color: var(--sem-color-text-muted);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — danger with its required recovery, warn as a polite advisory.</p>
+  <div class="demo-panel">
+    <div class="ds-banner ds-banner--danger" role="alert">
+      <span class="ds-banner-body">
+        <span class="ds-banner-dot" aria-hidden="true"></span>
+        <span class="ds-banner-message">Sessions unavailable — the daemon is not responding.</span>
+      </span>
+      <span class="ds-banner-action">
+        <button type="button" class="ds-button ds-button--ghost">Retry</button>
+      </span>
+    </div>
+    <div class="demo-content">The panel's own content continues below the strip.</div>
+  </div>
+  <div class="demo-panel">
+    <div class="ds-banner ds-banner--warn" role="status">
+      <span class="ds-banner-body">
+        <span class="ds-banner-dot" aria-hidden="true"></span>
+        <span class="ds-banner-message">Posting paused — the tracker token expires in 2 days.</span>
+      </span>
+    </div>
+    <div class="demo-content">Degraded but working: the feature still runs.</div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same strips from the same tokens.</p>
+  <div class="demo-panel">
+    <div class="ds-banner ds-banner--danger" role="alert">
+      <span class="ds-banner-body">
+        <span class="ds-banner-dot" aria-hidden="true"></span>
+        <span class="ds-banner-message">Sessions unavailable — the daemon is not responding.</span>
+      </span>
+      <span class="ds-banner-action">
+        <button type="button" class="ds-button ds-button--ghost">Retry</button>
+      </span>
+    </div>
+    <div class="demo-content">The panel's own content continues below the strip.</div>
+  </div>
+  <div class="demo-panel">
+    <div class="ds-banner ds-banner--warn" role="status">
+      <span class="ds-banner-body">
+        <span class="ds-banner-dot" aria-hidden="true"></span>
+        <span class="ds-banner-message">Posting paused — the tracker token expires in 2 days.</span>
+      </span>
+    </div>
+    <div class="demo-content">Degraded but working: the feature still runs.</div>
+  </div>
+</div>
+</body>
+</html>

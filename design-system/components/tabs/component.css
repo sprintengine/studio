@@ -1,0 +1,116 @@
+/* Tabs — the view switcher inside a panel. Extracted from the shipped Tabs
+ * primitive (src/renderer/src/components/ui/Tabs.tsx).
+ *
+ * Family contract: the active tab is an ink lift plus a 1px accent hairline
+ * underline — never an accent fill, a tinted pill, or a raised card. The
+ * conformance tests lock this: hairlines are the only elements allowed to
+ * carry accent fill. Hover is an ink change only; the underline idiom marks
+ * tabs, not a background. */
+
+.ds-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+  border-bottom: 1px solid var(--sem-color-border-default);
+}
+
+/* A parent container owns the row border — needed when the tab row shares
+ * its band with trailing inline controls. One chrome band, one line. */
+.ds-tabs--borderless {
+  border-bottom: 0;
+}
+
+/* Each tab overlaps the row hairline by 1px so its underline draws ON the
+ * border rather than stacking a second line above it. */
+.ds-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  box-sizing: border-box;
+  height: var(--sem-size-control-sm);
+  /* ds-lint-allow: -1px is the row hairline's own width, not a spacing step —
+   * the tab overlaps the border so its underline draws on it, not above it */
+  margin-bottom: -1px;
+  padding: 0 var(--sem-space-lg);
+  border: 0;
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  cursor: pointer;
+  transition: color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-tab:hover {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tab:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ds-tab[aria-selected='true'] {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-tab-icon {
+  display: inline-flex;
+  color: inherit;
+}
+
+.ds-tab-icon svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* The canonical count of the view the tab opens — shown here, never repeated
+ * inside the panel where the two could disagree. */
+.ds-tab-count {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-muted);
+}
+
+/* The active marker: a 1px accent hairline inset from each end so it marks
+ * the label, not the hit area. Transparent at rest so activation never
+ * reflows the row. */
+.ds-tab-underline {
+  position: absolute;
+  bottom: 0;
+  left: var(--sem-space-sm);
+  right: var(--sem-space-sm);
+  height: 1px;
+  background: transparent;
+}
+
+.ds-tab[aria-selected='true'] .ds-tab-underline {
+  background: var(--sem-color-accent-primary);
+}
+
+/* ── Panel ───────────────────────────────────────────────────────────────
+ * A focusable scroll region (tabindex="0" — without it keyboard users cannot
+ * scroll it), so it needs a focus indicator; without one it falls back to
+ * the UA outline, the one treatment the system cannot theme. The ring draws
+ * INWARD (negative offset) because the panel clips at the edge of a
+ * scrolling region, where an outward ring is cut off. */
+.ds-tab-panel {
+  overflow-y: auto;
+}
+
+.ds-tab-panel:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-tab {
+    transition: none;
+  }
+}

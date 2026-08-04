@@ -1,0 +1,149 @@
+/* Panel header — the one header contract for every panel: a single 34px band
+ * (size.control.md) carrying name, canonical count, optional scope, and at
+ * most two controls. Extracted from the shipped PanelHeader primitive
+ * (src/renderer/src/components/ui/PanelHeader.tsx); MC-2112 rolls this
+ * anatomy out to every panel that still draws its own header.
+ *
+ * Family contract: one band of chrome per panel — a header stacked on a
+ * toolbar is the second band the composition principles exist to prevent.
+ * The header is chrome, not a control: it has no hover or selected state of
+ * its own. */
+
+.ds-panel-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-lg);
+  box-sizing: border-box;
+  min-height: var(--sem-size-control-md);
+  padding: var(--sem-space-sm) var(--sem-space-lg);
+  border-bottom: 1px solid var(--sem-color-border-default);
+  background: var(--sem-color-bg-surface);
+  font-family: var(--sem-font-family-ui);
+}
+
+/* One divider per panel, and when a search row follows it belongs under the
+ * search — the line that says "the list starts here". This modifier hands
+ * the hairline to that row instead of drawing two. */
+.ds-panel-header--flush {
+  border-bottom: 0;
+}
+
+/* Title cluster: dot, title, count, scope on one baseline. min-width lets
+ * the title truncate instead of pushing the actions off the band. */
+.ds-panel-header-lead {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  min-width: 0;
+}
+
+/* 6px identity dot — which tool owns the panel, never a status. The color
+ * comes through a consumer channel because tool identity deliberately has no
+ * sem.* token; the fallback is the neutral status ink so an unwired demo
+ * still renders honestly. Sized by the same space.xs step the task-card dot
+ * uses for the 6px idiom. */
+.ds-panel-header-identity {
+  flex: none;
+  width: var(--sem-space-xs);
+  height: var(--sem-space-xs);
+  border-radius: 999px;
+  background: var(--ds-panel-header-identity, var(--sem-color-status-neutral));
+}
+
+/* The panel's name: body size at the emphasis weight, the strongest ink.
+ * An <h2> in the markup, restated here so heading UA styles cannot leak. */
+.ds-panel-header-title {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-emphasis);
+  letter-spacing: var(--sem-font-tracking-normal);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-panel-header-count {
+  flex: none;
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+/* The scope word shrinks far ahead of the title (flex-shrink 100): it gives
+ * up its space first, and the title only starts truncating once the scope is
+ * gone. A panel that clips its own name while a context word beside it stays
+ * whole has the priority backwards. */
+.ds-panel-header-scope {
+  flex-shrink: 100;
+  min-width: 0;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-panel-header-scope::before {
+  content: '·';
+  margin-inline: var(--sem-space-xs);
+  color: var(--sem-color-text-disabled);
+}
+
+/* At most one primary action and one overflow trigger. A third control means
+ * the first two are competing — move it into the overflow menu. */
+.ds-panel-header-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+}
+
+/* ── Progress ────────────────────────────────────────────────────────────
+ * A 2px completion hairline overlaying the bottom border — the accent as a
+ * hairline marking real progress, which the accent budget permits. Attach
+ * only when the panel has a canonical completion metric; it is not a
+ * loading bar. Widths arrive as percentages through two custom properties. */
+.ds-panel-header-progress {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+}
+
+.ds-panel-header-progress-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--ds-panel-header-progress, 0%);
+  background: var(--sem-color-accent-primary);
+  transition: width var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+/* Optional second segment (blocked work) drawn after the accent fill. A
+ * status hue as a hairline, not a chrome tint. */
+.ds-panel-header-progress-warn {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--ds-panel-header-progress, 0%);
+  width: var(--ds-panel-header-progress-warn, 0%);
+  background: var(--sem-color-status-warn);
+  transition:
+    width var(--sem-motion-duration-normal) var(--sem-motion-ease-standard),
+    left var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-panel-header-progress-fill,
+  .ds-panel-header-progress-warn {
+    transition: none;
+  }
+}

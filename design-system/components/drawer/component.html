@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drawer</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../button/component.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-row {
+    margin-bottom: var(--sem-space-lg);
+  }
+  .demo-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .demo-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sem-space-lg);
+    padding: var(--sem-space-xs) 0;
+    font-size: var(--sem-font-size-body);
+  }
+  .demo-list .demo-key {
+    color: var(--sem-color-text-muted);
+  }
+  .demo-list .demo-value {
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-meta);
+    letter-spacing: var(--sem-font-tracking-wide);
+    color: var(--sem-color-text-default);
+  }
+  .demo-prose {
+    margin: var(--sem-space-xl) 0 0;
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-relaxed);
+    color: var(--sem-color-text-muted);
+  }
+  /* The panel is authored parked — in flow, slid in, capped in height — so
+     the anatomy shows with scripts off; the catalog embeds this demo without
+     JavaScript. The live example is opened over the page by the script. */
+  .ds-drawer.demo-parked {
+    position: static;
+    transform: none;
+    height: 240px;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — the panel at rest, and a live drawer. Escape, the scrim, and the close button all dismiss; focus is trapped while open and returns to the trigger after the slide ends.</p>
+
+  <div class="ds-drawer demo-parked" role="dialog" aria-modal="true" aria-labelledby="parked-light-title" tabindex="-1">
+    <header class="ds-drawer-header">
+      <h2 class="ds-drawer-title" id="parked-light-title">Active review</h2>
+      <button type="button" class="ds-button ds-button--icon" aria-label="Close review">
+        <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <div class="ds-drawer-body">
+      <ul class="demo-list">
+        <li><span class="demo-key">Branch</span><span class="demo-value">run/sprint-14</span></li>
+        <li><span class="demo-key">Changed files</span><span class="demo-value">12</span></li>
+        <li><span class="demo-key">Head</span><span class="demo-value">4f2c9a1</span></li>
+      </ul>
+      <p class="demo-prose">The body is the scroll container; the header and its close affordance never leave reach. Inside, the overlay rules hold — space separates sections, and there is at most one primary action.</p>
+    </div>
+  </div>
+
+  <div class="demo-row">
+    <button type="button" class="ds-button ds-button--ghost" data-open-drawer>Open review</button>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same panel; the tone step of the dark surface ramp joins the shadow and hairline in doing the separating.</p>
+
+  <div class="ds-drawer demo-parked" role="dialog" aria-modal="true" aria-labelledby="parked-dark-title" tabindex="-1">
+    <header class="ds-drawer-header">
+      <h2 class="ds-drawer-title" id="parked-dark-title">Runner detail</h2>
+      <button type="button" class="ds-button ds-button--icon" aria-label="Close runner detail">
+        <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <div class="ds-drawer-body">
+      <ul class="demo-list">
+        <li><span class="demo-key">Agent</span><span class="demo-value">builder-2</span></li>
+        <li><span class="demo-key">Task</span><span class="demo-value">MC-2114</span></li>
+        <li><span class="demo-key">Elapsed</span><span class="demo-value">04:12</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="demo-row">
+    <button type="button" class="ds-button ds-button--ghost" data-open-drawer>Open runner detail</button>
+  </div>
+</div>
+
+<!-- The live drawer, with its focus sentinels. One instance, opened over the
+     page by whichever trigger asked for it. -->
+<div class="ds-drawer-root" id="live-root" hidden>
+  <div class="ds-drawer-scrim" aria-hidden="true"></div>
+  <div class="sr-only" data-sentinel="start" tabindex="0"></div>
+  <div class="ds-drawer" role="dialog" aria-modal="true" aria-labelledby="live-title" tabindex="-1">
+    <header class="ds-drawer-header">
+      <h2 class="ds-drawer-title" id="live-title">Active review</h2>
+      <button type="button" class="ds-button ds-button--icon" aria-label="Close review" data-close>
+        <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <div class="ds-drawer-body">
+      <ul class="demo-list">
+        <li><span class="demo-key">Branch</span><span class="demo-value">run/sprint-14</span></li>
+        <li><span class="demo-key">Changed files</span><span class="demo-value">12</span></li>
+        <li><span class="demo-key">Head</span><span class="demo-value">4f2c9a1</span></li>
+      </ul>
+      <p class="demo-prose">Tab wraps inside the panel; the page behind the scrim is unreachable by keyboard while the drawer holds it.</p>
+      <p class="demo-prose"><button type="button" class="ds-button ds-button--primary ds-button--md">Approve changes</button></p>
+    </div>
+  </div>
+  <div class="sr-only" data-sentinel="end" tabindex="0"></div>
+</div>
+
+<script>
+/* Reference behaviour for the contract in component.md. What must survive a
+   framework rewrite: the closed → entering → open → closing lifecycle with a
+   fallback timer, the sentinel focus trap, page scroll-lock, and the
+   reduced-motion path that skips the slide instead of playing it fast. */
+
+const EXIT_FALLBACK_MS = 320
+
+const root = document.getElementById('live-root')
+const panel = root.querySelector('.ds-drawer')
+const title = document.getElementById('live-title')
+
+let opener = null
+let exitTimer = null
+
+function reduced() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+function openDrawer(trigger) {
+  window.clearTimeout(exitTimer)
+  title.textContent = trigger.textContent.replace(/^Open /, '').replace(/^./, (c) => c.toUpperCase())
+  const scope = trigger.closest('[data-mode]')
+  if (scope) root.setAttribute('data-mode', scope.dataset.mode)
+  opener = trigger
+  document.body.style.overflow = 'hidden'
+  root.hidden = false
+  root.dataset.state = 'entering'
+  /* Two frames: the first paints the offscreen position, the second flips to
+     open so the transition has somewhere to run from. */
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      root.dataset.state = 'open'
+      panel.focus()
+    })
+  })
+}
+
+function finishClose() {
+  window.clearTimeout(exitTimer)
+  exitTimer = null
+  root.hidden = true
+  delete root.dataset.state
+  document.body.style.overflow = ''
+  opener?.focus()
+  opener = null
+}
+
+function closeDrawer() {
+  if (root.hidden || root.dataset.state === 'closing') return
+  if (reduced()) {
+    finishClose()
+    return
+  }
+  root.dataset.state = 'closing'
+  /* transitionend finishes the lifecycle; the timeout is the fallback so a
+     missed event can never wedge the drawer half-closed. */
+  exitTimer = window.setTimeout(finishClose, EXIT_FALLBACK_MS)
+}
+
+panel.addEventListener('transitionend', (event) => {
+  if (event.propertyName === 'transform' && root.dataset.state === 'closing') finishClose()
+})
+
+for (const trigger of document.querySelectorAll('[data-open-drawer]')) {
+  trigger.addEventListener('click', () => openDrawer(trigger))
+}
+root.querySelector('[data-close]').addEventListener('click', closeDrawer)
+root.querySelector('.ds-drawer-scrim').addEventListener('pointerdown', closeDrawer)
+
+document.addEventListener('keydown', (event) => {
+  if (!root.hidden && event.key === 'Escape') {
+    event.preventDefault()
+    closeDrawer()
+  }
+})
+
+/* The sentinel trap: focus landing on either sentinel wraps to the far end of
+   the panel's focusable list. */
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
+  sentinel.addEventListener('focus', () => {
+    const focusables = [...panel.querySelectorAll(FOCUSABLE)]
+    if (focusables.length === 0) {
+      panel.focus()
+      return
+    }
+    if (sentinel.dataset.sentinel === 'start') focusables[focusables.length - 1].focus()
+    else focusables[0].focus()
+  })
+}
+</script>
+</body>
+</html>

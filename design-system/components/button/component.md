@@ -17,9 +17,11 @@ primary button, and it shares its hue with selection chrome.
   label. The single primary action of a view.
 - `ds-button--ghost` — transparent, `text.muted` label; hover lifts to
   `bg.hover` + `text.primary`. Secondary and tertiary actions.
-- `ds-button--icon` — 24px square, borderless, icon-only. Must carry an
-  `aria-label`. The canonical close affordance uses the `close` glyph.
-- Sizes: default sm (28px) and `ds-button--md` (32px).
+- `ds-button--icon` — a `size.control.xs` square padded out to
+  `size.hit-target-min`, borderless, icon-only. Must carry an `aria-label`.
+  The canonical close affordance uses the `close` glyph.
+- Sizes: default sm at `size.control.sm` and `ds-button--md` at
+  `size.control.md`.
 
 ## States
 
@@ -44,3 +46,20 @@ primary button, and it shares its hue with selection chrome.
 - The press animation is disabled under `prefers-reduced-motion: reduce`.
 - Contrast: label-on-fill clears AA in both modes (`text.on-accent` flips
   between white and near-black with the mode).
+
+## Known drift
+
+Verified against `src/renderer/src/components/ui/Buttons.tsx` (2026-08-04).
+Heights agree — both the reference CSS and the shipped code sit on
+`size.control.*` — but three things ship that this spec does not say:
+
+- **Label padding.** The reference CSS pads labels `0 var(--sem-space-lg)`
+  (12px); shipped buttons use 8px (`px-2`) at sm and 12px (`px-3`) at md.
+- **A `xs` size.** Shipped adds an undocumented dense-chrome step:
+  `size.control.xs` height with a `font.size.meta` label.
+- **`OutlineButton`.** A bordered neutral secondary the shipped kit made
+  canonical. It is outlined, not a third *filled* variant, so it does not break
+  the rule above — but it is system vocabulary this doc lacks.
+
+MC-2113 standardizes the product on the shipped ramp and variants; MC-2118
+owns reconciling this entry with that ruling.

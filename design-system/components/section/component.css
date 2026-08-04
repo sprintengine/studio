@@ -1,0 +1,65 @@
+/* Section — a titled region of a panel: heading row (title, canonical count,
+ * at most one trailing control) over its content
+ * (src/renderer/src/components/ui/Section.tsx).
+ *
+ * Structure, not a control: it groups with space and a heading — no card, no
+ * fill, no border box, no divider between stacked sections. */
+
+.ds-section {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--sem-font-family-ui);
+}
+
+/* Baseline alignment, so the title, the count, and a text action share one
+ * line whatever their sizes. */
+.ds-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-xs);
+}
+
+.ds-section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sem-space-xs);
+  min-width: 0;
+}
+
+/* A weighted label, never uppercase letter-spaced chrome. The element is
+ * h2–h4 per the document outline; the rendering never changes with it. */
+.ds-section-title {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-primary);
+}
+
+/* The canonical count, stated once. Fact, not activity: it never pulses,
+ * tints, or becomes a badge. */
+.ds-section-count {
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+}
+
+/* One trailing control — a ceiling, not a suggestion. */
+.ds-section-action {
+  flex: none;
+}
+
+/* Body shares the header's left edge, so title and content sit on one line. */
+.ds-section-body {
+  padding: 0 var(--sem-space-lg) var(--sem-space-lg);
+}
+
+/* Flush body, for content that owns its own edges (full-bleed list rows, a
+ * table). The header keeps its padding either way. */
+.ds-section--flush .ds-section-body {
+  padding: 0;
+}

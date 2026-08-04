@@ -1,0 +1,114 @@
+/* Drawer — the overlay for work that needs the page still visible. Extracted
+ * from the source product's Drawer primitive (src/renderer/src/components/ui/).
+ *
+ * Family contract: the root owns the layer and the lifecycle (`data-state`),
+ * the scrim owns the dimming, the panel owns elevation and motion. Consumers
+ * never write a bespoke shadow or translate transition on a drawer surface —
+ * that is how a family stays one family.
+ *
+ * The lifecycle is closed → entering → open → closing: `entering` mounts the
+ * panel offscreen and transparent, one frame later the state flips to `open`
+ * so the transition runs; `closing` reverses it and the node leaves the
+ * document when the slide ends. */
+
+.ds-drawer-root {
+  position: fixed;
+  inset: 0;
+  z-index: var(--sem-z-drawer);
+}
+
+/* aria-hidden plumbing. A plain translucent layer — never backdrop-filter on
+ * a full-viewport scrim; separation comes from the scrim tone plus the
+ * panel's shadow. Fades at the same deliberate pace as the panel's slide so
+ * the two read as one motion, not two. */
+.ds-drawer-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--sem-color-overlay-scrim);
+  opacity: 0;
+}
+
+.ds-drawer-root[data-state="open"] .ds-drawer-scrim {
+  opacity: 1;
+}
+
+.ds-drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  /* A content measure, not a token: the panel-aside width. Wider is a
+   * per-consumer decision; the viewport is always the cap. */
+  width: 360px;
+  max-width: 100%;
+  border-left: 1px solid var(--sem-color-border-strong);
+  background: var(--sem-color-bg-surface);
+  box-shadow: var(--sem-shadow-drawer);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  transform: translate3d(100%, 0, 0);
+  will-change: transform;
+}
+
+/* The panel is a landing site for programmatic focus (tabindex="-1"), not an
+ * interactive control — the ring belongs to the controls inside it. */
+.ds-drawer:focus {
+  outline: none;
+}
+
+.ds-drawer-root[data-state="open"] .ds-drawer {
+  transform: none;
+}
+
+/* The drawer's sanctioned pace: deliberate duration, the one standard ease —
+ * composed from the tokens, not declared per surface. Gated on
+ * no-preference so reduced motion skips the slide entirely rather than
+ * playing it fast. */
+@media (prefers-reduced-motion: no-preference) {
+  .ds-drawer {
+    transition: transform var(--sem-motion-duration-deliberate) var(--sem-motion-ease-standard);
+  }
+  .ds-drawer-scrim {
+    transition: opacity var(--sem-motion-duration-deliberate) var(--sem-motion-ease-standard);
+  }
+}
+
+/* The drawer's one hairline: a working edge, not decoration — the body
+ * scrolls under it, so the rule marks the seam between fixed chrome and
+ * moving content. */
+.ds-drawer-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-lg);
+  padding: var(--sem-space-sm) var(--sem-space-lg);
+  border-bottom: 1px solid var(--sem-color-border-default);
+}
+
+.ds-drawer-title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--sem-color-text-primary);
+  font-size: var(--sem-font-size-heading);
+  font-weight: var(--sem-font-weight-emphasis);
+  letter-spacing: var(--sem-font-tracking-tight);
+  line-height: var(--sem-font-line-tight);
+}
+
+/* The scroll container — overflow lives here, never on the panel, so the
+ * title and close affordance stay reachable at any scroll depth. */
+.ds-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--sem-space-lg);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+}

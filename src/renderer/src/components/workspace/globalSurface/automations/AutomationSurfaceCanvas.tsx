@@ -62,7 +62,7 @@ export function AutomationSurfaceCanvas({
 
   return (
     <div className="h-full min-h-0 overflow-y-auto px-6 py-5">
-      <div className="flex max-w-[720px] flex-col gap-4">
+      <div className="mx-auto flex max-w-[720px] flex-col gap-4">
         {/* The definition facts lead, unlabeled — they are the stable frame, so
             swapping between automations never jumps the layout the way the
             variable-height run list would. What happened comes after. */}

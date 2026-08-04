@@ -1,0 +1,65 @@
+/* Banner — the panel-spanning failure/degradation strip at the top of a
+ * panel's content region (src/renderer/src/components/ui/Banner.tsx).
+ *
+ * Tone rides in the 6px dot and the soft tint — no left tone-bar, ever: a
+ * coloured stripe doubles the hairline, breaks the 1px rule, and carries tone
+ * by colour alone. The bottom hairline is the strip's only border; the other
+ * three edges belong to the panel. */
+
+.ds-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-lg);
+  padding: var(--sem-space-sm) var(--sem-space-lg);
+  border-bottom: 1px solid var(--sem-color-border-default);
+  color: var(--sem-color-text-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-banner--danger {
+  background: var(--sem-color-status-danger-soft);
+}
+
+.ds-banner--warn {
+  background: var(--sem-color-status-warn-soft);
+}
+
+.ds-banner-body {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  min-width: 0;
+}
+
+/* The 6px status dot — the surface's one status idiom. Decorative to a
+ * reader (the message and the role carry the meaning), shape to an eye. */
+.ds-banner-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.ds-banner--danger .ds-banner-dot {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-banner--warn .ds-banner-dot {
+  background: var(--sem-color-status-warn);
+}
+
+/* One line. A message that wraps is a paragraph that belongs elsewhere. */
+.ds-banner-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The recovery action slot; the control itself is the button component's
+ * ghost variant — the tint is already the emphasis. */
+.ds-banner-action {
+  flex: none;
+}

@@ -1,0 +1,94 @@
+/* Definition list — label/value pairs for the facts a detail pane, dialog,
+ * or inspector states about one thing. Extracted from the shipped
+ * DefinitionList primitive
+ * (src/renderer/src/components/ui/DefinitionList.tsx).
+ *
+ * Family contract: the hierarchy is inverted from prose — the value is the
+ * content and takes the stronger ink; the label is scaffolding at micro/
+ * muted. Three layouts, same parts, same tokens. Display-only: the list has
+ * no states of its own. */
+
+.ds-definition-list {
+  margin: 0;
+  font-family: var(--sem-font-family-ui);
+}
+
+.ds-definition-term {
+  font-size: var(--sem-font-size-micro);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-muted);
+}
+
+.ds-definition-detail {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-primary);
+}
+
+/* Identifiers keep the micro-typography rules inside a definition: mono,
+ * tabular, optically opened. Prose values stay in the UI family. */
+.ds-definition-detail .ds-definition-mono {
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--sem-font-tracking-wide);
+}
+
+/* A stated unknown ("Not set", "—") — absence as a fact, not an oversight. */
+.ds-definition-detail .ds-definition-empty {
+  color: var(--sem-color-text-subtle);
+}
+
+/* ── Columns (default) ───────────────────────────────────────────────────
+ * Terms in a max-content column, definitions beside them: scan the label
+ * column, land on the value. */
+.ds-definition-list--columns {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: var(--sem-space-lg);
+  row-gap: var(--sem-space-xs);
+}
+
+/* The pair wrapper subdivides in the columns layout: its two children join
+ * the grid as if the wrapper were not there, so one markup shape serves all
+ * three layouts. */
+.ds-definition-list--columns .ds-definition-pair {
+  display: contents;
+}
+
+/* ── Stack ───────────────────────────────────────────────────────────────
+ * Label above value, one column — for narrow rails where the columns
+ * layout would starve the values. */
+.ds-definition-list--stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-sm);
+}
+
+.ds-definition-list--stack .ds-definition-pair {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-3xs);
+}
+
+/* ── Compact ─────────────────────────────────────────────────────────────
+ * A two-column grid of stacked pairs for short stat groups in a dialog or
+ * detail header. Values step up to medium; they wrap ANYWHERE because these
+ * cells hold hashes and paths with no spaces to break at. */
+.ds-definition-list--compact {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--sem-space-xl);
+  row-gap: var(--sem-space-lg);
+}
+
+.ds-definition-list--compact .ds-definition-pair {
+  min-width: 0;
+}
+
+.ds-definition-list--compact .ds-definition-detail {
+  margin-top: var(--sem-space-2xs);
+  font-weight: var(--sem-font-weight-medium);
+  overflow-wrap: anywhere;
+}

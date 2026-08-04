@@ -1,0 +1,72 @@
+/* Status dot — the product's one dot: 6px, tone from the status ramp,
+ * optionally pulsing while something is genuinely live. Extracted from the
+ * shipped StatusDot primitive
+ * (src/renderer/src/components/ui/StatusDot.tsx).
+ *
+ * Family contract: one status idiom per surface — the dot OR a lifecycle
+ * glyph, never both. Healthy, done, and idle render no dot at all; the dot
+ * marks the exceptions. Sized by the same space.xs step the task-card dot
+ * uses for the 6px idiom. */
+
+.ds-status-dot {
+  display: inline-block;
+  flex: none;
+  width: var(--sem-space-xs);
+  height: var(--sem-space-xs);
+  border-radius: 999px;
+  background: var(--sem-color-status-neutral);
+}
+
+/* ── Tones ───────────────────────────────────────────────────────────────
+ * The status ramp, plus the accent for "this is the live one". No soft
+ * variants: a dot is already the smallest signal there is. */
+.ds-status-dot--good {
+  background: var(--sem-color-status-good);
+}
+
+.ds-status-dot--warn {
+  background: var(--sem-color-status-warn);
+}
+
+.ds-status-dot--danger {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-status-dot--merged {
+  background: var(--sem-color-status-merged);
+}
+
+.ds-status-dot--accent {
+  background: var(--sem-color-accent-primary);
+}
+
+/* ── Pulse ───────────────────────────────────────────────────────────────
+ * Alive right now — a streaming or running process — and nothing else. At
+ * most one thing animates at a time; a column of pulsing dots is noise.
+ * The 1800ms cycle is deliberately not a step on the interaction ramp:
+ * those durations pace responses to input, and this paces a breathing
+ * state. The symmetric ease is likewise its own — the standard curve is an
+ * arrival curve and reads as a stutter when looped. */
+.ds-status-dot--pulse {
+  animation: ds-status-dot-pulse 1800ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes ds-status-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.78);
+  }
+}
+
+/* Reduced motion stills the pulse; the tone keeps carrying the state, and
+ * the accessible name or adjacent label carries "running". */
+@media (prefers-reduced-motion: reduce) {
+  .ds-status-dot--pulse {
+    animation: none;
+  }
+}

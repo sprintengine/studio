@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Definition list</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-panes {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--sem-space-lg);
+  }
+  .demo-pane {
+    padding: var(--sem-space-xl);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  .demo-pane--detail {
+    flex: 0 1 320px;
+  }
+  /* Rail-narrow on purpose: the width where the columns layout would starve
+     the values, which is the condition that earns the stack layout. */
+  .demo-pane--rail {
+    flex: 0 0 168px;
+    max-width: 168px;
+  }
+  .demo-pane--dialog {
+    flex: 0 1 320px;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — columns for a detail pane, stack for a rail, compact for a dialog's stat group.</p>
+
+  <div class="demo-panes">
+    <div class="demo-pane demo-pane--detail">
+      <dl class="ds-definition-list ds-definition-list--columns">
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Status</dt>
+          <dd class="ds-definition-detail">Waiting on review</dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Branch</dt>
+          <dd class="ds-definition-detail"><span class="ds-definition-mono">run/mc-2101-panel-header</span></dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Opened</dt>
+          <dd class="ds-definition-detail">Yesterday, 14:32</dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Reviewer</dt>
+          <dd class="ds-definition-detail"><span class="ds-definition-empty">Not assigned</span></dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="demo-pane demo-pane--rail">
+      <dl class="ds-definition-list ds-definition-list--stack">
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Workspace</dt>
+          <dd class="ds-definition-detail">Multicode</dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Home project</dt>
+          <dd class="ds-definition-detail">Engineering</dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Last sync</dt>
+          <dd class="ds-definition-detail">2 minutes ago</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="demo-pane demo-pane--dialog">
+      <dl class="ds-definition-list ds-definition-list--compact">
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Commit</dt>
+          <dd class="ds-definition-detail"><span class="ds-definition-mono">4f2a9c1e77b03d58aa41</span></dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Milestones</dt>
+          <dd class="ds-definition-detail">3 of 7 accepted</dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Duration</dt>
+          <dd class="ds-definition-detail">41 min</dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Mode</dt>
+          <dd class="ds-definition-detail">Gate-driven</dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same inks, one step apart, from the same tokens.</p>
+
+  <div class="demo-panes">
+    <div class="demo-pane demo-pane--detail">
+      <dl class="ds-definition-list ds-definition-list--columns">
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Status</dt>
+          <dd class="ds-definition-detail">Waiting on review</dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Branch</dt>
+          <dd class="ds-definition-detail"><span class="ds-definition-mono">run/mc-2101-panel-header</span></dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Opened</dt>
+          <dd class="ds-definition-detail">Yesterday, 14:32</dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Reviewer</dt>
+          <dd class="ds-definition-detail"><span class="ds-definition-empty">Not assigned</span></dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="demo-pane demo-pane--dialog">
+      <dl class="ds-definition-list ds-definition-list--compact">
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Commit</dt>
+          <dd class="ds-definition-detail"><span class="ds-definition-mono">4f2a9c1e77b03d58aa41</span></dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Milestones</dt>
+          <dd class="ds-definition-detail">3 of 7 accepted</dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Duration</dt>
+          <dd class="ds-definition-detail">41 min</dd>
+        </div>
+        <div class="ds-definition-pair">
+          <dt class="ds-definition-term">Mode</dt>
+          <dd class="ds-definition-detail">Gate-driven</dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+</div>
+</body>
+</html>

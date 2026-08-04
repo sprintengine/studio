@@ -1,0 +1,33 @@
+/* Truncated text — ellipsis truncation that earns a tooltip only when the
+ * text is actually cut off. Extracted from the shipped TruncatedText
+ * primitive (src/renderer/src/components/ui/TruncatedText.tsx).
+ *
+ * Family contract: this is the enforcement half of the tooltip's
+ * restate-only-when-cut-off rule. The class paints the clipping; the
+ * consumer's script measures real overflow (scrollWidth/scrollHeight, +1px
+ * rounding tolerance) and attaches the system tooltip only while clipped.
+ * No tint, no underline: being clipped is not an error. */
+
+/* Single line. min-width: 0 is load-bearing in flex layouts — without it
+ * the flex item refuses to shrink and the ellipsis never triggers, which is
+ * the single most common way this component silently fails. */
+.ds-truncated-text {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Multi-line: clamp to a LINE COUNT, never a pixel height — a height cut
+ * slices a line in half and hides whether anything was hidden. Overflow is
+ * measured by height in this variant, so the tooltip appears only when the
+ * clamp actually hides a line. */
+.ds-truncated-text--multiline {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--ds-truncated-lines, 2);
+  line-clamp: var(--ds-truncated-lines, 2);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

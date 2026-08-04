@@ -151,10 +151,15 @@ function taskGraphNodeStyle(
  ? 'var(--tone-warn)'
  : roleAccent
 
+ // statusAccent may be a CSS variable, which hexToRgba cannot parse (it
+ // returned rgba(NaN,…) for done/needs_input nodes) — color-mix takes both.
  return {
- borderColor: selected || focused ? hexToRgba(statusAccent, 0.82) : 'var(--border-strong)',
+ borderColor:
+ selected || focused
+ ? `color-mix(in srgb, ${statusAccent} 82%, transparent)`
+ : 'var(--border-strong)',
  backgroundColor: 'var(--bg-surface-raised)',
- boxShadow: selected ? `0 0 0 3px ${hexToRgba(statusAccent, 0.14)}` : undefined,
+ boxShadow: selected ? `0 0 0 3px color-mix(in srgb, ${statusAccent} 14%, transparent)` : undefined,
  }
 }
 
@@ -445,7 +450,7 @@ export function SprintEngineTaskGraphView({
  top: (node.y - node.height / 2) * minimapScale,
  width: Math.max(3, node.width * minimapScale),
  height: Math.max(3, node.height * minimapScale),
- backgroundColor: hexToRgba('var(--tone-good)', 0.7),
+ backgroundColor: 'color-mix(in srgb, var(--tone-good) 70%, transparent)',
  }}
  />
  )

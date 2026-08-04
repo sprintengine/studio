@@ -1,0 +1,280 @@
+# Glyphs
+
+The product's icon language: one concept per glyph, drawn in `currentColor`
+line work, sized only by the `--sem-icon-size-*` ramp. The four SVGs in
+`glyphs/` (close, search, spinner, multicode-mark) are the framework-neutral
+assets; the shipped vocabulary lives in React —
+`src/renderer/src/components/AppIcons.tsx` and the `ui/` glyph primitives
+beside it. This entry documents that vocabulary so a consumer can pick, size,
+and color a glyph without reading the React source.
+
+A glyph is not decoration and not a status pill. It answers exactly one
+question — *which thing is this* (identity), *where is it in its pipeline*
+(lifecycle), *who is working on it* (role), *what kind of capability*
+(capability), *which runtime* (CLI), or *what will this control do* (action) —
+and each question has its own family below. A surface that reaches for two
+families to answer one question has the wrong hierarchy, not the wrong icon.
+
+## Anatomy
+
+Two drawing grids, each with its own stroke discipline:
+
+| Grid | Primary stroke | Drawn by |
+|---|---|---|
+| 24 × 24 | `1.7` (the `iconStroke` constant) | `AppIcons.tsx` — every action, identity, status, and settings icon; `CliIcon.tsx` tile marks (1.7 frame, 1.9 letterform) |
+| 16 × 16 | `1.2 – 1.5` | the `ui/` primitives — `LifecycleGlyph` (1.4–1.5), `CapabilityGlyphs` (1.3), `RefreshIcon` (1.35), `StarGlyph` (1.4) — and the assets in `glyphs/` |
+
+The 24-grid stroke flexes deliberately and narrowly: secondary strokes step
+*down* by 0.1–0.3 (`iconStroke - 0.3` on the Switchboard dividers), and a
+check or emphasis stroke steps *up* to 1.8–1.9 (the shield tick, the tile
+letterforms). Anything outside that band is drift, not a variant.
+
+- **`currentColor`, always.** A glyph inherits the ink of the text beside it
+  and never carries its own palette. The whole list of self-coloring
+  exceptions: `PriorityIcon` urgent/high (`--tone-error` / `--tone-warn`),
+  `StatusIcon` done and the in-progress wedge family (`--tone-good` /
+  `--tool-switchboard`), the Claude Code brand mark in `CliIcon`, and the
+  role tone applied by `RoleGlyph` / `RoleAvatar` (see Variants).
+- **Drawn for 16 px.** Every glyph must read at `--sem-icon-size-sm`; detail
+  that only resolves at 22 px is detail the glyph cannot afford.
+- **Named by grid.** 24-grid components end in `Icon`; 16-grid primitives end
+  in `Glyph`. (`RefreshIcon` predates the rule — see Known drift.)
+- **Never its own hit area.** An interactive glyph pads out to
+  `--sem-size-control-xs` (26 px) with a transparent hit area; the glyph
+  itself never grows to fill the target.
+
+**The size ramp** — these four steps are the sanctioned sizes, and 16 px is
+the rail canon (the leading-glyph slot of every sidebar and door-rail row):
+
+| Token | Value | Use |
+|---|---|---|
+| `--sem-icon-size-xs` | 13px | Inline glyphs beside meta copy and inside chips |
+| `--sem-icon-size-sm` | 16px | **The default.** List-row leading slots, toolbars, close glyphs |
+| `--sem-icon-size-md` | 18px | Icons paired with button labels, panel-header chrome |
+| `--sem-icon-size-lg` | 22px | Empty-state glyphs, large overlay close buttons |
+
+A rail row reserves a fixed 16 px leading slot whether or not the glyph fills
+it — an unreserved slot is what lets sibling doors' titles start at three
+different x-offsets (Known drift, MC-2098).
+
+## Variants
+
+The variants of this system are its families. Within a family, glyphs share a
+grid, a stroke, and a naming pattern; across families they share nothing but
+the ramp and `currentColor`.
+
+### Core actions and navigation (24-grid)
+
+| Export | Meaning |
+|---|---|
+| `PlusIcon` | Create. Owned by *New workspace* — a second plus on the same surface reads as the same action |
+| `MinusIcon` | Remove / decrement |
+| `CloseIcon` | Dismiss (the 24-grid sibling of `glyphs/close.svg`) |
+| `CheckIcon` | Confirmed / applied |
+| `ChevronDownIcon` | Disclosure; rotate for other directions rather than adding siblings |
+| `ArrowRightIcon` | Forward navigation, go-to |
+| `CopyIcon` | Copy to clipboard |
+| `CommentIcon` | Comment thread (empty speech bubble) |
+| `NewChatIcon` | Compose — pencil-in-square, deliberately *not* a plus, because New workspace owns the plus |
+| `WarningIcon` | Finding / warning triangle — a real glyph so it scales and inks like one, never the `▲` character |
+
+### Workspace-type identity (24-grid, registry-resolved)
+
+`WorkspaceTypeIcon` is the dispatcher: it resolves a workspace mode through
+the renderer host registry, gated on module enablement when
+`moduleOverrides` is passed, and degrades to the standard glyph for anything
+disabled or unknown. Consumers go through it; the concrete marks exist for
+the registry to point at:
+
+| Export | Mark |
+|---|---|
+| `StandardWorkspaceTypeIcon` | Terminal-in-frame — the generic fallback |
+| `SwitchboardWorkspaceTypeIcon` | Patch-bay columns |
+| `SprintEngineWorkspaceTypeIcon` | Three-node crew triangle |
+| `SprintEngineMarkIcon` | The SprintEngine brand comet — pair with `--tool-sprintengine-ink` |
+| `AutomationsWorkspaceTypeIcon` | Schedule dial around a lightning bolt — "on a schedule, do work" |
+| `GuidedBriefWorkspaceTypeIcon` | Brief speech bubble with text lines |
+
+### Status and priority (24-grid, parameterized, self-labelling)
+
+| Export | Meaning |
+|---|---|
+| `PriorityIcon(priority)` | Backlog priority as signal bars: urgent (filled disc + `!`), high / medium / low (3-bar fill), none (three dashes). Carries `role="img"` + label itself |
+| `StatusIcon(status)` | The 11 Switchboard folder states: inbox envelope, dashed planning ring, todo ring, ready ring-dot, progress wedges (⅓ / ½ / ¾, dashed while `_in_progress`), done disc-check, canceled slash ring |
+
+These two are the 24-grid cousins of `LifecycleGlyph`. One status idiom per
+surface: a surface shows the 6 px `StatusDot` *or* a lifecycle/status glyph,
+never both.
+
+### Lifecycle (16-grid — `ui/LifecycleGlyph.tsx`)
+
+The shape-coded lifecycle vocabulary shared by Backlog readiness and Sprint
+Engine task state. Eighteen states, read by shape first — every state
+survives grayscale — with ink only reinforcing:
+
+| Shape | States |
+|---|---|
+| Ring (plain / dashed) | `todo`, `ready` (heavier stroke), `idea` (dashed) |
+| Ring + inner mark | `blocked` (bar), `paused` (pause bars), `needs_input` (!), `changes_requested` (return arrow), `archived` (slash), `failed` (×) |
+| Filling gauge arc | `in_progress` ¼ (spins when `live`), `review` ½, `testing` ¾, `product` ⅞ |
+| Disc / ring + check | `done` (filled), `approved_auto` (outline) |
+| Branch fork | `done_unmerged` (`--tone-good`), `done_merged` (`--tone-merged`) — same shape, tone carries merged-ness |
+| Document + tick | `recorded` |
+
+Held states (`blocked`, `paused`) are neutral ink, never the accent — the
+accent means *startable or live right now*, and never `--tone-error` —
+waiting is calm, not a defect.
+
+### Role (24-grid drawings, 16-grid wrappers)
+
+`SprintEngineRoleIcon(role, registry)` dispatches to module-private drawings
+(architect, product, developer, frontend, tester, security, performance,
+production-readiness, cross-platform) and falls back to a neutral disc for
+an absent or unrecognised role. `SpecialistActionIcon(icon)` keys the same
+drawings by specialist-action id (adding writing, spaghetti, nuclear, infra).
+The drawings are private on purpose: going through the dispatcher is what
+makes unknown ids degrade instead of crash.
+
+Two wrappers apply role *tone* — the documented exception to the one-accent
+rule, and the only one:
+
+- `RoleGlyph` — the bare toned glyph, for a single inline slot (kanban-card
+  trailing slot, task-graph node label). Sizes sm/md/lg (12/14/16 px).
+- `RoleAvatar` — the toned identity disc with the glyph centered, for roster
+  rows, running-agents lists, chips, spawn-dialog headers. Sizes xs/sm/md
+  (16/24/28 px disc).
+
+Role tone never bleeds into panel chrome, list rows, headers, or inspector
+sections; status and selection stay on `--accent-primary` and `--tone-*`.
+
+### Capability (16-grid — `ui/CapabilityGlyphs.tsx`)
+
+| Export | Meaning |
+|---|---|
+| `SkillsGlyph` | The Skills category mark (framed panel) |
+| `McpGlyph` | The MCP plug mark |
+
+Shared by Extensions and capability inventory rows so a category reads the
+same everywhere; default themselves to `icon-xs` + `--text-muted`.
+
+### CLI / runtime marks (`CliIcon.tsx`)
+
+`CliIcon(cli)` resolves an agent CLI to one of eight marks: `claude-code`
+(the brand starburst — the one glyph with its own fill), `codex` (the knot
+mark, `currentColor`), `opencode`, and four original rounded-square tile
+marks (`zai`, `grok`, `kimi`, `cursor` — placeholders until official brand
+SVGs are bundled; both Kimi runtimes share one mark so they read as one
+provider), with `terminal` as the fallback. Tile marks keep the 24-grid
+discipline: 1.7 frame, 1.9 letterform.
+
+### Utility marks (16-grid)
+
+| Export | Meaning |
+|---|---|
+| `StarGlyph(filled, stroked)` | The one star path for starred/favorite — solid when earned, outlined for menu unstarred states. Caller owns size and ink |
+| `RefreshIcon` | The canonical two-arrow refresh, shared by every panel that offers a manual re-read (Git status, Backlog scan) |
+
+### Settings rail (24-grid, one per category)
+
+`GeneralSettingsIcon` (sliders), `ProfileSettingsIcon` (person),
+`AppearanceSettingsIcon` (half-filled disc), `ShortcutsSettingsIcon`
+(keyboard), `AgentsSettingsIcon` (robot), `ProvidersSettingsIcon` (plug),
+`RolesSettingsIcon` (badge card), `SpecialistPacksSettingsIcon` (package
+cube), `GithubSettingsIcon` (branch), `TrackersSettingsIcon` (tagged file),
+`KnowledgeGraphSettingsIcon` (node triangle), `ModulesSettingsIcon` (2 × 2
+grid), `MobileSettingsIcon` (phone), `LearnSettingsIcon` (open book). All at
+`iconStroke` so the rail reads as one set.
+
+## States
+
+| State | Treatment |
+|---|---|
+| Rest | Inherits the surrounding ink — typically `--sem-color-text-muted` in a row or toolbar |
+| Hover / active | The *owning control* shifts its ink and background; the glyph itself defines no hover |
+| Live | `LifecycleGlyph` `in_progress` with `live` rotates (`.ds-glyph--spin`). The only animated glyph state, honoring `prefers-reduced-motion` |
+| Disabled | Ink drops to `--sem-color-text-disabled` via the owning control |
+| Meaning-bearing | `role="img"` + `aria-label` (see Accessibility) |
+| Decorative | `aria-hidden="true"` |
+
+## Usage
+
+- **Pick the family by the question, then the glyph by the table.** Never
+  answer a lifecycle question with a status dot *and* a glyph, or an identity
+  question with an action icon.
+- **Size from the ramp, nothing else.** Rails and toolbars at `sm`; chips and
+  inline-with-meta at `xs`; button-paired and panel-header at `md`;
+  empty states at `lg`. A 28 px icon button is not a size the system has
+  (Known drift, MC-2119).
+- **Reserve the slot.** A rail row's leading glyph slot is a fixed
+  `--sem-icon-size-sm` box; a smaller glyph centers in it rather than
+  narrowing it.
+- **One meaning per shape.** The plus belongs to New workspace; compose gets
+  the pencil-in-square; a second surface wanting "add" reuses `PlusIcon`, it
+  does not redraw it. Duplicating a path into a second file is how the
+  title-bar chrome ended up with two divergent copies of the same four
+  glyphs (Known drift).
+- **Drawing a new glyph:** 24-grid, `iconStroke` 1.7, `currentColor`, one
+  concept, `fill="none"` line work, legible at 16 px. Name it `<Concept>Icon`
+  (24-grid) or `<Concept>Glyph` (16-grid); a framework-neutral copy
+  contributed to `glyphs/` takes a kebab-case concept name per the naming
+  grammar in `design-system.json`.
+- **Rebuilding in a framework:** React consumers import from `AppIcons.tsx`
+  and the `ui/` primitives — never paste paths inline. Framework-neutral
+  consumers take the `glyphs/` assets. Both size via the ramp tokens and ink
+  via `currentColor`.
+
+## Accessibility
+
+- **Decorative is the default.** A glyph whose meaning is carried by adjacent
+  text is `aria-hidden="true"` — every core action, identity, and settings
+  icon ships that way.
+- **Meaning-bearing glyphs label themselves.** `PriorityIcon`, `StatusIcon`,
+  a labelled `LifecycleGlyph`, `StarGlyph` with `label`, and
+  `RoleGlyph`/`RoleAvatar` carry `role="img"` + `aria-label` (and a `<title>`
+  where hover should confirm). Omit the label only when the row's text
+  already announces the state.
+- **Icon-only buttons carry `aria-label`** on the button; the glyph inside
+  stays hidden. Pair with a tooltip that says the consequence, not the name.
+- **Shape first, color second.** Every status and lifecycle state is
+  distinguishable in grayscale; ink only reinforces. Color is never the sole
+  differentiator — the one narrow exception is merged-vs-unmerged on the
+  branch fork, where a distinct merge shape read as noise at 16 px and the
+  label carries the difference.
+- **Hit targets.** Nothing interactive below `--sem-size-hit-target-min`;
+  the glyph pads out, it does not grow.
+
+## Known drift
+
+Shipped divergences from the conventions above, with their backlog homes.
+Cite these rather than matching the code you happen to be nearest.
+
+1. **Four icon-button sizes in the chrome strips** — 22 px
+   (`WorkspaceIdentity` star toggle), 26 px (`SidebarChrome`
+   `BRAND_ROW_BUTTON`), 28 px (`AppTitleBar` / `WorkspaceHeader`
+   `STRIP_BUTTON` — off the 26/30/34 control ramp entirely, and with no
+   radius or hover fill where SidebarChrome's 26 px button has both), and
+   30 px (`AppMenuButton`). Canon is `--sem-size-control-xs` (26 px).
+   Tracked as **MC-2119** (icon-size conformance axis).
+2. **Per-door rail glyph sizes 16 / 13 / 12 px** — Sprints, Roadmap, and
+   Automations lead rows with 16 px glyphs (titles at x = 42 px), Extensions
+   with bare 13 px `icon-xs` glyphs and no fixed-width wrapper (39 px), the
+   Design door with a 12 px chip (38 px) — so sibling doors' titles start at
+   three different offsets in the same column. `AutomationTypeGlyph`
+   compounds it: an 18 px `icon-md` SVG inside a 16 px box, overflowing by
+   2 px. Canon: `sm` glyph in a reserved 16 px slot. Tracked as **MC-2098**
+   (door glyph normalization).
+3. **Copy-pasted chrome SVGs.** The back / forward / search / panel-left
+   paths are duplicated between `AppTitleBar.tsx` and `SidebarChrome.tsx`
+   rather than shared, and the two copies get different hit areas and hover
+   treatments (item 1). One export, two consumers, is the fix.
+4. **Stroke drift at the edges.** The chrome strips draw bespoke 16-grid
+   glyphs at 1.5 with a one-off 1.6 "+"; window controls sit at 1.2–1.4; a
+   backlog toggle at 1.3 beside a skills glyph at 1.5. The 16-grid band is
+   1.2–1.5, so most of these pass individually — the drift is per-surface
+   inconsistency, resolved by consuming the shared exports (item 3).
+5. **`RefreshIcon` is a 16-grid primitive named `Icon`** where the family
+   convention is `Glyph`. Rename when it next moves.
+6. **The `glyphs/` folder holds four assets** against a shipped vocabulary of
+   roughly forty. This entry closes the documentation gap; extracting
+   framework-neutral SVGs for the core-action set into `glyphs/` (and
+   registering them in `design-system.json`) remains open.

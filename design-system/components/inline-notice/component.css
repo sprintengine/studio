@@ -1,0 +1,117 @@
+/* Inline notice — the scoped error/warn card
+ * (src/renderer/src/components/ui/InlineNotice.tsx).
+ *
+ * One idiom, both tones: a 1px neutral hairline, the soft tone tint, and the
+ * tone glyph at the leading edge. The body ink stays neutral — the glyph
+ * carries the tone, the tint reinforces it, and that is why the card survives
+ * grayscale.
+ *
+ * No left tone-bar. A coloured stripe doubles the card's own border, breaks
+ * the 1px hairline rule, and carries the tone by colour alone — it is on the
+ * reject-on-sight list, and this is the component it gets rejected from. */
+
+.ds-inline-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-md);
+  padding: var(--sem-space-sm) var(--sem-space-lg);
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-control);
+  color: var(--sem-color-text-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-relaxed);
+}
+
+.ds-inline-notice--danger {
+  background: var(--sem-color-status-danger-soft);
+}
+
+.ds-inline-notice--warn {
+  background: var(--sem-color-status-warn-soft);
+}
+
+/* The lifecycle glyph in the tone hue — failed (ring + ×) for danger,
+ * needs_input (ring + !) for warn. aria-hidden: the role announces the tone. */
+.ds-inline-notice-glyph {
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  /* Optically centres the glyph on the message's first line. */
+  margin-top: var(--sem-space-3xs);
+}
+
+.ds-inline-notice--danger .ds-inline-notice-glyph {
+  color: var(--sem-color-status-danger);
+}
+
+.ds-inline-notice--warn .ds-inline-notice-glyph {
+  color: var(--sem-color-status-warn);
+}
+
+.ds-inline-notice-body {
+  min-width: 0;
+  flex: 1;
+}
+
+/* The plain sentence a person can act on — never the raw exception. */
+.ds-inline-notice-title {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-inline-notice-hint {
+  margin-top: var(--sem-space-3xs);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-muted);
+}
+
+/* Raw technical strings live here and only here, collapsed by default. */
+.ds-inline-notice-details {
+  margin-top: var(--sem-space-xs);
+}
+
+.ds-inline-notice-details summary {
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+.ds-inline-notice-details summary:hover {
+  color: var(--sem-color-text-default);
+}
+
+.ds-inline-notice-details summary:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-inline-notice-detail {
+  margin: var(--sem-space-2xs) 0 0;
+  padding: var(--sem-space-xs) var(--sem-space-sm);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-surface);
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  line-height: var(--sem-font-line-relaxed);
+  color: var(--sem-color-text-muted);
+}
+
+/* Recovery row for the structured card. A plain advisory instead puts its one
+ * action at the trailing edge via .ds-inline-notice-trailing. */
+.ds-inline-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  margin-top: var(--sem-space-sm);
+}
+
+.ds-inline-notice-trailing {
+  flex: none;
+}

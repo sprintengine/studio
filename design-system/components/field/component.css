@@ -1,0 +1,44 @@
+/* Field — the form row: label, one control, at most one supporting message
+ * (src/renderer/src/components/ui/Field.tsx). These classes are shared with
+ * the input entry, which documents the text control's own chrome; the values
+ * here are the same values, restated as the row's contract.
+ *
+ * Known drift (MC-2114): shipped Field.tsx sizes the label at meta and the
+ * messages at micro, and Modal.tsx ships a second, unwired Field. The spec
+ * below — label at body, messages at meta — is the canon. */
+
+.ds-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-xs);
+  font-family: var(--sem-font-family-ui);
+}
+
+/* Also legal on a <span> as the standalone label for radiogroups and
+ * segmented controls, wired with aria-labelledby instead of `for`. */
+.ds-field-label {
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  color: var(--sem-color-text-default);
+}
+
+/* aria-hidden decoration; aria-required on the control is the real signal.
+ * Never rendered as an accusation on an untouched form. */
+.ds-field-required {
+  margin-left: var(--sem-space-2xs);
+  color: var(--sem-color-status-danger);
+}
+
+/* One supporting message at a time: help hides while an error shows, and the
+ * control's aria-describedby points at whichever is visible. */
+.ds-field-help {
+  margin: 0;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-field-error {
+  margin: 0;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-status-danger);
+}

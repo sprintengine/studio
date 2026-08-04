@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Side pane</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../button/component.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* The panel the pane shares: a bordered surface holding a board region and
+     the pane in one flex row. */
+  .demo-panel {
+    display: flex;
+    height: 260px;
+    overflow: hidden;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface);
+  }
+  .demo-board {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    color: var(--sem-color-text-subtle);
+    font-size: var(--sem-font-size-meta);
+  }
+  .demo-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: var(--sem-space-sm) var(--sem-space-lg);
+  }
+  .demo-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sem-space-lg);
+    padding: var(--sem-space-xs) 0;
+    font-size: var(--sem-font-size-body);
+  }
+  .demo-row .demo-key {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .demo-row .demo-value {
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-meta);
+    letter-spacing: var(--sem-font-tracking-wide);
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a right pane (md preset) sharing a panel with its board. Drag the divider, or focus it and use arrow keys; Home or double-click resets. No shadow, no scrim — one hairline does the separating.</p>
+
+  <div class="demo-panel">
+    <div class="demo-board">Board</div>
+    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md" aria-labelledby="pane-light-title" data-resizable>
+      <button type="button" class="ds-side-pane-resize" role="separator" aria-orientation="vertical" aria-label="Resize running agents pane"></button>
+      <header class="ds-side-pane-header">
+        <h3 class="ds-side-pane-title" id="pane-light-title">Running agents</h3>
+        <div style="display: flex; align-items: center; gap: var(--sem-space-sm);">
+          <span class="ds-side-pane-count">3</span>
+          <button type="button" class="ds-button ds-button--icon" aria-label="Close running agents">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </header>
+      <div class="demo-body">
+        <div class="demo-row"><span class="demo-key">builder-2 — MC-2114</span><span class="demo-value">04:12</span></div>
+        <div class="demo-row"><span class="demo-key">reviewer-1 — MC-2110</span><span class="demo-value">01:38</span></div>
+        <div class="demo-row"><span class="demo-key">planner — sprint-15</span><span class="demo-value">00:22</span></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the sunken tone: one step of shade distance from the lane for a quiet secondary aside, still without a shadow.</p>
+
+  <div class="demo-panel">
+    <div class="demo-board">Board</div>
+    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken" aria-labelledby="pane-dark-title" data-resizable>
+      <button type="button" class="ds-side-pane-resize" role="separator" aria-orientation="vertical" aria-label="Resize active review pane"></button>
+      <header class="ds-side-pane-header">
+        <h3 class="ds-side-pane-title" id="pane-dark-title">Active review</h3>
+        <div style="display: flex; align-items: center; gap: var(--sem-space-sm);">
+          <span class="ds-side-pane-count">12</span>
+          <button type="button" class="ds-button ds-button--icon" aria-label="Close active review">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </header>
+      <div class="demo-body">
+        <div class="demo-row"><span class="demo-key">src/renderer/Modal.tsx</span><span class="demo-value">+41 −8</span></div>
+        <div class="demo-row"><span class="demo-key">src/renderer/Drawer.tsx</span><span class="demo-value">+3 −3</span></div>
+        <div class="demo-row"><span class="demo-key">design-system/tokens.tokens.json</span><span class="demo-value">+12 −0</span></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+/* Reference behaviour for the resize contract in component.md. What must
+   survive a framework rewrite: pointer capture on the handle (an iframe in
+   the pane would otherwise swallow the drag), the 16px keyboard step toward
+   or away from the divider, Home/double-click reset, and the floor/ceiling
+   clamp done by CSS min-/max-width, not by script. */
+
+const KEY_STEP = 16
+
+for (const pane of document.querySelectorAll('[data-resizable]')) {
+  const handle = pane.querySelector('.ds-side-pane-resize')
+  const isRight = pane.classList.contains('ds-side-pane--right')
+
+  function setWidth(px) {
+    pane.classList.add('ds-side-pane--resized')
+    pane.style.width = Math.round(px) + 'px'
+  }
+
+  function reset() {
+    pane.classList.remove('ds-side-pane--resized')
+    pane.style.removeProperty('width')
+  }
+
+  /* The pane grows away from its divider edge: a right pane measures from
+     its right edge back to the pointer. */
+  function widthFromPointer(clientX) {
+    const rect = pane.getBoundingClientRect()
+    return isRight ? rect.right - clientX : clientX - rect.left
+  }
+
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    handle.setPointerCapture(event.pointerId)
+    handle.dataset.resizing = 'true'
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (e) => setWidth(widthFromPointer(e.clientX))
+    const end = () => {
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', end)
+      handle.removeEventListener('pointercancel', end)
+      delete handle.dataset.resizing
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', end)
+    handle.addEventListener('pointercancel', end)
+  })
+
+  handle.addEventListener('keydown', (event) => {
+    const current = pane.getBoundingClientRect().width
+    const grow = isRight ? 'ArrowLeft' : 'ArrowRight'
+    const shrink = isRight ? 'ArrowRight' : 'ArrowLeft'
+    if (event.key === grow) {
+      event.preventDefault()
+      setWidth(current + KEY_STEP)
+    } else if (event.key === shrink) {
+      event.preventDefault()
+      setWidth(current - KEY_STEP)
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      reset()
+    }
+  })
+
+  handle.addEventListener('dblclick', reset)
+}
+</script>
+</body>
+</html>

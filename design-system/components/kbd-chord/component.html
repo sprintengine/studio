@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kbd chord</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-pane {
+    max-width: 320px;
+    margin-bottom: var(--sem-space-lg);
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  /* The chord's natural habitat: the trailing slot of a menu row, where it
+     annotates an action that is already reachable by click. */
+  .demo-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sem-space-md);
+    width: 100%;
+    padding: var(--sem-space-xs) var(--sem-space-md);
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-default);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    text-align: left;
+    cursor: pointer;
+  }
+  .demo-row:hover {
+    background: var(--sem-color-bg-hover);
+  }
+  .demo-row:focus-visible {
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — chords in their habitat: the trailing hint on actions that already have a click path.</p>
+
+  <div class="demo-pane">
+    <button type="button" class="demo-row">
+      Command palette
+      <span class="ds-kbd-chord" role="img" aria-label="Command K">
+        <kbd class="ds-kbd-chord-key">⌘</kbd>
+        <span class="ds-kbd-chord-sep" aria-hidden="true">+</span>
+        <kbd class="ds-kbd-chord-key">K</kbd>
+      </span>
+    </button>
+    <button type="button" class="demo-row">
+      New backlog item
+      <span class="ds-kbd-chord" role="img" aria-label="Command Shift N">
+        <kbd class="ds-kbd-chord-key">⌘</kbd>
+        <span class="ds-kbd-chord-sep" aria-hidden="true">+</span>
+        <kbd class="ds-kbd-chord-key">⇧</kbd>
+        <span class="ds-kbd-chord-sep" aria-hidden="true">+</span>
+        <kbd class="ds-kbd-chord-key">N</kbd>
+      </span>
+    </button>
+    <button type="button" class="demo-row">
+      Open project picker
+      <span class="ds-kbd-chord" role="img" aria-label="Command K then P">
+        <kbd class="ds-kbd-chord-key">⌘</kbd>
+        <span class="ds-kbd-chord-sep" aria-hidden="true">+</span>
+        <kbd class="ds-kbd-chord-key">K</kbd>
+        <span class="ds-kbd-chord-then" aria-hidden="true">then</span>
+        <kbd class="ds-kbd-chord-key">P</kbd>
+      </span>
+    </button>
+    <button type="button" class="demo-row">
+      Accept milestone
+      <span class="ds-kbd-chord" role="img" aria-label="Enter">
+        <kbd class="ds-kbd-chord-key">↵</kbd>
+      </span>
+    </button>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the raised capsule tone does its step here; the hairline carries it in light.</p>
+
+  <div class="demo-pane">
+    <button type="button" class="demo-row">
+      Command palette
+      <span class="ds-kbd-chord" role="img" aria-label="Command K">
+        <kbd class="ds-kbd-chord-key">⌘</kbd>
+        <span class="ds-kbd-chord-sep" aria-hidden="true">+</span>
+        <kbd class="ds-kbd-chord-key">K</kbd>
+      </span>
+    </button>
+    <button type="button" class="demo-row">
+      Open project picker
+      <span class="ds-kbd-chord" role="img" aria-label="Command K then P">
+        <kbd class="ds-kbd-chord-key">⌘</kbd>
+        <span class="ds-kbd-chord-sep" aria-hidden="true">+</span>
+        <kbd class="ds-kbd-chord-key">K</kbd>
+        <span class="ds-kbd-chord-then" aria-hidden="true">then</span>
+        <kbd class="ds-kbd-chord-key">P</kbd>
+      </span>
+    </button>
+  </div>
+</div>
+</body>
+</html>

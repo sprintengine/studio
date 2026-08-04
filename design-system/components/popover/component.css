@@ -1,0 +1,69 @@
+/* Popover — the anchored overlay engine. One shell for everything
+ * dropdown-shaped: overflow menus, filter menus, select listboxes, pickers.
+ * Extracted from the source product's Popover / PointerPopover primitives
+ * (src/renderer/src/components/ui/).
+ *
+ * The surface is lifted to the end of <body> and positioned in fixed viewport
+ * coordinates, so it escapes every scroll container and stacking context on
+ * the page. The consumer writes the one or two anchoring edges into
+ * --ds-popover-top/right/bottom/left (the edge nearest the trigger, so a stale
+ * measurement can never drift the glued edge) and mirrors the trigger's width
+ * into --ds-popover-trigger-width for width-coupled listboxes.
+ *
+ * The shell owns chrome only — border, radius, background, shadow, layer,
+ * entrance — and deliberately no padding: a menu wants full-bleed rows, a
+ * dialog-role body wants an even inset, and neither should fight a default. */
+
+.ds-popover {
+  position: fixed;
+  top: var(--ds-popover-top, auto);
+  right: var(--ds-popover-right, auto);
+  bottom: var(--ds-popover-bottom, auto);
+  left: var(--ds-popover-left, auto);
+  z-index: var(--sem-z-popover);
+  box-sizing: border-box;
+  border: 1px solid var(--sem-color-border-strong);
+  border-radius: var(--sem-radius-overlay);
+  background: var(--sem-color-bg-surface-raised);
+  /* The token, not the shipped literal — six kit files hardcode a dark-only
+   * shadow here (MC-2110); the token is the spec. */
+  box-shadow: var(--sem-shadow-popover);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+  /* The one sanctioned popover entrance: a 4px drop-and-fade composing the
+   * token duration/ease pair. Not a fourth motion — this is the third of the
+   * three the principles allow. */
+  animation: ds-popover-enter var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+/* Closed is out of the document — or `hidden`, which must win over the
+ * fixed-position display. */
+.ds-popover[hidden] {
+  display: none;
+}
+
+/* Coordinate-anchored: opens at a viewport point (right-click, caret, drop
+ * location) instead of at a trigger. One layer up — a context menu is
+ * summoned OVER whatever is already open, including an open popover. */
+.ds-popover--pointer {
+  z-index: var(--sem-z-menu);
+}
+
+@keyframes ds-popover-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-popover {
+    animation: none;
+  }
+}

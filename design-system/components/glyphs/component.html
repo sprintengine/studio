@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Glyphs</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-lg);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-section {
+    margin: 0 0 var(--sem-space-2xl);
+  }
+  .demo-heading {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-medium);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--sem-space-xl);
+  }
+  .demo-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sem-space-2xs);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-name {
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
+  /* Toned lifecycle/status cells — the shape carries the state; ink only
+     reinforces, exactly as in the shipped LifecycleGlyph TONE map. */
+  .demo-tone-live { color: var(--sem-color-accent-primary); }
+  .demo-tone-good { color: var(--sem-color-status-good); }
+  .demo-tone-warn { color: var(--sem-color-status-warn); }
+  .demo-tone-danger { color: var(--sem-color-status-danger); }
+  .demo-tone-merged { color: var(--sem-color-status-merged); }
+  .demo-tone-disabled { color: var(--sem-color-text-disabled); }
+</style>
+</head>
+<body>
+
+<!-- Every glyph is defined once as a symbol and referenced from both stages,
+     so the light and dark specimens are literally the same geometry — the way
+     the shipped vocabulary has one export per concept. Path data is copied
+     from AppIcons.tsx (24-grid, stroke 1.7) and the ui/ primitives (16-grid,
+     stroke 1.2–1.5). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- 24-grid core actions, iconStroke 1.7 -->
+    <symbol id="g-plus" viewBox="0 0 24 24" fill="none">
+      <path d="M12 5.5V18.5M5.5 12H18.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-minus" viewBox="0 0 24 24" fill="none">
+      <path d="M5.5 12H18.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-close" viewBox="0 0 24 24" fill="none">
+      <path d="M6.5 6.5L17.5 17.5M17.5 6.5L6.5 17.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-check" viewBox="0 0 24 24" fill="none">
+      <path d="M5 12.5L10 17L19 7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-chevron-down" viewBox="0 0 24 24" fill="none">
+      <path d="M6 9.5L12 15L18 9.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-arrow-right" viewBox="0 0 24 24" fill="none">
+      <path d="M5 12H18.5M13 6.5L18.5 12L13 17.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-copy" viewBox="0 0 24 24" fill="none">
+      <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5V5A2 2 0 0 1 5 3H13.5A1.5 1.5 0 0 1 15 4.5V5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-comment" viewBox="0 0 24 24" fill="none">
+      <path d="M5 6.5C5 5.95 5.45 5.5 6 5.5H18C18.55 5.5 19 5.95 19 6.5V14.5C19 15.05 18.55 15.5 18 15.5H10.5L7 18.5V15.5H6C5.45 15.5 5 15.05 5 14.5V6.5Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-new-chat" viewBox="0 0 24 24" fill="none">
+      <path d="M12 4H6.5C5.4 4 4.5 4.9 4.5 6V17.5C4.5 18.6 5.4 19.5 6.5 19.5H18C19.1 19.5 20 18.6 20 17.5V12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M17.6 4a1.6 1.6 0 0 1 2.4 2.4l-7.3 7.3a2 2 0 0 1-.85.5l-2.4.66a.5.5 0 0 1-.62-.62l.66-2.4a2 2 0 0 1 .5-.85z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-warning" viewBox="0 0 24 24" fill="none">
+      <path d="M12 4.75L20.5 19.25H3.5L12 4.75Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M12 10V14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <path d="M12 16.75H12.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- 24-grid workspace-type identity -->
+    <symbol id="g-ws-standard" viewBox="0 0 24 24" fill="none">
+      <rect x="4" y="5.5" width="16" height="13" rx="2.2" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M7.25 10L10 12.5L7.25 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M12.5 15H16.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-ws-switchboard" viewBox="0 0 24 24" fill="none">
+      <rect x="3.5" y="5" width="17" height="14" rx="2" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M9 5.5V18.5M15 5.5V18.5" stroke="currentColor" stroke-width="1.4"/>
+      <rect x="4.75" y="8" width="3" height="2.5" rx="0.6" fill="currentColor"/>
+      <rect x="10.5" y="11" width="3" height="2.5" rx="0.6" fill="currentColor"/>
+      <rect x="16.25" y="14" width="3" height="2.5" rx="0.6" fill="currentColor"/>
+    </symbol>
+    <symbol id="g-ws-sprintengine" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="6" r="2.4" stroke="currentColor" stroke-width="1.7"/>
+      <circle cx="6.5" cy="16.5" r="2.4" stroke="currentColor" stroke-width="1.7"/>
+      <circle cx="17.5" cy="16.5" r="2.4" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M10.85 8.2L7.65 14.35M13.15 8.2L16.35 14.35M9 16.5H15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-ws-automations" viewBox="0 0 24 24" fill="none">
+      <path d="M19.5 12a7.5 7.5 0 1 1-3.4-6.28" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <path d="M12.6 7.3 9 12.4h2.7l-.7 4 3.6-5.1h-2.7l.7-4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="currentColor" fill-opacity="0.18"/>
+    </symbol>
+    <symbol id="g-ws-guided-brief" viewBox="0 0 24 24" fill="none">
+      <path d="M5 6.25C5 5.42 5.67 4.75 6.5 4.75H17.5C18.33 4.75 19 5.42 19 6.25V13.75C19 14.58 18.33 15.25 17.5 15.25H10.75L7.5 18.5V15.25H6.5C5.67 15.25 5 14.58 5 13.75V6.25Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+      <path d="M9 9.25H15M9 12H13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- 24-grid role drawings (behind the SprintEngineRoleIcon dispatcher) -->
+    <symbol id="g-role-generic" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="6.4" stroke="currentColor" stroke-width="1.7"/>
+      <circle cx="12" cy="12" r="2.4" stroke="currentColor" stroke-width="1.4" opacity="0.55"/>
+    </symbol>
+    <symbol id="g-role-developer" viewBox="0 0 24 24" fill="none">
+      <path d="M9.25 8L5.25 12L9.25 16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M14.75 8L18.75 12L14.75 16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M13 5.75L11 18.25" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-role-architect" viewBox="0 0 24 24" fill="none">
+      <rect x="5" y="4.75" width="5.5" height="5.5" rx="1.4" stroke="currentColor" stroke-width="1.7"/>
+      <rect x="13.5" y="13.75" width="5.5" height="5.5" rx="1.4" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M10.5 7.5H13.5C15.15 7.5 16.5 8.85 16.5 10.5V13.75" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <path d="M7.75 10.25V13.5C7.75 15.15 9.1 16.5 10.75 16.5H13.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-role-security" viewBox="0 0 24 24" fill="none">
+      <path d="M12 3.75L18.75 6.25V11.15C18.75 15.35 16.08 19.08 12 20.25C7.92 19.08 5.25 15.35 5.25 11.15V6.25L12 3.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+      <path d="M9 12.05L11.05 14.1L15.25 9.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+
+    <!-- 16-grid lifecycle vocabulary (LifecycleGlyph) -->
+    <symbol id="g-lc-todo" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.4"/>
+    </symbol>
+    <symbol id="g-lc-idea" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2.2 2.2"/>
+    </symbol>
+    <symbol id="g-lc-ready" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5"/>
+    </symbol>
+    <symbol id="g-lc-blocked" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M5.6 8h4.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-lc-paused" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M6.5 5.9v4.2M9.5 5.9v4.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-lc-needs-input" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M8 5.3v3.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <circle cx="8" cy="10.7" r="0.9" fill="currentColor"/>
+    </symbol>
+    <symbol id="g-lc-changes" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M9.7 5.9 6.4 8l3.3 2.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-lc-in-progress" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22"/>
+      <path d="M8 3a5 5 0 0 1 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-lc-review" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22"/>
+      <path d="M8 3a5 5 0 0 1 0 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-lc-testing" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22"/>
+      <path d="M8 3a5 5 0 1 1 -5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-lc-done" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5.25" fill="currentColor"/>
+      <path d="M5.5 8.2l1.7 1.7 3.4-3.9" style="stroke: var(--sem-color-bg-app)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-lc-approved-auto" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5.25" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M5.5 8.2l1.7 1.7 3.4-3.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-lc-branch" viewBox="0 0 16 16" fill="none">
+      <circle cx="5" cy="3.6" r="1.55" stroke="currentColor" stroke-width="1.3"/>
+      <circle cx="5" cy="12.4" r="1.55" stroke="currentColor" stroke-width="1.3"/>
+      <circle cx="11" cy="4.2" r="1.55" stroke="currentColor" stroke-width="1.3"/>
+      <path d="M5 5.15v5.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <path d="M11 5.75v.7a3.1 3.1 0 0 1-3.1 3.1H6.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-lc-archived" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M4.7 11.3l6.6-6.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-lc-failed" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M6 6l4 4M10 6l-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </symbol>
+
+    <!-- 16-grid capability + utility -->
+    <symbol id="g-skills" viewBox="0 0 16 16" fill="none">
+      <path d="M3 3h10v10H3zM3 6h10M6 6v7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-mcp" viewBox="0 0 16 16" fill="none">
+      <path d="M5.5 2v3M10.5 2v3M4 5h8v3.5a4 4 0 0 1-8 0zM8 12.5V14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-star-filled" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z"/>
+    </symbol>
+    <symbol id="g-star-stroked" viewBox="0 0 16 16" fill="none">
+      <path d="M8 1.5L9.95 5.7L14.5 6.3L11.2 9.55L12 14.1L8 11.95L4 14.1L4.8 9.55L1.5 6.3L6.05 5.7L8 1.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="g-refresh" viewBox="0 0 16 16" fill="none">
+      <path d="M13.25 7.25A5.25 5.25 0 0 0 4.05 4.1L2.75 5.5m0 0H6m-3.25 0V2.25M2.75 8.75a5.25 5.25 0 0 0 9.2 3.15l1.3-1.4m0 0H10m3.25 0v3.25" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+
+    <!-- 24-grid CLI marks: the terminal fallback and one placeholder tile
+         (1.7 frame, 1.9 letterform) -->
+    <symbol id="g-cli-terminal" viewBox="0 0 24 24" fill="none">
+      <rect x="3.75" y="5" width="16.5" height="14" rx="2.25" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M7.5 9L10.75 12L7.5 15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M12.75 15H16.75" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-cli-tile" viewBox="0 0 24 24" fill="none">
+      <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M8.25 8.5H15.75L8.25 15.5H15.75" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+
+    <!-- 24-grid settings rail (four of the fourteen) -->
+    <symbol id="g-set-general" viewBox="0 0 24 24" fill="none">
+      <path d="M4 8H7.4M11.6 8H20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <circle cx="9.5" cy="8" r="2.1" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M4 16H13.4M17.6 16H20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <circle cx="15.5" cy="16" r="2.1" stroke="currentColor" stroke-width="1.7"/>
+    </symbol>
+    <symbol id="g-set-agents" viewBox="0 0 24 24" fill="none">
+      <rect x="5" y="8" width="14" height="11" rx="3" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M12 5v3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      <circle cx="12" cy="4" r="1.2" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M9.5 13h.01M14.5 13h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-set-modules" viewBox="0 0 24 24" fill="none">
+      <rect x="4" y="4" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.7"/>
+      <rect x="13" y="4" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.7"/>
+      <rect x="4" y="13" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.7"/>
+      <rect x="13" y="13" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.7"/>
+    </symbol>
+    <symbol id="g-set-learn" viewBox="0 0 24 24" fill="none">
+      <path d="M12 6.5C10.5 5 7.5 4.5 5 5v13c2.5-.5 5.5 0 7 1.5" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+      <path d="M12 6.5C13.5 5 16.5 4.5 19 5v13c-2.5-.5-5.5 0-7 1.5" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — the size ramp, then one row per family. Ink is the surrounding text color; tone cells show the lifecycle TONE map.</p>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Size ramp — the four sanctioned steps; sm (16px) is the rail canon</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph ds-glyph--xs" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">xs · 13px</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">sm · 16px</span></span>
+      <span class="demo-cell"><svg class="ds-glyph ds-glyph--md" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">md · 18px</span></span>
+      <span class="demo-cell"><svg class="ds-glyph ds-glyph--lg" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">lg · 22px</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Core actions — 24-grid, iconStroke 1.7</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-plus"/></svg><span class="demo-name">plus</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-minus"/></svg><span class="demo-name">minus</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-close"/></svg><span class="demo-name">close</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-check"/></svg><span class="demo-name">check</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-chevron-down"/></svg><span class="demo-name">chevron</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-arrow-right"/></svg><span class="demo-name">arrow</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-copy"/></svg><span class="demo-name">copy</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-comment"/></svg><span class="demo-name">comment</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-new-chat"/></svg><span class="demo-name">new-chat</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-warning"/></svg><span class="demo-name">warning</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Workspace-type identity — registry-resolved</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">standard</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-switchboard"/></svg><span class="demo-name">switchboard</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-sprintengine"/></svg><span class="demo-name">sprintengine</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-automations"/></svg><span class="demo-name">automations</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-guided-brief"/></svg><span class="demo-name">guided-brief</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Lifecycle — 16-grid, shape first; tone reinforces</h2>
+    <div class="demo-row">
+      <span class="demo-cell demo-tone-disabled"><svg class="ds-glyph" role="img" aria-label="Idea"><use href="#g-lc-idea"/></svg><span class="demo-name">idea</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="To do"><use href="#g-lc-todo"/></svg><span class="demo-name">todo</span></span>
+      <span class="demo-cell demo-tone-live"><svg class="ds-glyph" role="img" aria-label="Ready"><use href="#g-lc-ready"/></svg><span class="demo-name">ready</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="Blocked"><use href="#g-lc-blocked"/></svg><span class="demo-name">blocked</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="Paused"><use href="#g-lc-paused"/></svg><span class="demo-name">paused</span></span>
+      <span class="demo-cell demo-tone-live"><svg class="ds-glyph ds-glyph--spin" role="img" aria-label="In progress"><use href="#g-lc-in-progress"/></svg><span class="demo-name">in progress</span></span>
+      <span class="demo-cell demo-tone-live"><svg class="ds-glyph" role="img" aria-label="In review"><use href="#g-lc-review"/></svg><span class="demo-name">review</span></span>
+      <span class="demo-cell demo-tone-live"><svg class="ds-glyph" role="img" aria-label="In testing"><use href="#g-lc-testing"/></svg><span class="demo-name">testing</span></span>
+      <span class="demo-cell demo-tone-warn"><svg class="ds-glyph" role="img" aria-label="Changes requested"><use href="#g-lc-changes"/></svg><span class="demo-name">changes</span></span>
+      <span class="demo-cell demo-tone-warn"><svg class="ds-glyph" role="img" aria-label="Needs input"><use href="#g-lc-needs-input"/></svg><span class="demo-name">needs input</span></span>
+      <span class="demo-cell demo-tone-good"><svg class="ds-glyph" role="img" aria-label="Done"><use href="#g-lc-done"/></svg><span class="demo-name">done</span></span>
+      <span class="demo-cell demo-tone-good"><svg class="ds-glyph" role="img" aria-label="Approved automatically"><use href="#g-lc-approved-auto"/></svg><span class="demo-name">auto-approved</span></span>
+      <span class="demo-cell demo-tone-good"><svg class="ds-glyph" role="img" aria-label="Complete, not merged"><use href="#g-lc-branch"/></svg><span class="demo-name">unmerged</span></span>
+      <span class="demo-cell demo-tone-merged"><svg class="ds-glyph" role="img" aria-label="Merged"><use href="#g-lc-branch"/></svg><span class="demo-name">merged</span></span>
+      <span class="demo-cell demo-tone-disabled"><svg class="ds-glyph" role="img" aria-label="Archived"><use href="#g-lc-archived"/></svg><span class="demo-name">archived</span></span>
+      <span class="demo-cell demo-tone-danger"><svg class="ds-glyph" role="img" aria-label="Failed"><use href="#g-lc-failed"/></svg><span class="demo-name">failed</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Role — dispatcher drawings; tone applied only by RoleGlyph / RoleAvatar</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-generic"/></svg><span class="demo-name">no role</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-developer"/></svg><span class="demo-name">developer</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-architect"/></svg><span class="demo-name">architect</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-security"/></svg><span class="demo-name">security</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Capability &amp; utility — 16-grid</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph ds-glyph--xs" aria-hidden="true"><use href="#g-skills"/></svg><span class="demo-name">skills</span></span>
+      <span class="demo-cell"><svg class="ds-glyph ds-glyph--xs" aria-hidden="true"><use href="#g-mcp"/></svg><span class="demo-name">mcp</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="Starred"><use href="#g-star-filled"/></svg><span class="demo-name">star (earned)</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-star-stroked"/></svg><span class="demo-name">star (menu)</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-refresh"/></svg><span class="demo-name">refresh</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">CLI marks — terminal fallback and the placeholder tile idiom</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-cli-terminal"/></svg><span class="demo-name">terminal</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-cli-tile"/></svg><span class="demo-name">tile mark</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Settings rail — four of fourteen, one stroke, one set</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-set-general"/></svg><span class="demo-name">general</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-set-agents"/></svg><span class="demo-name">agents</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-set-modules"/></svg><span class="demo-name">modules</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-set-learn"/></svg><span class="demo-name">learn</span></span>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same symbols, re-inked by the semantic tokens; no glyph carries a per-mode override.</p>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Size ramp</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph ds-glyph--xs" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">xs · 13px</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">sm · 16px</span></span>
+      <span class="demo-cell"><svg class="ds-glyph ds-glyph--md" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">md · 18px</span></span>
+      <span class="demo-cell"><svg class="ds-glyph ds-glyph--lg" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">lg · 22px</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Core actions</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-plus"/></svg><span class="demo-name">plus</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-close"/></svg><span class="demo-name">close</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-check"/></svg><span class="demo-name">check</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-new-chat"/></svg><span class="demo-name">new-chat</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-warning"/></svg><span class="demo-name">warning</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Lifecycle tones on the dark ramp</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="To do"><use href="#g-lc-todo"/></svg><span class="demo-name">todo</span></span>
+      <span class="demo-cell demo-tone-live"><svg class="ds-glyph ds-glyph--spin" role="img" aria-label="In progress"><use href="#g-lc-in-progress"/></svg><span class="demo-name">in progress</span></span>
+      <span class="demo-cell demo-tone-warn"><svg class="ds-glyph" role="img" aria-label="Needs input"><use href="#g-lc-needs-input"/></svg><span class="demo-name">needs input</span></span>
+      <span class="demo-cell demo-tone-good"><svg class="ds-glyph" role="img" aria-label="Done"><use href="#g-lc-done"/></svg><span class="demo-name">done</span></span>
+      <span class="demo-cell demo-tone-merged"><svg class="ds-glyph" role="img" aria-label="Merged"><use href="#g-lc-branch"/></svg><span class="demo-name">merged</span></span>
+      <span class="demo-cell demo-tone-danger"><svg class="ds-glyph" role="img" aria-label="Failed"><use href="#g-lc-failed"/></svg><span class="demo-name">failed</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Identity &amp; utility</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-sprintengine"/></svg><span class="demo-name">sprintengine</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-automations"/></svg><span class="demo-name">automations</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-developer"/></svg><span class="demo-name">developer</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="Starred"><use href="#g-star-filled"/></svg><span class="demo-name">star</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-refresh"/></svg><span class="demo-name">refresh</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-cli-terminal"/></svg><span class="demo-name">terminal</span></span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

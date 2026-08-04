@@ -1,0 +1,51 @@
+/* Kbd chord — the keyboard-shortcut hint: each key a real <kbd> capsule,
+ * joined by a quiet separator. Extracted from the shipped KbdChord primitive
+ * (src/renderer/src/components/ui/KbdChord.tsx).
+ *
+ * Family contract: describes a shortcut, never invokes one — no hover, no
+ * focus, no pressed state. The one surface exempt from sentence case: keys
+ * render as keys. */
+
+.ds-kbd-chord {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+}
+
+/* A 16px micro-type capsule — glyph scale, deliberately below the hit-target
+ * floor because it is a label, not a target. Mono per the type rules: a key
+ * name is an identifier, not prose. */
+.ds-kbd-chord-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 16px;
+  min-width: 16px;
+  padding: 0 var(--sem-space-2xs);
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  letter-spacing: var(--sem-font-tracking-wide);
+  line-height: 1;
+}
+
+/* "+" means together. The disabled ink is deliberate: the separator is
+ * grammar, not content, and it must never compete with the keys. */
+.ds-kbd-chord-sep {
+  color: var(--sem-color-text-disabled);
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+}
+
+/* "then" means in order — the joint between the strokes of a multi-stroke
+ * chord. Same quietness as the separator, plus breathing room. */
+.ds-kbd-chord-then {
+  padding-inline: var(--sem-space-3xs);
+  color: var(--sem-color-text-disabled);
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+}

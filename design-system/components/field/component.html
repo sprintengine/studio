@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Field</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<!-- The row's whole point is serving different controls: the demo borrows the
+     input and segmented-control entries rather than restyling either. -->
+<link rel="stylesheet" href="../input/component.css" />
+<link rel="stylesheet" href="../segmented-control/component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-xl);
+    max-width: 340px;
+  }
+  .demo-label {
+    margin: 0;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — required with help, invalid with the error replacing it, and the standalone label for a grouped control.</p>
+  <div class="ds-field">
+    <label class="ds-field-label" for="f-name-light">Workspace name<span class="ds-field-required" aria-hidden="true">*</span></label>
+    <input class="ds-input" id="f-name-light" type="text" placeholder="my-project" aria-required="true" aria-describedby="f-name-light-help" />
+    <p class="ds-field-help" id="f-name-light-help">Shown in the sidebar and the switcher.</p>
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="f-path-light">Folder path</label>
+    <input class="ds-input" id="f-path-light" type="text" value="/tmp/nowhere" aria-invalid="true" aria-describedby="f-path-light-error" />
+    <p class="ds-field-error" id="f-path-light-error">That folder does not exist.</p>
+  </div>
+  <div class="ds-field">
+    <span class="ds-field-label" id="f-scope-light">Default scope</span>
+    <div class="ds-segmented-control" role="radiogroup" aria-labelledby="f-scope-light">
+      <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">Open</button>
+      <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">Mine</button>
+      <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">All</button>
+    </div>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same rows from the same tokens.</p>
+  <div class="ds-field">
+    <label class="ds-field-label" for="f-name-dark">Workspace name<span class="ds-field-required" aria-hidden="true">*</span></label>
+    <input class="ds-input" id="f-name-dark" type="text" placeholder="my-project" aria-required="true" aria-describedby="f-name-dark-help" />
+    <p class="ds-field-help" id="f-name-dark-help">Shown in the sidebar and the switcher.</p>
+  </div>
+  <div class="ds-field">
+    <label class="ds-field-label" for="f-path-dark">Folder path</label>
+    <input class="ds-input" id="f-path-dark" type="text" value="/tmp/nowhere" aria-invalid="true" aria-describedby="f-path-dark-error" />
+    <p class="ds-field-error" id="f-path-dark-error">That folder does not exist.</p>
+  </div>
+  <div class="ds-field">
+    <span class="ds-field-label" id="f-scope-dark">Default scope</span>
+    <div class="ds-segmented-control" role="radiogroup" aria-labelledby="f-scope-dark">
+      <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">Open</button>
+      <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">Mine</button>
+      <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">All</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

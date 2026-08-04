@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Select</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+  .demo-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sem-space-xl);
+    flex-wrap: wrap;
+    margin: 0 0 var(--sem-space-xl);
+  }
+  .demo-row:last-child {
+    margin-bottom: 0;
+  }
+  /* The popup is parked in flow so the open state is visible with scripts
+     off — the catalog embeds this demo without JavaScript. A live consumer
+     positions it via the --ds-select-* custom properties instead. */
+  .ds-select-listbox.demo-parked {
+    position: static;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — rest, placeholder, toned values, disabled, and the open popup.</p>
+  <div class="demo-row">
+    <button type="button" class="ds-select" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-label="Base branch">
+      <span class="ds-select-value">main</span>
+      <svg class="ds-select-chevron" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" class="ds-select" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-label="Reviewer">
+      <span class="ds-select-value ds-select-value--placeholder">Select…</span>
+      <svg class="ds-select-chevron" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" class="ds-select" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-label="Base branch" disabled>
+      <span class="ds-select-value">main</span>
+      <svg class="ds-select-chevron" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+  <div class="demo-row">
+    <button type="button" class="ds-select ds-select--warn" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-label="Review gate">
+      <span class="ds-select-value">Bypass checks</span>
+      <svg class="ds-select-chevron" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" class="ds-select ds-select--danger" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-label="On conflict">
+      <span class="ds-select-value">Force-push over it</span>
+      <svg class="ds-select-chevron" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+  <div class="demo-row">
+    <div>
+      <button type="button" class="ds-select" role="combobox" aria-haspopup="listbox" aria-expanded="true" aria-controls="demo-listbox-light" aria-activedescendant="demo-light-opt-2" aria-label="Review gate">
+        <span class="ds-select-value">Required review</span>
+        <svg class="ds-select-chevron" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <ul class="ds-select-listbox demo-parked" id="demo-listbox-light" role="listbox" aria-label="Review gate">
+        <li class="ds-select-option" id="demo-light-opt-0" role="option" aria-selected="true">
+          <span class="ds-select-option-label">Required review</span>
+          <svg class="ds-select-check" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 5.2l2 2 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </li>
+        <li class="ds-select-option" id="demo-light-opt-1" role="option" aria-selected="false">
+          <span class="ds-select-option-label">Auto-approve small diffs</span>
+        </li>
+        <li class="ds-select-option ds-select-option--active ds-select-option--warn" id="demo-light-opt-2" role="option" aria-selected="false">
+          <span class="ds-select-option-label">Bypass checks</span>
+        </li>
+        <li class="ds-select-option" id="demo-light-opt-3" role="option" aria-selected="false" aria-disabled="true">
+          <span class="ds-select-option-label">Delegate to owners</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same states from the same tokens.</p>
+  <div class="demo-row">
+    <button type="button" class="ds-select" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-label="Base branch">
+      <span class="ds-select-value">main</span>
+      <svg class="ds-select-chevron" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" class="ds-select" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-label="Reviewer">
+      <span class="ds-select-value ds-select-value--placeholder">Select…</span>
+      <svg class="ds-select-chevron" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" class="ds-select ds-select--warn" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-label="Review gate">
+      <span class="ds-select-value">Bypass checks</span>
+      <svg class="ds-select-chevron" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" class="ds-select" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-label="Base branch" disabled>
+      <span class="ds-select-value">main</span>
+      <svg class="ds-select-chevron" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+  <div class="demo-row">
+    <div>
+      <button type="button" class="ds-select" role="combobox" aria-haspopup="listbox" aria-expanded="true" aria-controls="demo-listbox-dark" aria-activedescendant="demo-dark-opt-1" aria-label="Review gate">
+        <span class="ds-select-value">Required review</span>
+        <svg class="ds-select-chevron" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <ul class="ds-select-listbox demo-parked" id="demo-listbox-dark" role="listbox" aria-label="Review gate">
+        <li class="ds-select-option" id="demo-dark-opt-0" role="option" aria-selected="true">
+          <span class="ds-select-option-label">Required review</span>
+          <svg class="ds-select-check" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><path d="M2 5.2l2 2 4-4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </li>
+        <li class="ds-select-option ds-select-option--active" id="demo-dark-opt-1" role="option" aria-selected="false">
+          <span class="ds-select-option-label">Auto-approve small diffs</span>
+        </li>
+        <li class="ds-select-option" id="demo-dark-opt-2" role="option" aria-selected="false" aria-disabled="true">
+          <span class="ds-select-option-label">Delegate to owners</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body>
+</html>

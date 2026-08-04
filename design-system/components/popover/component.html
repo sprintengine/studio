@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Popover</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sem-space-lg);
+    flex-wrap: wrap;
+    margin-bottom: var(--sem-space-lg);
+  }
+  .demo-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sem-space-xs);
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-default);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    font-weight: var(--sem-font-weight-medium);
+    cursor: pointer;
+  }
+  .demo-trigger:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-trigger:focus-visible {
+    outline: var(--sem-focus-ring);
+    outline-offset: var(--sem-focus-ring-offset);
+  }
+  /* The pointer variant needs a place to right-click. A quiet canvas, nothing
+     more — the surface it summons is the thing on display. */
+  .demo-canvas {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 120px;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-subtle);
+    font-size: var(--sem-font-size-meta);
+  }
+  /* Menu content for the demo surfaces. Full-bleed rows with a vertical inset
+     on the surface's content — the shell itself carries no padding. */
+  .demo-menu {
+    min-width: 180px;
+    padding: var(--sem-space-2xs) 0;
+  }
+  .demo-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sem-space-lg);
+    box-sizing: border-box;
+    padding: var(--sem-space-xs) var(--sem-space-md);
+    border: 0;
+    background: transparent;
+    color: var(--sem-color-text-default);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    text-align: left;
+    cursor: pointer;
+  }
+  .demo-item:hover,
+  .demo-item:focus-visible {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-primary);
+    outline: none;
+  }
+  .demo-item kbd {
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    letter-spacing: var(--sem-font-tracking-wide);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-specimen {
+    margin-bottom: var(--sem-space-lg);
+  }
+  /* Surfaces are authored parked so the anatomy is visible with scripts off —
+     the catalog embeds this demo without JavaScript. The script lifts each
+     exact node to the document body on load; nothing is cloned. */
+  .ds-popover.demo-parked {
+    position: static;
+    animation: none;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — click the trigger for the anchored surface; right-click the canvas for the pointer variant. Escape closes the topmost surface only; scrolling repositions, it does not dismiss.</p>
+
+  <div class="demo-specimen">
+    <div class="ds-popover demo-parked" id="pop-light-menu" role="menu" aria-label="Skill actions">
+      <div class="demo-menu">
+        <button type="button" class="demo-item" role="menuitem">Open in editor</button>
+        <button type="button" class="demo-item" role="menuitem">Reveal in folder</button>
+        <button type="button" class="demo-item" role="menuitem">Sync source <kbd>⌘R</kbd></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-row">
+    <button type="button" class="demo-trigger" data-popover-trigger="pop-light-menu" aria-haspopup="menu" aria-expanded="false">Skill actions</button>
+  </div>
+
+  <div class="demo-canvas" data-context-for="pop-light-context">Right-click for the pointer variant</div>
+  <div class="ds-popover ds-popover--pointer" id="pop-light-context" role="menu" aria-label="Canvas actions" hidden>
+    <div class="demo-menu">
+      <button type="button" class="demo-item" role="menuitem">New skill here</button>
+      <button type="button" class="demo-item" role="menuitem">Paste</button>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same shell, lit by the container it serves. The pointer variant is parked below to show it sits one layer above the anchored surface.</p>
+
+  <div class="demo-specimen">
+    <div class="ds-popover ds-popover--pointer demo-parked" id="pop-dark-context" role="menu" aria-label="Canvas actions">
+      <div class="demo-menu">
+        <button type="button" class="demo-item" role="menuitem">New skill here</button>
+        <button type="button" class="demo-item" role="menuitem">Paste</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-row">
+    <button type="button" class="demo-trigger" data-popover-trigger="pop-dark-menu" aria-haspopup="menu" aria-expanded="false">Skill actions</button>
+  </div>
+  <div class="ds-popover" id="pop-dark-menu" role="menu" aria-label="Skill actions" hidden>
+    <div class="demo-menu">
+      <button type="button" class="demo-item" role="menuitem">Open in editor</button>
+      <button type="button" class="demo-item" role="menuitem">Reveal in folder</button>
+      <button type="button" class="demo-item" role="menuitem">Sync source <kbd>⌘R</kbd></button>
+    </div>
+  </div>
+
+  <div class="demo-canvas" data-context-for="pop-dark-context">Right-click for the pointer variant</div>
+</div>
+
+<script>
+/* Reference behaviour for the contract in component.md. Rebuild it
+   idiomatically in your framework — what must survive the rewrite is the
+   portal to <body>, the edge-nearest-trigger anchoring, topmost-only Escape,
+   the stacked-above outside-press guard, and focus returning to the trigger
+   on close. */
+
+const GAP = 4
+const EDGE = 8
+
+/* Lift every surface to the body — moved, never cloned — so each escapes its
+   stage's stacking context, exactly as the component contract requires. */
+for (const surface of document.querySelectorAll('.ds-popover')) {
+  surface.classList.remove('demo-parked')
+  surface.hidden = true
+  document.body.appendChild(surface)
+}
+for (const specimen of document.querySelectorAll('.demo-specimen')) specimen.remove()
+
+/* Open surfaces in stacking order: Escape pops the top; a pointer landing in
+   a surface stacked above another counts as inside it. */
+const stack = []
+
+function mirrorMode(surface, scopeNode) {
+  const scope = scopeNode.closest('[data-mode]')
+  if (scope) surface.setAttribute('data-mode', scope.dataset.mode)
+  else surface.removeAttribute('data-mode')
+}
+
+function close(surface, restoreFocus) {
+  const index = stack.findIndex((entry) => entry.surface === surface)
+  if (index < 0) return
+  const [entry] = stack.splice(index, 1)
+  surface.hidden = true
+  for (const edge of ['top', 'right', 'bottom', 'left']) {
+    surface.style.removeProperty('--ds-popover-' + edge)
+  }
+  if (entry.trigger) {
+    entry.trigger.setAttribute('aria-expanded', 'false')
+    entry.trigger.removeAttribute('aria-controls')
+    if (restoreFocus) entry.trigger.focus()
+  }
+}
+
+function closeAll() {
+  for (const entry of [...stack]) close(entry.surface, false)
+}
+
+/* Anchored: bottom-start preferred, anchored by the edge nearest the trigger.
+   Flip above when there is no room below and more above; clamp inside the
+   viewport on the cross axis. */
+function placeAnchored(trigger, surface) {
+  const anchor = trigger.getBoundingClientRect()
+  const rect = surface.getBoundingClientRect()
+  const spaceBelow = window.innerHeight - anchor.bottom - EDGE
+  const spaceAbove = anchor.top - EDGE
+  const flip = rect.height + GAP > spaceBelow && spaceAbove > spaceBelow
+  surface.style.removeProperty('--ds-popover-top')
+  surface.style.removeProperty('--ds-popover-bottom')
+  if (flip) {
+    surface.style.setProperty('--ds-popover-bottom', Math.round(window.innerHeight - anchor.top + GAP) + 'px')
+  } else {
+    surface.style.setProperty('--ds-popover-top', Math.round(anchor.bottom + GAP) + 'px')
+  }
+  const left = Math.max(EDGE, Math.min(anchor.left, window.innerWidth - rect.width - EDGE))
+  surface.style.setProperty('--ds-popover-left', Math.round(left) + 'px')
+  surface.style.setProperty('--ds-popover-trigger-width', Math.round(anchor.width) + 'px')
+}
+
+function openAnchored(trigger, surface) {
+  mirrorMode(surface, trigger)
+  surface.hidden = false
+  placeAnchored(trigger, surface)
+  trigger.setAttribute('aria-expanded', 'true')
+  trigger.setAttribute('aria-controls', surface.id)
+  stack.push({ surface, trigger, anchor: trigger })
+  surface.querySelector('[role="menuitem"]')?.focus()
+}
+
+function openAtPoint(surface, x, y, scopeNode) {
+  mirrorMode(surface, scopeNode)
+  surface.hidden = false
+  const rect = surface.getBoundingClientRect()
+  const left = Math.max(EDGE, Math.min(x, window.innerWidth - rect.width - EDGE))
+  const top = Math.max(EDGE, Math.min(y, window.innerHeight - rect.height - EDGE))
+  surface.style.setProperty('--ds-popover-left', Math.round(left) + 'px')
+  surface.style.setProperty('--ds-popover-top', Math.round(top) + 'px')
+  stack.push({ surface, trigger: null, anchor: null })
+  surface.querySelector('[role="menuitem"]')?.focus()
+}
+
+for (const trigger of document.querySelectorAll('[data-popover-trigger]')) {
+  const surface = document.getElementById(trigger.dataset.popoverTrigger)
+  trigger.addEventListener('click', () => {
+    if (!surface.hidden) close(surface, true)
+    else openAnchored(trigger, surface)
+  })
+}
+
+for (const area of document.querySelectorAll('[data-context-for]')) {
+  const surface = document.getElementById(area.dataset.contextFor)
+  area.addEventListener('contextmenu', (event) => {
+    event.preventDefault()
+    closeAll()
+    openAtPoint(surface, event.clientX, event.clientY, area)
+  })
+}
+
+/* Escape closes the topmost surface only, restoring focus to its trigger. */
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || stack.length === 0) return
+  event.preventDefault()
+  close(stack[stack.length - 1].surface, true)
+})
+
+/* Outside pointer-down closes — but a press landing in any surface stacked
+   above counts as inside, so a nested surface's own click is never dropped. */
+document.addEventListener('pointerdown', (event) => {
+  for (let i = stack.length - 1; i >= 0; i -= 1) {
+    const { surface, trigger } = stack[i]
+    if (surface.contains(event.target)) return
+    if (trigger && trigger.contains(event.target)) return
+    close(surface, false)
+  }
+})
+
+/* Arrow-key roving inside the demo menus — the content's obligation to its
+   declared role, not the shell's. */
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+  const surface = event.target.closest('.ds-popover')
+  if (!surface) return
+  const items = [...surface.querySelectorAll('[role="menuitem"]')]
+  const index = items.indexOf(document.activeElement)
+  if (index < 0) return
+  event.preventDefault()
+  const next = event.key === 'ArrowDown' ? (index + 1) % items.length : (index - 1 + items.length) % items.length
+  items[next].focus()
+})
+
+/* Activating a menu item closes its surface and hands focus back. */
+document.addEventListener('click', (event) => {
+  const item = event.target.closest('[role="menuitem"]')
+  const surface = item?.closest('.ds-popover')
+  if (surface) close(surface, true)
+})
+
+/* Scroll and resize REPOSITION an anchored surface — unlike a tooltip, a
+   popover holds state a scroll must not throw away. Capture phase, so nested
+   containers reposition too. */
+function repositionAll() {
+  for (const entry of stack) {
+    if (entry.anchor) placeAnchored(entry.anchor, entry.surface)
+  }
+}
+window.addEventListener('scroll', repositionAll, true)
+window.addEventListener('resize', repositionAll)
+</script>
+</body>
+</html>

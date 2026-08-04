@@ -1439,8 +1439,9 @@ export default function NewWorkspacePanel({
       : STEP_HEADING[step]
   const stepAnimationClass =
     direction === 'forward' ? 'wizard-step-in-forward' : 'wizard-step-in-backward'
-  // Every page keeps the 560px measure the shared fields read at.
-  const stepColumnClass = 'max-w-[560px]'
+  // Every page keeps the 560px measure the shared fields read at, centred in
+  // the pane — a max-w without mx-auto is the left-pinned-column bug (MC-2095).
+  const stepColumnClass = 'mx-auto max-w-[560px]'
 
   const guidedFlowVisible = guidedRuntimeState != null && !viewingIdeaAfterCommit
 
@@ -1715,7 +1716,10 @@ export default function NewWorkspacePanel({
                   {/* Pinned footer: the page body scrolls above it, so the
                       primary action never leaves the viewport on a tall page
                       (the sprint roster, the guided idea, the loop goal). */}
-                  <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[color:var(--border-subtle)] px-6 py-3">
+                  <footer className="shrink-0 border-t border-[color:var(--border-subtle)] py-3">
+                    {/* Footer actions cap to the same 560px measure as the page
+                        column so they align with the content edges. */}
+                    <div className="mx-auto flex w-full max-w-[560px] items-center justify-between gap-3 px-6">
                     <p className="min-w-0 flex-1 truncate text-meta leading-5 text-[color:var(--text-subtle)]">
                       {blockingMessage}
                     </p>
@@ -1752,6 +1756,7 @@ export default function NewWorkspacePanel({
                       >
                         {primaryLabel}
                       </button>
+                    </div>
                     </div>
                   </footer>
                 </>

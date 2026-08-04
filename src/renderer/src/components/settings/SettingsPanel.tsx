@@ -1841,7 +1841,7 @@ export default function SettingsPanel({
   const fullWidthTab = activeTab.id === 'shortcuts' || activeTab.id === 'learn'
 
   const bodyContent = (
-    <div className={fullWidthTab ? undefined : 'max-w-[640px]'}>
+    <div className={fullWidthTab ? undefined : 'mx-auto max-w-[640px]'}>
       {/* Built-in tabs self-title via their own section headings and the rail
           orientation, so they take no page header. Module-contributed sections
           render a third-party component with no title of its own, so the host

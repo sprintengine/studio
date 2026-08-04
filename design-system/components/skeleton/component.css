@@ -1,0 +1,50 @@
+/* Skeleton — the ghost block for content whose shape is already known
+ * (src/renderer/src/components/ui/Skeleton.tsx). One class, one block; rows
+ * and cards of blocks are the consumer's composition, sized to the content
+ * they stand in for.
+ *
+ * The fill is bg.active and the sweep highlight is border.subtle — ink-tinted
+ * in light mode, paper-tinted in dark, from the same tokens. (The shipped kit
+ * reads per-theme --skeleton-shimmer-* variables that live outside the sem
+ * set; see the entry's Known drift note.) */
+
+.ds-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-active);
+}
+
+/* The sweep exists only when motion is welcome: under reduced motion the
+ * static fill IS the treatment, so motion is never the sole signal. The
+ * 1400ms period is a loop, not a transition — the motion.duration tokens
+ * govern the three eased motions, and a shimmer is none of them. */
+@media (prefers-reduced-motion: no-preference) {
+  .ds-skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--sem-color-border-subtle) 50%,
+      transparent 100%
+    );
+    transform: translateX(-100%);
+    animation: ds-skeleton-sweep 1400ms ease-in-out infinite;
+  }
+}
+
+/* Static variant: no sweep even when motion is allowed. For regions that
+ * mount many blocks at once (the terminal-replay restore), where an animation
+ * per block is compositor cost at the busiest moment. A region uses one
+ * variant, never a mix. */
+.ds-skeleton--static::after {
+  content: none;
+}
+
+@keyframes ds-skeleton-sweep {
+  100% {
+    transform: translateX(100%);
+  }
+}

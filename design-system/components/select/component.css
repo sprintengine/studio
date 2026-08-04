@@ -1,0 +1,167 @@
+/* Select — one value out of a closed list; a select-only combobox
+ * (src/renderer/src/components/ui/Select.tsx). The trigger holds focus and
+ * role="combobox"; the popup is a listbox the focus never enters.
+ *
+ * The popup is a standard popover surface. Its shadow is --sem-shadow-popover —
+ * the shipped kit hardcodes a dark-tuned literal there (Popover.tsx), which is
+ * drift, not canon. */
+
+.ds-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-sm);
+  height: var(--sem-size-control-sm);
+  /* A hit-target floor for shrink-wrapped triggers, from the source component.
+     Width-constrained layouts may override it and let the value truncate. */
+  min-width: 140px;
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Hover lifts the border and the ink; the background does not move — a value
+ * display is not a row, and bg.hover on it would read as a list. */
+.ds-select:hover:not(:disabled) {
+  border-color: var(--sem-color-border-strong);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-select:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ds-select-value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* No selection yet. Prefer a real default; the placeholder never returns once
+ * a value exists. */
+.ds-select-value--placeholder {
+  color: var(--sem-color-text-muted);
+}
+
+/* Points down in every state: an affordance, not a state indicator — the
+ * visible popup is the open state. */
+.ds-select-chevron {
+  flex: none;
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  color: var(--sem-color-text-muted);
+}
+
+/* Toned value — the selected choice carries risk. Soft tint, transparent
+ * border (the tint is the edge), tone ink on the value. A property of the
+ * value, not the control: no accent or success tones, ever. */
+.ds-select--warn {
+  border-color: transparent;
+  background: var(--sem-color-status-warn-soft);
+}
+.ds-select--warn .ds-select-value {
+  color: var(--sem-color-status-warn);
+}
+.ds-select--danger {
+  border-color: transparent;
+  background: var(--sem-color-status-danger-soft);
+}
+.ds-select--danger .ds-select-value {
+  color: var(--sem-color-status-danger);
+}
+
+/* The popup: an overlay surface, opened at least as wide as its trigger,
+ * capped and scrolling past ~8 rows. Consumers position it under the trigger
+ * in viewport coordinates via the two custom properties. */
+.ds-select-listbox {
+  position: fixed;
+  top: var(--ds-select-top, 0);
+  left: var(--ds-select-left, 0);
+  z-index: var(--sem-z-popover);
+  box-sizing: border-box;
+  min-width: var(--ds-select-trigger-width, 140px);
+  /* ~8 option rows; past this the popup scrolls. A cap, not a spacing step. */
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--sem-space-2xs) 0;
+  border: 1px solid var(--sem-color-border-strong);
+  border-radius: var(--sem-radius-overlay);
+  background: var(--sem-color-bg-surface-raised);
+  box-shadow: var(--sem-shadow-popover);
+  list-style: none;
+}
+
+.ds-select-listbox[hidden] {
+  display: none;
+}
+
+.ds-select-option {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-xs) var(--sem-space-md);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  cursor: pointer;
+}
+
+/* Active tracks keyboard and pointer through one treatment, so there is never
+ * a hover row and a different arrow-key row lit at once. */
+.ds-select-option--active {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-select-option[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ds-select-option-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Toned option ink mirrors the toned trigger, so the risky row reads the same
+ * in the list as it does at rest. */
+.ds-select-option--warn .ds-select-option-label {
+  color: var(--sem-color-status-warn);
+}
+.ds-select-option--danger .ds-select-option-label {
+  color: var(--sem-color-status-danger);
+}
+
+/* Accent as ink on the selected option's check — inside the accent budget.
+ * The state itself lives in aria-selected; the glyph is its visual echo. */
+.ds-select-check {
+  flex: none;
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  color: var(--sem-color-accent-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-select {
+    transition: none;
+  }
+}

@@ -112,3 +112,21 @@ the document's mode instead of the container's.
 - Contrast is `text.default` on `bg.surface-raised` in both modes. Do not drop
   the description to `text.subtle` to make it feel secondary — it is already
   secondary by being hidden.
+
+## Known drift
+
+Verified against `src/renderer/src/components/ui/Tooltip.tsx` (2026-08-04):
+
+- **Type and padding.** This spec (and the reference CSS) says
+  `font.size.meta` with `space.xs` / `space.md` padding (6/10px); shipped is
+  `font.size.micro` (11px) with `px-2 py-1` (8/4px), ink at `--text-strong`
+  on a `border.strong` hairline.
+- **Architecture.** Shipped mounts a portal **per trigger instance** (created
+  on open — one visible at a time, but N instances across a list), the exact
+  pattern this spec rules out for 200-row lists; the single shared surface
+  positioned by `--ds-tooltip-top/left` is not what ships.
+- **Placement and delay.** Spec prefers inline-start, 8px clear, ~350ms
+  pointer delay; shipped defaults to `top` with a 6px gap, a per-trigger
+  `placement` prop, and a 200ms delay.
+
+MC-2118 owns the reconciliation.

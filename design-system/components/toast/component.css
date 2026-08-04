@@ -1,0 +1,141 @@
+/* Toast — the transient report. Extracted from the source product's Toast
+ * primitive (src/renderer/src/components/ui/).
+ *
+ * Family contract: one region per document, in one corner; the tone decides
+ * color, politeness, and persistence (see the table in component.md). The
+ * tone is carried by the 6px dot and the words — never by tinting the
+ * surface — so every toast survives greyscale.
+ *
+ * No shadow, on purpose: no elevation token names the toast (the ramp is
+ * popover / drawer / modal) and the shipped toast ships none. The hairline
+ * does the separating. */
+
+/* The one corner. pointer-events pass through the empty column so the region
+ * never blocks the content it floats over; each toast re-enables its own. */
+.ds-toast-region {
+  position: fixed;
+  right: var(--sem-space-2xl);
+  bottom: var(--sem-space-2xl);
+  z-index: var(--sem-z-toast);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sem-space-sm);
+  /* A measure, not a token: wide enough for a title and one fact, narrow
+   * enough to stay a report rather than a panel. */
+  width: 320px;
+  max-width: calc(100vw - 2 * var(--sem-space-2xl));
+  pointer-events: none;
+}
+
+.ds-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-sm);
+  box-sizing: border-box;
+  padding: var(--sem-space-sm) var(--sem-space-lg);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-overlay);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-default);
+  /* Entering: a just-changed motion composing the sanctioned duration/ease
+   * pair. There is no exit animation — leaving quietly is the whole job. */
+  animation: ds-toast-enter var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+/* The 6px status idiom, top-aligned with the title's first line. */
+.ds-toast-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: var(--sem-space-2xs);
+  border-radius: 50%;
+  background: var(--sem-color-status-neutral);
+}
+
+/* Tone decides the dot; role/aria-live/persistence follow it in the markup —
+ * see the table in component.md. */
+.ds-toast--good .ds-toast-dot {
+  background: var(--sem-color-status-good);
+}
+
+.ds-toast--accent .ds-toast-dot {
+  background: var(--sem-color-accent-primary);
+}
+
+.ds-toast--warn .ds-toast-dot {
+  background: var(--sem-color-status-warn);
+}
+
+.ds-toast--danger .ds-toast-dot {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-toast-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.ds-toast-title {
+  color: var(--sem-color-text-primary);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-font-line-tight);
+}
+
+.ds-toast-description {
+  margin-top: var(--sem-space-3xs);
+  color: var(--sem-color-text-muted);
+  font-size: var(--sem-font-size-micro);
+  overflow-wrap: anywhere;
+}
+
+/* Trailing dismiss: the glyph shrinks, the target does not — the 10px mark
+ * pads out to the hit-target floor with a transparent area. The negative
+ * margin keeps the visual rhythm of the toast's inset while the target
+ * overhangs it. */
+.ds-toast-dismiss {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--sem-size-hit-target-min);
+  height: var(--sem-size-hit-target-min);
+  margin: calc(-1 * var(--sem-space-2xs)) calc(-1 * var(--sem-space-2xs)) calc(-1 * var(--sem-space-2xs)) 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  cursor: pointer;
+}
+
+.ds-toast-dismiss:hover {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-toast-dismiss:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+@keyframes ds-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-toast {
+    animation: none;
+  }
+}

@@ -1,0 +1,74 @@
+/* Segmented control — a radiogroup strip of 2–4 always-visible, mutually
+ * exclusive choices (src/renderer/src/components/ui/SegmentedControl.tsx).
+ *
+ * The group owns the border, radius, and clip; segments own nothing
+ * structural. Selection is neutral — bg.selected plus an ink lift — never the
+ * accent: a selected segment is a state display, not the view's one primary
+ * action. */
+
+.ds-segmented-control {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+}
+
+.ds-segmented-control-segment {
+  display: inline-flex;
+  align-items: center;
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-lg);
+  border: 0;
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* One internal hairline per join — on the segment after it, never doubled. */
+.ds-segmented-control-segment + .ds-segmented-control-segment {
+  border-left: 1px solid var(--sem-color-border-subtle);
+}
+
+.ds-segmented-control-segment:hover:not(:disabled):not([aria-checked='true']) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+/* Neutral selection: a luminance step and an ink lift, which is why the
+ * checked segment survives grayscale. */
+.ds-segmented-control-segment[aria-checked='true'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+/* The group clips its own overflow, so the shared treatment turns inward —
+ * only the offset is negated, same width, same colour (the split button's
+ * reasoning, and its exact rule). */
+.ds-segmented-control-segment:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+.ds-segmented-control-segment:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Dense variant for inline sub-controls inside compact popovers. */
+.ds-segmented-control--sm .ds-segmented-control-segment {
+  height: var(--sem-size-control-xs);
+  padding: 0 var(--sem-space-md);
+  font-size: var(--sem-font-size-micro);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-segmented-control-segment {
+    transition: none;
+  }
+}

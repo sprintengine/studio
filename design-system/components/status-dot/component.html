@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Status dot</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-pane {
+    max-width: 340px;
+    margin-bottom: var(--sem-space-lg);
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  /* Rows a dot actually lives in: the dot beside the text that names the
+     state. Note the healthy rows carry no dot at all — that absence is the
+     component's most important state. */
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-xs) var(--sem-space-md);
+    border-radius: var(--sem-radius-control);
+    font-size: var(--sem-font-size-body);
+    color: var(--sem-color-text-default);
+  }
+  /* Healthy rows render no mark; this spacer keeps the text column aligned
+     so the marked rows read as a column of exceptions. */
+  .demo-row-spacer {
+    flex: none;
+    width: var(--sem-space-xs);
+  }
+  .demo-row-state {
+    margin-left: auto;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — providers: healthy rows carry no dot; the exceptions are what a glance finds. One pulse, on the one thing running.</p>
+
+  <div class="demo-pane">
+    <div class="demo-row">
+      <span class="demo-row-spacer" aria-hidden="true"></span>
+      Anthropic
+      <span class="demo-row-state">Connected</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-status-dot ds-status-dot--accent ds-status-dot--pulse" aria-hidden="true"></span>
+      Sprint 14 run
+      <span class="demo-row-state">Running</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-status-dot ds-status-dot--warn" aria-hidden="true"></span>
+      GitHub sync
+      <span class="demo-row-state">Degraded</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-status-dot ds-status-dot--danger" aria-hidden="true"></span>
+      Tracker write-back
+      <span class="demo-row-state">Failing</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-status-dot ds-status-dot--merged" aria-hidden="true"></span>
+      MC-2101 pull request
+      <span class="demo-row-state">Merged</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-spacer" aria-hidden="true"></span>
+      Local runtime
+      <span class="demo-row-state">Idle</span>
+    </div>
+  </div>
+
+  <p class="demo-label">Standing alone — no adjacent text names the state, so the dot carries its own label.</p>
+  <div class="demo-pane">
+    <div class="demo-row">
+      Gate checks
+      <span class="demo-row-state">
+        <span class="ds-status-dot ds-status-dot--good" role="img" aria-label="Passing"></span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same ramp, retuned by the tokens.</p>
+
+  <div class="demo-pane">
+    <div class="demo-row">
+      <span class="demo-row-spacer" aria-hidden="true"></span>
+      Anthropic
+      <span class="demo-row-state">Connected</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-status-dot ds-status-dot--accent ds-status-dot--pulse" aria-hidden="true"></span>
+      Sprint 14 run
+      <span class="demo-row-state">Running</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-status-dot ds-status-dot--warn" aria-hidden="true"></span>
+      GitHub sync
+      <span class="demo-row-state">Degraded</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-status-dot ds-status-dot--danger" aria-hidden="true"></span>
+      Tracker write-back
+      <span class="demo-row-state">Failing</span>
+    </div>
+    <div class="demo-row">
+      <span class="ds-status-dot ds-status-dot--merged" aria-hidden="true"></span>
+      MC-2101 pull request
+      <span class="demo-row-state">Merged</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-spacer" aria-hidden="true"></span>
+      Local runtime
+      <span class="demo-row-state">Idle</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

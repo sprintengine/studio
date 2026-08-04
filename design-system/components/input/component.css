@@ -1,5 +1,6 @@
-/* Input — extracted from the source product's Field wrapper and the 28px
- * input chrome (src/renderer/src/components/ui/Field.tsx, InboxSearchInput.tsx). */
+/* Input — extracted from the source product's Field wrapper and the
+ * size.control.sm input chrome (src/renderer/src/components/ui/Field.tsx,
+ * InboxSearchInput.tsx). */
 
 .ds-field {
   display: flex;
