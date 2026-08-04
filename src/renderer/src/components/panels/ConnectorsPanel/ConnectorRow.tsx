@@ -58,10 +58,10 @@ export function ConnectorRow({
   selected?: boolean
   // When present the name/summary area is a button that opens the detail panel.
   onOpen?: () => void
-  // 'card' — the Browse idiom: own border, two lines, summary visible.
-  // 'compact' — the Installed idiom (Linear/Cursor density): one borderless
-  //   single-line row inside a parent list container (border + divide-y),
-  //   status and actions right-aligned, summary demoted to a hover tooltip.
+  // 'card' — the Browse idiom: two lines, summary visible.
+  // 'compact' — the Installed idiom (Linear/Cursor density): one single-line
+  //   row, status and actions right-aligned, summary demoted to a hover
+  //   tooltip. Both are list-rows: no border box, fills carry hover/selection.
   variant?: 'card' | 'compact'
 }) {
   if (variant === 'compact') {
@@ -80,8 +80,8 @@ export function ConnectorRow({
     return (
       <div
         title={summary}
-        className={`group relative flex min-w-0 items-center gap-2.5 px-3 py-1.5 transition-colors hover:bg-[color:var(--bg-hover)] ${
-          selected ? 'bg-[color:var(--bg-active)]' : ''
+        className={`group relative flex min-w-0 items-center gap-2.5 rounded-md px-3 py-1.5 transition-colors hover:bg-[color:var(--bg-hover)] ${
+          selected ? 'bg-[color:var(--bg-selected)]' : ''
         }`}
       >
         {icon}
@@ -105,9 +105,11 @@ export function ConnectorRow({
       </div>
     )
   }
+  // list-row, not a card: no border box — the grid's gaps separate rows, and
+  // the standard fills carry hover (--bg-hover) and selection (--bg-selected).
   const rowClass = selected
-    ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)]'
-    : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]'
+    ? 'bg-[color:var(--bg-selected)]'
+    : 'hover:bg-[color:var(--bg-hover)]'
   const content = (
     <>
       {icon}
@@ -138,7 +140,7 @@ export function ConnectorRow({
     </>
   )
   return (
-    <div className={`group relative flex items-center gap-2 rounded-md border p-2.5 ${rowClass}`}>
+    <div className={`group relative flex items-center gap-2 rounded-md p-2.5 transition-colors ${rowClass}`}>
       {onOpen ? (
         <button
           type="button"

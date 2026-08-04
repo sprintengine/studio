@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
+  composerRosterRows,
   engineNames,
   resolveInitialSelection,
   type AgentComposerSelection,
@@ -80,6 +81,62 @@ run('the composer hook seeds its selection via resolveInitialSelection in a lazy
     hookSource,
     /useState<AgentComposerSelection>\(\(\) =>\s*\n?\s*resolveInitialSelection\(allRows, initialSelection\)/,
     'selection uses a lazy useState initializer running resolveInitialSelection, not a constant',
+  )
+})
+
+// ---------------------------------------------------------------------------
+// A machine with no agent CLI (MC-2093): the roster stops offering rows that
+// launch one. The old catalog escape hatch made every picker offer all eight
+// uninstalled CLIs, each of which spawned a bare shell.
+// ---------------------------------------------------------------------------
+
+const SPECIALISTS = [
+  { id: 'architect', shortLabel: 'Architect', label: 'Architect', description: '' },
+  { id: 'developer', shortLabel: 'Developer', label: 'Developer', description: '' },
+] as SpecialistAction[]
+
+run('with no CLI installed the roster keeps only what needs no CLI', () => {
+  const rows = composerRosterRows({
+    showTerminal: true,
+    conversationAvailable: true,
+    specialistActions: SPECIALISTS,
+    noAgentCliInstalled: true,
+  })
+  assert.deepEqual(
+    rows.map((row) => row.kind),
+    ['terminal', 'conversation'],
+    'Terminal (a plain shell) and Conversation (provider-backed) stay; the roleless and specialist rows go',
+  )
+  assert.equal(
+    rows.some((row) => row.kind === 'general' || row.kind === 'specialist'),
+    false,
+    'no row that launches a CLI is reachable by click, Enter, or search',
+  )
+})
+
+run('a select-mode picker with no CLI installed offers no agent at all', () => {
+  assert.deepEqual(
+    composerRosterRows({
+      showTerminal: false,
+      conversationAvailable: false,
+      specialistActions: SPECIALISTS,
+      noAgentCliInstalled: true,
+    }),
+    [],
+    'the Automations soul picker empties rather than persisting an agent that cannot run',
+  )
+})
+
+run('an installed CLI leaves the roster exactly as it was', () => {
+  assert.deepEqual(
+    composerRosterRows({
+      showTerminal: true,
+      conversationAvailable: true,
+      specialistActions: SPECIALISTS,
+      noAgentCliInstalled: false,
+    }).map((row) => row.key),
+    ['terminal', 'general', 'conversation', 'specialist:architect', 'specialist:developer'],
+    'the normal roster, in order',
   )
 })
 
@@ -172,6 +229,24 @@ run('both composer surfaces label the roleless row from its own engine, never a 
       `${name}: the roleless agent is not described as general-purpose`,
     )
     assert.match(source, /Runs your instructions as written\./, `${name}: keeps the description that is actually true`)
+  }
+})
+
+// Source-contract for the wiring the pure roster cannot reach: the hook only
+// calls a machine CLI-less once the plugin registry is READY (a pending or
+// failed probe leaves the annotated catalog in place, which is what keeps a
+// transient failure from emptying the picker), and both surfaces answer that
+// state with the shared install route rather than an empty list.
+run('the zero-CLI state is derived from a ready catalog and answered with the install route', () => {
+  assert.match(
+    hookSource,
+    /noAgentCliInstalled\s*=\s*pluginCatalogStatus === 'ready' && agentCliOptions\.length === 0/,
+    'the flag is "ready and nothing installed", never "the list looks empty"',
+  )
+  for (const [name, source] of [['popover', popoverSource], ['panel', panelSource]] as const) {
+    assert.match(source, /composer\.noAgentCliInstalled/, `${name}: reads the zero-CLI state`)
+    assert.match(source, /<CliInstallRosterRow/, `${name}: offers the shared install route in its place`)
+    assert.match(source, /No agent CLI is installed\./, `${name}: says what the machine reported`)
   }
 })
 

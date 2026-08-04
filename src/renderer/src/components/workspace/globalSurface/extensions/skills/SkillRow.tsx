@@ -24,10 +24,10 @@ export function SkillRow({
 }): JSX.Element {
   return (
     <div
-      className={`flex items-stretch overflow-hidden rounded-md border transition-colors ${
-        selected
-          ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
-          : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)]'
+      // list-row: no border box — rows separate by the container's gap, and
+      // the fills carry hover and selection exactly as every other list does.
+      className={`flex items-stretch rounded-md transition-colors ${
+        selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
       }`}
     >
       <button
@@ -36,9 +36,8 @@ export function SkillRow({
         aria-checked={selected}
         aria-label={`Select ${item.name}`}
         onClick={onToggleSelect}
-        // The row clips its children to its own rounded corners, so both
-        // targets draw their focus ring INSIDE their box — an outset ring would
-        // survive as a 1px sliver on the row's edge and read as no ring at all.
+        // Inset rings: the two targets sit flush inside the row's fill, so an
+        // outset ring would collide with the neighbouring rows' fills.
         className={`grid w-8 shrink-0 place-items-center ${FOCUS_RING_INSET_CLASS}`}
       >
         <span

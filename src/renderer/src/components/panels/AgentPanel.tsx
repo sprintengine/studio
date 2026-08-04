@@ -251,7 +251,9 @@ export default function AgentPanel({
         level: 'error',
         source: 'terminal',
         title: `${label} was not started`,
-        message: `Agent CLI "${cli}" is unavailable. Reinstall or re-enable the plugin before launching this agent.`,
+        // "Reinstall" was wrong on the machine this guard now catches most
+        // often: a fresh install where the CLI was never there (MC-2093).
+        message: `Agent CLI "${cli}" is not installed. Install it in Settings → Agents before launching this agent.`,
         workspaceId,
         workspaceName,
         agentId,
@@ -449,7 +451,8 @@ export default function AgentPanel({
               ) : null}
               {agentCliUnavailable ? (
                 <div className="max-w-sm text-meta leading-5 text-[color:var(--text-muted)]">
-                  Agent CLI "{cli}" is unavailable. Reinstall or re-enable the plugin before launching this agent.
+                  Agent CLI "{cli}" is not installed. Install it in Settings → Agents before launching this
+                  agent.
                 </div>
               ) : null}
               <PrimaryButton

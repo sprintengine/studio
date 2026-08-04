@@ -60,6 +60,33 @@ assert.equal(
   false,
   'availability still loading does not block a stored agent (never-empty fallback)',
 )
+// The fresh-Mac case (MC-2093): NOTHING is installed. The catalog used to give
+// up filtering here and hand back every registered CLI, so membership read the
+// stored agent's CLI as present and the pane spawned against a missing binary.
+assert.equal(
+  isStoredAgentCliUnavailable('codex', 'ready', installedPlugins, undefined, {
+    map: {
+      codex: { cli: 'codex', installed: false, resolvedPath: null, version: null },
+      'claude-code': { cli: 'claude-code', installed: false, resolvedPath: null, version: null },
+    },
+    status: 'ready',
+  }),
+  true,
+  'a stored agent is unavailable when nothing at all is installed',
+)
+// …while a probe that never completed is still undecided, so the same machine
+// mid-probe does not block agents that may well be there.
+assert.equal(
+  isStoredAgentCliUnavailable('codex', 'ready', installedPlugins, undefined, {
+    map: {
+      codex: { cli: 'codex', installed: false, resolvedPath: null, version: null },
+      'claude-code': { cli: 'claude-code', installed: false, resolvedPath: null, version: null },
+    },
+    status: 'error',
+  }),
+  false,
+  'an errored probe leaves a stored agent launchable rather than blocking on a guess',
+)
 
 // --- runtime kind routing --------------------------------------------------
 

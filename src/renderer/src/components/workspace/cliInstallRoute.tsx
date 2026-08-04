@@ -1,0 +1,96 @@
+import { useCallback, useMemo } from 'react'
+
+import { useWorkspaceStore } from '../../store/workspaceStore'
+import { buildAgentCliCatalog, installableCliSummary } from './newWorkspace/cliRuntimeOptions'
+
+// The app's one CLI install surface: Settings → Agents, the same ProviderRow
+// install rows the first-run card shows. Every "there is no agent CLI here"
+// state routes through this module — the empty launcher, the agent pickers and
+// the first-run card all end up in the same place, so a user who lands on any
+// of them installs from the same list (MC-2093).
+export const AGENTS_SETTINGS_TAB = 'agents'
+
+export function useOpenCliInstall(): () => void {
+  const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
+  return useCallback(() => {
+    openSettingsOverlay({ initialTab: AGENTS_SETTINGS_TAB })
+  }, [openSettingsOverlay])
+}
+
+export function useInstallableCliSummary(): string {
+  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
+  return useMemo(
+    // The unfiltered registry catalog: what can be installed, not what is.
+    () => installableCliSummary(buildAgentCliCatalog(pluginCatalogEntries).map((option) => option.label)),
+    [pluginCatalogEntries],
+  )
+}
+
+// The same trailing chevron the launcher's live rows carry, so the install
+// route reads as one of them rather than a differently-drawn special case.
+function ChevronRightIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function CliInstallIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M8 2.5v8m0 0L5 7.5M8 10.5l3-3M3 13h10"
+        stroke="currentColor"
+        strokeWidth={1.4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// The launcher's zero-CLI call to action: the one thing that works on this
+// machine, so it carries the accent the CLI grid it replaces never needed.
+export function CliInstallCta() {
+  const openInstall = useOpenCliInstall()
+  const summary = useInstallableCliSummary()
+  return (
+    <button
+      type="button"
+      onClick={openInstall}
+      className="mt-5 flex w-full items-center gap-3 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-3 py-3 text-left transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
+    >
+      <CliInstallIcon className="size-icon-md shrink-0 text-[color:var(--accent-primary)]" />
+      <span className="min-w-0">
+        <span className="block text-body font-semibold text-[color:var(--text-strong)]">
+          Install an agent CLI
+        </span>
+        {summary ? (
+          <span className="mt-0.5 block truncate text-meta text-[color:var(--text-muted)]">{summary}</span>
+        ) : null}
+      </span>
+      <ChevronRightIcon className="ml-auto h-4 w-4 shrink-0 text-[color:var(--text-subtle)]" />
+    </button>
+  )
+}
+
+// The same route as a picker roster row: on a machine with no agent CLI it is
+// the only row a picker can honestly offer.
+export function CliInstallRosterRow({ onNavigate }: { onNavigate?: () => void }) {
+  const openInstall = useOpenCliInstall()
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        openInstall()
+        onNavigate?.()
+      }}
+      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-body text-[color:var(--text-strong)] transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
+    >
+      <CliInstallIcon className="icon-sm shrink-0 text-[color:var(--accent-primary)]" />
+      Install an agent CLI
+      <ChevronRightIcon className="ml-auto h-3.5 w-3.5 shrink-0 text-[color:var(--text-subtle)]" />
+    </button>
+  )
+}

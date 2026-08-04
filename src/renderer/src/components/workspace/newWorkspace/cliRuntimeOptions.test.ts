@@ -5,12 +5,14 @@ import {
   buildCliRuntimeOptions,
   cliRuntimeForPlugin,
   filterCatalogByAvailability,
+  installableCliSummary,
   isAgentCliAvailable,
   isAgentCliMissing,
   orderInstalledPlugins,
   pluginRegistryIdForCli,
   resolveAvailableAgentCli,
   resolveCliModel,
+  resolveLaunchableAgentCli,
   resolveCliReasoning,
   resolveTemplateAgentCli,
   selectAgentCliCatalog,
@@ -467,12 +469,27 @@ assert.deepEqual(
   ['codex', 'claude-code', 'opencode'],
   'loading status shows all registered CLIs (never an empty picker)',
 )
-// Zero installed while ready -> fall back to unfiltered rather than empty.
+// Zero installed while ready IS the answer on a fresh machine (MC-2093): the
+// catalog empties and the surfaces render their install state, instead of the
+// old escape hatch handing back eight uninstalled CLIs that all read launchable.
 assert.deepEqual(
   filterCatalogByAvailability(availCatalog, availabilityMap({ codex: false, 'claude-code': false, opencode: false }), 'ready')
     .map((option) => option.value),
+  [],
+  'a ready probe with nothing installed yields an empty catalog, not the unfiltered one',
+)
+// The case the escape hatch was written for still degrades gracefully: CLIs
+// exist, the probe did not finish, and the picker keeps the last known list.
+assert.deepEqual(
+  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: false, 'claude-code': false, opencode: false }), 'error')
+    .map((option) => option.value),
   ['codex', 'claude-code', 'opencode'],
-  'zero detected installs falls back to the full catalog instead of hiding everything',
+  'a failed probe keeps the annotated catalog — "we do not know" is not "none installed"',
+)
+assert.deepEqual(
+  filterCatalogByAvailability(availCatalog, null, 'ready').map((option) => option.value),
+  ['codex', 'claude-code', 'opencode'],
+  'an absent availability map is undecided and never empties the picker',
 )
 // An option with no availability entry stays visible (unknown != not-installed).
 assert.deepEqual(
@@ -505,5 +522,62 @@ assert.equal(
   'codex',
   'a remembered claude-code lastSelectedCli remaps to codex on a codex-only machine',
 )
+// One CLI installed and the rest not: the existing filtering is unchanged.
+assert.deepEqual(codexOnly.map((option) => option.value), ['codex'], 'only the installed CLI survives filtering')
+
+// --- the zero-CLI machine (MC-2093) ---------------------------------------
+const nothingInstalled = selectAgentCliCatalog('ready', plugins, undefined, {
+  map: availabilityMap({ codex: false, 'claude-code': false, opencode: false }),
+  status: 'ready',
+})
+assert.deepEqual(nothingInstalled, [], 'a machine with no agent CLI offers no agent CLI')
+// The stored-agent guard AgentPanel calls (isStoredAgentCliUnavailable) is
+// isAgentCliMissing over exactly this catalog: with nothing installed, a stored
+// CLI reads unavailable, so the agent pane stops spawning against a missing
+// binary instead of reading it as present through catalog membership.
+assert.equal(
+  isAgentCliMissing('codex', nothingInstalled),
+  true,
+  'a stored codex agent reads unavailable when nothing at all is installed',
+)
+assert.equal(
+  isAgentCliAvailable('codex', nothingInstalled),
+  false,
+  'membership can no longer report an uninstalled CLI as available',
+)
+// resolveLaunchableAgentCli expresses "none" where resolveAvailableAgentCli
+// must still answer with something for a picker to render.
+assert.equal(
+  resolveLaunchableAgentCli('codex', nothingInstalled),
+  null,
+  'no installed CLI means no CLI to launch — never a guessed fallback',
+)
+assert.equal(
+  resolveAvailableAgentCli('codex', nothingInstalled),
+  'claude-code',
+  'the display resolver still answers with its fallback — a guess, which is why launches ask the other one',
+)
+assert.equal(
+  resolveLaunchableAgentCli('claude-code', codexOnly),
+  'codex',
+  'a stale remembered CLI remaps to the installed one',
+)
+assert.equal(
+  resolveLaunchableAgentCli(null, codexOnly),
+  'codex',
+  'no remembered CLI resolves to the first installed entry',
+)
+// What the install route names: the registry's own CLIs, never a hardcoded list.
+assert.equal(
+  installableCliSummary(buildAgentCliCatalog(plugins).map((option) => option.label)),
+  'Codex, Claude Code, OpenCode.',
+  'three installable CLIs are named in full',
+)
+assert.equal(
+  installableCliSummary(['Codex', 'Claude Code', 'OpenCode', 'Grok', 'Cursor']),
+  'Codex, Claude Code, OpenCode, and 2 more.',
+  'beyond three, the rest are counted',
+)
+assert.equal(installableCliSummary([]), '', 'nothing to install names nothing')
 
 console.log('cliRuntimeOptions.test.ts: ok')

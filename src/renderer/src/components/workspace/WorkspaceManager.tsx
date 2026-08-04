@@ -9,7 +9,8 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../store/slices/settingsSlice'
-import { resolveAvailableAgentCli, resolveCliReasoning, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import { resolveCliReasoning, resolveLaunchableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import { AGENTS_SETTINGS_TAB } from './cliInstallRoute'
 import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
@@ -998,10 +999,16 @@ export default function WorkspaceManager() {
       cliModelCatalog,
     ],
   )
-  // First available catalog entry used to rescue new spawns whose remembered CLI
-  // (lastSelectedCli / specialist default) is no longer installed.
-  const fallbackSpawnCli = (cli: AgentCli): AgentCli =>
-    resolveAvailableAgentCli(cli, agentCliCatalog, agentCliCatalog[0]?.value ?? cli)
+  // The CLI a new spawn should launch: the remembered one when it is installed,
+  // otherwise the first installed entry — and `null` when this machine has no
+  // agent CLI at all (MC-2093). The old rescue answered with the remembered id
+  // in that case, seeding an agent against a binary that is not here; a spawn
+  // that gets `null` opens the install surface instead.
+  const launchableSpawnCli = (cli: AgentCli): AgentCli | null =>
+    resolveLaunchableAgentCli(cli, agentCliCatalog)
+  const routeToCliInstall = (): void => {
+    openSettingsOverlay({ initialTab: AGENTS_SETTINGS_TAB })
+  }
 
   // Conversation spawn is offered only in standard workspaces; Sprint Engine
   // agents stay terminal/MCP-owned (AgentPanel enforces this too).
@@ -1114,6 +1121,13 @@ export default function WorkspaceManager() {
       lastSelectedCli,
       agentCliCatalog,
     )
+    // A New chat seeds an agent that starts itself, so on a machine with no
+    // agent CLI it would create a workspace around a binary that is not here
+    // (MC-2093). The install is the honest answer to "start a chat" instead.
+    if (!resolveLaunchableAgentCli(templateAgentCli, agentCliCatalog)) {
+      openSettingsOverlay({ initialTab: AGENTS_SETTINGS_TAB })
+      return
+    }
     // Ride the remembered General model when it belongs to the spawning CLI —
     // the same mechanism as a specialist. Seeded via an agentPatch (no tabName,
     // so the layout is untouched). The patch always carries the composer's
@@ -1140,7 +1154,7 @@ export default function WorkspaceManager() {
     // lastSelectedCli, so a new-chat CLI never bleeds into the specialists.
     if (chosenCli) setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, chosenCli)
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
-  }, [agentCliCatalog, agentSpawnDebugMode, agentSpawnPermissionPreset, createSoloChatWorkspace, pluginCatalogEntries, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
+  }, [agentCliCatalog, agentSpawnDebugMode, agentSpawnPermissionPreset, createSoloChatWorkspace, openSettingsOverlay, pluginCatalogEntries, specialistCliDefaults, specialistModelDefaults, lastSelectedCli, setSpecialistCliDefault])
 
   // Launch an isolated connector chat for any catalog entry or installed MCP
   // server: a fresh worktree on `connector/<id>-<uid>`, opened as a worktree-backed
@@ -2201,9 +2215,13 @@ export default function WorkspaceManager() {
     const newId = `specialist-${specialist.id}-${nanoid(6)}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
     const prompt = buildSpecialistSoulStartupPrompt(specialist)
-    const cliForSpawn = fallbackSpawnCli(
+    const cliForSpawn = launchableSpawnCli(
       normalizeSelectedCli(selectedCli ?? specialistCliDefaults[specialist.id], lastSelectedCli)
     )
+    if (!cliForSpawn) {
+      routeToCliInstall()
+      return
+    }
 
     let execution: AgentExecution | undefined
     if (worktree) {
@@ -2241,7 +2259,11 @@ export default function WorkspaceManager() {
     if (!model) return
 
     const activeWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
-    const spawnCli = fallbackSpawnCli(cli)
+    const spawnCli = launchableSpawnCli(cli)
+    if (!spawnCli) {
+      routeToCliInstall()
+      return
+    }
     // General agents get a real first+last name from the shared pool, exactly
     // like specialists — not a numbered "General Agent 2/3…" placeholder.
     const tabName = pickRandomAgentName(
@@ -2356,9 +2378,13 @@ export default function WorkspaceManager() {
     const specialist = getSpecialistAction(specialistId)
     const tabName = pickRandomAgentName([])
     const prompt = buildSpecialistSoulStartupPrompt(specialist)
-    const cliForSpawn = fallbackSpawnCli(
+    const cliForSpawn = launchableSpawnCli(
       normalizeSelectedCli(selectedCli ?? specialistCliDefaults[specialist.id], lastSelectedCli)
     )
+    if (!cliForSpawn) {
+      routeToCliInstall()
+      return
+    }
     createSoloChatWorkspace({
       folderPath,
       templateAgentCli: cliForSpawn,

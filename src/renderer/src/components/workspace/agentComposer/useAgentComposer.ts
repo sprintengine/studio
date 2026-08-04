@@ -84,6 +84,35 @@ export function selectionForRow(row: ComposerRow): AgentComposerSelection {
   return { kind: row.kind }
 }
 
+// The roster every composer surface offers. Terminal (a plain shell) and
+// Conversation (provider-backed) launch no CLI, so they survive a machine with
+// none; the roleless and specialist rows do launch one, so with none installed
+// they are not built at all — a row that cannot run must not be reachable by
+// click, Enter, or search, and the surfaces render the install route instead
+// (MC-2093).
+export function composerRosterRows({
+  showTerminal,
+  conversationAvailable,
+  specialistActions,
+  noAgentCliInstalled,
+}: {
+  showTerminal: boolean
+  conversationAvailable: boolean
+  specialistActions: SpecialistAction[]
+  noAgentCliInstalled: boolean
+}): ComposerRow[] {
+  const rows: ComposerRow[] = []
+  if (showTerminal) rows.push({ key: 'terminal', kind: 'terminal' })
+  if (!noAgentCliInstalled) rows.push({ key: 'general', kind: 'general' })
+  if (conversationAvailable) rows.push({ key: 'conversation', kind: 'conversation' })
+  if (!noAgentCliInstalled) {
+    for (const action of specialistActions) {
+      rows.push({ key: `specialist:${action.id}`, kind: 'specialist', action })
+    }
+  }
+  return rows
+}
+
 // Resolve the opening selection to a row that actually exists. The remembered
 // agent is preselected when present; otherwise it falls back to the first
 // roster row (a specialist/role, else the first quick row) — so a remembered
@@ -188,16 +217,17 @@ export function useAgentComposer({
   // another keyed agent, its defaults living under GENERAL_AGENT_ENGINE_KEY.
   const generalCliOptions = agentCliOptions
 
-  const allRows = React.useMemo<ComposerRow[]>(() => {
-    const rows: ComposerRow[] = []
-    if (showTerminal) rows.push({ key: 'terminal', kind: 'terminal' })
-    rows.push({ key: 'general', kind: 'general' })
-    if (conversationAvailable) rows.push({ key: 'conversation', kind: 'conversation' })
-    for (const action of specialistActions) {
-      rows.push({ key: `specialist:${action.id}`, kind: 'specialist', action })
-    }
-    return rows
-  }, [showTerminal, conversationAvailable, specialistActions])
+  // This machine has no agent CLI (MC-2093). The catalog is availability-
+  // filtered, so an empty one on a READY registry is the honest answer — a
+  // pending or failed probe leaves the annotated catalog in place and never
+  // reaches here, which is what keeps a transient probe failure from emptying
+  // the roster on a machine that has CLIs.
+  const noAgentCliInstalled = pluginCatalogStatus === 'ready' && agentCliOptions.length === 0
+
+  const allRows = React.useMemo<ComposerRow[]>(
+    () => composerRosterRows({ showTerminal, conversationAvailable, specialistActions, noAgentCliInstalled }),
+    [showTerminal, conversationAvailable, specialistActions, noAgentCliInstalled],
+  )
 
   const [query, setQuery] = React.useState('')
   const [selection, setSelection] = React.useState<AgentComposerSelection>(() =>
@@ -388,6 +418,9 @@ export function useAgentComposer({
     setEngineReasoning,
     agentCliOptions,
     generalCliOptions,
+    // True when this machine has no agent CLI installed: the surfaces render
+    // the install route in place of the agent rows the hook withheld.
+    noAgentCliInstalled,
     // Catalog load state, so pickers can say "loading" / "no plugins" instead
     // of rendering a silently thin roster.
     catalogStatus: pluginCatalogStatus,

@@ -68,6 +68,16 @@ const CLAUDE_CODE_PLUGIN_ID = 'claude-code'
 // fallback catalog.
 const AGENT_PICKER_HIDDEN_CLI_IDS = new Set<AgentCli>(['generic-shell'])
 
+// Whether this plugin id is one the agent surfaces offer at all. Exported
+// because "does this machine have an agent CLI?" is a question about these ids
+// and only these: `generic-shell` ships with `binary: "sh"`, which every machine
+// resolves, so a reader that counts the raw availability map answers "yes" on a
+// machine with no agent CLI installed — and the first-run CLI card, which exists
+// for exactly that machine, never appears while every picker stands empty.
+export function isSelectableAgentCli(cli: AgentCli): boolean {
+  return !AGENT_PICKER_HIDDEN_CLI_IDS.has(cli)
+}
+
 // Fallback model catalogs for the bundled CLIs, used only while the plugin
 // registry is loading or errored (legacyCliRuntimeOptions / the `null`-plugins
 // path). The registry path reads each plugin manifest's own `modelSelection`.
@@ -165,6 +175,16 @@ export function pluginRegistryIdForCli(cli: AgentCli): AgentCli {
   return cli
 }
 
+// What the install route offers, named from the registry rather than a
+// hardcoded list, so the line on the install surfaces cannot drift from the
+// plugins that actually ship. Empty string when there is nothing to name.
+export function installableCliSummary(labels: string[]): string {
+  const named = labels.slice(0, 3)
+  if (named.length === 0) return ''
+  const rest = labels.length - named.length
+  return rest > 0 ? `${named.join(', ')}, and ${rest} more.` : `${named.join(', ')}.`
+}
+
 // Bundled entries first, then user entries, deduped by id — the row order for
 // the Agents settings tab. Unlike buildAgentCliCatalog this keeps the full
 // PluginCatalogEntry (binary, version, source) the settings rows need.
@@ -215,6 +235,23 @@ export function resolveAvailableAgentCli(
   if (cli && isAgentCliAvailable(cli, catalog)) return pluginRegistryIdForCli(cli)
   if (isAgentCliAvailable(fallback, catalog)) return fallback
   return catalog[0]?.value ?? fallback
+}
+
+// The CLI a spawn should actually launch, or `null` when this machine has none.
+//
+// `resolveAvailableAgentCli` always answers with something — a picker needs a
+// default to render even before its catalog resolves — and its last resort is
+// `catalog[0] ?? fallback`. Against an availability-filtered catalog that is
+// empty because nothing is installed, that answer is a guess: it hands a spawn a
+// binary the machine does not have. Launch surfaces ask this instead, and render
+// their install route on `null` rather than spawning against the guess.
+export function resolveLaunchableAgentCli(
+  cli: AgentCli | null | undefined,
+  catalog: AgentCliCatalogOption[],
+): AgentCli | null {
+  const first = catalog[0]
+  if (!first) return null
+  return resolveAvailableAgentCli(cli, catalog, first.value)
 }
 
 export function isAgentCliMissing(
@@ -396,12 +433,18 @@ export function selectAgentCliCatalog(
 
 // Annotate each option with its detected install state and hide the agent CLIs
 // whose binary is not installed, so deployment pickers never offer (or default
-// to) an uninstalled agent. Guards against a worse failure than the one we are
-// fixing — an empty picker — by falling back to the unfiltered (annotated)
-// catalog whenever detection is not yet trustworthy:
-//   - status is not `ready` (still loading, or detection errored), OR
-//   - the map is absent, OR
-//   - zero CLIs are detected as installed (likely a flaky/blocked probe).
+// to) an uninstalled agent.
+//
+// Detection that is not trustworthy yet is a different answer from "nothing is
+// installed", and only the first one earns a fallback:
+//   - status is not `ready` (still loading, or detection errored), or the map is
+//     absent → we do not know, so the unfiltered (annotated) catalog stands and
+//     a transient probe failure never empties a picker on a machine that has CLIs.
+//   - status is `ready` and every entry says not-installed → that IS the answer
+//     on a fresh machine, so the result is empty and the surfaces render their
+//     install state (MC-2093). The old escape hatch returned the whole catalog
+//     here, and every downstream membership guard then read eight uninstalled
+//     CLIs as launchable.
 // Only options explicitly detected as `installed === false` are removed; an
 // option with no availability entry (e.g. probed-after-add) stays visible.
 export function filterCatalogByAvailability(
@@ -418,9 +461,5 @@ export function filterCatalogByAvailability(
 
   if (status !== 'ready' || !availabilityMap) return annotated
 
-  const anyInstalled = Object.values(availabilityMap).some((entry) => entry.installed)
-  if (!anyInstalled) return annotated
-
-  const filtered = annotated.filter((option) => availabilityMap[option.value]?.installed !== false)
-  return filtered.length > 0 ? filtered : annotated
+  return annotated.filter((option) => availabilityMap[option.value]?.installed !== false)
 }

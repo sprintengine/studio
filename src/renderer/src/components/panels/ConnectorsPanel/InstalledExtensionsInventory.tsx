@@ -500,7 +500,10 @@ function InstalledView({
           <section key={group.kind} className="space-y-2">
             <ConnectorSectionHeading label={group.label} count={group.items.length} />
             {group.kind === 'module' ? moduleUpdateSlot : null}
-            <div className="divide-y divide-[color:var(--border-subtle)] overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
+            {/* Two-column list-row grid, matching Browse's arrangement: no
+                container box, no per-row rule — the gaps separate rows and the
+                hover fill carries the pointer. */}
+            <div className="grid grid-cols-1 gap-x-2 gap-y-0.5 sm:grid-cols-2">
               {group.items.map((item) => (
                 <InstalledRow key={item.key} item={item} actions={actions} skillUse={skillUse} cliUpdate={cliUpdate} />
               ))}

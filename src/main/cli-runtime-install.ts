@@ -107,6 +107,23 @@ export function buildProbeDescriptor(input: {
   return shellDescriptorForScript(target, script)
 }
 
+// True when this setup has a user shell the fallback probe can consult: a POSIX
+// target plus a zsh/bash $SHELL (the probe script uses `command -v` + POSIX
+// quoting, which fish would misparse). Exported because callers that act on a
+// "not installed" verdict need to know whether the full probe chain ran: without
+// the interactive fallback, an absent binary may simply be one the primary
+// `bash -lc` probe cannot see.
+export function userShellProbeSupported(
+  target: PluginInstallPlatform,
+  shell: string | undefined,
+): shell is string {
+  if (target !== 'darwin' && target !== 'linux') return false
+  const shellPath = shell?.trim()
+  if (!shellPath) return false
+  const shellName = shellPath.split('/').pop()
+  return shellName === 'zsh' || shellName === 'bash'
+}
+
 // Fallback probe through the user's own login+interactive shell. The primary
 // probe runs `bash -lc`, which never sources zsh config — so a `claude` whose
 // PATH entry lives only in ~/.zshrc/~/.zprofile (nvm, homebrew) is visible in
@@ -121,13 +138,8 @@ export function buildUserShellProbeDescriptor(input: {
   shell: string | undefined
 }): SpawnDescriptor | null {
   const { binary, versionArgs, target, shell } = input
-  if (target !== 'darwin' && target !== 'linux') return null
-  const shellPath = shell?.trim()
-  if (!shellPath) return null
-  const shellName = shellPath.split('/').pop()
-  // Only POSIX-syntax shells: the probe script uses `command -v` + POSIX
-  // quoting, which fish would misparse.
-  if (shellName !== 'zsh' && shellName !== 'bash') return null
+  if (!userShellProbeSupported(target, shell)) return null
+  const shellPath = shell.trim()
   const bin = posixSingleQuote(binary)
   const versionPart = versionArgs.map(posixSingleQuote).join(' ')
   // In an interactive shell `command -v` also matches aliases and functions

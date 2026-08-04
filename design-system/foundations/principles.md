@@ -141,6 +141,12 @@ person with everything at once.
 - At most 2 radii per view. `radius.control` (5px) is the default; larger radii
   belong to overlay and modal shells. Marketing radii (`rounded-2xl` and up)
   never appear on operational chrome.
+- A capped column is centred or it is a bug. When a `max-width` element IS the
+  page's content — a wizard step, a settings body, a door canvas — it centres
+  (`max-w-*` + `mx-auto`), and its footer actions cap to the same measure so
+  they align with the content edges. A reading-measure cap *inside* a
+  left-anchored composition (prose under an uncapped heading, beside a figure)
+  stays anchored with its siblings; centring it alone would misalign the page.
 
 ## Type
 

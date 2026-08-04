@@ -10,6 +10,7 @@ import {
   SpawnDebugToggle,
   TerminalSessionIcon,
 } from './agentSpawnShared'
+import { CliInstallRosterRow } from '../cliInstallRoute'
 import {
   useAgentComposer,
   rowMatchesSelection,
@@ -153,8 +154,13 @@ export default function AgentComposerPopover({
     }
   }, [engineFlyoutRowKey])
 
+  // Every spawn/select goes through here: a row click, or Enter in the search
+  // field. A selection with no row on this machine must not commit — with no
+  // agent CLI installed the roster withholds the rows that launch one, and a
+  // remembered specialist would otherwise still ride Enter.
   const commit = React.useCallback(
     (target: AgentComposerSelection) => {
+      if (!visibleRows.some((row) => rowMatchesSelection(row, target))) return
       if (action.kind === 'select') {
         if (target.kind === 'specialist') {
           action.onSelectSpecialist(target.specialistId, action.cli, action.model)
@@ -167,7 +173,7 @@ export default function AgentComposerPopover({
       action.onSpawn(composer.buildConfirm(target))
       onClose()
     },
-    [action, composer, onClose],
+    [action, composer, onClose, visibleRows],
   )
 
   const onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -240,9 +246,17 @@ export default function AgentComposerPopover({
         <div className="px-3 py-1.5 text-micro text-[color:var(--text-muted)]" role="status">
           {composer.catalogError ?? 'Could not load agent plugins.'} Showing built-in agents.
         </div>
-      ) : composer.agentCliOptions.length === 0 ? (
+      ) : composer.noAgentCliInstalled ? (
         <div className="px-3 py-1.5 text-micro text-[color:var(--text-muted)]" role="status">
-          No agent plugins installed.
+          No agent CLI is installed.
+        </div>
+      ) : null}
+
+      {/* The only row that works on a machine with no agent CLI — the agent rows
+          are withheld by the composer, so this is what the roster leads with. */}
+      {composer.noAgentCliInstalled ? (
+        <div className="py-1">
+          <CliInstallRosterRow onNavigate={onClose} />
         </div>
       ) : null}
 
@@ -253,7 +267,11 @@ export default function AgentComposerPopover({
         className="min-h-0 flex-1 overflow-y-auto py-1"
       >
         {visibleRows.length === 0 ? (
-          <div className="px-3 py-5 text-center text-micro text-[color:var(--text-disabled)]">No matches</div>
+          // With no agent CLI the roster is deliberately empty; the install row
+          // above already says why, and "No matches" would blame the search.
+          composer.noAgentCliInstalled ? null : (
+            <div className="px-3 py-5 text-center text-micro text-[color:var(--text-disabled)]">No matches</div>
+          )
         ) : (
           visibleRows.map((row, index) => {
             const prev = visibleRows[index - 1]

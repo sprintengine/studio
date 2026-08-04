@@ -5,6 +5,7 @@ import CliIcon from '../CliIcon'
 import { SprintEngineWorkspaceTypeIcon } from '../AppIcons'
 import { Popover } from '../ui'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
+import { CliInstallCta } from './cliInstallRoute'
 
 interface WorkspaceLauncherProps {
   // Available agent CLIs to offer as the quick-launch grid (the expected
@@ -27,6 +28,10 @@ const MODE_ROW =
 const ROW_ICON =
   'size-icon-md shrink-0 text-[color:var(--text-muted)] transition-colors group-hover:text-[color:var(--text-default)]'
 
+// The same glyph on a row that cannot run. A second `text-[color:…]` appended to
+// ROW_ICON would be dropped by the cascade, so the disabled row uses its own class.
+const ROW_ICON_DISABLED = 'size-icon-md shrink-0 text-[color:var(--text-disabled)]'
+
 function ChevronRightIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -43,6 +48,32 @@ function SpecialistRosterIcon({ className }: { className?: string }) {
       <path d="M12 3 4 7v6c0 4 3.5 7 8 8 4.5-1 8-4 8-8V7z" stroke="currentColor" strokeWidth={1.6} strokeLinejoin="round" />
       <path d="m9 12 2 2 4-4" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
+  )
+}
+
+// A launch row that cannot run here: same anatomy and place as the live row,
+// with its state where the description was. Not a button — there is nothing to
+// press — so it is inert to the keyboard as well as the pointer.
+function DisabledModeRow({
+  icon,
+  title,
+  state,
+}: {
+  icon: ReactNode
+  title: string
+  state: string
+}) {
+  return (
+    <div
+      aria-disabled="true"
+      className="flex w-full items-center gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-3 text-left"
+    >
+      {icon}
+      <span className="min-w-0">
+        <span className="block text-body font-semibold text-[color:var(--text-disabled)]">{title}</span>
+        <span className="mt-0.5 block truncate text-meta text-[color:var(--text-muted)]">{state}</span>
+      </span>
+    </div>
   )
 }
 
@@ -68,8 +99,12 @@ export default function WorkspaceLauncher({
         <h1 className="text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
           Start something here
         </h1>
+        {/* State, not helper copy: with nothing installed the machine's answer
+            is the reason this surface looks the way it does. */}
         <p className="mt-1 text-body text-[color:var(--text-muted)]">
-          This workspace is empty. Launch an agent to begin.
+          {hasClis
+            ? 'This workspace is empty. Launch an agent to begin.'
+            : 'No agent CLI is installed on this machine.'}
         </p>
 
         {hasClis ? (
@@ -89,13 +124,32 @@ export default function WorkspaceLauncher({
             ))}
           </div>
         ) : (
-          <p className="mt-5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-3 text-meta text-[color:var(--text-muted)]">
-            No agent CLI is configured yet. Add one in settings to launch an agent.
-          </p>
+          // The one route that works here. Nothing else on this surface can
+          // launch, so the install is the surface's primary action.
+          <CliInstallCta />
         )}
 
         <div className="mt-3.5 flex flex-col gap-2 border-t border-[color:var(--border-subtle)] pt-3.5">
-          {renderSpecialistPicker ? (
+          {/* Both rows spawn a CLI agent, so with none installed they cannot
+              run — they say so where their description was, rather than
+              looking live and failing on click. */}
+          {!hasClis ? (
+            <>
+              {renderSpecialistPicker ? (
+                <DisabledModeRow
+                  icon={<SpecialistRosterIcon className={ROW_ICON_DISABLED} />}
+                  title="Specialist agent"
+                  state="Needs an agent CLI"
+                />
+              ) : null}
+              <DisabledModeRow
+                icon={<SprintEngineWorkspaceTypeIcon className={ROW_ICON_DISABLED} />}
+                title="Sprint Engine"
+                state="Needs an agent CLI"
+              />
+            </>
+          ) : null}
+          {hasClis && renderSpecialistPicker ? (
             <Popover
               open={specialistOpen}
               onOpenChange={setSpecialistOpen}
@@ -121,18 +175,20 @@ export default function WorkspaceLauncher({
             </Popover>
           ) : null}
 
-          <button type="button" onClick={onStartSprintEngine} className={MODE_ROW}>
-            <SprintEngineWorkspaceTypeIcon className={ROW_ICON} />
-            <span className="min-w-0">
-              <span className="block text-body font-semibold text-[color:var(--text-strong)]">
-                Sprint Engine
+          {hasClis ? (
+            <button type="button" onClick={onStartSprintEngine} className={MODE_ROW}>
+              <SprintEngineWorkspaceTypeIcon className={ROW_ICON} />
+              <span className="min-w-0">
+                <span className="block text-body font-semibold text-[color:var(--text-strong)]">
+                  Sprint Engine
+                </span>
+                <span className="mt-0.5 block truncate text-meta text-[color:var(--text-muted)]">
+                  Launch a coordinated multi-agent team from a goal or backlog item.
+                </span>
               </span>
-              <span className="mt-0.5 block truncate text-meta text-[color:var(--text-muted)]">
-                Launch a coordinated multi-agent team from a goal or backlog item.
-              </span>
-            </span>
-            <ChevronRightIcon className="ml-auto h-4 w-4 shrink-0 text-[color:var(--text-subtle)] transition-all group-hover:translate-x-0.5 group-hover:text-[color:var(--text-default)]" />
-          </button>
+              <ChevronRightIcon className="ml-auto h-4 w-4 shrink-0 text-[color:var(--text-subtle)] transition-all group-hover:translate-x-0.5 group-hover:text-[color:var(--text-default)]" />
+            </button>
+          ) : null}
         </div>
 
         {hasFooter ? (

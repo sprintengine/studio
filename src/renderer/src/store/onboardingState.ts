@@ -1,5 +1,6 @@
 import type { AgentCliAvailabilityMap } from '../../../shared/electron-api'
 import type { CliAvailabilityStatus } from './slices/cliAvailabilitySlice'
+import { isSelectableAgentCli } from '../components/workspace/newWorkspace/cliRuntimeOptions'
 
 // What is left of first-run onboarding: one predicate.
 //
@@ -26,7 +27,13 @@ export function shouldShowFirstRunCliCard(input: {
   // Neither is evidence of absence, and asking on either would put a card in
   // front of a user whose CLI is sitting right there.
   if (input.cliAvailabilityStatus !== 'ready') return false
-  return !Object.values(input.cliAvailability).some((entry) => entry?.installed === true)
+  // Only the CLIs the pickers actually offer count as "this machine has one".
+  // The probe answers for every registered plugin, and `generic-shell` runs
+  // `sh` — present on every machine, offered by nothing — so counting the raw
+  // map made the card unreachable on the fresh Mac it was written for.
+  return !Object.entries(input.cliAvailability).some(
+    ([cli, entry]) => entry?.installed === true && isSelectableAgentCli(cli),
+  )
 }
 
 // The auto-open's half of the same decision (MC-2094). The card renders only on

@@ -2,25 +2,20 @@
 // surface, relocated wholesale from the (removed) Settings → MCPs / Skill packs /
 // Extensions tabs (T3). Browsing and installing connectors live on the Browse
 // grid; this view owns the lower-frequency management the grid can't express:
-//   • the read-only cross-primitive inventory (InstalledExtensionsInventory),
-//   • active MCP servers (remove) + a custom-MCP form + the automation server,
-//   • bundled built-in skills (install / update). Everything else about skills —
-//     the sources they come from, browsing and installing them — is the Skills
-//     surface's, not this view's.
-// This is a presentation-only relocation: every store action and window.api.*
-// call is the one the Settings tabs used — no state or IPC changed.
+// the read-only cross-primitive inventory (InstalledExtensionsInventory), plus
+// active MCP servers (remove) and the custom-MCP form. Everything else about
+// skills — sources, browsing, installing, including the bundled built-ins via
+// the Multicode source — is the Skills surface's, not this view's; the
+// automation server has its own rail destination.
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 
-import type { BuiltinSkill, BuiltinSkillStatus, McpCatalogServer, WorkspaceSkill } from '../../../../../shared/electron-api'
+import type { McpCatalogServer, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type { McpSettings } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { Field, GhostButton, Select, type SelectItem } from '../../ui'
-import { McpBrandIcon } from '../../settings/McpCatalog'
-import { AutomationServerSettings } from '../../settings/AutomationServerSettings'
-import { ConnectorRow, ConnectorSectionHeading } from './ConnectorRow'
+import { Field, GhostButton, OutlineButton, PrimaryButton, Select, type SelectItem } from '../../ui'
 import { InstalledExtensionsInventory } from './InstalledExtensionsInventory'
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
@@ -87,11 +82,7 @@ export function ConnectorsManage({
   const [customMcpUrl, setCustomMcpUrl] = useState('')
   const [customMcpEnv, setCustomMcpEnv] = useState('')
   const [customMcpTransport, setCustomMcpTransport] = useState<'stdio' | 'http'>('stdio')
-
-  const [builtinSkills, setBuiltinSkills] = useState<BuiltinSkill[]>([])
-  const [builtinSkillStatuses, setBuiltinSkillStatuses] = useState<Record<string, BuiltinSkillStatus>>({})
-  const [builtinSkillPendingId, setBuiltinSkillPendingId] = useState<string | null>(null)
-  const [builtinSkillMessage, setBuiltinSkillMessage] = useState<string | null>(null)
+  const [addMcpOpen, setAddMcpOpen] = useState(false)
 
   // The inventory lists skills and modules over IPC, so a successful remove
   // bumps this to remount it and re-list; MCP rows ride the store and need no
@@ -116,51 +107,6 @@ export function ConnectorsManage({
     },
     [activeWorkspaceRoot],
   )
-
-  // Bundled built-in skills: list them always; probe per-workspace install status
-  // only when a workspace is open (status is workspace-scoped).
-  useEffect(() => {
-    let cancelled = false
-    setBuiltinSkillMessage(null)
-    setBuiltinSkillStatuses({})
-    void window.api.builtinSkillsList().then(async (skills) => {
-      if (cancelled) return
-      setBuiltinSkills(skills)
-      if (!activeWorkspaceRoot) return
-      const statuses = await Promise.all(
-        skills.map(async (skill) => {
-          const status = await window.api.builtinSkillStatus({ workspaceRoot: activeWorkspaceRoot, skillId: skill.id })
-          return [skill.id, status] as const
-        }),
-      )
-      if (!cancelled) setBuiltinSkillStatuses(Object.fromEntries(statuses))
-    }).catch((error) => {
-      if (!cancelled) setBuiltinSkillMessage(error instanceof Error ? error.message : 'Failed to load built-in skills.')
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [activeWorkspaceRoot])
-
-  const installBuiltinSkill = useCallback(async (skill: BuiltinSkill) => {
-    if (!activeWorkspaceRoot) return
-    setBuiltinSkillPendingId(skill.id)
-    setBuiltinSkillMessage(null)
-    try {
-      const result = await window.api.builtinSkillInstall({ workspaceRoot: activeWorkspaceRoot, skillId: skill.id })
-      if (result.ok) {
-        setBuiltinSkillMessage(result.status === 'updated' ? `${skill.name} updated.` : `${skill.name} installed.`)
-        const status = await window.api.builtinSkillStatus({ workspaceRoot: activeWorkspaceRoot, skillId: skill.id })
-        setBuiltinSkillStatuses((current) => ({ ...current, [skill.id]: status }))
-      } else {
-        setBuiltinSkillMessage(result.message)
-      }
-    } catch (error) {
-      setBuiltinSkillMessage(error instanceof Error ? error.message : `Failed to install ${skill.name}.`)
-    } finally {
-      setBuiltinSkillPendingId(null)
-    }
-  }, [activeWorkspaceRoot])
 
   const addCustomMcp = useCallback(() => {
     const id = customMcpId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
@@ -199,6 +145,7 @@ export function ConnectorsManage({
     setCustomMcpUrl('')
     setCustomMcpEnv('')
     setMcpMessage(null)
+    setAddMcpOpen(false)
   }, [
     customMcpArgs,
     customMcpCommand,
@@ -239,12 +186,12 @@ export function ConnectorsManage({
       </section>
 
       <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
-        <details className="group space-y-3 [&[open]]:space-y-3">
-          {/* Row-sized affordance matching the inventory rows above it. */}
-          <summary className="interactive flex cursor-pointer list-none items-center justify-between gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] p-2.5 text-body font-semibold text-[color:var(--text-strong)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)] focus-visible:focus-ring">
-            <span>Add a custom MCP</span>
-            <span aria-hidden className="text-meta font-medium text-[color:var(--text-subtle)] transition-transform group-open:rotate-180">▾</span>
-          </summary>
+        {!addMcpOpen ? (
+          <OutlineButton size="sm" onClick={() => setAddMcpOpen(true)}>
+            Add a custom MCP
+          </OutlineButton>
+        ) : (
+          <>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Server id" htmlFor="custom-mcp-id">
               <input
@@ -309,70 +256,29 @@ export function ConnectorsManage({
               </Field>
             </div>
           </div>
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
             <GhostButton
-              size="md"
-              onClick={addCustomMcp}
-              className="h-control-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              size="sm"
+              onClick={() => {
+                setAddMcpOpen(false)
+                setMcpMessage(null)
+              }}
             >
-              Add custom MCP
+              Cancel
             </GhostButton>
+            <PrimaryButton size="sm" onClick={addCustomMcp}>
+              Add server
+            </PrimaryButton>
           </div>
-        </details>
+          </>
+        )}
 
         <ManageNote tone={mcpMessage ? 'accent' : 'neutral'}>
           {mcpMessage || (activeWorkspaceRoot
             ? 'Changes apply automatically across Claude Code, Codex, and other terminal agents. Existing terminals keep their current config until relaunched.'
             : 'Open a workspace folder to sync MCPs to terminal agents.')}
         </ManageNote>
-
-        <AutomationServerSettings />
       </section>
-
-      <section className="space-y-2 border-t border-[color:var(--border-subtle)] pt-5">
-        <ConnectorSectionHeading label="Bundled skills" count={builtinSkills.length} />
-        {builtinSkills.length ? (
-          <div className="divide-y divide-[color:var(--border-subtle)] overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
-            {builtinSkills.map((skill) => {
-              const status = builtinSkillStatuses[skill.id] ?? null
-              const actionable =
-                Boolean(activeWorkspaceRoot)
-                && status?.ok === true
-                && (status.status === 'missing' || status.status === 'update-available')
-              return (
-                <ConnectorRow
-                  key={skill.id}
-                  variant="compact"
-                  icon={<McpBrandIcon slug={null} name={skill.name} size={24} />}
-                  name={skill.name}
-                  // The full description + install detail live in the hover
-                  // tooltip; the row keeps a short status only.
-                  summary={`${skill.description} — ${formatBuiltinSkillStatus(status, skill.id)}`}
-                  status={<span>{builtinSkillShortStatus(status)}</span>}
-                  actions={
-                    actionable ? (
-                      <GhostButton
-                        size="sm"
-                        onClick={() => void installBuiltinSkill(skill)}
-                        disabled={builtinSkillPendingId !== null}
-                        className="border border-[color:var(--border-default)]"
-                      >
-                        {status?.ok && status.status === 'update-available' ? 'Update' : 'Install'}
-                      </GhostButton>
-                    ) : undefined
-                  }
-                />
-              )
-            })}
-          </div>
-        ) : (
-          <p className="py-1 text-body leading-5 text-[color:var(--text-muted)]">
-            Built-in skills have not loaded yet.
-          </p>
-        )}
-        {builtinSkillMessage ? <ManageNote tone="warn">{builtinSkillMessage}</ManageNote> : null}
-      </section>
-
     </div>
   )
 }
@@ -389,62 +295,4 @@ function parseEnvNames(value: string): string[] {
     .split(/\r?\n|,/u)
     .map((item) => item.trim())
     .filter(Boolean)
-}
-
-// The compact row's visible status — one or two words; the long sentence from
-// formatBuiltinSkillStatus rides the row tooltip instead.
-function builtinSkillShortStatus(status: BuiltinSkillStatus | null): string {
-  if (!status) return ''
-  if (!status.ok) return 'Unavailable'
-  switch (status.status) {
-    case 'missing':
-      return 'Not installed'
-    case 'installed':
-      return 'Installed'
-    case 'update-available':
-      return 'Update available'
-    case 'modified':
-      return 'Modified locally'
-    case 'local':
-      return 'Local copy'
-    default:
-      return ''
-  }
-}
-
-function formatBuiltinSkillStatus(status: BuiltinSkillStatus | null, skillId: string): string {
-  if (!status) return 'Skill status has not been checked.'
-  if (!status.ok) return status.message
-  const nativeTargets = status.targets.filter(
-    (target) => target.support !== 'unsupported' && target.status !== 'unsupported' && target.status !== 'prompt-shim',
-  )
-  const installedNativeTargets = nativeTargets.filter(
-    (target) =>
-      target.status === 'installed'
-      || target.status === 'update-available'
-      || target.status === 'modified'
-      || target.status === 'local',
-  )
-  const promptShimCount = status.targets.filter((target) => target.status === 'prompt-shim').length
-  const unsupportedCount = status.targets.filter((target) => target.status === 'unsupported').length
-
-  switch (status.status) {
-    case 'missing':
-      return nativeTargets.length > 1
-        ? `Not installed. ${nativeTargets.length} native targets available.`
-        : 'Not installed in this workspace.'
-    case 'installed':
-      if (installedNativeTargets.length > 1) {
-        return `Installed in ${installedNativeTargets.length} native targets${promptShimCount ? `; ${promptShimCount} prompt-shim CLI${promptShimCount === 1 ? '' : 's'}` : ''}${unsupportedCount ? `; ${unsupportedCount} unsupported CLI${unsupportedCount === 1 ? '' : 's'}` : ''}.`
-      }
-      return `Installed in .agents/skills/${skillId}.`
-    case 'update-available':
-      return `Update available. Installed version: ${status.installedVersion}.`
-    case 'modified':
-      return 'Installed with local changes. It will not be overwritten.'
-    case 'local':
-      return status.message
-    default:
-      return 'Skill status is unknown.'
-  }
 }

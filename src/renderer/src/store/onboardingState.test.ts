@@ -80,6 +80,32 @@ function testOneInstalledCliIsEnough(): void {
   )
 }
 
+// …but only a CLI a picker would offer counts. The probe answers for every
+// registered plugin, and bundled `generic-shell` runs `sh`, which every machine
+// resolves — so on the fresh Mac this card was written for, the raw map said
+// "you have one" while every picker stood empty and the card never appeared.
+function testAnUnofferedCliIsNotACli(): void {
+  assert.equal(
+    shouldShowFirstRunCliCard({
+      cliAvailabilityStatus: 'ready',
+      cliAvailability: availability({ codex: false, 'claude-code': false, 'generic-shell': true }),
+      firstRunCliCardDismissed: false,
+    }),
+    true,
+    'a CLI no picker offers is not this machine having an agent CLI',
+  )
+  assert.equal(
+    shouldAutoOpenCreationHub({
+      workspaceCount: 0,
+      cliAvailabilityStatus: 'ready',
+      cliAvailability: availability({ codex: false, 'generic-shell': true }),
+      firstRunCliCardDismissed: false,
+    }),
+    false,
+    'and the hub still waits for the question',
+  )
+}
+
 // Dismissal is the only persisted bit of the old wizard that survives, and it is
 // absolute: a user who said "not now" is never asked again, even if they later
 // uninstall the CLI they had.
@@ -238,6 +264,7 @@ testAsksOnlyWhenTheMachineReallyHasNoCli()
 testNeverFlashesBeforeTheProbeResolves()
 testAProbeErrorDoesNotAsk()
 testOneInstalledCliIsEnough()
+testAnUnofferedCliIsNotACli()
 testDismissedWins()
 testResolvedEmptyMapAsks()
 testFreshProfileWithNoCliGivesTheWindowToTheCard()

@@ -66,6 +66,13 @@ export type AgentLaunchRenderInput = {
   // into the spawned process env without ever appearing in argv. Undefined for
   // the ordinary CLIs (claude-code/codex/opencode), which declare no auth.
   secretToken?: string
+  // Absolute path the availability probe resolved this CLI to, supplied by the
+  // launch pre-flight (`preflightAgentCliLaunch`). Executing it is the whole
+  // point: the probe consults the user's interactive shell, the launch shell
+  // does not, so a binary on a ~/.zshrc-only PATH is otherwise detected and then
+  // not found at launch. Undefined when the probe could not decide, which leaves
+  // the bare name below.
+  resolvedBinaryPath?: string
 }
 
 export type RenderedAgentLaunch = {
@@ -91,7 +98,13 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
     )
   }
 
-  const binary = input.cliRuntime?.command?.trim() || plugin.manifest.binary
+  // The probed path wins over a `cliRuntimes` command override because the probe
+  // ran against that same override (detection is keyed by it) — the resolved
+  // path is that command, made absolute. The bare name is the last resort.
+  const binary =
+    input.resolvedBinaryPath?.trim()
+    || input.cliRuntime?.command?.trim()
+    || plugin.manifest.binary
   // Debug Mode is applied here, at the single render boundary every spawn path
   // converges on, so the directive (led by the CLI-native skill invocation when
   // the plugin supports it) lands in the rendered prompt token for any CLI. Only
@@ -173,10 +186,21 @@ export function argvToPosixShellCommand(argv: string[]): string {
   return argv.map(quotePosixToken).join(' ')
 }
 
+// Exit status the launch script reports when its agent binary is not there —
+// the shell's own "command not found", matching AGENT_CLI_NOT_FOUND_EXIT.
+const AGENT_BINARY_NOT_FOUND_EXIT = 127
+
 // Builds the shell snippet emitted by the Sprint Engine / manual terminal
-// launch path: a `command -v` guard, the actual agent invocation, and a
-// closing `fi`. Pulled here so it can be unit-tested without touching the
-// Electron-dependent `terminal-launch.ts` module.
+// launch path: a `command -v` guard followed by the actual agent invocation.
+// Pulled here so it can be unit-tested without touching the Electron-dependent
+// `terminal-launch.ts` module.
+//
+// The guard EXITS rather than falling through. This snippet is joined ahead of
+// an `exec $SHELL -l`, so a guard that only echoed left the user in a bare
+// interactive shell with no agent — while the pty spawn itself succeeded, and
+// the IPC reported `ok: true`. The pre-flight in `terminal-runtime` is the
+// authority; this is the second line of defence for a binary that disappears
+// between the pre-flight and the spawn, and it must fail visibly.
 export function buildAgentShellCommand(input: AgentLaunchRenderInput): string {
   const { argv, binary, plugin } = renderAgentLaunchArgv(input)
   const shellCommand = argvToPosixShellCommand(argv)
@@ -185,8 +209,9 @@ export function buildAgentShellCommand(input: AgentLaunchRenderInput): string {
   const message = `${shortName} CLI was not found. Check the ${input.cli} command in Settings.`
   const guard = [
     `if ! command -v ${quotePosixToken(binary)} >/dev/null 2>&1; then`,
-    `echo ${quotePosixForced(message)};`,
-    'else',
+    `echo ${quotePosixForced(message)} >&2;`,
+    `exit ${AGENT_BINARY_NOT_FOUND_EXIT};`,
+    'fi',
   ].join(' ')
-  return [guard, `${shellCommand};`, 'fi'].join(' ')
+  return [guard, shellCommand].join('; ')
 }

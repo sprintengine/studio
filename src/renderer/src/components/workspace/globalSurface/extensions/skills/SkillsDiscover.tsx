@@ -383,13 +383,13 @@ function HitRow({
   onScan: () => void
 }): JSX.Element {
   return (
-    <div className="flex items-stretch overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] transition-colors hover:bg-[color:var(--bg-hover)]">
+    <div className="flex items-stretch rounded-md transition-colors hover:bg-[color:var(--bg-hover)]">
       <button
         type="button"
         aria-label={openLabel}
         onClick={() => void window.api.openExternal(href)}
-        // The row clips its children, so the ring draws inside its own box or
-        // it survives as a 1px sliver and reads as no focus at all.
+        // Inset ring: the target sits flush inside the row's fill, so an
+        // outset ring would collide with the neighbouring rows' fills.
         className={`flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left ${FOCUS_RING_INSET_CLASS}`}
       >
         {body}

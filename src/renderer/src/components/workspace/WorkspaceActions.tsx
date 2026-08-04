@@ -35,7 +35,11 @@ import type {
   SprintEngineCliPermissionPreset,
   Workspace,
 } from '../../types/workspace'
-import { resolveAvailableAgentCli, type AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
+import {
+  resolveAvailableAgentCli,
+  resolveLaunchableAgentCli,
+  type AgentCliCatalogOption,
+} from './newWorkspace/cliRuntimeOptions'
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
@@ -773,11 +777,16 @@ export function WorkspaceActions({
           // this preserves the passed id rather than throwing on an empty list.
           const resolvePickerCli = (cli: AgentCli): AgentCli =>
             resolveAvailableAgentCli(cli, agentCliOptions, agentCliOptions[0]?.value ?? cli)
-          const triggerCli: AgentCli = resolvePickerCli(
-            standardSpawnIsGeneral
-              ? (specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY] ?? lastSelectedCli)
-              : (specialistCliDefaults[selectedSpecialistAction.id] ?? lastSelectedCli)
-          )
+          const rememberedCli: AgentCli = standardSpawnIsGeneral
+            ? (specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY] ?? lastSelectedCli)
+            : (specialistCliDefaults[selectedSpecialistAction.id] ?? lastSelectedCli)
+          // The one-click half spawns without opening the picker, so it needs the
+          // honest answer rather than the display default: on a machine with no
+          // agent CLI there is nothing to launch and the button says so by being
+          // inert (MC-2093). The chevron still opens the picker, which carries
+          // the install route.
+          const launchableCli = resolveLaunchableAgentCli(rememberedCli, agentCliOptions)
+          const triggerCli: AgentCli = resolvePickerCli(rememberedCli)
           const triggerCliOption =
             agentCliOptions.find((option) => option.value === triggerCli)
             ?? { value: triggerCli, label: cliLabelFor(triggerCli) }
@@ -794,7 +803,9 @@ export function WorkspaceActions({
               <Tooltip
                 placement="bottom"
                 content={
-                  standardSpawnIsGeneral
+                  !launchableCli
+                    ? 'No agent CLI is installed — install one from the spawn menu'
+                    : standardSpawnIsGeneral
                     ? `Spawn an agent with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`
                     : withShortcut(
                         `Spawn ${selectedSpecialistAction.label} specialist with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`,
@@ -806,13 +817,14 @@ export function WorkspaceActions({
               >
                 <button
                   onClick={() => {
+                    if (!launchableCli) return
                     if (standardSpawnIsGeneral) {
-                      void addNewGeneralAgent(triggerCliOption.value)
+                      void addNewGeneralAgent(launchableCli)
                     } else {
-                      void addNewSpecialist(triggerCliOption.value)
+                      void addNewSpecialist(launchableCli)
                     }
                   }}
-                  disabled={!activeWorkspaceId}
+                  disabled={!activeWorkspaceId || !launchableCli}
                   className={`inline-flex h-8 w-8 items-center justify-center rounded-l-[5px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
                   aria-label={
                     // The roleless spawn has no role to name it, so its

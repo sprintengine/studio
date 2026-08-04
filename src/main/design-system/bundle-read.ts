@@ -445,8 +445,12 @@ async function readPatterns(
     : []
   const views: DesignSystemPatternView[] = []
   for (const name of declared) {
-    // A pattern may be declared with or without its extension.
-    const fileName = name.endsWith('.html') ? name : `${name}.html`
+    // A pattern may be declared with or without its extension, and either as a
+    // bare name or as the manifest's canonical bundle-relative path
+    // ("patterns/context-rail.html") — joining the path form onto the patterns
+    // dir doubled the prefix and silently dropped every declared pattern.
+    const relative = name.startsWith('patterns/') ? name.slice('patterns/'.length) : name
+    const fileName = relative.endsWith('.html') ? relative : `${relative}.html`
     const raw = await readTextOrNull(join(dir, fileName))
     if (raw === null) continue
     const unresolvedRefs: string[] = []
@@ -456,7 +460,7 @@ async function readPatterns(
     }
     const html = await inlineMarkupUrls(extractBodyHtml(raw), dir, inliner, unresolvedRefs)
     views.push({
-      name: name.replace(/\.html$/i, ''),
+      name: relative.replace(/\.html$/i, ''),
       html,
       inlineStyles,
       unresolvedRefs: [...new Set(unresolvedRefs)],
@@ -475,10 +479,12 @@ async function readGlyphs(
     : []
   const views: DesignSystemGlyphView[] = []
   for (const name of declared) {
-    const fileName = name.endsWith('.svg') ? name : `${name}.svg`
+    // Same dual form as patterns: bare name or bundle-relative path.
+    const relative = name.startsWith('glyphs/') ? name.slice('glyphs/'.length) : name
+    const fileName = relative.endsWith('.svg') ? relative : `${relative}.svg`
     const svg = await readTextOrNull(join(dir, fileName))
     if (svg === null) continue
-    views.push({ name: name.replace(/\.svg$/i, ''), svg })
+    views.push({ name: relative.replace(/\.svg$/i, ''), svg })
   }
   return views
 }

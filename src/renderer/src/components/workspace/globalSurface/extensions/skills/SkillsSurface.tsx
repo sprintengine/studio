@@ -62,7 +62,10 @@ export function SkillsSurface({
   // in the same field a pasted one does, and takes the same path from there.
   const [addRepo, setAddRepo] = useState<string | null>(null)
   const [installing, setInstalling] = useState<string | null>(null)
-  const [installReport, setInstallReport] = useState<{ tone: 'ok' | 'error'; message: string } | null>(null)
+  // Failures only. A successful install already reports itself as state — the
+  // row and the skill page flip to Installed — so a success line above the
+  // canvas would restate what the screen shows while shifting it down.
+  const [installError, setInstallError] = useState<string | null>(null)
   // A set, not one id: syncing one source and opening another must not leave
   // the second one's button saying it is idle while it is still running.
   const [syncingSourceIds, setSyncingSourceIds] = useState<ReadonlySet<string>>(new Set())
@@ -84,7 +87,7 @@ export function SkillsSurface({
     setActiveGroup(null)
     setQuery('')
     setSelected(new Set())
-    setInstallReport(null)
+    setInstallError(null)
   }, [])
 
   const activeSourceId = view && view.kind !== 'discover' ? view.sourceId : null
@@ -119,10 +122,10 @@ export function SkillsSurface({
     async (sourceId: string, skillIds: string[]): Promise<void> => {
       if (!workspaceRoot || skillIds.length === 0) return
       if (typeof window.api.skillsInstall !== 'function') {
-        setInstallReport({ tone: 'error', message: MISSING_API_MESSAGE })
+        setInstallError(MISSING_API_MESSAGE)
         return
       }
-      setInstallReport(null)
+      setInstallError(null)
       let installed = 0
       const failures: SkillInstallFailure[] = []
       const done = new Set<string>()
@@ -149,10 +152,7 @@ export function SkillsSurface({
       // Only what actually installed leaves the selection, so a failed skill
       // stays selected and can be retried without hunting for it again.
       setSelected((current) => new Set([...current].filter((skillId) => !done.has(skillId))))
-      setInstallReport({
-        tone: failures.length === 0 ? 'ok' : 'error',
-        message: summarizeInstallRun(installed, failures),
-      })
+      setInstallError(failures.length === 0 ? null : summarizeInstallRun(installed, failures))
       sources.refreshInstalled()
     },
     [sources, workspaceRoot],
@@ -336,14 +336,10 @@ export function SkillsSurface({
           </div>
         ) : (
           <>
-            {installReport ? (
-              installReport.tone === 'error' ? (
-                <div className="mb-3">
-                  <InlineNotice tone="error" title="Some skills did not install." hint={installReport.message} />
-                </div>
-              ) : (
-                <p className="mb-3 text-meta text-[color:var(--text-muted)]">{installReport.message}</p>
-              )
+            {installError ? (
+              <div className="mb-3">
+                <InlineNotice tone="error" title="Some skills did not install." hint={installError} />
+              </div>
             ) : null}
             {view?.kind === 'skill' ? (
               renderSkillPage(view.skillId)

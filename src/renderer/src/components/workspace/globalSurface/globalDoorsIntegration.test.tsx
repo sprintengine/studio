@@ -1100,7 +1100,11 @@ async function main(): Promise<void> {
     await settle()
     assert.ok(currentRow().includes('Installed'), 'a live installed deep-link selects the Installed row')
     assert.ok(
-      (container.textContent ?? '').includes('Bundled skills'),
+      // The custom-MCP affordance is the manage view's own control; bundled
+      // skills left this canvas for the Skills surface (they were a duplicate
+      // of the Multicode source's list).
+      (container.textContent ?? '').includes('sync MCPs to terminal agents')
+        || (container.textContent ?? '').includes('Existing terminals keep their current config'),
       'the Installed canvas is the manage view',
     )
 

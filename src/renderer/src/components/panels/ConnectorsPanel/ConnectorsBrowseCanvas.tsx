@@ -210,7 +210,7 @@ export function ReadyConnectorsRail({
         {visible.map((server) => (
           <li
             key={server.id}
-            className="group flex items-center gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2"
+            className="group flex items-center gap-3 rounded-md px-3 py-2 transition-colors hover:bg-[color:var(--bg-hover)]"
           >
             <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={28} />
             <div className="min-w-0 flex-1">

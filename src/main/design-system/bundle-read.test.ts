@@ -242,6 +242,46 @@ run('the full view: specimen, manifest-ordered groups, real component previews',
   }
 })
 
+run('path-form pattern and glyph entries read — the manifest canonical form', async () => {
+  const dir = exampleCopy()
+  try {
+    // The example manifest declares "patterns/sign-in.html" / "glyphs/check.svg"
+    // — bundle-relative paths. Joining that form onto the group directory
+    // doubled the prefix ("patterns/patterns/…") and every declared entry was
+    // silently dropped: a section header with a count and no tiles.
+    const result = await readDesignSystemBundle(dir)
+    assert.equal(result.ok, true, result.ok ? '' : result.message)
+    if (!result.ok) return
+    assert.equal(result.view.patterns.length, 1, 'the declared pattern is read')
+    assert.equal(result.view.patterns[0].name, 'sign-in', 'named by stem, not path')
+    assert.ok(result.view.patterns[0].html.includes('<'), 'carries real markup')
+    assert.equal(result.view.glyphs.length, 1, 'the declared glyph is read')
+    assert.equal(result.view.glyphs[0].name, 'check', 'named by stem, not path')
+    assert.ok(result.view.glyphs[0].svg.includes('<svg'), 'carries the SVG source')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+run('bare-name pattern and glyph entries read too — both declared forms work', async () => {
+  const dir = exampleCopy()
+  try {
+    const manifestPath = join(dir, 'design-system.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, any>
+    manifest.contents.patterns = ['sign-in']
+    manifest.contents.glyphs = ['check.svg']
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+
+    const result = await readDesignSystemBundle(dir)
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    assert.equal(result.view.patterns[0]?.name, 'sign-in')
+    assert.equal(result.view.glyphs[0]?.name, 'check')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 run('a group the manifest declares that we did not anticipate still renders', async () => {
   const dir = exampleCopy()
   try {

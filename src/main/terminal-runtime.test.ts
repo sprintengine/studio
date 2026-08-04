@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import Module from 'node:module'
 import { realpathSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 
@@ -113,6 +113,15 @@ async function main(): Promise<void> {
     // Disable the floor so each per-session gate is exercised in isolation; the
     // dedicated floor assertion re-enables it.
     runtimeModule.setKeepRecentTerminalsAlive(0)
+    // No assertion below except the pre-flight ones is about binary resolution,
+    // and the real pre-flight spawns login shells to read this machine's PATH.
+    // An empty registry makes every CLI undecided — the pre-flight's
+    // "proceed exactly as before" answer.
+    runtimeModule.__setAgentCliPreflightForTest({
+      platform: 'darwin',
+      shell: '/bin/zsh',
+      deps: { listEntries: () => [] },
+    })
     await assertIdleSweepRecencyFloorSparesMostRecent(runtimeModule)
     await assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(runtimeModule)
     await assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModule)
@@ -150,9 +159,49 @@ async function main(): Promise<void> {
     await assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule)
     await assertPendingWakeupFrameHoldsIdleReaper(runtimeModule)
     await assertAgentPhaseListenerFiresOnlyForAcceptedFrames(runtimeModule)
+    await assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(runtimeModule)
+    await assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
   }
+}
+
+// The pre-flight probes the machine's real PATH by spawning login shells, which
+// unit tests must not do. Pin the verdict (and the POSIX setup it is trusted on)
+// while leaving the pre-flight's own logic — the message, the cache, the IPC
+// shape — to the real code.
+function pinAgentCliPreflight(
+  runtimeModule: RuntimeModule,
+  detect: { installed: boolean, resolvedPath?: string | null },
+): void {
+  runtimeModule.__setAgentCliPreflightForTest({
+    platform: 'darwin',
+    shell: '/bin/zsh',
+    deps: {
+      listEntries: () => [
+        {
+          id: 'claude-code',
+          displayName: 'Claude Code',
+          source: 'bundled',
+          version: 1,
+          binary: 'claude',
+          resumeSession: true,
+          sessionIdFromCaller: true,
+        },
+      ],
+      detect: async (cli) => ({
+        cli,
+        binary: 'claude',
+        installed: detect.installed,
+        version: detect.installed ? '2.0.0' : null,
+        resolvedPath: detect.resolvedPath ?? null,
+        useWsl: false,
+        error: null,
+      }),
+      // Each case is its own question; never serve another case's cached verdict.
+      ttlMs: 0,
+    },
+  })
 }
 
 // F1 regression: the managed spawn path must surface the user-authored role
@@ -3072,6 +3121,130 @@ async function assertConnectorSpawnInstallsSkillAndExcludesMcpConfig(
     [workspaceRoot, workspaceRoot],
     'skill-less connector launch still excludes the worktree MCP config'
   )
+}
+
+// MC-2092. On a fresh Mac every spawn produced a bare zsh prompt while the app
+// reported success: availability is probed through the user's interactive shell,
+// agents launch in a shell that never sources it, and the in-script guard echoed
+// and fell through. Both halves are asserted at the IPC the renderer calls.
+async function assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(
+  runtimeModule: RuntimeModule
+): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-preflight-'))
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  const spawn = (sessionId: string): Promise<TerminalSpawnResult> =>
+    runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-preflight',
+      agentId: sessionId,
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+
+  try {
+    // Absent binary: refused, with a message that names the CLI, and nothing
+    // spawned — no bare shell, no `ok: true`.
+    mockPty.spawnCalls = []
+    pinAgentCliPreflight(runtimeModule, { installed: false })
+    const missing = await spawn('session-preflight-missing')
+    assert.equal(missing.ok, false, 'an absent CLI must not report a successful start')
+    assert.equal(mockPty.spawnCalls.length, 0, 'an absent CLI must not spawn a pty at all')
+    if (missing.ok) return
+    assert.equal(missing.sessionId, 'session-preflight-missing')
+    assert.equal(missing.exitCode, 127)
+    assert.match(missing.message, /Claude Code/, 'the failure names the CLI the user picked')
+
+    // Installed: the probe's absolute path is what the launch script executes —
+    // both in the guard and in the invocation.
+    mockPty.spawnCalls = []
+    const probedPath = '/Users/dev/.nvm/versions/node/v22.3.0/bin/claude'
+    pinAgentCliPreflight(runtimeModule, { installed: true, resolvedPath: probedPath })
+    const started = await spawn('session-preflight-resolved')
+    assert.equal(started.ok, true, JSON.stringify(started))
+    assert.equal(mockPty.spawnCalls.length, 1)
+    const startupScript = await readFile(String(mockPty.spawnCalls[0].args.at(-1)), 'utf8')
+    assert.ok(
+      startupScript.includes(`if ! command -v ${probedPath} >/dev/null 2>&1;`),
+      `the guard must test the probed path: ${startupScript}`
+    )
+    assert.ok(
+      startupScript.includes(`${probedPath} --session-id session-preflight-resolved`),
+      `the launch must execute the probed path: ${startupScript}`
+    )
+    assert.ok(
+      /exit 127; fi;/.test(startupScript),
+      `the guard must exit rather than fall through to the shell exec: ${startupScript}`
+    )
+    runtime.ipcHandlers.killTerminal('session-preflight-resolved')
+  } finally {
+    runtimeModule.__setAgentCliPreflightForTest({
+      platform: 'darwin',
+      shell: '/bin/zsh',
+      deps: { listEntries: () => [] },
+    })
+    await runtime.shutdown()
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// An omitted `cli` defaulted to codex, so a payload that named no agent launched
+// a different one and reported success. Shell-only terminals legitimately carry
+// no CLI and must still spawn.
+async function assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(
+  runtimeModule: RuntimeModule
+): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-nocli-'))
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+  mockPty.spawnCalls = []
+
+  try {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session-no-cli',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-no-cli',
+      agentId: 'session-no-cli',
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, false, 'an agent spawn naming no CLI must not start one')
+    assert.equal(mockPty.spawnCalls.length, 0, 'nothing is spawned, least of all codex')
+
+    // The legitimate CLI-less spawn still works.
+    const shell = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session-plain-shell',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      kind: 'terminal',
+      shellOnly: true,
+      visible: false,
+    })
+    assert.equal(shell.ok, true, JSON.stringify(shell))
+    assert.equal(mockPty.spawnCalls.length, 1)
+    runtime.ipcHandlers.killTerminal('session-plain-shell')
+  } finally {
+    await runtime.shutdown()
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
 }
 
 main().catch((error) => {

@@ -312,8 +312,15 @@ function GroupBody({
   )
 }
 
+// Manifest entries come in two forms — bare stems and bundle-relative paths
+// ("patterns/context-rail.html") — while view names are always the stem the
+// reader derives. Compare stems, or a path-form manifest empties its section.
 function matchesEntry(entries: readonly string[], name: string): boolean {
-  return entries.some((entry) => entry === name || entry.replace(/\.[a-z]+$/i, '') === name)
+  return entries.some((entry) => {
+    if (entry === name) return true
+    const stem = (entry.split('/').pop() ?? entry).replace(/\.[a-z]+$/i, '')
+    return stem === name
+  })
 }
 
 function MissingEntries({

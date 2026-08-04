@@ -38,6 +38,7 @@ async function main(): Promise<void> {
     testClaudeCodeRenderWithBypass()
     testClaudeCodeRenderResume()
     testClaudeCodeRenderWithRuntimeBinaryOverride()
+    testLaunchExecutesProbedPathAndGuardFailsHard()
     testCodexRenderDefault()
     testCodexRenderWithAutoWorkspace()
     testCodexRenderResume()
@@ -567,7 +568,7 @@ function testBuildAgentShellCommandClaudeCode(): void {
   })
   assert.equal(
     out,
-    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.'; else claude --permission-mode bypassPermissions --session-id sid_42 'hello there'; fi`
+    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.' >&2; exit 127; fi; claude --permission-mode bypassPermissions --session-id sid_42 'hello there'`
   )
 
   const resumeOut = buildAgentShellCommand({
@@ -577,14 +578,14 @@ function testBuildAgentShellCommandClaudeCode(): void {
   })
   assert.equal(
     resumeOut,
-    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.'; else claude --resume sid_42; fi`
+    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.' >&2; exit 127; fi; claude --resume sid_42`
   )
 
   // The level survives quoting into the shell command every posix/WSL launch
   // runs — the layer between the rendered argv and the spawned process.
   assert.equal(
     buildAgentShellCommand({ cli: 'claude-code', sessionId: 'sid_43', cliReasoning: 'xhigh' }),
-    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.'; else claude --effort xhigh --session-id sid_43; fi`
+    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.' >&2; exit 127; fi; claude --effort xhigh --session-id sid_43`
   )
   assert.equal(
     buildAgentShellCommand({ cli: 'claude-code', sessionId: 'sid_43', resume: true, cliReasoning: 'xhigh' }),
@@ -631,7 +632,7 @@ function testBuildAgentShellCommandCodex(): void {
   })
   assert.equal(
     out,
-    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.'; else codex --ask-for-approval never --sandbox workspace-write 'fix it'; fi`
+    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.' >&2; exit 127; fi; codex --ask-for-approval never --sandbox workspace-write 'fix it'`
   )
 
   const resumeOut = buildAgentShellCommand({
@@ -641,8 +642,61 @@ function testBuildAgentShellCommandCodex(): void {
   })
   assert.equal(
     resumeOut,
-    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.'; else codex resume sid_y; fi`
+    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.' >&2; exit 127; fi; codex resume sid_y`
   )
+}
+
+// MC-2092. Two halves of the same defect:
+//
+// 1. The probe resolves an absolute path (it consults the user's interactive
+//    shell); the launch shell does not source that config, so it must EXECUTE
+//    that path rather than the bare manifest name.
+// 2. The guard must exit non-zero. This snippet is joined ahead of an
+//    `exec $SHELL -l`, so a guard that echoed and fell through left the user in
+//    a bare shell with no agent, while the spawn reported success.
+function testLaunchExecutesProbedPathAndGuardFailsHard(): void {
+  const resolved = buildAgentShellCommand({
+    cli: 'claude-code',
+    sessionId: 'sid_probed',
+    resolvedBinaryPath: '/Users/dev/.nvm/versions/node/v22.3.0/bin/claude',
+  })
+  assert.equal(
+    resolved,
+    `if ! command -v /Users/dev/.nvm/versions/node/v22.3.0/bin/claude >/dev/null 2>&1; then `
+      + `echo 'Claude CLI was not found. Check the claude-code command in Settings.' >&2; exit 127; fi; `
+      + `/Users/dev/.nvm/versions/node/v22.3.0/bin/claude --session-id sid_probed`,
+    'both the guard and the invocation use the probed absolute path',
+  )
+
+  // A path with spaces stays one shell word on both sides of the guard.
+  const quoted = buildAgentShellCommand({
+    cli: 'codex',
+    sessionId: 'sid_space',
+    resolvedBinaryPath: '/Applications/My Tools/codex',
+  })
+  assert.ok(
+    quoted.startsWith(`if ! command -v '/Applications/My Tools/codex' >/dev/null 2>&1;`),
+    `probed path must be quoted in the guard: ${quoted}`,
+  )
+  assert.ok(quoted.endsWith(`'/Applications/My Tools/codex'`), `probed path must be quoted in the invocation: ${quoted}`)
+
+  // The probe runs against the user's command override, so its resolved path IS
+  // that override made absolute and outranks the bare override name.
+  assert.equal(
+    renderAgentLaunchArgv({
+      cli: 'claude-code',
+      sessionId: 'sid_both',
+      cliRuntime: { command: 'claude', useWsl: false },
+      resolvedBinaryPath: '/opt/homebrew/bin/claude',
+    }).binary,
+    '/opt/homebrew/bin/claude',
+  )
+
+  // The guard's failure branch reaches no interactive shell: the launch script
+  // appends `exec $SHELL -l` after this snippet, and `exit` ends the script.
+  const guardFailure = resolved.slice(0, resolved.indexOf('fi;') + 2)
+  assert.ok(/exit 127;\s*fi$/.test(guardFailure), `guard must exit non-zero: ${guardFailure}`)
+  assert.ok(!/else/.test(resolved), 'the guard no longer falls through to an else branch')
 }
 
 // Criterion: helper returns the prompt unchanged when off and prepends the

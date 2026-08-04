@@ -698,7 +698,11 @@ export function getShellLaunchConfig(
   managedMcpEnv?: Record<string, string>,
   debugMode = false,
   cliAuthToken?: string,
-  cliReasoning?: string
+  cliReasoning?: string,
+  // Absolute binary path resolved by the spawn pre-flight; see
+  // AgentLaunchRenderInput.resolvedBinaryPath. Undefined leaves the launch on
+  // the manifest binary name (Windows/WSL, or an undecided probe).
+  resolvedBinaryPath?: string
 ): ShellLaunchConfig {
   assertExistingDirectory(cwd)
 
@@ -801,7 +805,7 @@ export function getShellLaunchConfig(
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
     buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv, providerLaunchEnv),
-    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning),
+    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning, resolvedBinaryPath),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
   const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', launchCommand)
@@ -1016,7 +1020,8 @@ function buildAgentLaunchCommand(
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
   cliModel?: string,
   debugMode = false,
-  cliReasoning?: string
+  cliReasoning?: string,
+  resolvedBinaryPath?: string
 ): string {
   return buildAgentShellCommand({
     cli,
@@ -1029,5 +1034,6 @@ function buildAgentLaunchCommand(
     cliReasoning,
     debugMode,
     colorScheme: getColorScheme(),
+    resolvedBinaryPath,
   })
 }

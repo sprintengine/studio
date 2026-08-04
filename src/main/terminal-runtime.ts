@@ -37,6 +37,11 @@ import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
 import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
 import { getPluginById, getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import { cliCredentialLaunchBlock, pluginIdForCli } from './agent-launch-render'
+import {
+  agentCliLaunchFailureResult,
+  preflightAgentCliLaunch,
+  type DetectAgentCliAvailabilityDeps,
+} from './cli-availability'
 import { defaultUserRoleRegistryRoot } from './sprintengine-role-registry'
 import { sprintEngineDeclaredSiblingRepoRoots, sprintEngineRepoIdForLaunchCwd } from './sprintengine-artifacts'
 import {
@@ -938,6 +943,23 @@ export function setKeepRecentTerminalsAlive(value: unknown): void {
 
 export function getKeepRecentTerminalsAlive(): number {
   return configuredKeepRecentAliveCount
+}
+
+// Test-only seam for the spawn pre-flight. Its probe spawns real login shells
+// and reads the machine's own PATH, so a unit test driving the spawn IPC must
+// be able to pin the verdict (and the platform/shell the verdict is trusted on)
+// without touching the pre-flight's own logic — the message, the cache reuse and
+// the returned IPC shape all still come from the real code.
+type AgentCliPreflightTestOverrides = {
+  deps?: DetectAgentCliAvailabilityDeps
+  platform?: NodeJS.Platform
+  shell?: string
+}
+
+let agentCliPreflightOverrides: AgentCliPreflightTestOverrides = {}
+
+export function __setAgentCliPreflightForTest(overrides: AgentCliPreflightTestOverrides | null): void {
+  agentCliPreflightOverrides = overrides ?? {}
 }
 
 // Per-terminal user lock: while set, both reap sweeps skip this session. The
@@ -2631,7 +2653,7 @@ async function spawnTerminalFromIpc(
     cwd,
     resume,
     sprintEngineStatePath,
-    cli = 'codex',
+    cli,
     initialPrompt,
     cliRuntimes,
     shellOnly,
@@ -2709,6 +2731,21 @@ async function spawnTerminalFromIpc(
       return { ok: true, sessionId } satisfies TerminalSpawnResult
     }
 
+    // An omitted `cli` used to default to codex: a payload that named no agent
+    // silently launched a different one, and reported success. Refuse instead of
+    // guessing. Reattaching above needs no CLI, and plain shells carry none.
+    if (!shellOnly && !cli) {
+      return {
+        ok: false,
+        sessionId,
+        message: 'This agent terminal did not say which CLI to launch, so nothing was started.',
+        exitCode: 1,
+      } satisfies TerminalSpawnResult
+    }
+    // Non-null on every path that reads it: a fresh agent spawn with no CLI
+    // returned above, and shell-only spawns never reach an agent-CLI consumer.
+    const agentCli = cli as AgentCli
+
     disposeTerminal(sessionId)
     logMainPerfEvent('TerminalRuntime', 'terminal-spawn-fresh', {
       sessionId,
@@ -2758,6 +2795,33 @@ async function spawnTerminalFromIpc(
           } satisfies TerminalSpawnResult
         }
       }
+      // Resolve the agent's binary before this launch touches anything, and
+      // refuse the spawn when the CLI is definitively absent. Both halves
+      // matter: the launch shell does not source the interactive config the
+      // probe does, so an installed CLI is executed by its probed absolute path
+      // rather than a name the launch shell cannot resolve; and a missing one
+      // fails here — ahead of the sibling-session dispose, the MCP sync, skill
+      // installs and the pty — instead of dropping the user into a bare shell
+      // reported as a successful start.
+      let resolvedBinaryPath: string | undefined
+      if (!shellOnly) {
+        const preflight = await preflightAgentCliLaunch(
+          {
+            cli: agentCli,
+            cliRuntimes,
+            platform: agentCliPreflightOverrides.platform,
+            shell: agentCliPreflightOverrides.shell,
+          },
+          agentCliPreflightOverrides.deps ?? {},
+        )
+        const failure = agentCliLaunchFailureResult(preflight, sessionId)
+        if (failure) {
+          logMainPerfEvent('TerminalRuntime', 'agent-cli-preflight-missing', { sessionId, cli: agentCli })
+          return failure
+        }
+        if (preflight.status === 'resolved') resolvedBinaryPath = preflight.binaryPath
+      }
+
       if ((kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
         disposeOtherAgentSessions(sessionId, workspaceId, agentId, sprintEngineStatePath)
       }
@@ -2796,9 +2860,9 @@ async function spawnTerminalFromIpc(
         const syncResult = await syncMcpConfig({
           workspaceRoot: workingDirectory,
           settings: sprintEngineStatePath
-            ? mcpSettingsForManagedSprintEngineLaunch(mcpSettings, cli)
+            ? mcpSettingsForManagedSprintEngineLaunch(mcpSettings, agentCli)
             : mcpSettings ?? { syncEnabled: false, servers: {} },
-          clients: [cli],
+          clients: [agentCli],
           // A connector launch (connectorLaunch set, paired with the
           // single-server connectorMcpSettings) writes an isolated worktree
           // config that must contain only the connector — prune any MCP server
@@ -2925,16 +2989,16 @@ async function spawnTerminalFromIpc(
       // Z.AI, return one) from the shared credential store so the manifest's
       // `launch.env` `{{secret}}` resolves into the spawned process env. Skipped
       // for plain shells (no agent CLI to authenticate).
-      const cliAuthSecret = shellOnly ? null : await getSharedCredentialStore().resolveSecret(cli)
+      const cliAuthSecret = shellOnly ? null : await getSharedCredentialStore().resolveSecret(agentCli)
       const cliAuthToken = cliAuthSecret?.ok ? cliAuthSecret.value : undefined
       // If this CLI requires an API key (declares `auth`, e.g. Z.AI) and none is
       // configured, don't launch it into an auth error — return a clear,
       // actionable message. The renderer surfaces it and leaves the terminal
       // unstarted (see TerminalView spawn-failure handling).
       if (!shellOnly && cliAuthSecret) {
-        const authPlugin = getPluginById(cli)
+        const authPlugin = getPluginById(agentCli)
         const block = cliCredentialLaunchBlock({
-          displayName: authPlugin?.manifest.displayName ?? cli,
+          displayName: authPlugin?.manifest.displayName ?? agentCli,
           auth: authPlugin?.manifest.auth,
           secretConfigured: cliAuthSecret.ok,
         })
@@ -2947,7 +3011,7 @@ async function spawnTerminalFromIpc(
           launchSessionId,
           resume,
           sprintEngineStatePath,
-          cli,
+          agentCli,
           initialPrompt,
           cliRuntimes,
           cliPermissionPreset,
@@ -2957,7 +3021,8 @@ async function spawnTerminalFromIpc(
           sprintEngineMcpEnv,
           debugMode,
           cliAuthToken,
-          cliReasoning
+          cliReasoning,
+          resolvedBinaryPath
         )
       // Install the authoritative-agent-state reporter into the workspace before
       // launching a supported agent, so its lifecycle hooks report phase the

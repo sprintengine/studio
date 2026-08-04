@@ -9,6 +9,7 @@ import type { AgentCli, SprintEngineCliPermissionPreset } from '../../../types/w
 import { selectAgentCliCatalog } from '../newWorkspace/cliRuntimeOptions'
 import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
 import { PermissionPresetChips, SpawnDebugToggle, TerminalSessionIcon } from './agentSpawnShared'
+import { CliInstallRosterRow } from '../cliInstallRoute'
 import { ConnectorPickerPopover } from './ConnectorPickerPopover'
 import {
   useAgentComposer,
@@ -113,7 +114,14 @@ export default function AgentComposer({
     return () => cancelAnimationFrame(id)
   }, [])
 
-  const commit = (target: AgentComposerSelection) => onConfirm(composer.buildConfirm(target))
+  // The one choke point every spawn goes through: a row click, Enter in the
+  // search field, or the CTA. A selection with no row on this machine must not
+  // spawn — with no agent CLI installed the roster withholds the rows that
+  // launch one, and a remembered specialist would otherwise still ride Enter.
+  const commit = (target: AgentComposerSelection) => {
+    if (!composer.visibleRows.some((row) => rowMatchesSelection(row, target))) return
+    onConfirm(composer.buildConfirm(target))
+  }
 
   const onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
@@ -212,8 +220,23 @@ export default function AgentComposer({
             aria-label="Agents"
             className="min-h-0 flex-1 overflow-y-auto"
           >
+            {/* No agent CLI on this machine (MC-2093): the composer withholds
+                every row that would launch one, and the roster leads with the
+                one route that works. Terminal and Conversation launch no CLI,
+                so they still render below. */}
+            {composer.noAgentCliInstalled ? (
+              <div className="pb-1">
+                <div className="px-2 py-1 text-micro text-[color:var(--text-muted)]" role="status">
+                  No agent CLI is installed.
+                </div>
+                <CliInstallRosterRow />
+              </div>
+            ) : null}
+
             {visibleRows.length === 0 ? (
-              <div className="px-2 py-6 text-center text-micro text-[color:var(--text-disabled)]">No matches</div>
+              composer.noAgentCliInstalled ? null : (
+                <div className="px-2 py-6 text-center text-micro text-[color:var(--text-disabled)]">No matches</div>
+              )
             ) : (
               <>
                 {quickRows.length > 0 ? (
@@ -253,9 +276,10 @@ export default function AgentComposer({
                       />
                     ))}
                   </div>
-                ) : composer.query.trim() ? null : (
+                ) : composer.query.trim() || composer.noAgentCliInstalled ? null : (
                   // No specialists installed (only shown for the whole roster, not
-                  // a search that filtered them out): offer the marketplace path.
+                  // a search that filtered them out, and not when the machine has
+                  // no CLI to run one on): offer the marketplace path.
                   <div className="border-t border-[color:var(--border-subtle)] pt-1">
                     <div className="px-2 pb-1 pt-1 text-micro text-[color:var(--text-subtle)]">Specialists</div>
                     <GetSpecialistsRow onOpenMarketplace={openSpecialistMarketplace} />
@@ -379,7 +403,8 @@ export default function AgentComposer({
             <button
               type="button"
               onClick={() => commit(selection)}
-              className="inline-flex items-center gap-2 rounded-md bg-[color:var(--accent-primary)] px-4 py-1.5 text-body font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] focus-visible:focus-ring"
+              disabled={!selectedRow}
+              className="inline-flex items-center gap-2 rounded-md bg-[color:var(--accent-primary)] px-4 py-1.5 text-body font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:opacity-40 disabled:hover:bg-[color:var(--accent-primary)] focus-visible:focus-ring"
             >
               {selection.kind === 'terminal' ? 'Open terminal' : 'Start chat'}
               <kbd className="rounded bg-black/15 px-1 font-mono text-micro">⏎</kbd>
