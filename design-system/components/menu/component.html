@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Menu</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../popover/component.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-row {
+    display: flex;
+    gap: var(--sem-space-3xl);
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  /* The surface is `position: fixed` in the product; pinned in flow here so the
+     spec renders as a static page. */
+  .demo-surface {
+    position: static;
+  }
+</style>
+</head>
+<body>
+  <div class="demo-stage">
+    <p class="demo-label">Menu — the popover surface, full-bleed rows, meta type</p>
+    <div class="demo-row">
+      <div class="ds-popover demo-surface" role="menu" aria-label="Row actions">
+        <div class="ds-menu">
+          <button type="button" class="ds-menu-item" role="menuitem">
+            <span class="ds-menu-item-glyph" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
+                <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            Make active
+            <span class="ds-menu-item-hint">⌘↵</span>
+          </button>
+          <button type="button" class="ds-menu-item" role="menuitem" data-active="true">
+            <span class="ds-menu-item-glyph" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
+                <path d="M4.75 2.75h3.9l2.6 2.6v7.9h-6.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+              </svg>
+            </span>
+            Reveal file
+          </button>
+          <!-- No glyph: the slot is still reserved, so the label does not shift. -->
+          <button type="button" class="ds-menu-item" role="menuitem">
+            <span class="ds-menu-item-glyph" aria-hidden="true"></span>
+            Rename…
+          </button>
+          <div class="ds-menu-separator" role="separator"></div>
+          <button type="button" class="ds-menu-item" role="menuitem" data-destructive="true">
+            <span class="ds-menu-item-glyph" aria-hidden="true"></span>
+            Delete
+          </button>
+          <button type="button" class="ds-menu-item" role="menuitem" aria-disabled="true">
+            <span class="ds-menu-item-glyph" aria-hidden="true"></span>
+            Merge into the track below
+          </button>
+        </div>
+      </div>
+
+      <div class="ds-popover demo-surface" role="menu" aria-label="Filter and sort">
+        <div class="ds-menu">
+          <div class="ds-menu-group-label">Project</div>
+          <button type="button" class="ds-menu-item" role="menuitemradio" aria-checked="true">
+            <span class="ds-menu-item-glyph" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
+                <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            All projects
+            <span class="ds-menu-item-hint">49</span>
+          </button>
+          <button type="button" class="ds-menu-item" role="menuitemradio" aria-checked="false">
+            <span class="ds-menu-item-glyph" aria-hidden="true"></span>
+            multicode
+            <span class="ds-menu-item-hint">31</span>
+          </button>
+          <div class="ds-menu-separator" role="separator"></div>
+          <div class="ds-menu-group-label">Sort</div>
+          <button type="button" class="ds-menu-item" role="menuitemradio" aria-checked="true">
+            <span class="ds-menu-item-glyph" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
+                <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            Most recent
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

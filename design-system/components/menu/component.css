@@ -1,0 +1,127 @@
+/* Menu — the list of actions inside a popover surface.
+ *
+ * The system had three menus and no spec, so every host answered the same
+ * questions on its own and they answered differently. Measured 2026-08-05
+ * across the shipped ContextMenu, OverflowMenu and FilterMenu:
+ *
+ *                 ContextMenu          OverflowMenu / FilterMenu
+ *   surface       radius 6px           radius 7px (the popover shell)
+ *                 border.default       border.strong
+ *                 bg.surface           bg.surface-raised
+ *                 4px padding          vertical padding only
+ *   item          body (13px)          meta (12px)
+ *                 inset, radius 4px    full-bleed
+ *   divider       border.subtle        border.default (OverflowMenu)
+ *
+ * The rulings below (MC-2118) are decided by what the rest of the system
+ * already does, not by majority:
+ *
+ *   SURFACE — the popover shell, unchanged. `popover/component.css` is already
+ *   the anchored-overlay engine, and its own comment says it carries no padding
+ *   precisely "because a menu wants full-bleed rows". ContextMenu is the
+ *   outlier, and what makes it different is that it positions at a POINTER
+ *   rather than an anchor — a positioning difference, never a material one.
+ *   Nothing about a right-click justifies a different radius, border or ground.
+ *
+ *   ITEM TYPE — meta (12px). A menu item is chrome: it names an action, it is
+ *   not content to read. 13px also puts menu rows above the 12px list rows they
+ *   are usually summoned from, which reads as the menu being more important
+ *   than the thing it acts on.
+ *
+ *   HOVER FILL — full-bleed to the surface's inner edge, no per-item radius. An
+ *   inset rounded fill inside a padded surface reads as a card nested in a card;
+ *   every other row list in the system (list-surface, context-rail, inbox-row)
+ *   fills to its own inset instead.
+ *
+ *   DIVIDER — border.subtle. A divider inside a bordered surface separates
+ *   siblings; at border.default it competes with the surface's own edge. */
+
+.ds-menu {
+  /* Vertical padding only: rows reach both side edges, so the fill is full-bleed
+   * and the surface's border is the only vertical line in the component. */
+  padding: var(--sem-space-2xs) 0;
+  min-width: 200px;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+}
+
+.ds-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  width: 100%;
+  padding: var(--sem-space-2xs) var(--sem-space-md);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--sem-color-text-default);
+  font: inherit;
+  font-size: var(--sem-font-size-meta);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Hover and keyboard highlight are ONE state. A menu is walked with the arrow
+ * keys as often as with the pointer, and two different highlights for "the row
+ * about to be activated" is the split this spec exists to close. */
+.ds-menu-item:hover,
+.ds-menu-item[data-active="true"] {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-menu-item:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(var(--sem-focus-ring-offset) * -1);
+}
+
+.ds-menu-item[aria-disabled="true"],
+.ds-menu-item:disabled {
+  cursor: not-allowed;
+  color: var(--sem-color-text-disabled);
+  background: transparent;
+}
+
+/* Destructive is ink, never a fill. A red row in a list of black ones is read
+ * before it is aimed at; a red BLOCK is read as already-happened. */
+.ds-menu-item[data-destructive="true"] {
+  color: var(--sem-color-tone-error);
+}
+
+/* The leading slot is reserved, not sized by the item: a menu where only some
+ * rows carry a glyph must not ladder its own labels. Same contract as the
+ * context rail's row icon slot. */
+.ds-menu-item-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  flex: none;
+  color: var(--sem-color-text-subtle);
+}
+
+/* Trailing hint — a keyboard shortcut, a submenu chevron, a check. Pushed to
+ * the far edge so hints line up as a column rather than trailing each label. */
+.ds-menu-item-hint {
+  margin-left: auto;
+  flex: none;
+  color: var(--sem-color-text-disabled);
+  font-size: var(--sem-font-size-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-menu-separator {
+  height: 1px;
+  margin: var(--sem-space-2xs) 0;
+  background: var(--sem-color-border-subtle);
+}
+
+/* A group heading is the alternative to a separator, not an addition to it:
+ * one or the other says "a new group starts here". */
+.ds-menu-group-label {
+  padding: var(--sem-space-sm) var(--sem-space-md) var(--sem-space-3xs);
+  color: var(--sem-color-text-subtle);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
+}

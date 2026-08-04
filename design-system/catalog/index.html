@@ -516,6 +516,8 @@ code {
 #ds-view-component-kbd-chord:checked ~ .ds-catalog #component-kbd-chord { display: block; }
 #ds-view-component-list-row:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-list-row:checked ~ .ds-catalog #component-list-row { display: block; }
+#ds-view-component-menu:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-menu:checked ~ .ds-catalog #component-menu { display: block; }
 #ds-view-component-modal:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-modal:checked ~ .ds-catalog #component-modal { display: block; }
 #ds-view-component-panel-header:checked ~ .ds-catalog #components { display: block; }
@@ -588,6 +590,8 @@ code {
 #ds-view-component-kbd-chord:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-kbd-chord"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-list-row:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-list-row"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-list-row:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-list-row"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-menu:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-menu"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-menu:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-menu"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-modal:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-modal"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-modal:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-modal"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-panel-header:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-panel-header"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -1974,6 +1978,135 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   .ds-list-row-actions {
     transition: none;
   }
+}
+
+/* components/menu/component.css */
+/* Menu — the list of actions inside a popover surface.
+ *
+ * The system had three menus and no spec, so every host answered the same
+ * questions on its own and they answered differently. Measured 2026-08-05
+ * across the shipped ContextMenu, OverflowMenu and FilterMenu:
+ *
+ *                 ContextMenu          OverflowMenu / FilterMenu
+ *   surface       radius 6px           radius 7px (the popover shell)
+ *                 border.default       border.strong
+ *                 bg.surface           bg.surface-raised
+ *                 4px padding          vertical padding only
+ *   item          body (13px)          meta (12px)
+ *                 inset, radius 4px    full-bleed
+ *   divider       border.subtle        border.default (OverflowMenu)
+ *
+ * The rulings below (MC-2118) are decided by what the rest of the system
+ * already does, not by majority:
+ *
+ *   SURFACE — the popover shell, unchanged. `popover/component.css` is already
+ *   the anchored-overlay engine, and its own comment says it carries no padding
+ *   precisely "because a menu wants full-bleed rows". ContextMenu is the
+ *   outlier, and what makes it different is that it positions at a POINTER
+ *   rather than an anchor — a positioning difference, never a material one.
+ *   Nothing about a right-click justifies a different radius, border or ground.
+ *
+ *   ITEM TYPE — meta (12px). A menu item is chrome: it names an action, it is
+ *   not content to read. 13px also puts menu rows above the 12px list rows they
+ *   are usually summoned from, which reads as the menu being more important
+ *   than the thing it acts on.
+ *
+ *   HOVER FILL — full-bleed to the surface's inner edge, no per-item radius. An
+ *   inset rounded fill inside a padded surface reads as a card nested in a card;
+ *   every other row list in the system (list-surface, context-rail, inbox-row)
+ *   fills to its own inset instead.
+ *
+ *   DIVIDER — border.subtle. A divider inside a bordered surface separates
+ *   siblings; at border.default it competes with the surface's own edge. */
+
+.ds-menu {
+  /* Vertical padding only: rows reach both side edges, so the fill is full-bleed
+   * and the surface's border is the only vertical line in the component. */
+  padding: var(--sem-space-2xs) 0;
+  min-width: 200px;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+}
+
+.ds-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  width: 100%;
+  padding: var(--sem-space-2xs) var(--sem-space-md);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--sem-color-text-default);
+  font: inherit;
+  font-size: var(--sem-font-size-meta);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Hover and keyboard highlight are ONE state. A menu is walked with the arrow
+ * keys as often as with the pointer, and two different highlights for "the row
+ * about to be activated" is the split this spec exists to close. */
+.ds-menu-item:hover,
+.ds-menu-item[data-active="true"] {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-menu-item:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(var(--sem-focus-ring-offset) * -1);
+}
+
+.ds-menu-item[aria-disabled="true"],
+.ds-menu-item:disabled {
+  cursor: not-allowed;
+  color: var(--sem-color-text-disabled);
+  background: transparent;
+}
+
+/* Destructive is ink, never a fill. A red row in a list of black ones is read
+ * before it is aimed at; a red BLOCK is read as already-happened. */
+.ds-menu-item[data-destructive="true"] {
+  color: var(--sem-color-tone-error);
+}
+
+/* The leading slot is reserved, not sized by the item: a menu where only some
+ * rows carry a glyph must not ladder its own labels. Same contract as the
+ * context rail's row icon slot. */
+.ds-menu-item-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  flex: none;
+  color: var(--sem-color-text-subtle);
+}
+
+/* Trailing hint — a keyboard shortcut, a submenu chevron, a check. Pushed to
+ * the far edge so hints line up as a column rather than trailing each label. */
+.ds-menu-item-hint {
+  margin-left: auto;
+  flex: none;
+  color: var(--sem-color-text-disabled);
+  font-size: var(--sem-font-size-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-menu-separator {
+  height: 1px;
+  margin: var(--sem-space-2xs) 0;
+  background: var(--sem-color-border-subtle);
+}
+
+/* A group heading is the alternative to a separator, not an addition to it:
+ * one or the other says "a new group starts here". */
+.ds-menu-group-label {
+  padding: var(--sem-space-sm) var(--sem-space-md) var(--sem-space-3xs);
+  color: var(--sem-color-text-subtle);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
 }
 
 /* components/modal/component.css */
@@ -4341,6 +4474,29 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-list-row .demo-pane--narrow {
     max-width: 220px;
   }
+.ds-embed-component-menu {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-menu .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-menu .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-menu .demo-row {
+    display: flex;
+    gap: var(--sem-space-3xl);
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+.ds-embed-component-menu .demo-surface {
+    position: static;
+  }
 .ds-embed-component-modal {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -5916,6 +6072,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-input" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-kbd-chord" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-list-row" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-menu" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-modal" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-panel-header" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-popover" />
@@ -5972,6 +6129,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-input">Input</label>
 <label class="catalog-nav-item" for="ds-view-component-kbd-chord">Kbd chord</label>
 <label class="catalog-nav-item" for="ds-view-component-list-row">List row</label>
+<label class="catalog-nav-item" for="ds-view-component-menu">Menu</label>
 <label class="catalog-nav-item" for="ds-view-component-modal">Modal</label>
 <label class="catalog-nav-item" for="ds-view-component-panel-header">Panel header</label>
 <label class="catalog-nav-item" for="ds-view-component-popover">Popover</label>
@@ -11606,6 +11764,350 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 
   &lt;/div&gt;
 &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-menu" class="catalog-view catalog-component">
+<h3>Menu</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-menu">
+<div class="demo-stage">
+    <p class="demo-label">Menu — the popover surface, full-bleed rows, meta type</p>
+    <div class="demo-row">
+      <div class="ds-popover demo-surface" role="menu" aria-label="Row actions">
+        <div class="ds-menu">
+          <button type="button" class="ds-menu-item" role="menuitem">
+            <span class="ds-menu-item-glyph" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
+                <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            Make active
+            <span class="ds-menu-item-hint">⌘↵</span>
+          </button>
+          <button type="button" class="ds-menu-item" role="menuitem" data-active="true">
+            <span class="ds-menu-item-glyph" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
+                <path d="M4.75 2.75h3.9l2.6 2.6v7.9h-6.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+              </svg>
+            </span>
+            Reveal file
+          </button>
+          <!-- No glyph: the slot is still reserved, so the label does not shift. -->
+          <button type="button" class="ds-menu-item" role="menuitem">
+            <span class="ds-menu-item-glyph" aria-hidden="true"></span>
+            Rename…
+          </button>
+          <div class="ds-menu-separator" role="separator"></div>
+          <button type="button" class="ds-menu-item" role="menuitem" data-destructive="true">
+            <span class="ds-menu-item-glyph" aria-hidden="true"></span>
+            Delete
+          </button>
+          <button type="button" class="ds-menu-item" role="menuitem" aria-disabled="true">
+            <span class="ds-menu-item-glyph" aria-hidden="true"></span>
+            Merge into the track below
+          </button>
+        </div>
+      </div>
+
+      <div class="ds-popover demo-surface" role="menu" aria-label="Filter and sort">
+        <div class="ds-menu">
+          <div class="ds-menu-group-label">Project</div>
+          <button type="button" class="ds-menu-item" role="menuitemradio" aria-checked="true">
+            <span class="ds-menu-item-glyph" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
+                <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            All projects
+            <span class="ds-menu-item-hint">49</span>
+          </button>
+          <button type="button" class="ds-menu-item" role="menuitemradio" aria-checked="false">
+            <span class="ds-menu-item-glyph" aria-hidden="true"></span>
+            multicode
+            <span class="ds-menu-item-hint">31</span>
+          </button>
+          <div class="ds-menu-separator" role="separator"></div>
+          <div class="ds-menu-group-label">Sort</div>
+          <button type="button" class="ds-menu-item" role="menuitemradio" aria-checked="true">
+            <span class="ds-menu-item-glyph" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
+                <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            Most recent
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="catalog-doc">
+<p>A list of actions, summoned onto a popover surface. Right-click a row, press a kebab, or open a narrowing glyph: whichever way it was asked for, what appears is this.</p>
+<p>Use a menu when the list is *actions*. Use [select](../select/component.md) when it is a value being chosen, [combobox](../combobox/component.md) when that value has to be filtered for, and the detail pane when the answer is something to read rather than something to do.</p>
+<h4>Why this spec exists</h4>
+<p>The system shipped three menus and no spec, so each host answered the same questions alone — and a row could be right-clicked and kebab-pressed into two menus that disagreed about radius, border, ground, item type, hover shape and divider colour. <code>OverflowMenu.tsx:200</code> admits the split in a comment.</p>
+<p>Measured 2026-08-05, before this ruling:</p>
+<p>| | ContextMenu | OverflowMenu | FilterMenu | |---|---|---|---| | Surface radius | 6px | 7px (popover) | 7px (popover) | | Surface border | <code>border.default</code> | <code>border.strong</code> | <code>border.strong</code> | | Surface ground | <code>bg.surface</code> | <code>bg.surface-raised</code> | <code>bg.surface-raised</code> | | Item type | body (13px) | meta (12px) | meta (12px) | | Hover fill | inset, 4px radius | full-bleed | full-bleed | | Divider | <code>border.subtle</code> | <code>border.default</code> | <code>border.subtle</code> |</p>
+<h4>The rulings</h4>
+<p>Decided by what the rest of the system already does, not by counting.</p>
+<p><strong>Surface: the popover shell, unchanged.</strong> <code>popover/</code> is already the anchored-overlay engine, and its own CSS says it carries no padding *&quot;because a menu wants full-bleed rows&quot;* — the shell was written expecting this component. ContextMenu is the outlier, and the only thing that actually distinguishes it is that it positions at a <strong>pointer</strong> rather than an anchor. That is a positioning difference. Nothing about a right-click justifies a different radius, border or ground, and a person who opens the same actions two ways should not be able to tell which way they used.</p>
+<p><strong>Item type: <code>meta</code> (12px).</strong> A menu item is chrome — it names an action; it is not prose. At 13px a menu row also sits *above* the 12px list rows it was usually summoned from, which reads as the menu mattering more than the thing it acts on.</p>
+<p><strong>Hover fill: full-bleed, no per-item radius.</strong> An inset rounded fill inside a padded surface reads as a card nested inside a card. Every other row list in the system — <code>list-surface</code>, <code>context-rail</code>, <code>inbox-row</code> — fills to its own inset instead, and a menu is a row list.</p>
+<p><strong>Divider: <code>border.subtle</code>.</strong> Inside an already-bordered surface a divider separates siblings; at <code>border.default</code> it competes with the surface's own edge and the menu reads as two stacked panels.</p>
+<p><strong>Hover and keyboard highlight are one state.</strong> A menu is walked with the arrow keys as often as with the pointer, and &quot;the row about to be activated&quot; is one idea. Two highlights for it is the same class of split this spec closes.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Surface | <code>.ds-popover</code> | yes — the shared shell, <code>role=&quot;menu&quot;</code> | | List | <code>.ds-menu</code> | yes — vertical padding only, so rows reach both edges | | Item | <code>.ds-menu-item</code> | yes — <code>role=&quot;menuitem&quot;</code> (or <code>menuitemradio</code> / <code>menuitemcheckbox</code>) | | Leading slot | <code>.ds-menu-item-glyph</code> | reserved on every item once any item has one | | Trailing hint | <code>.ds-menu-item-hint</code> | no — a shortcut, a count, a submenu chevron | | Separator | <code>.ds-menu-separator</code> | no — <code>role=&quot;separator&quot;</code> | | Group label | <code>.ds-menu-group-label</code> | no — the alternative to a separator, not an addition |</p>
+<p>The <strong>leading slot is reserved by the menu, never sized by the item</strong>. A menu where only some rows carry a glyph would otherwise ladder its own labels — the same defect the context rail's row icon slot fixes, and the same fix.</p>
+<h4>Variants</h4>
+<p><strong>Destructive</strong> (<code>data-destructive=&quot;true&quot;</code>) is ink, never a fill. A red row among black ones is read before it is aimed at; a red *block* is read as something that has already happened.</p>
+<p>There is no size variant, no tone variant beyond destructive, and no &quot;compact&quot; menu. A menu that needs to be denser is a menu with too many items in it.</p>
+<h4>States</h4>
+<ul><li><strong>Rest</strong> — transparent; the surface is the only ground.</li><li><strong>Hover / active</strong> (<code>data-active=&quot;true&quot;</code>) — <code>bg.hover</code>, ink lifts to <code>text.primary</code>. One state for both pointer and keyboard.</li><li><strong>Focus-visible</strong> — the shared ring, drawn *inset*, because a full-bleed row touches the surface border and an outset ring would be clipped by it.</li><li><strong>Disabled</strong> — <code>text.disabled</code>, no fill, <code>aria-disabled</code>. Kept in the list rather than removed: a control that vanishes when unavailable teaches nothing, and the gap it leaves moves every row below it.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The surface is <code>role=&quot;menu&quot;</code>; items are <code>role=&quot;menuitem&quot;</code>, or <code>menuitemradio</code> / <code>menuitemcheckbox</code> when they carry a selected state.</li><li>Focus moves through items with <code>ArrowUp</code> / <code>ArrowDown</code>, wrapping. <code>Home</code> and <code>End</code> jump to the ends. <code>Escape</code> closes the menu and returns focus to the trigger that opened it — the menu never leaves focus on <code>&lt;body&gt;</code>.</li><li>The trigger carries <code>aria-haspopup=&quot;menu&quot;</code> and <code>aria-expanded</code>.</li><li>A checked item states it with <code>aria-checked</code>, not with the tick glyph alone.</li><li>Disabled items keep <code>aria-disabled=&quot;true&quot;</code> rather than the <code>disabled</code> attribute where they must stay arrow-reachable, so a keyboard user can read what is unavailable instead of skipping past it silently.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/ContextMenu.tsx</code> (pointer-positioned, and the <code>MenuItem</code> / <code>MenuDivider</code> / <code>MenuFlyoutItem</code> vocabulary), <code>OverflowMenu.tsx</code> (the kebab), <code>FilterMenu.tsx</code> (the narrowing glyph).</p>
+<p><strong>Not yet reconciled to this spec.</strong> The three still carry the divergences tabulated above; this entry is the ruling they converge onto, written first so the unification has something to point at (MC-2118). <code>ContextMenu</code>'s surface is the one that moves furthest — onto the popover shell, losing its own radius, border, ground and 4px padding.</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/menu/component.css</summary><pre><code>/* Menu — the list of actions inside a popover surface.
+ *
+ * The system had three menus and no spec, so every host answered the same
+ * questions on its own and they answered differently. Measured 2026-08-05
+ * across the shipped ContextMenu, OverflowMenu and FilterMenu:
+ *
+ *                 ContextMenu          OverflowMenu / FilterMenu
+ *   surface       radius 6px           radius 7px (the popover shell)
+ *                 border.default       border.strong
+ *                 bg.surface           bg.surface-raised
+ *                 4px padding          vertical padding only
+ *   item          body (13px)          meta (12px)
+ *                 inset, radius 4px    full-bleed
+ *   divider       border.subtle        border.default (OverflowMenu)
+ *
+ * The rulings below (MC-2118) are decided by what the rest of the system
+ * already does, not by majority:
+ *
+ *   SURFACE — the popover shell, unchanged. `popover/component.css` is already
+ *   the anchored-overlay engine, and its own comment says it carries no padding
+ *   precisely &quot;because a menu wants full-bleed rows&quot;. ContextMenu is the
+ *   outlier, and what makes it different is that it positions at a POINTER
+ *   rather than an anchor — a positioning difference, never a material one.
+ *   Nothing about a right-click justifies a different radius, border or ground.
+ *
+ *   ITEM TYPE — meta (12px). A menu item is chrome: it names an action, it is
+ *   not content to read. 13px also puts menu rows above the 12px list rows they
+ *   are usually summoned from, which reads as the menu being more important
+ *   than the thing it acts on.
+ *
+ *   HOVER FILL — full-bleed to the surface's inner edge, no per-item radius. An
+ *   inset rounded fill inside a padded surface reads as a card nested in a card;
+ *   every other row list in the system (list-surface, context-rail, inbox-row)
+ *   fills to its own inset instead.
+ *
+ *   DIVIDER — border.subtle. A divider inside a bordered surface separates
+ *   siblings; at border.default it competes with the surface's own edge. */
+
+.ds-menu {
+  /* Vertical padding only: rows reach both side edges, so the fill is full-bleed
+   * and the surface's border is the only vertical line in the component. */
+  padding: var(--sem-space-2xs) 0;
+  min-width: 200px;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+}
+
+.ds-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  width: 100%;
+  padding: var(--sem-space-2xs) var(--sem-space-md);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--sem-color-text-default);
+  font: inherit;
+  font-size: var(--sem-font-size-meta);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Hover and keyboard highlight are ONE state. A menu is walked with the arrow
+ * keys as often as with the pointer, and two different highlights for &quot;the row
+ * about to be activated&quot; is the split this spec exists to close. */
+.ds-menu-item:hover,
+.ds-menu-item[data-active=&quot;true&quot;] {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-menu-item:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(var(--sem-focus-ring-offset) * -1);
+}
+
+.ds-menu-item[aria-disabled=&quot;true&quot;],
+.ds-menu-item:disabled {
+  cursor: not-allowed;
+  color: var(--sem-color-text-disabled);
+  background: transparent;
+}
+
+/* Destructive is ink, never a fill. A red row in a list of black ones is read
+ * before it is aimed at; a red BLOCK is read as already-happened. */
+.ds-menu-item[data-destructive=&quot;true&quot;] {
+  color: var(--sem-color-tone-error);
+}
+
+/* The leading slot is reserved, not sized by the item: a menu where only some
+ * rows carry a glyph must not ladder its own labels. Same contract as the
+ * context rail's row icon slot. */
+.ds-menu-item-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  flex: none;
+  color: var(--sem-color-text-subtle);
+}
+
+/* Trailing hint — a keyboard shortcut, a submenu chevron, a check. Pushed to
+ * the far edge so hints line up as a column rather than trailing each label. */
+.ds-menu-item-hint {
+  margin-left: auto;
+  flex: none;
+  color: var(--sem-color-text-disabled);
+  font-size: var(--sem-font-size-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-menu-separator {
+  height: 1px;
+  margin: var(--sem-space-2xs) 0;
+  background: var(--sem-color-border-subtle);
+}
+
+/* A group heading is the alternative to a separator, not an addition to it:
+ * one or the other says &quot;a new group starts here&quot;. */
+.ds-menu-group-label {
+  padding: var(--sem-space-sm) var(--sem-space-md) var(--sem-space-3xs);
+  color: var(--sem-color-text-subtle);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/menu/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Menu&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../popover/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-row {
+    display: flex;
+    gap: var(--sem-space-3xl);
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  /* The surface is `position: fixed` in the product; pinned in flow here so the
+     spec renders as a static page. */
+  .demo-surface {
+    position: static;
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;div class=&quot;demo-stage&quot;&gt;
+    &lt;p class=&quot;demo-label&quot;&gt;Menu — the popover surface, full-bleed rows, meta type&lt;/p&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;div class=&quot;ds-popover demo-surface&quot; role=&quot;menu&quot; aria-label=&quot;Row actions&quot;&gt;
+        &lt;div class=&quot;ds-menu&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitem&quot;&gt;
+            &lt;span class=&quot;ds-menu-item-glyph&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot; height=&quot;16&quot; fill=&quot;none&quot;&gt;
+                &lt;path d=&quot;M3 8.5 6.5 12 13 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+            Make active
+            &lt;span class=&quot;ds-menu-item-hint&quot;&gt;⌘↵&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitem&quot; data-active=&quot;true&quot;&gt;
+            &lt;span class=&quot;ds-menu-item-glyph&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot; height=&quot;16&quot; fill=&quot;none&quot;&gt;
+                &lt;path d=&quot;M4.75 2.75h3.9l2.6 2.6v7.9h-6.5z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+            Reveal file
+          &lt;/button&gt;
+          &lt;!-- No glyph: the slot is still reserved, so the label does not shift. --&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitem&quot;&gt;
+            &lt;span class=&quot;ds-menu-item-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+            Rename…
+          &lt;/button&gt;
+          &lt;div class=&quot;ds-menu-separator&quot; role=&quot;separator&quot;&gt;&lt;/div&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitem&quot; data-destructive=&quot;true&quot;&gt;
+            &lt;span class=&quot;ds-menu-item-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+            Delete
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitem&quot; aria-disabled=&quot;true&quot;&gt;
+            &lt;span class=&quot;ds-menu-item-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+            Merge into the track below
+          &lt;/button&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div class=&quot;ds-popover demo-surface&quot; role=&quot;menu&quot; aria-label=&quot;Filter and sort&quot;&gt;
+        &lt;div class=&quot;ds-menu&quot;&gt;
+          &lt;div class=&quot;ds-menu-group-label&quot;&gt;Project&lt;/div&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitemradio&quot; aria-checked=&quot;true&quot;&gt;
+            &lt;span class=&quot;ds-menu-item-glyph&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot; height=&quot;16&quot; fill=&quot;none&quot;&gt;
+                &lt;path d=&quot;M3 8.5 6.5 12 13 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+            All projects
+            &lt;span class=&quot;ds-menu-item-hint&quot;&gt;49&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitemradio&quot; aria-checked=&quot;false&quot;&gt;
+            &lt;span class=&quot;ds-menu-item-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+            multicode
+            &lt;span class=&quot;ds-menu-item-hint&quot;&gt;31&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;div class=&quot;ds-menu-separator&quot; role=&quot;separator&quot;&gt;&lt;/div&gt;
+          &lt;div class=&quot;ds-menu-group-label&quot;&gt;Sort&lt;/div&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitemradio&quot; aria-checked=&quot;true&quot;&gt;
+            &lt;span class=&quot;ds-menu-item-glyph&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;16&quot; height=&quot;16&quot; fill=&quot;none&quot;&gt;
+                &lt;path d=&quot;M3 8.5 6.5 12 13 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+            Most recent
+          &lt;/button&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>
