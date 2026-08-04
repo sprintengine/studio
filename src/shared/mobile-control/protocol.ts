@@ -1037,6 +1037,18 @@ export interface MobileControlRoadmapRider {
   /** The roadmap file's stable slug (its file-name stem). */
   roadmapId: string;
   name: string;
+  /**
+   * The repo this horizon belongs to, as the same relay-safe token every other
+   * collection is stamped with (MC-1583). Riders from every workspace root are
+   * flattened into one top-level list, so without this a phone cannot tell which
+   * project a horizon belongs to — and a phone that scopes its surfaces to a
+   * current project would have to choose between showing another project's plan
+   * and showing none at all.
+   *
+   * Additive and old-client-safe; absent from a desktop that predates it, and a
+   * reader should then treat the horizon as unscoped rather than dropping it.
+   */
+  projectKey?: string;
   lanes: MobileControlRoadmapLaneRider[];
 }
 
@@ -2368,6 +2380,7 @@ function validateRoadmapRider(input: unknown, fieldName: string): string | null 
   const baseError =
     requireString(rider.value, "roadmapId") ??
     requireString(rider.value, "name") ??
+    optionalString(rider.value, "projectKey") ??
     requireArray(rider.value, "lanes");
   if (baseError) {
     return baseError;
