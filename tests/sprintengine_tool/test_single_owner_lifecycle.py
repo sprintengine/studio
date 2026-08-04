@@ -135,8 +135,8 @@ def test_change_detection_is_failure_safe_without_a_git_repository(tmp_path: Pat
 # --- publish routing --------------------------------------------------------
 
 
-def _publish(fixture, *, produced: bool, phases=None):
-    """Publish T1 with change detection stubbed to `produced`."""
+def _publish_as(fixture, actor: str, *, produced: bool, phases=None):
+    """Publish T1 as `actor`, with change detection stubbed to `produced`."""
     import sprintengine_core.tool.tasks as tasks_module
 
     original = tasks_module.task_produced_changes
@@ -147,7 +147,7 @@ def _publish(fixture, *, produced: bool, phases=None):
                 get_task(state, "T1")["phases"] = phases
             record = get_task(state, "T1")
             return {"result": publish_task(
-                state, fixture.state_path, record, "developer-1", "done it",
+                state, fixture.state_path, record, actor, "done it",
                 # MC-1753: the analysis-only exit is explicit for default-phase tasks.
                 no_changes_ok=not produced,
             )}
@@ -155,6 +155,11 @@ def _publish(fixture, *, produced: bool, phases=None):
         return mutate(fixture, run)
     finally:
         tasks_module.task_produced_changes = original
+
+
+def _publish(fixture, *, produced: bool, phases=None):
+    """Publish T1 as its owner."""
+    return _publish_as(fixture, "developer-1", produced=produced, phases=phases)
 
 
 def test_publish_with_no_changes_routes_straight_to_done(tmp_path: Path) -> None:
@@ -215,6 +220,31 @@ def test_publish_rejects_a_task_that_is_not_in_progress(tmp_path: Path) -> None:
     fixture = rostered_team(tmp_path, "pub-badstatus", [owned_task(status="review")])
     with pytest.raises(SystemExit, match="Only in_progress tasks can be published"):
         _publish(fixture, produced=True)
+
+
+def test_publish_is_owner_only(tmp_path: Path) -> None:
+    """MC-2072: publish rebinds the owner, so an unguarded publish was a takeover."""
+    fixture = rostered_team(tmp_path, "pub-owner", [owned_task()])
+
+    with pytest.raises(SystemExit, match="not_task_owner"):
+        _publish_as(fixture, "developer-2", produced=True)
+
+    # The refusal left the record alone — status and owner both untouched.
+    record = get_task(read_state(fixture.state_path), "T1")
+    assert record["status"] == "in_progress"
+    assert record["ownerAgentId"] == "developer-1"
+
+
+def test_publish_on_an_unowned_task_is_refused_rather_than_claiming_it(tmp_path: Path) -> None:
+    """The empty-owner case: silently claiming is what publish used to do."""
+    fixture = rostered_team(tmp_path, "pub-unowned", [owned_task(owner=None)])
+
+    with pytest.raises(SystemExit, match="not_task_owner"):
+        _publish_as(fixture, "developer-1", produced=True)
+
+    record = get_task(read_state(fixture.state_path), "T1")
+    assert record["status"] == "in_progress"
+    assert not record.get("ownerAgentId")
 
 
 # --- advance ----------------------------------------------------------------

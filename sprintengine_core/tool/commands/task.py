@@ -62,6 +62,7 @@ from sprintengine_core.tool.tasks import (
     add_unique_scope_expansions,
     add_unique_values,
     advance_task,
+    assert_task_owner,
     coerce_evidence_values,
     ensure_evidence,
     normalize_needs_input_kind,
@@ -388,6 +389,24 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         previous_status = task.get("status")
+        # The second hole in publish's class (MC-2072 audit). `task.status` is in
+        # AGENT_COMMON_TOOLS, and `--status done` stamps `lastImplementedByAgentId`
+        # with the caller and runs the commit sweep — so a peer worker could finish
+        # and take credit for another agent's task exactly as it could publish it.
+        # Narrower than publish's guard, because two overrides here are by design:
+        # the human Inbox send-back (`--actor-kind human`) and the coordinator's
+        # triage seat. A peer worker is the only actor refused.
+        owner = str(task.get("ownerAgentId") or "").strip()
+        if (
+            owner
+            and owner != str(actor)
+            and getattr(args, "actor_kind", "agent") != "human"
+            and not actor_is_coordinator(state, str(actor))
+        ):
+            raise SystemExit(
+                f"not_task_owner: {actor} does not own {args.task_id} ({owner} does). "
+                "Only a task's owner, the coordinator, or a human sets its status."
+            )
         if args.status in VALID_TASK_PHASES:
             # A phase status is entered only by `task.publish` (which composes the
             # phase directive and runs change detection) and stepped by `task.advance`
@@ -728,6 +747,11 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         refuse_if_run_canceled(state, "task.publish")
         task = find_task(state, args.task_id)
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
+        # Owner guard first, before ANY side effect (MC-2072). `publish_task` guards
+        # too, but by then this handler has already refreshed diff evidence and run
+        # the backstop commit — a refused publish must leave no trace, same reasoning
+        # as the orphan guard below.
+        assert_task_owner(task, str(actor), verb="publish", rule="Only a task's owner publishes it.")
         summary_data = parse_json_object_arg(getattr(args, "summary_data_json", None), "--summary-data-json")
         refresh_task_diff_evidence(state, args.state, task, str(actor), args.path or [])
         # Guard BEFORE the backstop commit, same window and same reasoning as the

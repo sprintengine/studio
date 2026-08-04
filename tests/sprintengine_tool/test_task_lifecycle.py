@@ -430,6 +430,83 @@ def test_task_advance_out_of_review_completes_the_task(tmp_path) -> None:
     assert_event_type(state, "task_phase_advanced")
 
 
+def test_task_publish_is_owner_only_across_two_concurrent_agents(tmp_path) -> None:
+    """MC-2072: the shape that could not occur before roleless runs minted a second agent.
+
+    Two agents, two tasks, one run, both `in_progress` at once. Agent 2 publishing
+    agent 1's task used to land it in `review` with `ownerAgentId=developer-2` —
+    the real owner lost its task mid-flight with no signal.
+    """
+    fixture = create_team(
+        tmp_path,
+        "publish-cross-agent",
+        [
+            task("T1", "Agent one's work", "developer", "in_progress", owner="developer-1"),
+            task("T2", "Agent two's work", "developer", "in_progress", owner="developer-2"),
+        ],
+    )
+
+    stolen = fixture.cli.run_failure(
+        "task", "publish", "--task-id", "T1", "--id", "developer-2", "--summary", "Publishing your task.",
+    )
+    assert "not_task_owner" in stolen.stderr
+
+    # Neither the status nor the owner moved.
+    state = read_state(fixture.state_path)
+    stolen_task = get_task(state, "T1")
+    assert stolen_task["status"] == "in_progress"
+    assert stolen_task["ownerAgentId"] == "developer-1"
+
+    # And each owner's own publish still works.
+    assert fixture.cli.run(
+        "task", "publish", "--task-id", "T1", "--id", "developer-1", "--summary", "Mine.",
+    )["nextStatus"]
+    assert fixture.cli.run(
+        "task", "publish", "--task-id", "T2", "--id", "developer-2", "--summary", "Also mine.",
+    )["nextStatus"]
+
+
+def test_task_publish_on_an_unowned_task_is_refused(tmp_path) -> None:
+    """A publish with no recorded owner must refuse, not silently claim."""
+    fixture = create_team(tmp_path, "publish-unowned", [owned_task(owner=None)])
+
+    refused = fixture.cli.run_failure(
+        "task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Claiming by publish.",
+    )
+    assert "not_task_owner" in refused.stderr
+    assert_task_status(read_state(fixture.state_path), "T1", "in_progress")
+
+
+def test_task_status_refuses_a_peer_worker_but_not_the_coordinator(tmp_path) -> None:
+    """MC-2072 audit: `task.status --status done` stamps the implementer and commits.
+
+    Same takeover as publish, reachable from the same agent tool surface. The two
+    sanctioned overrides stay open: the coordinator's triage seat and the human
+    Inbox send-back.
+    """
+    fixture = create_team(
+        tmp_path,
+        "status-cross-agent",
+        [
+            task("T1", "Agent one's work", "developer", "in_progress", owner="developer-1"),
+            task("T2", "Agent two's work", "developer", "in_progress", owner="developer-2"),
+        ],
+    )
+
+    stolen = fixture.cli.run_failure(
+        "task", "status", "--task-id", "T1", "--id", "developer-2", "--status", "done",
+    )
+    assert "not_task_owner" in stolen.stderr
+    state = read_state(fixture.state_path)
+    assert get_task(state, "T1")["status"] == "in_progress"
+    assert get_task(state, "T1")["ownerAgentId"] == "developer-1"
+    assert not get_task(state, "T1").get("lastImplementedByAgentId")
+
+    # The coordinator seat still triages any task in the run.
+    fixture.cli.run("task", "status", "--task-id", "T1", "--id", "architect", "--status", "todo")
+    assert_task_status(read_state(fixture.state_path), "T1", "todo")
+
+
 def test_task_advance_is_owner_only_and_guards_on_the_current_phase(tmp_path) -> None:
     fixture = create_team(tmp_path, "advance-guards", [owned_task("review")])
 

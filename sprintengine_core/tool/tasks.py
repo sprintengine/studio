@@ -52,6 +52,21 @@ def task_produced_changes(state: Dict[str, Any], state_path: Path, task: Dict[st
     return bool(task_scoped_dirty_paths(state, state_path, task))
 
 
+def assert_task_owner(task: Dict[str, Any], actor: str, *, verb: str, rule: str) -> None:
+    """Refuse a status/ownership mutation from anyone but the task's owner (MC-2072).
+
+    One wording for one refusal: `advance` and `publish` were drifting toward two
+    messages for the same rule. An unowned task is refused too — the alternative is
+    silently claiming it, which is how publish reassigned `ownerAgentId` out from
+    under a live owner.
+    """
+    owner = str(task.get("ownerAgentId") or "")
+    if not owner:
+        raise SystemExit(f"not_task_owner: {actor} cannot {verb} unowned task {task.get('id')}. {rule}")
+    if owner != actor:
+        raise SystemExit(f"not_task_owner: {actor} does not own {task.get('id')} ({owner} does). {rule}")
+
+
 def publish_task(
     state: Dict[str, Any],
     state_path: Path,
@@ -72,6 +87,10 @@ def publish_task(
     previous_status = str(task.get("status") or "")
     if previous_status != "in_progress":
         raise SystemExit("Only in_progress tasks can be published.")
+    # Owner-only, like advance and claim (MC-2072). Publish routes the task into its
+    # phase walk and `enter_phase` rebinds `ownerAgentId` to the caller, so an
+    # unguarded publish silently reassigned a live owner's task to whoever called it.
+    assert_task_owner(task, actor, verb="publish", rule="Only a task's owner publishes it.")
     # `implementation_response` marks a publish that answers open feedback (the
     # human Inbox loop, Flow 5); a first publish is an `implementation_summary`.
     open_feedback_ids = [str(comment.get("id")) for comment in open_rework_comments(task) if comment.get("id")]
@@ -242,17 +261,7 @@ def advance_task(
         )
     if outcome not in VALID_PHASE_OUTCOMES:
         raise SystemExit(f"Invalid outcome {outcome!r}; expected one of: {', '.join(sorted(VALID_PHASE_OUTCOMES))}.")
-    owner = str(task.get("ownerAgentId") or "")
-    if not owner:
-        raise SystemExit(
-            f"not_task_owner: {actor} cannot advance unowned task {task.get('id')}. "
-            "Only a task's owner advances its phases."
-        )
-    if owner != actor:
-        raise SystemExit(
-            f"not_task_owner: {actor} does not own {task.get('id')} ({owner} does). "
-            "Only a task's owner advances its phases."
-        )
+    assert_task_owner(task, actor, verb="advance", rule="Only a task's owner advances its phases.")
     clean_summary = str(summary or "").strip()
     if not clean_summary:
         raise SystemExit("--summary is required when advancing a phase.")
