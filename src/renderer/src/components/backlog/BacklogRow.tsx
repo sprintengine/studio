@@ -180,6 +180,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   epicProgress,
   plainTitle = false,
   selected = false,
+  hideTouchedTime = false,
 }: {
   item: BacklogItem
   now: number
@@ -216,6 +217,10 @@ export const BacklogRowContent = memo(function BacklogRowContent({
    *  list with no selection of its own (the Horizon backlog source) leaves it
    *  unset and every row reads as unpicked. */
   selected?: boolean
+  /** The host renders the touched-time in its own trailing column (the sprint
+   *  epic list stacks it under the status cell so both share one right edge),
+   *  so the supporting line omits it — a row never shows the time twice. */
+  hideTouchedTime?: boolean
 }): JSX.Element {
   // Blocked overrides the item's own status presentation — the stored `ready`
   // must never read as Ready while prerequisites are unresolved — but a live
@@ -320,11 +325,13 @@ export const BacklogRowContent = memo(function BacklogRowContent({
             <EpicPill epic={epicMeta} />
           </div>
         ) : null}
-        <span
-          className={`${epicMeta && !item.isEpic ? 'pl-2' : 'ml-auto'} shrink-0 tabular-nums text-[color:var(--text-subtle)]`}
-        >
-          {formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}
-        </span>
+        {hideTouchedTime ? null : (
+          <span
+            className={`${epicMeta && !item.isEpic ? 'pl-2' : 'ml-auto'} shrink-0 tabular-nums text-[color:var(--text-subtle)]`}
+          >
+            {formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}
+          </span>
+        )}
       </div>
     </>
   )

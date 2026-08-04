@@ -11,6 +11,7 @@ import { BacklogItemDetailPane } from '../../backlog/BacklogItemDetailPane'
 import { useSprintEngineEpicBacklog } from './useSprintEngineEpicBacklog'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
 import { basename } from '../../../utils/paths'
+import { formatRelativeMsAgo } from '../../../utils/relativeTime'
 import type {
   SprintEngineEpicChildRow,
   SprintEngineEpicMapping,
@@ -129,7 +130,11 @@ export function SprintEngineEpicView({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Epic">
+      {/* The list is the narrower column and the detail takes the remaining
+          width — the item's intent, acceptance and mockups are where the
+          reading happens, exactly as the Backlog door apportions the same two
+          surfaces. `lg` is the documented primary-content-column preset. */}
+      <SidePane as="section" side="left" width="lg" ariaLabel="Epic" className="min-h-0">
         {/* Heading + completion, then the children indented beneath it. No rule
             between the two: space is what groups them. */}
         <header className="flex shrink-0 items-center gap-2.5 px-3 pb-2 pt-4">
@@ -227,11 +232,13 @@ export function SprintEngineEpicView({
                           now={now}
                           plainTitle
                           selected={row.key === selectedKey}
+                          hideTouchedTime
                         />
                       </Tooltip>
                     </div>
                     <SprintEngineEpicMappingCell
                       statusLabel={BACKLOG_STATUS_LABEL[row.item.status]}
+                      touchedLabel={formatRelativeMsAgo(row.item.modifiedAt, now) || 'unknown'}
                       mapping={row.mapping}
                     />
                   </div>
@@ -271,15 +278,19 @@ export function SprintEngineEpicView({
                       <span className="text-micro leading-4 text-[color:var(--text-muted)]">{row.reason}</span>
                     </span>
                   </span>
-                  <SprintEngineEpicMappingCell statusLabel="Unavailable" mapping={row.mapping} />
+                  <SprintEngineEpicMappingCell
+                    statusLabel="Unavailable"
+                    touchedLabel={null}
+                    mapping={row.mapping}
+                  />
                 </li>
               ),
             )}
           </ul>
         )}
-      </section>
+      </SidePane>
 
-      <SidePane as="aside" side="right" width="md" ariaLabel="Backlog item">
+      <aside className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Backlog item">
         {selectedRow ? (
           <BacklogItemDetailPane
             item={selectedRow.item}
@@ -321,28 +332,38 @@ export function SprintEngineEpicView({
             Select an item to preview.
           </div>
         )}
-      </SidePane>
+      </aside>
     </div>
   )
 }
 
-// The mapping column: the task delivering this item and who is working it. A
-// child with no task keeps the cell — empty — rather than losing the column, so
-// the list still scans straight down (and an item added to the epic mid-sprint
-// reads as un-mapped, not as an error).
+// The trailing column: status, how long ago the item was touched, and the task
+// delivering it. The touched-time renders HERE rather than on the row's
+// supporting line (`hideTouchedTime`) so status and time share one right edge —
+// in two side-by-side columns the inner column's edge moves with the status
+// label's width, and the times read ragged. A child with no task keeps its
+// two-line cell rather than losing the column, so the list still scans
+// straight down (an item added to the epic mid-sprint reads as un-mapped, not
+// as an error).
 function SprintEngineEpicMappingCell({
   statusLabel,
+  touchedLabel,
   mapping,
 }: {
   statusLabel: string
+  /** Null when there is no readable item behind the row (unavailable file). */
+  touchedLabel: string | null
   mapping: SprintEngineEpicMapping | null
 }): JSX.Element {
   return (
     <span className="flex shrink-0 flex-col items-end gap-0.5 pt-0.5 text-micro">
       <span className="text-[color:var(--text-muted)]">{statusLabel}</span>
-      <span className="font-mono tabular-nums text-[color:var(--text-subtle)]">
-        {mapping ? `→ ${mapping.label}${mapping.agentId ? ` · ${mapping.agentId}` : ''}` : ''}
-      </span>
+      <span className="tabular-nums text-[color:var(--text-subtle)]">{touchedLabel ?? ''}</span>
+      {mapping ? (
+        <span className="font-mono tabular-nums text-[color:var(--text-subtle)]">
+          {`→ ${mapping.label}${mapping.agentId ? ` · ${mapping.agentId}` : ''}`}
+        </span>
+      ) : null}
     </span>
   )
 }
