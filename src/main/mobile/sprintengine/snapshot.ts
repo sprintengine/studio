@@ -41,6 +41,7 @@ import type {
   MobileControlWorkspaceSnapshot as MobileWorkspaceSnapshot,
   MobileControlTaskCommentSummary as MobileSprintEngineCommentSummary,
   MobileControlRecordedArtifactSummary as MobileSprintEngineRecordedArtifactSummary,
+  MobileControlTaskBacklogRef,
   MobileControlTaskNeedsInput,
   MobileControlTaskEvidence,
   MobileControlTaskFeedback,
@@ -228,6 +229,8 @@ type NormalizedTask = {
   status: SprintEngineTaskStatus
   boardColumn?: SprintEngineTaskStatus
   ownerAgentId: string | null
+  /** The backlog item this task delivers (MC-2060), when it names one. */
+  backlogRef?: MobileControlTaskBacklogRef
   dependsOn: string[]
   needsInput?: MobileControlTaskNeedsInput
   evidence?: MobileControlTaskEvidence
@@ -761,6 +764,7 @@ function normalizeTasks(value: unknown): NormalizedTask[] {
       ownerAgentId: typeof record.ownerAgentId === 'string' && record.ownerAgentId.trim()
         ? record.ownerAgentId
         : null,
+      ...(normalizeTaskBacklogRef(record.backlogRef) ? { backlogRef: normalizeTaskBacklogRef(record.backlogRef)! } : {}),
       dependsOn: stringArray(record.dependsOn),
       needsInput: normalizeNeedsInput(record.needsInput),
       evidence: normalizeEvidence(record.evidence),
@@ -862,6 +866,7 @@ function toTaskSnapshot(task: NormalizedTask, tasks: NormalizedTask[]): MobileSp
     ...(task.role ? { role: task.role } : {}),
     status,
     ...(task.ownerAgentId ? { ownerAgentId: task.ownerAgentId } : {}),
+    ...(task.backlogRef ? { backlogRef: task.backlogRef } : {}),
     dependsOn: task.dependsOn,
     ...(task.needsInput ? { needsInput: task.needsInput } : {}),
     ...(task.evidence ? { evidence: task.evidence } : {}),
@@ -1422,6 +1427,27 @@ function stringOrFallback(value: unknown, fallback: string): string {
  */
 function stringOrUndefined(value: unknown): string | undefined {
   return stringOrNull(value) ?? undefined
+}
+
+/**
+ * The engine's `backlogRef` reduced to the wire's shape (MC-2060).
+ *
+ * Renamed `projectRelativePath` -> `relativePath` so a reader joins it straight to
+ * `MobileControlBacklogItemSnapshot.relativePath` without a second vocabulary —
+ * the same trim-and-rename the flat `vcs` block already applies (`branchName` ->
+ * `branch`).
+ *
+ * A ref with no usable path is DROPPED rather than sent with an empty string:
+ * it points at nothing the phone can open, and a present-but-empty pointer would
+ * draw an affordance that dead-ends.
+ */
+function normalizeTaskBacklogRef(value: unknown): MobileControlTaskBacklogRef | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const relativePath = stringOrUndefined(record.projectRelativePath)
+  if (!relativePath) return undefined
+  const displayKey = stringOrUndefined(record.displayKey)
+  return { relativePath, ...(displayKey ? { displayKey } : {}) }
 }
 
 function isoStringOrNull(value: unknown): string | null {

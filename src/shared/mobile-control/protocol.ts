@@ -467,6 +467,30 @@ export interface MobileControlTaskCommentSummary {
   createdAt?: string;
 }
 
+/**
+ * The backlog item a task delivers (MC-2060). The engine's task record carries
+ * `backlogRef: { projectRelativePath, displayKey? }`; this is the same pointer
+ * under the wire's own vocabulary, so a reader joins `relativePath` straight to
+ * `MobileControlBacklogItemSnapshot.relativePath`.
+ *
+ * MC-1848 made the referenced item the worker's canonical brief, so this is not
+ * decoration — it is how a board task reaches its specification.
+ *
+ * Additive and old-client-safe: a phone that ignores it renders exactly as before.
+ * The path is repo-relative and therefore relay-safe; no absolute path rides here.
+ *
+ * **Joining across collections uses `projectKey`, never `workspacePath`.**
+ * `sanitizeMobileSnapshotForRelay` encodes each collection's path differently, so
+ * a `sprintEngines[].workspacePath` and a `backlog[].workspacePath` for one repo
+ * are not comparable — see the note on `MobileControlSprintEngineSnapshot.projectKey`.
+ */
+export interface MobileControlTaskBacklogRef {
+  /** Repo-relative path of the backlog item, e.g. `backlog/2026-07-30-example.md`. */
+  relativePath: string;
+  /** The item's display id when it has one, e.g. `MC-2020`. */
+  displayKey?: string;
+}
+
 export interface MobileControlRecordedArtifactSummary {
   id: string;
   kind?: string;
@@ -492,6 +516,8 @@ export interface MobileControlTaskSnapshot {
   role?: string;
   status: "todo" | "ready" | "in_progress" | "review" | "needs_input" | "done" | "canceled";
   ownerAgentId?: string;
+  /** The backlog item this task delivers (MC-2060), when it names one. */
+  backlogRef?: MobileControlTaskBacklogRef;
   dependsOn: string[];
   needsInput?: MobileControlTaskNeedsInput;
   evidence?: MobileControlTaskEvidence;
@@ -1947,6 +1973,7 @@ function validateTaskSnapshot(input: unknown): string | null {
     optionalString(task.value, "role") ??
     requireLiteral(task.value, "status", taskStatuses) ??
     optionalString(task.value, "ownerAgentId") ??
+    validateOptionalTaskBacklogRef(task.value.backlogRef) ??
     requireArray(task.value, "dependsOn") ??
     validateStringArray(task.value.dependsOn, "task.dependsOn") ??
     validateOptionalNeedsInput(task.value.needsInput) ??
@@ -1958,6 +1985,19 @@ function validateTaskSnapshot(input: unknown): string | null {
     validateOptionalArray(task.value.latestOpenFeedback, "task.latestOpenFeedback", validateTaskCommentSummary) ??
     validateOptionalArray(task.value.recordedArtifacts, "task.recordedArtifacts", validateRecordedArtifactSummary)
   );
+}
+
+function validateOptionalTaskBacklogRef(input: unknown): string | null {
+  if (input === undefined) {
+    return null;
+  }
+  const ref = validateObject(input, "task.backlogRef");
+  if (ref.ok === false) {
+    return ref.error;
+  }
+  // `relativePath` is required: a reference with only a display key points at
+  // nothing this phone can open, and the engine normalizes that case away too.
+  return requireString(ref.value, "relativePath") ?? optionalString(ref.value, "displayKey");
 }
 
 function validateOptionalNeedsInput(input: unknown): string | null {

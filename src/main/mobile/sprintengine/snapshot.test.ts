@@ -48,6 +48,7 @@ async function main(): Promise<void> {
   await assertReviewProjectionSnapshotExposesReviewContext()
   await assertProjectionSnapshotPassesProtocolValidation()
   await assertRolelessTaskShipsWithoutARole()
+  await assertTaskBacklogRefRidesTheWire()
   await assertProjectionSnapshotExposesProvenanceAndVcs()
   await assertSingleRepoVcsSnapshotIsUnchangedByTheReposList()
   await assertSnapshotIncludesDesktopWorkspaceEntries()
@@ -86,7 +87,7 @@ async function main(): Promise<void> {
 // mobileControlProtocol.regression.test.js. If you change the wire schema in
 // either copy, mirror the edit into the other repo and set both pins to the new
 // shared hash.
-const mobileProtocolSourceSha256 = '5b27c94d7e7c2821fd0390baaa63df0519403fc3e6cc736f087b201f0efbce69'
+const mobileProtocolSourceSha256 = '9c9fba8912afa44fd29e7fdb8ee88512d65e17a954da9e6bf1c207f79f6119fa'
 
 function assertMobileProtocolCopyHasNotDrifted(): void {
   const source = readFileSync(join(process.cwd(), 'src/shared/mobile-control/protocol.ts'))
@@ -394,6 +395,63 @@ async function assertRolelessTaskShipsWithoutARole(): Promise<void> {
   // And it must survive JSON, which is what actually crosses the relay.
   const roundTripped = JSON.parse(JSON.stringify(snapshot)) as MobileControlSnapshot
   assert.equal('role' in roundTripped.sprintEngines[0].tasks[0], false)
+}
+
+// MC-2060: a task can name the backlog item it delivers, and MC-1848 made that
+// item the worker's canonical brief. The engine stores `projectRelativePath`; the
+// wire renames it to `relativePath` so a reader joins it straight to
+// MobileControlBacklogItemSnapshot.relativePath without a second vocabulary.
+async function assertTaskBacklogRefRidesTheWire(): Promise<void> {
+  const statePath = await writeStateText('not-real-state\n')
+  const teamDirectory = dirname(statePath)
+  await writeFile(join(teamDirectory, 'projection.json'), JSON.stringify({
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    updatedAt: generatedAt,
+    run: { id: 'ref-run', name: 'Refs', status: 'executing', updatedAt: generatedAt },
+    tasks: [
+      {
+        id: 'T1',
+        title: 'Delivers an item',
+        role: 'developer',
+        status: 'ready',
+        stateStatus: 'todo',
+        dependsOn: [],
+        backlogRef: { projectRelativePath: 'backlog/2026-07-30-example.md', displayKey: 'MC-2020' },
+      },
+      // A ref with no usable path points at nothing the phone could open, so it
+      // is dropped rather than sent as an empty string that draws a dead control.
+      { id: 'T2', title: 'Key only', role: 'developer', status: 'ready', stateStatus: 'todo', dependsOn: [], backlogRef: { displayKey: 'MC-2021' } },
+      { id: 'T3', title: 'Not an object', role: 'developer', status: 'ready', stateStatus: 'todo', dependsOn: [], backlogRef: 'backlog/x.md' },
+      { id: 'T4', title: 'No ref at all', role: 'developer', status: 'ready', stateStatus: 'todo', dependsOn: [] },
+    ],
+    artifacts: [],
+    workers: {},
+    counts: { ready: 4, needsInput: 0 },
+    runSummary: { status: 'executing' },
+  }), 'utf8')
+
+  const sprintEngineSnapshot = await readSprintEngineSnapshot(statePath)
+  const tasks = sprintEngineSnapshot.tasks as { taskId: string; backlogRef?: { relativePath: string; displayKey?: string } }[]
+
+  assert.deepEqual(tasks[0].backlogRef, { relativePath: 'backlog/2026-07-30-example.md', displayKey: 'MC-2020' })
+  assert.equal('backlogRef' in tasks[1], false, 'a ref with no path is dropped, not sent empty')
+  assert.equal('backlogRef' in tasks[2], false, 'a bare string is not the engine shape')
+  assert.equal('backlogRef' in tasks[3], false, 'a task naming no item carries no key')
+
+  const snapshot: MobileControlSnapshot = {
+    protocolVersion: mobileControlProtocolVersion,
+    generatedAt,
+    desktopSessionId: 'desktop-session-test',
+    sprintEngines: [sprintEngineSnapshot as unknown as MobileControlSnapshot['sprintEngines'][number]],
+    workspaces: [],
+  }
+  const validationResult = validateMobileControlSnapshot(snapshot)
+  assert.equal(validationResult.ok, true, validationResult.ok === false ? validationResult.error.message : undefined)
+
+  // No absolute path may ride the relay; the ref is repo-relative by construction.
+  assert.equal(containsLocalPath(JSON.stringify(tasks[0].backlogRef)), false)
 }
 
 async function assertProjectionSnapshotPassesProtocolValidation(): Promise<void> {
