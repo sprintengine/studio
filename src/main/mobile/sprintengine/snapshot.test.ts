@@ -46,6 +46,7 @@ async function main(): Promise<void> {
   await assertMigratedProjectionSnapshotIsPreferred()
   await assertReviewProjectionSnapshotExposesReviewContext()
   await assertProjectionSnapshotPassesProtocolValidation()
+  await assertRolelessTaskShipsWithoutARole()
   await assertProjectionSnapshotExposesProvenanceAndVcs()
   await assertSingleRepoVcsSnapshotIsUnchangedByTheReposList()
   await assertSnapshotIncludesDesktopWorkspaceEntries()
@@ -83,7 +84,7 @@ async function main(): Promise<void> {
 // mobileControlProtocol.regression.test.js. If you change the wire schema in
 // either copy, mirror the edit into the other repo and set both pins to the new
 // shared hash.
-const mobileProtocolSourceSha256 = '9c7799c026a5059030aa83924f6b577a41e037adff8c21727b6c02cf6eeaadf7'
+const mobileProtocolSourceSha256 = 'ddf7d1d2b0e39f831107e64aec7d20851667c906af757b5a4ce863b81f42ce7d'
 
 function assertMobileProtocolCopyHasNotDrifted(): void {
   const source = readFileSync(join(process.cwd(), 'src/shared/mobile-control/protocol.ts'))
@@ -341,6 +342,56 @@ async function assertSingleRepoVcsSnapshotIsUnchangedByTheReposList(): Promise<v
     JSON.stringify(vcsBlocks[0]),
     'declaring the one-entry list changes nothing on the wire',
   )
+}
+
+// MC-2057 made a task's role optional and deleted `general`. This producer used
+// to read `stringOrFallback(record.role, 'developer')`, so every roleless task —
+// the coordinator seat's included — shipped to the phone as a Developer task and
+// was rendered as one. Nothing downstream could tell the forgery from a real
+// assignment, which is the whole reason this pins the ABSENCE rather than a
+// substitute value.
+async function assertRolelessTaskShipsWithoutARole(): Promise<void> {
+  const statePath = await writeStateText('not-real-state\n')
+  const teamDirectory = dirname(statePath)
+  await writeFile(join(teamDirectory, 'projection.json'), JSON.stringify({
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    updatedAt: generatedAt,
+    run: { id: 'roleless-run', name: 'Roleless', status: 'executing', updatedAt: generatedAt },
+    tasks: [
+      { id: 'T1', title: 'Coordinated', status: 'ready', stateStatus: 'todo', dependsOn: [] },
+      { id: 'T2', title: 'Blank role', role: '   ', status: 'ready', stateStatus: 'todo', dependsOn: [] },
+      { id: 'T3', title: 'Assigned', role: 'frontend', status: 'ready', stateStatus: 'todo', dependsOn: [] },
+    ],
+    artifacts: [],
+    workers: {},
+    counts: { ready: 3, needsInput: 0 },
+    runSummary: { status: 'executing' },
+  }), 'utf8')
+
+  const sprintEngineSnapshot = await readSprintEngineSnapshot(statePath)
+  const tasks = sprintEngineSnapshot.tasks as { taskId: string; role?: string }[]
+
+  assert.equal('role' in tasks[0], false, 'a task with no role must ship without the key, not with a default')
+  assert.equal('role' in tasks[1], false, 'a whitespace-only role is no role, and must not survive as one')
+  assert.equal(tasks[2].role, 'frontend', 'a real role is untouched')
+
+  // The absence has to survive the wire contract too, or the producer is simply
+  // emitting something the validator would reject in the field.
+  const snapshot: MobileControlSnapshot = {
+    protocolVersion: mobileControlProtocolVersion,
+    generatedAt,
+    desktopSessionId: 'desktop-session-test',
+    sprintEngines: [sprintEngineSnapshot as unknown as MobileControlSnapshot['sprintEngines'][number]],
+    workspaces: [],
+  }
+  const validationResult = validateMobileControlSnapshot(snapshot)
+  assert.equal(validationResult.ok, true, validationResult.ok === false ? validationResult.error.message : undefined)
+
+  // And it must survive JSON, which is what actually crosses the relay.
+  const roundTripped = JSON.parse(JSON.stringify(snapshot)) as MobileControlSnapshot
+  assert.equal('role' in roundTripped.sprintEngines[0].tasks[0], false)
 }
 
 async function assertProjectionSnapshotPassesProtocolValidation(): Promise<void> {

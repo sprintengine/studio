@@ -478,7 +478,18 @@ export interface MobileControlRecordedArtifactSummary {
 export interface MobileControlTaskSnapshot {
   taskId: string;
   title: string;
-  role: string;
+  // Optional since MC-2057 (run schema v5, "roleless runs"), which made a task's
+  // role optional in the engine and deleted the `general` role. It stayed
+  // REQUIRED here for one release, and the snapshot producer met that contract by
+  // substituting `'developer'` — so every roleless task, including the
+  // coordinator seat's, reached the phone labelled Developer. A field that is
+  // required but sometimes fabricated is worse than an optional one: nothing
+  // downstream can tell the forged values from the real ones.
+  //
+  // Making it optional is additive and old-client-safe, so the wire stays v2 —
+  // no re-pair, no new scope. A reader renders the ABSENCE (no glyph, no accent),
+  // never a stand-in role, which would only restate the lie one shade quieter.
+  role?: string;
   status: "todo" | "ready" | "in_progress" | "review" | "needs_input" | "done" | "canceled";
   ownerAgentId?: string;
   dependsOn: string[];
@@ -1920,7 +1931,9 @@ function validateTaskSnapshot(input: unknown): string | null {
   return (
     requireString(task.value, "taskId") ??
     requireString(task.value, "title") ??
-    requireString(task.value, "role") ??
+    // Optional since MC-2057 — see MobileControlTaskSnapshot.role. A desktop that
+    // omits it is describing a roleless task, not sending a malformed snapshot.
+    optionalString(task.value, "role") ??
     requireLiteral(task.value, "status", taskStatuses) ??
     optionalString(task.value, "ownerAgentId") ??
     requireArray(task.value, "dependsOn") ??

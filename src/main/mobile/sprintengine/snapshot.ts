@@ -222,7 +222,9 @@ type RawSprintEngineState = {
 type NormalizedTask = {
   id: string
   title: string
-  role: string
+  // Absent for a roleless task (MC-2057, run schema v5). Carried as `undefined`
+  // rather than defaulted so the omission survives all the way onto the wire.
+  role?: string
   status: SprintEngineTaskStatus
   boardColumn?: SprintEngineTaskStatus
   ownerAgentId: string | null
@@ -734,7 +736,12 @@ function normalizeTasks(value: unknown): NormalizedTask[] {
     return [{
       id,
       title: stringOrFallback(record.title, id),
-      role: stringOrFallback(record.role, 'developer'),
+      // MC-2057 made a task's role optional and deleted `general`. This used to
+      // read `stringOrFallback(record.role, 'developer')`, which forged a role for
+      // every roleless task — including the coordinator seat's — and the phone
+      // rendered the forgery as fact. Emit the absence instead; the wire field is
+      // optional (see MobileControlTaskSnapshot.role).
+      role: stringOrUndefined(record.role),
       status: normalizeTaskStatus(statusSources.status),
       boardColumn: normalizeOptionalTaskStatus(statusSources.boardColumn),
       ownerAgentId: typeof record.ownerAgentId === 'string' && record.ownerAgentId.trim()
@@ -835,7 +842,10 @@ function toTaskSnapshot(task: NormalizedTask, tasks: NormalizedTask[]): MobileSp
   return {
     taskId: task.id,
     title: task.title,
-    role: task.role,
+    // Spread-conditional like every other optional field here: a roleless task
+    // omits the key outright rather than carrying `role: undefined`, so the
+    // absence is the same shape whether it crosses JSON or is read in-process.
+    ...(task.role ? { role: task.role } : {}),
     status,
     ...(task.ownerAgentId ? { ownerAgentId: task.ownerAgentId } : {}),
     dependsOn: task.dependsOn,
@@ -1389,6 +1399,15 @@ function stringOrNull(value: unknown): string | null {
 
 function stringOrFallback(value: unknown, fallback: string): string {
   return stringOrNull(value) ?? fallback
+}
+
+/**
+ * For a wire field that is genuinely optional: a blank or missing value becomes
+ * `undefined`, which object spread omits, rather than a forged stand-in. Use this
+ * wherever absence is a fact the phone must be able to read (MC-2057).
+ */
+function stringOrUndefined(value: unknown): string | undefined {
+  return stringOrNull(value) ?? undefined
 }
 
 function isoStringOrNull(value: unknown): string | null {

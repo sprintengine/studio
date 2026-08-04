@@ -1,6 +1,9 @@
 export type SprintEngineTaskRecord = {
   id: string
-  role: string
+  // Absent for a roleless task (MC-2057). Previously such a task was dropped from
+  // this set entirely, which made `findReadySprintEngineTask` report it as "not
+  // found" — the task exists, it simply has no role, and the refusal should say so.
+  role?: string
   status: 'todo' | 'in_progress' | 'review' | 'needs_input' | 'done' | 'canceled'
   ownerAgentId: string | null
   dependsOn: string[]
@@ -35,13 +38,13 @@ export function normalizeSprintEngineTasks(value: unknown): SprintEngineTaskReco
     if (!task || typeof task !== 'object' || Array.isArray(task)) return []
     const record = task as Record<string, unknown>
     if (typeof record.id !== 'string' || !record.id.trim()) return []
-    if (typeof record.role !== 'string' || !record.role.trim()) return []
+    const role = typeof record.role === 'string' && record.role.trim() ? record.role : undefined
 
     // Command readiness only needs the semantic status, not the board lane
     // (folder-store records mirror the board column into `status`).
     return [{
       id: record.id,
-      role: record.role,
+      ...(role ? { role } : {}),
       status: normalizeTaskStatus(selectTaskStatusSources(record).status),
       ownerAgentId: typeof record.ownerAgentId === 'string' && record.ownerAgentId.trim()
         ? record.ownerAgentId

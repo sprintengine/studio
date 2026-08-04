@@ -79,11 +79,14 @@ export async function findSprintEngineArtifact(
   return artifact
 }
 
+// Returns a task whose role is PROVEN present: the roleless guard below throws
+// before any return, so the caller (`task.start`) gets a `string` it can hand to
+// the session orchestrator without re-checking.
 export async function findReadySprintEngineTask(
   state: ValidSprintEngineStatePath,
   taskId: string,
   role: string
-): Promise<SprintEngineTaskRecord> {
+): Promise<SprintEngineTaskRecord & { role: string }> {
   const parsed = await readRawSprintEngineState(state)
   const tasks = normalizeSprintEngineTasks(parsed.tasks)
   const task = tasks.find((candidate) => candidate.id === taskId)
@@ -91,7 +94,17 @@ export async function findReadySprintEngineTask(
     throw new MobileSprintEngineCommandError('task_not_ready', 'Requested task was not found in the sprint state.', false)
   }
 
-  if (task.role !== role) {
+  // A roleless task (MC-2057) cannot be started by role: `task.start` is
+  // "ensure a session for this task's role", and there is no role to ensure one
+  // for. Refuse with what is actually true rather than with a role mismatch —
+  // and note this task is now REACHED rather than dropped by the normalizer, so
+  // the caller no longer gets a misleading "not found".
+  const taskRole = task.role
+  if (taskRole === undefined) {
+    throw new MobileSprintEngineCommandError('task_not_ready', 'Requested task has no role, so it cannot be started by role.', false)
+  }
+
+  if (taskRole !== role) {
     throw new MobileSprintEngineCommandError('task_not_ready', 'Requested task role does not match the mobile command role.', false)
   }
 
@@ -109,7 +122,9 @@ export async function findReadySprintEngineTask(
     throw new MobileSprintEngineCommandError('task_not_ready', `Requested task is blocked by dependency ${incompleteDependency}.`, false)
   }
 
-  return task
+  // `taskRole` is the narrowed proof the guard above established; spreading it
+  // back on is what lets the return type promise a required `role`.
+  return { ...task, role: taskRole }
 }
 
 export async function assertKnownActiveSprintEngineAgent(
