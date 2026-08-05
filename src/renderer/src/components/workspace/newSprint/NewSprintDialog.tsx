@@ -17,6 +17,7 @@
 import React, {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -404,6 +405,15 @@ export default function NewSprintDialog({
   // (epic headers included) via aria-activedescendant, Space/Enter toggles the
   // pick, and shift+arrow extends a range across item rows — the same contract
   // the pointer has.
+  //
+  // Deliberately NOT a combobox (MC-2134). It looks like one — a search field
+  // over a filtered list — but it is a multi-selectable listbox with an external
+  // filter: rows TOGGLE rather than commit a value, `aria-multiselectable` is not
+  // a property a combobox may carry, the list is permanently rendered rather than
+  // a popup something expands, and Space (the toggle here) cannot coexist with a
+  // text field that owns focus. What it was missing is the one link that IS right
+  // for that shape: the field naming the list it filters.
+  const backlogListId = useId()
   const [cursorKey, setCursorKey] = useState<string | null>(null)
   const keyboardOrder = useMemo(() => {
     if (!epicGroups) {
@@ -944,6 +954,7 @@ export default function NewSprintDialog({
                     onChange={setQuery}
                     ariaLabel="Search backlog items"
                     placeholder="Search items…"
+                    controlsId={backlogListId}
                   />
                   <BacklogFilterMenu
                     view={view}
@@ -963,6 +974,7 @@ export default function NewSprintDialog({
                   Click to pick · shift for a range · an epic brings its open items
                 </p>
                 <div
+                  id={backlogListId}
                   role="listbox"
                   aria-multiselectable="true"
                   aria-label="Backlog items"

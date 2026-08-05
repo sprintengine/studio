@@ -21,6 +21,13 @@ import { FOCUS_RING_CLASS } from './tokens'
 // The popup rides `Popover`, so anchoring, flipping, viewport clamping,
 // outside-click and portalling are the shared ones rather than a sixth
 // implementation of each.
+//
+// MC-2134 ruled that model for the whole app — see
+// `design-system/components/combobox/component.md`. Every filter-over-a-list
+// picker keeps focus in the field; the only picker that moved DOM focus onto
+// its rows (`CliModelPicker`) was converted to it. That entry also carries the
+// two clauses this file cannot show on its own: what a row may hold under the
+// ruling, and which surfaces are deliberately NOT comboboxes.
 
 export type ComboboxOption<T> = {
   value: T
@@ -147,12 +154,13 @@ export function Combobox<T>({
       // hosting a combobox must not close while its list is open.
       event.stopPropagation()
       setOpen(false)
-    } else if (event.key === 'Home') {
+    } else if ((event.key === 'Home' || event.key === 'End') && query.length === 0) {
+      // Home/End belong to the caret whenever the field has text (MC-2134's
+      // ruling): this is a field you type into, and a combobox that steals them
+      // leaves no way to reach the ends of a query it just filtered on. With
+      // nothing typed there is no caret to serve, so they jump the list.
       event.preventDefault()
-      setActive(0)
-    } else if (event.key === 'End') {
-      event.preventDefault()
-      setActive(matches.length - 1)
+      setActive(event.key === 'Home' ? 0 : matches.length - 1)
     }
   }
 

@@ -554,6 +554,30 @@ async function main(): Promise<void> {
     }
   })
 
+  // MC-2134 measured this list against the combobox ruling and struck it off:
+  // rows toggle rather than commit, the list is multi-selectable and permanently
+  // rendered, and Space — the toggle here — cannot coexist with a field that
+  // owns focus. What it owed was the link that fits the shape it actually has.
+  await check('the backlog search names the list it filters, without claiming to be a combobox', async () => {
+    const { container, unmount } = await mountDialog(preloadedSource, () => {})
+    try {
+      const search = container.querySelector('input[aria-label="Search backlog items"]')
+      const list = container.querySelector('[role="listbox"][aria-label="Backlog items"]')
+      assert.ok(search && list, 'the search field and the backlog list both render')
+      assert.ok(list!.id, 'the list has an id to be named by')
+      assert.equal(search!.getAttribute('aria-controls'), list!.id, 'and the field names it')
+      assert.equal(search!.getAttribute('role'), null, 'the field is not dressed as a combobox')
+      assert.equal(list!.getAttribute('aria-multiselectable'), 'true', 'because the list is multi-selectable')
+      assert.equal(
+        list!.getAttribute('tabindex'),
+        '0',
+        'and runs its own cursor as its own tab stop, which a combobox popup never does',
+      )
+    } finally {
+      unmount()
+    }
+  })
+
   await check('Escape returns screen 2 to screen 1, and only then closes the dialog', async () => {
     let closes = 0
     const { container, unmount } = await mountDialog(preloadedSource, () => {

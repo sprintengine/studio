@@ -177,13 +177,38 @@ export default function AgentComposerPopover({
     [action, composer, onClose, visibleRows],
   )
 
+  // This roster was already on MC-2134's keyboard model — focus stays here, the
+  // highlight is named by `aria-activedescendant` — so what follows is the rest
+  // of that ruling rather than a migration: Home/End with the caret's claim on
+  // them honoured, and a keyboard path into the row's own control.
   const onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    const input = event.currentTarget
+    const caretAtEnd =
+      input.selectionStart === input.selectionEnd && (input.selectionStart ?? input.value.length) === input.value.length
+    const highlighted = visibleRows.find((row) => rowMatchesSelection(row, selection))
     if (event.key === 'ArrowDown') {
       event.preventDefault()
       composer.moveSelection(1)
     } else if (event.key === 'ArrowUp') {
       event.preventDefault()
       composer.moveSelection(-1)
+    } else if ((event.key === 'Home' || event.key === 'End') && composer.query.length === 0) {
+      // With text in the field these are the caret's; with nothing typed there
+      // is no caret to serve, so they jump the roster.
+      const row = event.key === 'Home' ? visibleRows[0] : visibleRows[visibleRows.length - 1]
+      if (!row) return
+      event.preventDefault()
+      composer.setSelection(selectionForRow(row))
+    } else if (event.key === 'ArrowRight' && caretAtEnd && highlighted) {
+      // The row's engine chip is a `tabIndex={-1}` span inside the option, so
+      // with focus pinned to this field it had no keyboard path at all — only a
+      // click or a right-click reached it. ArrowRight opens the highlighted
+      // row's flyout; Escape inside it peels that one layer and hands focus
+      // back here (the flyout's own handler, below).
+      const engineEditable = !selectMode && highlighted.kind !== 'terminal' && highlighted.kind !== 'conversation'
+      if (!engineEditable) return
+      event.preventDefault()
+      setEngineFlyoutRowKey(highlighted.key)
     } else if (event.key === 'Enter') {
       event.preventDefault()
       commit(selection)
@@ -344,6 +369,22 @@ export default function AgentComposerPopover({
                     <div
                       data-chip-popover="true"
                       aria-label={`Agent runtime for ${label}`}
+                      // Escape closes the flyout only, and returns focus to the
+                      // roster's search field — the one that owns it. Without
+                      // this the key travelled to the hosting Popover and tore
+                      // down the whole picker, which for a keyboard user means
+                      // opening a row's runtime costs them their place.
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Escape') return
+                        event.stopPropagation()
+                        // Belt and braces: the hosting Popover's own Escape
+                        // listener sits on `document` and skips an event that
+                        // has already been consumed, so if this key ever reaches
+                        // it the picker still survives.
+                        event.preventDefault()
+                        setEngineFlyoutRowKey(null)
+                        searchRef.current?.focus()
+                      }}
                       // The shared floating chrome, not a copy of it: this
                       // carried a hardcoded `0 18px 50px rgba(0,0,0,0.55)` behind
                       // an allow-comment claiming parity with the OverflowMenu

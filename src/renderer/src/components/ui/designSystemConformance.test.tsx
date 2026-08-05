@@ -950,6 +950,18 @@ async function main(): Promise<void> {
           .slice(Math.max(0, index - NEARBY_LINES), index + NEARBY_LINES + 1)
           .join('\n')
         if (!SELECTION_STATE.test(window)) return
+        // The keyboard cursor's own branch, which the scope note above already
+        // exempts in principle: `active` names the cursor, and the hover fill IS
+        // its canon. What the window cannot see is a picker carrying BOTH marks —
+        // `CliModelPicker` highlights with `--bg-hover` and keeps `--bg-selected`
+        // for the runtime in force (MC-2134) — where the two branches are
+        // necessarily one ternary, and so inside each other's window no matter
+        // how the file is written. Narrow on purpose: the fill's OWN branch must
+        // be the one `active` governs, on its line or the one above it, and the
+        // press token is never exempt.
+        const governing = `${codeOnly[index - 1] ?? ''}\n${codeOnly[index] ?? ''}`
+        const cursorBranch = /\bactive\s*$/m.test(governing)
+        if (cursorBranch && !borrowed.has('bg-[color:var(--bg-active)]')) return
         offenders.push(`${relative(process.cwd(), path)}:${index + 1}: ${[...borrowed].join(' ')}`)
       })
     }
