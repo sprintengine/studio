@@ -1005,7 +1005,13 @@
             "com.multicode": {
               "seeded": true,
               "role": "iconography",
-              "use": "Inline glyphs beside meta copy and inside chips."
+              "use": "Inline glyphs beside meta copy and inside chips.",
+              "platforms": {
+                "compact": {
+                  "$value": "14px",
+                  "$description": "Touch. One step up from the pointer scale's 13px: beside the compact ramp's 15px body a 13px glyph reads as a smudge rather than as chrome."
+                }
+              }
             }
           }
         },
@@ -1285,7 +1291,13 @@
             "com.multicode": {
               "role": "sizing",
               "use": "Height of icon buttons and controls that sit inside a list row.",
-              "doNotUse": "Any control carrying a text label — those start at sm."
+              "doNotUse": "Any control carrying a text label — those start at sm.",
+              "platforms": {
+                "compact": {
+                  "$value": "36px",
+                  "$description": "Touch. The pointer ramp's 26px is a mouse target; nothing pressable may sit under the hit-target floor, so the whole control ramp lifts by a constant 10px and keeps its shape."
+                }
+              }
             }
           }
         },
@@ -1296,7 +1308,13 @@
           "$extensions": {
             "com.multicode": {
               "role": "sizing",
-              "use": "The default height for every labelled control. An input and a select side by side must share it."
+              "use": "The default height for every labelled control. An input and a select side by side must share it.",
+              "platforms": {
+                "compact": {
+                  "$value": "40px",
+                  "$description": "Touch. Pointer 30px + 10."
+                }
+              }
             }
           }
         },
@@ -1307,7 +1325,13 @@
           "$extensions": {
             "com.multicode": {
               "role": "sizing",
-              "use": "Modal and drawer primary actions, where density relaxes."
+              "use": "Modal and drawer primary actions, where density relaxes.",
+              "platforms": {
+                "compact": {
+                  "$value": "44px",
+                  "$description": "Touch. Pointer 34px + 10, landing exactly ON the hit-target floor — the largest control IS the floor."
+                }
+              }
             }
           }
         }
@@ -1320,7 +1344,14 @@
           "com.multicode": {
             "role": "sizing",
             "use": "Minimum interactive area. A control drawn smaller than this pads out to it with a transparent hit area.",
-            "doNotUse": "Shrinking a target below this because the glyph inside is small."
+            "doNotUse": "Shrinking a target below this because the glyph inside is small.",
+            "platforms": {
+              "compact": {
+                "$value": "44px",
+                "$description": "Touch. 44pt is the iOS HIG minimum and Material's 48dp rounds to the same intent; the pointer scale's 24px is a mouse target and would be unpressable with a thumb."
+              },
+              "$note": "See sem.font.size.body's platforms note for what `compact` is and why it is annotation rather than a third CSS mode. In short: the touch scale, same names, different values, not consumed by build-tokens.mjs."
+            }
           }
         }
       }
