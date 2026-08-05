@@ -34,7 +34,7 @@ import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetChips } from '../worksp
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { renderMarkdown } from '../../utils/markdown'
-import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, GhostButton, InlineSkillPicker, MenuDivider, MenuItem, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, InlineSkillPicker, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillPrefill } from '../../utils/skillInvocation'
@@ -2097,14 +2097,13 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         {composerError ? (
           <div className="mb-2 flex items-center justify-between gap-3">
             <TruncatedText as="span" text={composerError} className="min-w-0 text-meta leading-5 text-[color:var(--tone-error)]" />
-            <GhostButton
-              size="sm"
+            <OutlineButton
               onClick={retry}
               disabled={composerDisabled}
-              className="shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
+              className="shrink-0"
             >
               Retry
-            </GhostButton>
+            </OutlineButton>
           </div>
         ) : null}
 
@@ -2135,13 +2134,12 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                 className="min-w-0 text-meta leading-5 text-[color:var(--text-muted)]"
               />
             </div>
-            <GhostButton
-              size="sm"
+            <OutlineButton
               onClick={() => setQueuedTurn(null)}
-              className="shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
+              className="shrink-0"
             >
               Cancel
-            </GhostButton>
+            </OutlineButton>
           </div>
         ) : null}
 
@@ -2830,9 +2828,16 @@ function ComposerActionButton({
   disabled?: boolean
   children: React.ReactNode
 }) {
+  // On-accent ink is `--text-on-accent`, never `--bg-app`. The two coincide on
+  // the dark default, which is why painting the send glyph with the app canvas
+  // looked right — and why it went invisible on every theme where the canvas is
+  // not the on-accent colour (MC-2113). Geometry comes off the ramp for the
+  // same reason: a `control-sm` square at the kit's 5px radius rather than a
+  // typed `h-[30px]` at Tailwind's 8px `rounded-lg`, and the primitives' 45%
+  // disabled step rather than a private 40%.
   const toneClass =
     tone === 'accent'
-      ? 'bg-[color:var(--accent-primary)] text-[color:var(--bg-app)] hover:bg-[color:var(--accent-primary-hover)] disabled:hover:bg-[color:var(--accent-primary)]'
+      ? 'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)] hover:bg-[color:var(--accent-primary-hover)] disabled:hover:bg-[color:var(--accent-primary)]'
       : 'border border-[color:var(--border-default)] bg-[color:var(--bg-hover)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-active)] disabled:hover:bg-[color:var(--bg-hover)]'
   return (
     <button
@@ -2840,7 +2845,7 @@ function ComposerActionButton({
       aria-label={ariaLabel}
       onClick={onClick}
       disabled={disabled}
-      className={`flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg transition-colors disabled:cursor-default disabled:opacity-40 ${toneClass}`}
+      className={`flex size-control-sm shrink-0 items-center justify-center rounded-[5px] transition-colors disabled:cursor-default disabled:opacity-45 ${toneClass}`}
     >
       {children}
     </button>
@@ -3207,14 +3212,12 @@ function ConversationPermissionCard({
       }
       actions={
         <>
-          <GhostButton
-            size="sm"
+          <OutlineButton
             onClick={() => onApprove(entry.requestId, false)}
             disabled={busy}
-            className="border border-[color:var(--border-default)] bg-transparent text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
           >
             Deny
-          </GhostButton>
+          </OutlineButton>
           <PrimaryButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
             Approve <Kbd>⏎</Kbd>
           </PrimaryButton>
@@ -3279,14 +3282,12 @@ function ConversationPlanCard({
       }
       actions={
         <>
-          <GhostButton
-            size="sm"
+          <OutlineButton
             onClick={() => onApprove(entry.requestId, false)}
             disabled={busy}
-            className="border border-[color:var(--border-default)] bg-transparent text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
           >
             Keep planning
-          </GhostButton>
+          </OutlineButton>
           <PrimaryButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
             Approve plan <Kbd>⏎</Kbd>
           </PrimaryButton>
@@ -3420,14 +3421,12 @@ function ConversationQuestionCard({
       }
       actions={
         <>
-          <GhostButton
-            size="sm"
+          <OutlineButton
             onClick={() => onAnswer(requestId, false)}
             disabled={busy}
-            className="border border-[color:var(--border-default)] bg-transparent text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
           >
             Dismiss
-          </GhostButton>
+          </OutlineButton>
           <PrimaryButton size="sm" onClick={advance} disabled={busy || !currentAnswered}>
             {isLast ? 'Answer' : 'Next'} <Kbd>⏎</Kbd>
           </PrimaryButton>
@@ -4152,13 +4151,9 @@ function ReadinessState({
         {readinessLabel(readiness)}
       </p>
       {offerSwitch ? (
-        <GhostButton
-          size="sm"
-          onClick={onSwitchModel}
-          className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
-        >
+        <OutlineButton onClick={onSwitchModel}>
           Use another model
-        </GhostButton>
+        </OutlineButton>
       ) : null}
     </div>
   )

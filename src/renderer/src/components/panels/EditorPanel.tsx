@@ -519,11 +519,16 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
         content={markdownPreviewTooLarge ? 'Markdown preview disabled for large files' : showPreview ? 'Edit Markdown source' : 'Preview Markdown'}
         placement="bottom"
       >
+        {/* Borderless, like every other IconButton. The override this carried —
+            a border plus a raised ground — is the bordered icon button the kit
+            retired by name ("do not reintroduce it", ui/Buttons.tsx): it adds a
+            second radius to a view that already spends two, and it competes
+            with the surface it floats over instead of sitting on it. The
+            primitive's own hover fill is what makes it findable (MC-2113). */}
         <IconButton
           aria-label={showPreview ? 'Edit Markdown source' : 'Preview Markdown'}
           onClick={() => setMarkdownMode((mode) => (mode === 'preview' ? 'source' : 'preview'))}
           disabled={markdownPreviewTooLarge}
-          className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]"
         >
           {showPreview ? (
             <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">

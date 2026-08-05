@@ -23,6 +23,38 @@ const SIZE: Record<ButtonSize, string> = {
 
 type SizedButtonProps = ButtonBase & { size?: ButtonSize }
 
+/**
+ * The two inks a borderless control can carry. `danger` is the ONLY way to get
+ * a destructive ghost — recolouring one through `className` puts two
+ * `text-[color:var(--…)]` utilities of equal specificity on the element, and
+ * which of them paints is then a question of stylesheet order rather than of
+ * what the caller wrote. The Git panel spelled that override at six call sites
+ * before MC-2113; making it a prop is what stops the seventh.
+ */
+export type ButtonTone = 'neutral' | 'danger'
+
+const GHOST_TONE: Record<ButtonTone, string> = {
+  neutral:
+    'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ' +
+    'disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]',
+  danger:
+    'text-[color:var(--tone-error)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)] ' +
+    'disabled:hover:bg-transparent disabled:hover:text-[color:var(--tone-error)]',
+}
+
+// Every variant below pins its RESTING appearance back under `disabled:hover:`.
+// That is not belt-and-braces: CSS `:hover` still matches a disabled button
+// (unlike `pointer-events: none`, which would also swallow the tooltip that
+// explains why the control is off), so without it each hover step fires under
+// the pointer while the button refuses the click. The retired `ModalButton`
+// primary carried this guard privately; folding every dialog footer onto these
+// primitives (MC-2113) is only faithful if the primitives carry it too.
+//
+// One declaration per utility, never a reset plus a repaint: a shared
+// `disabled:hover:bg-transparent` followed by a per-variant recolour would put
+// two rules for one property at equal specificity, and which of them paints
+// would be a matter of stylesheet order. `:disabled:hover` outranks a plain
+// `:hover` on its own, so the guard needs no help winning.
 export const PrimaryButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>(
   function PrimaryButton({ className, size = 'sm', type, ...rest }, ref) {
     return (
@@ -35,6 +67,7 @@ export const PrimaryButton = React.forwardRef<HTMLButtonElement, SizedButtonProp
           SIZE[size],
           'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]',
           'hover:bg-[color:var(--accent-primary-hover)]',
+          'disabled:hover:bg-[color:var(--accent-primary)]',
           FOCUS_RING_CLASS,
           className ?? '',
         ].join(' ')}
@@ -43,8 +76,13 @@ export const PrimaryButton = React.forwardRef<HTMLButtonElement, SizedButtonProp
   },
 )
 
-export const GhostButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>(
-  function GhostButton({ className, size = 'sm', type, ...rest }, ref) {
+// The destructive counterpart to PrimaryButton: one solid tone, spent on the
+// action a person cannot undo. It exists here rather than inside `ui/Modal` —
+// where the `ModalButton` danger variant used to spell it — because a dialog is
+// not the only place a destructive confirm appears, and a variant declared
+// inside one host is how the product grew five primaries (MC-2113).
+export const DangerButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>(
+  function DangerButton({ className, size = 'sm', type, ...rest }, ref) {
     return (
       <button
         ref={ref}
@@ -53,8 +91,32 @@ export const GhostButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>
         className={[
           SHARED,
           SIZE[size],
-          'bg-transparent text-[color:var(--text-muted)]',
-          'hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+          // No hover step: the system ships no `--tone-error-hover`, and a
+          // hand-tuned one here would be the nineteen-theme drift this kit
+          // exists to stop. Carrying the same rest state the retired
+          // `ModalButton` danger variant had is a faithful move, not a
+          // regression — a token is the fix, not a literal.
+          'bg-[color:var(--tone-error)] text-[color:var(--tone-error-ink)]',
+          FOCUS_RING_CLASS,
+          className ?? '',
+        ].join(' ')}
+      />
+    )
+  },
+)
+
+export const GhostButton = React.forwardRef<HTMLButtonElement, SizedButtonProps & { tone?: ButtonTone }>(
+  function GhostButton({ className, size = 'sm', tone = 'neutral', type, ...rest }, ref) {
+    return (
+      <button
+        ref={ref}
+        type={type ?? 'button'}
+        {...rest}
+        className={[
+          SHARED,
+          SIZE[size],
+          'bg-transparent',
+          GHOST_TONE[tone],
           FOCUS_RING_CLASS,
           className ?? '',
         ].join(' ')}
@@ -80,6 +142,7 @@ export const OutlineButton = React.forwardRef<HTMLButtonElement, SizedButtonProp
           SIZE[size],
           'border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)]',
           'hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+          'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface)] disabled:hover:text-[color:var(--text-default)]',
           FOCUS_RING_CLASS,
           className ?? '',
         ].join(' ')}
@@ -92,6 +155,8 @@ type IconButtonProps = ButtonBase & {
   /** Required: icon-only buttons must expose an accessible name. */
   'aria-label': string
   size?: 'sm' | 'md'
+  /** Same contract as `GhostButton`'s: a destructive icon action is a prop. */
+  tone?: ButtonTone
 }
 
 const ICON_SIZE: Record<'sm' | 'md', string> = {
@@ -100,7 +165,7 @@ const ICON_SIZE: Record<'sm' | 'md', string> = {
 }
 
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
-  function IconButton({ className, size = 'sm', children, type, ...rest }, ref) {
+  function IconButton({ className, size = 'sm', tone = 'neutral', children, type, ...rest }, ref) {
     return (
       <button
         ref={ref}
@@ -109,7 +174,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         className={[
           'interactive inline-flex items-center justify-center rounded-[5px]',
           ICON_SIZE[size],
-          'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+          GHOST_TONE[tone],
           'disabled:cursor-not-allowed disabled:opacity-45',
           FOCUS_RING_CLASS,
           className ?? '',

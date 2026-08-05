@@ -8,7 +8,7 @@ import {
 } from '../../utils/gitConflictMarkers'
 import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
-import { FOCUS_RING_CLASS, Section } from '../ui'
+import { GhostButton, PanelHeader, PrimaryButton, Section } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 type ResolverState =
@@ -156,31 +156,25 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-default)]">
-      <div className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="truncate font-mono text-meta font-semibold text-[color:var(--text-strong)]" title={state.conflict.path}>
-              {state.conflict.relativePath}
-            </div>
-            <div className="mt-0.5 text-micro text-[color:var(--text-subtle)]">
-              Pulled version / Your stashed changes / Final result
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => void saveResolved()}
-            disabled={state.saving}
-            className={`h-8 shrink-0 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--text-strong)] px-3 text-micro font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-[color:var(--bg-inverted-hover)] disabled:border-[color:var(--bg-selected)] disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
-          >
-            {state.saving ? 'Saving...' : 'Save & Mark Resolved'}
-          </button>
+      {/* The identity row is the shared primitive: the panel names itself, the
+          file it is resolving is the scope beside it. The two-line band this
+          replaced ran a second caption — "Pulled version / Your stashed changes
+          / Final result" — that each pane below already carries as its own
+          title, and a hand-rolled save button beside it (2112). */}
+      <PanelHeader
+        title="Resolve conflict"
+        subtitle={state.conflict.relativePath}
+        primaryAction={
+          <PrimaryButton onClick={() => void saveResolved()} disabled={state.saving}>
+            {state.saving ? 'Saving…' : 'Save & mark resolved'}
+          </PrimaryButton>
+        }
+      />
+      {state.message ? (
+        <div className="shrink-0 border-b border-[color:var(--border-default)] px-3 py-2 text-meta text-[color:var(--text-muted)]">
+          {state.message}
         </div>
-        {state.message ? (
-          <div className="mt-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 py-1.5 text-micro text-[color:var(--text-muted)]">
-            {state.message}
-          </div>
-        ) : null}
-      </div>
+      ) : null}
 
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(170px,32%)_minmax(0,1fr)]">
         <div className="grid min-h-0 grid-cols-2 border-b border-[color:var(--border-default)]">
@@ -285,14 +279,15 @@ function ConflictReadOnlyPane({
   )
 }
 
+// The take-a-side actions on a conflict hunk. On the kit's `sm` step, like
+// every other labelled control in the Git surfaces: this ran the panel's
+// private 28px/6px ramp, which is what put a Git button a pixel or two off
+// every button beside it (MC-2113). `text-left` survives because these sit in a
+// stacked column where the labels have to align on their left edge.
 function ConflictActionButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`h-7 rounded-md px-2 text-left text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-    >
+    <GhostButton size="sm" onClick={onClick} className="justify-start text-left">
       {label}
-    </button>
+    </GhostButton>
   )
 }

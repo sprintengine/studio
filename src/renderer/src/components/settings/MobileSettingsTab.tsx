@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useId, useState } from 'react'
-import { FOCUS_RING_CLASS, GhostButton, PrimaryButton, StatusDot, type Tone } from '../ui'
+import { FOCUS_RING_CLASS, OutlineButton, PrimaryButton, StatusDot, type Tone } from '../ui'
 import { MetaCell, SettingsRow, SettingsSectionTitle, SettingToggle, formatNullableDate } from './SettingsAtoms'
 
 type MobileControlCommandType =
@@ -411,14 +411,14 @@ export default function MobileSettingsTab() {
                     <span>Last seen {formatNullableDate(device.lastSeenAt)}</span>
                   </div>
                 </div>
-                <GhostButton
+                <OutlineButton
                   size="md"
                   onClick={() => void revokeDevice(device)}
                   disabled={!enabled || revokingDeviceId === device.deviceId}
-                  className="justify-self-start border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:text-[color:var(--tone-error)] sm:justify-self-end"
+                  className="justify-self-start hover:text-[color:var(--tone-error)] sm:justify-self-end"
                 >
                   {revokingDeviceId === device.deviceId ? 'Revoking' : 'Revoke'}
-                </GhostButton>
+                </OutlineButton>
               </div>
             ))}
           </div>

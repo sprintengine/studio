@@ -16,7 +16,7 @@
 // BELOW the menus, so a context menu opened over a dialog painted on top of it.
 // Consuming the token both fixes that and removes the second ladder.
 import React, { useEffect, useRef } from 'react'
-import { CloseIconButton } from './Buttons'
+import { CloseIconButton, DangerButton, GhostButton, PrimaryButton } from './Buttons'
 import { FocusTrap } from './FocusTrap'
 import { TruncatedText } from './TruncatedText'
 import { OVERLAY_SHELL_CLASS, overlayWidthStyle, type OverlayWidth } from './tokens'
@@ -217,21 +217,29 @@ type ModalButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant
 }
 
-const PRIMARY_STYLES =
-  'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)] hover:bg-[color:var(--accent-primary-hover)] disabled:hover:bg-[color:var(--accent-primary)]'
+// A NAME for the footer's three roles, not a fourth button. Every variant is
+// the kit primitive at the `md` step, so a dialog's confirm is pixel-identical
+// to the Commit button in the Git panel and to the hub footer's Create
+// (MC-2113).
+//
+// What this used to be — `rounded-md px-3.5 py-2`, sized by its padding rather
+// than by the ramp — was the third of five rival primary idioms in the product:
+// a 6px radius against the kit's 5px, and a height that fell wherever the line
+// box landed instead of on `sem.size.control.*`. Two dialogs beside each other
+// disagreed by a pixel or two, which is exactly the drift nobody files and
+// everybody perceives.
+const VARIANT_COMPONENT: Record<ButtonVariant, typeof PrimaryButton> = {
+  primary: PrimaryButton,
+  ghost: GhostButton,
+  danger: DangerButton,
+}
 
 export function ModalButton({ variant = 'ghost', className, ...rest }: ModalButtonProps) {
-  const base =
-    // `text-heading`, not Tailwind's `text-sm` — the same 14px, but on the
-    // ramp, so it moves if the ramp moves (MC-2119).
-    'rounded-md px-3.5 py-2 text-heading font-semibold transition-colors focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-45'
-  const styles: Record<ButtonVariant, string> = {
-    primary: PRIMARY_STYLES,
-    ghost:
-      'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-    danger: 'bg-[color:var(--tone-error)] text-[color:var(--tone-error-ink)]',
-  }
-  return <button {...rest} className={`${base} ${styles[variant]} ${className ?? ''}`} />
+  const Component = VARIANT_COMPONENT[variant]
+  // `md` — the largest ramp step. A dialog footer is the one place in the
+  // product where the button IS the screen's terminal action, so it takes the
+  // roomiest control rather than the dense-chrome default.
+  return <Component {...rest} size="md" className={className} />
 }
 
 export function SectionLabel({ children }: { children: React.ReactNode }) {

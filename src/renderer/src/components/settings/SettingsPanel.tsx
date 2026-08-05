@@ -30,6 +30,7 @@ import {
   GhostButton,
   IconButton,
   InlineNotice,
+  OutlineButton,
   PrimaryButton,
   ProviderRow,
   ProviderStateId,
@@ -1975,14 +1976,13 @@ export default function SettingsPanel({
                     {updateState?.updateVersion ? `Download ${updateState.updateVersion}` : 'Download update'}
                   </PrimaryButton>
                 ) : (
-                  <GhostButton
+                  <OutlineButton
                     size="md"
                     onClick={() => void checkForUpdates()}
                     disabled={updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'}
-                    className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                   >
                     {updateState?.status === 'error' ? 'Retry check' : 'Check for updates'}
-                  </GhostButton>
+                  </OutlineButton>
                 )}
               </div>
             </div>
@@ -2123,22 +2123,20 @@ export default function SettingsPanel({
                       <span className="text-body font-medium text-[color:var(--text-default)]">
                         {formatGitHubTokenStatus(githubTokenStatus)}
                       </span>
-                      <GhostButton
+                      <OutlineButton
                         size="md"
                         onClick={() => setGithubTokenEditing(true)}
                         disabled={githubTokenStatus === null}
-                        className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                       >
                         Replace
-                      </GhostButton>
-                      <GhostButton
+                      </OutlineButton>
+                      <OutlineButton
                         size="md"
                         onClick={() => void clearGitHubToken()}
                         disabled={githubTokenPending || githubTokenStatus?.source !== 'settings'}
-                        className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                       >
                         Clear
-                      </GhostButton>
+                      </OutlineButton>
                     </>
                   )}
                 </SettingsRow>
@@ -2193,22 +2191,16 @@ export default function SettingsPanel({
               <MessageBlock tone="warn">
                 {pluginCatalogError ?? 'The plugin registry could not be loaded.'}
               </MessageBlock>
-              <GhostButton
-                onClick={() => void refreshPluginCatalog()}
-                className="h-control-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              >
+              <OutlineButton size="md" onClick={() => void refreshPluginCatalog()}>
                 Retry
-              </GhostButton>
+              </OutlineButton>
             </div>
           ) : installedPluginRows.length === 0 ? (
             <div className="space-y-2">
               <MessageBlock tone="neutral">No agent plugins are installed.</MessageBlock>
-              <GhostButton
-                onClick={() => void refreshPluginCatalog()}
-                className="h-control-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              >
+              <OutlineButton size="md" onClick={() => void refreshPluginCatalog()}>
                 Refresh
-              </GhostButton>
+              </OutlineButton>
             </div>
           ) : (
             <div>
@@ -2523,14 +2515,13 @@ export default function SettingsPanel({
                         Create custom role
                       </PrimaryButton>
                     ) : null}
-                    <GhostButton
+                    <OutlineButton
                       size="md"
                       onClick={() => void installGlobalRoleFolder()}
                       disabled={globalInstallPending}
-                      className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                     >
                       {globalInstallPending ? 'Installing' : 'Install from folder'}
-                    </GhostButton>
+                    </OutlineButton>
                   </div>
                 }
               >
@@ -2872,14 +2863,13 @@ function ProfileSection({
             Upgrade to Pro
           </PrimaryButton>
         ) : null}
-        <GhostButton
+        <OutlineButton
           size="md"
           onClick={onRefresh}
           disabled={pending}
-          className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
         >
           {accessStale ? 'Check access again' : 'Refresh access'}
-        </GhostButton>
+        </OutlineButton>
         <GhostButton size="md" onClick={onSignOut} disabled={pending} className="ml-auto">
           Sign out
         </GhostButton>

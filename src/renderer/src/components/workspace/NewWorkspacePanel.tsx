@@ -52,7 +52,7 @@ import {
 } from '../../utils/sprintengine'
 import MulticodeMark from '../brand/MulticodeMark'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { Checkbox, CliModelPickerButton, CloseIconButton, Field, FOCUS_RING_CLASS, GhostButton, TruncatedText, WizardProgress } from '../ui'
+import { Checkbox, CliModelPickerButton, CloseIconButton, Field, FOCUS_RING_CLASS, GhostButton, OutlineButton, PrimaryButton, TruncatedText, WizardProgress } from '../ui'
 import { OVERLAY_SHELL_CLASS, OVERLAY_WIDTH_PX } from '../ui/tokens'
 import {
   analyzeWorkspaceTargetPath,
@@ -1737,35 +1737,31 @@ export default function NewWorkspacePanel({
                       {/* Everything left in the flow is already defaulted, so the
                           user can leave now and change the rest later. */}
                       {showSkipToCreate ? (
-                        <button
-                          type="button"
+                        <GhostButton
+                          size="md"
                           onClick={handlePrimaryAction}
                           disabled={isCreating || pendingCreate}
-                          className="
-                            inline-flex h-9 items-center rounded-md px-2 text-body font-medium text-[color:var(--text-subtle)]
-                            transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
-                            disabled:cursor-not-allowed disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent
-                            focus-visible:focus-ring
-                          "
                         >
                           Skip the rest and create
-                        </button>
+                        </GhostButton>
                       ) : null}
-                      <button
-                        type="button"
+                      {/* The hub footer was the fourth rival primary: its own
+                          36px height, and — the part that actually broke — a
+                          label painted `--bg-app`. On-accent ink is
+                          `--text-on-accent`; the two happen to coincide on the
+                          dark default and diverge on every theme whose app
+                          canvas is not the on-accent colour, which is where the
+                          label went unreadable (MC-2113). */}
+                      <PrimaryButton
+                        size="md"
+                        className="shrink-0"
                         onClick={isLastStep ? handlePrimaryAction : goNext}
                         disabled={
                           (isLastStep ? !createReady : !currentStepReady) || isCreating || pendingCreate
                         }
-                        className="
-                          inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[color:var(--accent-primary)] px-4 text-body font-semibold text-[color:var(--bg-app)]
-                          transition-colors hover:bg-[color:var(--accent-primary-hover)]
-                          disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
-                          focus-visible:focus-ring
-                        "
                       >
                         {primaryLabel}
-                      </button>
+                      </PrimaryButton>
                     </div>
                     </div>
                   </footer>
@@ -2346,13 +2342,9 @@ function GuidedIdeaStep({
                 >
                   {seedFolderPath ?? 'No source folder chosen'}
                 </span>
-                <GhostButton
-                  size="md"
-                  onClick={onChooseSeedFolder}
-                  className="shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                >
+                <OutlineButton size="md" className="shrink-0" onClick={onChooseSeedFolder}>
                   Choose…
-                </GhostButton>
+                </OutlineButton>
               </div>
               <span className="text-meta leading-5 text-[color:var(--text-muted)]">
                 The designer reads this folder’s stylesheets and assets, then drafts tokens, glyphs, and components for your review — nothing lands unreviewed.

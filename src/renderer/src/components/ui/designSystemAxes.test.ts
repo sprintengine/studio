@@ -106,9 +106,16 @@ type Axis = keyof typeof AXES
  * directories that already had a problem.
  */
 const BASELINE: Record<Axis, Record<string, number>> = {
+  // The 2026-08-05 radius drop — workspace 193 → 186, panels 171 → 150, ui
+  // 13 → 12, plus panels' icon axis 31 → 29 — is the button consolidation
+  // (MC-2113). Every hand-rolled button in the Git surfaces, the settings tabs,
+  // the chat cards, the creation hub and the guided brief gave up its own
+  // `rounded-md` (and, in the Git rows, its own `h-6 w-6`) for a kit primitive
+  // that spells neither. `ModalButton` accounts for the kit's one: it is a name
+  // for the footer's three roles now, not a fourth button with a radius.
   radius: {
-    'components/workspace': 193,
-    'components/panels': 171,
+    'components/workspace': 186,
+    'components/panels': 150,
     'components/settings': 36,
     'components/backlog': 20,
     // 15 → 17 when CommandPalette MOVED into the kit (MC-2117) carrying its own
@@ -119,7 +126,7 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // that item paid for are in workspace (197 → 193), panels (173 → 171),
     // backlog (21 → 20) and diagnostics (7 → 6): every dialog-scale shell in
     // the product now draws `OVERLAY_SHELL_CLASS` instead of its own radius.
-    'components/ui': 13,
+    'components/ui': 12,
     'components/worktree': 9,
     'components/diagnostics': 6,
     utils: 4,
@@ -161,7 +168,7 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   },
   icon: {
     'components/workspace': 43,
-    'components/panels': 31,
+    'components/panels': 29,
     'components/ui': 22,
     'components/backlog': 8,
     'components/auxWindows': 1,

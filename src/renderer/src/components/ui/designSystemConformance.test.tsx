@@ -1093,6 +1093,235 @@ async function main(): Promise<void> {
     assert.ok(!/\bwidth\?:/.test(modal), 'Modal takes a step on the width scale (`size`), never a raw width')
   })
 
+  // --- MC-2113: one primary, one control ramp ------------------------------
+  // Source-read, for the same reason the three rules above are: the surfaces
+  // are whole app screens — the Git panel, the chat composer, the creation hub,
+  // the guided brief — and each rule is about the literal a developer types.
+  //
+  // The product carried FIVE rival primary idioms. Two of them (the Git commit
+  // button, the conflict resolver's save) filled with `--text-strong` — the INK
+  // token used as a background — and hovered toward a per-theme hex the design
+  // system never published. Two more painted their on-accent label `--bg-app`,
+  // which is the same colour as `--text-on-accent` on the dark default and a
+  // different one on every theme whose canvas is not the on-accent ink; those
+  // labels went unreadable there. And the Git panels ran a private 24/28/32px
+  // ramp at 6px radius beside the kit's 26/30/34 at 5px, so buttons that should
+  // have been siblings differed by a pixel or two everywhere.
+
+  await run('MC-2113 no button fills itself with the ink token', () => {
+    // `--text-strong` is a TEXT tier. Spending it as a background is how the
+    // inverted high-contrast button was built, and it needs a hover partner no
+    // token ships — which is exactly why the retired `--bg-inverted-hover`
+    // existed as five hand-tuned per-theme hexes.
+    //
+    // Scope is a LABELLED control: the same class string also spends horizontal
+    // padding or a control height. That is what separates a button from the
+    // indicators legitimately painted in the ink tier — a Switch knob, a wizard
+    // step dot, a checked radio — which take the fill and nothing else.
+    const INK_FILL = /bg-\[(?:color:)?var\(--text-strong\)\]/
+    const LABELLED_CONTROL = /(?:^|\s)(?:px-\S+|h-control-(?:xs|sm|md))(?=\s|$)/
+
+    const offenders: string[] = []
+    for (const path of rendererSources()) {
+      for (const match of withoutComments(path).matchAll(STRING_LITERALS)) {
+        const text = match[1] ?? match[2] ?? match[3] ?? ''
+        if (!INK_FILL.test(text) || !LABELLED_CONTROL.test(text)) continue
+        offenders.push(`${relative(process.cwd(), path)}: ${text.trim().slice(0, 80)}`)
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'the one solid fill a view spends on an action is --accent-primary, through ui/PrimaryButton',
+    )
+  })
+
+  await run('MC-2113 on-accent ink is --text-on-accent, never the app canvas', () => {
+    // The two coincide on the dark default, so this reads as correct until the
+    // first theme where they do not — and there are nineteen. Rejected outright
+    // rather than only in accent company: `--bg-app` is a SURFACE token, and
+    // there is no control whose label is legitimately painted with the colour
+    // of the window behind it.
+    const CANVAS_AS_INK = /text-\[(?:color:)?var\(--bg-app\)\]/
+
+    const offenders: string[] = []
+    for (const path of rendererSources()) {
+      for (const match of withoutComments(path).matchAll(STRING_LITERALS)) {
+        const text = match[1] ?? match[2] ?? match[3] ?? ''
+        if (!CANVAS_AS_INK.test(text)) continue
+        offenders.push(`${relative(process.cwd(), path)}: ${text.trim().slice(0, 80)}`)
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'a label on an accent fill takes --text-on-accent, the token that tracks the accent per theme',
+    )
+  })
+
+  await run('MC-2113 every labelled button in the Git surfaces sits on the control ramp', () => {
+    // Named files, not "every file": the ramp split was THIS panel family's, and
+    // a rule phrased over the whole tree would be a repo-wide height sweep that
+    // MC-2113 did not do and this suite would then be asserting falsely. The
+    // rest of the tree drains through the `designSystemAxes` ratchet.
+    //
+    // Scope inside them is an INTERACTIVE control: a class string that spends a
+    // height AND a hover fill. The hover fill is what makes it a control rather
+    // than a box — it is the one thing a resting container never declares — and
+    // it is why the commit message's `h-16` textarea is not caught here. A
+    // multi-line field is not a step on a ramp whose steps are 26/30/34, and
+    // widening this to every height would make the rule a repo-wide field sweep
+    // wearing a button rule's name.
+    const GIT_SURFACES = [
+      'components/panels/GitPanel.tsx',
+      'components/panels/GitConflictResolverPanel.tsx',
+      'components/panels/GitGraphView.tsx',
+    ]
+    const OFF_RAMP_HEIGHT = /(?:^|\s)h-(?:\d+(?:\.\d+)?|\[\d+(?:\.\d+)?px\])(?=\s|$)/
+    const HOVER_FILL = /(?:^|\s)hover:bg-\S+(?=\s|$)/
+
+    const offenders: string[] = []
+    for (const file of GIT_SURFACES) {
+      const path = join(process.cwd(), 'src/renderer/src', file)
+      for (const match of withoutComments(path).matchAll(STRING_LITERALS)) {
+        const text = match[1] ?? match[2] ?? match[3] ?? ''
+        if (!OFF_RAMP_HEIGHT.test(text) || !HOVER_FILL.test(text)) continue
+        offenders.push(`${file}: ${text.trim().slice(0, 80)}`)
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'heights come from h-control-xs/sm/md (26/30/34) — reach for ui/Buttons rather than typing one',
+    )
+  })
+
+  await run('MC-2113 the dialog footer button IS the kit primitive, not a fourth one', () => {
+    // `ModalButton` is a name for the footer's three roles, nothing more. It
+    // shipped as its own control — padding-sized rather than ramp-heighted, at a
+    // 6px radius against the kit's 5px — which made it the third rival primary
+    // and put every dialog a pixel or two off every panel. Asserted on the
+    // source because what matters is that the variants RESOLVE to the
+    // primitives; a copy of their classes would render identically today and
+    // drift on the first edit to either.
+    // Comments stripped: the file's own prose names the retired class string as
+    // the thing it retired, and prose is not a class string.
+    const modal = withoutComments(join(process.cwd(), 'src/renderer/src/components/ui/Modal.tsx'))
+    for (const primitive of ['PrimaryButton', 'GhostButton', 'DangerButton']) {
+      assert.match(
+        modal,
+        new RegExp(`\\b${primitive}\\b`),
+        `the ${primitive} variant is the kit primitive`,
+      )
+    }
+    assert.ok(
+      !/rounded-md px-3\.5 py-2/.test(modal),
+      'no padding-sized footer button survives: the footer takes a step on the control ramp',
+    )
+  })
+
+  // --- 2112: one header anatomy, one height ---------------------------------
+  // Source-read for the same reason the z and selection rules are: the surfaces
+  // are whole app screens that cannot be mounted here, and the rule is about the
+  // literal a developer types.
+  //
+  // `ui/PanelHeader` is the identity row — `px-3 py-2`, title at
+  // `text-body font-semibold`, at most one `primaryAction` — and adoption was
+  // roughly half. The other half each picked its own inset and type size
+  // (`h-11 px-4`, `px-5 py-4`, `px-6 py-3`, `min-h-10`, `px-3 pb-2 pt-4`), so
+  // the one row a person scans FIRST to know where they are was the least
+  // consistent row in the product: two sibling panels started their content at
+  // different heights.
+  //
+  // Scope is a header BAND: a class string that draws a bottom hairline and
+  // pads itself vertically, in the swept directories. What it rejects is a
+  // vertical inset that is not the primitive's `py-2` — that is what a
+  // difference in height IS. A band with no title in it (a search row, a filter
+  // strip, a status band) is not a header and is left alone, which is why the
+  // rule reads the element's own tag and text rather than the class string
+  // alone.
+  await run('2112 no panel hand-rolls a header band at its own height', () => {
+    // The directories this item swept. A rule phrased over the whole renderer
+    // would fire on chrome that is legitimately not a panel identity row (the
+    // window frame, the tab strips), and a rule phrased over one file would
+    // pass the day someone adds a twelfth dialect next door.
+    const SWEPT = [
+      'components/panels',
+      'components/workspace/agentComposer',
+      'components/workspace/newSprint',
+      'review/canvas',
+    ]
+    // `<header>` is the tag every one of the eleven dialects reached for, and it
+    // is the honest marker of intent: an element declaring itself the header of
+    // its section. `PanelHeader` renders the only one that should exist.
+    const HEADER_TAG = /<header\b[^>]*className=\{?["'`]([^"'`]*)["'`]/g
+    // The primitive's own inset. Anything else is a different height.
+    const OWN_VERTICAL_INSET = /(?:^|\s)(?:-?(?:py|pt|pb)-(?!2(?:\s|$))\S+|h-\d+|h-\[\d+px\]|min-h-\d+)(?=\s|$)/
+
+    const offenders: string[] = []
+    for (const path of rendererSources()) {
+      const relative_ = relative(join(process.cwd(), 'src/renderer/src'), path)
+      if (path.endsWith('components/ui/PanelHeader.tsx')) continue
+      if (!SWEPT.some((dir) => relative_.startsWith(dir))) continue
+      for (const match of withoutComments(path).matchAll(HEADER_TAG)) {
+        const classes = match[1]
+        if (!/border-b/.test(classes)) continue
+        const inset = classes.match(OWN_VERTICAL_INSET)
+        if (!inset) continue
+        offenders.push(`${relative(process.cwd(), path)}: <header ...${inset[0].trim()}>`)
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'a panel names itself through `ui/PanelHeader`, which is what makes every panel start at the same ' +
+        'height; a <header> that draws its own rule and sets its own vertical inset is a twelfth dialect',
+    )
+  })
+
+  await run('2112 no PanelHeader consumer stacks two controls in primaryAction', () => {
+    // `primaryAction` is ONE action; extras belong in `overflow`. Two sites had
+    // stuffed a fragment of two IconButtons into it, which is how a header grows
+    // an action cluster that differs per panel. A fragment is the only way to
+    // pass two nodes through one slot, so a fragment opening the prop IS the
+    // violation — and it is exactly what the two offenders wrote.
+    const FRAGMENT_IN_PRIMARY = /primaryAction=\{\s*<>/
+    const offenders: string[] = []
+    for (const path of rendererSources()) {
+      if (FRAGMENT_IN_PRIMARY.test(withoutComments(path))) {
+        offenders.push(relative(process.cwd(), path))
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'PanelHeader takes one `primaryAction`; a fragment in that slot is two controls wearing one slot, and ' +
+        'the second belongs in `overflow`',
+    )
+  })
+
+  await run('2112 the header primitive draws the one anatomy every panel adopts', () => {
+    // The consumers above are only converged if the thing they converged ON
+    // still measures what it did. This is the anatomy the whole item is phrased
+    // against, asserted on the primitive's own source so a change to it has to
+    // be deliberate rather than a silent re-scatter of every panel.
+    const header = readFileSync(
+      join(process.cwd(), 'src/renderer/src/components/ui/PanelHeader.tsx'),
+      'utf8',
+    )
+    assert.match(header, /px-3 py-2/, 'the identity row is `px-3 py-2` — that inset IS the shared height')
+    assert.match(
+      header,
+      /text-body font-semibold/,
+      'and its title is `text-body font-semibold`, not a per-panel type step',
+    )
+    assert.match(
+      header,
+      /border-b border-\[color:var\(--border-default\)\]/,
+      'and the rule it draws is the default border, not the subtle one',
+    )
+  })
+
   if (failures > 0) {
     console.error(`designSystemConformance.test.tsx: ${failures} failing`)
     process.exit(1)

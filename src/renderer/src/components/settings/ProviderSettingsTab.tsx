@@ -14,7 +14,7 @@ import type {
   ConversationProviderListResult,
   ConversationSecretStatusResult,
 } from '../../../../shared/electron-api'
-import { FOCUS_RING_CLASS, GhostButton, PrimaryButton } from '../ui'
+import { FOCUS_RING_CLASS, OutlineButton, PrimaryButton } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { SettingsSectionTitle } from './SettingsAtoms'
 import {
@@ -186,12 +186,9 @@ export function ProviderSettingsTab() {
       {tabState.kind === 'error' ? (
         <div className="space-y-2">
           <Note tone="warn">{tabState.message}</Note>
-          <GhostButton
-            onClick={() => void loadProviders()}
-            className="h-control-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-          >
+          <OutlineButton size="md" onClick={() => void loadProviders()}>
             Retry
-          </GhostButton>
+          </OutlineButton>
         </div>
       ) : null}
 
@@ -267,14 +264,14 @@ function ProviderRow({
               <span aria-hidden="true">••••••••••••</span>
             </div>
             {canClear ? (
-              <GhostButton
+              <OutlineButton
                 size="md"
                 onClick={onClear}
                 disabled={busy}
-                className="h-control-md shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className="shrink-0"
               >
                 {pending === 'clearing' ? 'Removing…' : 'Remove'}
-              </GhostButton>
+              </OutlineButton>
             ) : null}
           </div>
           {!canClear ? (

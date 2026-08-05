@@ -19,6 +19,24 @@ type PanelHeaderProps = {
   title: string
   /** Use sentence case. Omit when the title is self-evident. */
   subtitle?: string
+  /** The scope beside the title as a NODE, where `subtitle` is the same idea as
+   *  plain text: a project picker, or a state line with a lifecycle glyph in it.
+   *  Mutually exclusive with `subtitle` — two scopes on one title is the
+   *  ambiguity this row exists to remove.
+   *
+   *  It earns a slot because the alternative is worse. The composer and the New
+   *  sprint dialog both open on "which project?", and the inspector's three
+   *  panes all lead with a lifecycle glyph, so all five hand-rolled the whole
+   *  band rather than lose the control (2112) — and the only slots left were
+   *  `primaryAction`, which is the row's one action, and `overflow`, which is
+   *  the menu's. A scope belongs beside the name it scopes, not in the action
+   *  cluster on the far side of the row. */
+  scope?: React.ReactNode
+  /** A navigation control BEFORE the title — a Back affordance on a drill-in
+   *  shell. Only for getting out of the surface the row names: an action ON the
+   *  surface is `primaryAction`, and the difference is why this sits on the far
+   *  side of the name rather than in the cluster with them. */
+  leading?: React.ReactNode
   /** Optional canonical count rendered next to the title. */
   count?: number | string
   titleId?: string
@@ -40,6 +58,8 @@ export function PanelHeader({
   tool,
   title,
   subtitle,
+  scope,
+  leading,
   count,
   titleId,
   primaryAction,
@@ -62,6 +82,7 @@ export function PanelHeader({
       }`}
     >
       <div className="flex min-w-0 items-center gap-2">
+        {leading ? <span className="flex shrink-0 items-center">{leading}</span> : null}
         {tool ? (
           <span
             aria-hidden="true"
@@ -79,7 +100,7 @@ export function PanelHeader({
         {count !== undefined ? (
           <span className="tabular-nums text-meta text-[color:var(--text-muted)]">{count}</span>
         ) : null}
-        {subtitle ? (
+        {subtitle && !scope ? (
           // Shrinks far ahead of the title: a narrow panel that clips its own
           // name to "Bac…" while the scope word beside it stays whole has the
           // priority backwards. The scope gives up its space first, and the
@@ -90,6 +111,13 @@ export function PanelHeader({
             </span>
             {subtitle}
           </span>
+        ) : null}
+        {scope ? (
+          // The interactive form of the same idea, and it yields its space the
+          // same way — a control shrinks before the panel's own name does. No
+          // `·` here: a chip draws its own edges, so the separator that a run of
+          // plain text needs would only add a second mark beside them.
+          <span className="ml-1.5 flex min-w-0 shrink-[100] items-center">{scope}</span>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">

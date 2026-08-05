@@ -1,7 +1,7 @@
 import React from 'react'
 import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
-import { CliModelPickerButton, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS, Popover, SkillPickerPopover, StarGlyph, TruncatedText } from '../../ui'
+import { CliModelPickerButton, CloseIconButton, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS, PanelHeader, Popover, PrimaryButton, SkillPickerPopover, StarGlyph, TruncatedText } from '../../ui'
 import { getSpecialistAction, type SpecialistAction } from '../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
@@ -162,30 +162,40 @@ export default function AgentComposer({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-[color:var(--bg-surface)]">
-      <div className="flex items-center gap-3 border-b border-[color:var(--border-subtle)] px-4 py-2.5">
-        {embedded ? null : (
-          <span className="text-body font-semibold text-[color:var(--text-strong)]">New chat</span>
-        )}
-        <ProjectScopeChip
-          folderPath={folderPath}
-          folderLabel={folderLabel}
-          options={projectOptions}
-          onSelectProject={onSelectProject}
-          onBrowseProject={onBrowseProject}
+      {/* Standalone, this is the composer's identity row and it draws it with
+          the shared primitive — it used to hand-roll the band at `px-4 py-2.5`
+          over `--border-subtle`, a taller row on a fainter rule than every
+          panel beside it (2112).
+
+          Embedded, the composer is inside a surface that already names it, so
+          there is no title to draw and this is a scope strip rather than a
+          header. Same `px-3 py-2` either way, so the two presentations start at
+          the same height. */}
+      {embedded ? (
+        <div className="flex items-center gap-3 border-b border-[color:var(--border-default)] px-3 py-2">
+          <ProjectScopeChip
+            folderPath={folderPath}
+            folderLabel={folderLabel}
+            options={projectOptions}
+            onSelectProject={onSelectProject}
+            onBrowseProject={onBrowseProject}
+          />
+        </div>
+      ) : (
+        <PanelHeader
+          title="New chat"
+          scope={
+            <ProjectScopeChip
+              folderPath={folderPath}
+              folderLabel={folderLabel}
+              options={projectOptions}
+              onSelectProject={onSelectProject}
+              onBrowseProject={onBrowseProject}
+            />
+          }
+          primaryAction={<CloseIconButton onClick={onClose} aria-label="Close" />}
         />
-        {embedded ? null : (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="ml-auto rounded p-1 text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus-visible:focus-ring"
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
-          </button>
-        )}
-      </div>
+      )}
 
       <div className="grid min-h-0 flex-1 grid-cols-[292px_1fr]">
         {/* Roster column — the primary decision, and the composer's leading
@@ -404,15 +414,14 @@ export default function AgentComposer({
           ) : null}
 
           <div className="mt-auto flex items-center gap-3 pt-5">
-            <button
-              type="button"
-              onClick={() => commit(selection)}
-              disabled={!selectedRow}
-              className="inline-flex items-center gap-2 rounded-md bg-[color:var(--accent-primary)] px-4 py-1.5 text-body font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:opacity-40 disabled:hover:bg-[color:var(--accent-primary)] focus-visible:focus-ring"
-            >
+            {/* The chat CTA was the second of five rival primary idioms: an
+                accent fill at its own padding-derived height, 40% disabled
+                rather than the kit's 45%, and a 6px radius against the kit's
+                5px (MC-2113). Same accent, same job — now the same button. */}
+            <PrimaryButton size="md" onClick={() => commit(selection)} disabled={!selectedRow} className="gap-2">
               {selection.kind === 'terminal' ? 'Open terminal' : 'Start chat'}
               <kbd className="rounded bg-black/15 px-1 font-mono text-micro">⏎</kbd>
-            </button>
+            </PrimaryButton>
           </div>
         </div>
       </div>

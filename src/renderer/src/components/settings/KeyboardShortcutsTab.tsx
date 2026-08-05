@@ -28,10 +28,10 @@ import type { KeybindingSettings } from '../../types/workspace'
 import { SettingsSectionTitle } from './SettingsAtoms'
 import {
   FOCUS_RING_CLASS,
-  GhostButton,
   IconButton,
   InboxSearchInput,
   KbdChord,
+  OutlineButton,
   StatusDot,
   Tooltip,
 } from '../ui'
@@ -303,14 +303,13 @@ export function KeyboardShortcutsTab() {
           ariaLabel="Search shortcuts by command, category, or key"
           placeholder="Search shortcuts"
         />
-        <GhostButton
+        <OutlineButton
           onClick={handleResetAll}
           disabled={customizedCount === 0}
           aria-label="Reset all keyboard shortcuts to defaults"
-          className="border border-[color:var(--border-default)] text-[color:var(--text-default)]"
         >
           Reset all{customizedCount > 0 ? ` (${customizedCount})` : ''}
-        </GhostButton>
+        </OutlineButton>
       </div>
 
       {groups.length === 0 ? (

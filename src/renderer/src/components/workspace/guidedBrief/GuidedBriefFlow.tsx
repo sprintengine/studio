@@ -15,7 +15,7 @@ import {
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
-import { CloseIconButton, LifecycleGlyph, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
+import { CloseIconButton, LifecycleGlyph, OutlineButton, PrimaryButton, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
 import { parentPath } from '../../../utils/paths'
 import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
@@ -824,9 +824,9 @@ export function GuidedBriefFlow({
             <span className="min-w-0 flex-1 truncate text-meta text-[color:var(--text-subtle)]">
               Reviewing an accepted artifact. The current step keeps running.
             </span>
-            <SecondaryButton onClick={() => setReviewingStage(null)} disabled={false}>
+            <OutlineButton size="md" onClick={() => setReviewingStage(null)} disabled={false}>
               Back to current step
-            </SecondaryButton>
+            </OutlineButton>
           </>
         ) : (
           <>
@@ -859,9 +859,9 @@ export function GuidedBriefFlow({
               Back
             </button>
             {stage !== 'handoff' && !isDesignSystemPreset ? (
-              <SecondaryButton onClick={() => void skipToRoster()} disabled={skippingPlanning}>
+              <OutlineButton size="md" onClick={() => void skipToRoster()} disabled={skippingPlanning}>
                 {skippingPlanning ? 'Skipping…' : 'Skip to roster'}
-              </SecondaryButton>
+              </OutlineButton>
             ) : null}
             {primaryAction}
           </>
@@ -1049,7 +1049,7 @@ function renderPrimaryAction({
   if (stage === 'strategist-ready') {
     const disabled = !strategist.readiness.fileReady || accepting
     return (
-      <PrimaryButton onClick={onAcceptStrategist} disabled={disabled}>
+      <PrimaryButton size="md" onClick={onAcceptStrategist} disabled={disabled}>
         {accepting ? 'Accepting…' : 'Accept brief'}
       </PrimaryButton>
     )
@@ -1057,7 +1057,7 @@ function renderPrimaryAction({
   if (stage === 'architect-ready') {
     const disabled = !architect.readiness.fileReady || accepting
     return (
-      <PrimaryButton onClick={onAcceptArchitect} disabled={disabled}>
+      <PrimaryButton size="md" onClick={onAcceptArchitect} disabled={disabled}>
         {accepting ? 'Accepting…' : 'Accept plan'}
       </PrimaryButton>
     )
@@ -1068,7 +1068,7 @@ function renderPrimaryAction({
     if (!designer.readiness.mockupsAvailable) blockers.push('the screens')
     if (!designer.readiness.uiDirectionReady) blockers.push('the UI direction')
     const button = (
-      <PrimaryButton onClick={onAcceptDesigner} disabled={disabled}>
+      <PrimaryButton size="md" onClick={onAcceptDesigner} disabled={disabled}>
         {accepting ? 'Accepting…' : 'Accept design'}
       </PrimaryButton>
     )
@@ -1080,7 +1080,7 @@ function renderPrimaryAction({
   }
   if (stage === 'handoff') {
     return (
-      <PrimaryButton onClick={onStartBuild} disabled={startingBuild}>
+      <PrimaryButton size="md" onClick={onStartBuild} disabled={startingBuild}>
         {startingBuild ? 'Starting…' : 'Start the build'}
       </PrimaryButton>
     )
@@ -1141,68 +1141,19 @@ function DesignerReadinessHint({
   )
 }
 
-function SecondaryButton({
-  onClick,
-  disabled,
-  children,
-}: {
-  onClick: () => void
-  disabled: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="
-        inline-flex h-9 items-center rounded-md border border-[color:var(--border-default)] px-3 text-meta font-medium text-[color:var(--text-default)]
-        transition-colors hover:border-[color:var(--accent-primary)] hover:text-[color:var(--text-strong)]
-        disabled:cursor-not-allowed disabled:border-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
-        focus-visible:focus-ring
-      "
-    >
-      {children}
-    </button>
-  )
-}
-
-// Tooltip clones its child and injects aria-describedby + hover/focus handlers,
-// so PrimaryButton has to forward those props for `<Tooltip><PrimaryButton/></Tooltip>`
-// to actually open the tooltip on hover. The base contract (onClick, disabled,
-// children) stays unchanged for callers that don't need a tooltip wrapper.
-type PrimaryButtonProps = {
-  onClick: () => void
-  disabled: boolean
-  children: React.ReactNode
-} & Pick<
-  React.ButtonHTMLAttributes<HTMLButtonElement>,
-  'aria-label' | 'aria-describedby' | 'onMouseEnter' | 'onMouseLeave' | 'onFocus' | 'onBlur' | 'onKeyDown'
->
-
-function PrimaryButton({
-  onClick,
-  disabled,
-  children,
-  ...rest
-}: PrimaryButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      {...rest}
-      className="
-        inline-flex h-9 items-center rounded-md bg-[color:var(--accent-primary)] px-4 text-body font-semibold text-[color:var(--bg-app)]
-        transition-colors hover:bg-[color:var(--accent-primary-hover)]
-        disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
-        focus-visible:focus-ring
-      "
-    >
-      {children}
-    </button>
-  )
-}
+// The two local buttons this file used to declare are gone (MC-2113). The
+// private `PrimaryButton` was the fifth rival primary in the product — its own
+// 36px height, its own 6px radius, and a label painted `--bg-app` instead of
+// `--text-on-accent`, which is only legible on the themes where those two
+// happen to be the same colour. `SecondaryButton` was a hand-rolled
+// `OutlineButton` whose hover recoloured the border to the accent rather than
+// stepping the neutral one.
+//
+// Both are now the kit primitives at the `md` step, imported at the top of the
+// file. The kit's `PrimaryButton` forwards every button prop and a ref, so the
+// `<Tooltip><PrimaryButton/></Tooltip>` wrapping this file relies on — Tooltip
+// clones its child to inject `aria-describedby` and hover/focus handlers —
+// keeps working without the prop-forwarding shim that used to live here.
 
 // Strategist stage on the shared studio shell: conversation, the stage's
 // expected artifacts with truthful states, and the brief previewed live from

@@ -157,11 +157,6 @@
      block below re-points this at a translucent tint. Normal windows are
      untouched — this token resolves to exactly what the field painted before. */
   --bg-field: var(--bg-surface-raised);
-  /* Hover target for inverted high-contrast buttons (bg = --text-strong). On
-     dark the button is near-white so hover intensifies toward pure white; the
-     light theme flips this to near-black (see below) so the button's light
-     label stays legible instead of vanishing on a white hover. */
-  --bg-inverted-hover: #ffffff;
   /* Modal / dialog scrim above panel chrome. */
   --surface-overlay-backdrop: var(--sem-color-overlay-scrim);
 
@@ -413,9 +408,6 @@
   --bg-active: var(--sem-color-bg-active);
   --bg-selected: var(--sem-color-bg-selected);
   --bg-selected-resting: var(--sem-color-bg-selected-resting);
-  /* Inverted button is near-black here; hover intensifies toward black so its
-     light label keeps contrast (a white hover would erase the text). */
-  --bg-inverted-hover: #08080c;
   --surface-overlay-backdrop: var(--sem-color-overlay-scrim);
 
   --text-strong: var(--sem-color-text-primary);
@@ -920,9 +912,6 @@
   --bg-active: #e0d8c4;
   --bg-selected: #d8ccb4;
   --bg-selected-resting: var(--bg-active);
-  /* Inverted button is a warm near-black espresso; hover deepens toward it so
-     the light label keeps contrast. */
-  --bg-inverted-hover: #1c1814;
   --surface-overlay-backdrop: rgba(40, 32, 24, 0.42);
 
   --text-strong: #2c2418;
@@ -1011,7 +1000,6 @@
   --bg-active: #e0d8c8;
   --bg-selected: #d4ccb8;
   --bg-selected-resting: var(--bg-active);
-  --bg-inverted-hover: #1c2018;
   --surface-overlay-backdrop: rgba(32, 36, 24, 0.42);
 
   /* Olive-espresso ink flipped from the parchment; deepened from Vellum's
@@ -1094,7 +1082,6 @@
   --bg-active: #e3dfd0;
   --bg-selected: #d9d4c4;
   --bg-selected-resting: var(--bg-active);
-  --bg-inverted-hover: #191613;
   --surface-overlay-backdrop: rgba(25, 22, 19, 0.42);
 
   /* Warm near-black ink flipped from the cream, mirroring the website ink

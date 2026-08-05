@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { FOCUS_RING_CLASS, TruncatedText } from '../../ui'
+import { FOCUS_RING_CLASS, PrimaryButton, TruncatedText } from '../../ui'
 import type { GuidedInterviewDecision, GuidedInterviewQuestion } from './interviewProtocol'
 
 // Native rendering of the structured specialist interview: resolved decisions
@@ -182,20 +182,9 @@ export function InterviewQuestionCard({
             Answer sent. Waiting for the specialist.
           </span>
         ) : null}
-        <button
-          type="button"
-          onClick={submit}
-          disabled={answerPending || (otherSelected && !otherText.trim())}
-          className="
-            inline-flex h-8 items-center rounded-md bg-[color:var(--accent-primary)] px-3.5
-            text-meta font-semibold text-[color:var(--bg-app)] transition-colors
-            hover:bg-[color:var(--accent-primary-hover)]
-            disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
-            focus-visible:focus-ring
-          "
-        >
+        <PrimaryButton size="md" onClick={submit} disabled={answerPending || (otherSelected && !otherText.trim())}>
           Answer
-        </button>
+        </PrimaryButton>
       </div>
     </div>
   )

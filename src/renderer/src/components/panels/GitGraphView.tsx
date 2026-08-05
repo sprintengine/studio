@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react'
 import type { GitGraphCommit, GitGraphSnapshot, GitResetMode } from '../../../../shared/electron-api'
 import { computeGitGraphLayout, type GitGraphLine } from '../../utils/gitGraphLayout'
-import { GhostButton, InlineNotice, MenuItem, OverflowMenu, Tooltip, TruncatedText, type OverflowMenuItem } from '../ui'
+import { GhostButton, InlineNotice, MenuItem, OutlineButton, OverflowMenu, Tooltip, TruncatedText, type OverflowMenuItem } from '../ui'
 import { setCommitDropData } from '../../utils/terminalDrop'
 
 export type GitGraphState =
@@ -635,14 +635,12 @@ export function GitGraphView({
         {snapshot.hasMore ? (
           <div className="px-3 pt-3">
             <Tooltip content="Load older commits across all branches">
-              <button
-                type="button"
-                onClick={onLoadMore}
-                disabled={loadingMore}
-                className="h-7 w-full rounded-md border border-[color:var(--border-subtle)] text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-40"
-              >
+              {/* The log's one bordered action, on the kit's `sm` step. It ran
+                  the Git panels' private 28px/6px ramp at 40% disabled
+                  (MC-2113). */}
+              <OutlineButton size="sm" className="w-full" onClick={onLoadMore} disabled={loadingMore}>
                 {loadingMore ? 'Loading…' : 'Load more'}
-              </button>
+              </OutlineButton>
             </Tooltip>
           </div>
         ) : null}

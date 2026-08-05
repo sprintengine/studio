@@ -14,7 +14,7 @@ import {
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { ContextMenu, FOCUS_RING_CLASS, GhostButton, IconButton, InboxRow, InlineNotice, MenuItem, PanelHeader, RefreshIcon, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
+import { ContextMenu, FOCUS_RING_CLASS, GhostButton, IconButton, InboxRow, InlineNotice, MenuItem, PanelHeader, PrimaryButton, RefreshIcon, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
@@ -1596,28 +1596,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           <>
             {behind > 0 ? (
               <Tooltip content={`Pull ${behind} commit${behind === 1 ? '' : 's'}${upstreamLabel ? ` from ${upstreamLabel}` : ''}`} placement="bottom">
-                <button
-                  type="button"
-                  onClick={() => void handlePull()}
-                  disabled={Boolean(busy)}
-                  className={`flex h-6 items-center gap-1 rounded-md px-2 text-micro font-semibold tabular-nums text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
-                >
+                <GhostButton size="xs" onClick={() => void handlePull()} disabled={Boolean(busy)} className="tabular-nums">
                   <SyncArrowIcon direction="down" />
                   Pull {behind}
-                </button>
+                </GhostButton>
               </Tooltip>
             ) : null}
             {ahead > 0 ? (
               <Tooltip content={`Push ${ahead} commit${ahead === 1 ? '' : 's'}${upstreamLabel ? ` to ${upstreamLabel}` : ''}`} placement="bottom">
-                <button
-                  type="button"
-                  onClick={() => void handlePush()}
-                  disabled={Boolean(busy)}
-                  className={`flex h-6 items-center gap-1 rounded-md px-2 text-micro font-semibold tabular-nums text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
-                >
+                <GhostButton size="xs" onClick={() => void handlePush()} disabled={Boolean(busy)} className="tabular-nums">
                   <SyncArrowIcon direction="up" />
                   Push {ahead}
-                </button>
+                </GhostButton>
               </Tooltip>
             ) : null}
             <Tooltip content="Fetch remotes and refresh Git status" placement="bottom">
@@ -1705,14 +1695,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               />
               {activeScope?.kind === 'worktree' ? (
                 <Tooltip content={`Review this branch's changes against ${reviewDiffTarget.baseRef}`} placement="bottom">
-                  <button
-                    type="button"
-                    onClick={() => void handleReviewDiff()}
-                    disabled={Boolean(busy) || !repoRoot}
-                    className={`h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
-                  >
+                  <GhostButton size="xs" onClick={() => void handleReviewDiff()} disabled={Boolean(busy) || !repoRoot}>
                     Review changes
-                  </button>
+                  </GhostButton>
                 </Tooltip>
               ) : null}
             </div>
@@ -1906,7 +1891,7 @@ function GitPanelSkeleton(): JSX.Element {
         </div>
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 px-3 pb-2">
           <Skeleton className="h-3 w-10 rounded bg-[color:var(--skeleton-shimmer-high)]" />
-          <Skeleton className="h-7 rounded-md bg-[color:var(--skeleton-shimmer-high)]" />
+          <Skeleton className="h-control-sm rounded-[5px] bg-[color:var(--skeleton-shimmer-high)]" />
         </div>
       </div>
       <div aria-hidden="true" className="flex-1 px-3 py-2">
@@ -1939,7 +1924,11 @@ function GitPanelTab({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-micro font-semibold transition-colors ${FOCUS_RING_CLASS} ${
+      // Not a `GhostButton`: a tab carries `role="tab"` and an active state the
+      // button primitives do not model. What it does take is the kit's geometry
+      // — `control-sm` and the 5px radius — so the strip stops running the
+      // panel's private 28px/6px ramp beside kit controls two rows away.
+      className={`inline-flex h-control-sm shrink-0 items-center gap-1.5 rounded-[5px] px-2 text-meta font-semibold transition-colors ${FOCUS_RING_CLASS} ${
         active
           ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
@@ -2023,15 +2012,16 @@ function ConflictGroup({
                 />
               </div>
               <Tooltip content={`Resolve ${entry.relativePath}`}>
-                <button
-                  type="button"
+                <GhostButton
+                  size="xs"
                   onClick={() => onResolve(entry)}
                   disabled={Boolean(busy)}
-                  className={`h-6 shrink-0 rounded-md px-2 text-micro font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30 ${FOCUS_RING_CLASS}`}
+                  tone="danger"
+                  className="shrink-0"
                   aria-label={`Resolve ${entry.relativePath}`}
                 >
                   Resolve
-                </button>
+                </GhostButton>
               </Tooltip>
             </div>
           )
@@ -2090,37 +2080,19 @@ function StashList({
               </span>
               <div className="ml-auto flex shrink-0 items-center gap-1 opacity-70 group-hover/row:opacity-100">
                 <Tooltip content={`Reapply ${entry.ref} and drop it`}>
-                  <button
-                    type="button"
-                    onClick={() => onApply(entry, true)}
-                    disabled={Boolean(busy)}
-                    className={`h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30 ${FOCUS_RING_CLASS}`}
-                    aria-label={`Pop ${entry.ref}`}
-                  >
+                  <GhostButton size="xs" onClick={() => onApply(entry, true)} disabled={Boolean(busy)} aria-label={`Pop ${entry.ref}`}>
                     Pop
-                  </button>
+                  </GhostButton>
                 </Tooltip>
                 <Tooltip content={`Reapply ${entry.ref} and keep it`}>
-                  <button
-                    type="button"
-                    onClick={() => onApply(entry, false)}
-                    disabled={Boolean(busy)}
-                    className={`h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30 ${FOCUS_RING_CLASS}`}
-                    aria-label={`Apply ${entry.ref}`}
-                  >
+                  <GhostButton size="xs" onClick={() => onApply(entry, false)} disabled={Boolean(busy)} aria-label={`Apply ${entry.ref}`}>
                     Apply
-                  </button>
+                  </GhostButton>
                 </Tooltip>
                 <Tooltip content={`Delete ${entry.ref}`}>
-                  <button
-                    type="button"
-                    onClick={() => onDrop(entry)}
-                    disabled={Boolean(busy)}
-                    className={`h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30 ${FOCUS_RING_CLASS}`}
-                    aria-label={`Drop ${entry.ref}`}
-                  >
+                  <GhostButton size="xs" tone="danger" onClick={() => onDrop(entry)} disabled={Boolean(busy)} aria-label={`Drop ${entry.ref}`}>
                     Drop
-                  </button>
+                  </GhostButton>
                 </Tooltip>
               </div>
             </div>
@@ -2172,19 +2144,16 @@ function ChangeGroup({
           <div className="flex shrink-0 items-center gap-1">
             {group.bulkActions.map((bulkAction) => (
               <Tooltip key={bulkAction.title} content={bulkAction.title}>
-                <button
-                  type="button"
+                <GhostButton
+                  size="xs"
+                  tone={bulkAction.danger ? 'danger' : 'neutral'}
                   onClick={() => void bulkAction.action()}
                   disabled={Boolean(busy)}
-                  className={`inline-flex h-6 shrink-0 items-center justify-center rounded-md px-2 text-micro font-semibold leading-none transition-colors disabled:opacity-30 ${FOCUS_RING_CLASS} ${
-                    bulkAction.danger
-                      ? 'text-[color:var(--tone-error)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]'
-                      : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                  }`}
+                  className="shrink-0"
                   aria-label={bulkAction.title}
                 >
                   {bulkAction.label}
-                </button>
+                </GhostButton>
               </Tooltip>
             ))}
           </div>
@@ -2262,27 +2231,26 @@ function ChangeGroup({
                     />
                   </div>
                   <Tooltip content={primaryTitle}>
-                    <button
-                      type="button"
+                    <IconButton
                       onClick={() => void onRowPrimaryAction(entry, group.scope)}
                       disabled={Boolean(busy)}
-                      className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:opacity-100 disabled:opacity-30 ${FOCUS_RING_CLASS} ${actionVisibility}`}
+                      className={`shrink-0 focus:opacity-100 ${actionVisibility}`}
                       aria-label={`${primaryTitle}: ${entry.relativePath}`}
                     >
                       <GitActionIcon kind={group.actionIcon} />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                   {group.secondaryAction ? (
                     <Tooltip content={revertTitle ?? group.secondaryAction.title}>
-                      <button
-                        type="button"
+                      <IconButton
+                        tone="danger"
                         onClick={() => void onRowRevert(entry, group.scope)}
                         disabled={Boolean(busy)}
-                        className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)] focus:opacity-100 disabled:opacity-30 ${FOCUS_RING_CLASS} ${actionVisibility}`}
+                        className={`shrink-0 focus:opacity-100 ${actionVisibility}`}
                         aria-label={`${revertTitle ?? group.secondaryAction.title}: ${entry.relativePath}`}
                       >
                         <GitActionIcon kind={group.secondaryAction.icon} />
-                      </button>
+                      </IconButton>
                     </Tooltip>
                   ) : null}
                 </div>
@@ -2371,38 +2339,23 @@ function CommitComposer({
           {stagedCount > 0 ? `${stagedCount} staged` : 'Nothing staged'}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void onFetch()}
-            disabled={Boolean(busy)}
-            className={`h-8 rounded-md px-2.5 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent ${FOCUS_RING_CLASS}`}
-          >
+          <GhostButton size="md" onClick={() => void onFetch()} disabled={Boolean(busy)}>
             Fetch
-          </button>
-          <button
-            type="button"
-            onClick={() => void onPull()}
-            disabled={Boolean(busy)}
-            className={`h-8 rounded-md px-2.5 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent ${FOCUS_RING_CLASS}`}
-          >
+          </GhostButton>
+          <GhostButton size="md" onClick={() => void onPull()} disabled={Boolean(busy)}>
             Pull
-          </button>
-          <button
-            type="button"
-            onClick={() => void onPush()}
-            disabled={Boolean(busy)}
-            className={`h-8 rounded-md px-2.5 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent ${FOCUS_RING_CLASS}`}
-          >
+          </GhostButton>
+          <GhostButton size="md" onClick={() => void onPush()} disabled={Boolean(busy)}>
             Push
-          </button>
-          <button
-            type="button"
-            onClick={() => void onCommit()}
-            disabled={Boolean(busy) || !readyToCommit}
-            className={`h-8 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--text-strong)] px-3 text-micro font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-[color:var(--bg-inverted-hover)] disabled:border-[color:var(--border-subtle)] disabled:bg-[color:var(--bg-hover)] disabled:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
-          >
+          </GhostButton>
+          {/* The panel's most important action, and until MC-2113 the one place
+              in the product that painted a primary as an INVERTED fill — the ink
+              colour used as a background, hovering toward a per-theme hex the
+              design system never published. It is the accent fill now, like
+              every other primary. */}
+          <PrimaryButton size="md" onClick={() => void onCommit()} disabled={Boolean(busy) || !readyToCommit}>
             Commit
-          </button>
+          </PrimaryButton>
         </div>
       </div>
     </section>

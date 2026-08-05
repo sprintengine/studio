@@ -686,7 +686,11 @@ export function WorkspaceActions({
                       <span
                         className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
                           checked
-                            ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--bg-app)]'
+                            // On-accent ink, not the app canvas: the two are the
+                            // same colour on the dark default and diverge
+                            // everywhere else, which is where the tick vanished
+                            // inside its own fill (MC-2113).
+                            ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
                             : 'border-[color:var(--color-6)] bg-transparent text-transparent'
                         }`}
                         aria-hidden="true"
