@@ -2364,7 +2364,7 @@ function CommitComposer({
         value={commitMessage}
         onChange={(event) => onCommitMessageChange(event.target.value)}
         placeholder="Commit message"
-        className={`h-16 w-full resize-none rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2 text-meta text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] transition-colors ${FOCUS_RING_CLASS}`}
+        className={`h-16 w-full resize-none rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2 text-meta text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
       />
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="min-w-0 truncate text-micro text-[color:var(--text-subtle)]">
