@@ -529,7 +529,10 @@ export default function CommandPalette({
   return (
     <div
       className="overlay-scrim fixed inset-0 z-[var(--z-modal)] flex items-start justify-center pt-[15vh]"
-      onClick={(event) => event.target === event.currentTarget && onClose()}
+      // `mousedown`, matching `Modal`: on `click`, a drag that STARTED inside
+      // the palette (selecting the query text) and was released over the scrim
+      // dismisses it, which reads as the palette closing itself (MC-2109).
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
       {/* The palette is a modal surface like any other: it says so (`role`,
           `aria-modal`), and the trap is what makes the claim true (MC-2109). */}
