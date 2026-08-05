@@ -25,6 +25,10 @@ export type SprintIsolationRow = {
   onChange: (value: SprintIsolation) => void
 }
 
+// Hoisted: `Select` memoises its active option on `items` identity, and a fresh
+// array per render would recompute it on every keystroke elsewhere in the dialog.
+const ITEMS = [...SPRINT_ISOLATION_ITEMS]
+
 export function SprintIsolationRowView({ row }: { row: SprintIsolationRow }): JSX.Element {
   return (
     <div className="flex items-center justify-between gap-3 border-t border-[color:var(--border-default)] px-3.5 py-3">
@@ -38,7 +42,7 @@ export function SprintIsolationRowView({ row }: { row: SprintIsolationRow }): JS
       </Tooltip>
       <Select<SprintIsolation>
         ariaLabel={SPRINT_ISOLATION_ROW_LABEL}
-        items={[...SPRINT_ISOLATION_ITEMS]}
+        items={ITEMS}
         value={row.value}
         onChange={row.onChange}
         className="shrink-0"

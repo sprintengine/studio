@@ -921,6 +921,51 @@ async function main(): Promise<void> {
     }
   })
 
+  await check('going BACK to None sends the direct intake, not the stale planned one', async () => {
+    // The return leg the suite never walked. Picking a runtime also moves the
+    // roster's cli defaults, so `start` was rebuilt and happened to see the
+    // fresh intake; picking None moves nothing but `planningNoneOverride`, so
+    // with `intake` absent from `start`'s deps the launch kept sending
+    // `planned` — the mode the user had just left.
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<{ intake?: string }> = []
+    apiRecord.initializeSprintEngineState = async (input: (typeof initCalls)[number]) => {
+      initCalls.push({ intake: input.intake })
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(epicOnlySource)
+    try {
+      const openPicker = async (): Promise<Element[]> => {
+        await clickAndSettle(container.querySelector('button[aria-label^="Planning agent"]'))
+        return Array.from(
+          dom.window.document.body.querySelectorAll(
+            '[role="listbox"][aria-label="Planning agent options"] [role="option"]',
+          ),
+        ) as Element[]
+      }
+      const runtimeRow = (await openPicker()).find((row) => !row.textContent?.includes('None'))
+      await clickAndSettle(runtimeRow)
+      assert.match(container.textContent ?? '', /planned first/, 'the runtime took')
+
+      const noneRow = (await openPicker()).find((row) => row.textContent?.includes('None'))
+      await clickAndSettle(noneRow)
+      assert.match(container.textContent ?? '', /from your epic/, 'the footer went back')
+
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(initCalls[0]?.intake, 'direct', 'what the row shows is what init gets')
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
   await check('a non-epic source shows the row with an agent and no None', async () => {
     const { container, unmount } = await mountDialog(preloadedSource)
     try {
