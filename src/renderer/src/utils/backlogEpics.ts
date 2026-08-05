@@ -12,6 +12,7 @@ import {
   type BacklogDifficulty,
   type BacklogHighlightColor,
   type BacklogItem,
+  type BacklogItemStatus,
   backlogItemSlugFromPath,
   isBacklogHighlightColor,
   nextArchiveRelativePath,
@@ -47,6 +48,29 @@ const SIZE_POINTS: Record<BacklogDifficulty, number> = { xs: 1, s: 2, m: 3, l: 4
 // The leaf children of one epic slug: every non-epic item pointing up at it.
 export function childrenOfEpic(items: BacklogItem[], slug: string): BacklogItem[] {
   return items.filter((item) => !item.isEpic && item.epic === slug)
+}
+
+/**
+ * Child statuses that are not work, and so are not imported as tasks.
+ *
+ * MIRRORS `CLOSED_CHILD_STATUSES` in `sprintengine_core/tool/plans.py` — the
+ * engine's direct import skips exactly these, and the dialog's count of what
+ * goes in has to be the same count, because with no plan gate there is no later
+ * stop where a disagreement would surface (MC-2129).
+ */
+export const CLOSED_EPIC_CHILD_STATUSES: ReadonlySet<BacklogItemStatus> = new Set<BacklogItemStatus>([
+  'completed',
+  'archived',
+  'idea',
+])
+
+/** What an epic contributes to a sprint: the tasks it mints, and what stays out. */
+export type EpicImportCounts = { open: number; closed: number }
+
+export function epicImportCounts(items: BacklogItem[], slug: string): EpicImportCounts {
+  const children = childrenOfEpic(items, slug)
+  const open = children.filter((child) => !CLOSED_EPIC_CHILD_STATUSES.has(child.status)).length
+  return { open, closed: children.length - open }
 }
 
 // Partition items into ordered epic groups. Order: real epics by their `order:`

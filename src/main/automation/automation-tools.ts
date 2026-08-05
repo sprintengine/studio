@@ -1413,6 +1413,15 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         startRunner: { type: 'boolean', description: 'Start the auto-runner (launches the architect). Default false.' },
         autoApproveArtifacts: { type: 'boolean', description: 'Auto-approve run artifacts (only with startRunner).' },
         useWorktrees: { type: 'boolean', description: 'Isolate task work in per-task git worktrees.' },
+        intake: {
+          type: 'string',
+          enum: ['direct', 'planned'],
+          description:
+            'How the run gets its task graph. "direct" imports it from the source epic\'s child items at '
+            + 'creation — one task per open child, ordered by the items\' own dependsOn, with no planning agent '
+            + 'and no plan-approval gate. "planned" runs a planning agent behind the plan gate. Omit to take the '
+            + 'default for the source: direct for an epic, planned for everything else.',
+        },
       },
       required: ['folderPath'],
       additionalProperties: false,
@@ -1453,6 +1462,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           return failure('invalid_arguments', '"roster" must name at least one role.')
         }
       }
+      if (args.intake !== undefined && args.intake !== 'direct' && args.intake !== 'planned') {
+        return failure('invalid_arguments', '"intake" must be "direct" or "planned" when provided.')
+      }
+      const intake = args.intake as 'direct' | 'planned' | undefined
       const startRunner = args.startRunner === true
 
       const delegated = await backends.delegateToRenderer({
@@ -1466,6 +1479,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         startRunner,
         autoApproveArtifacts: args.autoApproveArtifacts === true,
         useWorktrees: args.useWorktrees === true,
+        // Omitted leaves the default with the engine, which knows the source shape.
+        ...(intake ? { intake } : {}),
       })
       if (!delegated.ok) return failure(delegated.code, delegated.message)
       const workspaceId = delegated.workspaceId

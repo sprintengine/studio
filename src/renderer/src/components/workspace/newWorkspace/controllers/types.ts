@@ -25,6 +25,7 @@ import type {
   PlanSourcedSprintEngineWorkspaceResult,
 } from '../../../../utils/sprintengineWorkspaceCreation'
 import type { SprintEngineArtifactCommandResult, SprintEngineStateInitializeInput } from '../../../../../../shared/electron-api'
+import type { SprintEngineIntake } from '../../../../../../shared/sprintengine/run-types'
 
 export type OnCreateArgs = {
   template: LayoutTemplate
@@ -173,6 +174,10 @@ export type SprintEnginePlanSourcedInput = {
   defaultPhases?: string[]
   // Record file-backed sources as project-root-relative references (no copy).
   sourceReference?: boolean
+  // How this run gets its task graph (MC-2128/2129): the New sprint dialog's
+  // Planning-agent row. Omit to let the engine apply its per-source default —
+  // `direct` for an epic, `planned` for everything else.
+  intake?: SprintEngineIntake
   // For an epic launch: the project-root-relative paths of the epic's child items,
   // flipped to `in_progress` at launch so every row shows the sprint immediately.
   epicChildRelativePaths?: string[]

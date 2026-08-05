@@ -142,6 +142,7 @@ export function CliModelPopoverSurface({
   onSelectModel,
   showReasoning = false,
   reasoningAriaLabel,
+  noneRow,
 }: {
   ariaLabel: string
   options: ReadonlyArray<CliRuntimeOption>
@@ -165,6 +166,16 @@ export function CliModelPopoverSurface({
    * reader hears which agent the level applies to rather than a bare axis name.
    */
   reasoningAriaLabel?: string
+  /**
+   * An opt-in row pinned above the models, for hosts where "no runtime at all" is
+   * a real choice rather than an empty one (MC-2129's Planning agent: with None,
+   * the epic is the plan and nothing plans the sprint). Absent everywhere else, so
+   * a picker that must always resolve to a runtime cannot offer an escape from it.
+   *
+   * Hidden while searching: a query is asking for a model by name, and a pinned
+   * row that matches nothing typed is noise in the results.
+   */
+  noneRow?: { label: string; description?: string; selected: boolean; onSelect: () => void }
 }): JSX.Element {
   const favourites = useModelFavourites()
   const favouriteSet = React.useMemo(() => new Set(favourites), [favourites])
@@ -375,10 +386,20 @@ export function CliModelPopoverSurface({
           onKeyDown={onListKeyDown}
           className="max-h-[300px] min-h-0 flex-1 overflow-y-auto p-1"
         >
+          {noneRow && !searching ? (
+            <NoneRowView
+              label={noneRow.label}
+              description={noneRow.description}
+              selected={noneRow.selected}
+              onSelect={noneRow.onSelect}
+            />
+          ) : null}
           {visible.length === 0 ? (
-            <p className="px-2 py-3 text-meta text-[color:var(--text-subtle)]">
-              {searching ? 'No models match.' : 'No models here yet.'}
-            </p>
+            noneRow && !searching ? null : (
+              <p className="px-2 py-3 text-meta text-[color:var(--text-subtle)]">
+                {searching ? 'No models match.' : 'No models here yet.'}
+              </p>
+            )
           ) : (
             visible.map((row, index) => (
               <ModelRowView
@@ -461,6 +482,54 @@ function RailButton({
 // Selection keeps full keyboard operation: the row is a tab stop with
 // Enter/Space selecting, arrows roving between rows, ArrowRight reaching the
 // star.
+/**
+ * The pinned "no runtime" row (MC-2129). Same row geometry and selection
+ * treatment as a model row, so the list reads as one list; it carries no CLI
+ * glyph because there is no runtime to name, and no star because there is
+ * nothing to favourite.
+ */
+function NoneRowView({
+  label,
+  description,
+  selected,
+  onSelect,
+}: {
+  label: string
+  description?: string
+  selected: boolean
+  onSelect: () => void
+}): JSX.Element {
+  return (
+    <div
+      role="option"
+      aria-selected={selected}
+      data-model-row="true"
+      tabIndex={selected ? 0 : -1}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        onSelect()
+      }}
+      className={[
+        'interactive flex w-full cursor-pointer items-center gap-2 rounded-[5px] py-1.5 pl-2 pr-1.5 text-left',
+        selected
+          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+        FOCUS_RING_CLASS,
+      ].join(' ')}
+    >
+      <span className="size-icon-sm shrink-0" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-body">{label}</span>
+        {description ? (
+          <span className="block truncate text-micro text-[color:var(--text-subtle)]">{description}</span>
+        ) : null}
+      </span>
+    </div>
+  )
+}
+
 function ModelRowView({
   row,
   selected,
@@ -600,6 +669,7 @@ export function CliModelPickerButton({
   maxWidthClassName = 'max-w-[220px]',
   onSelectCli,
   onSelectModel,
+  noneOption,
 }: {
   ariaLabel: string
   options: CliRuntimeOption[]
@@ -624,6 +694,13 @@ export function CliModelPickerButton({
   maxWidthClassName?: string
   onSelectCli: (cli: AgentCli) => void
   onSelectModel: (cli: AgentCli, model: string | null) => void
+  /**
+   * Opt-in "no runtime" choice, pinned first in the menu (MC-2129). When
+   * `selected`, the trigger reads as that choice rather than as a runtime —
+   * the row's VALUE is the whole control, so "None" must be legible without
+   * a badge or sub-copy beside it.
+   */
+  noneOption?: { label: string; description?: string; selected: boolean; onSelect: () => void }
 }): JSX.Element | null {
   const [open, setOpen] = React.useState(false)
   const resolvedOptions = options.some((option) => option.value === cli)
@@ -657,7 +734,10 @@ export function CliModelPickerButton({
     : selected.hostedVia === 'claude-code'
       ? `${selected.label} · Claude Code`
       : selected.label
-  const runtimeLabel = [runtime, axisLabel].filter(Boolean).join(' · ')
+  const isNone = noneOption?.selected === true
+  const runtimeLabel = isNone
+    ? noneOption.label
+    : [runtime, axisLabel].filter(Boolean).join(' · ')
 
   return (
     <span className="inline-flex min-w-0 shrink-0 items-center gap-0.5">
@@ -670,7 +750,10 @@ export function CliModelPickerButton({
         className="min-w-0 shrink-0"
         surfaceClassName="overflow-hidden"
         renderTrigger={({ ref, triggerProps, togglePopover }) => (
-          <Tooltip content={`Agent runtime: ${runtimeLabel}`} wrapperClassName="inline-flex min-w-0">
+          <Tooltip
+            content={isNone ? `${ariaLabel}: ${noneOption.label}` : `Agent runtime: ${runtimeLabel}`}
+            wrapperClassName="inline-flex min-w-0"
+          >
             <button
               ref={ref}
               type="button"
@@ -688,8 +771,12 @@ export function CliModelPickerButton({
               ].join(' ')}
               {...triggerProps}
             >
-              <CliIcon cli={selected.value} className="size-icon-sm shrink-0 text-[color:var(--text-muted)]" />
-              <span className="min-w-0 flex-1 truncate">{modelLabel}</span>
+              {isNone ? (
+                <span className="size-icon-sm shrink-0" aria-hidden="true" />
+              ) : (
+                <CliIcon cli={selected.value} className="size-icon-sm shrink-0 text-[color:var(--text-muted)]" />
+              )}
+              <span className="min-w-0 flex-1 truncate">{isNone ? noneOption.label : modelLabel}</span>
               <ChevronGlyph
                 className={`shrink-0 text-[color:var(--text-disabled)] ${
                   quiet ? 'opacity-0 transition-opacity group-hover/pill:opacity-100 group-focus-visible/pill:opacity-100' : ''
@@ -716,6 +803,19 @@ export function CliModelPickerButton({
             onSelectModel(nextCli, nextModel)
             setOpen(false)
           }}
+          {...(noneOption
+            ? {
+                noneRow: {
+                  label: noneOption.label,
+                  ...(noneOption.description ? { description: noneOption.description } : {}),
+                  selected: isNone,
+                  onSelect: () => {
+                    noneOption.onSelect()
+                    setOpen(false)
+                  },
+                },
+              }
+            : {})}
         />
       </Popover>
     </span>

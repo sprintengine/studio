@@ -34,6 +34,13 @@ import {
   workspaceRelativePath,
 } from '../components/workspace/newWorkspace/helpers'
 import { launchPlanSourcedSprint } from '../utils/sprintengineWorkspaceCreation'
+import { scanBacklog } from '../utils/backlog'
+import { isBacklogEpicPath } from '../utils/backlogEpics'
+import { buildBacklogSelectionSourcePlan } from '../components/backlog/backlogSelectionSourcePlan'
+import type {
+  SprintEngineSourceBundleItem,
+  SprintEngineSourcePlanKind,
+} from '../types/workspace'
 import { normalizeCliPermissionPreset } from '../store/slices/settingsSlice'
 import { sprintEngineCoordinatorSeatForRoleCounts, sprintEngineRoleKey } from '../utils/sprintengine'
 import {
@@ -320,6 +327,41 @@ async function createSprint(
 // wizard's "Start from backlog" uses — createPlanSourcedSprintEngineWorkspace →
 // initializeSprintEngineState → addWorkspace — so the Backlog execution link and
 // item lifecycle are preserved. No bespoke sprint bootstrapping.
+/**
+ * The epic launch shape, for a source that IS an epic: `planKind: epic` plus the
+ * epic's open children marked as the work list, built through the same builder
+ * the dialog uses so an automation-started epic is byte-identical to a
+ * hand-started one. Returns null for anything that is not an epic, and for any
+ * failure — a scan that cannot read the project must never fail the launch, it
+ * just falls back to today's inferred kind.
+ */
+async function buildEpicSourcePlanForAutomation(
+  folderPath: string,
+  sourceRelativePath: string
+): Promise<{ sourcePlanKind: SprintEngineSourcePlanKind; sourceBundle: SprintEngineSourceBundleItem[] } | null> {
+  if (!isBacklogEpicPath(sourceRelativePath)) return null
+  try {
+    const scanned = await scanBacklog(folderPath, {
+      pathExists: window.api.pathExists,
+      readdir: window.api.readdir,
+      readfile: window.api.readfile,
+      statPath: window.api.statPath,
+    })
+    if (scanned.state !== 'ready') return null
+    const epic = scanned.items.find((item) => item.isEpic && item.relativePath === sourceRelativePath)
+    if (!epic) return null
+    const plan = buildBacklogSelectionSourcePlan({
+      workspaceRoot: folderPath,
+      items: [epic],
+      projectItems: scanned.items,
+    })
+    if (!plan || plan.sourcePlanKind !== 'epic') return null
+    return { sourcePlanKind: plan.sourcePlanKind, sourceBundle: plan.sourceBundle ?? [] }
+  } catch {
+    return null
+  }
+}
+
 async function createPlanSourcedSprint(
   request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>,
   sourceRelativePath: string
@@ -354,6 +396,13 @@ async function createPlanSourcedSprint(
     }
   }
 
+  // An epic source launched from here gets the same shape the dialog builds:
+  // `planKind: epic` plus its open children marked as the work list (MC-2129).
+  // Without it `inferSourcePlanKind` calls an epic `unknown`, so an
+  // automation- or Horizon-started epic never reached the epic intake at all —
+  // neither the direct import nor the planner's sequencing directive.
+  const epicPlan = await buildEpicSourcePlanForAutomation(request.folderPath, normalizedSourcePath)
+
   // The derived name is deterministic (config sprint name, else the item's
   // basename), and a team dir with that slug may already exist — a prior wizard
   // launch from the same item, or an earlier fire of a recurring chain. A
@@ -377,7 +426,12 @@ async function createPlanSourcedSprint(
       goal: request.goal,
       sourcePath: normalizedSourcePath,
       sourceContent,
-      sourcePlanKind: inferSourcePlanKind(normalizedSourcePath, sourceContent),
+      sourcePlanKind: epicPlan?.sourcePlanKind ?? inferSourcePlanKind(normalizedSourcePath, sourceContent),
+      ...(epicPlan?.sourceBundle ? { sourceBundle: epicPlan.sourceBundle } : {}),
+      // Absent leaves the default with the engine: direct for an epic, planned
+      // for everything else. Horizon and automations inherit that rather than
+      // restating it here.
+      ...(request.intake ? { intake: request.intake } : {}),
       roleCounts: launchRoleCounts,
       roleCliDefaults: roster.roleCliDefaults,
       roleModelOverrides: roster.roleModelOverrides,

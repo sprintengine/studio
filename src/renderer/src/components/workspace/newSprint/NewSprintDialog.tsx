@@ -40,7 +40,11 @@ import {
   noteSprintDoorSelection,
 } from '../globalSurface/sprints/sprintDoorRequests'
 import { inferSourcePlanKind, markdownTitle, workspaceRelativePath } from '../newWorkspace/helpers'
-import { PlainAgentsPanel } from '../newWorkspace/PlainAgentsPanel'
+import {
+  PlainAgentsPanel,
+  PlanningAgentRowView,
+  type PlanningAgentRow,
+} from '../newWorkspace/PlainAgentsPanel'
 import type { SprintEngineCliOption } from '../newWorkspace/SprintEngineRosterTable'
 import { RosterEditor } from '../../backlog/RosterEditor'
 import { RosterMenu } from '../../backlog/RosterMenu'
@@ -80,7 +84,9 @@ import {
 } from '../../../utils/backlogTriage'
 import { deriveBacklogDependencies } from '../../../utils/backlogDependencies'
 import {
+  CLOSED_EPIC_CHILD_STATUSES,
   childrenOfEpic,
+  epicImportCounts,
   epicSlug,
   groupItemsByEpic,
   isBacklogEpicPath,
@@ -90,6 +96,7 @@ import { isRoadmapContent } from '../../../../../shared/backlog/roadmap'
 import {
   SPRINT_ENGINE_ROLELESS_KEY,
   getSprintEngineRoleLabel,
+  sprintEngineCoordinatorSeatForRoleCounts,
 } from '../../../utils/sprintengine'
 import { listSprintEngineWizardRoles } from '../../../utils/sprintengineRoleOptions'
 import {
@@ -109,11 +116,16 @@ import type {
 import {
   buildNewSprintSource,
   deriveRunName,
+  directSprintFootSummary,
   epicPickKey,
+  epicSourceTail,
   isEpicPickKey,
   isFileSource,
+  plannedSprintFootSummary,
   seedPickedKeysFromSource,
 } from './newSprintModel'
+import type { SprintEngineIntake } from '../../../../../shared/sprintengine/run-types'
+import { sourcePlanKindSupportsDirectIntake } from '../../../../../shared/sprintengine/run-types'
 
 const VIEW_ITEMS: SelectItem<BacklogView>[] = [
   { value: 'active', label: 'Active' },
@@ -206,6 +218,13 @@ export default function NewSprintDialog({
   const lastNavKeyRef = useRef<string | null>(null)
 
   const [nameOverride, setNameOverride] = useState<string | null>(null)
+  // The Planning-agent row's value, when the user has moved it (MC-2129).
+  // `null` means untouched, so the row shows the source's own default: None for
+  // an epic — its children are already an ordered plan — and the run's runtime
+  // for anything else, where something must plan because no authored order
+  // exists. Storing the OVERRIDE rather than the value is what lets the default
+  // follow the picks as they change.
+  const [planningNoneOverride, setPlanningNoneOverride] = useState<boolean | null>(null)
   const [renaming, setRenaming] = useState(false)
 
   const [screen, setScreen] = useState<'sprint' | 'roster'>('sprint')
@@ -459,6 +478,51 @@ export default function NewSprintDialog({
   )
   const sourceCount = pickedEpics.length + pickedLeaves.length + (fileSource ? 1 : 0)
 
+  // ── the Planning agent row (MC-2129) ──────────────────────────────────────
+  //
+  // None exists only where there is an authored order to fall back on, which is
+  // an epic source. Everywhere else the row still appears — never a control that
+  // is present in one world and absent in the other — with an agent picked and
+  // no way to clear it.
+  const epicImport = useMemo(
+    () =>
+      pickedEpics.reduce(
+        (total, epic) => {
+          const counts = epicImportCounts([...items], epicSlug(epic))
+          return { open: total.open + counts.open, closed: total.closed + counts.closed }
+        },
+        { open: 0, closed: 0 },
+      ),
+    [pickedEpics, items],
+  )
+  const canPlanNone = sourcePlanKindSupportsDirectIntake(source?.sourcePlanKind)
+  const planningIsNone = canPlanNone && (planningNoneOverride ?? true)
+  const intake: SprintEngineIntake = planningIsNone ? 'direct' : 'planned'
+  // What the sprint will actually contain: an epic contributes its open children
+  // (one task each), every other pick contributes itself.
+  const workItemCount = epicImport.open + pickedLeaves.length + (fileSource ? 1 : 0)
+  // The row shows and sets the runtime of the seat that would actually plan: the
+  // architect on a staffed roster, the single shared runtime on a roleless run.
+  const planningRuntimeKey =
+    sprintEngineCoordinatorSeatForRoleCounts(editor.roleCounts).role ?? SPRINT_ENGINE_ROLELESS_KEY
+  const planningAgentRow: PlanningAgentRow = {
+    cli: editor.roleCliDefaults[planningRuntimeKey] ?? cliOptions[0]?.value ?? 'claude-code',
+    effectiveModel: editor.roleModelOverrides[planningRuntimeKey] || undefined,
+    effectiveReasoning: editor.roleReasoningOverrides[planningRuntimeKey] || undefined,
+    isNone: planningIsNone,
+    allowNone: canPlanNone,
+    onSelectNone: () => setPlanningNoneOverride(true),
+    onSetCli: (cli) => {
+      setPlanningNoneOverride(false)
+      editor.onSetRoleCli(planningRuntimeKey, cli)
+    },
+    onSetModel: (model) => {
+      setPlanningNoneOverride(false)
+      editor.onSetRoleModel(planningRuntimeKey, model)
+    },
+    onSetReasoning: (reasoning) => editor.onSetRoleReasoning(planningRuntimeKey, reasoning),
+  }
+
   const switchProject = useCallback((path: string) => {
     if (path === folderPath) return
     // A sprint bundle is always from one project: switching drops the picks.
@@ -654,6 +718,7 @@ export default function NewSprintDialog({
           autoApproveArtifacts: true,
           useWorktrees: false,
           sourceReference: true,
+          intake,
           epicChildRelativePaths:
             epicChildRelativePaths.length > 0 ? epicChildRelativePaths : undefined,
           cliPermissionPreset: lastSpawnPermissionPreset,
@@ -748,12 +813,14 @@ export default function NewSprintDialog({
     projectOptions.find((option) => option.path === folderPath)?.label
     ?? (folderPath ? basename(folderPath) : 'Choose project')
 
+  // The footer states the consequence of the choice above it, in plain words:
+  // what you get, not which mode you are in (MC-2129).
   const footSummary =
     sourceCount === 0
       ? ''
-      : noRoles
-        ? `${sourceCount} source${sourceCount === 1 ? '' : 's'} · up to ${editor.poolAgentCount} agent${editor.poolAgentCount === 1 ? '' : 's'}`
-        : `${sourceCount} source${sourceCount === 1 ? '' : 's'} · ${staffedRoles.length} role${staffedRoles.length === 1 ? '' : 's'}`
+      : planningIsNone
+        ? directSprintFootSummary(workItemCount)
+        : plannedSprintFootSummary(workItemCount)
 
   return (
     <div className="overlay-scrim fixed inset-0 z-50 flex items-center justify-center p-6">
@@ -909,8 +976,9 @@ export default function NewSprintDialog({
                         implied={Boolean(
                           item.epic
                           && pickedSet.has(epicPickKey(item.epic))
-                          && item.status !== 'completed'
-                          && item.status !== 'archived',
+                          // Exactly the engine's skip rule (MC-2129): a child the
+                          // import leaves out must not read as riding along.
+                          && !CLOSED_EPIC_CHILD_STATUSES.has(item.status),
                         )}
                         onClick={(event) => {
                           setCursorKey(key)
@@ -982,15 +1050,16 @@ export default function NewSprintDialog({
                   <>
                     {pickedEpics.map((epic) => {
                       const slug = epicSlug(epic)
-                      const open = childrenOfEpic([...items], slug).filter(
-                        (child) => child.status !== 'archived' && child.status !== 'completed',
-                      ).length
+                      // The import arithmetic, both halves. With no plan gate
+                      // there is no later stop where a miscount would surface, so
+                      // this row is where the import is verified — and it counts
+                      // by the engine's own skip rule, not a near-miss of it.
                       return (
                         <SourceChip
                           key={epicPickKey(slug)}
                           id={epic.displayId}
                           title={epic.title}
-                          tail={`+${open} open`}
+                          tail={epicSourceTail(epicImportCounts([...items], slug))}
                           color={epic.highlight?.color ?? null}
                           onRemove={() => togglePick(epicPickKey(slug))}
                         />
@@ -1055,6 +1124,7 @@ export default function NewSprintDialog({
                   onSetReasoning={(reasoning) =>
                     editor.onSetRoleReasoning(SPRINT_ENGINE_ROLELESS_KEY, reasoning)
                   }
+                  planningAgent={planningAgentRow}
                 />
               ) : (
                 <div className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
@@ -1103,6 +1173,9 @@ export default function NewSprintDialog({
                       ))
                     )}
                   </div>
+                  {/* The same row a roleless team card carries: one control in
+                      both worlds, never present here and absent there. */}
+                  <PlanningAgentRowView row={planningAgentRow} cliOptions={cliOptions} />
                 </div>
               )}
 
@@ -1306,6 +1379,11 @@ function PickRow({
   // design-system-allow: implied-child accent rule from the approved mockup — not selection paint
   const impliedClass = implied && !picked ? 'border-l-[color:var(--accent-primary)]' : ''
   const cursorClass = cursored ? 'outline outline-1 -outline-offset-1 outline-[color:var(--border-focus)]' : 'outline-none'
+  // A child that will NOT be imported reads as excluded: struck, and without the
+  // implied rule its open siblings carry (MC-2129). The count on the source chip
+  // and this styling answer the same question — what actually goes in — so they
+  // read the status the same way the engine does.
+  const closed = !item.isEpic && CLOSED_EPIC_CHILD_STATUSES.has(item.status)
   return (
     <div
       id={domId}
@@ -1314,7 +1392,9 @@ function PickRow({
       onClick={onClick}
       className={`flex cursor-pointer items-start gap-2 rounded border-l-[3px] py-1 pl-2 pr-2 text-micro text-[color:var(--text-muted)] ${paint} ${impliedClass} ${cursorClass}`}
     >
-      <span className="min-w-0 flex-1">
+      <span
+        className={`min-w-0 flex-1 ${closed && !picked ? 'line-through decoration-[color:var(--border-strong)]' : ''}`}
+      >
         <BacklogRowContent item={item} now={Date.now()} selected={picked} plainTitle />
       </span>
       {picked ? <PickMark /> : null}
@@ -1390,9 +1470,7 @@ function EpicGroupRows({
                 cursored={cursorKey === item.relativePath}
                 epicColor={group.kind === 'epic' ? group.color : null}
                 picked={pickedSet.has(item.relativePath)}
-                implied={Boolean(
-                  epicPicked && item.status !== 'completed' && item.status !== 'archived',
-                )}
+                implied={Boolean(epicPicked && !CLOSED_EPIC_CHILD_STATUSES.has(item.status))}
                 onClick={(event) => onLeafClick(item.relativePath, event)}
               />
             </div>

@@ -108,6 +108,13 @@ export type AutomationRendererRequest =
        * empty — it derives from the item's first heading.
        */
       sourceRelativePath?: string
+      /**
+       * How the run gets its task graph (MC-2128/2129). Absent takes the default
+       * for the source — `direct` for an epic, `planned` for everything else —
+       * which is decided in the engine, not here. Automations and Horizon set it
+       * only to override that.
+       */
+      intake?: 'direct' | 'planned'
       /** Saved ROSTER name to staff the run with; absent resolves like the wizard (last selected, else default). */
       rosterName?: string
       /**

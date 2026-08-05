@@ -323,6 +323,8 @@ export async function runSprintEnginePlanSourcedCreation(
       workspaceWindowId: input.workspaceWindowId,
       useWorktrees: input.useWorktrees === true,
       sourceReference: input.sourceReference === true,
+      // Only when the caller chose; absent leaves the default with the engine.
+      ...(input.intake ? { intake: input.intake } : {}),
       sprintEngineAutoState: {
         ...sprintEngineAutoStateFromRunOptions(input),
         cliPermissionPreset: input.cliPermissionPreset,

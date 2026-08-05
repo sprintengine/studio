@@ -18,6 +18,45 @@ import type { FuturePlanWorkspaceSource } from '../../../types/workspace'
 
 export const EPIC_KEY_PREFIX = 'epic:'
 
+// ── the Planning agent row (MC-2129) ────────────────────────────────────────
+//
+// One row on the team card, whose VALUE is the whole control: "None", or the
+// runtime that will plan. Ruled 2026-08-04 after mockup review — no switch, no
+// mode names, no sub-copy under the row, no "planner" badge. The explanation
+// lives in the label's tooltip and nowhere else.
+
+export const PLANNING_AGENT_ROW_LABEL = 'Planning agent'
+
+export const PLANNING_AGENT_TOOLTIP =
+  'Plans the sprint before any work starts: reads the items, orders them, and creates the tasks. '
+  + 'With None, your epic is the plan — one task per open item, in the order the epic already says.'
+
+export const PLANNING_AGENT_NONE_LABEL = 'None'
+
+export const PLANNING_AGENT_NONE_DESCRIPTION = 'Your epic is the plan'
+
+/**
+ * The epic source row's import arithmetic. With no plan gate there is no later
+ * stop where a miscount would surface, so this row is where the import is
+ * verified — it states both halves, including the items that stay out.
+ */
+export function epicSourceTail(counts: { open: number; closed: number }): string {
+  const open = `${counts.open} open item${counts.open === 1 ? '' : 's'} in`
+  return counts.closed === 0 ? open : `${open}, ${counts.closed} stay out`
+}
+
+/**
+ * The footer, which stays terse and states the consequence rather than the mode:
+ * what you are about to get, in plain words.
+ */
+export function directSprintFootSummary(taskCount: number): string {
+  return `${taskCount} task${taskCount === 1 ? '' : 's'} from your epic`
+}
+
+export function plannedSprintFootSummary(itemCount: number): string {
+  return `${itemCount} item${itemCount === 1 ? '' : 's'} · planned first`
+}
+
 export function epicPickKey(slug: string): string {
   return `${EPIC_KEY_PREFIX}${slug}`
 }

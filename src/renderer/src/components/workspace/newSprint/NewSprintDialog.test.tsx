@@ -193,6 +193,16 @@ async function main(): Promise<void> {
   assert.ok(preloadedSource, 'the multi-selection builds one source plan')
   assert.equal(preloadedSource!.sourcePlanKind, 'selection')
 
+  // A single-epic pick: the source shape with an authored order to fall back on,
+  // and so the only one where the Planning-agent row offers None (MC-2129).
+  const epicOnlySource = buildBacklogSelectionSourcePlan({
+    workspaceRoot: ROOT,
+    items: [epic!],
+    projectItems: scanned.items,
+  })
+  assert.ok(epicOnlySource, 'the single-epic pick builds one source plan')
+  assert.equal(epicOnlySource!.sourcePlanKind, 'epic')
+
   async function mountDialog(
     initialSource: typeof preloadedSource,
     onClose: () => void = () => {},
@@ -254,7 +264,9 @@ async function main(): Promise<void> {
     const text = container.textContent ?? ''
     assert.match(text, /Demo epic title/, 'the epic source chip renders')
     assert.match(text, /Loose item title/, 'the item source chip renders')
-    assert.match(text, /\+1 open/, 'the epic chip counts its open children')
+    // The epic chip carries the import arithmetic (MC-2129): with no plan gate,
+    // this row is where the import is verified, so it states both halves.
+    assert.match(text, /1 open item in/, 'the epic chip counts what goes in')
 
     // Start is armed — the selection is complete without another picker.
     const startButton = Array.from(container.querySelectorAll('button')).find(
@@ -752,6 +764,114 @@ async function main(): Promise<void> {
     } finally {
       delete apiRecord.initializeSprintEngineState
       delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  // ── the Planning agent row (MC-2129) ──────────────────────────────────────
+
+  await check('an epic source defaults the Planning agent to None and starts direct', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<{ intake?: string; source?: { planKind?: string } }> = []
+    apiRecord.initializeSprintEngineState = async (input: (typeof initCalls)[number]) => {
+      initCalls.push({ intake: input.intake, source: input.source })
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(epicOnlySource)
+    try {
+      const text = container.textContent ?? ''
+      // The row's VALUE is the whole control: "None", and nothing else.
+      assert.match(text, /Planning agent/, 'the team card carries the Planning agent row')
+      const picker = container.querySelector('button[aria-label^="Planning agent"]')
+      assert.ok(picker, 'the row renders a picker')
+      assert.equal(
+        picker?.getAttribute('aria-label'),
+        'Planning agent: None',
+        'an epic source defaults the row to None',
+      )
+      // No sub-copy and no badge (ruled 2026-08-04).
+      assert.doesNotMatch(text, /planner/i, 'the row carries no planner badge or sub-copy')
+      // The footer states the consequence in plain words.
+      assert.match(text, /1 task from your epic/, 'the footer counts the tasks the epic mints')
+
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(initCalls.length, 1, 'Start initializes exactly one run')
+      assert.equal(initCalls[0]?.source?.planKind, 'epic')
+      assert.equal(initCalls[0]?.intake, 'direct', 'an untouched row runs the direct intake')
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  await check('picking an agent from the row restores the planned intake', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<{ intake?: string }> = []
+    apiRecord.initializeSprintEngineState = async (input: (typeof initCalls)[number]) => {
+      initCalls.push({ intake: input.intake })
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(epicOnlySource)
+    try {
+      await clickAndSettle(container.querySelector('button[aria-label^="Planning agent"]'))
+      const doc = dom.window.document
+      // The picker is the shared CliModelPicker with None pinned first, so the
+      // menu's own rows are what restore a planning agent.
+      const rows = Array.from(
+        doc.body.querySelectorAll('[role="listbox"][aria-label="Planning agent options"] [role="option"]'),
+      )
+      assert.ok(rows.length > 1, 'the menu offers None plus at least one runtime')
+      assert.equal(rows[0]?.textContent?.includes('None'), true, 'None is pinned first')
+      const runtimeRow = rows.find((row) => !row.textContent?.includes('None'))
+      await clickAndSettle(runtimeRow)
+
+      const text = container.textContent ?? ''
+      assert.match(text, /1 item · planned first/, 'the footer flips once an agent is picked')
+
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(initCalls[0]?.intake, 'planned', 'a picked agent runs the planning intake')
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  await check('a non-epic source shows the row with an agent and no None', async () => {
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      const picker = container.querySelector('button[aria-label^="Planning agent"]')
+      assert.ok(picker, 'the row appears for a non-epic source too — never a dead control')
+      assert.doesNotMatch(
+        picker?.getAttribute('aria-label') ?? '',
+        /None/,
+        'with no epic there is no authored order to fall back on, so None is not offered',
+      )
+      await clickAndSettle(picker)
+      const rows = Array.from(
+        dom.window.document.body.querySelectorAll(
+          '[role="listbox"][aria-label="Planning agent options"] [role="option"]',
+        ),
+      )
+      assert.ok(rows.length > 0, 'the menu lists runtimes')
+      assert.ok(
+        rows.every((row) => !row.textContent?.startsWith('None')),
+        'no None row is pinned for a non-epic source',
+      )
+    } finally {
       unmount()
     }
   })
