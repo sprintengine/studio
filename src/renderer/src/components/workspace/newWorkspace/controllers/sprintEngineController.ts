@@ -339,7 +339,13 @@ export async function runSprintEnginePlanSourcedCreation(
         sourceRelativePath: optionRelativePath,
         teamSlug: result.sprintEngineContext.teamSlug,
         statePath: result.sprintEngineContext.statePath,
-        ...(isEpicSource
+        // Epic children ride the link write for BOTH shapes that carry them:
+        // the single-epic launch AND the multi-selection (planKind
+        // 'selection'). Gating on epic alone silently dropped the pending
+        // child links a dialog multi-select computed, while the MCP selection
+        // path wrote them — the two surfaces diverged (integration review,
+        // 2026-08-05).
+        ...(isEpicSource || input.sourcePlanKind === 'selection'
           ? { childRelativePaths: (input.epicChildRelativePaths ?? []).filter((path) => path.startsWith('backlog/')) }
           : {}),
       })

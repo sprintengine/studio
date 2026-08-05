@@ -150,9 +150,11 @@ question without mounting a dialog of its own.
 
 - ~~`Modal.tsx` ships `z-50` against the token ladder's 70.~~ **Resolved
   2026-08-05 (MC-2119):** the token ladder is canonical and `Modal` consumes
-  `--z-modal`. It mattered more than it looked — at 50 the modal sat a tier
-  *below* the menu layer at 60, so a context menu opened over a dialog painted
-  on top of it.
+  `--z-modal` (70). Note the ladder itself was then re-ruled at the
+  interaction-canon merge review (same date): transient surfaces sit ABOVE
+  modal — popover 80, menu 90, toast 100 — so a menu or picker opened from
+  inside a dialog paints over the scrim by design. What the fix ended was
+  Modal keeping a second, private ladder, not menus painting above dialogs.
 - ~~`Modal.tsx` ships **no focus trap**.~~ **Resolved (MC-2109):** every
   `aria-modal` shell in the renderer wraps its dialog in the shared
   `FocusTrap`, sentinels either side, as specified above.

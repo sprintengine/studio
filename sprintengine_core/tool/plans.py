@@ -183,6 +183,21 @@ def resolve_run_intake(state: Dict[str, Any], requested: Optional[str], has_epic
             f"--intake must be one of: {', '.join(sorted(VALID_RUN_INTAKES))}."
         )
     intake = run_intake(state) or requested_value or ("direct" if has_epic_source else "planned")
+    # Direct intake only exists for an epic source — with no epic there is no
+    # authored order to import, so a requested `direct` DOWNGRADES to planned
+    # (warn-not-block, owner 2026-08-05) instead of falling through to a plan
+    # gate while the run store records an intake that never ran. The persisted
+    # value is the EFFECTIVE intake, never the requested one.
+    if intake == "direct" and not has_epic_source:
+        intake = "planned"
+        append_event(
+            state,
+            "intake_downgraded",
+            "sprintengine",
+            "Direct intake was requested but the source is not a single epic — "
+            "the run plans first. Direct intake imports an epic's authored "
+            "dependency order; a selection or goal has none to import.",
+        )
     state.setdefault("sprintengine", {})["intake"] = intake
     return intake
 

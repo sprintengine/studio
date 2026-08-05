@@ -48,9 +48,11 @@ epic declares. When authoring or finishing an epic: add `dependsOn:` edges
 between children wherever order matters (comma-separated sibling slugs), and
 when the ordering is deliberate and complete — including "no edges, these
 run in parallel" — set `dependenciesPlanned: true` on the epic's frontmatter
-as the last act. That flag is what tells a direct (plannerless) sprint the
-epic is ready to execute as written; an epic without it defaults to getting
-a planning agent first.
+as the last act. That flag is the authoring convention that tells a direct
+(plannerless) sprint the epic is ready to execute as written. (The gate that
+READS it — dialog default-flip, MCP warning, a `backlog.update` field — is
+MC-2137, not yet built; until it lands the flag is a record of intent that
+costs nothing and is correct the day the gate ships.)
 
 **Triage.** Judge every non-archived item against the current codebase: still
 worth doing, already built, overtaken, or simply mis-statused. Report them

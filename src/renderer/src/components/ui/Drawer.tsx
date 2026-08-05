@@ -128,11 +128,17 @@ function DrawerRoot({ open, onClose, title, ariaLabel, width = 360, children }: 
     }
   }, [lifecycle])
 
-  // Escape close.
+  // Escape close. Two yields keep "Escape reaches only the topmost surface"
+  // true (knowledge/brand/primitives.md): a transient child (popover, menu)
+  // that already handled Escape marks the event, and a Modal stacked above
+  // this drawer must win even though the drawer's window listener registered
+  // first — the drawer yields by state when any aria-modal surface is open.
   useEffect(() => {
     if (lifecycle === 'closed') return undefined
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (event.defaultPrevented) return
+        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
         event.preventDefault()
         event.stopPropagation()
         onClose()

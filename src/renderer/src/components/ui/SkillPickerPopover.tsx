@@ -202,8 +202,12 @@ function SkillRow({
       onMouseMove={onHover}
       disabled={installing}
       className={`flex w-full items-start gap-2 rounded px-2.5 py-1.5 text-left transition-colors disabled:cursor-wait ${
+        // One paint for the one state: the keyboard cursor and the pointer
+        // hover are the same "you are here" and share `--bg-hover` — the
+        // `--bg-active` split painted two colors for it (the ConnectorPicker
+        // defect MC-2108 fixed; ripple review 2026-08-05 caught this twin).
         active
-          ? 'bg-[color:var(--bg-active)] text-[color:var(--text-strong)]'
+          ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
       }`}
     >

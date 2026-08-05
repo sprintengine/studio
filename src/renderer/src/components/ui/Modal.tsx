@@ -7,14 +7,16 @@
 //                       z-30 panel-internal popovers, z-[35] canvas overlays
 //                       — app utilities; these describe depth within a pane,
 //                       not overlay layers, and stay as they are.
-//   overlay layers      --z-drawer 40, --z-popover 50, --z-menu 60,
-//                       --z-modal 70, --z-toast 80.
+//   overlay layers      --z-drawer 40, --z-modal 70, --z-popover 80,
+//                       --z-menu 90, --z-toast 100.
 //
-// The kit already sat on the token values everywhere except here: Drawer 40,
-// Popover and Tooltip 50, ContextMenu and PointerPopover 60. Modal alone used
-// 50 while claiming to be "always above everything else" — which put it a tier
-// BELOW the menus, so a context menu opened over a dialog painted on top of it.
-// Consuming the token both fixes that and removes the second ladder.
+// The ordering is deliberate (interaction-canon merge review, 2026-08-05):
+// TRANSIENT surfaces sit ABOVE modal. A popover, menu, or tooltip opened from
+// inside a dialog is always the topmost, self-dismissing thing on screen — at
+// the old popover 50 / menu 60 / modal 70 ladder, every picker a dialog hosted
+// painted UNDER its own scrim. Modal beats the page and the drawer; the
+// transient family beats modal; toast beats everything. Consuming the token
+// removes the second ladder this file used to carry.
 import React, { useEffect, useRef } from 'react'
 import { CloseIconButton, DangerButton, GhostButton, PrimaryButton } from './Buttons'
 import { FocusTrap } from './FocusTrap'

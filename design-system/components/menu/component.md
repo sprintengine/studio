@@ -109,7 +109,7 @@ letting their labels slide left.
 | Ground | `bg.surface-raised` | |
 | Shadow | `shadow.popover` | |
 | Padding | `space.2xs` vertical, none horizontal | 4px / 0 |
-| Layer | `z.popover`, or `z.menu` when pointer-positioned | 50 / 60 |
+| Layer | `z.popover`, or `z.menu` when pointer-positioned | 80 / 90 |
 
 The horizontal zero is the load-bearing part: it is what makes rows full-bleed,
 and it is what an inset fill needs in order to look wrong.

@@ -263,10 +263,13 @@ export async function createPlanSourcedSprintEngineWorkspace({
     ? buildSprintEngineInitSourceSeed(trimmedSourcePath, sourcePlanKind, sourceBundle)
     : null
 
-  // Whether THIS run will plan (MC-2128). Mirrors the engine's own default rather
-  // than sending one: an unset `intake` on an epic source means the engine imports
-  // the children directly, and there is then no plan for a coordinator to write.
-  const runsDirect = intake === 'direct' || (intake === undefined && sourcePlanKindSupportsDirectIntake(sourcePlanKind))
+  // Whether THIS run will plan (MC-2128). Mirrors the engine's own resolution
+  // rather than sending one: direct intake exists only for a source shape that
+  // supports it — the engine DOWNGRADES a requested `direct` on any other
+  // source to planned (warn-not-block), so a requested-but-unsupported direct
+  // must still get the coordinator handoff prompt here or the plan gate the
+  // engine mints would sit with nobody prompted to fill it.
+  const runsDirect = sourcePlanKindSupportsDirectIntake(sourcePlanKind) && intake !== 'planned'
 
   if (initializeSprintEngineState) {
     const initResult = await initializeSprintEngineState({

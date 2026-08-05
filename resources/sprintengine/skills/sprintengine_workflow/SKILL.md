@@ -11,9 +11,9 @@ No other agent reviews your work. Implement, then publish with `sprintengine.tas
 
 In worktree-mode runs `task.publish` also commits your task-scoped changes in your task's project worktree, under that project's own commit lock.
 
-## Owned Paths
+## Commit Scope
 
-Your task names ONE project (`repo`); its paths are relative to that project's root. Task-owned paths are the primary edit surface and collision boundary, not an edit cage. Record each required edit outside `ownedPaths` as a `scopeExpansionJson` entry (`path`, `reason`, `risk`) on `sprintengine.task.log`. Move to `needs_input` before broad expansion, product scope changes, or likely overlap with another active task.
+Paths are relative to your task's one project (`repo`). Commit scope is what you CHANGED: self-report changed files at publish (`--changed-path`); those are committed. Never edit `ownedPaths` (an advisory collision hint only). Leftover dirty paths that are not yours are a sibling's: leave them. Log a far-outside edit as `scopeExpansionJson` via `sprintengine.task.log`; go `needs_input` before scope changes or sibling overlap.
 
 ## Escalate Only What You Must Not Invent
 

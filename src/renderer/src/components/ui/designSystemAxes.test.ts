@@ -292,11 +292,12 @@ for (const axis of KIT_HARD_RULES) {
 
 run('every overlay layer in the kit resolves to the one ladder', () => {
   // The ladder of record is the bundle's `--sem-z-*`, aliased as `--z-*`
-  // (assets/index.css). Before this there were two: the tokens said modal 70,
-  // and `Modal.tsx` documented and used its own with modal at z-50 — a tier
-  // BELOW the menus, so a context menu opened over a dialog painted on top of
-  // it. Asserted per surface, because "no bare numbers" alone would pass a file
-  // that simply stopped stacking.
+  // (assets/index.css): drawer 40 < modal 70 < popover 80 < menu 90 < toast
+  // 100 — transients deliberately ABOVE modal (2026-08-05), so a picker
+  // opened inside a dialog paints over the scrim. Before this there were two
+  // ladders: the tokens' and a private one in `Modal.tsx`. Asserted per
+  // surface, because "no bare numbers" alone would pass a file that simply
+  // stopped stacking.
   const OVERLAYS: Record<string, string> = {
     'Modal.tsx': '--z-modal',
     'Drawer.tsx': '--z-drawer',

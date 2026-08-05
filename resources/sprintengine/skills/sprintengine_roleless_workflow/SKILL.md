@@ -6,7 +6,7 @@ This sprint runs no roles. One agent holds the coordination job: it produces the
 
 ## The loop your task runs
 
-1. **Build** — implement the task you hold against its acceptance criteria and owned paths.
+1. **Build** — implement the task you hold against its acceptance criteria. Commit scope is what you actually change (self-reported at publish), not a pre-declared path list; declared modules, when present, are an advisory collision hint.
 2. **Publish and self-review** — per the Sprint Engine workflow rules: publish, follow the inline review directive against your own diff, then advance with `pass` or `pass_with_fixes`.
 
 There is nobody to hand the remainder to. Whatever the task needs to be finished — the test, the check against the real path, the fix your own review turns up — is yours, inside it.

@@ -36,7 +36,7 @@ import {
 import { launchPlanSourcedSprint } from '../utils/sprintengineWorkspaceCreation'
 import { scanBacklog } from '../utils/backlog'
 import type { BacklogItem } from '../utils/backlog'
-import { isBacklogEpicPath } from '../utils/backlogEpics'
+import { CLOSED_EPIC_CHILD_STATUSES, isBacklogEpicPath } from '../utils/backlogEpics'
 import { buildBacklogSelectionSourcePlan } from '../components/backlog/backlogSelectionSourcePlan'
 import { buildSprintEngineRunLink } from '../utils/sprintengineBacklogLinks'
 import type {
@@ -347,7 +347,11 @@ async function createSprint(
 async function buildEpicSourcePlanForAutomation(
   folderPath: string,
   sourceRelativePath: string
-): Promise<{ sourcePlanKind: SprintEngineSourcePlanKind; sourceBundle: SprintEngineSourceBundleItem[] } | null> {
+): Promise<{
+  sourcePlanKind: SprintEngineSourcePlanKind
+  sourceBundle: SprintEngineSourceBundleItem[]
+  childLinks: Array<{ relativePath: string; priorStatus?: BacklogItem['status'] }>
+} | null> {
   if (!isBacklogEpicPath(sourceRelativePath)) return null
   try {
     const scanned = await scanBacklog(folderPath, {
@@ -365,10 +369,36 @@ async function buildEpicSourcePlanForAutomation(
       projectItems: scanned.items,
     })
     if (!plan || plan.sourcePlanKind !== 'epic') return null
-    return { sourcePlanKind: plan.sourcePlanKind, sourceBundle: plan.sourceBundle ?? [] }
+    return {
+      sourcePlanKind: plan.sourcePlanKind,
+      sourceBundle: plan.sourceBundle ?? [],
+      childLinks: bundleChildLinks(plan.sourceBundle ?? [], scanned.items),
+    }
   } catch {
     return null
   }
+}
+
+/**
+ * The pending child links a launch writes, from a source bundle: one per OPEN
+ * epic child (closed children are skipped at import by the engine's
+ * CLOSED_CHILD_STATUSES, so a link would sit `pending` forever). Shared by the
+ * single-epic and multi-selection paths so claim-time status propagation works
+ * identically from every entry point — the dialog writes the same links, and a
+ * link that was never written is never reconciled (MC-2077 review).
+ */
+function bundleChildLinks(
+  bundle: SprintEngineSourceBundleItem[],
+  scannedItems: ReadonlyArray<BacklogItem>
+): Array<{ relativePath: string; priorStatus?: BacklogItem['status'] }> {
+  const byPath = new Map(scannedItems.map((item) => [item.relativePath, item]))
+  return bundle
+    .filter((entry) => entry.epicChild)
+    .map((entry) => ({
+      relativePath: entry.sourceRelativePath,
+      priorStatus: byPath.get(entry.sourceRelativePath)?.status,
+    }))
+    .filter((child) => child.priorStatus === undefined || !CLOSED_EPIC_CHILD_STATUSES.has(child.priorStatus))
 }
 
 /**
@@ -416,12 +446,7 @@ async function buildSelectionSourcePlanForAutomation(
   if (!plan) {
     return { ok: false, code: 'sprint_invalid_source', message: 'The selection did not resolve to a launchable source plan.' }
   }
-  const childLinks = (plan.sourceBundle ?? [])
-    .filter((entry) => entry.epicChild)
-    .map((entry) => ({
-      relativePath: entry.sourceRelativePath,
-      priorStatus: byPath.get(entry.sourceRelativePath)?.status,
-    }))
+  const childLinks = bundleChildLinks(plan.sourceBundle ?? [], scanned.items)
   return { ok: true, plan, childLinks }
 }
 
@@ -480,9 +505,20 @@ async function createPlanSourcedSprint(
   // Without it `inferSourcePlanKind` calls an epic `unknown`, so an
   // automation- or Horizon-started epic never reached the epic intake at all —
   // neither the direct import nor the planner's sequencing directive.
+  const epicSource = selection?.ok
+    ? null
+    : await buildEpicSourcePlanForAutomation(request.folderPath, normalizedSourcePath)
   const epicPlan = selection?.ok
     ? { sourcePlanKind: selection.plan.sourcePlanKind, sourceBundle: selection.plan.sourceBundle ?? [] }
-    : await buildEpicSourcePlanForAutomation(request.folderPath, normalizedSourcePath)
+    : epicSource
+      ? { sourcePlanKind: epicSource.sourcePlanKind, sourceBundle: epicSource.sourceBundle }
+      : null
+  // Pending child links are written for EVERY launch path that carries epic
+  // children — single-epic (automation chaining, Horizon, MCP sourceRef) and
+  // multi-selection alike. Without the link, claim → in_progress and land →
+  // completed never fire: propagation only reconciles links that already
+  // exist on the item (integration review, 2026-08-05).
+  const pendingChildLinks = selection?.ok ? selection.childLinks : epicSource?.childLinks ?? []
 
   // The derived name is deterministic (config sprint name, else the item's
   // basename), and a team dir with that slug may already exist — a prior wizard
@@ -570,10 +606,10 @@ async function createPlanSourcedSprint(
         // here as selection anchors).
         ...(isBacklogEpicPath(normalizedSourcePath) ? {} : { status: 'in_progress' as const }),
       })
-      // Every epic child in a selection bundle gets the pending child link the
-      // dialog writes, so claim-time status propagation has a link to flip.
-      if (selection?.ok) {
-        for (const child of selection.childLinks) {
+      // Every epic child in the bundle gets the pending child link the dialog
+      // writes, so claim-time status propagation has a link to flip.
+      {
+        for (const child of pendingChildLinks) {
           await window.api.addOrUpdateBacklogLink({
             workspaceRoot: request.folderPath,
             relativePath: child.relativePath,

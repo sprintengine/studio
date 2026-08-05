@@ -188,10 +188,17 @@ export function Tooltip({
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close()
+      if (event.key === 'Escape') {
+        // The topmost-surface contract: an open tooltip is the topmost
+        // transient (z 80, above modal 70), so its Escape dismisses IT and
+        // marks the event; the host dialog's `defaultPrevented` guard then
+        // yields. On `document` so this runs before any window listener.
+        event.preventDefault()
+        close()
+      }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
   }, [open, close])
 
   useEffect(() => clearTimer, [clearTimer])

@@ -1423,7 +1423,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         },
         startRunner: { type: 'boolean', description: 'Start the auto-runner (launches the architect). Default false.' },
         autoApproveArtifacts: { type: 'boolean', description: 'Auto-approve run artifacts (only with startRunner).' },
-        useWorktrees: { type: 'boolean', description: 'Isolate task work in per-task git worktrees.' },
+        useWorktrees: {
+          type: 'boolean',
+          description:
+            'Run the sprint in ONE shared git worktree (a per-run isolated checkout on its own branch), '
+            + 'keeping agents out of the main working tree. Default false. Per-TASK isolation is a separate '
+            + 'engine capability (MC-2130) not yet reachable from this tool — see MC-2136.',
+        },
         intake: {
           type: 'string',
           enum: ['direct', 'planned'],
@@ -1431,7 +1437,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             'How the run gets its task graph. "direct" imports it from the source epic\'s child items at '
             + 'creation — one task per open child, ordered by the items\' own dependsOn, with no planning agent '
             + 'and no plan-approval gate. "planned" runs a planning agent behind the plan gate. Omit to take the '
-            + 'default for the source: direct for an epic, planned for everything else.',
+            + 'default for the source: direct for an epic, planned for everything else. "direct" only exists for '
+            + 'a single-epic source — on any other source shape (a selection, a goal) the engine DOWNGRADES it '
+            + 'to planned and records a warning on the run, since there is no authored order to import.',
         },
       },
       required: ['folderPath'],
@@ -1471,7 +1479,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // `goal` is only derivable from the item heading on the plan-sourced path;
       // a goal-only run has nothing else to plan against.
       if (!sourceRef && !sourceRefs && !goal.trim()) {
-        return failure('invalid_arguments', '"goal" is required when "sourceRef" is not provided.')
+        return failure('invalid_arguments', '"goal" is required when neither "sourceRef" nor "sourceRefs" is provided.')
       }
       for (const key of ['startRunner', 'autoApproveArtifacts', 'useWorktrees']) {
         if (args[key] !== undefined && typeof args[key] !== 'boolean') {

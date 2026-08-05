@@ -41,7 +41,7 @@ COORDINATION_MARKERS = (
     "# SprintEngine Coordination Rules",
     "You Own Your Task From Claim To Done",
     "sprintengine.task.publish",
-    "# Owned Paths",
+    "# Commit Scope",
     "Escalate Only What You Must Not Invent",
 )
 

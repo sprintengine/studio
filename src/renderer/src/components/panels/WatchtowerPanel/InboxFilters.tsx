@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { BackGlyph, CheckboxGlyph, ChevronGlyph, CrossGlyph, FilterGlyph, RadioGlyph } from './glyphs'
 import { FOCUS_RING_CLASS, GhostButton, InboxSearchInput, Popover, Tooltip } from '../../ui'
+import { MENU_ITEM_CLASS } from '../../ui/menuClasses'
 import { WATCHTOWER_REVIEW_SECTORS, getWatchtowerReviewSector } from '../../../utils/watchtowerReview'
 import { EMPTY_INBOX_FILTERS, INBOX_CREATED_RANGES, getInboxCreatedRange, hasActiveInboxFilters, type InboxCreatedRangeId, type InboxFilters } from '../../../utils/watchtower'
 import type { WatchtowerReviewSectorId } from '../../../types/workspace'
@@ -208,10 +209,12 @@ function FilterRootMenu({
           role="menuitem"
           onClick={onPickSectors}
           disabled={!hasSectors}
+          // The shared menu row (MC-2103) — a verbatim re-type of its content
+          // drifts the moment the canon moves (ripple review, 2026-08-05).
           className={[
-            'flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left',
-            'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-            'disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent',
+            MENU_ITEM_CLASS,
+            'justify-between',
+            'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]',
           ].join(' ')}
         >
           <span>Review type</span>
@@ -223,7 +226,7 @@ function FilterRootMenu({
           type="button"
           role="menuitem"
           onClick={onPickCreated}
-          className="flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          className={`${MENU_ITEM_CLASS} justify-between text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
         >
           <span>Created</span>
           <ChevronGlyph />
@@ -260,7 +263,7 @@ function SectorPicker({
                 role="menuitemcheckbox"
                 aria-checked={checked}
                 onClick={() => onToggle(sector.id)}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
               >
                 <CheckboxGlyph checked={checked} />
                 <span className="min-w-0 flex-1 truncate">{sector.label}</span>
@@ -309,7 +312,7 @@ function CreatedPicker({
                 role="menuitemradio"
                 aria-checked={active}
                 onClick={() => onChange(range.id)}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
               >
                 <RadioGlyph active={active} />
                 <span className="min-w-0 flex-1 truncate">{range.label}</span>

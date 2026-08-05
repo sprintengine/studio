@@ -58,6 +58,9 @@ export default function MemoryPreviewPane({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
+      // A transient surface (menu, popover) that already handled Escape marks
+      // the event — the pane must not also close (the topmost-surface rule).
+      if (event.defaultPrevented) return
       const target = event.target
       if (target instanceof HTMLElement) {
         const tag = target.tagName
