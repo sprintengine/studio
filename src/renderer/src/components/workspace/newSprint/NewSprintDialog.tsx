@@ -607,11 +607,17 @@ export default function NewSprintDialog({
   const backButtonRef = useRef<HTMLButtonElement | null>(null)
   const prevScreenRef = useRef<'sprint' | 'roster'>('sprint')
 
-  // Focus in on open and back to the opener on close is `Modal`'s contract, not
-  // this file's, now that the shell IS a Modal (MC-2110). `dialogRef` survives
-  // for the SCREEN swap below: `openerRef` is the screen-level opener (screen 2
-  // → back to the roster control), and this is where focus lands when that
-  // opener has unmounted.
+  // Restoring focus to the opener on close is `Modal`'s contract now that the
+  // shell IS a Modal (MC-2110). Landing it is still this file's, and has to be:
+  // the region below carries `onKeyDown` for Enter-to-start, and a keydown on
+  // the shell ABOVE it never reaches a child handler. Focusing the region rather
+  // than the shell is also what makes `Modal` skip its own initial focus — it
+  // yields to a descendant that already has it. `openerRef` further down is the
+  // SCREEN-level opener (screen 2 → back to the roster control); this is where
+  // focus lands when that opener has unmounted.
+  useEffect(() => {
+    dialogRef.current?.focus()
+  }, [])
 
   const openRosterScreen = useCallback(() => {
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null

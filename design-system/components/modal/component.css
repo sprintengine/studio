@@ -6,9 +6,9 @@
  * above the buttons would cut a small surface into three boxed strips and buy
  * nothing.
  *
- * Token canon over shipped literals (see Known drift in component.md):
- * z.modal not z-50, shadow.modal not shadowless, radius.shell not 8px,
- * space.3xl inset not 20px — MC-2109 / MC-2110. */
+ * Token canon over shipped literals: z.modal not z-50, shadow.modal not
+ * shadowless, radius.shell not 8px, space.3xl inset not 20px. All four are
+ * now what the product ships too — MC-2109 / MC-2110 closed them. */
 
 /* The scrim owns the layer, the centring, and the breathing room the shell
  * keeps from the viewport edge. A plain translucent layer — never
@@ -28,8 +28,12 @@
 
 .ds-modal {
   box-sizing: border-box;
-  /* Content measures, not tokens: wide enough for a two-column form, narrow
-   * enough that the eye crosses it. Capped so no window is ever too small. */
+  /* Content measures, not tokens — but a SCALE of them, not a number per
+   * dialog: confirm 460 / standard 560 / palette 600 / wide 720 / workbench
+   * 1040, spelled out in component.md and shipped as OVERLAY_WIDTH_PX
+   * (src/renderer/src/components/ui/tokens.ts). This is `standard`: wide enough
+   * for a two-column form, narrow enough that the eye crosses it. Capped so no
+   * window is ever too small. */
   width: 560px;
   max-width: 95vw;
   /* The SHELL scrolls, as one piece — which is why no internal rule was ever
@@ -57,6 +61,20 @@
  * should read in one line. */
 .ds-modal--confirm {
   width: 460px;
+}
+
+/* The workbench variant: panes, a rail, a flow the person works INSIDE rather
+ * than answers. It gives up the shell's own scroll — its interior panes scroll
+ * instead — for a fixed height, so two workbenches opened in a row are the same
+ * box. Everything else, radius and elevation included, is unchanged: a wide
+ * surface is not a different kind of surface. */
+.ds-modal--workbench {
+  width: 1040px;
+  height: min(760px, 85vh);
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .ds-modal-header {

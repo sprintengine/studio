@@ -2253,9 +2253,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * above the buttons would cut a small surface into three boxed strips and buy
  * nothing.
  *
- * Token canon over shipped literals (see Known drift in component.md):
- * z.modal not z-50, shadow.modal not shadowless, radius.shell not 8px,
- * space.3xl inset not 20px — MC-2109 / MC-2110. */
+ * Token canon over shipped literals: z.modal not z-50, shadow.modal not
+ * shadowless, radius.shell not 8px, space.3xl inset not 20px. All four are
+ * now what the product ships too — MC-2109 / MC-2110 closed them. */
 
 /* The scrim owns the layer, the centring, and the breathing room the shell
  * keeps from the viewport edge. A plain translucent layer — never
@@ -2275,8 +2275,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 
 .ds-modal {
   box-sizing: border-box;
-  /* Content measures, not tokens: wide enough for a two-column form, narrow
-   * enough that the eye crosses it. Capped so no window is ever too small. */
+  /* Content measures, not tokens — but a SCALE of them, not a number per
+   * dialog: confirm 460 / standard 560 / palette 600 / wide 720 / workbench
+   * 1040, spelled out in component.md and shipped as OVERLAY_WIDTH_PX
+   * (src/renderer/src/components/ui/tokens.ts). This is `standard`: wide enough
+   * for a two-column form, narrow enough that the eye crosses it. Capped so no
+   * window is ever too small. */
   width: 560px;
   max-width: 95vw;
   /* The SHELL scrolls, as one piece — which is why no internal rule was ever
@@ -2304,6 +2308,20 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * should read in one line. */
 .ds-modal--confirm {
   width: 460px;
+}
+
+/* The workbench variant: panes, a rail, a flow the person works INSIDE rather
+ * than answers. It gives up the shell's own scroll — its interior panes scroll
+ * instead — for a fixed height, so two workbenches opened in a row are the same
+ * box. Everything else, radius and elevation included, is unchanged: a wide
+ * surface is not a different kind of surface. */
+.ds-modal--workbench {
+  width: 1040px;
+  height: min(760px, 85vh);
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .ds-modal-header {
@@ -12801,9 +12819,15 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <h4>Anatomy</h4>
 <p>| Part | Class | Required | |---|---|---| | Scrim | <code>.ds-modal-scrim</code> | yes — <code>overlay.scrim</code> at <code>z.modal</code>, centring the shell; a pointer-down on it closes | | Shell | <code>.ds-modal</code> | yes — <code>role=&quot;dialog&quot;</code>, <code>aria-modal=&quot;true&quot;</code>, <code>aria-labelledby</code> the title, <code>tabindex=&quot;-1&quot;</code> | | Header | <code>.ds-modal-header</code> | yes — title <code>.ds-modal-title</code>, optional subtitle <code>.ds-modal-subtitle</code>, optional close button | | Body | <code>.ds-modal-body</code> | no — a confirm with a self-explaining title needs none | | Footer | <code>.ds-modal-footer</code> | yes — the actions, right-aligned, built from <code>ds-button</code> |</p>
 <p><strong>Header, content, actions — separated by space.</strong> No rule under the title and none above the buttons: the shell already draws its own edge, and it scrolls as one piece (<code>max-height</code> on the shell, not on the body), so neither rule would even be a scroll affordance. A divided dialog is on the reject-on-sight list.</p>
-<p>The shell sits on <code>bg.surface</code> — not <code>bg.surface-raised</code> — because the scrim and <code>shadow.modal</code> already do the separating; a tone step on top would be a third signal for the same fact. Width is a content measure, not a token: <code>560px</code> default, <code>460px</code> for the confirm variant, both capped at <code>95vw</code>.</p>
+<p>The shell sits on <code>bg.surface</code> — not <code>bg.surface-raised</code> — because the scrim and <code>shadow.modal</code> already do the separating; a tone step on top would be a third signal for the same fact.</p>
+<h4>Geometry</h4>
+<p>Every floating surface in the product draws from one scale. Shape and elevation are tokens; width is a content measure, and therefore a <strong>named scale</strong> rather than a token — a width is chosen for the content it holds, not composed against by other surfaces.</p>
+<p>| Axis | Value | |---|---| | Radius | <code>radius.shell</code> (9px) for a dialog-scale shell; <code>radius.overlay</code> (7px) for the popover family — anchored menus, flyouts, floating cards. Nothing between the two steps. | | Border | <code>color.border.subtle</code>, 1px | | Elevation | <code>shadow.modal</code> for a shell, <code>shadow.popover</code> for the popover family, <code>shadow.drawer</code> for an edge-docked drawer. Every one of them per-theme; a shell is never shadowless. | | Inset | <code>space.3xl</code> (24px), the step the token's own metadata names as the modal inset |</p>
+<p>The width scale, capped at <code>95vw</code> throughout:</p>
+<p>| Step | Width | For | |---|---|---| | <code>confirm</code> | 460px | A question with two buttons — it should read in one line | | <code>standard</code> | 560px | The default: a short form, a list of options, a prompt | | <code>palette</code> | 600px | The command palette: a query over a long result list | | <code>wide</code> | 720px | A form needing two columns, or a list beside an editor | | <code>workbench</code> | 1040px | Panes, a rail, a flow the person works inside |</p>
+<p>A dialog that wants a sixth width wants one of these five and a shorter sentence. The shipped scale is <code>OVERLAY_WIDTH_PX</code> in <code>src/renderer/src/components/ui/tokens.ts</code>, beside <code>OVERLAY_SHELL_CLASS</code> — the shell chrome above, spelled once — and <code>Modal</code> takes a step by name, never a pixel count.</p>
 <h4>Variants</h4>
-<ul><li><code>.ds-modal--confirm</code> — the two-button question, <code>460px</code>. Title, optional one or two sentences of body, then exactly <strong>cancel</strong> (<code>ds-button--ghost</code>) and <strong>confirm</strong> (<code>ds-button--primary</code>). The confirm button takes initial focus: Enter answers the question the dialog asked.</li><li><strong>Danger tone</strong> — a destructive confirm swaps the confirm fill to <code>status.danger</code> with <code>text.on-accent</code> ink (the swap <code>button/component.md</code> already prescribes). The scrim, shell, and title do not turn red: the tone lives on the one control that does the damage.</li><li><strong>Pending</strong> — while the confirmed action runs: both buttons disabled, the confirm label swapped for its pending form (&quot;Deleting…&quot;), and every close path (Escape, scrim, close button) suppressed, because half-done destruction is worse than a short wait.</li></ul>
+<ul><li><code>.ds-modal--workbench</code> — the widest step, <code>1040px</code>, and the one variant that changes the shell's own behaviour: it takes a fixed height and lets its interior panes scroll instead of scrolling as one piece. Everything else — radius, border, elevation — is unchanged, because a wide surface is not a different kind of surface.</li><li><code>.ds-modal--confirm</code> — the two-button question, <code>460px</code>. Title, optional one or two sentences of body, then exactly <strong>cancel</strong> (<code>ds-button--ghost</code>) and <strong>confirm</strong> (<code>ds-button--primary</code>). The confirm button takes initial focus: Enter answers the question the dialog asked.</li><li><strong>Danger tone</strong> — a destructive confirm swaps the confirm fill to <code>status.danger</code> with <code>text.on-accent</code> ink (the swap <code>button/component.md</code> already prescribes). The scrim, shell, and title do not turn red: the tone lives on the one control that does the damage.</li><li><strong>Pending</strong> — while the confirmed action runs: both buttons disabled, the confirm label swapped for its pending form (&quot;Deleting…&quot;), and every close path (Escape, scrim, close button) suppressed, because half-done destruction is worse than a short wait.</li></ul>
 <p>A prompt (one text field under the title) is a confirm with an input: the dialog title names what is being asked for, so the field carries <strong>no visible label</strong> — its accessible name repeats the ask for screen readers — and an empty required field shows no error; the disabled confirm button already says &quot;not yet&quot;. Validation appears after the first keystroke, never before.</p>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Closed | Not in the document | | Open | Scrim plus shell, immediately — a modal has <strong>no entrance animation</strong>: the three sanctioned motions are the switch thumb, hover/press, and a popover's entrance, and an interruption should not also perform one | | Scrolled | The shell scrolls as one piece at <code>max-height: 92vh</code>; header and footer scroll with it | | Pending (confirm) | Actions disabled, close paths suppressed |</p>
@@ -12818,7 +12842,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <h4>Shipped implementation</h4>
 <p><code>src/renderer/src/components/ui/Modal.tsx</code>, with <code>ConfirmDialog.tsx</code> as the <code>--confirm</code> variant above: its <code>title</code> / <code>body</code> / <code>confirmLabel</code> / <code>cancelLabel</code> / <code>pendingLabel</code> / <code>tone</code> / <code>pending</code> options are this entry's confirm and prompt specs, and <code>ConfirmDialogProvider</code> + <code>useConfirmDialog()</code> are how a caller asks the question without mounting a dialog of its own.</p>
 <h4>Known drift</h4>
-<ul><li>~~<code>Modal.tsx</code> ships <code>z-50</code> against the token ladder's 70.~~ <strong>Resolved 2026-08-05 (MC-2119):</strong> the token ladder is canonical and <code>Modal</code> consumes <code>--z-modal</code>. It mattered more than it looked — at 50 the modal sat a tier *below* the menu layer at 60, so a context menu opened over a dialog painted on top of it.</li><li><code>Modal.tsx</code> ships <strong>no focus trap</strong>: focus moves into the shell but Tab walks out into the scrimmed page behind it. The trap specified above is the contract; the gap is <strong>MC-2109</strong>.</li><li><code>Modal.tsx</code> ships shadowless (vs <code>--sem-shadow-modal</code>), <code>rounded-[8px]</code> (a radius on no ramp step, vs <code>radius.shell</code> 9px), and a 20px inset (vs <code>space.3xl</code> 24px, which the token's own metadata names as the modal inset). All <strong>MC-2110</strong>.</li></ul>
+<ul><li>~~<code>Modal.tsx</code> ships <code>z-50</code> against the token ladder's 70.~~ <strong>Resolved 2026-08-05 (MC-2119):</strong> the token ladder is canonical and <code>Modal</code> consumes <code>--z-modal</code>. It mattered more than it looked — at 50 the modal sat a tier *below* the menu layer at 60, so a context menu opened over a dialog painted on top of it.</li><li>~~<code>Modal.tsx</code> ships <strong>no focus trap</strong>.~~ <strong>Resolved (MC-2109):</strong> every <code>aria-modal</code> shell in the renderer wraps its dialog in the shared <code>FocusTrap</code>, sentinels either side, as specified above.</li><li>~~<code>Modal.tsx</code> ships shadowless, <code>rounded-[8px]</code>, and a 20px inset.~~ <strong>Resolved 2026-08-05 (MC-2110):</strong> the shell casts <code>shadow.modal</code>, rounds at <code>radius.shell</code>, and insets at <code>space.3xl</code>. The same change put every other floating surface on the geometry above — the Command Palette, the New sprint dialog, the roster manager and the diagnostics overlay had each grown a private width, radius, border and shadow, and three of the four were shells re-implementing this one rather than consuming it. Worth recording is what the item asked for and did not get: it proposed <code>radius.overlay</code> (7px) as the single radius for every overlay, which would have left <code>radius.shell</code> consumed by nothing and contradicted this entry. The ramp's two steps split by surface class instead, exactly as the elevation ramp does.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/modal/component.css</summary><pre><code>/* Modal — the one surface allowed to stop the page. Extracted from the source
@@ -12829,9 +12853,9 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
  * above the buttons would cut a small surface into three boxed strips and buy
  * nothing.
  *
- * Token canon over shipped literals (see Known drift in component.md):
- * z.modal not z-50, shadow.modal not shadowless, radius.shell not 8px,
- * space.3xl inset not 20px — MC-2109 / MC-2110. */
+ * Token canon over shipped literals: z.modal not z-50, shadow.modal not
+ * shadowless, radius.shell not 8px, space.3xl inset not 20px. All four are
+ * now what the product ships too — MC-2109 / MC-2110 closed them. */
 
 /* The scrim owns the layer, the centring, and the breathing room the shell
  * keeps from the viewport edge. A plain translucent layer — never
@@ -12851,8 +12875,12 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 
 .ds-modal {
   box-sizing: border-box;
-  /* Content measures, not tokens: wide enough for a two-column form, narrow
-   * enough that the eye crosses it. Capped so no window is ever too small. */
+  /* Content measures, not tokens — but a SCALE of them, not a number per
+   * dialog: confirm 460 / standard 560 / palette 600 / wide 720 / workbench
+   * 1040, spelled out in component.md and shipped as OVERLAY_WIDTH_PX
+   * (src/renderer/src/components/ui/tokens.ts). This is `standard`: wide enough
+   * for a two-column form, narrow enough that the eye crosses it. Capped so no
+   * window is ever too small. */
   width: 560px;
   max-width: 95vw;
   /* The SHELL scrolls, as one piece — which is why no internal rule was ever
@@ -12880,6 +12908,20 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
  * should read in one line. */
 .ds-modal--confirm {
   width: 460px;
+}
+
+/* The workbench variant: panes, a rail, a flow the person works INSIDE rather
+ * than answers. It gives up the shell's own scroll — its interior panes scroll
+ * instead — for a fixed height, so two workbenches opened in a row are the same
+ * box. Everything else, radius and elevation included, is unchanged: a wide
+ * surface is not a different kind of surface. */
+.ds-modal--workbench {
+  width: 1040px;
+  height: min(760px, 85vh);
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .ds-modal-header {

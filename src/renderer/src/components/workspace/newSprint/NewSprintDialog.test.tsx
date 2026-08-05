@@ -697,6 +697,54 @@ async function main(): Promise<void> {
     }
   })
 
+  await check('MC-2110 the shell is a Modal, and Enter still starts from where focus opens', async () => {
+    // The dialog gave up its hand-built shell for `Modal` (scrim, trap, Escape,
+    // focus restore, geometry). The seam that creates: Modal lands initial focus
+    // on the SHELL, and a keydown there never reaches the region below it that
+    // carries Enter-to-start — so the dialog has to land focus itself, on that
+    // region. Asserted as the two facts that break together: where focus opens,
+    // and that Enter from there starts the sprint.
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    let initCalls = 0
+    apiRecord.initializeSprintEngineState = async () => {
+      initCalls += 1
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      const doc = dom.window.document
+      const shell = doc.querySelector('[role="dialog"][aria-modal="true"]')
+      assert.ok(shell, 'the shell is the kit Modal, declaring itself the modal dialog')
+      const active = doc.activeElement as HTMLElement | null
+      assert.ok(active && shell.contains(active), 'focus opens inside the dialog')
+      assert.notEqual(
+        active,
+        shell,
+        'and on the keydown region, not the shell above it — an Enter on the shell reaches no child handler',
+      )
+
+      await act(async () => {
+        active?.dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+        )
+      })
+      await flush()
+      assert.equal(initCalls, 1, 'Enter from the opening focus starts the sprint')
+
+      // The scrim is the primitive's, so click-outside closes — the one thing
+      // this dialog never had while it carried a shell of its own.
+      assert.ok(
+        container.querySelector('.overlay-scrim'),
+        'the shell brings the shared scrim, and with it a pointer-down way out',
+      )
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
   await check('Start sprint seeds engine init with planKind selection and the marked bundle', async () => {
     // The last hop of the context-action chain (T12): the dialog's Start must
     // hand the preloaded selection to engine init unchanged — planKind

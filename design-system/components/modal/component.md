@@ -29,11 +29,45 @@ even be a scroll affordance. A divided dialog is on the reject-on-sight list.
 
 The shell sits on `bg.surface` — not `bg.surface-raised` — because the scrim
 and `shadow.modal` already do the separating; a tone step on top would be a
-third signal for the same fact. Width is a content measure, not a token:
-`560px` default, `460px` for the confirm variant, both capped at `95vw`.
+third signal for the same fact.
+
+## Geometry
+
+Every floating surface in the product draws from one scale. Shape and
+elevation are tokens; width is a content measure, and therefore a **named
+scale** rather than a token — a width is chosen for the content it holds, not
+composed against by other surfaces.
+
+| Axis | Value |
+|---|---|
+| Radius | `radius.shell` (9px) for a dialog-scale shell; `radius.overlay` (7px) for the popover family — anchored menus, flyouts, floating cards. Nothing between the two steps. |
+| Border | `color.border.subtle`, 1px |
+| Elevation | `shadow.modal` for a shell, `shadow.popover` for the popover family, `shadow.drawer` for an edge-docked drawer. Every one of them per-theme; a shell is never shadowless. |
+| Inset | `space.3xl` (24px), the step the token's own metadata names as the modal inset |
+
+The width scale, capped at `95vw` throughout:
+
+| Step | Width | For |
+|---|---|---|
+| `confirm` | 460px | A question with two buttons — it should read in one line |
+| `standard` | 560px | The default: a short form, a list of options, a prompt |
+| `palette` | 600px | The command palette: a query over a long result list |
+| `wide` | 720px | A form needing two columns, or a list beside an editor |
+| `workbench` | 1040px | Panes, a rail, a flow the person works inside |
+
+A dialog that wants a sixth width wants one of these five and a shorter
+sentence. The shipped scale is `OVERLAY_WIDTH_PX` in
+`src/renderer/src/components/ui/tokens.ts`, beside `OVERLAY_SHELL_CLASS` — the
+shell chrome above, spelled once — and `Modal` takes a step by name, never a
+pixel count.
 
 ## Variants
 
+- `.ds-modal--workbench` — the widest step, `1040px`, and the one variant that
+  changes the shell's own behaviour: it takes a fixed height and lets its
+  interior panes scroll instead of scrolling as one piece. Everything else —
+  radius, border, elevation — is unchanged, because a wide surface is not a
+  different kind of surface.
 - `.ds-modal--confirm` — the two-button question, `460px`. Title, optional one
   or two sentences of body, then exactly **cancel** (`ds-button--ghost`) and
   **confirm** (`ds-button--primary`). The confirm button takes initial focus:
@@ -119,10 +153,17 @@ question without mounting a dialog of its own.
   `--z-modal`. It mattered more than it looked — at 50 the modal sat a tier
   *below* the menu layer at 60, so a context menu opened over a dialog painted
   on top of it.
-- `Modal.tsx` ships **no focus trap**: focus moves into the shell but Tab
-  walks out into the scrimmed page behind it. The trap specified above is the
-  contract; the gap is **MC-2109**.
-- `Modal.tsx` ships shadowless (vs `--sem-shadow-modal`), `rounded-[8px]` (a
-  radius on no ramp step, vs `radius.shell` 9px), and a 20px inset (vs
-  `space.3xl` 24px, which the token's own metadata names as the modal inset).
-  All **MC-2110**.
+- ~~`Modal.tsx` ships **no focus trap**.~~ **Resolved (MC-2109):** every
+  `aria-modal` shell in the renderer wraps its dialog in the shared
+  `FocusTrap`, sentinels either side, as specified above.
+- ~~`Modal.tsx` ships shadowless, `rounded-[8px]`, and a 20px inset.~~
+  **Resolved 2026-08-05 (MC-2110):** the shell casts `shadow.modal`, rounds at
+  `radius.shell`, and insets at `space.3xl`. The same change put every other
+  floating surface on the geometry above — the Command Palette, the New sprint
+  dialog, the roster manager and the diagnostics overlay had each grown a
+  private width, radius, border and shadow, and three of the four were shells
+  re-implementing this one rather than consuming it. Worth recording is what
+  the item asked for and did not get: it proposed `radius.overlay` (7px) as the
+  single radius for every overlay, which would have left `radius.shell`
+  consumed by nothing and contradicted this entry. The ramp's two steps split
+  by surface class instead, exactly as the elevation ramp does.
