@@ -2,6 +2,11 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
+import type {
+  AutomationRendererRequest,
+  AutomationRendererResponse,
+} from '../../../shared/automation'
+
 // useAutomationRequests — the RENDERER half of MCP `sprint.create` (MC-2139).
 //
 // The main-process half is covered by automation.test.ts (delegation,
@@ -9,7 +14,8 @@ import { JSDOM } from 'jsdom'
 // the delegation boundary — roster resolution, plan-sourced vs goal-sourced
 // routing, the selection scan, the anchor/child link writes, intake threading —
 // lived here with no test at all, and every defect the 2026-08-05 integration
-// review found was in exactly that half. This suite pins the four behaviors:
+// review found was in exactly that half. This suite pins the four behaviors the
+// item names, plus the roster default the launches ride on:
 //
 // 1. A single-epic launch writes the anchor link (no item status for an epic)
 //    plus one pending link per OPEN child; closed children get none.
@@ -35,22 +41,7 @@ const anyGlobal = globalThis as unknown as Record<string, unknown>
 anyGlobal.window = dom.window
 anyGlobal.document = dom.window.document
 anyGlobal.navigator = dom.window.navigator
-anyGlobal.HTMLElement = dom.window.HTMLElement
-anyGlobal.Node = dom.window.Node
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
-class ResizeObserverStub {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
-}
-anyGlobal.ResizeObserver = ResizeObserverStub
-;(dom.window as unknown as Record<string, unknown>).ResizeObserver = ResizeObserverStub
-dom.window.matchMedia = ((query: string) => ({
-  matches: false,
-  media: query,
-  addEventListener: () => {},
-  removeEventListener: () => {},
-})) as unknown as typeof dom.window.matchMedia
 
 // --- a tiny in-memory project the real scanBacklog walks --------------------
 //
@@ -117,8 +108,8 @@ const linkCalls: LinkCall[] = []
 // unreadable project directory does.
 let backlogReadFails = false
 
-let automationHandler: ((requestId: string, request: unknown) => void) | null = null
-const pendingResponses = new Map<string, (response: unknown) => void>()
+let automationHandler: ((requestId: string, request: AutomationRendererRequest) => void) | null = null
+const pendingResponses = new Map<string, (response: AutomationRendererResponse) => void>()
 
 ;(dom.window as unknown as { api: Record<string, unknown> }).api = {
   platform: 'darwin',
@@ -148,32 +139,29 @@ const pendingResponses = new Map<string, (response: unknown) => void>()
     linkCalls.push(input)
     return { ok: true }
   },
-  onAutomationRequest: (cb: (requestId: string, request: unknown) => void) => {
+  onAutomationRequest: (cb: (requestId: string, request: AutomationRendererRequest) => void) => {
     automationHandler = cb
     return () => {
       automationHandler = null
     }
   },
-  automationRespond: async (requestId: string, response: unknown) => {
+  automationRespond: async (requestId: string, response: AutomationRendererResponse) => {
     pendingResponses.get(requestId)?.(response)
     pendingResponses.delete(requestId)
   },
-  terminalKill: async () => {},
 }
 
-type SprintCreateRequest = {
-  kind: 'sprint.create'
-  folderPath: string
-  goal: string
-  name?: string
-  sourceRelativePath?: string
-  sourceRelativePaths?: string[]
-  intake?: 'direct' | 'planned'
+// The request goes in as the SHARED contract type, so a field renamed on the
+// automation surface breaks this suite at compile time rather than silently
+// exercising a shape nothing sends any more.
+type SprintCreateRequest = Extract<AutomationRendererRequest, { kind: 'sprint.create' }>
+type AutomationResponse = AutomationRendererResponse & {
+  code?: string
+  message?: string
+  workspaceId?: string
 }
-type AutomationResponse = { ok: boolean; code?: string; message?: string; workspaceId?: string }
 
 async function main(): Promise<void> {
-  const React = (await import('react')).default
   const { act } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const { useAutomationRequests } = await import('./useAutomationRequests')
@@ -237,7 +225,19 @@ async function main(): Promise<void> {
       pendingResponses.set(requestId, (response) => resolve(response as AutomationResponse))
     })
     automationHandler?.(requestId, request)
-    return settled
+    // A request that never answers is a failure, not a wait: the delegate's own
+    // ceiling is the 5s layout-model timeout, so anything past that is the hook
+    // dropping the response — which must fail the check rather than hang CI.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timedOut = new Promise<AutomationResponse>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`request ${requestId} never answered within 15s`)), 15_000)
+    })
+    try {
+      return await Promise.race([settled, timedOut])
+    } finally {
+      clearTimeout(timer)
+      pendingResponses.delete(requestId)
+    }
   }
 
   const startedRun = (): { teamSlug: string; runRelativePath: string } => {
@@ -440,6 +440,29 @@ async function main(): Promise<void> {
       true,
       'the engine downgrades an unsupported direct to planned, so the renderer must mirror it or the plan gate sits with nobody prompted',
     )
+  })
+
+  await check('an absent roster staffs no roles, and a named-but-missing one fails loudly', async () => {
+    // MC-1876's default flip: absent no longer resolves through the wizard's
+    // `lastSelectedRosterId`, so an externally-created run is deterministic and
+    // independent of whoever last opened the dialog.
+    const defaulted = await send({ kind: 'sprint.create', folderPath: ROOT, goal: '', sourceRelativePath: LOOSE_REF })
+    assert.equal(defaulted.ok, true, defaulted.message)
+    assert.deepEqual(initCalls[0].enabledRoles, [], 'absent means No roles, not the specialist defaults')
+
+    initCalls.length = 0
+    linkCalls.length = 0
+    const named = await send({
+      kind: 'sprint.create',
+      folderPath: ROOT,
+      goal: '',
+      sourceRelativePath: LOOSE_REF,
+      rosterName: 'no-such-saved-roster',
+    })
+    assert.equal(named.ok, false, 'silently falling back would staff a roster the caller never picked')
+    assert.equal(named.code, 'sprint_unknown_roster')
+    assert.equal(initCalls.length, 0, 'nothing was initialized')
+    assert.equal(linkCalls.length, 0, 'nothing was linked')
   })
 
   await check('a traversing or absolute ref fails as an invalid source', async () => {

@@ -27,6 +27,7 @@ export {
   buildSprintEnginePullRequestLink,
   buildSprintEngineRunLink,
   isSprintEngineChildRunLink,
+  runRelativePathForStatePath,
   sprintEnginePullRequestLinkId,
   sprintEnginePullRequestLinksOf,
   sprintEngineRepoDisplayName,

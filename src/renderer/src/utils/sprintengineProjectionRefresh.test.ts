@@ -1356,6 +1356,313 @@ async function testCanceledRunRestoresChildrenToTheirPreSprintStatus(): Promise<
   }
 }
 
+// ── MC-2140: a finished task writes its item's status ─────────────────────────
+//
+// The fan-out fixtures above all start from an EPIC LAUNCH, which writes a
+// `pending` child link onto every child up front. The sprints that left items
+// lying had no such link: their tasks were minted straight from selected items,
+// so the store below is the real, common shape — items carrying `backlogRef`
+// tasks and no link at all. Each test names the acceptance criterion it proves.
+
+const UNLINKED_PATHS = ['backlog/item-a.md', 'backlog/item-b.md']
+const RUN_TARGET = {
+  kind: 'sprintengine.run',
+  id: 'unified-refresh',
+  path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+}
+
+function unlinkedRunProjection(input: {
+  taskStatuses: string[]
+  itemPaths?: string[]
+  runStatus?: string
+  pullRequestState?: 'open' | 'merged'
+}): unknown {
+  const updatedAt = '2026-08-05T15:00:00Z'
+  const itemPaths = input.itemPaths ?? UNLINKED_PATHS
+  return {
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    generatedAt: updatedAt,
+    updatedAt,
+    run: {
+      id: 'unified-refresh',
+      name: 'Unified Refresh',
+      goal: 'Deliver the selected items',
+      status: input.runStatus ?? 'executing',
+      rosterConfigured: true,
+      updatedAt,
+      ...(input.pullRequestState
+        ? {
+          vcs: {
+            mode: 'run_worktree',
+            worktreePath: '/tmp/worktree',
+            branchName: 'sprint/unified-refresh',
+            lastCommitSha: 'abc123',
+            pullRequestUrl: 'https://example.test/pr/1',
+            pullRequestState: input.pullRequestState,
+          },
+        }
+        : {}),
+    },
+    roster: {},
+    tasks: input.taskStatuses.map((status, index) => ({
+      id: `T${index + 1}`,
+      title: `Deliver ${itemPaths[index]}`,
+      status,
+      folderStatus: status,
+      dependsOn: [],
+      activity: [],
+      backlogRef: { projectRelativePath: itemPaths[index] },
+    })),
+    artifacts: [],
+    activity: [],
+  }
+}
+
+// The store a non-epic run leaves behind: item records with no Sprint link on
+// them, exactly as `.multi-code/backlog/items.json` carries them (links only —
+// lifecycle lives in the item's frontmatter, so records carry no `status`).
+function unlinkedStore(input?: {
+  itemPaths?: string[]
+  links?: Record<string, BacklogItemLinkPayload[]>
+}): BacklogObjectStorePayload {
+  const itemPaths = input?.itemPaths ?? UNLINKED_PATHS
+  return {
+    schemaVersion: 1,
+    items: itemPaths.map((relativePath, index) => ({
+      id: `item-${index}`,
+      source: { type: 'file' as const, relativePath },
+      metadata: {},
+      links: input?.links?.[relativePath] ?? [],
+    })),
+  }
+}
+
+async function runUnlinkedRefresh(input: {
+  data: unknown
+  store: BacklogObjectStorePayload
+  workspace?: Workspace
+}): Promise<BacklogMutation[]> {
+  const backlogMutations: BacklogMutation[] = []
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: input.workspace ?? workspace(),
+    tokens: new Map(),
+    cause: 'supervisor',
+    force: true,
+    ports: portsFor({
+      data: input.data,
+      applied: [],
+      backlogMutations,
+      backlogStore: input.store,
+    }),
+  })
+  return backlogMutations
+}
+
+// Acceptance: a sprint whose tasks all reach `done` leaves zero backlog children
+// in a non-terminal status — with nobody writing a propagation commit by hand.
+async function testFinishedRunCompletesEveryUnlinkedItem(): Promise<void> {
+  const mutations = await runUnlinkedRefresh({
+    data: unlinkedRunProjection({ taskStatuses: ['done', 'done'], runStatus: 'complete' }),
+    store: unlinkedStore(),
+  })
+
+  assert.deepEqual(
+    mutations.map((mutation) => [mutation.relativePath, mutation.link.status, mutation.status]),
+    [
+      ['backlog/item-a.md', 'completed', 'completed'],
+      ['backlog/item-b.md', 'completed', 'completed'],
+    ],
+    'every item a finished task delivered is written completed, with no link to have found it by',
+  )
+  assert.deepEqual(
+    mutations.map((mutation) => mutation.link.target.taskId),
+    ['T1', 'T2'],
+    'each item is bound to the task whose backlogRef names it',
+  )
+  // The write goes through the link mutation port — the app-owned path that
+  // stamps `updated:` into the item's frontmatter and owns items.json. Nothing
+  // here composes a file write of its own.
+  for (const mutation of mutations) {
+    assert.equal(mutation.link.target.path, RUN_TARGET.path, 'the link points at the project-relative run.yaml')
+    assert.equal(mutation.workspaceRoot, '/tmp/workspace')
+  }
+
+  // Re-running against the store those writes produced is a no-op: the stored
+  // link is the ledger of what was already propagated.
+  const settled = unlinkedStore({
+    links: {
+      'backlog/item-a.md': [mutations[0].link],
+      'backlog/item-b.md': [mutations[1].link],
+    },
+  })
+  const rerun = await runUnlinkedRefresh({
+    data: unlinkedRunProjection({ taskStatuses: ['done', 'done'], runStatus: 'complete' }),
+    store: settled,
+  })
+  assert.deepEqual(rerun, [], 'a settled run writes nothing on the next tick')
+}
+
+// Acceptance: an item moves on its OWN task, not on the run — so a sprint in
+// flight never marks work that has not started.
+async function testUnlinkedItemMovesOnlyOnItsOwnTask(): Promise<void> {
+  const mutations = await runUnlinkedRefresh({
+    data: unlinkedRunProjection({ taskStatuses: ['in_progress', 'todo'] }),
+    store: unlinkedStore(),
+  })
+
+  assert.deepEqual(
+    mutations.map((mutation) => [mutation.relativePath, mutation.link.status, mutation.status]),
+    [['backlog/item-a.md', 'active', 'in_progress']],
+    'only the claimed task writes; the unstarted one leaves its item untouched and unlinked',
+  )
+}
+
+// Acceptance: a task ending `canceled` or `needs_input` provably does not flip
+// its item. Neither is a finish, so neither may write `completed`.
+async function testCanceledAndNeedsInputTasksNeverCompleteTheirItems(): Promise<void> {
+  const mutations = await runUnlinkedRefresh({
+    data: unlinkedRunProjection({ taskStatuses: ['needs_input', 'canceled'] }),
+    store: unlinkedStore(),
+  })
+
+  assert.deepEqual(
+    mutations.map((mutation) => [mutation.relativePath, mutation.link.status, mutation.status]),
+    [
+      // A blocked task is still work in flight, so its item reads in_progress.
+      ['backlog/item-a.md', 'active', 'in_progress'],
+      // A canceled task's item is left exactly as the person left it: the sweep
+      // found no link, so there is no recorded pre-sprint status to restore to,
+      // and inventing one would write a status the item never held.
+      ['backlog/item-b.md', 'canceled', undefined],
+    ],
+    'neither a blocked nor a canceled task completes its item',
+  )
+  assert.equal(
+    mutations.some((mutation) => mutation.status === 'completed'),
+    false,
+    'nothing short of a finished task ever writes completed',
+  )
+}
+
+// Acceptance: replay the interaction-canon shape — a propagation pass runs while
+// one task is still in flight, and that task finishes afterwards. The item must
+// end `completed`, not frozen at the `in_progress` the earlier pass saw.
+//
+// Two things conspired there and both are exercised: the first pass wrote from a
+// mid-run snapshot, and the tick that read the FINAL state arrived after the
+// lifecycle had already flipped to `complete` (the auto-run supervisor wins that
+// race), so it was dormant and used to be display-only.
+async function testLateFinishingTaskStillCompletesItsItem(): Promise<void> {
+  const midRun = await runUnlinkedRefresh({
+    data: unlinkedRunProjection({ taskStatuses: ['done', 'in_progress'] }),
+    store: unlinkedStore(),
+  })
+  assert.deepEqual(
+    midRun.map((mutation) => [mutation.relativePath, mutation.status]),
+    [['backlog/item-a.md', 'in_progress'], ['backlog/item-b.md', 'in_progress']],
+    'mid-run, a done task on an unfinished run leaves its item in flight',
+  )
+
+  const dormant = {
+    ...workspace(),
+    sprintEngineAutoState: autoState('complete', 500),
+  } as unknown as Workspace
+  const settled = await runUnlinkedRefresh({
+    workspace: dormant,
+    data: unlinkedRunProjection({ taskStatuses: ['done', 'done'], runStatus: 'complete' }),
+    store: unlinkedStore({
+      links: {
+        'backlog/item-a.md': [midRun[0].link],
+        'backlog/item-b.md': [midRun[1].link],
+      },
+    }),
+  })
+
+  assert.deepEqual(
+    settled.map((mutation) => [mutation.relativePath, mutation.link.status, mutation.status]),
+    [
+      ['backlog/item-a.md', 'completed', 'completed'],
+      ['backlog/item-b.md', 'completed', 'completed'],
+    ],
+    'the late finish converges both items, even though the lifecycle went dormant first',
+  )
+}
+
+// Acceptance: no epic file is written by the propagation path. An epic derives
+// its completion from the full child scan, and a lagging file must never win.
+async function testPropagationNeverWritesAnEpicFile(): Promise<void> {
+  const epicPath = 'backlog/epics/delivery.md'
+  const mutations = await runUnlinkedRefresh({
+    data: unlinkedRunProjection({
+      taskStatuses: ['done'],
+      itemPaths: [epicPath],
+      runStatus: 'complete',
+    }),
+    store: unlinkedStore({ itemPaths: [epicPath] }),
+  })
+
+  assert.deepEqual(
+    mutations.map((mutation) => [mutation.relativePath, mutation.link.status, mutation.status]),
+    [[epicPath, 'completed', undefined]],
+    'an epic gets its chip refreshed and never a status',
+  )
+}
+
+// The item that LAUNCHED the run keeps its run-level link: its task may well
+// carry a backlogRef back to it, and the sweep must not promote that link into a
+// per-task one behind the run-level arm's back (nor write the item twice).
+async function testLaunchingItemKeepsItsRunLevelLink(): Promise<void> {
+  const mutations = await runUnlinkedRefresh({
+    data: unlinkedRunProjection({
+      taskStatuses: ['done'],
+      itemPaths: ['backlog/item-a.md'],
+      runStatus: 'complete',
+    }),
+    store: unlinkedStore({
+      itemPaths: ['backlog/item-a.md'],
+      links: {
+        'backlog/item-a.md': [{
+          id: 'sprint-engine:unified-refresh',
+          moduleId: 'sprint-engine',
+          type: 'execution',
+          label: 'Sprint',
+          target: RUN_TARGET,
+          status: 'active',
+        }],
+      },
+    }),
+  })
+
+  assert.equal(mutations.length, 1, 'the launching item is reconciled once, by the run-level arm')
+  assert.equal(mutations[0].link.status, 'completed')
+  assert.equal(mutations[0].status, 'completed')
+  assert.equal(
+    mutations[0].link.target.taskId,
+    undefined,
+    'the run-level link tracks the whole run and is never bound to one task',
+  )
+}
+
+// A sibling project's `backlogRef` is relative to ITS root while this store is
+// the workspace's own — the two can spell the same path. That project's items
+// are written from its own workspace, never from here.
+async function testSiblingProjectItemsAreLeftToTheirOwnWorkspace(): Promise<void> {
+  const data = unlinkedRunProjection({
+    taskStatuses: ['done', 'done'],
+    runStatus: 'complete',
+  }) as { tasks: { repo?: string }[] }
+  data.tasks[1].repo = 'design-system'
+
+  const mutations = await runUnlinkedRefresh({ data, store: unlinkedStore() })
+  assert.deepEqual(
+    mutations.map((mutation) => mutation.relativePath),
+    ['backlog/item-a.md'],
+    'only the primary project’s item is written from this workspace',
+  )
+}
+
 function testCanStopPollingCompletedProjection(): void {
   const state = completedWorkspace('complete').sprintEngineState!
   // Terminal + hydrated + completion teardown already ran → safe to stop polling.
@@ -1531,5 +1838,12 @@ await testChildMovesOnlyWhenItsOwnTaskClaims()
 await testCompletedButUnmergedRunLeavesChildrenInProgress()
 await testMergedRunCompletesEveryChildFromDormancy()
 await testCanceledRunRestoresChildrenToTheirPreSprintStatus()
+await testFinishedRunCompletesEveryUnlinkedItem()
+await testUnlinkedItemMovesOnlyOnItsOwnTask()
+await testCanceledAndNeedsInputTasksNeverCompleteTheirItems()
+await testLateFinishingTaskStillCompletesItsItem()
+await testPropagationNeverWritesAnEpicFile()
+await testLaunchingItemKeepsItsRunLevelLink()
+await testSiblingProjectItemsAreLeftToTheirOwnWorkspace()
 
 console.log('sprintengine projection refresh tests passed')
