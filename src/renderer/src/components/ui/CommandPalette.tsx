@@ -207,7 +207,12 @@ export default function CommandPalette({
   }, [])
 
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && onClose()
+    const onKey = (event: KeyboardEvent) => {
+      // A child surface (menu, popover) that already handled Escape marks the
+      // event; the palette must not also close — same guard Modal carries.
+      if (event.defaultPrevented) return
+      if (event.key === 'Escape') onClose()
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])

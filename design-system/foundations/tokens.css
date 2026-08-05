@@ -120,10 +120,10 @@
   --sem-z-base: 0;
   --sem-z-sticky: 10;
   --sem-z-drawer: 40;
-  --sem-z-popover: 50;
-  --sem-z-menu: 60;
+  --sem-z-popover: 80;
+  --sem-z-menu: 90;
   --sem-z-modal: 70;
-  --sem-z-toast: 80;
+  --sem-z-toast: 100;
 }
 [data-mode="dark"] {
   --sem-color-bg-app: var(--ref-color-ink-950);

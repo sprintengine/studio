@@ -1432,8 +1432,8 @@
       },
       "popover": {
         "$type": "number",
-        "$value": 50,
-        "$description": "Popover, Select listbox, and Tooltip.",
+        "$value": 80,
+        "$description": "Popover, Select listbox, and Tooltip. Above modal, so a dialog-hosted picker paints over its host's scrim.",
         "$extensions": {
           "com.multicode": {
             "role": "layering",
@@ -1444,7 +1444,7 @@
       },
       "menu": {
         "$type": "number",
-        "$value": 60,
+        "$value": 90,
         "$description": "ContextMenu and PointerPopover — above an open popover.",
         "$extensions": {
           "com.multicode": {
@@ -1468,7 +1468,7 @@
       },
       "toast": {
         "$type": "number",
-        "$value": 80,
+        "$value": 100,
         "$description": "Transient notifications — above everything.",
         "$extensions": {
           "com.multicode": {

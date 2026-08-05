@@ -71,10 +71,12 @@ export function PointerPopover({
       }
     }
     window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKey)
+    // keydown on document, not window: runs before a host Modal's window
+    // listener, so preventDefault() protects the dialog (matches Popover).
+    document.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('keydown', onKey)
     }
   }, [onClose, restoreFocus])
 

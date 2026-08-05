@@ -184,10 +184,13 @@ export function ContextMenu({ x, y, ariaLabel, onClose, children, surfaceClassNa
       }
     }
     window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKey)
+    // keydown on document, not window: it must run BEFORE a host Modal's
+    // window listener so preventDefault() reaches the dialog's Escape guard
+    // and only this topmost surface closes (same fix Popover carries).
+    document.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('keydown', onKey)
     }
   }, [onClose, restoreFocus])
 
