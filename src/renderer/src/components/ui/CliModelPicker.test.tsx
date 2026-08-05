@@ -362,6 +362,29 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  await run('a key the field consumes never reaches the host around it', async () => {
+    // Two hosts of this surface are MENUS (the roster's right-click picker and
+    // its MenuFlyoutItem), and a menu answers ArrowUp/Down/Home/End by moving
+    // real focus onto one of ITS OWN items. A bubbling arrow would take focus
+    // off the field on the first press — the exact failure the ruling ends.
+    const view = mountSurface({})
+    const escaped: string[] = []
+    // On `body`, not on the mount container: React attaches its own delegated
+    // listener to the root container, and `stopPropagation` there does not stop
+    // a sibling listener on that same node. The host that matters sits ABOVE it.
+    const listener = (event: Event): void => {
+      escaped.push((event as KeyboardEvent).key)
+    }
+    dom.window.document.body.addEventListener('keydown', listener)
+    const search = view.search()
+    for (const key of ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter']) await view.key(search, key)
+    assert.deepEqual(escaped, [], 'every key the combobox handled stopped at the field')
+    await view.key(search, 'Escape')
+    assert.deepEqual(escaped, ['Escape'], 'Escape still travels — the surface closes from anywhere inside it')
+    dom.window.document.body.removeEventListener('keydown', listener)
+    view.unmount()
+  })
+
   await run('narrowing and walking happen in one motion, which is what the ruling buys', async () => {
     const picked: Array<[string, string | null]> = []
     const view = mountSurface({ onSelectModel: (cli, model) => picked.push([cli, model]) })

@@ -322,9 +322,21 @@ export function CliModelPopoverSurface({
     return start === end && start === input.value.length
   }
 
+  // A key this field consumes stops here. Two of this surface's hosts are MENUS
+  // — the roster's right-click picker and its `MenuFlyoutItem` — and a menu
+  // surface runs `roveMenuFocus` on its own keydown, which answers
+  // ArrowUp/Down/Home/End by moving real focus onto one of ITS items. Left to
+  // bubble, the host would take focus off the field on the first arrow, which is
+  // the exact failure the ruling exists to end. Escape is not consumed here, so
+  // the surface still closes from anywhere inside it.
+  const consume = (event: React.KeyboardEvent): void => {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
   const onQueryKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault()
+      consume(event)
       if (navRows.length === 0) return
       const next = (activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + navRows.length) % navRows.length
       setActiveKey(navRows[next]?.key ?? null)
@@ -332,7 +344,7 @@ export function CliModelPopoverSurface({
     }
     if (event.key === 'Enter') {
       if (activeIndex < 0) return
-      event.preventDefault()
+      consume(event)
       chooseNav(activeIndex)
       return
     }
@@ -342,7 +354,7 @@ export function CliModelPopoverSurface({
     // list.
     if ((event.key === 'Home' || event.key === 'End') && query.length === 0) {
       if (navRows.length === 0) return
-      event.preventDefault()
+      consume(event)
       setActiveKey(navRows[event.key === 'Home' ? 0 : navRows.length - 1]?.key ?? null)
       return
     }
@@ -353,7 +365,7 @@ export function CliModelPopoverSurface({
     if (event.key === 'ArrowRight' && caretAtEnd()) {
       const star = activeRowRef.current?.querySelector<HTMLButtonElement>('[data-model-star="true"]')
       if (!star) return
-      event.preventDefault()
+      consume(event)
       star.focus()
     }
   }

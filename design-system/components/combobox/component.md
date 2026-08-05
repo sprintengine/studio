@@ -70,6 +70,13 @@ the end of the query.
 The prohibition is the ruled part. Which of the optional halves a picker takes is
 its own call — what no picker may do is take a key the caret is currently using.
 
+**A key the field consumes stops at the field.** `preventDefault` is not enough:
+a combobox can be hosted inside a menu — `CliModelPicker` is, twice, in the Sprint
+Engine roster — and a menu surface answers `↑`/`↓`/`Home`/`End` by moving real
+focus onto one of its own items. Left to bubble, the host takes focus off the
+field on the first arrow, which is the failure this ruling exists to end. Escape
+is the exception and is never consumed: it must reach the surface that closes.
+
 **A row-level control that a pointer reveals must also be revealed by the
 keyboard highlight.** `CliModelPicker`'s star appears on hover; it now appears on
 the highlighted row too, because `→` is otherwise an affordance only a mouse user
