@@ -34,8 +34,15 @@ from sprintengine_core.tool.phase_prompts import (
     build_rework_prompt,
 )
 from sprintengine_core.tool.plans import actor_is_coordinator
+from sprintengine_core.tool.repo_model import repo_for_task
 from sprintengine_core.tool.roles import optional_configured_role
-from sprintengine_core.tool.shell import commit_task_changes_if_needed
+from sprintengine_core.tool.shell import (
+    commit_task_changes_if_needed,
+    ensure_task_worktree,
+    integrate_task_worktree,
+    remove_task_worktree,
+    task_isolation_enabled,
+)
 from sprintengine_core.tool.state import (
     active_module_conflict,
     append_agent_notification_event,
@@ -296,6 +303,10 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 )
                 model, cli = _resolve_execution_identity(args)
                 result = assign_task(state, selected, args.id, model=model, cli=cli)
+                # Provision at claim (MC-2130): under isolation the task gets its
+                # own worktree here, lazily, so a fifty-task run with three agents
+                # holds three checkouts rather than fifty.
+                ensure_task_worktree(state, args.state, selected)
                 recompute_phase(state)
                 event = append_event(state, "task_claimed", args.id, f"{args.id} claimed {selected.get('id')}.")
                 return {
@@ -373,6 +384,7 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
                 }
             model, cli = _resolve_execution_identity(args)
             result = assign_task(state, task, args.id, model=model, cli=cli)
+            ensure_task_worktree(state, args.state, task)
             recompute_phase(state)
             event = append_event(state, "task_claimed", args.id, f"{args.id} claimed {args.task_id}.")
             return {"ok": True, "task": task, "agent": result["agent"], "event": event}
@@ -521,6 +533,11 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             supersede_stale_gate_placeholder_on_completion(state, task, str(actor))
             refresh_task_diff_evidence(state, args.state, task, str(actor))
             commit_sha = commit_task_changes_if_needed(state, args.state, task, str(actor))
+        if args.status in TERMINAL_TASK_STATUSES:
+            # Done, or canceled. A canceled task's tree goes WITHOUT integrating:
+            # its work was deliberately dropped, and merging it would land work
+            # the run decided against (MC-2130).
+            remove_task_worktree(state, args.state, task)
         if task.get("ownerAgentId") and args.status in ACTIVE_TASK_STATUSES:
             # The owner holds the task's lease while it is active (a Flow-5 reopen
             # re-binds it to its implementer).
@@ -776,6 +793,22 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         commit_sha = commit_task_changes_if_needed(
             state, args.state, task, str(actor), self_reported=self_reported
         )
+        # Publish = commit + integrate (MC-2130). Under isolation the commit above
+        # landed on the task's OWN branch; this merges it onto the run branch,
+        # serialized per repo behind the same lock. A conflict is never
+        # auto-resolved: it comes back here with the conflicting paths named, and
+        # the agent rebases its worktree and republishes. The commit stands either
+        # way — it is the agent's work, safe on its own branch.
+        integration = integrate_task_worktree(state, args.state, task, str(actor))
+        if integration.get("conflicts"):
+            conflicting = ", ".join(integration["conflicts"][:10])
+            raise SystemExit(
+                f"Cannot integrate {args.task_id}: merging your work onto the run branch conflicts in "
+                f"{conflicting}. Your commit is safe on `{integration.get('branch')}`. In your task "
+                "worktree, rebase onto the run branch (`git rebase "
+                f"{repo_for_task(state, task)['branchName'] if repo_for_task(state, task) else 'the run branch'}`), "
+                "resolve the conflict, commit, then publish again."
+            )
         set_implementer_actual_difficulty(
             task,
             getattr(args, "actual_difficulty_pct", None),
@@ -786,6 +819,11 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             paths=args.path or [], data=summary_data,
             no_changes_ok=bool(getattr(args, "no_changes_ok", False)),
         )
+        if result["nextStatus"] == "done":
+            # Landed: its commit is on the run branch, so the tree is disk to
+            # reclaim (MC-2130). A task still walking its phases keeps its tree —
+            # a review phase may still send it back to fix something.
+            remove_task_worktree(state, args.state, task)
         recompute_phase(state)
         # Hot-seam signal (MC-1822): this publish may be the third landing on a
         # file or IPC contract. Tell the ARCHITECT and stop — the signal is
@@ -914,6 +952,10 @@ def cmd_task_advance(args: argparse.Namespace) -> Dict[str, Any]:
                 "findingId": (getattr(args, "needs_input_finding_id", None) or "").strip(),
             }
         result = advance_task(state, task, actor, args.phase, args.outcome, args.summary, needs_input=needs_input)
+        if result.get("nextStatus") == "done":
+            # The end of the phase walk is where most tasks land, so this is the
+            # cleanup that actually runs on a reviewed task (MC-2130).
+            remove_task_worktree(state, args.state, task)
 
         feedback_warnings: List[str] = []
         # Findings are best-effort telemetry: a bad enum must never block the

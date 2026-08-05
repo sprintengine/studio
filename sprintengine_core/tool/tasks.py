@@ -33,13 +33,22 @@ def task_produced_changes(state: Dict[str, Any], state_path: Path, task: Dict[st
     """
     from sprintengine_core.tool.repo_model import get_run_vcs
     from sprintengine_core.tool.shell import (
+        task_branch_is_ahead,
+        task_isolation_enabled,
         task_scoped_dirty_paths,
         workspace_is_git_repository,
     )
 
     if get_run_vcs(state):
         commits = ensure_evidence(task).get("commits")
-        return bool(isinstance(commits, list) and commits)
+        if isinstance(commits, list) and commits:
+            return True
+        # Under isolation, git is the surviving record (MC-2130). A publish whose
+        # INTEGRATION conflicted raises, and the raise discards the state write —
+        # including the sha the commit had just recorded — while the commit itself
+        # stays in git. Asking the task's branch whether it is ahead of the run
+        # branch is what lets the rework republish see its own work.
+        return task_isolation_enabled(state) and task_branch_is_ahead(state, state_path, task)
     if not workspace_is_git_repository(state_path):
         return True
     # Non-worktree change detection is scoped to the task's declared + owned paths.

@@ -308,15 +308,249 @@ def _repo_worktree(state_path: Path, repo: Dict[str, Any]) -> Optional[Path]:
     return resolve_vcs_path(workspace_root_for_state_path(state_path), value)
 
 
+# Per-task worktrees live beside the run store, exactly as the run worktree does.
+TASK_WORKTREE_DIR_NAME = "task-worktrees"
+
+
+def task_isolation_enabled(state: Dict[str, Any]) -> bool:
+    """Does this run give every task its own worktree (MC-2130)?
+
+    Off by default and recorded per run, so a store written before this existed —
+    and any run created without asking for it — keeps the shared per-run tree it
+    was built around. Whether isolation should become the default is the open
+    owner question on `sprint-worktree-mode-unreachable`; this only builds the
+    mechanism.
+    """
+    vcs = get_run_vcs(state)
+    return bool(vcs and vcs.get("taskIsolation") is True)
+
+
+def task_branch_name(repo: Dict[str, Any], task: Dict[str, Any]) -> str:
+    """The branch a task's own worktree sits on.
+
+    A dash rather than a path segment under the run branch on purpose: git stores
+    `refs/heads/sprintengine/alpha` as a FILE, so `sprintengine/alpha/task/T3`
+    would need that same name to be a directory and the ref creation fails.
+    """
+    run_branch = str(repo.get("branchName") or "").strip() or "sprintengine"
+    return f"{run_branch}-task-{safe_branch_component(str(task.get('id') or 'task'))}"
+
+
+def _safe_path_component(value: str) -> str:
+    """A task id as ONE filesystem segment, case preserved.
+
+    Deliberately not `safe_branch_component`, which lowercases: a directory named
+    `t1` matches `T1` on macOS and does not on Linux, so borrowing the branch
+    sanitizer here would make the tree resolvable on one host and missing on the
+    other. The branch may be lowercased; the path must not be.
+    """
+    cleaned = "".join(char if char.isalnum() or char in {"-", "_"} else "-" for char in value).strip("-")
+    return cleaned or "task"
+
+
+def task_worktree_path(state_path: Path, task: Dict[str, Any], repo: Dict[str, Any]) -> Path:
+    task_id = _safe_path_component(str(task.get("id") or "task"))
+    return state_path.parent / TASK_WORKTREE_DIR_NAME / task_id / _safe_path_component(
+        str(repo.get("id") or PRIMARY_REPO_ID)
+    )
+
+
+def ensure_task_worktree(
+    state: Dict[str, Any], state_path: Path, task: Dict[str, Any]
+) -> Optional[Path]:
+    """Provision (or adopt) this task's own worktree, branched off the run branch.
+
+    Called at CLAIM, lazily: a run with fifty tasks and three agents provisions
+    three trees, not fifty. Re-entrant, so a respawn or a rework republish reuses
+    the tree the task already has rather than losing its uncommitted work.
+
+    Only the ONE repo the task declares gets a tree. A task targets a single
+    project by definition (`repo_for_task`), so isolation costs one checkout per
+    active task, not one per project per task.
+    """
+    if not task_isolation_enabled(state):
+        return None
+    repo = repo_for_task(state, task)
+    if not repo:
+        return None
+    run_worktree = _repo_worktree(state_path, repo)
+    if not run_worktree or not run_worktree.exists():
+        return None
+    worktree_path = task_worktree_path(state_path, task, repo)
+    branch = task_branch_name(repo, task)
+    existing = run_git_checked(run_worktree, ["worktree", "list", "--porcelain"], allow_failure=True)
+    if existing.returncode == 0 and str(worktree_path.resolve()) in existing.stdout:
+        return worktree_path
+    worktree_path.parent.mkdir(parents=True, exist_ok=True)
+    if git_branch_exists(run_worktree, branch):
+        run_git_checked(run_worktree, ["worktree", "add", str(worktree_path), branch])
+    else:
+        # Branched from the run branch as it stands now, so a task claimed after
+        # its dependencies landed starts from their work rather than from base.
+        run_git_checked(
+            run_worktree,
+            ["worktree", "add", "-b", branch, str(worktree_path), str(repo.get("branchName") or "HEAD")],
+        )
+    if not worktree_path.exists():
+        raise SystemExit(f"Sprint Engine task worktree was not created: {worktree_path}")
+    return worktree_path
+
+
+def remove_task_worktree(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> bool:
+    """Drop a task's worktree and its branch. Safe to call when there is none.
+
+    Called once the task's commit is on the run branch, and on cancel — where the
+    work is deliberately dropped WITHOUT integrating. Never raises: a tree that
+    cannot be removed is disk to reclaim later, not a reason to fail the
+    transition that finished the task.
+    """
+    if not task_isolation_enabled(state):
+        return False
+    try:
+        repo = repo_for_task(state, task)
+    except SystemExit:
+        return False
+    if not repo:
+        return False
+    run_worktree = _repo_worktree(state_path, repo)
+    worktree_path = task_worktree_path(state_path, task, repo)
+    if not run_worktree or not run_worktree.exists():
+        return False
+    run_git_checked(run_worktree, ["worktree", "remove", "--force", str(worktree_path)], allow_failure=True)
+    run_git_checked(run_worktree, ["worktree", "prune"], allow_failure=True)
+    run_git_checked(
+        run_worktree, ["branch", "-D", task_branch_name(repo, task)], allow_failure=True
+    )
+    return not worktree_path.exists()
+
+
+def task_branch_is_ahead(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> bool:
+    """Does the task's own branch carry commits the run branch does not?
+
+    Git truth about whether a task produced work, for the one case the run store
+    cannot answer: a publish that committed and then failed to integrate raises,
+    and the raise rolls the store back past the recorded sha while the commit
+    stays in git (MC-2130).
+    """
+    if not task_isolation_enabled(state):
+        return False
+    try:
+        repo = repo_for_task(state, task)
+    except SystemExit:
+        return False
+    if not repo:
+        return False
+    run_worktree = _repo_worktree(state_path, repo)
+    if not run_worktree or not run_worktree.exists():
+        return False
+    branch = task_branch_name(repo, task)
+    if not git_branch_exists(run_worktree, branch):
+        return False
+    counted = run_git_checked(
+        run_worktree, ["rev-list", "--count", f"HEAD..{branch}"], allow_failure=True
+    )
+    if counted.returncode != 0:
+        return False
+    return (counted.stdout or "0").strip() not in {"", "0"}
+
+
+def integrate_task_worktree(
+    state: Dict[str, Any], state_path: Path, task: Dict[str, Any], actor: str
+) -> Dict[str, Any]:
+    """Merge a task's committed work onto the run branch. Serialized per repo.
+
+    The second half of publish under isolation. Integration takes the SAME
+    per-repo commit lock the commit does, so integrations queue in publish order
+    and never race a git index.
+
+    A conflict is never auto-resolved: the merge is aborted, the run branch is
+    left exactly as it was, and the conflicting paths come back to the publishing
+    agent so it can rebase its own worktree and republish. Conflicts under
+    isolation are ordinary git merges at a defined point rather than the
+    invisible shared-tree races they replaced.
+    """
+    from sprintengine_core import store as folder_store
+    from sprintengine_core.tool.state import append_event
+
+    if not task_isolation_enabled(state):
+        return {"integrated": False}
+    repo = repo_for_task(state, task)
+    if not repo:
+        return {"integrated": False}
+    run_worktree = _repo_worktree(state_path, repo)
+    worktree_path = task_worktree_path(state_path, task, repo)
+    if not run_worktree or not run_worktree.exists() or not worktree_path.exists():
+        return {"integrated": False}
+    branch = task_branch_name(repo, task)
+    task_id = str(task.get("id") or "task")
+
+    lock = folder_store.FolderLock(state_path.parent / folder_store.git_commit_lock_file(repo["id"]))
+    lock.acquire(recover_stale=True)
+    try:
+        ahead = run_git_checked(
+            run_worktree, ["rev-list", "--count", f"HEAD..{branch}"], allow_failure=True
+        )
+        if ahead.returncode != 0 or (ahead.stdout or "0").strip() in {"", "0"}:
+            return {"integrated": False, "upToDate": True}
+        merged = run_git_checked(
+            run_worktree,
+            ["merge", "--no-ff", "--no-edit", "-m", f"SprintEngine {task_id}: integrate", branch],
+            allow_failure=True,
+        )
+        if merged.returncode != 0:
+            conflicts = run_git_checked(
+                run_worktree, ["diff", "--name-only", "--diff-filter=U"], allow_failure=True
+            )
+            paths = sorted({line.strip() for line in (conflicts.stdout or "").splitlines() if line.strip()})
+            run_git_checked(run_worktree, ["merge", "--abort"], allow_failure=True)
+            return {"integrated": False, "conflicts": paths, "branch": branch}
+        sha = run_git_checked(run_worktree, ["rev-parse", "--short", "HEAD"], allow_failure=True)
+        head = sha.stdout.strip() if sha.returncode == 0 else ""
+    finally:
+        lock.release()
+
+    from sprintengine_core.tool.tasks import ensure_evidence
+
+    vcs = get_run_vcs(state)
+    if vcs is not None and head:
+        set_repo_status(vcs, repo["id"], "committed")
+        set_repo_last_commit_sha(vcs, repo["id"], head)
+    if head:
+        # The landing IS this task's commit record. Recording it here matters for
+        # more than bookkeeping: integration runs BEFORE publish's change
+        # detection, and merging the branch leaves it no longer ahead of the run
+        # branch — so without this a rework republish would read as "no changes".
+        commits = ensure_evidence(task).setdefault("commits", [])
+        if isinstance(commits, list) and head not in commits:
+            commits.append(head)
+    append_event(
+        state,
+        "task_work_integrated",
+        actor,
+        f"{actor} integrated {task_id} onto {repo.get('branchName')}: {head}.",
+        {"taskId": task_id, "repo": repo.get("id"), "sha": head},
+    )
+    return {"integrated": True, "sha": head}
+
+
 def worktree_for_task(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> Optional[Path]:
-    """The run worktree a task's paths resolve against, or None outside worktree mode.
+    """The worktree a task's paths resolve against, or None outside worktree mode.
 
     Every seam that reads or writes a task's changes — commits, diff evidence,
-    orphan scans — resolves its tree through here, so a task targeting a sibling
-    project never touches the primary checkout.
+    orphan scans, the agent's own terminal cwd — resolves its tree through here,
+    so a task targeting a sibling project never touches the primary checkout, and
+    under isolation (MC-2130) a task never sees a sibling's work at all.
     """
     repo = repo_for_task(state, task)
-    return _repo_worktree(state_path, repo) if repo else None
+    if not repo:
+        return None
+    if task_isolation_enabled(state):
+        isolated = task_worktree_path(state_path, task, repo)
+        # Fall back to the run tree until the task is claimed and provisioned:
+        # asking about an unclaimed task's changes must not invent a path.
+        if isolated.exists():
+            return isolated
+    return _repo_worktree(state_path, repo)
 
 
 def git_status_short(worktree: Path) -> str:
@@ -539,6 +773,35 @@ def _select_in_scope(
     return [path for path in dirty_paths if path_in_owned_scope(path, fallback) and mine(path)]
 
 
+def _foreign_claims(state: Dict[str, Any], task: Dict[str, Any], worktree: Path) -> List[str]:
+    """Paths this task must not commit because a live sibling holds them.
+
+    EMPTY under per-task isolation (MC-2130), and that is the point of it: in a
+    tree only this task can write, nothing dirty belongs to anyone else, so
+    subtracting a sibling's declared modules would drop this task's own work for
+    a collision that cannot happen. The exclusion exists to substitute for
+    isolation; where there IS isolation it is not just unnecessary but wrong.
+    """
+    if task_isolation_enabled(state):
+        return []
+    return _normalize_commit_pathspec(worktree, modules_held_by_other_active_tasks(state, task))
+
+
+def _task_tree(
+    state: Dict[str, Any], state_path: Path, task: Dict[str, Any], repo: Dict[str, Any]
+) -> Optional[Path]:
+    """The tree a task's changes live in for one repo — isolated when enabled.
+
+    The commit path and the lock-free probe both go through here so they cannot
+    disagree about which checkout a task is working in.
+    """
+    if task_isolation_enabled(state):
+        isolated = task_worktree_path(state_path, task, repo)
+        if isolated.exists():
+            return isolated
+    return _repo_worktree(state_path, repo)
+
+
 def _dirty_paths_in(worktree: Path) -> List[str]:
     """Every dirty path git reports in a worktree, untracked included."""
     status = run_git_checked(
@@ -584,7 +847,7 @@ def _commit_task_paths_in_repo(
     from sprintengine_core.tool.state import append_event
     from sprintengine_core.tool.tasks import ensure_evidence, task_diff_declared_paths
 
-    worktree = _repo_worktree(state_path, repo)
+    worktree = _task_tree(state, state_path, task, repo)
     if not worktree or not worktree.exists():
         return None
 
@@ -612,7 +875,7 @@ def _commit_task_paths_in_repo(
             dirty_paths,
             claimed=claimed,
             declared=declared,
-            foreign=_normalize_commit_pathspec(worktree, modules_held_by_other_active_tasks(state, task)),
+            foreign=_foreign_claims(state, task, worktree),
             reported=reported,
             sweep=sweep,
         )
@@ -926,7 +1189,7 @@ def _task_in_scope_dirty_paths(
     """
     from sprintengine_core.tool.tasks import task_diff_declared_paths
 
-    worktree = _repo_worktree(state_path, repo)
+    worktree = _task_tree(state, state_path, task, repo)
     if not worktree or not worktree.exists():
         return []
     dirty_paths = _dirty_paths_in(worktree)
@@ -937,7 +1200,7 @@ def _task_in_scope_dirty_paths(
         dirty_paths,
         claimed=task_claimed_paths(task),
         declared=task_diff_declared_paths(task, explicit_paths or []),
-        foreign=_normalize_commit_pathspec(worktree, modules_held_by_other_active_tasks(state, task)),
+        foreign=_foreign_claims(state, task, worktree),
         reported=_normalize_commit_pathspec(worktree, [str(path) for path in (self_reported or [])]),
         sweep=sweep,
     )
@@ -1701,6 +1964,32 @@ def _cleanup_after_merge(state: Dict[str, Any], state_path: Path, repo: Dict[str
     if outcome["removed"]:
         append_event(state, "run_worktree_removed", "sprintengine", f"Removed merged run worktree {repo['worktreePath']}.")
     return {"worktreeCleanup": outcome}
+
+
+def sweep_task_worktrees(state: Dict[str, Any], state_path: Path) -> List[str]:
+    """Remove every task worktree this run still holds. Returns what it removed.
+
+    The run-level backstop (MC-2130). Per-task cleanup runs when a task lands or
+    is canceled, so this catches what an abandoned or crashed run left behind —
+    trees whose tasks never reached a terminal status. Best-effort by nature: a
+    tree that cannot be removed is disk to reclaim, never a reason to fail the
+    run-level operation that swept it.
+    """
+    if not task_isolation_enabled(state):
+        return []
+    removed: List[str] = []
+    for task in state.get("tasks", []) or []:
+        if not isinstance(task, dict) or not task.get("id"):
+            continue
+        try:
+            repo = repo_for_task(state, task)
+        except SystemExit:
+            continue
+        if not repo or not task_worktree_path(state_path, task, repo).exists():
+            continue
+        if remove_task_worktree(state, state_path, task):
+            removed.append(str(task.get("id")))
+    return removed
 
 
 def _cleanup_repo_worktree(state_path: Path, workspace_root: Path, repo: Dict[str, Any]) -> Dict[str, Any]:

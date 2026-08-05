@@ -295,6 +295,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run this team in a git worktree + branch per declared project, so agents work in isolated checkouts and commit per task.",
     )
     p.add_argument(
+        "--task-worktrees",
+        dest="task_worktrees",
+        type=parse_bool,
+        default=None,
+        help=(
+            "Give every task its own git worktree, branched off the run branch and merged back at publish, "
+            "instead of sharing one checkout per repo for the whole run. Removes the shared-tree collision "
+            "window entirely: a task commits everything it changed and conflicts become ordinary git merges "
+            "at publish. Requires --use-worktrees true. Fixed at run creation."
+        ),
+    )
+    p.add_argument(
         "--repo",
         action="append",
         default=[],

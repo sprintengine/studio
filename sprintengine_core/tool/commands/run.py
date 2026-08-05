@@ -411,6 +411,18 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 repos=declared_repos,
                 start_point=getattr(args, "base_start_point", None),
             )
+        # Per-task isolation (MC-2130), fixed at creation like the worktree toggle
+        # and the repo set. Recorded on the vcs block so a store written before it
+        # existed — and any run that did not ask — keeps the shared per-run tree it
+        # was built around.
+        if getattr(args, "task_worktrees", None) is not None:
+            vcs = get_run_vcs(state)
+            if not vcs:
+                raise SystemExit(
+                    "--task-worktrees only applies when the sprint uses worktrees. "
+                    "Add --use-worktrees true, or drop --task-worktrees."
+                )
+            vcs["taskIsolation"] = bool(args.task_worktrees)
         elif declared_repos and get_run_vcs(state):
             # A second init cannot grow the run's project set: repos are fixed at
             # creation and the worktrees, locks, and branches are already built
@@ -1457,6 +1469,12 @@ def cmd_cancel(args: argparse.Namespace) -> Dict[str, Any]:
                 {"status": "canceled", "fromStatus": from_status},
             )
             canceled_task_ids.append(str(task.get("id")))
+        # Task worktrees go with the tasks that owned them (MC-2130). The RUN
+        # worktree and branch are deliberately left in place, as the docstring
+        # says; a per-task tree has no such second life — its work was dropped,
+        # unintegrated, the moment its task was canceled.
+        from sprintengine_core.tool.shell import sweep_task_worktrees
+        swept = sweep_task_worktrees(state, args.state)
         now = now_iso()
         sprintengine["canceled"] = True
         sprintengine["canceledAt"] = now
@@ -1477,6 +1495,7 @@ def cmd_cancel(args: argparse.Namespace) -> Dict[str, Any]:
             "action": "cancel",
             "status": "canceled",
             "canceledTaskIds": canceled_task_ids,
+            **({"removedTaskWorktrees": swept} if swept else {}),
             "event": event,
             "message": (
                 f"Run canceled; {len(canceled_task_ids)} task(s) moved to canceled. "
