@@ -109,6 +109,14 @@ export type AutomationRendererRequest =
        */
       sourceRelativePath?: string
       /**
+       * Multi-source launch (MC-2077): start ONE sprint from several backlog
+       * items and/or epics through the same selection path the Backlog door's
+       * multi-select uses. The first entry is the anchor (the run's primary
+       * document). Mutually exclusive with `sourceRelativePath`; a single
+       * entry behaves exactly like `sourceRelativePath`.
+       */
+      sourceRelativePaths?: string[]
+      /**
        * How the run gets its task graph (MC-2128/2129). Absent takes the default
        * for the source — `direct` for an epic, `planned` for everything else —
        * which is decided in the engine, not here. Automations and Horizon set it

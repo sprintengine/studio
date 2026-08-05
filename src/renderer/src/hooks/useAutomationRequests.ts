@@ -35,8 +35,10 @@ import {
 } from '../components/workspace/newWorkspace/helpers'
 import { launchPlanSourcedSprint } from '../utils/sprintengineWorkspaceCreation'
 import { scanBacklog } from '../utils/backlog'
+import type { BacklogItem } from '../utils/backlog'
 import { isBacklogEpicPath } from '../utils/backlogEpics'
 import { buildBacklogSelectionSourcePlan } from '../components/backlog/backlogSelectionSourcePlan'
+import { buildSprintEngineRunLink } from '../utils/sprintengineBacklogLinks'
 import type {
   SprintEngineSourceBundleItem,
   SprintEngineSourcePlanKind,
@@ -233,9 +235,16 @@ async function createSprint(
   request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>
 ): Promise<AutomationRendererResponse> {
   // A source-carrying request (sprint chaining) creates through the shared
-  // plan-sourced path instead of the goal-sourced new-team controller.
-  if (request.sourceRelativePath?.trim()) {
-    return createPlanSourcedSprint(request, request.sourceRelativePath.trim())
+  // plan-sourced path instead of the goal-sourced new-team controller. A
+  // multi-source request (MC-2077) rides the same function with the full ref
+  // list; a singleton list is the singular contract, byte-identical.
+  const selectionRefs = (request.sourceRelativePaths ?? []).map((ref) => ref.trim()).filter(Boolean)
+  if (selectionRefs.length > 1) {
+    return createPlanSourcedSprint(request, selectionRefs[0], selectionRefs)
+  }
+  const singleRef = selectionRefs[0] ?? request.sourceRelativePath?.trim()
+  if (singleRef) {
+    return createPlanSourcedSprint(request, singleRef)
   }
   const resolved = resolveRequestedRoster(request)
   if (!resolved.ok) return resolved.response
@@ -362,14 +371,72 @@ async function buildEpicSourcePlanForAutomation(
   }
 }
 
+/**
+ * The multi-selection shape (MC-2077): every ref resolved against one backlog
+ * scan, then through the SAME selection builder the Backlog door's multi-select
+ * uses, so an MCP-started selection run is byte-identical to a hand-started
+ * one. Unlike the epic helper above, failure here is loud — silently dropping
+ * refs would launch a run missing work the caller asked for.
+ */
+async function buildSelectionSourcePlanForAutomation(
+  folderPath: string,
+  refs: string[]
+): Promise<
+  | { ok: true; plan: NonNullable<ReturnType<typeof buildBacklogSelectionSourcePlan>>; childLinks: Array<{ relativePath: string; priorStatus?: BacklogItem['status'] }> }
+  | { ok: false; code: string; message: string }
+> {
+  let scanned: Awaited<ReturnType<typeof scanBacklog>>
+  try {
+    scanned = await scanBacklog(folderPath, {
+      pathExists: window.api.pathExists,
+      readdir: window.api.readdir,
+      readfile: window.api.readfile,
+      statPath: window.api.statPath,
+    })
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'sprint_backlog_unavailable',
+      message: error instanceof Error ? error.message : 'The project backlog could not be scanned.',
+    }
+  }
+  if (scanned.state !== 'ready') {
+    return { ok: false, code: 'sprint_backlog_unavailable', message: 'The project backlog could not be scanned.' }
+  }
+  const byPath = new Map(scanned.items.map((item) => [item.relativePath, item]))
+  const items: BacklogItem[] = []
+  for (const ref of refs) {
+    const item = byPath.get(ref)
+    if (!item) {
+      return { ok: false, code: 'sprint_source_missing', message: `Sprint source "${ref}" is not a backlog item in this project.` }
+    }
+    items.push(item)
+  }
+  const plan = buildBacklogSelectionSourcePlan({ workspaceRoot: folderPath, items, projectItems: scanned.items })
+  if (!plan) {
+    return { ok: false, code: 'sprint_invalid_source', message: 'The selection did not resolve to a launchable source plan.' }
+  }
+  const childLinks = (plan.sourceBundle ?? [])
+    .filter((entry) => entry.epicChild)
+    .map((entry) => ({
+      relativePath: entry.sourceRelativePath,
+      priorStatus: byPath.get(entry.sourceRelativePath)?.status,
+    }))
+  return { ok: true, plan, childLinks }
+}
+
 async function createPlanSourcedSprint(
   request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>,
-  sourceRelativePath: string
+  sourceRelativePath: string,
+  selectionRefs?: string[]
 ): Promise<AutomationRendererResponse> {
-  const normalizedSourcePath = sourceRelativePath.replace(/\\/g, '/')
-  if (/^(?:\/|[A-Za-z]:)/.test(normalizedSourcePath) || normalizedSourcePath.split('/').includes('..')) {
-    return { ok: false, code: 'sprint_invalid_source', message: 'Sprint source must be a project-relative path.' }
+  const normalizedRefs = (selectionRefs ?? [sourceRelativePath]).map((ref) => ref.replace(/\\/g, '/'))
+  for (const ref of normalizedRefs) {
+    if (/^(?:\/|[A-Za-z]:)/.test(ref) || ref.split('/').includes('..')) {
+      return { ok: false, code: 'sprint_invalid_source', message: 'Sprint source must be a project-relative path.' }
+    }
   }
+  const normalizedSourcePath = normalizedRefs[0]
 
   const resolved = resolveRequestedRoster(request)
   if (!resolved.ok) return resolved.response
@@ -381,18 +448,30 @@ async function createPlanSourcedSprint(
   // be carrying as the wizard's seeded rows.
   const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.selectedRosterId, roster.roleCounts)
 
-  const absoluteSourcePath = joinPath(request.folderPath, normalizedSourcePath)
-  if (!(await window.api.pathExists(absoluteSourcePath))) {
-    return { ok: false, code: 'sprint_source_missing', message: `Sprint source "${normalizedSourcePath}" does not exist.` }
+  // The multi-selection resolves every ref through one backlog scan; failure is
+  // loud (MC-2077). The single-source path keeps its direct file read.
+  let selection: Awaited<ReturnType<typeof buildSelectionSourcePlanForAutomation>> | null = null
+  if (selectionRefs) {
+    selection = await buildSelectionSourcePlanForAutomation(request.folderPath, normalizedRefs)
+    if (!selection.ok) return { ok: false, code: selection.code, message: selection.message }
   }
+
   let sourceContent: string
-  try {
-    sourceContent = await window.api.readfile(absoluteSourcePath)
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'sprint_source_unreadable',
-      message: error instanceof Error ? error.message : `Sprint source "${normalizedSourcePath}" could not be read.`,
+  if (selection?.ok) {
+    sourceContent = selection.plan.sourceContent
+  } else {
+    const absoluteSourcePath = joinPath(request.folderPath, normalizedSourcePath)
+    if (!(await window.api.pathExists(absoluteSourcePath))) {
+      return { ok: false, code: 'sprint_source_missing', message: `Sprint source "${normalizedSourcePath}" does not exist.` }
+    }
+    try {
+      sourceContent = await window.api.readfile(absoluteSourcePath)
+    } catch (error) {
+      return {
+        ok: false,
+        code: 'sprint_source_unreadable',
+        message: error instanceof Error ? error.message : `Sprint source "${normalizedSourcePath}" could not be read.`,
+      }
     }
   }
 
@@ -401,7 +480,9 @@ async function createPlanSourcedSprint(
   // Without it `inferSourcePlanKind` calls an epic `unknown`, so an
   // automation- or Horizon-started epic never reached the epic intake at all —
   // neither the direct import nor the planner's sequencing directive.
-  const epicPlan = await buildEpicSourcePlanForAutomation(request.folderPath, normalizedSourcePath)
+  const epicPlan = selection?.ok
+    ? { sourcePlanKind: selection.plan.sourcePlanKind, sourceBundle: selection.plan.sourceBundle ?? [] }
+    : await buildEpicSourcePlanForAutomation(request.folderPath, normalizedSourcePath)
 
   // The derived name is deterministic (config sprint name, else the item's
   // basename), and a team dir with that slug may already exist — a prior wizard
@@ -423,7 +504,10 @@ async function createPlanSourcedSprint(
     buildArgs: (teamName) => ({
       rootPath: request.folderPath,
       teamName,
-      goal: request.goal,
+      // A selection with no caller goal takes the builder's ("Deliver N
+      // selected backlog items") — a single source still derives from its
+      // heading downstream, exactly as before.
+      goal: request.goal.trim() ? request.goal : selection?.ok ? selection.plan.goal ?? '' : request.goal,
       sourcePath: normalizedSourcePath,
       sourceContent,
       sourcePlanKind: epicPlan?.sourcePlanKind ?? inferSourcePlanKind(normalizedSourcePath, sourceContent),
@@ -471,25 +555,37 @@ async function createPlanSourcedSprint(
   // its lifecycle flips to in_progress — the same link the wizard's backlog
   // launch writes. Best-effort: the run exists on disk either way.
   if (normalizedSourcePath.startsWith('backlog/')) {
+    const runRelativePath = workspaceRelativePath(request.folderPath, result.sprintEngineContext.statePath)
+      ?? result.sprintEngineContext.statePath
     try {
       await window.api.addOrUpdateBacklogLink({
         workspaceRoot: request.folderPath,
         relativePath: normalizedSourcePath,
-        link: {
-          id: `sprint-engine:${result.sprintEngineContext.teamSlug}`,
-          moduleId: 'sprint-engine',
-          type: 'execution',
-          label: 'Sprint',
-          target: {
-            kind: 'sprintengine.run',
-            id: result.sprintEngineContext.teamSlug,
-            path: workspaceRelativePath(request.folderPath, result.sprintEngineContext.statePath)
-              ?? result.sprintEngineContext.statePath,
-          },
-          status: 'active',
-        },
-        status: 'in_progress',
+        link: buildSprintEngineRunLink({
+          teamSlug: result.sprintEngineContext.teamSlug,
+          runRelativePath,
+        }),
+        // An epic derives its status from its children and never carries one of
+        // its own — same rule the dialog applies (MC-2077 made epics reachable
+        // here as selection anchors).
+        ...(isBacklogEpicPath(normalizedSourcePath) ? {} : { status: 'in_progress' as const }),
       })
+      // Every epic child in a selection bundle gets the pending child link the
+      // dialog writes, so claim-time status propagation has a link to flip.
+      if (selection?.ok) {
+        for (const child of selection.childLinks) {
+          await window.api.addOrUpdateBacklogLink({
+            workspaceRoot: request.folderPath,
+            relativePath: child.relativePath,
+            link: buildSprintEngineRunLink({
+              teamSlug: result.sprintEngineContext.teamSlug,
+              runRelativePath,
+              status: 'pending',
+              ...(child.priorStatus ? { priorStatus: child.priorStatus } : {}),
+            }),
+          })
+        }
+      }
     } catch {
       // Link write is bookkeeping; never fail the launch for it.
     }

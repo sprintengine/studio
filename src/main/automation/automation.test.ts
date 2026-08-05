@@ -1650,6 +1650,43 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
   const manual = await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'Ship checkout' })
   assert.deepEqual(manual.structuredContent, { workspaceId: 'ws-sprint', started: false })
 
+  // MC-2077 — the plural form. A multi-ref launch delegates the full deduped
+  // list as `sourceRelativePaths`, and `goal` may be absent (the selection
+  // derives one).
+  requests.length = 0
+  nextArchitectAlive = true
+  const multi = await tool(tools, 'sprint.create').handler({
+    folderPath: '/tmp/project-a',
+    sourceRefs: ['backlog/epics/one.md', 'backlog/two.md', 'backlog/two.md'],
+  })
+  assert.equal(multi.isError, undefined, JSON.stringify(multi.structuredContent))
+  assert.deepEqual(
+    (requests[0] as { sourceRelativePaths?: string[] }).sourceRelativePaths,
+    ['backlog/epics/one.md', 'backlog/two.md']
+  )
+  assert.equal((requests[0] as { sourceRelativePath?: string }).sourceRelativePath, undefined)
+
+  // A single entry collapses onto the singular contract, byte-identical.
+  requests.length = 0
+  const singleton = await tool(tools, 'sprint.create').handler({
+    folderPath: '/tmp/project-a',
+    sourceRefs: ['backlog/two.md'],
+  })
+  assert.equal(singleton.isError, undefined, JSON.stringify(singleton.structuredContent))
+  assert.equal((requests[0] as { sourceRelativePath?: string }).sourceRelativePath, 'backlog/two.md')
+  assert.equal((requests[0] as { sourceRelativePaths?: string[] }).sourceRelativePaths, undefined)
+
+  // Both forms together are ambiguous; empty arrays and blank entries are refused.
+  for (const args of [
+    { folderPath: '/tmp/project-a', sourceRef: 'backlog/a.md', sourceRefs: ['backlog/b.md'] },
+    { folderPath: '/tmp/project-a', sourceRefs: [] },
+    { folderPath: '/tmp/project-a', sourceRefs: ['  '] },
+  ]) {
+    const bad = await tool(tools, 'sprint.create').handler(args as never)
+    assert.equal(bad.isError, true, JSON.stringify(args))
+    assert.equal((bad.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  }
+
   // Delegate failures pass through verbatim (no window, controller errors).
   const failing = createAutomationTools({
     ...backendsOf(),

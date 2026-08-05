@@ -1399,6 +1399,17 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             'Project-relative backlog item or epic to plan the run from, e.g. "backlog/epics/foo.md". '
             + 'Uses the shared plan-sourced creation path (epic children included), not the goal-only path.',
         },
+        sourceRefs: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 1,
+          description:
+            'Several project-relative backlog items and/or epics to start ONE sprint from, e.g. '
+            + '["backlog/epics/foo.md", "backlog/bar.md"] — the same mixed-selection launch the Backlog '
+            + 'door\'s multi-select uses (MC-2060/2061). The first entry is the anchor document; epics '
+            + 'bring their open children; the run records planKind "selection". Mutually exclusive with '
+            + '`sourceRef`; a single entry behaves exactly like `sourceRef`.',
+        },
         rosterName: { type: 'string', description: 'Saved roster name. Unknown names fail loudly rather than falling back.' },
         roster: {
           type: 'object',
@@ -1434,11 +1445,32 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       }
       const invalid = firstInvalidOptionalString(args, ['name', 'sourceRef', 'rosterName', 'goal'])
       if (invalid) return invalid
-      const sourceRef = optionalString(args.sourceRef)
+      let sourceRef = optionalString(args.sourceRef)
+      // MC-2077: the plural form. Validated here so the renderer only ever sees
+      // a clean list; a single entry collapses onto the singular contract so
+      // downstream behaviour is byte-identical to `sourceRef`.
+      let sourceRefs: string[] | undefined
+      if (args.sourceRefs !== undefined) {
+        if (!Array.isArray(args.sourceRefs) || args.sourceRefs.length === 0) {
+          return failure('invalid_arguments', '"sourceRefs" must be a non-empty array of project-relative paths.')
+        }
+        if (sourceRef) {
+          return failure('invalid_arguments', 'Pass either "sourceRef" or "sourceRefs", not both.')
+        }
+        const cleaned: string[] = []
+        for (const entry of args.sourceRefs) {
+          if (typeof entry !== 'string' || !entry.trim()) {
+            return failure('invalid_arguments', '"sourceRefs" entries must be non-empty strings.')
+          }
+          if (!cleaned.includes(entry.trim())) cleaned.push(entry.trim())
+        }
+        if (cleaned.length === 1) sourceRef = cleaned[0]
+        else sourceRefs = cleaned
+      }
       const goal = optionalString(args.goal) ?? ''
       // `goal` is only derivable from the item heading on the plan-sourced path;
       // a goal-only run has nothing else to plan against.
-      if (!sourceRef && !goal.trim()) {
+      if (!sourceRef && !sourceRefs && !goal.trim()) {
         return failure('invalid_arguments', '"goal" is required when "sourceRef" is not provided.')
       }
       for (const key of ['startRunner', 'autoApproveArtifacts', 'useWorktrees']) {
@@ -1474,6 +1506,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         goal,
         name: optionalString(args.name),
         ...(sourceRef ? { sourceRelativePath: sourceRef } : {}),
+        ...(sourceRefs ? { sourceRelativePaths: sourceRefs } : {}),
         ...(optionalString(args.rosterName) ? { rosterName: optionalString(args.rosterName) } : {}),
         ...(roster ? { roster } : {}),
         startRunner,
