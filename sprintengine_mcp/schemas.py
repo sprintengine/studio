@@ -68,11 +68,22 @@ OWNED_MODULES_PROPERTY = {
     "type": "array",
     "items": {"type": "string"},
     "description": (
-        "The modules this task owns: project-root-relative DIRECTORY paths, relative to the task's repo root. "
-        "A task owns the directories it works in, never individual files — an entry naming an existing file is "
-        "rejected. These paths are also the task's commit pathspec, so anything the task adds, splits, or moves "
-        "inside them is committed by it. Tasks whose modules overlap never run at the same time, so give "
-        "concurrent tasks disjoint modules."
+        "OPTIONAL scheduling advisory: the modules this task is expected to work in, as project-root-relative "
+        "DIRECTORY paths relative to the task's repo root. Never required, and no work is refused for lacking it "
+        "— publish commits what the task actually changed, not what was declared here. What it still does: tasks "
+        "whose modules overlap never run at the same time, and a live task's modules are fenced off from a "
+        "concurrent sibling's publish. Give genuinely concurrent tasks disjoint modules; leave it empty when you "
+        "do not know what a change will touch, which is the normal case."
+    ),
+}
+
+CHANGED_PATHS_PROPERTY = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": (
+        "Project-root-relative paths this task CHANGED. The engine commits exactly these. Omit it and the publish "
+        "commits everything dirty that no other active task claims — the right default when no sibling is running. "
+        "Paths left uncommitted come back in the response as a question, never a refusal."
     ),
 }
 
@@ -285,7 +296,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     "sprintengine.task.comment": object_schema(["statePath", "taskId", "id", "body"], {"taskId": TASK_ID_PROPERTY, "id": AGENT_ID_PROPERTY, "body": {"type": "string"}, "source": {"type": "string"}, "commentType": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}, "data": {"type": "object"}}),
     "sprintengine.task.comment.list": object_schema(["statePath", "taskId"], {"taskId": TASK_ID_PROPERTY, "limit": {"type": "integer", "minimum": 1, "description": "Maximum comments returned, newest last. Defaults to 20."}}),
     "sprintengine.task.list": object_schema(["statePath"], {"role": ROLE_PROPERTY, "status": {"type": "string"}, "includeDone": {"type": "boolean"}}),
-    "sprintengine.task.publish": object_schema(["statePath", "taskId", "id", "summary"], {"taskId": TASK_ID_PROPERTY, "id": AGENT_ID_PROPERTY, "summary": {"type": "string"}, "path": {"type": "array", "items": {"type": "string"}}, "file": {"type": "array", "items": {"type": "string"}}, "data": {"type": "object"}, "summaryDataJson": {"type": "string"}, "noChangesOk": {"type": "boolean", "description": "Explicitly complete a task that produced NO committed changes (analysis/verification-only deliverable). Without it a no-changes publish is rejected."}, **IMPLEMENTER_DIFFICULTY_PROPERTIES}),
+    "sprintengine.task.publish": object_schema(["statePath", "taskId", "id", "summary"], {"taskId": TASK_ID_PROPERTY, "id": AGENT_ID_PROPERTY, "summary": {"type": "string"}, "path": {"type": "array", "items": {"type": "string"}}, "file": {"type": "array", "items": {"type": "string"}}, "changedPath": CHANGED_PATHS_PROPERTY, "data": {"type": "object"}, "summaryDataJson": {"type": "string"}, "noChangesOk": {"type": "boolean", "description": "Explicitly complete a task that produced NO committed changes (analysis/verification-only deliverable). Without it a no-changes publish is rejected."}, **IMPLEMENTER_DIFFICULTY_PROPERTIES}),
     "sprintengine.task.advance": object_schema(
         ["statePath", "taskId", "id", "phase", "outcome", "summary"],
         {

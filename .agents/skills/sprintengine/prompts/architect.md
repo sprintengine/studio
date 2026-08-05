@@ -80,7 +80,7 @@ Task cards are the worker's operating brief — the worker should not need to hu
 - `acceptance`: externally verifiable outcomes only — never vague ("works correctly") and never a restatement of the description.
 - `note`: only non-obvious low-level details the description does not carry — functions to update, state transitions, API contracts, edge cases, rejected alternatives, rollback notes. Omit entirely when the description suffices.
 
-Every acceptance criterion must be satisfiable when the task runs — verifiable from files it owns or files owned by a done `dependsOn`. A criterion whose only verification path is code a not-yet-run task delivers must instead add that task as a `dependsOn`, move onto the integrating or tester task, or split out. This is sequencing, not editing: `ownedPaths` is the commit/collision boundary, not an edit cage, and workers may still edit beyond it when a change legitimately cascades.
+Every acceptance criterion must be satisfiable when the task runs — verifiable from files it owns or files owned by a done `dependsOn`. A criterion whose only verification path is code a not-yet-run task delivers must instead add that task as a `dependsOn`, move onto the integrating or tester task, or split out. This is sequencing, not editing: `ownedPaths` is a collision boundary, not an edit cage or commit pathspec, and workers may edit beyond it when a change cascades.
 
 ## Reference-Sourced Sprints
 

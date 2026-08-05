@@ -753,7 +753,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "items": {
             "type": "string"
           },
-          "description": "The modules this task owns: project-root-relative DIRECTORY paths, relative to the task's repo root. A task owns the directories it works in, never individual files \u2014 an entry naming an existing file is rejected. These paths are also the task's commit pathspec, so anything the task adds, splits, or moves inside them is committed by it. Tasks whose modules overlap never run at the same time, so give concurrent tasks disjoint modules."
+          "description": "OPTIONAL scheduling advisory: the modules this task is expected to work in, as project-root-relative DIRECTORY paths relative to the task's repo root. Never required, and no work is refused for lacking it \u2014 publish commits what the task actually changed, not what was declared here. What it still does: tasks whose modules overlap never run at the same time, and a live task's modules are fenced off from a concurrent sibling's publish. Give genuinely concurrent tasks disjoint modules; leave it empty when you do not know what a change will touch, which is the normal case."
         },
         "acceptance": {
           "type": "array"
@@ -952,7 +952,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "items": {
             "type": "string"
           },
-          "description": "The modules this task owns: project-root-relative DIRECTORY paths, relative to the task's repo root. A task owns the directories it works in, never individual files \u2014 an entry naming an existing file is rejected. These paths are also the task's commit pathspec, so anything the task adds, splits, or moves inside them is committed by it. Tasks whose modules overlap never run at the same time, so give concurrent tasks disjoint modules."
+          "description": "OPTIONAL scheduling advisory: the modules this task is expected to work in, as project-root-relative DIRECTORY paths relative to the task's repo root. Never required, and no work is refused for lacking it \u2014 publish commits what the task actually changed, not what was declared here. What it still does: tasks whose modules overlap never run at the same time, and a live task's modules are fenced off from a concurrent sibling's publish. Give genuinely concurrent tasks disjoint modules; leave it empty when you do not know what a change will touch, which is the normal case."
         },
         "acceptance": {
           "type": "array"
@@ -1951,6 +1951,13 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "items": {
             "type": "string"
           }
+        },
+        "changedPath": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Project-root-relative paths this task CHANGED. The engine commits exactly these. Omit it and the publish commits everything dirty that no other active task claims \u2014 the right default when no sibling is running. Paths left uncommitted come back in the response as a question, never a refusal."
         },
         "data": {
           "type": "object"

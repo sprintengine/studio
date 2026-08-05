@@ -1,9 +1,12 @@
 """Tasks own modules, not files (backlog item 2019).
 
-`ownedPaths` entries are the directories a task works in, and they are also its
-commit pathspec — so the containment predicate, the plan-time refusal of a file
-entry, the commit/orphan behaviour it buys, and the dispatch guard that keeps
-coarse ownership safe are all one contract, covered here.
+`ownedPaths` entries are the directories a task works in. Since MC-2127 they are
+an OPTIONAL scheduling advisory rather than the commit pathspec: publish commits
+what the task actually changed. What a declared module still buys is exclusion —
+tasks whose modules overlap never run at once, and a live task's modules are
+fenced off from a concurrent sibling's sweep. The containment predicate, the
+plan-time refusal of a file entry, that exclusion, and the dispatch guard are one
+contract, covered here.
 """
 from __future__ import annotations
 
@@ -291,21 +294,32 @@ def test_a_declared_path_outside_every_live_module_still_commits(tmp_path) -> No
     ]
 
 
-def test_a_lookalike_sibling_module_is_not_swept_into_the_commit(tmp_path) -> None:
+def test_a_lookalike_module_does_not_fence_off_the_committing_task(tmp_path) -> None:
+    """Segment matching, where it still bites once scope comes from the sweep.
+
+    The sweep excludes what a LIVE sibling claims, so the containment predicate now
+    decides what a task is kept OUT of rather than what it is limited to. A live
+    `src/panel` must not fence T1 out of its own `src/panel-v2` — a `startswith`
+    would call that a hit and silently drop T1's work, which is the failure mode
+    this whole item exists to end.
+    """
     fixture = _worktree_run(tmp_path, "module-lookalike")
-    fixture.cli.run("plan", "add-task", "--title", "Panel", "--role", "developer", "--task-id", "T1", "--path", "src/panel")
+    fixture.cli.run("plan", "add-task", "--title", "V2", "--role", "developer", "--task-id", "T1", "--path", "src/panel-v2")
+    fixture.cli.run("plan", "add-task", "--title", "Panel", "--role", "developer", "--task-id", "T2", "--path", "src/panel")
     _close_plan_gate(fixture)
-    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    assert fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")["claimed"] is True
+    assert fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-2")["claimed"] is True
 
     worktree = _worktree_dir(fixture)
-    _write(worktree, "src/panel/Panel.tsx", "export const Panel = 1\n")
     _write(worktree, "src/panel-v2/Panel.tsx", "export const PanelV2 = 2\n")
+    _write(worktree, "src/panel/Panel.tsx", "export const Panel = 'T2 is mid-edit'\n")
 
     committed = fixture.cli.run("vcs", "commit", "--task-id", "T1", "--id", "developer-1")
 
     assert committed["committed"] is True
-    assert _git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split() == ["src/panel/Panel.tsx"]
-    assert "src/panel-v2/" in _git(worktree, "status", "--porcelain").stdout
+    assert _git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split() == ["src/panel-v2/Panel.tsx"]
+    # Live T2's actual module stayed out, mid-edit and uncommitted.
+    assert "src/panel/" in _git(worktree, "status", "--porcelain").stdout
 
 
 # --- the dispatch invariant ---------------------------------------------------

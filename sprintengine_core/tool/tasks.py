@@ -400,10 +400,12 @@ def assert_owned_paths_are_modules(state: Dict[str, Any], state_path: Path, task
     """Refuse an `ownedPaths` entry that names a file instead of a module.
 
     A task owns the modules — directories — it works in, never individual files
-    (backlog item 2019). `ownedPaths` is also the task's commit pathspec, so a
-    file whitelist means a file the agent legitimately creates inside its own
-    module is committed by nobody; it also pushes agents to grow an existing
-    owned file rather than add a sibling.
+    (backlog item 2019). Since MC-2127 these paths are an optional scheduling
+    advisory rather than the commit pathspec, but the module rule still earns its
+    keep: they are what fences a live task's work off from a concurrent sibling's
+    sweep and what serializes overlapping tasks, and a file-level claim protects
+    only that one file while pushing agents to grow an existing owned file rather
+    than add a sibling.
 
     Only an entry that resolves to an EXISTING regular file is refused. A path
     that does not exist yet is a module the task is about to create, and file

@@ -753,7 +753,11 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         # as the orphan guard below.
         assert_task_owner(task, str(actor), verb="publish", rule="Only a task's owner publishes it.")
         summary_data = parse_json_object_arg(getattr(args, "summary_data_json", None), "--summary-data-json")
-        refresh_task_diff_evidence(state, args.state, task, str(actor), args.path or [])
+        # The self-report is the agent's own list of what it changed, so it feeds
+        # diff evidence alongside `--path` (MC-2127) — otherwise a task that reported
+        # its paths would publish with an empty diff.
+        self_reported = [str(path) for path in (getattr(args, "changed_path", None) or [])]
+        refresh_task_diff_evidence(state, args.state, task, str(actor), [*(args.path or []), *self_reported])
         # Guard BEFORE the backstop commit, same window and same reasoning as the
         # orphan guard below: a refused publish must commit nothing, because a
         # raised SystemExit discards the state write in with_locked_state while a
@@ -765,19 +769,13 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             raise SystemExit(wiring_error)
 
         from sprintengine_core.tool.repo_model import get_run_vcs
-        from sprintengine_core.tool.shell import task_scoped_orphaned_dirty_paths
-        if get_run_vcs(state):
-            orphaned = task_scoped_orphaned_dirty_paths(state, args.state, task)
-            if orphaned:
-                raise SystemExit(
-                    "Cannot publish: "
-                    f"{len(orphaned)} changed path(s) in this task's working directories are uncommitted and owned by no task: "
-                    f"{', '.join(orphaned)}. A clean checkout of the published commit would be missing these files. "
-                    "If they belong to this task, add them to its ownedPaths (`sprintengine plan update-task`) or commit "
-                    "them with `sprintengine vcs commit --task-id "
-                    f"{args.task_id} --id {actor} --path <file>`, then publish again."
-                )
-        commit_sha = commit_task_changes_if_needed(state, args.state, task, str(actor))
+        # No orphan refusal (MC-2127). Work is never dropped or blocked for falling
+        # outside a plan-time list: the commit below takes the agent's self-reported
+        # paths, or sweeps everything dirty that no live sibling claims. Whatever is
+        # left over comes back as a question, below, instead of a raise.
+        commit_sha = commit_task_changes_if_needed(
+            state, args.state, task, str(actor), self_reported=self_reported
+        )
         set_implementer_actual_difficulty(
             task,
             getattr(args, "actual_difficulty_pct", None),
@@ -821,14 +819,13 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             if result["nextStatus"] != "done"
             else None
         )
-        # Post-commit leftover check (MC-1753): after the sweep, in-scope dirty
-        # paths anywhere mean a commit path failed — surface it loudly.
-        from sprintengine_core.tool.shell import _task_in_scope_dirty_paths, vcs_repos
-        leftover_dirty: List[str] = []
-        if get_run_vcs(state):
-            for repo in vcs_repos(get_run_vcs(state)):
-                for path in _task_in_scope_dirty_paths(state, args.state, task, repo):
-                    leftover_dirty.append(f"{repo.get('id')}:{path}")
+        # The leftover-paths question (MC-2127), which replaced the orphan refusal.
+        # Structurally empty after a sweep publish — it takes everything unclaimed —
+        # so anything here is either work a self-report deliberately left out, or
+        # (after a sweep) the MC-1753 signal that a commit path failed. Either way
+        # the publish stands and the agent, which has full context, decides.
+        from sprintengine_core.tool.shell import unclaimed_dirty_paths
+        leftover_dirty: List[str] = unclaimed_dirty_paths(state, args.state, task) if get_run_vcs(state) else []
         no_changes_record = None
         if result.get("completionKind") == "no_changes":
             from pathlib import Path as _Path
@@ -867,11 +864,20 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             **({"completionKind": result["completionKind"]} if result.get("completionKind") else {}),
             **({"nextDirective": next_directive} if next_directive else {}),
             **({
-                "warnings": [
-                    "In-scope changes remain uncommitted after publish "
-                    f"({', '.join(leftover_dirty[:10])}) — a commit path failed; "
-                    "run sprintengine vcs commit and investigate."
-                ],
+                "uncommittedPaths": leftover_dirty,
+                "uncommittedPathsQuestion": (
+                    f"{len(leftover_dirty)} changed path(s) are still uncommitted and claimed by no "
+                    f"active task: {', '.join(leftover_dirty[:10])}. Do they belong to this task? "
+                    f"If so, publish again with --changed-path (or `sprintengine vcs commit --task-id "
+                    f"{args.task_id} --id {actor} --path <file>`); if not, leave them."
+                ),
+                **({
+                    "warnings": [
+                        "This publish swept every unclaimed path, so nothing should have been left "
+                        f"behind ({', '.join(leftover_dirty[:10])}) — a commit path failed; "
+                        "run sprintengine vcs commit and investigate."
+                    ],
+                } if not self_reported else {}),
             } if leftover_dirty else {}),
             "committed": bool(commit_sha),
             "commitSha": commit_sha,

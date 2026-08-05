@@ -1017,6 +1017,9 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
         if getattr(args, "summary", None):
             ensure_evidence(task)["summary"] = args.summary
         refresh_task_diff_evidence(state, args.state, task, str(actor), args.path or [])
+        # `--path` keeps its additive meaning (MC-2127): the bound tree's sweep
+        # already covers anything it could name, but a declared sibling tree falls
+        # back to declared scope, where it still widens.
         sha = commit_run_worktree_paths(state, args.state, task, str(actor), explicit_paths=args.path or [])
         # Everything reported back describes the tree this task commits in — the
         # project it targets — not whatever the primary tree happens to be doing.
@@ -1039,8 +1042,9 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
             else (
                 f"NO-OP: no in-scope changes to commit for task {args.task_id} "
                 f"(checked worktree: {repo['worktreePath']}). Nothing was committed — "
-                "if you did change files, check you are working in this task's repo "
-                "worktree and that the paths are inside its ownedPaths."
+                "the tree is clean, or every dirty path in it is claimed by another "
+                "active task. If you did change files, check you are working in this "
+                "task's repo worktree."
             )
         )
         if orphaned:

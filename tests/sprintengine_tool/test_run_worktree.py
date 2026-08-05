@@ -169,7 +169,13 @@ def test_two_runs_get_independent_worktrees_and_branches(tmp_path) -> None:
     assert "sprintengine/team-two" in listing
 
 
-def test_vcs_commit_stages_only_task_owned_paths(tmp_path) -> None:
+def test_vcs_commit_sweeps_every_dirty_path_no_live_sibling_claims(tmp_path) -> None:
+    """MC-2127: with no sibling running, a commit is simply "everything I changed".
+
+    The unrelated file used to be left behind because it fell outside a plan-time
+    list. Nobody else is live to own it, so leaving it behind only ever meant
+    dropping it from the run.
+    """
     workspace = tmp_path / "ws"
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
@@ -180,18 +186,16 @@ def test_vcs_commit_stages_only_task_owned_paths(tmp_path) -> None:
     worktree = _worktree_dir(fixture)
     (worktree / "src").mkdir(parents=True, exist_ok=True)
     (worktree / "src" / "feature.ts").write_text("export const f = 1\n", encoding="utf-8")
-    # An unrelated dirty file that does NOT belong to T1 must not be committed.
     (worktree / "unrelated.txt").write_text("noise\n", encoding="utf-8")
 
     result = fixture.cli.run("vcs", "commit", "--task-id", "T1", "--id", "developer-1")
     assert result["committed"] is True
     assert result["commitSha"]
 
-    committed = _git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split()
-    assert committed == ["src/feature.ts"]
-    # Unrelated file is still untracked in the shared worktree.
-    status = _git(worktree, "status", "--porcelain").stdout
-    assert "unrelated.txt" in status
+    committed = sorted(_git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split())
+    assert committed == ["src/feature.ts", "unrelated.txt"]
+    # Nothing is left dirty for a later publish to strand.
+    assert _git(worktree, "status", "--porcelain").stdout.strip() == ""
 
 
 def test_vcs_commit_includes_extra_path(tmp_path) -> None:
@@ -215,10 +219,14 @@ def test_vcs_commit_includes_extra_path(tmp_path) -> None:
     assert committed == sorted(["src/feature.ts", "src/feature.test.ts"])
 
 
-def test_vcs_commit_warns_on_orphaned_new_directory(tmp_path) -> None:
-    # Reproduces the T5 round-3 failure: an author splits an owned file into a new
-    # sibling directory, but the directory is in no task's ownedPaths, so the
-    # per-task commit silently leaves it out and a clean checkout cannot build.
+def test_vcs_commit_takes_the_new_directory_a_split_created(tmp_path) -> None:
+    """The T5 round-3 failure, now fixed rather than warned about (MC-2127).
+
+    An author splits an owned file into a new sibling directory that is in no
+    task's ownedPaths. That used to be committed by nobody, so a clean checkout of
+    the published commit could not build. The sweep takes it: no live sibling
+    claims it, so it is this task's.
+    """
     workspace = tmp_path / "ws"
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
@@ -235,12 +243,10 @@ def test_vcs_commit_warns_on_orphaned_new_directory(tmp_path) -> None:
 
     result = fixture.cli.run("vcs", "commit", "--task-id", "T1", "--id", "developer-1")
     assert result["committed"] is True
-    assert result["orphanedUncommittedPaths"] == ["src/Panel/helper.ts"]
-    assert "WARNING" in result["message"]
-    assert "src/Panel/helper.ts" in result["message"]
-    # The owned shell was committed; the unowned new file was left behind in HEAD.
-    committed = _git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split()
-    assert committed == ["src/Panel.tsx"]
+    assert result["orphanedUncommittedPaths"] == []
+    assert "WARNING" not in result["message"]
+    committed = sorted(_git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split())
+    assert committed == ["src/Panel.tsx", "src/Panel/helper.ts"]
 
 
 def test_vcs_commit_does_not_flag_another_tasks_paths_as_orphaned(tmp_path) -> None:
@@ -266,7 +272,12 @@ def test_vcs_commit_does_not_flag_another_tasks_paths_as_orphaned(tmp_path) -> N
     assert "WARNING" not in result["message"]
 
 
-def test_task_publish_blocks_on_orphaned_uncommitted_paths(tmp_path) -> None:
+def test_task_publish_commits_an_unowned_split_instead_of_refusing_it(tmp_path) -> None:
+    """The orphan refusal is gone (MC-2127); the work simply lands.
+
+    This publish used to be refused outright, and the agent had to go widen its
+    ownedPaths through `plan update-task` before it could hand off legitimate work.
+    """
     workspace = tmp_path / "ws"
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
@@ -280,28 +291,20 @@ def test_task_publish_blocks_on_orphaned_uncommitted_paths(tmp_path) -> None:
     (worktree / "src" / "Panel").mkdir(parents=True, exist_ok=True)
     (worktree / "src" / "Panel" / "helper.ts").write_text("export const f = 1\n", encoding="utf-8")
 
-    failure = fixture.cli.run_failure(
-        "task", "publish", "--task-id", "T1", "--id", "developer-1", "--summary", "Split the panel."
-    )
-    assert "Cannot publish" in failure.stderr
-    assert "src/Panel/helper.ts" in failure.stderr
-
-    # After the author owns the MODULE the split lives in, publish succeeds and the
-    # tree is clean. Re-declaring `src/Panel.tsx` is refused now that it exists:
-    # tasks own directories, not files (item 2019).
-    fixture.cli.run("plan", "update-task", "--task-id", "T1", "--path", "src", "--force")
     published = fixture.cli.run(
         "task", "publish", "--task-id", "T1", "--id", "developer-1", "--summary", "Split the panel."
     )
     assert published["ok"] is True
-    # Both files are now tracked and nothing is left dirty in the shared worktree.
+    # Both files are tracked and nothing is left dirty — with no ownedPaths edit.
     tracked = _git(worktree, "ls-files").stdout.split()
     assert "src/Panel.tsx" in tracked
     assert "src/Panel/helper.ts" in tracked
     assert _git(worktree, "status", "--porcelain").stdout.strip() == ""
+    # Nothing to ask about: the sweep left nothing behind.
+    assert "uncommittedPaths" not in published
 
 
-def test_vcs_commit_noop_when_no_in_scope_changes(tmp_path) -> None:
+def test_vcs_commit_noop_on_a_clean_tree(tmp_path) -> None:
     workspace = tmp_path / "ws"
     _init_git_repo(workspace)
     fixture = _worktree_team(workspace, "alpha")
@@ -309,13 +312,31 @@ def test_vcs_commit_noop_when_no_in_scope_changes(tmp_path) -> None:
     fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature.ts")
     _claim(fixture, "T1", "developer-1")
 
-    # Only an unrelated file is dirty; T1 owns nothing dirty.
+    # Nothing dirty at all — the only no-op left once scope is "what changed".
+    result = fixture.cli.run("vcs", "commit", "--task-id", "T1", "--id", "developer-1")
+    assert result["committed"] is False
+    assert result["commitSha"] is None
+
+
+def test_vcs_commit_noop_when_every_dirty_path_belongs_to_a_live_sibling(tmp_path) -> None:
+    workspace = tmp_path / "ws"
+    _init_git_repo(workspace)
+    fixture = _worktree_team(workspace, "alpha")
+    fixture.cli.run("init", "--goal", "Build alpha", "--use-worktrees", "true", "--agent", "developer:developer-1")
+    fixture.cli.run("plan", "add-task", "--title", "Feature", "--role", "developer", "--task-id", "T1", "--path", "src/feature")
+    fixture.cli.run("plan", "add-task", "--title", "Other", "--role", "developer", "--task-id", "T2", "--path", "src/other")
+    _claim(fixture, "T1", "developer-1")
+    _claim(fixture, "T2", "developer-2")
+
+    # The only dirty path is live T2's, so T1 has nothing of its own to commit.
     worktree = _worktree_dir(fixture)
-    (worktree / "unrelated.txt").write_text("noise\n", encoding="utf-8")
+    (worktree / "src" / "other").mkdir(parents=True, exist_ok=True)
+    (worktree / "src" / "other" / "o.ts").write_text("export const o = 2\n", encoding="utf-8")
 
     result = fixture.cli.run("vcs", "commit", "--task-id", "T1", "--id", "developer-1")
     assert result["committed"] is False
     assert result["commitSha"] is None
+    assert "src/other/o.ts" in _git(worktree, "status", "--porcelain", "-uall").stdout
 
 
 def test_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
@@ -340,7 +361,7 @@ def test_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
         "developer-1",
         "--summary",
         "Ready.",
-        "--path",
+        "--changed-path",
         "src/feature.ts",
     )
 
@@ -351,10 +372,14 @@ def test_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
     assert result["producedChanges"] is True
     assert result["nextStatus"] == "review"
     assert result["nextDirective"]
+    # The self-report is authoritative: exactly what it named was committed.
     committed = _git(worktree, "show", "--name-only", "--format=", "HEAD").stdout.split()
     assert committed == ["src/feature.ts"]
     status = _git(worktree, "status", "--porcelain").stdout
     assert "unrelated.txt" in status
+    # And what it left behind comes back as a question, not a refusal.
+    assert result["uncommittedPaths"] == ["unrelated.txt"]
+    assert "unrelated.txt" in result["uncommittedPathsQuestion"]
     persisted = next(task for task in read_state(fixture.state_path)["tasks"] if task.get("id") == "T1")
     assert result["commitSha"] in persisted["evidence"]["commits"]
     assert persisted["ownerAgentId"] == "developer-1"
@@ -381,7 +406,7 @@ def test_mcp_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
             "taskId": "T1",
             "id": "developer-1",
             "summary": "Ready.",
-            "path": ["src/feature.ts"],
+            "changedPath": ["src/feature.ts"],
         },
         _actor("developer-1", "developer"),
     )
@@ -396,6 +421,8 @@ def test_mcp_task_publish_commits_task_paths_before_routing(tmp_path) -> None:
     assert committed == ["src/feature.ts"]
     status = _git(worktree, "status", "--porcelain").stdout
     assert "unrelated.txt" in status
+    # The leftover question survives MCP response shaping.
+    assert published["result"]["uncommittedPaths"] == ["unrelated.txt"]
     persisted = next(task for task in read_state(fixture.state_path)["tasks"] if task.get("id") == "T1")
     assert published["result"]["commitSha"] in persisted["evidence"]["commits"]
 

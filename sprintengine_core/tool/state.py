@@ -720,10 +720,14 @@ def active_module_conflict(state: Dict[str, Any], task: Dict[str, Any]) -> Optio
     Returns `{taskId, taskTitle, module, workerId}` describing the holder, so the
     caller can say WHY a ready task is not running.
     """
-    from sprintengine_core.tool.shell import paths_overlap
+    from sprintengine_core.tool.shell import paths_overlap, task_claimed_paths
 
     candidate_modules = [str(path) for path in (task.get("ownedPaths") or [])]
     if not candidate_modules:
+        # No declared modules is the normal case since MC-2127 made `ownedPaths` an
+        # optional advisory — a directly-imported task declares none. Nothing to
+        # serialize on, and nothing is lost: the publish sweep excludes whatever a
+        # live sibling claims, so concurrent work still cannot be swept up.
         return None
     task_id = str(task.get("id") or "").strip()
     for other in state.get("tasks", []) or []:
@@ -732,7 +736,10 @@ def active_module_conflict(state: Dict[str, Any], task: Dict[str, Any]) -> Optio
         holder = active_lease_worker(other)
         if not holder:
             continue
-        for owned in other.get("ownedPaths") or []:
+        # The holder's claims include the scope expansions it logged mid-task
+        # (MC-2127): an agent that says "I am also working here" is making the same
+        # claim as a plan-time module, and the publish sweep already honours it.
+        for owned in task_claimed_paths(other):
             overlapping = next(
                 (module for module in candidate_modules if paths_overlap(str(owned), module)), None
             )

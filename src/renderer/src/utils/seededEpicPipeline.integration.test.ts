@@ -655,13 +655,18 @@ function testPreChangeRunStoreStillWorks(root: string): void {
   rmSync(capturedTaskPath)
   git(root, 'worktree', 'add', '-q', join(teamDir, 'worktree'), '-b', `sprintengine/${teamSlug}`)
 
-  // Loads, with the store's own schema version and its file-level paths intact.
+  // Loads, with its file-level paths intact. A v4 store is MIGRATED on read
+  // (`MIGRATABLE_RUN_SCHEMA_VERSION = 4`) and the migration is persisted, so both
+  // the projection and the file carry the current version afterwards. The
+  // migration promise is that the store keeps working — dispatching and committing
+  // below — not that its bytes are frozen.
   const loaded = projection(root, statePath)
-  assert.equal((loaded.run as Json).schemaVersion, 4)
+  assert.equal((loaded.run as Json).schemaVersion, 5)
+  assert.equal(schemaLine, 'schemaVersion: 4', 'the fixture must start pre-migration to prove anything')
   assert.equal(
     readFileSync(statePath, 'utf8').split('\n').find((line) => line.startsWith('schemaVersion:')),
-    schemaLine,
-    'loading a pre-change store must not rewrite its schema version',
+    'schemaVersion: 5',
+    'a pre-change store is migrated forward on load',
   )
   assert.deepEqual(taskById(loaded.tasks, 'T1').ownedPaths, capturedOwnedPaths,
     'a pre-change store\'s file-level ownedPaths must survive the read verbatim')
@@ -671,22 +676,25 @@ function testPreChangeRunStoreStillWorks(root: string): void {
   assert.equal(claim.claimed, true, `a pre-change store failed to dispatch: ${JSON.stringify(claim)}`)
   assert.equal((claim.task as Json).id, 'T1')
 
-  // And commits: a file-level entry still contains exactly itself, so the commit
-  // scope is byte-identical to what the old contract produced, and a sibling file
-  // outside it is still reported rather than swept in.
+  // And commits. Since MC-2127 the store's file-level entries no longer LIMIT the
+  // commit: scope is what the task changed, minus whatever a live sibling claims.
+  // T1 is the only task running, so its own file and the sibling beside it both
+  // land — the migration promise is that a pre-change store loses nothing, and it
+  // now gains the path the old contract would have silently dropped.
   const worktree = join(teamDir, 'worktree')
   write(worktree, 'src/main/mobile/sprintengine/snapshot.ts', 'export const snapshot = 1\n')
   write(worktree, 'src/main/mobile/other/stray.ts', 'export const stray = 1\n')
   const committed = engine(root, statePath, 'vcs', 'commit', '--task-id', 'T1', '--id', 'developer-1')
   assert.equal(committed.committed, true, JSON.stringify(committed))
   assert.deepEqual(
-    git(worktree, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n'),
-    ['src/main/mobile/sprintengine/snapshot.ts'],
-    'a file-level owned path must still commit exactly itself',
+    git(worktree, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n').sort(),
+    ['src/main/mobile/other/stray.ts', 'src/main/mobile/sprintengine/snapshot.ts'],
+    "a pre-change store's declared path still commits, and nothing beside it is dropped",
   )
-  assert.ok(
-    String(committed.message).includes('src/main/mobile/other/stray.ts'),
-    'a path outside every owned entry is still reported as uncommitted',
+  assert.equal(
+    git(worktree, 'status', '--porcelain').trim(),
+    '',
+    'nothing is left uncommitted for the run to strand',
   )
 }
 

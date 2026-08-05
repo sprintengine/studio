@@ -515,6 +515,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", required=True, help="Agent id.")
     p.add_argument("--summary", required=True, help="Implementation summary or rework response body.")
     p.add_argument("--path", action="append", default=[], help="Project-root-relative path referenced by this handoff.")
+    p.add_argument(
+        "--changed-path",
+        dest="changed_path",
+        action="append",
+        default=[],
+        help=(
+            "Project-root-relative path this task CHANGED. Repeatable. The engine commits exactly "
+            "these. Omit it and the publish commits everything dirty that no other active task "
+            "claims — the right default when you are the only agent running. Paths left uncommitted "
+            "come back in the response as a question, never a refusal."
+        ),
+    )
     p.add_argument("--summary-data-json", help="Structured implementation summary JSON object.")
     p.add_argument(
         "--no-changes-ok",

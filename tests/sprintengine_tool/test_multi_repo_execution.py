@@ -100,12 +100,13 @@ def test_sibling_task_commits_only_its_paths_to_the_sibling_project(tmp_path) ->
 
     published = fixture.cli.run(
         "task", "publish", "--task-id", "T1", "--id", "developer-1",
-        "--summary", "Add the screen.", "--path", "app/screen.ts",
+        "--summary", "Add the screen.", "--changed-path", "app/screen.ts",
     )
     assert published["ok"] is True
 
     # The commit is on the run branch in the SIBLING project, carrying only the
-    # task's own path.
+    # task's own path — the self-report (MC-2127) is what keeps the unrelated
+    # note out; without one the sweep would take it, since nobody else claims it.
     head = _git(mobile_worktree, "show", "--name-only", "--format=", "HEAD").stdout.split()
     assert head == ["app/screen.ts"]
     assert _git(mobile_worktree, "branch", "--show-current").stdout.strip() == "sprintengine/alpha"
@@ -151,9 +152,10 @@ def test_sibling_commit_records_its_own_repo_status_not_the_primarys(tmp_path) -
 # --- orphan protection, per tree -------------------------------------------
 
 
-def test_publish_guard_blocks_on_an_orphan_in_the_sibling_tree(tmp_path) -> None:
-    # AC2: orphan protection is live in the sibling tree — an unowned new file beside
-    # the task's own work blocks its publish there exactly as it does in the primary.
+def test_an_unowned_split_in_the_sibling_tree_is_committed_not_refused(tmp_path) -> None:
+    # AC2, as MC-2127 rewrote it: the sibling tree is the task's BOUND tree here, so
+    # it is swept. The unowned new file beside the task's own work is committed
+    # rather than blocking the publish — same outcome as in the primary tree.
     fixture, _, _ = _two_project_run(tmp_path)
     fixture.cli.run(
         "plan", "add-task", "--title", "Mobile panel", "--role", "developer",
@@ -166,11 +168,13 @@ def test_publish_guard_blocks_on_an_orphan_in_the_sibling_tree(tmp_path) -> None
     _write(mobile_worktree, "app/Panel.tsx", "export { f } from './Panel/helper'\n")
     _write(mobile_worktree, "app/Panel/helper.ts", "export const f = 1\n")
 
-    failure = fixture.cli.run_failure(
+    published = fixture.cli.run(
         "task", "publish", "--task-id", "T1", "--id", "developer-1", "--summary", "Split the panel."
     )
-    assert "Cannot publish" in failure.stderr
-    assert "app/Panel/helper.ts" in failure.stderr
+    assert published["ok"] is True
+    head = sorted(_git(mobile_worktree, "show", "--name-only", "--format=", "HEAD").stdout.split())
+    assert head == ["app/Panel.tsx", "app/Panel/helper.ts"]
+    assert _git(mobile_worktree, "status", "--porcelain").stdout.strip() == ""
 
 
 def test_publish_guard_ignores_an_orphan_in_a_project_the_task_does_not_touch(tmp_path) -> None:

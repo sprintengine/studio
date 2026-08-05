@@ -406,8 +406,35 @@ def path_in_owned_scope(path: str, pathspec: List[str]) -> bool:
     return any(module_contains_path(entry, path) for entry in pathspec)
 
 
+def task_claimed_paths(task: Dict[str, Any]) -> List[str]:
+    """Every path a task claims: its declared modules plus its logged scope expansions.
+
+    `ownedPaths` is an optional advisory since MC-2127, but a task that carries one
+    still uses it to serialize dispatch and to fence live siblings out of its work
+    at publish. A logged scope expansion is the same kind of claim made mid-task
+    rather than at plan time — it is precisely an agent saying "I am working here
+    too" — so it belongs in the claim set. Folding it in is also what retires the
+    bug where publish ignored scope-expanded paths entirely.
+    """
+    claimed: List[str] = [str(path) for path in (task.get("ownedPaths") or [])]
+    evidence = task.get("evidence")
+    if isinstance(evidence, dict):
+        for expansion in evidence.get("scopeExpansions") or []:
+            if isinstance(expansion, dict):
+                path = str(expansion.get("path") or "").strip()
+                if path:
+                    claimed.append(path)
+    seen: set = set()
+    unique: List[str] = []
+    for path in claimed:
+        if path and path not in seen:
+            seen.add(path)
+            unique.append(path)
+    return unique
+
+
 def modules_held_by_other_active_tasks(state: Dict[str, Any], task: Dict[str, Any]) -> List[str]:
-    """The `ownedPaths` of every OTHER task whose lease is currently active.
+    """The claimed paths of every OTHER task whose lease is currently active.
 
     "Active" is `active_lease_worker`, the SAME notion the dispatch guard uses:
     the two answer one question — who is live in this module right now — and a
@@ -415,6 +442,10 @@ def modules_held_by_other_active_tasks(state: Dict[str, Any], task: Dict[str, An
     Repo-agnostic for the same reason the guard is: the commit sweep stages a
     task's pathspec in every declared tree it worked (MC-1752), so the same
     relative module in a sibling project is the same claim.
+
+    Since MC-2127 this is load-bearing in the other direction too: it is what the
+    default publish sweep SUBTRACTS, so "commit everything I changed" cannot take a
+    live sibling's half-finished work with it.
     """
     from sprintengine_core.tool.state import active_lease_worker
 
@@ -425,7 +456,7 @@ def modules_held_by_other_active_tasks(state: Dict[str, Any], task: Dict[str, An
             continue
         if not active_lease_worker(other):
             continue
-        held.extend(str(path) for path in (other.get("ownedPaths") or []))
+        held.extend(task_claimed_paths(other))
     return held
 
 
@@ -456,6 +487,68 @@ def _parse_porcelain_z(output: str) -> List[Dict[str, str]]:
     return records
 
 
+def _select_in_scope(
+    worktree: Path,
+    dirty_paths: List[str],
+    *,
+    claimed: List[str],
+    declared: List[str],
+    foreign: List[str],
+    reported: List[str],
+    sweep: bool,
+) -> List[str]:
+    """The publish scope filter (MC-2127) — one definition, three callers.
+
+    The commit applies it under the repo's index lock, the multi-repo pre-probe
+    applies it lock-free to decide whether a sibling tree is worth entering, and the
+    leftover-paths question applies it to ask "what is still dirty that nobody
+    claims?". Three answers that must agree, so they share the code.
+
+    Precedence: an explicit report wins; otherwise the tree is swept; otherwise
+    scope falls back to what the task declared and claims.
+
+    ``sweep`` is false for a repo the task is not BOUND to. In its own tree "what is
+    dirty" is a sound answer to "what did I change", because that is the tree it was
+    sent to work in. In a sibling project it is not: a task that never touched that
+    repo would otherwise sweep up whatever is dirty there, including another task's
+    work. A sibling tree stays opt-in, entered only on the evidence that this task
+    worked there.
+
+    A path a LIVE sibling claims is never ours, in any tree. Own claims win on
+    overlap so a task always commits its own module: the dispatch guard normally
+    keeps overlapping tasks off the clock together, but a repair transition or a
+    hand-edited store can still produce one.
+    """
+    own_claims = _normalize_commit_pathspec(worktree, claimed)
+
+    def mine(path: str) -> bool:
+        if not foreign:
+            return True
+        return path_in_owned_scope(path, own_claims) or not path_in_owned_scope(path, foreign)
+
+    if reported:
+        # Exactly what was reported, intersected with what git agrees is dirty. A
+        # reported path a sibling holds is still refused — a report is authority
+        # over one's own work, never over anyone else's.
+        return [path for path in dirty_paths if path_in_owned_scope(path, reported) and mine(path)]
+    if sweep:
+        return [path for path in dirty_paths if mine(path)]
+    fallback = _normalize_commit_pathspec(worktree, [*declared, *claimed])
+    if not fallback:
+        return []
+    return [path for path in dirty_paths if path_in_owned_scope(path, fallback) and mine(path)]
+
+
+def _dirty_paths_in(worktree: Path) -> List[str]:
+    """Every dirty path git reports in a worktree, untracked included."""
+    status = run_git_checked(
+        worktree, ["status", "--porcelain", "-z", "--untracked-files=all"], allow_failure=True
+    )
+    if status.returncode != 0:
+        return []
+    return sorted({record["path"] for record in _parse_porcelain_z(status.stdout) if record["path"]})
+
+
 def _commit_task_paths_in_repo(
     state: Dict[str, Any],
     state_path: Path,
@@ -464,14 +557,28 @@ def _commit_task_paths_in_repo(
     repo: Dict[str, Any],
     *,
     explicit_paths: Optional[List[str]] = None,
+    self_reported: Optional[List[str]] = None,
+    sweep: bool = True,
 ) -> Optional[str]:
     """Stage and commit the task's in-scope paths in ONE repo's run worktree.
 
     Serialized through that repo's ``runner/git.commit.<repoId>.lock`` so
-    concurrent agents never race a git index. Stages a pathspec built from the
-    task's owned paths, logged touched files, and any explicitly passed paths —
-    never ``git add -A``. Returns the new short SHA, or ``None`` when there is
-    nothing in scope to commit in this repo.
+    concurrent agents never race a git index. Returns the new short SHA, or
+    ``None`` when there is nothing in scope to commit in this repo.
+
+    Scope comes from publish time, not plan time (MC-2127). Two modes:
+
+    * **Self-report.** ``self_reported`` names what the agent actually changed, and
+      exactly those dirty paths are staged. The agent made every edit, so its
+      report beats any plan-time guess.
+    * **Sweep.** With no self-report, scope is everything dirty in the tree MINUS
+      the paths live siblings claim. On a dependency-chained run — most of one —
+      no sibling is active, so this is simply "commit all my changes" and nothing
+      is dropped. This is what makes a task with no ``ownedPaths`` at all publish
+      its work instead of committing nothing.
+
+    Still never ``git add -A``: the pathspec is always an explicit list of paths
+    git itself reported dirty, so the sibling exclusion is applied before staging.
     """
     from sprintengine_core import store as folder_store
     from sprintengine_core.tool.state import append_event
@@ -482,9 +589,13 @@ def _commit_task_paths_in_repo(
         return None
 
     vcs = get_run_vcs(state)
+    claimed = task_claimed_paths(task)
+    # Only the publish self-report LIMITS scope. `vcs commit --path` keeps its old
+    # meaning — an ADDITIVE "include this too" — which the sweep subsumes in the
+    # bound tree but still matters in a sibling tree, where scope falls back to what
+    # the task declared.
     declared = task_diff_declared_paths(task, explicit_paths or [])
-    owned = [str(path) for path in task.get("ownedPaths", []) or []]
-    pathspec = _normalize_commit_pathspec(worktree, [*declared, *owned])
+    reported = _normalize_commit_pathspec(worktree, [str(path) for path in (self_reported or [])])
 
     lock = folder_store.FolderLock(state_path.parent / folder_store.git_commit_lock_file(repo["id"]))
     lock.acquire(recover_stale=True)
@@ -493,28 +604,18 @@ def _commit_task_paths_in_repo(
         dirty = _parse_porcelain_z(status_out)
         if vcs is not None:
             set_repo_status(vcs, repo["id"], "dirty" if dirty else "ready")
-        if not pathspec:
+        dirty_paths = sorted({record["path"] for record in dirty if record["path"]})
+        if not dirty_paths:
             return None
-        in_scope = sorted({record["path"] for record in dirty if path_in_owned_scope(record["path"], pathspec)})
-        # The pathspec is WIDER than this task's modules: it also carries the paths
-        # the task declared touching (evidence, the latest implementation comment)
-        # and any explicitly passed `--path`. The dispatch guard reads ownedPaths
-        # only, so those extra entries are the one channel left through which a
-        # commit can still sweep another live task's half-finished work — and an
-        # agent told it owns DIRECTORIES passes a directory here, which takes the
-        # whole module including files it never touched. Stage a path only when it
-        # is inside THIS task's modules, or inside no other live task's.
-        # `owned` wins on overlap so a task always commits its own module: the
-        # dispatch guard normally keeps overlapping tasks from being live at once,
-        # but a repair transition or a hand-edited store can still produce one.
-        foreign = _normalize_commit_pathspec(worktree, modules_held_by_other_active_tasks(state, task))
-        if foreign:
-            own_modules = _normalize_commit_pathspec(worktree, owned)
-            in_scope = [
-                path
-                for path in in_scope
-                if path_in_owned_scope(path, own_modules) or not path_in_owned_scope(path, foreign)
-            ]
+        in_scope = _select_in_scope(
+            worktree,
+            dirty_paths,
+            claimed=claimed,
+            declared=declared,
+            foreign=_normalize_commit_pathspec(worktree, modules_held_by_other_active_tasks(state, task)),
+            reported=reported,
+            sweep=sweep,
+        )
         if not in_scope:
             return None
         run_git_checked(worktree, ["add", "--", *in_scope])
@@ -555,6 +656,7 @@ def commit_run_worktree_paths(
     actor: str,
     *,
     explicit_paths: Optional[List[str]] = None,
+    self_reported: Optional[List[str]] = None,
 ) -> Optional[str]:
     """Commit the task's in-scope changes in EVERY declared repo worktree.
 
@@ -577,7 +679,7 @@ def commit_run_worktree_paths(
         raise SystemExit(f"Sprint Engine worktree is missing: {worktree}")
 
     primary_sha = _commit_task_paths_in_repo(
-        state, state_path, task, actor, repo, explicit_paths=explicit_paths
+        state, state_path, task, actor, repo, explicit_paths=explicit_paths, self_reported=self_reported
     )
     sweep_sha: Optional[str] = None
     vcs = get_run_vcs(state)
@@ -590,10 +692,17 @@ def commit_run_worktree_paths(
         # queue behind, or time out on, another project's lock. The locked
         # commit re-checks scope under the lock, so the probe racing another
         # agent's commit only ever turns into a clean no-op.
-        if not _task_in_scope_dirty_paths(state, state_path, task, sibling, explicit_paths=explicit_paths):
+        # `sweep=False`: a sibling tree is opt-in. The task must have declared or
+        # claimed something there to commit there — otherwise a task bound to one
+        # project would sweep up whatever happened to be dirty in another.
+        if not _task_in_scope_dirty_paths(
+            state, state_path, task, sibling,
+            explicit_paths=explicit_paths, self_reported=self_reported, sweep=False,
+        ):
             continue
         sha = _commit_task_paths_in_repo(
-            state, state_path, task, actor, sibling, explicit_paths=explicit_paths
+            state, state_path, task, actor, sibling,
+            explicit_paths=explicit_paths, self_reported=self_reported, sweep=False,
         )
         if sha and not sweep_sha:
             sweep_sha = sha
@@ -646,34 +755,43 @@ def reconcile_repo_commit_state_from_git(state: Dict[str, Any], state_path: Path
             set_repo_status(vcs, repo["id"], "committed")
 
 
-def commit_task_changes_if_needed(state: Dict[str, Any], state_path: Path, task: Dict[str, Any], actor: str) -> Optional[str]:
+def commit_task_changes_if_needed(
+    state: Dict[str, Any],
+    state_path: Path,
+    task: Dict[str, Any],
+    actor: str,
+    *,
+    self_reported: Optional[List[str]] = None,
+) -> Optional[str]:
     """Backstop commit when a task is marked done in worktree mode.
 
     Agents normally commit per task through ``sprintengine vcs commit``; this
     runs the same locked, pathspec-limited commit so any still-uncommitted
     task-scoped changes are captured before the task is recorded done.
+    ``self_reported`` carries publish's changed-paths report (MC-2127); without one
+    the commit sweeps everything dirty that no live sibling claims.
     """
-    return commit_run_worktree_paths(state, state_path, task, actor)
+    return commit_run_worktree_paths(state, state_path, task, actor, self_reported=self_reported)
 
 
 def worktree_orphaned_dirty_paths(state: Dict[str, Any], state_path: Path, repo: Dict[str, Any]) -> List[str]:
-    """Dirty paths in one repo's run worktree that fall inside no task's ownedPaths.
+    """Dirty paths in one repo's run worktree that fall inside no task's claims.
 
-    Per-task commits stage only owned + declared paths (never ``git add -A``, which
-    would sweep another agent's work into this commit). A change that lands inside
-    *no* task's ``ownedPaths`` is therefore picked up by nobody's commit and would
-    be silently dropped from the run — for example a new directory an author
-    created but never added to their task's owned paths (the failure that made a
-    published commit import files absent from HEAD). Dirty paths that fall inside
-    some task's owned paths are expected concurrent work and are not returned here.
+    The RUN-level completion scan (:func:`run_orphaned_dirty_paths`) and the
+    `vcs commit` advisory warning. Since MC-2127 a publish in the task's own tree
+    sweeps every unclaimed path, so this is normally empty by the time it is asked:
+    what it still catches is work left uncommitted at the end of a run — genuinely
+    nobody's, and about to be dropped.
 
-    Ownership is read from EVERY task's ownedPaths, regardless of its repo
-    binding (MC-1752): the commit sweep commits a task's in-scope changes in
-    every declared tree it worked, so a path inside any task's owned scope IS
-    picked up by that task's commit wherever it lives — the repo binding is
-    routing, not a cage. (Before the sweep, ownership was read per-repo, which
-    is exactly how the T11/multiauth work became "orphaned" while being fully
-    owned.)
+    Not a publish gate. Publish stopped refusing on this (MC-2127): a change falling
+    outside a plan-time list is exactly the case the sweep now commits, and the
+    leftovers it deliberately does not take come back to the agent as a question.
+
+    Claims are read from EVERY task, regardless of its repo binding (MC-1752): a
+    task's commit reaches every declared tree it worked, so a path inside any task's
+    claims IS picked up by that task's commit wherever it lives — the repo binding
+    is routing, not a cage. (Before the sweep, ownership was read per-repo, which is
+    exactly how the T11/multiauth work became "orphaned" while being fully owned.)
 
     Returns sorted project-relative posix paths. Advisory: read without the commit
     lock, so it reflects a point-in-time view of a shared worktree.
@@ -690,7 +808,10 @@ def worktree_orphaned_dirty_paths(state: Dict[str, Any], state_path: Path, repo:
     all_owned: List[str] = []
     for task in state.get("tasks", []) or []:
         if isinstance(task, dict):
-            all_owned.extend(str(path) for path in (task.get("ownedPaths") or []))
+            # Claims, not just declared modules: a scope expansion is a claim the
+            # publish sweep honours (MC-2127), so a path inside one is picked up by
+            # that task's commit and is not an orphan.
+            all_owned.extend(task_claimed_paths(task))
     owned_pathspec = _normalize_commit_pathspec(worktree, all_owned)
     return sorted(
         {
@@ -794,26 +915,65 @@ def task_scoped_orphaned_dirty_paths(
 
 def _task_in_scope_dirty_paths(
     state: Dict[str, Any], state_path: Path, task: Dict[str, Any], repo: Dict[str, Any],
-    *, explicit_paths: Optional[List[str]] = None,
+    *, explicit_paths: Optional[List[str]] = None, self_reported: Optional[List[str]] = None,
+    sweep: bool = True,
 ) -> List[str]:
-    """Dirty paths in one repo's worktree that fall inside this task's scope."""
+    """Dirty paths in one repo's worktree this task's publish would commit.
+
+    The lock-free read of the same scope the commit applies under the index lock
+    (MC-2127). Advisory by nature: a shared worktree can change under it, and the
+    locked commit re-derives scope, so a race only ever turns into a clean no-op.
+    """
     from sprintengine_core.tool.tasks import task_diff_declared_paths
 
     worktree = _repo_worktree(state_path, repo)
     if not worktree or not worktree.exists():
         return []
-    declared = task_diff_declared_paths(task, explicit_paths or [])
-    owned = [str(path) for path in task.get("ownedPaths", []) or []]
-    pathspec = _normalize_commit_pathspec(worktree, [*declared, *owned])
-    if not pathspec:
+    dirty_paths = _dirty_paths_in(worktree)
+    if not dirty_paths:
         return []
-    status = run_git_checked(
-        worktree, ["status", "--porcelain", "-z", "--untracked-files=all"], allow_failure=True
+    return _select_in_scope(
+        worktree,
+        dirty_paths,
+        claimed=task_claimed_paths(task),
+        declared=task_diff_declared_paths(task, explicit_paths or []),
+        foreign=_normalize_commit_pathspec(worktree, modules_held_by_other_active_tasks(state, task)),
+        reported=_normalize_commit_pathspec(worktree, [str(path) for path in (self_reported or [])]),
+        sweep=sweep,
     )
-    if status.returncode != 0:
+
+
+def unclaimed_dirty_paths(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> List[str]:
+    """Dirty paths across the task's declared trees that no LIVE sibling claims.
+
+    Read after a publish's commit, this is the leftover-paths question (MC-2127):
+    work sitting in the tree that this publish did not take and no other active task
+    is going to. It replaces the orphan REFUSAL — the agent that just published has
+    full context and decides in one cheap call whether to include them (publish or
+    `vcs commit` again naming them) or leave them.
+
+    Structurally empty after a sweep publish, which takes everything unclaimed; it
+    is a self-report publish that leaves anything behind. Sibling-repo paths are
+    prefixed ``<repoId>:`` so the answer names the project.
+    """
+    bound = repo_for_task(state, task)
+    if not bound:
         return []
-    dirty = _parse_porcelain_z(status.stdout)
-    return sorted({record["path"] for record in dirty if path_in_owned_scope(record["path"], pathspec)})
+    vcs = get_run_vcs(state)
+    repos = [bound] + [
+        repo for repo in vcs_repos(vcs) if str(repo.get("id")) != str(bound.get("id"))
+    ]
+    leftover: List[str] = []
+    for repo in repos:
+        is_bound = str(repo.get("id")) == str(bound.get("id"))
+        prefix = "" if is_bound else f"{repo.get('id')}:"
+        # Same asymmetry the commit uses: the bound tree is swept, a sibling tree
+        # answers only for what this task declared or claims there. Asking a task
+        # about a project it never touched would report strangers' work as its
+        # question to answer.
+        for path in _task_in_scope_dirty_paths(state, state_path, task, repo, sweep=is_bound):
+            leftover.append(f"{prefix}{path}")
+    return leftover
 
 
 def task_scoped_dirty_paths(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> List[str]:
