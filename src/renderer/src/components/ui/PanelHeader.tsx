@@ -13,25 +13,10 @@ type ProgressIndicator = {
   ariaLabel?: string
 }
 
-type PanelHeaderProps = {
+type PanelHeaderBaseProps = {
   /** Small identity dot only — the rest of the panel should stay accent-neutral. */
   tool?: ToolIdentity
   title: string
-  /** Use sentence case. Omit when the title is self-evident. */
-  subtitle?: string
-  /** The scope beside the title as a NODE, where `subtitle` is the same idea as
-   *  plain text: a project picker, or a state line with a lifecycle glyph in it.
-   *  Mutually exclusive with `subtitle` — two scopes on one title is the
-   *  ambiguity this row exists to remove.
-   *
-   *  It earns a slot because the alternative is worse. The composer and the New
-   *  sprint dialog both open on "which project?", and the inspector's three
-   *  panes all lead with a lifecycle glyph, so all five hand-rolled the whole
-   *  band rather than lose the control (2112) — and the only slots left were
-   *  `primaryAction`, which is the row's one action, and `overflow`, which is
-   *  the menu's. A scope belongs beside the name it scopes, not in the action
-   *  cluster on the far side of the row. */
-  scope?: React.ReactNode
   /** A navigation control BEFORE the title — a Back affordance on a drill-in
    *  shell. Only for getting out of the surface the row names: an action ON the
    *  surface is `primaryAction`, and the difference is why this sits on the far
@@ -53,6 +38,27 @@ type PanelHeaderProps = {
    *  own and gives the panel two lines where one carries the meaning. */
   divider?: boolean
 }
+
+// The scope beside the title, in one of its two forms — and the union is how
+// "one of" is enforced. Passing both is a type error rather than a silent
+// preference for one of them: two scopes on one title is exactly the ambiguity
+// this row exists to remove, and a header that quietly dropped the caller's
+// subtitle would hide the mistake instead of naming it.
+//
+// `scope` earns a slot because the alternative is worse. The composer and the
+// New sprint dialog both open on "which project?", and the inspector's three
+// panes all lead with a lifecycle glyph, so all five hand-rolled the whole band
+// rather than lose the control (2112) — and the only slots left were
+// `primaryAction`, which is the row's one action, and `overflow`, which is the
+// menu's. A scope belongs beside the name it scopes, not in the action cluster
+// on the far side of the row.
+type PanelHeaderScopeProps =
+  /** Scope as plain text. Use sentence case; omit when the title is self-evident. */
+  | { subtitle?: string; scope?: never }
+  /** The same idea as a NODE: a project picker, a state line with a glyph in it. */
+  | { subtitle?: never; scope?: React.ReactNode }
+
+type PanelHeaderProps = PanelHeaderBaseProps & PanelHeaderScopeProps
 
 export function PanelHeader({
   tool,
@@ -100,7 +106,7 @@ export function PanelHeader({
         {count !== undefined ? (
           <span className="tabular-nums text-meta text-[color:var(--text-muted)]">{count}</span>
         ) : null}
-        {subtitle && !scope ? (
+        {subtitle ? (
           // Shrinks far ahead of the title: a narrow panel that clips its own
           // name to "Bac…" while the scope word beside it stays whole has the
           // priority backwards. The scope gives up its space first, and the
@@ -113,11 +119,12 @@ export function PanelHeader({
           </span>
         ) : null}
         {scope ? (
-          // The interactive form of the same idea, and it yields its space the
-          // same way — a control shrinks before the panel's own name does. No
-          // `·` here: a chip draws its own edges, so the separator that a run of
-          // plain text needs would only add a second mark beside them.
-          <span className="ml-1.5 flex min-w-0 shrink-[100] items-center">{scope}</span>
+          // Yields its space the way the subtitle does — a scope shrinks before
+          // the panel's own name does. Spaced by the row's own `gap-2` and
+          // carrying no `·`: a chip or a glyph draws its own leading edge, so
+          // the separator a run of plain text needs would only sit a second
+          // mark beside one.
+          <span className="flex min-w-0 shrink-[100] items-center">{scope}</span>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
