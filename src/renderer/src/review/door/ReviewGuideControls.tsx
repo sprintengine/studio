@@ -265,7 +265,7 @@ export function AskGuideDrawer({
           aria-label="Your question for the guide"
           placeholder="Ask about any line, step, or decision…"
           rows={6}
-          className={`mt-3 min-h-[120px] flex-1 resize-none rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-body leading-5 text-[color:var(--text-strong)] focus:border-[color:var(--border-focus)] ${FOCUS_RING_CLASS}`}
+          className={`mt-3 min-h-[120px] flex-1 resize-none rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-body leading-5 text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
         />
         {error ? (
           <p className="mt-2 text-micro leading-4 text-[color:var(--tone-error)]">The guide couldn’t be reached: {error}</p>

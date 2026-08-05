@@ -14,7 +14,7 @@ import type {
   ConversationProviderListResult,
   ConversationSecretStatusResult,
 } from '../../../../shared/electron-api'
-import { GhostButton, PrimaryButton } from '../ui'
+import { FOCUS_RING_CLASS, GhostButton, PrimaryButton } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { SettingsSectionTitle } from './SettingsAtoms'
 import {
@@ -26,7 +26,8 @@ import {
 } from './providerSettings'
 
 const INPUT_CLASS =
-  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body ' +
+  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
 
 type NoteTone = 'neutral' | 'accent' | 'warn' | 'error'
 

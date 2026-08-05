@@ -134,13 +134,17 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     utils: 14,
     'components/workspace': 3,
   },
+  // 18 → 16 and backlog 1 → 0 when the overlay shells took their layer from the
+  // `--z-*` tokens (MC-2109): the New sprint dialog and the roster manager gave
+  // up `z-50`, and the agent composer's nested engine flyout named the popover
+  // tier it was already sitting on. What remains on this axis is in-flow depth
+  // inside a pane, not overlay layering.
   z: {
-    'components/workspace': 18,
+    'components/workspace': 16,
     'components/panels': 14,
     'components/ui': 3,
     'components/memory': 2,
     'components/auxWindows': 1,
-    'components/backlog': 1,
     'components/onboarding': 1,
   },
   type: {

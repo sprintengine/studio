@@ -8,7 +8,7 @@ import {
 } from '../../content/learning/types'
 import { searchLearningItems } from '../../content/learning/selectors'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
-import { GhostButton, Switch, Tabs, type TabItem } from '../ui'
+import { FOCUS_RING_CLASS, GhostButton, Switch, Tabs, type TabItem } from '../ui'
 
 type LearnCenterProps = {
   onSettingsTab?: (tabId: string) => void
@@ -97,7 +97,7 @@ export default function LearnCenter({ onSettingsTab }: LearnCenterProps) {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search tips"
-          className="h-8 w-64 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]"
+          className={`h-8 w-64 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
         />
         <div className="flex shrink-0 items-center gap-3">
           <div className="flex items-center gap-2">

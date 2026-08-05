@@ -355,7 +355,7 @@ function SprintEngineModelField({
  }
  }
  }}
- className={`mt-1 w-full rounded-md border border-[color:var(--border-subtle)] bg-transparent px-3 py-2 font-mono text-body text-[color:var(--text-default)] placeholder:font-sans placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}
+ className={`mt-1 w-full rounded-md border border-[color:var(--border-subtle)] bg-transparent px-3 py-2 font-mono text-body text-[color:var(--text-default)] placeholder:font-sans placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
  />
  ) : null}
  </Popover>

@@ -24,7 +24,7 @@ import {
   listSprintEngineWizardRoles,
 } from '../../../utils/sprintengineRoleOptions'
 import { CheckIcon, ChevronDownIcon } from '../../AppIcons'
-import { CliModelPickerButton, Popover, PrimaryButton, RoleAvatar, Switch } from '../../ui'
+import { CliModelPickerButton, FOCUS_RING_CLASS, Popover, PrimaryButton, RoleAvatar, Switch } from '../../ui'
 import { type SprintEngineCliOption } from './SprintEngineRosterTable'
 import {
   NO_ROLES_ROSTER_ID,
@@ -387,10 +387,10 @@ export function SavedRostersMenu({
                 close()
               }
             }}
-            className={`h-7 w-full rounded-[5px] border bg-[color:var(--bg-surface-raised)] px-2 text-meta text-[color:var(--text-default)] outline-none ${
+            className={`h-7 w-full rounded-[5px] border bg-[color:var(--bg-surface-raised)] px-2 text-meta text-[color:var(--text-default)] ${FOCUS_RING_CLASS} ${
               collides
                 ? 'border-[color:var(--tone-error)]'
-                : 'border-[color:var(--border-default)] focus:border-[color:var(--accent-primary)]'
+                : 'border-[color:var(--border-default)]'
             }`}
           />
           {collides ? (

@@ -25,6 +25,7 @@ import {
 } from '../../utils/terminalDrop'
 import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
+import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
 
 interface Props {
@@ -418,7 +419,7 @@ export default function PlainTerminalPanel({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={(event) => void handleDrop(event)}
-        className="terminal-focus-ring absolute inset-0 cursor-text overflow-hidden p-2 pb-4"
+        className={`${FOCUS_RING_TERMINAL_CLASS} absolute inset-0 cursor-text overflow-hidden p-2 pb-4`}
       >
         {/* No replay skeleton on terminals (see TerminalView): xterm renders
             its own content; keep the skeleton only for the folder check. */}

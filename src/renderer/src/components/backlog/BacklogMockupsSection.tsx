@@ -337,7 +337,7 @@ function AttachMockupEditor({
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search mockups or type a path…"
           aria-label="Search mockup files"
-          className="w-full rounded border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-2 py-1 text-meta text-[color:var(--text-default)] outline-none focus-visible:border-[color:var(--border-strong)]"
+          className={`w-full rounded border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-2 py-1 text-meta text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
         />
         <ul role="listbox" aria-label="Mockup files" className="flex max-h-64 flex-col gap-0.5 overflow-auto">
           {filtered.map((choice) => (

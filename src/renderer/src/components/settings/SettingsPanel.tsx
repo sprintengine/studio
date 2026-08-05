@@ -237,7 +237,8 @@ function resolveInitialSettingsTab(initialTab: string | null | undefined): strin
 }
 
 const INPUT_CLASS =
-  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body ' +
+  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
 
 /**
  * Compact control for `SettingsRow`: callers add a width (`w-60` for the
@@ -247,10 +248,12 @@ const INPUT_CLASS =
  * (commands, model ids, tokens), not prose.
  */
 const ROW_INPUT_CLASS =
-  'h-control-md max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'h-control-md max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-body ' +
+  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
 
 const TEXTAREA_BASE_CLASS =
-  'w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-body leading-5 text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-body leading-5 ' +
+  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
 // Instructions editor: the SKILL.md document the runtime parses, so it reads as a
 // structured document (mono) rather than prose. Tall by default since the author
 // is filling in a multi-section scaffold.

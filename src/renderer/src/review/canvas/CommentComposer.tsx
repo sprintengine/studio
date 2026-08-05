@@ -72,7 +72,7 @@ export function CommentComposer({
         }}
         placeholder={placeholder}
         rows={3}
-        className={`w-full max-w-[560px] resize-y rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-2 text-body leading-5 text-[color:var(--text-strong)] focus:border-[color:var(--border-focus)] ${FOCUS_RING_CLASS}`}
+        className={`w-full max-w-[560px] resize-y rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-2 text-body leading-5 text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
       />
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <PrimaryButton onClick={submit} disabled={!trimmed}>

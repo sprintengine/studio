@@ -8,7 +8,7 @@ import {
 } from '../../utils/gitConflictMarkers'
 import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
-import { Section } from '../ui'
+import { FOCUS_RING_CLASS, Section } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 type ResolverState =
@@ -170,13 +170,13 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
             type="button"
             onClick={() => void saveResolved()}
             disabled={state.saving}
-            className="h-8 shrink-0 rounded-md border border-[color:var(--color-6)] bg-[color:var(--text-strong)] px-3 text-micro font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-[color:var(--bg-inverted-hover)] disabled:border-[color:var(--bg-selected)] disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]"
+            className={`h-8 shrink-0 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--text-strong)] px-3 text-micro font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-[color:var(--bg-inverted-hover)] disabled:border-[color:var(--bg-selected)] disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
           >
             {state.saving ? 'Saving...' : 'Save & Mark Resolved'}
           </button>
         </div>
         {state.message ? (
-          <div className="mt-2 rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface-raised)] px-2.5 py-1.5 text-micro text-[color:var(--text-muted)]">
+          <div className="mt-2 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 py-1.5 text-micro text-[color:var(--text-muted)]">
             {state.message}
           </div>
         ) : null}
@@ -290,7 +290,7 @@ function ConflictActionButton({ label, onClick }: { label: string; onClick: () =
     <button
       type="button"
       onClick={onClick}
-      className="h-7 rounded-md px-2 text-left text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)]"
+      className={`h-7 rounded-md px-2 text-left text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
     >
       {label}
     </button>

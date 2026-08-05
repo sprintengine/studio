@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { GhostButton, InlineNotice, StatusDot } from '../ui'
+import { FOCUS_RING_CLASS, GhostButton, InlineNotice, StatusDot } from '../ui'
 import type { Tone } from '../ui'
 import {
   listOpenProjectKnowledge,
@@ -10,7 +10,8 @@ import {
 import { isAbsolutePath } from '../../store/slices/memorySlice'
 
 const ROW_INPUT_CLASS =
-  'h-control-md w-full min-w-0 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'h-control-md w-full min-w-0 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body ' +
+  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
 
 type RowStatus = MemoryRootStatus | null
 

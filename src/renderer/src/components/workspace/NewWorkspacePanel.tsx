@@ -52,7 +52,7 @@ import {
 } from '../../utils/sprintengine'
 import MulticodeMark from '../brand/MulticodeMark'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { Checkbox, CliModelPickerButton, CloseIconButton, Field, GhostButton, TruncatedText, WizardProgress } from '../ui'
+import { Checkbox, CliModelPickerButton, CloseIconButton, Field, FOCUS_RING_CLASS, GhostButton, TruncatedText, WizardProgress } from '../ui'
 import {
   analyzeWorkspaceTargetPath,
   defaultWorkspaceFolderPath,
@@ -1841,12 +1841,12 @@ function WorkspaceStep({
           value={name}
           onChange={(event) => onChangeName(event.target.value)}
           placeholder="my-workspace"
-          className="
+          className={`
             block h-11 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5
-            text-heading text-[color:var(--text-strong)] outline-none transition-colors
+            text-heading text-[color:var(--text-strong)] transition-colors
             placeholder:text-[color:var(--text-disabled)]
-            hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
-          "
+            hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}
+          `}
         />
       </label>
 
@@ -1863,9 +1863,9 @@ function WorkspaceStep({
             aria-invalid={folderError ? true : undefined}
             className={`
               block h-11 w-full min-w-0 flex-1 rounded-md border bg-[color:var(--bg-surface)] px-3.5
-              font-mono text-meta text-[color:var(--text-strong)] outline-none transition-colors
+              font-mono text-meta text-[color:var(--text-strong)] transition-colors
               placeholder:text-[color:var(--text-disabled)]
-              hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
+              hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}
               ${folderError ? 'border-[color:var(--tone-error)]' : 'border-[color:var(--border-default)]'}
             `}
           />
@@ -2359,12 +2359,12 @@ function GuidedIdeaStep({
           onChange={(event) => onChangeIdea(event.target.value)}
           placeholder={copy.ideaPlaceholder}
           autoFocus
-          className="
+          className={`
             min-h-[140px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
-            text-heading leading-6 text-[color:var(--text-strong)] outline-none transition-colors
+            text-heading leading-6 text-[color:var(--text-strong)] transition-colors
             placeholder:text-[color:var(--text-disabled)]
-            hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
-          "
+            hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}
+          `}
         />
         <span className="text-meta leading-5 text-[color:var(--text-muted)]">{copy.ideaHint}</span>
       </label>

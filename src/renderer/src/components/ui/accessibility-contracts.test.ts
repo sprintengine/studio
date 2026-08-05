@@ -45,6 +45,7 @@ const switchPrimitive = read('src/renderer/src/components/ui/Switch.tsx')
 const field = read('src/renderer/src/components/ui/Field.tsx')
 const select = read('src/renderer/src/components/ui/Select.tsx')
 const drawer = read('src/renderer/src/components/ui/Drawer.tsx')
+const focusTrap = read('src/renderer/src/components/ui/FocusTrap.tsx')
 const toast = read('src/renderer/src/components/ui/Toast.tsx')
 const tooltip = read('src/renderer/src/components/ui/Tooltip.tsx')
 const taskCard = read('src/renderer/src/components/ui/TaskCard.tsx')
@@ -193,6 +194,7 @@ expectIncludes(buttons, "'aria-label': string", 'IconButton type requires an acc
 expectMatches(buttons, /FOCUS_RING_CLASS[\s\S]*className \?\? ''/, 'Shared buttons apply the focus ring class')
 expectIncludes(modal, "event.key === 'Escape'", 'Modal closes on Escape')
 expectIncludes(modal, 'previous?.focus()', 'Modal restores focus to the previously active element')
+expectIncludes(modal, '<FocusTrap>', 'Modal traps Tab inside the dialog it declares aria-modal')
 
 expectIncludes(switchPrimitive, 'role="switch"', 'Switch exposes switch role')
 expectIncludes(switchPrimitive, 'aria-checked={checked}', 'Switch exposes aria-checked')
@@ -265,8 +267,9 @@ expectIncludes(drawer, 'event.preventDefault()', 'Drawer cancels default behavio
 expectIncludes(drawer, 'restoreFocusRef.current', 'Drawer captures the opener for focus restoration')
 expectIncludes(drawer, 'target.focus()', 'Drawer restores focus to the opener on close')
 expectIncludes(drawer, "document.body.style.overflow = 'hidden'", 'Drawer locks body scroll while open')
-expectIncludes(drawer, 'data-focus-sentinel="true"', 'Drawer installs focus sentinels to trap focus')
-expectIncludes(drawer, 'trapFocus', 'Drawer wires a focus trap helper')
+expectIncludes(drawer, '<FocusTrap>', 'Drawer traps focus through the shared primitive, not a copy of it')
+expectIncludes(focusTrap, 'data-focus-sentinel="true"', 'FocusTrap installs focus sentinels around the trapped region')
+expectIncludes(focusTrap, 'startRef.current', 'FocusTrap reads its region from between its own sentinels')
 expectIncludes(drawer, 'prefersReducedMotion', 'Drawer reads prefers-reduced-motion to skip slide animation')
 expectIncludes(drawer, 'drawer-panel', 'Drawer uses the canonical .drawer-panel elevation class')
 expectIncludes(rendererCss, '--shadow-drawer:', 'Canonical drawer elevation token is defined in index.css')
@@ -504,6 +507,7 @@ expectIncludes(settingsPanel, 'await window.api.copyPathInto(target.sourcePath, 
     ['FOCUS_RING_INSET_CLASS', 'focus-visible:focus-ring-inset'],
     ['FOCUS_RING_PEER_CLASS', 'peer-focus-visible:focus-ring'],
     ['FOCUS_RING_WITHIN_INPUT_CLASS', 'has-[input:focus]:focus-ring'],
+    ['FOCUS_RING_WITHIN_TEXTAREA_CLASS', 'has-[textarea:focus]:focus-ring'],
   ] as const) {
     expectIncludes(
       tokens,
@@ -552,6 +556,44 @@ expectIncludes(settingsPanel, 'await window.api.copyPathInto(target.sourcePath, 
     'a checked Switch pairs its accent track with the shared focus class',
   )
 
+  // The terminal variant (MC-2107). A terminal is the one surface the four
+  // above cannot serve — xterm's focused textarea is a descendant, so
+  // `:focus-visible` on the canvas never matches, and an outline at the panel
+  // edge is clipped by the FlexLayout tab. What makes it a variant rather than a
+  // second treatment is that its rule takes the SAME value: `var(--focus-ring)`,
+  // not a width and a colour of its own. And it is declared in tokens.ts beside
+  // the rest, because a focus class defined privately inside the panel that uses
+  // it is how the parallel idiom this sweep retired came to exist.
+  expectIncludes(
+    tokens,
+    "export const FOCUS_RING_TERMINAL_CLASS = 'terminal-focus-ring'",
+    'the terminal variant is exported from the token module, not spelled inside a panel',
+  )
+  expectMatches(
+    rendererCss,
+    /\.terminal-focus-ring::after \{[^}]*border: var\(--focus-ring\);/,
+    'the terminal ring draws the shared --focus-ring value, never one of its own',
+  )
+  expectMatches(
+    rendererCss,
+    /\.terminal-focus-ring:focus-within::after/,
+    'and lights up on :focus-within, which is what reaches xterm’s own textarea',
+  )
+  {
+    const privateTerminalRing = collectSources(join(root, 'src/renderer/src')).filter((path) => {
+      if (/\.test\.tsx?$/.test(path)) return false
+      if (/ui[\\/]tokens\.ts$/.test(path)) return false
+      return /'terminal-focus-ring'|"terminal-focus-ring"|terminal-focus-ring /.test(
+        readFileSync(path, 'utf8'),
+      )
+    })
+    assert.deepEqual(
+      privateTerminalRing.map((path) => relative(root, path)),
+      [],
+      'every terminal reaches the variant through FOCUS_RING_TERMINAL_CLASS, never by writing the class name',
+    )
+  }
+
   // And nothing hand-rolls a second treatment. This is the app-wide half of the
   // contract: a per-component ring would drift the moment the shared one moves,
   // which is exactly how the accent collision survived nineteen themes.
@@ -598,6 +640,34 @@ expectIncludes(settingsPanel, 'await window.api.copyPathInto(target.sourcePath, 
     nativeMenuHosts.map((path) => relative(root, path)),
     [],
     'no renderer surface opens a native context menu — every in-app menu is ContextMenu/MenuItem',
+  )
+}
+
+// No surface claims modality without trapping the keyboard (MC-2109). Before
+// this, not one dialog in the product trapped focus: every overlay did initial
+// focus + Escape and then let Tab walk out into the inert page behind the
+// scrim, so a keyboard user left the dialog without closing it and started
+// operating controls they could not see. `aria-modal="true"` PROMISES assistive
+// tech that the page behind is unreachable; `FocusTrap` is what makes the
+// promise true, so the two travel together or the claim is a lie.
+//
+// A surface that genuinely must not trap (a non-modal aside, an in-canvas
+// panel) says so by not claiming `aria-modal="true"` — `Drawer` traps anyway
+// because it draws a scrim, but it declares `aria-modal="false"` and is exempt
+// from this rule by construction.
+{
+  const CLAIMS_MODALITY = /aria-modal=(?:"true"|\{true\})/
+  const modalityHosts = collectSources(join(root, 'src/renderer/src')).filter((path) => {
+    if (/\.test\.tsx?$/.test(path)) return false
+    const code = readFileSync(path, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1')
+    return CLAIMS_MODALITY.test(code) && !/<FocusTrap>/.test(code)
+  })
+  assert.deepEqual(
+    modalityHosts.map((path) => relative(root, path)),
+    [],
+    'every aria-modal surface mounts the shared FocusTrap — no dialog claims modality it does not deliver',
   )
 }
 

@@ -107,6 +107,44 @@ export const FOCUS_RING_PEER_CLASS = 'peer-focus-visible:focus-ring'
 export const FOCUS_RING_WITHIN_INPUT_CLASS = 'has-[input:focus]:focus-ring'
 
 /**
+ * The same wrapper case for a MULTILINE field — a chat composer whose rounded
+ * box also holds a footer control row. `has-[input:focus]` cannot cover it:
+ * `input` is an element selector, and a `<textarea>` is not one, so the wrapper
+ * would simply never light up. Split rather than widened to `:is(input,textarea)`
+ * because each stays one literal Tailwind can see (see the note above), and the
+ * two cases are asserted separately.
+ *
+ * Still keyed to the field's own focus, never `focus-within`: the send button and
+ * the model chip in that footer are descendants, and a `focus-within` outline
+ * stays painted while they draw their own.
+ */
+export const FOCUS_RING_WITHIN_TEXTAREA_CLASS = 'has-[textarea:focus]:focus-ring'
+
+/**
+ * The terminal variant, and the only member of this family that is a hand-written
+ * rule rather than the shared utility: `.terminal-focus-ring` in
+ * assets/index.css. It exists here — beside the four above, not privately in the
+ * two panels that use it — because a focus treatment declared inside a component
+ * is how a second idiom starts (MC-2107).
+ *
+ * Two things about a terminal put it outside the four:
+ *   - The tab stop is not the element that should light up. xterm owns a hidden
+ *     `<textarea>` inside the canvas, so focus lands on a descendant and
+ *     `:focus-visible` on the container never matches. The rule keys off
+ *     `:focus-within`, which covers both that textarea and the container's own
+ *     `tabIndex={0}`. `has-[input:focus]` cannot stand in: it is a textarea.
+ *   - An outline at the panel edge is clipped. The canvas fills a FlexLayout tab
+ *     whose rounded corners and top border cut it off, so the indicator is drawn
+ *     as an inset `::after` overlay sitting inside the panel padding, clear of
+ *     the terminal's first row.
+ *
+ * What it is NOT is a second treatment: the rule takes its border from
+ * `var(--focus-ring)`, the same 2px in the theme's own `--border-focus` that the
+ * utility applies, so moving the indicator still means editing one value.
+ */
+export const FOCUS_RING_TERMINAL_CLASS = 'terminal-focus-ring'
+
+/**
  * The floating chrome — the four values that make something read as an overlay
  * rather than as part of the page: `radius.overlay` (7px, on the 3/5/7/9 ramp),
  * the strong border, the raised ground, and the popover elevation, which is

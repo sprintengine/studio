@@ -2910,21 +2910,24 @@ body:has([data-selection-pane]:focus-within)
   border-bottom-color: var(--border-subtle);
 }
 
-/* Focus ring for the terminal you're currently using. Driven by :focus-within
-   so only the container holding xterm's focused textarea lights up — in a split,
-   one terminal at a time. Drawn as an inset ::after overlay (not an edge-flush
-   box-shadow) so it clears FlexLayout's rounded corners and top border, which
-   otherwise clip a ring painted at the panel edge. pointer-events:none keeps it
-   decorative; it sits inside the panel padding so it never overlaps the
-   terminal's first row. Takes --border-focus, not --accent-primary: this is a
-   focus indicator, and it has to be the same colour as the one every control
-   draws. The two are the same value on dark and light; the seventeen literal
-   themes pick their focus hue separately. */
+/* Focus ring for the terminal you're currently using — the documented terminal
+   variant of the one indicator, exported as FOCUS_RING_TERMINAL_CLASS from
+   components/ui/tokens.ts, which carries the full rationale. Driven by
+   :focus-within so only the container holding xterm's focused textarea lights up
+   — in a split, one terminal at a time, and `:focus-visible` on the container
+   would never match a descendant textarea at all. Drawn as an inset ::after
+   overlay (not an edge-flush box-shadow) so it clears FlexLayout's rounded
+   corners and top border, which otherwise clip a ring painted at the panel edge.
+   pointer-events:none keeps it decorative; it sits inside the panel padding so it
+   never overlaps the terminal's first row. The border is `var(--focus-ring)` —
+   the same 2px --border-focus value the focus-ring utility applies — so this is
+   a second SHAPE, never a second treatment: move the indicator and this moves
+   with it. */
 .terminal-focus-ring::after {
   content: '';
   position: absolute;
   inset: 3px;
-  border: 2px solid var(--border-focus);
+  border: var(--focus-ring);
   border-radius: 6px;
   opacity: 0;
   pointer-events: none;

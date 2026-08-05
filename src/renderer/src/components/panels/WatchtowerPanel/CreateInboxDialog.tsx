@@ -1,5 +1,5 @@
 import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../../ui/Modal'
-import { Select } from '../../ui'
+import { FOCUS_RING_CLASS, Select } from '../../ui'
 import type { DraftTask } from './types'
 
 export function CreateInboxDialog({
@@ -16,7 +16,8 @@ export function CreateInboxDialog({
   busy: boolean
 }) {
   const inputClass =
-    'block w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-body text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-strong)]'
+    'block w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-body ' +
+    `text-[color:var(--text-strong)] transition-colors placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`
   return (
     <Modal open onClose={onClose} contained labelledBy="watchtower-create-title" width={540}>
       <ModalHeader title="New inbox task" titleId="watchtower-create-title" onClose={onClose} />

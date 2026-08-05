@@ -425,7 +425,7 @@ export default function WorktreeManager({
                   onChange={(event) => setWorktreeName(event.target.value)}
                   disabled={formDisabled}
                   placeholder="feature-login"
-                  className="h-8 w-full min-w-0 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2 text-meta text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-strong)] disabled:opacity-50"
+                  className={`h-8 w-full min-w-0 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2 text-meta text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-50 ${FOCUS_RING_CLASS}`}
                 />
               </Field>
               <Field label="Branch" htmlFor="worktree-branch">
@@ -434,7 +434,7 @@ export default function WorktreeManager({
                   onChange={(event) => setBranchName(event.target.value)}
                   disabled={formDisabled}
                   placeholder="multicode/feature-login"
-                  className="h-8 w-full min-w-0 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2 font-mono text-meta text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-strong)] disabled:opacity-50"
+                  className={`h-8 w-full min-w-0 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-2 font-mono text-meta text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-50 ${FOCUS_RING_CLASS}`}
                 />
               </Field>
               <div className="flex flex-col gap-1.5">

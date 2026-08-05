@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { Field, Select, type SelectItem } from '../../components/ui'
+import { Field, FOCUS_RING_CLASS, Select, type SelectItem } from '../../components/ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { VoiceDictationModel } from '../../types/workspace'
 
@@ -12,7 +12,8 @@ import type { VoiceDictationModel } from '../../types/workspace'
 // behavior are unchanged; only the mount moved.
 
 const INPUT_CLASS =
-  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body ' +
+  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
 
 const VOICE_MODEL_ITEMS: SelectItem<VoiceDictationModel>[] = [
   { value: 'tiny', label: 'Whisper tiny — fastest, least accurate' },

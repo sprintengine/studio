@@ -19,6 +19,7 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { commandMatchesQuery, workspaceSearchKeywords } from '../commandPaletteSearch'
 import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
 import { FOCUS_RING_CLASS, TruncatedText } from './index'
+import { FocusTrap } from './FocusTrap'
 
 // The four canonical source groups the global-search palette organizes results
 // into (T6), plus a Files group for the active workspace's open editors. The
@@ -191,8 +192,20 @@ export default function CommandPalette({
     }
   }, [activeFolderPath])
 
+  // Initial focus into the input, and focus back to whatever opened the palette
+  // when it closes — the same open/close contract `Modal` carries, so dismissing
+  // the palette leaves the keyboard where it started (MC-2109). Its own effect,
+  // with no dependencies: a re-created `onClose` must not re-run focus and pull
+  // the caret out of the input mid-search.
   useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
     inputRef.current?.focus()
+    return () => {
+      if (opener?.isConnected) opener.focus()
+    }
+  }, [])
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -518,78 +531,88 @@ export default function CommandPalette({
       className="overlay-scrim fixed inset-0 z-[var(--z-modal)] flex items-start justify-center pt-[15vh]"
       onClick={(event) => event.target === event.currentTarget && onClose()}
     >
-      <div className="w-[600px] max-w-[95vw] overflow-hidden rounded-xl border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)]">
-        <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-4 py-3">
-          <span className="text-heading text-[color:var(--text-disabled)]">⌘</span>
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value)
-              setSelected(0)
-            }}
-            onKeyDown={handleKey}
-            placeholder="Search agents, skills, commands, actions..."
-            aria-label="Search agents, skills, commands, and actions"
-            role="combobox"
-            aria-expanded={filtered.length > 0}
-            aria-controls="command-palette-results"
-            aria-activedescendant={activeOptionId}
-            className={`flex-1 bg-transparent text-heading text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
-          />
-        </div>
+      {/* The palette is a modal surface like any other: it says so (`role`,
+          `aria-modal`), and the trap is what makes the claim true (MC-2109). */}
+      <FocusTrap>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Command palette"
+          tabIndex={-1}
+          className="w-[600px] max-w-[95vw] overflow-hidden rounded-xl border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)] outline-none"
+        >
+          <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-4 py-3">
+            <span className="text-heading text-[color:var(--text-disabled)]">⌘</span>
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setSelected(0)
+              }}
+              onKeyDown={handleKey}
+              placeholder="Search agents, skills, commands, actions..."
+              aria-label="Search agents, skills, commands, and actions"
+              role="combobox"
+              aria-expanded={filtered.length > 0}
+              aria-controls="command-palette-results"
+              aria-activedescendant={activeOptionId}
+              className={`flex-1 bg-transparent text-heading text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+            />
+          </div>
 
-        <div id="command-palette-results" role="listbox" aria-label="Search results" className="max-h-[360px] overflow-y-auto py-1">
-          {filtered.length === 0 ? (
-            <p className="px-4 py-3 text-meta text-[color:var(--text-disabled)]">No results</p>
-          ) : (
-            groupedResults.map((group) => (
-              <div key={group.key} role="group" aria-label={group.label}>
-                <div
-                  aria-hidden="true"
-                  className="flex items-center gap-3 px-4 pb-1 pt-2 text-micro font-medium text-[color:var(--text-disabled)]"
-                >
-                  <span>{group.label}</span>
-                  <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
-                  <span className="tabular-nums">{group.items.length}</span>
-                </div>
-                {group.items.map((command) => {
-                  const index = flatIndexById.get(command.id) ?? -1
-                  const isSelected = index === selected
-                  return (
-                    <div
-                      key={command.id}
-                      ref={isSelected ? selectedRowRef : undefined}
-                      id={`palette-option-${command.id}`}
-                      role="option"
-                      aria-selected={isSelected}
-                      onClick={command.run}
-                      onMouseEnter={() => setSelected(index)}
-                      className={`flex cursor-pointer items-center justify-between px-4 py-2 transition-colors ${
-                        isSelected
-                          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <TruncatedText as="div" text={command.label} className="text-heading" />
-                        {command.description && (
-                          <TruncatedText as="div" text={command.description} className="mt-0.5 text-micro text-[color:var(--text-disabled)]" />
+          <div id="command-palette-results" role="listbox" aria-label="Search results" className="max-h-[360px] overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <p className="px-4 py-3 text-meta text-[color:var(--text-disabled)]">No results</p>
+            ) : (
+              groupedResults.map((group) => (
+                <div key={group.key} role="group" aria-label={group.label}>
+                  <div
+                    aria-hidden="true"
+                    className="flex items-center gap-3 px-4 pb-1 pt-2 text-micro font-medium text-[color:var(--text-disabled)]"
+                  >
+                    <span>{group.label}</span>
+                    <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
+                    <span className="tabular-nums">{group.items.length}</span>
+                  </div>
+                  {group.items.map((command) => {
+                    const index = flatIndexById.get(command.id) ?? -1
+                    const isSelected = index === selected
+                    return (
+                      <div
+                        key={command.id}
+                        ref={isSelected ? selectedRowRef : undefined}
+                        id={`palette-option-${command.id}`}
+                        role="option"
+                        aria-selected={isSelected}
+                        onClick={command.run}
+                        onMouseEnter={() => setSelected(index)}
+                        className={`flex cursor-pointer items-center justify-between px-4 py-2 transition-colors ${
+                          isSelected
+                            ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                            : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <TruncatedText as="div" text={command.label} className="text-heading" />
+                          {command.description && (
+                            <TruncatedText as="div" text={command.description} className="mt-0.5 text-micro text-[color:var(--text-disabled)]" />
+                          )}
+                        </div>
+                        {command.shortcut && (
+                          <kbd className="ml-3 shrink-0 rounded bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-disabled)]">
+                            {command.shortcut}
+                          </kbd>
                         )}
                       </div>
-                      {command.shortcut && (
-                        <kbd className="ml-3 shrink-0 rounded bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-disabled)]">
-                          {command.shortcut}
-                        </kbd>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            ))
-          )}
+                    )
+                  })}
+                </div>
+              ))
+            )}
+          </div>
         </div>
-      </div>
+      </FocusTrap>
     </div>
   )
 }

@@ -62,6 +62,7 @@ import {
 import { backlogRowPaintClass } from '../../backlog/backlogRowPaint'
 import { matchesBacklogQuery } from '../globalSurface/backlog/backlogSurfaceModel'
 import {
+  FocusTrap,
   GhostButton,
   IconButton,
   InboxSearchInput,
@@ -606,6 +607,23 @@ export default function NewSprintDialog({
   const backButtonRef = useRef<HTMLButtonElement | null>(null)
   const prevScreenRef = useRef<'sprint' | 'roster'>('sprint')
 
+  // Focus in on open, back to whatever opened the dialog on close — the same
+  // contract `Modal` carries, so every dialog in the app opens and closes the
+  // same way for the keyboard (MC-2109). `openerRef` below is the SCREEN-level
+  // opener (screen 2 → back to the roster control); this one is the dialog's.
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const frame = window.requestAnimationFrame(() => {
+      const node = dialogRef.current
+      if (!node || node.contains(document.activeElement)) return
+      node.focus()
+    })
+    return () => {
+      window.cancelAnimationFrame(frame)
+      if (opener?.isConnected) opener.focus()
+    }
+  }, [])
+
   const openRosterScreen = useCallback(() => {
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setScreen('roster')
@@ -823,421 +841,426 @@ export default function NewSprintDialog({
         : plannedSprintFootSummary(workItemCount)
 
   return (
-    <div className="overlay-scrim fixed inset-0 z-50 flex items-center justify-center p-6">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="New sprint"
-        tabIndex={-1}
-        onKeyDown={onDialogKeyDown}
-        className="flex h-[min(720px,85vh)] w-[1000px] max-w-full flex-col overflow-hidden rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)] outline-none"
-      >
-        <header className="flex shrink-0 items-center gap-3 border-b border-[color:var(--border-subtle)] px-4 py-2.5">
-          <span className="text-body font-semibold text-[color:var(--text-strong)]">New sprint</span>
-          <ProjectChip
-            label={projectLabel}
-            currentPath={folderPath}
-            options={projectOptions}
-            onSelect={switchProject}
-          />
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="ml-auto rounded p-1 text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus-visible:focus-ring"
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
-          </button>
-        </header>
+    <div className="overlay-scrim fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-6">
+      {/* Tab stays in the dialog while it claims `aria-modal` (MC-2109).
+          The trap wraps the dialog element only, so the New-item capture below
+          — a sibling `Modal` with a trap of its own — keeps its own cycle. */}
+      <FocusTrap>
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="New sprint"
+          tabIndex={-1}
+          onKeyDown={onDialogKeyDown}
+          className="flex h-[min(720px,85vh)] w-[1000px] max-w-full flex-col overflow-hidden rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)] outline-none"
+        >
+          <header className="flex shrink-0 items-center gap-3 border-b border-[color:var(--border-subtle)] px-4 py-2.5">
+            <span className="text-body font-semibold text-[color:var(--text-strong)]">New sprint</span>
+            <ProjectChip
+              label={projectLabel}
+              currentPath={folderPath}
+              options={projectOptions}
+              onSelect={switchProject}
+            />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="ml-auto rounded p-1 text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus-visible:focus-ring"
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              </svg>
+            </button>
+          </header>
 
-        {/* Screen 1 stays mounted while screen 2 shows (display swap, exactly
-            like the prototype): the picks, scroll position, and the focus
-            opener all keep their identity across the round trip. */}
-        <div className={screen === 'sprint' ? 'flex min-h-0 flex-1' : 'hidden'}>
-            {/* ── LEFT · the shared Backlog list ─────────────────────────── */}
-            <div className="flex w-[44%] min-w-[340px] max-w-[440px] shrink-0 flex-col border-r border-[color:var(--border-default)]">
-              <PanelHeader
-                title="Backlog"
-                count={visibleItems.length}
-                subtitle={projectLabel}
-                primaryAction={
-                  <>
-                    <Tooltip content="Rescan" placement="bottom">
-                      <IconButton
-                        aria-label="Rescan"
-                        onClick={() => void scan.rescan()}
-                        disabled={scan.isScanning || !folderPath}
-                      >
-                        <RefreshIcon />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip content="New item" placement="bottom">
-                      <IconButton
-                        aria-label="New item"
-                        onClick={() => setCreatingItem(true)}
-                        disabled={!folderPath}
-                      >
-                        <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                          <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                        </svg>
-                      </IconButton>
-                    </Tooltip>
-                  </>
-                }
-                divider={false}
-              />
-              <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 pb-2">
-                <InboxSearchInput
-                  value={query}
-                  onChange={setQuery}
-                  ariaLabel="Search backlog items"
-                  placeholder="Search items…"
+          {/* Screen 1 stays mounted while screen 2 shows (display swap, exactly
+              like the prototype): the picks, scroll position, and the focus
+              opener all keep their identity across the round trip. */}
+          <div className={screen === 'sprint' ? 'flex min-h-0 flex-1' : 'hidden'}>
+              {/* ── LEFT · the shared Backlog list ─────────────────────────── */}
+              <div className="flex w-[44%] min-w-[340px] max-w-[440px] shrink-0 flex-col border-r border-[color:var(--border-default)]">
+                <PanelHeader
+                  title="Backlog"
+                  count={visibleItems.length}
+                  subtitle={projectLabel}
+                  primaryAction={
+                    <>
+                      <Tooltip content="Rescan" placement="bottom">
+                        <IconButton
+                          aria-label="Rescan"
+                          onClick={() => void scan.rescan()}
+                          disabled={scan.isScanning || !folderPath}
+                        >
+                          <RefreshIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip content="New item" placement="bottom">
+                        <IconButton
+                          aria-label="New item"
+                          onClick={() => setCreatingItem(true)}
+                          disabled={!folderPath}
+                        >
+                          <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                            <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          </svg>
+                        </IconButton>
+                      </Tooltip>
+                    </>
+                  }
+                  divider={false}
                 />
-                <BacklogFilterMenu
-                  view={view}
-                  sort={sort}
-                  group={group}
-                  viewItems={VIEW_ITEMS}
-                  sortItems={SORT_ITEMS}
-                  groupItems={GROUP_ITEMS}
-                  onViewChange={setView}
-                  onSortChange={setSort}
-                  onGroupChange={setGroup}
-                  defaultGroup="by_epic"
-                  className="shrink-0"
-                />
-              </div>
-              <p className="shrink-0 px-3 pt-1.5 text-micro text-[color:var(--text-disabled)]">
-                Click to pick · shift for a range · an epic brings its open items
-              </p>
-              <div
-                role="listbox"
-                aria-multiselectable="true"
-                aria-label="Backlog items"
-                tabIndex={0}
-                onKeyDown={onListKeyDown}
-                aria-activedescendant={cursorKey ? rowDomId(cursorKey) : undefined}
-                className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 pt-1 outline-none focus-visible:focus-ring"
-              >
-                {scan.isScanning && items.length === 0 ? (
-                  <p className="px-3 py-6 text-center text-meta text-[color:var(--text-subtle)]">
-                    Scanning the backlog…
-                  </p>
-                ) : visibleItems.length === 0 ? (
-                  <p className="px-3 py-6 text-center text-meta text-[color:var(--text-subtle)]">
-                    {items.length === 0 ? 'This project has no backlog items.' : 'Nothing matches that.'}
-                  </p>
-                ) : epicGroups ? (
-                  epicGroups.map((groupEntry) => (
-                    <EpicGroupRows
-                      key={groupEntry.slug ?? '(none)'}
-                      group={groupEntry}
-                      collapsed={groupEntry.slug ? collapsed.has(groupEntry.slug) : false}
-                      onToggleCollapse={() => {
-                        const slug = groupEntry.slug
-                        if (!slug) return
-                        setCollapsed((current) => {
-                          const next = new Set(current)
-                          if (next.has(slug)) next.delete(slug)
-                          else next.add(slug)
-                          return next
-                        })
-                      }}
-                      progress={groupEntry.slug ? epicProgressBySlug.get(groupEntry.slug) : undefined}
-                      pickedSet={pickedSet}
-                      onTogglePickEpic={() => {
-                        if (groupEntry.slug) {
-                          setCursorKey(epicPickKey(groupEntry.slug))
-                          togglePick(epicPickKey(groupEntry.slug))
-                        }
-                      }}
-                      onLeafClick={(key, event) => {
-                        setCursorKey(key)
-                        onLeafClick(key, event)
-                      }}
-                      rowDomId={rowDomId}
-                      cursorKey={cursorKey}
-                    />
-                  ))
-                ) : (
-                  visibleItems.map((item) => {
-                    const key = item.isEpic ? epicPickKey(epicSlug(item)) : item.relativePath
-                    return (
-                      <PickRow
-                        key={key}
-                        domId={rowDomId(key)}
-                        cursored={cursorKey === key}
-                        item={item}
-                        epicColor={item.epic ? epicColorBySlug.get(item.epic) ?? null : null}
-                        picked={pickedSet.has(key)}
-                        implied={Boolean(
-                          item.epic
-                          && pickedSet.has(epicPickKey(item.epic))
-                          // Exactly the engine's skip rule (MC-2129): a child the
-                          // import leaves out must not read as riding along.
-                          && !CLOSED_EPIC_CHILD_STATUSES.has(item.status),
-                        )}
-                        onClick={(event) => {
-                          setCursorKey(key)
-                          if (item.isEpic) togglePick(key)
-                          else onLeafClick(key, event)
-                        }}
-                      />
-                    )
-                  })
-                )}
-              </div>
-            </div>
-
-            {/* ── RIGHT · what this sprint is ────────────────────────────── */}
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
-              <div className="flex min-w-0 items-center gap-1.5">
-                {renaming ? (
-                  <input
-                    autoFocus
-                    defaultValue={runName ?? ''}
-                    aria-label="Run name"
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault()
-                        setNameOverride(event.currentTarget.value)
-                        setRenaming(false)
-                      } else if (event.key === 'Escape') {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        setRenaming(false)
-                      }
-                    }}
-                    onBlur={(event) => {
-                      setNameOverride(event.currentTarget.value)
-                      setRenaming(false)
-                    }}
-                    className="min-w-0 flex-1 rounded border border-[color:var(--border-default)] bg-transparent px-1.5 py-0.5 font-mono text-heading font-medium text-[color:var(--text-strong)] outline-none focus-visible:focus-ring"
+                <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 pb-2">
+                  <InboxSearchInput
+                    value={query}
+                    onChange={setQuery}
+                    ariaLabel="Search backlog items"
+                    placeholder="Search items…"
                   />
-                ) : runName ? (
-                  <>
-                    <h2 className="min-w-0 truncate font-mono text-heading font-medium text-[color:var(--text-strong)]">
-                      {runName}
-                    </h2>
-                    <button
-                      type="button"
-                      aria-label="Rename this run"
-                      onClick={() => setRenaming(true)}
-                      className="shrink-0 rounded p-0.5 text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-                    >
-                      <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                        <path d="M11.2 2.8l2 2L6 12H4v-2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-                        <path d="M2.5 14h11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity=".5" />
-                      </svg>
-                    </button>
-                  </>
-                ) : (
-                  <h2 className="text-heading font-semibold text-[color:var(--text-subtle)]">
-                    Nothing picked yet
-                  </h2>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-1">
-                {sourceCount === 0 ? (
-                  <p className="text-meta text-[color:var(--text-disabled)]">
-                    Pick from the backlog on the left, or choose a file below.
-                  </p>
-                ) : (
-                  <>
-                    {pickedEpics.map((epic) => {
-                      const slug = epicSlug(epic)
-                      // The import arithmetic, both halves. With no plan gate
-                      // there is no later stop where a miscount would surface, so
-                      // this row is where the import is verified — and it counts
-                      // by the engine's own skip rule, not a near-miss of it.
+                  <BacklogFilterMenu
+                    view={view}
+                    sort={sort}
+                    group={group}
+                    viewItems={VIEW_ITEMS}
+                    sortItems={SORT_ITEMS}
+                    groupItems={GROUP_ITEMS}
+                    onViewChange={setView}
+                    onSortChange={setSort}
+                    onGroupChange={setGroup}
+                    defaultGroup="by_epic"
+                    className="shrink-0"
+                  />
+                </div>
+                <p className="shrink-0 px-3 pt-1.5 text-micro text-[color:var(--text-disabled)]">
+                  Click to pick · shift for a range · an epic brings its open items
+                </p>
+                <div
+                  role="listbox"
+                  aria-multiselectable="true"
+                  aria-label="Backlog items"
+                  tabIndex={0}
+                  onKeyDown={onListKeyDown}
+                  aria-activedescendant={cursorKey ? rowDomId(cursorKey) : undefined}
+                  className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 pt-1 outline-none focus-visible:focus-ring"
+                >
+                  {scan.isScanning && items.length === 0 ? (
+                    <p className="px-3 py-6 text-center text-meta text-[color:var(--text-subtle)]">
+                      Scanning the backlog…
+                    </p>
+                  ) : visibleItems.length === 0 ? (
+                    <p className="px-3 py-6 text-center text-meta text-[color:var(--text-subtle)]">
+                      {items.length === 0 ? 'This project has no backlog items.' : 'Nothing matches that.'}
+                    </p>
+                  ) : epicGroups ? (
+                    epicGroups.map((groupEntry) => (
+                      <EpicGroupRows
+                        key={groupEntry.slug ?? '(none)'}
+                        group={groupEntry}
+                        collapsed={groupEntry.slug ? collapsed.has(groupEntry.slug) : false}
+                        onToggleCollapse={() => {
+                          const slug = groupEntry.slug
+                          if (!slug) return
+                          setCollapsed((current) => {
+                            const next = new Set(current)
+                            if (next.has(slug)) next.delete(slug)
+                            else next.add(slug)
+                            return next
+                          })
+                        }}
+                        progress={groupEntry.slug ? epicProgressBySlug.get(groupEntry.slug) : undefined}
+                        pickedSet={pickedSet}
+                        onTogglePickEpic={() => {
+                          if (groupEntry.slug) {
+                            setCursorKey(epicPickKey(groupEntry.slug))
+                            togglePick(epicPickKey(groupEntry.slug))
+                          }
+                        }}
+                        onLeafClick={(key, event) => {
+                          setCursorKey(key)
+                          onLeafClick(key, event)
+                        }}
+                        rowDomId={rowDomId}
+                        cursorKey={cursorKey}
+                      />
+                    ))
+                  ) : (
+                    visibleItems.map((item) => {
+                      const key = item.isEpic ? epicPickKey(epicSlug(item)) : item.relativePath
                       return (
-                        <SourceChip
-                          key={epicPickKey(slug)}
-                          id={epic.displayId}
-                          title={epic.title}
-                          tail={epicSourceTail(epicImportCounts([...items], slug))}
-                          color={epic.highlight?.color ?? null}
-                          onRemove={() => togglePick(epicPickKey(slug))}
+                        <PickRow
+                          key={key}
+                          domId={rowDomId(key)}
+                          cursored={cursorKey === key}
+                          item={item}
+                          epicColor={item.epic ? epicColorBySlug.get(item.epic) ?? null : null}
+                          picked={pickedSet.has(key)}
+                          implied={Boolean(
+                            item.epic
+                            && pickedSet.has(epicPickKey(item.epic))
+                            // Exactly the engine's skip rule (MC-2129): a child the
+                            // import leaves out must not read as riding along.
+                            && !CLOSED_EPIC_CHILD_STATUSES.has(item.status),
+                          )}
+                          onClick={(event) => {
+                            setCursorKey(key)
+                            if (item.isEpic) togglePick(key)
+                            else onLeafClick(key, event)
+                          }}
                         />
                       )
-                    })}
-                    {pickedLeaves.map((item) => (
-                      <SourceChip
-                        key={item.relativePath}
-                        id={item.displayId}
-                        title={item.title}
-                        onRemove={() => togglePick(item.relativePath)}
-                      />
-                    ))}
-                    {fileSource ? (
-                      <SourceChip
-                        title={fileSource.sourceRelativePath}
-                        onRemove={() => setFileSource(null)}
-                      />
-                    ) : null}
-                  </>
-                )}
-              </div>
-
-              <div className="h-px shrink-0 bg-[color:var(--border-subtle)]" />
-
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-meta text-[color:var(--text-muted)]">Team</span>
-                <RosterMenu
-                  rosters={editor.rosters}
-                  selectedName={selectedRoster?.name ?? null}
-                  onSelect={(name) => {
-                    if (!name) {
-                      editor.onSelectRoster(NO_ROLES_ROSTER_ID)
-                      return
-                    }
-                    const roster = editor.rosters.find(
-                      (entry) => entry.name.trim().toLowerCase() === name.trim().toLowerCase(),
-                    )
-                    if (roster) editor.onSelectRoster(roster.id)
-                  }}
-                  onManageRosters={openRosterScreen}
-                  ariaLabel="Team for this sprint"
-                />
-              </div>
-
-              {noRoles ? (
-                <PlainAgentsPanel
-                  agentCount={editor.poolAgentCount}
-                  onChangeAgentCount={editor.onChangePoolAgentCount}
-                  cli={
-                    editor.roleCliDefaults[SPRINT_ENGINE_ROLELESS_KEY]
-                    ?? cliOptions[0]?.value
-                    ?? 'claude-code'
-                  }
-                  cliOptions={cliOptions}
-                  effectiveModel={editor.roleModelOverrides[SPRINT_ENGINE_ROLELESS_KEY] || undefined}
-                  effectiveReasoning={
-                    editor.roleReasoningOverrides[SPRINT_ENGINE_ROLELESS_KEY] || undefined
-                  }
-                  onSetCli={(cli) => editor.onSetRoleCli(SPRINT_ENGINE_ROLELESS_KEY, cli)}
-                  onSetModel={(model) => editor.onSetRoleModel(SPRINT_ENGINE_ROLELESS_KEY, model)}
-                  onSetReasoning={(reasoning) =>
-                    editor.onSetRoleReasoning(SPRINT_ENGINE_ROLELESS_KEY, reasoning)
-                  }
-                  planningAgent={planningAgentRow}
-                />
-              ) : (
-                <div className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
-                  <div className="flex items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
-                    <span className="flex pl-1" aria-hidden="true">
-                      {staffedRoles.map((role) => (
-                        <span key={role} className="-ml-1 inline-flex rounded-full ring-2 ring-[color:var(--bg-surface)]">
-                          <RoleAvatar role={role} registry={editor.registry} size="xs" ariaLabel="" />
-                        </span>
-                      ))}
-                    </span>
-                    <span className="min-w-0 truncate text-meta font-medium text-[color:var(--text-strong)]">
-                      {selectedRoster.name}
-                    </span>
-                    <span className="ml-auto shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
-                      {staffedRoles.length} role{staffedRoles.length === 1 ? '' : 's'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={openRosterScreen}
-                      className="shrink-0 text-meta text-[color:var(--text-muted)] underline underline-offset-2 transition-colors hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-                    >
-                      Configure…
-                    </button>
-                  </div>
-                  <div className="flex flex-col gap-1.5 px-3 py-2">
-                    {staffedRoles.length === 0 ? (
-                      <span className="text-micro text-[color:var(--text-disabled)]">
-                        This roster staffs nothing.
-                      </span>
-                    ) : (
-                      staffedRoles.map((role) => (
-                        <span key={role} className="flex items-center gap-2 text-micro">
-                          <RoleAvatar role={role} registry={editor.registry} size="xs" ariaLabel="" />
-                          <span className="min-w-0 flex-1 truncate text-[color:var(--text-default)]">
-                            {getSprintEngineRoleLabel(role, editor.registry)}
-                          </span>
-                          <span className="shrink-0 font-mono text-[color:var(--text-subtle)]">
-                            {runtimeLabelFor(
-                              editor.roleCliDefaults[role],
-                              editor.roleModelOverrides[role],
-                              cliOptions,
-                            )}
-                          </span>
-                        </span>
-                      ))
-                    )}
-                  </div>
-                  {/* The same row a roleless team card carries: one control in
-                      both worlds, never present here and absent there. */}
-                  <PlanningAgentRowView row={planningAgentRow} cliOptions={cliOptions} />
+                    })
+                  )}
                 </div>
-              )}
+              </div>
 
-              {createError ? (
-                <p className="border-l-2 border-[color:var(--tone-error)] pl-2.5 text-meta leading-5 text-[color:var(--tone-error)]">
-                  {createError}
-                </p>
-              ) : null}
-            </div>
-        </div>
-        {screen === 'roster' ? (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex shrink-0 items-center gap-3 px-4 pb-2 pt-3">
-              <button
-                ref={backButtonRef}
-                type="button"
-                onClick={closeRosterScreen}
-                className="inline-flex items-center gap-1.5 text-meta text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-              >
-                <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                  <path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                Back to the sprint
-              </button>
-              <span className="text-heading font-semibold text-[color:var(--text-strong)]">Rosters</span>
-            </div>
-            <p className="max-w-[64ch] shrink-0 px-4 pb-3 text-meta text-[color:var(--text-muted)]">
-              Rosters are shared. Editing one here changes it everywhere it is used — in this
-              dialog and in every horizon.
-            </p>
-            <div className="flex min-h-0 flex-1 border-t border-[color:var(--border-subtle)]">
-              <RosterEditor editor={editor} />
-            </div>
+              {/* ── RIGHT · what this sprint is ────────────────────────────── */}
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  {renaming ? (
+                    <input
+                      autoFocus
+                      defaultValue={runName ?? ''}
+                      aria-label="Run name"
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          setNameOverride(event.currentTarget.value)
+                          setRenaming(false)
+                        } else if (event.key === 'Escape') {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setRenaming(false)
+                        }
+                      }}
+                      onBlur={(event) => {
+                        setNameOverride(event.currentTarget.value)
+                        setRenaming(false)
+                      }}
+                      className="min-w-0 flex-1 rounded border border-[color:var(--border-default)] bg-transparent px-1.5 py-0.5 font-mono text-heading font-medium text-[color:var(--text-strong)] outline-none focus-visible:focus-ring"
+                    />
+                  ) : runName ? (
+                    <>
+                      <h2 className="min-w-0 truncate font-mono text-heading font-medium text-[color:var(--text-strong)]">
+                        {runName}
+                      </h2>
+                      <button
+                        type="button"
+                        aria-label="Rename this run"
+                        onClick={() => setRenaming(true)}
+                        className="shrink-0 rounded p-0.5 text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+                      >
+                        <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                          <path d="M11.2 2.8l2 2L6 12H4v-2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                          <path d="M2.5 14h11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity=".5" />
+                        </svg>
+                      </button>
+                    </>
+                  ) : (
+                    <h2 className="text-heading font-semibold text-[color:var(--text-subtle)]">
+                      Nothing picked yet
+                    </h2>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  {sourceCount === 0 ? (
+                    <p className="text-meta text-[color:var(--text-disabled)]">
+                      Pick from the backlog on the left, or choose a file below.
+                    </p>
+                  ) : (
+                    <>
+                      {pickedEpics.map((epic) => {
+                        const slug = epicSlug(epic)
+                        // The import arithmetic, both halves. With no plan gate
+                        // there is no later stop where a miscount would surface, so
+                        // this row is where the import is verified — and it counts
+                        // by the engine's own skip rule, not a near-miss of it.
+                        return (
+                          <SourceChip
+                            key={epicPickKey(slug)}
+                            id={epic.displayId}
+                            title={epic.title}
+                            tail={epicSourceTail(epicImportCounts([...items], slug))}
+                            color={epic.highlight?.color ?? null}
+                            onRemove={() => togglePick(epicPickKey(slug))}
+                          />
+                        )
+                      })}
+                      {pickedLeaves.map((item) => (
+                        <SourceChip
+                          key={item.relativePath}
+                          id={item.displayId}
+                          title={item.title}
+                          onRemove={() => togglePick(item.relativePath)}
+                        />
+                      ))}
+                      {fileSource ? (
+                        <SourceChip
+                          title={fileSource.sourceRelativePath}
+                          onRemove={() => setFileSource(null)}
+                        />
+                      ) : null}
+                    </>
+                  )}
+                </div>
+
+                <div className="h-px shrink-0 bg-[color:var(--border-subtle)]" />
+
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-meta text-[color:var(--text-muted)]">Team</span>
+                  <RosterMenu
+                    rosters={editor.rosters}
+                    selectedName={selectedRoster?.name ?? null}
+                    onSelect={(name) => {
+                      if (!name) {
+                        editor.onSelectRoster(NO_ROLES_ROSTER_ID)
+                        return
+                      }
+                      const roster = editor.rosters.find(
+                        (entry) => entry.name.trim().toLowerCase() === name.trim().toLowerCase(),
+                      )
+                      if (roster) editor.onSelectRoster(roster.id)
+                    }}
+                    onManageRosters={openRosterScreen}
+                    ariaLabel="Team for this sprint"
+                  />
+                </div>
+
+                {noRoles ? (
+                  <PlainAgentsPanel
+                    agentCount={editor.poolAgentCount}
+                    onChangeAgentCount={editor.onChangePoolAgentCount}
+                    cli={
+                      editor.roleCliDefaults[SPRINT_ENGINE_ROLELESS_KEY]
+                      ?? cliOptions[0]?.value
+                      ?? 'claude-code'
+                    }
+                    cliOptions={cliOptions}
+                    effectiveModel={editor.roleModelOverrides[SPRINT_ENGINE_ROLELESS_KEY] || undefined}
+                    effectiveReasoning={
+                      editor.roleReasoningOverrides[SPRINT_ENGINE_ROLELESS_KEY] || undefined
+                    }
+                    onSetCli={(cli) => editor.onSetRoleCli(SPRINT_ENGINE_ROLELESS_KEY, cli)}
+                    onSetModel={(model) => editor.onSetRoleModel(SPRINT_ENGINE_ROLELESS_KEY, model)}
+                    onSetReasoning={(reasoning) =>
+                      editor.onSetRoleReasoning(SPRINT_ENGINE_ROLELESS_KEY, reasoning)
+                    }
+                    planningAgent={planningAgentRow}
+                  />
+                ) : (
+                  <div className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
+                    <div className="flex items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
+                      <span className="flex pl-1" aria-hidden="true">
+                        {staffedRoles.map((role) => (
+                          <span key={role} className="-ml-1 inline-flex rounded-full ring-2 ring-[color:var(--bg-surface)]">
+                            <RoleAvatar role={role} registry={editor.registry} size="xs" ariaLabel="" />
+                          </span>
+                        ))}
+                      </span>
+                      <span className="min-w-0 truncate text-meta font-medium text-[color:var(--text-strong)]">
+                        {selectedRoster.name}
+                      </span>
+                      <span className="ml-auto shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
+                        {staffedRoles.length} role{staffedRoles.length === 1 ? '' : 's'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={openRosterScreen}
+                        className="shrink-0 text-meta text-[color:var(--text-muted)] underline underline-offset-2 transition-colors hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+                      >
+                        Configure…
+                      </button>
+                    </div>
+                    <div className="flex flex-col gap-1.5 px-3 py-2">
+                      {staffedRoles.length === 0 ? (
+                        <span className="text-micro text-[color:var(--text-disabled)]">
+                          This roster staffs nothing.
+                        </span>
+                      ) : (
+                        staffedRoles.map((role) => (
+                          <span key={role} className="flex items-center gap-2 text-micro">
+                            <RoleAvatar role={role} registry={editor.registry} size="xs" ariaLabel="" />
+                            <span className="min-w-0 flex-1 truncate text-[color:var(--text-default)]">
+                              {getSprintEngineRoleLabel(role, editor.registry)}
+                            </span>
+                            <span className="shrink-0 font-mono text-[color:var(--text-subtle)]">
+                              {runtimeLabelFor(
+                                editor.roleCliDefaults[role],
+                                editor.roleModelOverrides[role],
+                                cliOptions,
+                              )}
+                            </span>
+                          </span>
+                        ))
+                      )}
+                    </div>
+                    {/* The same row a roleless team card carries: one control in
+                        both worlds, never present here and absent there. */}
+                    <PlanningAgentRowView row={planningAgentRow} cliOptions={cliOptions} />
+                  </div>
+                )}
+
+                {createError ? (
+                  <p className="border-l-2 border-[color:var(--tone-error)] pl-2.5 text-meta leading-5 text-[color:var(--tone-error)]">
+                    {createError}
+                  </p>
+                ) : null}
+              </div>
           </div>
-        ) : null}
+          {screen === 'roster' ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex shrink-0 items-center gap-3 px-4 pb-2 pt-3">
+                <button
+                  ref={backButtonRef}
+                  type="button"
+                  onClick={closeRosterScreen}
+                  className="inline-flex items-center gap-1.5 text-meta text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                    <path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Back to the sprint
+                </button>
+                <span className="text-heading font-semibold text-[color:var(--text-strong)]">Rosters</span>
+              </div>
+              <p className="max-w-[64ch] shrink-0 px-4 pb-3 text-meta text-[color:var(--text-muted)]">
+                Rosters are shared. Editing one here changes it everywhere it is used — in this
+                dialog and in every horizon.
+              </p>
+              <div className="flex min-h-0 flex-1 border-t border-[color:var(--border-subtle)]">
+                <RosterEditor editor={editor} />
+              </div>
+            </div>
+          ) : null}
 
-        <footer className="flex shrink-0 items-center gap-3 border-t border-[color:var(--border-subtle)] px-4 py-3">
-          {screen === 'sprint' ? (
-            <>
-              <button
-                type="button"
-                onClick={() => void pickSourceFile()}
-                className="text-meta text-[color:var(--text-muted)] underline underline-offset-2 transition-colors hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-              >
-                Choose a file instead…
-              </button>
-              <span className="flex-1" />
-              <span className="text-micro text-[color:var(--text-subtle)]">{footSummary}</span>
-              <PrimaryButton disabled={!canStart} onClick={() => void start()}>
-                {creating ? 'Starting…' : 'Start sprint'}
-                <kbd className="ml-1.5 rounded bg-black/15 px-1 font-mono text-micro">⏎</kbd>
-              </PrimaryButton>
-            </>
-          ) : (
-            <>
-              <span className="flex-1" />
-              <GhostButton onClick={closeRosterScreen}>Cancel</GhostButton>
-              <PrimaryButton onClick={closeRosterScreen}>Use this roster</PrimaryButton>
-            </>
-          )}
-        </footer>
-      </div>
+          <footer className="flex shrink-0 items-center gap-3 border-t border-[color:var(--border-subtle)] px-4 py-3">
+            {screen === 'sprint' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void pickSourceFile()}
+                  className="text-meta text-[color:var(--text-muted)] underline underline-offset-2 transition-colors hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+                >
+                  Choose a file instead…
+                </button>
+                <span className="flex-1" />
+                <span className="text-micro text-[color:var(--text-subtle)]">{footSummary}</span>
+                <PrimaryButton disabled={!canStart} onClick={() => void start()}>
+                  {creating ? 'Starting…' : 'Start sprint'}
+                  <kbd className="ml-1.5 rounded bg-black/15 px-1 font-mono text-micro">⏎</kbd>
+                </PrimaryButton>
+              </>
+            ) : (
+              <>
+                <span className="flex-1" />
+                <GhostButton onClick={closeRosterScreen}>Cancel</GhostButton>
+                <PrimaryButton onClick={closeRosterScreen}>Use this roster</PrimaryButton>
+              </>
+            )}
+          </footer>
+        </div>
+      </FocusTrap>
       {/* The shared New-item capture, stacked as a sibling of the dialog so
           its keystrokes never reach the dialog's Enter-to-start handler. */}
       {creatingItem && folderPath ? (
@@ -1335,7 +1358,7 @@ function ProjectChip({
             onSelect(option.path)
             setOpen(false)
           }}
-          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
         >
           <span className="min-w-0 flex-1 truncate">{option.label}</span>
           {option.path === currentPath ? <CheckIcon className="icon-xs shrink-0" /> : null}

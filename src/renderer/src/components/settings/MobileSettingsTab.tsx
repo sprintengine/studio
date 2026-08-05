@@ -354,7 +354,7 @@ export default function MobileSettingsTab() {
             placeholder="https://relay.example.com"
             autoComplete="off"
             spellCheck={false}
-            className="h-control-md w-60 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45"
+            className={`h-control-md w-60 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`}
           />
           <PrimaryButton size="md" onClick={() => void saveRelayUrl()} disabled={busy || !relayUrlDirty}>
             Save

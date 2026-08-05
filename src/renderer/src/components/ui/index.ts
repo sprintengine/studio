@@ -91,6 +91,9 @@ export type { ComboboxOption, ComboboxProps } from './Combobox'
 export { default as CommandPalette } from './CommandPalette'
 export { Drawer } from './Drawer'
 export type { DrawerProps } from './Drawer'
+// The one focus trap: every `aria-modal` shell in the renderer wraps its dialog
+// element in this, `Modal` included (MC-2109).
+export { FocusTrap, FOCUSABLE_SELECTOR } from './FocusTrap'
 export { SidePane, SidePaneHeader } from './SidePane'
 export { BoardLane, BoardLaneDropIndicator, computeBoardLaneDropIndex } from './BoardLane'
 export { Banner } from './Banner'
@@ -123,6 +126,8 @@ export {
   FOCUS_RING_INSET_CLASS,
   FOCUS_RING_PEER_CLASS,
   FOCUS_RING_WITHIN_INPUT_CLASS,
+  FOCUS_RING_WITHIN_TEXTAREA_CLASS,
+  FOCUS_RING_TERMINAL_CLASS,
   TONE_COLOR_VAR,
   STATUS_TONE_COLOR_VAR,
   TONE_SOFT_VAR,

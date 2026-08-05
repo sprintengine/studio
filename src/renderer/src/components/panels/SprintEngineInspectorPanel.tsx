@@ -371,7 +371,7 @@ function SprintEngineArtifactInspector({
           type="button"
           onClick={() => onSelectTask(artifact.taskId)}
           disabled={!task}
-          className="interactive font-mono text-[color:var(--text-strong)] hover:text-[color:var(--accent-primary)] disabled:text-[color:var(--text-disabled)]"
+          className={`interactive font-mono text-[color:var(--text-strong)] hover:text-[color:var(--accent-primary)] disabled:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
         >
           {artifact.taskId}
           {task ? <span className="ml-1.5 font-sans text-[color:var(--text-muted)]">{task.title}</span> : null}
@@ -583,7 +583,7 @@ export function SprintEngineArtifactList({
                           type="button"
                           onClick={() => onSelectTask(artifact.taskId)}
                           disabled={!task}
-                          className="interactive font-mono text-[color:var(--text-muted)] hover:text-[color:var(--accent-primary)] disabled:text-[color:var(--text-disabled)]"
+                          className={`interactive font-mono text-[color:var(--text-muted)] hover:text-[color:var(--accent-primary)] disabled:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
                         >
                           {artifact.taskId}
                           {task ? <span className="ml-1.5 font-sans">{task.title}</span> : null}
@@ -1925,7 +1925,7 @@ function AgentWorkedOnTasksList({
             <button
               type="button"
               onClick={() => onSelectTask(task.id)}
-              className="block w-full px-1 py-2.5 text-left interactive hover:bg-[color:var(--bg-surface-raised)]"
+              className={`block w-full px-1 py-2.5 text-left interactive hover:bg-[color:var(--bg-surface-raised)] ${FOCUS_RING_INSET_CLASS}`}
             >
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
                 <span className="font-mono text-[color:var(--tone-warn)]">{task.id}</span>
@@ -2740,7 +2740,7 @@ export function SprintEngineInspectorPanel({
                     ? `Open Terminal — unavailable: ${terminalActionsUnavailable}`
                     : undefined
                 }
-                className="h-7 rounded border border-[color:var(--border-strong)] px-2.5 text-micro font-medium text-[color:var(--text-default)] interactive hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-45"
+                className={`h-7 rounded border border-[color:var(--border-strong)] px-2.5 text-micro font-medium text-[color:var(--text-default)] interactive hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING_CLASS}`}
               >
                 Open Terminal
               </button>
@@ -2754,7 +2754,7 @@ export function SprintEngineInspectorPanel({
                     ? `Spawn — unavailable: ${terminalActionsUnavailable}`
                     : undefined
                 }
-                className="h-7 rounded border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-2.5 text-micro font-semibold text-[color:var(--accent-primary)] interactive hover:bg-[color:var(--accent-primary-soft-strong)] disabled:cursor-not-allowed disabled:opacity-45"
+                className={`h-7 rounded border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-2.5 text-micro font-semibold text-[color:var(--accent-primary)] interactive hover:bg-[color:var(--accent-primary-soft-strong)] disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING_CLASS}`}
               >
                 Spawn
               </button>
@@ -2769,7 +2769,7 @@ export function SprintEngineInspectorPanel({
               <button
                 type="button"
                 onClick={() => onSelectTask(currentTask.id)}
-                className="block w-full rounded-md border border-[color:var(--border-default)] px-3 py-2 text-left interactive hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]"
+                className={`block w-full rounded-md border border-[color:var(--border-default)] px-3 py-2 text-left interactive hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)] ${FOCUS_RING_CLASS}`}
               >
                 <div className="font-mono text-micro text-[color:var(--tone-warn)]">{currentTask.id}</div>
                 <TruncatedText as="div" text={currentTask.title} className="mt-1 text-sm font-semibold text-[color:var(--text-strong)]" />

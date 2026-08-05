@@ -764,7 +764,7 @@ export function CliModelPickerButton({
                 'interactive group/pill inline-flex items-center gap-2 rounded-[5px] text-left',
                 maxWidthClassName,
                 quiet
-                  ? 'h-6 border border-transparent px-1.5 text-micro text-[color:var(--text-muted)] hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-surface)] hover:text-[color:var(--text-default)] focus-visible:border-[color:var(--border-default)]'
+                  ? 'h-6 border border-transparent px-1.5 text-micro text-[color:var(--text-muted)] hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-surface)] hover:text-[color:var(--text-default)]'
                   : 'h-control-xs border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-meta text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
                 'disabled:cursor-not-allowed disabled:opacity-45',
                 FOCUS_RING_CLASS,

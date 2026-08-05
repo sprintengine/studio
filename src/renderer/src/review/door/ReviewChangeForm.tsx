@@ -6,7 +6,7 @@ import type {
   ReviewSourceInput,
   ReviewSourceProbe,
 } from '../../../../shared/electron-api'
-import { InlineNotice, Select } from '../../components/ui'
+import { FOCUS_RING_CLASS, InlineNotice, Select } from '../../components/ui'
 import { PrimaryButton, GhostButton } from '../../components/ui/Buttons'
 import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { StatusDot } from '../../components/ui/StatusDot'
@@ -30,7 +30,8 @@ const SOURCE_SEGMENTS: { value: ReviewSourceInput['kind']; label: string }[] = [
 const LABEL = 'mb-1 block text-meta font-medium text-[color:var(--text-default)]'
 const HELP = 'mt-1 text-micro leading-4 text-[color:var(--text-subtle)]'
 const INPUT =
-  'w-full rounded-[6px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-body text-[color:var(--text-default)] outline-none focus:border-[color:var(--accent-primary)]'
+  'w-full rounded-[6px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-body ' +
+  `text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`
 
 type ProbeState =
   | { status: 'idle' }

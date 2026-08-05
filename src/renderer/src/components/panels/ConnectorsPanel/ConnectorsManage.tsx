@@ -15,7 +15,7 @@ import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/m
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type { McpSettings } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { Field, GhostButton, OutlineButton, PrimaryButton, Select, type SelectItem } from '../../ui'
+import { Field, FOCUS_RING_CLASS, GhostButton, OutlineButton, PrimaryButton, Select, type SelectItem } from '../../ui'
 import { InstalledExtensionsInventory } from './InstalledExtensionsInventory'
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
@@ -26,7 +26,8 @@ const MCP_TRANSPORT_ITEMS: SelectItem<'stdio' | 'http'>[] = [
 ]
 
 const INPUT_CLASS =
-  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body ' +
+  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
 
 type NoteTone = 'neutral' | 'accent' | 'warn'
 const NOTE_BORDER: Record<NoteTone, string> = {

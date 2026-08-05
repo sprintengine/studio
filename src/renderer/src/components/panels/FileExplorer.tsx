@@ -17,6 +17,7 @@ import { IconButton } from '../ui/Buttons'
 import { PanelHeader } from '../ui/PanelHeader'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
 import { Skeleton } from '../ui/Skeleton'
+import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { Tooltip } from '../ui/Tooltip'
 import { Toast } from '../ui/Toast'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -2057,6 +2058,10 @@ function ExplorerTree({
     }
   }
 
+  // The rename field's chrome is fixed here rather than at the two call sites:
+  // a folder row and a file row differ only by the weight of the name they
+  // replace, and spelling the box out twice is how one of them ended up with a
+  // `:focus` border swap instead of the ring (MC-2107).
   const renderRenameInput = (className: string) => {
     if (!renameDraft) return null
 
@@ -2079,7 +2084,7 @@ function ExplorerTree({
             cancelRename()
           }
         }}
-        className={className}
+        className={`h-5 min-w-0 flex-1 rounded-[4px] border border-[color:var(--border-strong)] bg-[color:var(--bg-app)] px-1.5 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS} ${className}`}
       />
     )
   }
@@ -2196,9 +2201,7 @@ function ExplorerTree({
                   />
                   <FolderIcon expanded={isExpanded} />
                   {isRenaming ? (
-                    renderRenameInput(
-                      'h-5 min-w-0 flex-1 rounded-[4px] border border-[color:var(--color-6)] bg-[color:var(--bg-app)] px-1.5 text-meta font-medium text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]'
-                    )
+                    renderRenameInput('font-medium')
                   ) : (
                     <span className={`truncate font-medium ${nameClassName}`}>{entry.name}</span>
                   )}
@@ -2211,9 +2214,7 @@ function ExplorerTree({
                   <span className="w-3 shrink-0" />
                   <FileIcon name={entry.name} />
                   {isRenaming ? (
-                    renderRenameInput(
-                      'h-5 min-w-0 flex-1 rounded-[4px] border border-[color:var(--color-6)] bg-[color:var(--bg-app)] px-1.5 text-meta text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]'
-                    )
+                    renderRenameInput('')
                   ) : (
                     <span className={`truncate ${gitAppearance.textClass}`}>{entry.name}</span>
                   )}
@@ -2542,13 +2543,13 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
             <div className="flex items-center gap-2">
               <button
                 onClick={() => void recheckFolder()}
-                className="rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-micro text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)]"
+                className={`rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-micro text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
               >
                 Retry
               </button>
               <button
                 onClick={handleOpen}
-                className="rounded-md border border-[color:var(--accent-primary)]/45 bg-[color:var(--accent-primary-soft)] px-3 py-1.5 text-micro font-semibold text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--accent-primary-soft-strong)]"
+                className={`rounded-md border border-[color:var(--accent-primary)]/45 bg-[color:var(--accent-primary-soft)] px-3 py-1.5 text-micro font-semibold text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--accent-primary-soft-strong)] ${FOCUS_RING_CLASS}`}
               >
                 Relink
               </button>
@@ -2559,7 +2560,7 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
             <p className="px-4 text-center text-meta">No folder open</p>
             <button
               onClick={handleOpen}
-              className="rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-micro text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)]"
+              className={`rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-micro text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
             >
               Open Folder
             </button>

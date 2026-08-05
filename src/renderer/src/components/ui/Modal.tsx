@@ -17,6 +17,7 @@
 // Consuming the token both fixes that and removes the second ladder.
 import React, { useEffect, useRef } from 'react'
 import { CloseIconButton } from './Buttons'
+import { FocusTrap } from './FocusTrap'
 import { TruncatedText } from './TruncatedText'
 
 type ModalProps = {
@@ -67,17 +68,21 @@ export function Modal({ open, onClose, labelledBy, width = 560, children, contai
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelledBy}
-        tabIndex={-1}
-        style={{ width, maxWidth: '95vw' }}
-        className="max-h-[92vh] overflow-y-auto rounded-[8px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] outline-none"
-      >
-        {children}
-      </div>
+      {/* `aria-modal="true"` promises assistive tech that the page behind is
+          unreachable. `FocusTrap` is what makes that true for the keyboard. */}
+      <FocusTrap>
+        <div
+          ref={ref}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={labelledBy}
+          tabIndex={-1}
+          style={{ width, maxWidth: '95vw' }}
+          className="max-h-[92vh] overflow-y-auto rounded-[8px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] outline-none"
+        >
+          {children}
+        </div>
+      </FocusTrap>
     </div>
   )
 }

@@ -10,13 +10,22 @@
 //
 // ## Rules
 //
-// Twelve rules scan the renderer source tree:
+// Thirteen rules scan the renderer source tree:
 //
 //   focus-ring-removed     `focus:outline-none` with no focus-visible ring on
 //                          the same element ("Accessibility": visible focus,
 //                          never removed). A `focus:ring-*` does not count —
 //                          "Selection and focus" puts the ring on
 //                          `:focus-visible` and never on `:focus`.
+//   focus-border-swap      a focus-scoped `border-*` — `focus:border-`,
+//                          `focus-within:border-`, `focus-visible:border-`
+//                          ("Selection and focus": ONE indicator, the shared
+//                          ring). Recolouring the resting border instead is a
+//                          second idiom, and a weaker one: it moves no pixels,
+//                          so on a field whose border is already near the focus
+//                          hue the change is invisible. MC-2107 found it on
+//                          whole form families (settings, the review door) and
+//                          in the chat composer.
 //   spacing-off-grid       arbitrary odd-pixel padding / margin / gap ("Space
 //                          and size": every value comes from `sem.space.*`,
 //                          a 2px grid — an odd number cannot be on it).
@@ -437,6 +446,12 @@ const SPACING_ARBITRARY =
 // it draws an icon with a character — Miscellaneous Symbols (⚠, ⏺) and
 // Dingbats (✓, ✗, ✳). Arrows, box drawing, and geometric shapes are NOT here:
 // they are typographic marks the system permits, not iconography.
+// A focus-scoped border recolour, in every variant form the tree spells it.
+// `border-` and not `border-b`/`border-l` alone: the shape a swap takes is
+// always a colour on some edge, and the rule wants all of them.
+const FOCUS_BORDER_SWAP =
+  /(?<![\w-])(?:group-|peer-)?focus(?:-within|-visible)?:border-/g
+
 const EMOJI = /[\p{Extended_Pictographic}☀-⛿✀-➿]/gu
 const EMOJI_ALLOWED = new Set(['©', '®', '™'])
 
@@ -503,6 +518,11 @@ function scanSourceFile(file, push) {
     if (!inCode(match.index)) return
     if (FOCUS_RING_PRESENT.test(classContext(file, match.index, 1500))) return
     push('focus-ring-removed', file, match.index, 'focus:outline-none')
+  })
+
+  forEachMatch(FOCUS_BORDER_SWAP, source, (match) => {
+    if (!inCode(match.index)) return
+    push('focus-border-swap', file, match.index, match[0])
   })
 
   forEachMatch(SPACING_ARBITRARY, source, (match) => {
@@ -917,6 +937,7 @@ function normalizeValue(value) {
 
 const RULE_IDS = [
   'focus-ring-removed',
+  'focus-border-swap',
   'spacing-off-grid',
   'emoji-as-icon',
   'selection-accent-bar',
@@ -934,6 +955,9 @@ const RULE_IDS = [
 
 const FIX_HINT = {
   'focus-ring-removed': 'add FOCUS_RING_CLASS from components/ui/tokens.ts to the same element',
+  'focus-border-swap':
+    'delete the border swap and wear the ring: FOCUS_RING_CLASS, or the wrapper/inset/terminal ' +
+    'variant beside it in components/ui/tokens.ts',
   'spacing-off-grid': 'use the nearest sem.space step (2, 4, 6, 8, 10, 12, 16, 20, 24, 32)',
   'emoji-as-icon': 'use a glyph from components/AppIcons.tsx, or delete the decoration',
   'selection-accent-bar': 'selection is a neutral --bg-selected fill with no left bar',

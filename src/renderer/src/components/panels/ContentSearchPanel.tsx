@@ -3,7 +3,7 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { InboxRow, Skeleton } from '../ui'
+import { FOCUS_RING_CLASS, InboxRow, Skeleton } from '../ui'
 
 interface Props {
   workspaceId: string
@@ -166,7 +166,7 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search file contents..."
-          className="h-8 w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-app)] px-3 text-meta text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] outline-none transition-colors focus:border-[color:var(--color-5)]"
+          className={`h-8 w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-app)] px-3 text-meta text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] transition-colors ${FOCUS_RING_CLASS}`}
         />
         {statusText && (
           <div className={`mt-2 text-micro ${error ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-disabled)]'}`}>

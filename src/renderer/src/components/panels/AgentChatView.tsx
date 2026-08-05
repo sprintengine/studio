@@ -34,7 +34,7 @@ import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetChips } from '../worksp
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { renderMarkdown } from '../../utils/markdown'
-import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, GhostButton, InlineSkillPicker, MenuDivider, MenuItem, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, GhostButton, InlineSkillPicker, MenuDivider, MenuItem, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillPrefill } from '../../utils/skillInvocation'
@@ -1175,7 +1175,9 @@ type Props = {
 
 // The bordered/rounded surface and focus ring live on the composer container;
 // the textarea itself is transparent and borderless so the field reads as one
-// piece with the footer control row beneath it.
+// piece with the footer control row beneath it. The container wears
+// FOCUS_RING_WITHIN_TEXTAREA_CLASS, so the indicator here is the product's one
+// ring — it used to be an accent border swap, a second idiom (MC-2107).
 const COMPOSER_CLASS =
   'min-h-[40px] w-full resize-none rounded-t-lg bg-transparent px-3 pb-1 pt-2.5 text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] disabled:opacity-45'
 
@@ -2151,7 +2153,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
          * placeholder says why the composer is waiting.
          */}
         <div
-          className={`relative rounded-xl border bg-[color:var(--bg-surface)] transition-colors focus-within:border-[color:var(--accent-primary)] ${
+          className={`relative rounded-xl border bg-[color:var(--bg-surface)] transition-colors ${FOCUS_RING_WITHIN_TEXTAREA_CLASS} ${
             dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
           }`}
           onDragEnter={(event) => {
@@ -3511,7 +3513,7 @@ function ConversationQuestionCard({
             placeholder="Something else…"
             disabled={busy}
             aria-label={`Other answer for: ${question.question}`}
-            className={`w-full rounded-lg border border-[color:var(--border-subtle)] bg-transparent px-2.5 py-2 text-body text-[color:var(--text-default)] placeholder:text-[color:var(--text-subtle)] focus:border-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}
+            className={`w-full rounded-lg border border-[color:var(--border-subtle)] bg-transparent px-2.5 py-2 text-body text-[color:var(--text-default)] placeholder:text-[color:var(--text-subtle)] ${FOCUS_RING_CLASS}`}
           />
         </div>
       ) : null}

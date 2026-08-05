@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 
-import { GhostButton, InlineNotice, StatusDot } from '../../ui'
+import { FOCUS_RING_CLASS, GhostButton, InlineNotice, StatusDot } from '../../ui'
 import type { Tone } from '../../ui'
 import { isAbsolutePath } from '../../../store/slices/memorySlice'
 import { relativePathBetween } from '../../../utils/projectKnowledge'
 import { knowledgeCandidatePaths } from './knowledgeFolders'
 
 const INPUT_CLASS =
-  'h-10 w-full min-w-0 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]'
+  'h-10 w-full min-w-0 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body ' +
+  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`
 
 type Status = MemoryRootStatus | null
 

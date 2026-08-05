@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import { CliModelPickerButton, DefinitionList, Field, GhostButton, InlineNotice, Popover, PrimaryButton, Select, type SelectItem, Switch } from '../../ui'
+import { CliModelPickerButton, DefinitionList, Field, FOCUS_RING_CLASS, GhostButton, InlineNotice, Popover, PrimaryButton, Select, type SelectItem, Switch } from '../../ui'
 import { SkillPickerPopover } from '../../ui/SkillPickerPopover'
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -116,14 +116,16 @@ const EMPTY_SAVED_TEAMS: SprintEngineRoster[] = []
 // dropdowns read as one family instead of two. See TriggerFields.INPUT_CLASS,
 // kept in sync.
 const CONTROL_BASE =
-  'w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-meta text-[color:var(--text-default)] outline-none transition-colors hover:border-[color:var(--border-strong)] focus-visible:border-[color:var(--accent-primary)]'
+  'w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-meta ' +
+  `text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}`
 const CONTROL_INPUT = `${CONTROL_BASE} h-7 px-2.5`
 // The name, edited in place as the page's own title (mockup §.head). Quiet until
 // hover or focus reveals the control chrome — the same in-place-editing idiom
 // `CliModelPickerButton`'s `quiet` trigger uses — so the head reads as a heading
 // rather than as a form field wearing one, and the name is still one click away.
 const NAME_INPUT =
-  '-mx-1.5 w-full rounded-[5px] border border-transparent bg-transparent px-1.5 py-0.5 text-title font-semibold tracking-tight text-[color:var(--text-strong)] outline-none transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-surface-raised)] focus-visible:border-[color:var(--accent-primary)] focus-visible:bg-[color:var(--bg-surface-raised)]'
+  '-mx-1.5 w-full rounded-[5px] border border-transparent bg-transparent px-1.5 py-0.5 text-title font-semibold tracking-tight ' +
+  `text-[color:var(--text-strong)] transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-surface-raised)] ${FOCUS_RING_CLASS}`
 // Auto-grows with its content (field-sizing: content) from the rows={4} floor up
 // to a cap, then scrolls internally — no native drag handle. The `rows` attribute
 // sets the minimum height; max-h caps the growth so the form stays usable.

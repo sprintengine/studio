@@ -1,5 +1,5 @@
 import { ActionStatusChip, type ActionStatus } from '../../ui/ActionFeedback'
-import { DefinitionList, GhostButton, PrimaryButton, Select, StatusDot, type Tone } from '../../ui'
+import { DefinitionList, FOCUS_RING_CLASS, GhostButton, PrimaryButton, Select, StatusDot, type Tone } from '../../ui'
 import { CommentIcon, PriorityIcon, SpecialistActionIcon } from '../../AppIcons'
 import type { SwitchboardTaskRecord } from '../../../../../shared/switchboard'
 import { confidenceLabel, confidenceToneClass, formatRelativeTime, priorityLabel, shortIdentifier, sourceLabel } from '../../../utils/switchboardBoard'
@@ -87,7 +87,7 @@ export function DetailPane({
             <input
               value={editForm.title}
               onChange={(event) => onEditFormChange({ ...editForm, title: event.target.value })}
-              className="mt-2 block w-full bg-transparent text-title font-semibold text-[color:var(--text-strong)] outline-none focus:border-b focus:border-[color:var(--border-strong)]"
+              className={`mt-2 block w-full bg-transparent text-title font-semibold text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
             />
           ) : (
             <h3 className="mt-2 text-title font-semibold leading-5 text-[color:var(--text-strong)]">
@@ -247,7 +247,7 @@ export function DetailPane({
             <textarea
               value={editForm.description}
               onChange={(event) => onEditFormChange({ ...editForm, description: event.target.value })}
-              className="min-h-[140px] w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-body leading-6 text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-strong)]"
+              className={`min-h-[140px] w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-body leading-6 text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
             />
           ) : task.description.trim() ? (
             <div className="whitespace-pre-wrap text-body leading-6 text-[color:var(--text-default)]">
@@ -280,7 +280,7 @@ export function DetailPane({
             onChange={(event) => onCommentChange(event.target.value)}
             placeholder="Note for triage, link a finding, or capture context..."
             rows={2}
-            className="min-h-[44px] flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-body leading-6 text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-strong)]"
+            className={`min-h-[44px] flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-body leading-6 text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           />
           <PrimaryButton
             onClick={onAddComment}

@@ -1,7 +1,7 @@
 import React from 'react'
 import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
-import { CliModelPickerButton, FOCUS_RING_CLASS, Popover, SkillPickerPopover, StarGlyph, TruncatedText } from '../../ui'
+import { CliModelPickerButton, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS, Popover, SkillPickerPopover, StarGlyph, TruncatedText } from '../../ui'
 import { getSpecialistAction, type SpecialistAction } from '../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
@@ -196,7 +196,11 @@ export default function AgentComposer({
           className="flex min-h-0 flex-col border-r border-[color:var(--border-subtle)] p-3"
           data-selection-pane="primary"
         >
-          <div className="mb-2 flex items-center gap-2 rounded border border-[color:var(--border-subtle)] px-2.5 py-1.5">
+          {/* The wrapper owns the visible border box, so it is what the ring goes
+              round — keyed to the input's own focus rather than focus-within, per
+              FOCUS_RING_WITHIN_INPUT_CLASS. Ringing the inner input instead drew
+              the indicator inside the box (MC-2107). */}
+          <div className={`mb-2 flex items-center gap-2 rounded border border-[color:var(--border-subtle)] px-2.5 py-1.5 ${FOCUS_RING_WITHIN_INPUT_CLASS}`}>
             <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
               <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -210,7 +214,7 @@ export default function AgentComposer({
               aria-label="Search agents"
               aria-controls="agent-composer-roster"
               aria-activedescendant={selectedRow ? optionId(selectedRow) : undefined}
-              className={`min-w-0 flex-1 bg-transparent text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+              className="min-w-0 flex-1 bg-transparent text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)]"
             />
           </div>
 
@@ -327,7 +331,7 @@ export default function AgentComposer({
                     type="button"
                     onClick={() => composer.setSkillAttachment(null)}
                     aria-label={`Remove skill ${composer.skillAttachment.name}`}
-                    className="text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)]"
+                    className={`text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                   >
                     ×
                   </button>
@@ -349,7 +353,7 @@ export default function AgentComposer({
                       ref={ref}
                       type="button"
                       onClick={togglePopover}
-                      className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+                      className={`inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                       {...triggerProps}
                     >
                       + Skill
@@ -370,7 +374,7 @@ export default function AgentComposer({
                     type="button"
                     onClick={() => composer.setConnectorAttachment(null)}
                     aria-label={`Remove connector ${composer.connectorAttachment.name}`}
-                    className="text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)]"
+                    className={`text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                   >
                     ×
                   </button>
@@ -388,7 +392,7 @@ export default function AgentComposer({
                       ref={ref}
                       type="button"
                       onClick={togglePopover}
-                      className="inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+                      className={`inline-flex items-center gap-1 rounded-md border border-dashed border-[color:var(--border-strong)] px-2 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                       {...triggerProps}
                     >
                       + Connector
@@ -486,7 +490,7 @@ function ProjectScopeChip({
               onSelectProject(option.path)
               setOpen(false)
             }}
-            className="grid w-full grid-cols-[16px_1fr_auto] items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)]"
+            className={`grid w-full grid-cols-[16px_1fr_auto] items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
           >
             <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
             <span className="min-w-0">
@@ -511,7 +515,7 @@ function ProjectScopeChip({
           setOpen(false)
           onBrowseProject()
         }}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
       >
         <svg className="icon-xs shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />

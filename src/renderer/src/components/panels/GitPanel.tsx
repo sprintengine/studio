@@ -2027,7 +2027,7 @@ function ConflictGroup({
                   type="button"
                   onClick={() => onResolve(entry)}
                   disabled={Boolean(busy)}
-                  className="h-6 shrink-0 rounded-md px-2 text-micro font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30"
+                  className={`h-6 shrink-0 rounded-md px-2 text-micro font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30 ${FOCUS_RING_CLASS}`}
                   aria-label={`Resolve ${entry.relativePath}`}
                 >
                   Resolve
@@ -2094,7 +2094,7 @@ function StashList({
                     type="button"
                     onClick={() => onApply(entry, true)}
                     disabled={Boolean(busy)}
-                    className="h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30"
+                    className={`h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30 ${FOCUS_RING_CLASS}`}
                     aria-label={`Pop ${entry.ref}`}
                   >
                     Pop
@@ -2105,7 +2105,7 @@ function StashList({
                     type="button"
                     onClick={() => onApply(entry, false)}
                     disabled={Boolean(busy)}
-                    className="h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30"
+                    className={`h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30 ${FOCUS_RING_CLASS}`}
                     aria-label={`Apply ${entry.ref}`}
                   >
                     Apply
@@ -2116,7 +2116,7 @@ function StashList({
                     type="button"
                     onClick={() => onDrop(entry)}
                     disabled={Boolean(busy)}
-                    className="h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30"
+                    className={`h-6 rounded-md px-2 text-micro font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30 ${FOCUS_RING_CLASS}`}
                     aria-label={`Drop ${entry.ref}`}
                   >
                     Drop
@@ -2176,7 +2176,7 @@ function ChangeGroup({
                   type="button"
                   onClick={() => void bulkAction.action()}
                   disabled={Boolean(busy)}
-                  className={`inline-flex h-6 shrink-0 items-center justify-center rounded-md px-2 text-micro font-semibold leading-none transition-colors disabled:opacity-30 ${
+                  className={`inline-flex h-6 shrink-0 items-center justify-center rounded-md px-2 text-micro font-semibold leading-none transition-colors disabled:opacity-30 ${FOCUS_RING_CLASS} ${
                     bulkAction.danger
                       ? 'text-[color:var(--tone-error)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]'
                       : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
@@ -2364,7 +2364,7 @@ function CommitComposer({
         value={commitMessage}
         onChange={(event) => onCommitMessageChange(event.target.value)}
         placeholder="Commit message"
-        className="h-16 w-full resize-none rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2 text-meta text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] transition-colors focus:border-[color:var(--border-strong)]"
+        className={`h-16 w-full resize-none rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2 text-meta text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] transition-colors ${FOCUS_RING_CLASS}`}
       />
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="min-w-0 truncate text-micro text-[color:var(--text-subtle)]">
@@ -2375,7 +2375,7 @@ function CommitComposer({
             type="button"
             onClick={() => void onFetch()}
             disabled={Boolean(busy)}
-            className="h-8 rounded-md px-2.5 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent"
+            className={`h-8 rounded-md px-2.5 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent ${FOCUS_RING_CLASS}`}
           >
             Fetch
           </button>
@@ -2383,7 +2383,7 @@ function CommitComposer({
             type="button"
             onClick={() => void onPull()}
             disabled={Boolean(busy)}
-            className="h-8 rounded-md px-2.5 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent"
+            className={`h-8 rounded-md px-2.5 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent ${FOCUS_RING_CLASS}`}
           >
             Pull
           </button>
@@ -2391,7 +2391,7 @@ function CommitComposer({
             type="button"
             onClick={() => void onPush()}
             disabled={Boolean(busy)}
-            className="h-8 rounded-md px-2.5 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent"
+            className={`h-8 rounded-md px-2.5 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent ${FOCUS_RING_CLASS}`}
           >
             Push
           </button>
@@ -2399,7 +2399,7 @@ function CommitComposer({
             type="button"
             onClick={() => void onCommit()}
             disabled={Boolean(busy) || !readyToCommit}
-            className="h-8 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--text-strong)] px-3 text-micro font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-[color:var(--bg-inverted-hover)] disabled:border-[color:var(--border-subtle)] disabled:bg-[color:var(--bg-hover)] disabled:text-[color:var(--text-disabled)]"
+            className={`h-8 rounded-md border border-[color:var(--border-strong)] bg-[color:var(--text-strong)] px-3 text-micro font-semibold text-[color:var(--bg-surface-raised)] transition-colors hover:bg-[color:var(--bg-inverted-hover)] disabled:border-[color:var(--border-subtle)] disabled:bg-[color:var(--bg-hover)] disabled:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
           >
             Commit
           </button>

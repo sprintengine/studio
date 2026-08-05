@@ -1,6 +1,7 @@
 import type { RailModel, StepView } from './reviewSelectors'
 import { OVERVIEW_PANE_ID } from './reviewSelectors'
 import { PrimaryButton } from '../../components/ui/Buttons'
+import { FOCUS_RING_INSET_CLASS } from '../../components/ui/tokens'
 
 interface StepRailProps {
   rail: RailModel
@@ -52,7 +53,7 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
         type="button"
         onClick={() => onSelectPane(OVERVIEW_PANE_ID)}
         aria-current={activePaneId === OVERVIEW_PANE_ID ? 'true' : undefined}
-        className={`relative mb-0.5 flex w-full items-start gap-2.5 px-4 py-2.5 text-left ${
+        className={`relative mb-0.5 flex w-full items-start gap-2.5 px-4 py-2.5 text-left ${FOCUS_RING_INSET_CLASS} ${
           activePaneId === OVERVIEW_PANE_ID
             ? 'bg-[color:var(--bg-selected)]'
             : 'hover:bg-[color:var(--bg-hover)]'
@@ -86,7 +87,7 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
               type="button"
               onClick={() => onSelectPane(view.step.id)}
               aria-current={active ? 'true' : undefined}
-              className={`relative flex w-full items-start gap-2.5 px-4 py-2.5 text-left ${
+              className={`relative flex w-full items-start gap-2.5 px-4 py-2.5 text-left ${FOCUS_RING_INSET_CLASS} ${
                 active
                   ? 'bg-[color:var(--bg-selected)]'
                   : 'hover:bg-[color:var(--bg-hover)]'

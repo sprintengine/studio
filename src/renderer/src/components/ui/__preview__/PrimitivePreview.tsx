@@ -12,6 +12,7 @@ import {
   DefinitionList,
   Drawer,
   Field,
+  FOCUS_RING_CLASS,
   GhostButton,
   IconButton,
   InboxRow,
@@ -266,7 +267,7 @@ export function PrimitivePreview() {
               type="text"
               value={workspaceName}
               onChange={(event) => setWorkspaceName(event.target.value)}
-              className="h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-meta text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]"
+              className={`h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
             />
           </Field>
           <Field
@@ -279,7 +280,7 @@ export function PrimitivePreview() {
               value={endpoint}
               onChange={(event) => setEndpoint(event.target.value)}
               placeholder="https://"
-              className="h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-meta text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)]"
+              className={`h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
             />
           </Field>
           <Field

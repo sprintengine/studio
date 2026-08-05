@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { ReviewAnnotation } from '../../../../shared/review'
 import { GhostButton } from '../../components/ui/Buttons'
+import { FOCUS_RING_INSET_CLASS } from '../../components/ui/tokens'
 import { anchorRangeLabel } from './anchorLabel'
 import { ZONE_CONTENT_INSET } from './annotationZones'
 
@@ -58,7 +59,7 @@ export function AnnotationRibbon({ annotation, onAskGuide, onMeasured }: Annotat
           onClick={() => expandable && setOpen((value) => !value)}
           aria-expanded={expandable ? open : undefined}
           disabled={!expandable}
-          className={`block w-full text-left text-body leading-5 text-[color:var(--text-default)] ${expandable ? 'cursor-pointer' : 'cursor-default'}`}
+          className={`block w-full text-left text-body leading-5 text-[color:var(--text-default)] ${FOCUS_RING_INSET_CLASS} ${expandable ? 'cursor-pointer' : 'cursor-default'}`}
         >
           {expandable ? (
             <svg

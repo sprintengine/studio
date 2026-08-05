@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative } from 'node:path'
 
 import { JSDOM } from 'jsdom'
 
@@ -29,6 +31,14 @@ import { JSDOM } from 'jsdom'
 // Assertions read the mounted elements, not the source files: a contract that
 // only holds in the file that declares it is not a contract the composed tree
 // keeps.
+//
+// Two later items extend the suite on the same terms:
+//
+//   2003/2005  the Design door's canvas and create screen (mounted, below).
+//   MC-2109    the modal focus trap, mounted; and the one z ladder, which is
+//              the suite's single source-read rule — the overlay shells it
+//              polices are whole app screens that cannot be mounted here, and
+//              the rule is about the literal a developer types.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost',
@@ -285,6 +295,23 @@ async function main(): Promise<void> {
         ),
         'focus:outline-none is only allowed alongside a focus-visible replacement',
       )
+    }
+  })
+
+  // MC-2107: the retired second idiom. A focus-scoped border recolour is not an
+  // indicator — it moves no pixels, and on a field whose resting border already
+  // sits near the focus hue it is invisible. It had spread to whole form
+  // families, so the tree-wide sweep is enforced by the `focus-border-swap` rule
+  // in scripts/lint-design-system-conformance.mjs, which reads every renderer
+  // source; what belongs HERE is the composed tree keeping the same clause.
+  await run('MC-2107 no control in the tree swaps a border on focus instead of wearing the ring', () => {
+    for (const element of subtree(container.firstElementChild as Element)) {
+      for (const token of classesOf(element)) {
+        assert.ok(
+          !/^(?:group-|peer-)?focus(?:-within|-visible)?:border-/.test(token),
+          `focus is the shared ring, never a border swap — found \`${token}\``,
+        )
+      }
     }
   })
 
@@ -646,6 +673,158 @@ async function main(): Promise<void> {
 
   act(() => {
     root.unmount()
+  })
+
+  // --- MC-2109: the modal focus trap ---------------------------------------
+  // Mounted, not read: the trap is behaviour. jsdom moves no focus on Tab, so
+  // what is asserted here is the mechanism the browser's Tab lands on — the
+  // sentinel that sits immediately before and after the dialog in the tab
+  // order, and where it sends focus when it fires. DOM order does the rest:
+  // there is no tabbable node between a sentinel and the dialog it guards.
+
+  const { Modal } = await import('./Modal')
+  const { FocusTrap } = await import('./FocusTrap')
+
+  const trapContainer = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(trapContainer)
+  const trapRoot = createRoot(trapContainer)
+  act(() => {
+    trapRoot.render(
+      React.createElement(
+        Modal,
+        { open: true, onClose: () => {} },
+        React.createElement('button', { id: 'first', key: 'a' }, 'First'),
+        React.createElement('button', { id: 'last', key: 'b' }, 'Last'),
+      ),
+    )
+  })
+
+  const sentinels = Array.from(
+    trapContainer.querySelectorAll('[data-focus-sentinel="true"]'),
+  ) as HTMLElement[]
+
+  await run('MC-2109 a Modal mounts one sentinel each side of the dialog it declares modal', () => {
+    assert.equal(sentinels.length, 2, 'the dialog is guarded on both edges')
+    const dialog = trapContainer.querySelector('[role="dialog"]')
+    assert.ok(dialog, 'the dialog mounted')
+    assert.equal(sentinels[0].nextElementSibling, dialog, 'nothing tabbable sits between the opening sentinel and the dialog')
+    assert.equal(sentinels[1].previousElementSibling, dialog, 'nor between the dialog and the closing one')
+    for (const sentinel of sentinels) {
+      assert.equal(sentinel.getAttribute('tabindex'), '0', 'a sentinel has to be in the tab order to catch the Tab that would leave')
+    }
+  })
+
+  await run('MC-2109 Tab off the end of the dialog returns to its first control', () => {
+    act(() => {
+      sentinels[1].focus()
+    })
+    assert.equal(
+      dom.window.document.activeElement?.id,
+      'first',
+      'the cycle wraps forward instead of walking out into the page behind the scrim',
+    )
+  })
+
+  await run('MC-2109 Shift+Tab off the front of the dialog returns to its last control', () => {
+    act(() => {
+      sentinels[0].focus()
+    })
+    assert.equal(dom.window.document.activeElement?.id, 'last', 'and backward too')
+  })
+
+  act(() => {
+    trapRoot.unmount()
+  })
+
+  // The New sprint dialog stacks its New-item capture as a SIBLING of the
+  // dialog it traps. A trap that read its parent element would fold the two
+  // into one cycle; this fixture is that shape, reduced.
+  const siblingRoot = createRoot(trapContainer)
+  act(() => {
+    siblingRoot.render(
+      React.createElement(
+        'div',
+        null,
+        React.createElement(
+          FocusTrap,
+          { key: 'trap' },
+          React.createElement(
+            'div',
+            { role: 'dialog', 'aria-modal': 'true', tabIndex: -1 },
+            React.createElement('button', { id: 'inside' }, 'Inside'),
+          ),
+        ),
+        React.createElement('button', { key: 'sibling', id: 'sibling' }, 'Sibling'),
+      ),
+    )
+  })
+
+  await run('MC-2109 the trapped region is what the trap wraps, never a sibling beside it', () => {
+    const edges = Array.from(
+      trapContainer.querySelectorAll('[data-focus-sentinel="true"]'),
+    ) as HTMLElement[]
+    assert.equal(edges.length, 2, 'the trap mounted its sentinels')
+    act(() => {
+      edges[1].focus()
+    })
+    assert.equal(
+      dom.window.document.activeElement?.id,
+      'inside',
+      'a control outside the trap is not part of its cycle',
+    )
+  })
+
+  act(() => {
+    siblingRoot.unmount()
+  })
+  trapContainer.remove()
+
+  // --- MC-2109: one z ladder, and overlays read it by name -----------------
+  // Read from source, not from the tree: the overlay shells this rule polices
+  // are whole app screens (the New sprint dialog, the diagnostics overlay, the
+  // roster manager) that cannot be mounted here, and the rule is about the
+  // literal a developer types. The renderer used to run a private ladder
+  // (10/20/30/35/40/50) beside the design system's `--sem-z-*`, and the two
+  // disagreed about the top of the stack — a `z-50` modal sat BELOW the z-60
+  // menus. Now every overlay layer derives from the tokens, aliased into the
+  // app as `--z-*`.
+  //
+  // Scope is overlay shells: a class string that positions itself `fixed` or
+  // paints the `.overlay-scrim`. In-flow depth inside a pane (`z-10` on a HUD,
+  // `z-20` on a docked pane, `z-30` on a panel-internal popover) describes
+  // depth within one surface, not a layer in the app's stack, and is left alone.
+  await run('MC-2109 no overlay shell carries a raw z literal — layering comes from --z-* tokens', () => {
+    const rendererRoot = join(process.cwd(), 'src/renderer/src')
+    const sources: string[] = []
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) sources.push(full)
+      }
+    }
+    walk(rendererRoot)
+
+    // A whole class token, so `z-[var(--z-modal)]` and `zoom-50` never match.
+    const RAW_Z = /(?:^|\s)(-?z-(?:\d+|\[\d+\]))(?=\s|$)/
+    const OVERLAY_SHELL = /(?:^|\s)(?:fixed|overlay-scrim)(?=\s|$)/
+    const STRINGS = /"([^"\n]*)"|'([^'\n]*)'|`([^`]*)`/g
+
+    const offenders: string[] = []
+    for (const path of sources) {
+      // Comments first: `Modal.tsx` documents the retired ladder in prose, and
+      // prose is not a class string.
+      const code = readFileSync(path, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/(^|[^:])\/\/.*$/gm, '$1')
+      for (const match of code.matchAll(STRINGS)) {
+        const text = match[1] ?? match[2] ?? match[3] ?? ''
+        const z = text.match(RAW_Z)
+        if (!z || !OVERLAY_SHELL.test(text)) continue
+        offenders.push(`${relative(process.cwd(), path)}: ${z[1]}`)
+      }
+    }
+    assert.deepEqual(offenders, [], 'overlay z literals must name a tier: z-[var(--z-modal)] and friends')
   })
 
   if (failures > 0) {

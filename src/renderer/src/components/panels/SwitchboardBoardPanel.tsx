@@ -20,6 +20,7 @@ import {
   Banner,
   BoardLane,
   BoardLaneDropIndicator,
+  FOCUS_RING_CLASS,
   CloseIconButton,
   DefinitionList,
   Drawer,
@@ -1470,7 +1471,7 @@ function BoardDetailPane({
             onChange={(event) => onCommentChange(event.target.value)}
             placeholder="Plan, ask, or note an enrichment for the next claimer..."
             rows={2}
-            className="min-h-[44px] flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-body leading-6 text-[color:var(--text-strong)] outline-none focus:border-[color:var(--border-focus)]"
+            className={`min-h-[44px] flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-body leading-6 text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           />
           <PrimaryButton
             size="md"
@@ -1527,7 +1528,8 @@ function CreateTaskDialog({
   busy: boolean
 }) {
   const inputClass =
-    'block w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-body text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--border-focus)]'
+    'block w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-body ' +
+  `text-[color:var(--text-strong)] transition-colors placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`
   return (
     <Modal open onClose={onClose} contained labelledBy="switchboard-create-title" width={540}>
       <ModalHeader title="New Switchboard task" titleId="switchboard-create-title" onClose={onClose} />

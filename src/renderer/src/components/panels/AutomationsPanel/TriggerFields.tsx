@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { Field, GhostButton, InlineNotice, Select, type SelectItem, Switch } from '../../ui'
+import { Field, FOCUS_RING_CLASS, GhostButton, InlineNotice, Select, type SelectItem, Switch } from '../../ui'
 import type { AutomationsProviders, TriggerKind } from '../../../../../shared/automations/contracts'
 import {
   REPO_EVENT_TRIGGER_KIND,
@@ -45,7 +45,8 @@ function familyLabel(kind: TriggerKind): string {
 // (h-7, 5px radius, --border-default on --bg-surface-raised) so every input and
 // Select trigger in the editor reads as one family.
 const CONTROL_BASE =
-  'h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta text-[color:var(--text-default)] outline-none transition-colors hover:border-[color:var(--border-strong)] focus-visible:border-[color:var(--accent-primary)]'
+  'h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta ' +
+  `text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}`
 const INPUT_CLASS = `w-full ${CONTROL_BASE}`
 const NARROW_CONTROL = `w-32 tabular-nums ${CONTROL_BASE}`
 
