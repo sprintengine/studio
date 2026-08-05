@@ -67,3 +67,23 @@ electron.vite.config.*.mjs
 *.njsproj
 *.sln
 *.sw?
+
+# Vendored third-party skill packs (Cloudflare, WorkOS, agents-sdk, wrangler…).
+# Installed into the harness skill dirs by their own publishers and re-installable
+# from them, so the checkout is a cache, not a source. The first-party skills that
+# live beside them — backlog, prototype, review-guide, sprintengine,
+# workspace-knowledge, use-railway, multicode-electron-playwright — ARE authored
+# here and stay tracked, which is why these are named one by one rather than the
+# whole `.agents/skills/` tree being ignored.
+.agents/skills/agents-sdk/
+.agents/skills/cloudflare-email-service/
+.agents/skills/cloudflare-one/
+.agents/skills/cloudflare-one-migrations/
+.agents/skills/durable-objects/
+.agents/skills/sandbox-sdk/
+.agents/skills/turnstile-spin/
+.agents/skills/web-perf/
+.agents/skills/workers-best-practices/
+.agents/skills/workos/
+.agents/skills/workos-widgets/
+.agents/skills/wrangler/
