@@ -143,6 +143,7 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
       updateType: unexpectedCall('updateType'),
       updateTriage: unexpectedCall('updateTriage'),
       updateEpic: unexpectedCall('updateEpic'),
+      updateDependenciesPlanned: unexpectedCall('updateDependenciesPlanned'),
       addOrUpdateLink: unexpectedCall('addOrUpdateLink'),
       repairIntegrity: unexpectedCall('repairIntegrity'),
       ...overrides.backlogWrite,
@@ -1090,6 +1091,44 @@ async function testBacklogUpdateAppliesInOrderAndStopsOnFailure(): Promise<void>
   assert.equal((nullStatus.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
 }
 
+// The epic ordering mark (MC-2137) is the one field an agent sets to say "the
+// planning phase for this epic is over", so backlog.update has to carry it.
+async function testBacklogUpdateCarriesTheEpicOrderingMark(): Promise<void> {
+  const marks: boolean[] = []
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      backlogWrite: {
+        updateDependenciesPlanned: async (input) => {
+          marks.push(input.dependenciesPlanned)
+          return { ok: true, store: { schemaVersion: 1, items: [] } }
+        },
+      },
+    })
+  )
+  const update = tool(tools, 'backlog.update')
+
+  const marked = await update.handler(
+    { path: 'backlog/epics/auth.md', dependenciesPlanned: true },
+    agentContext('ws-1')
+  )
+  assert.equal(marked.isError, undefined)
+  const cleared = await update.handler(
+    { path: 'backlog/epics/auth.md', dependenciesPlanned: false },
+    agentContext('ws-1')
+  )
+  assert.equal(cleared.isError, undefined)
+  assert.deepEqual(marks, [true, false], 'the mark is written exactly as asserted, both ways')
+
+  // It is an assertion, not a string: a stringy "true" is refused before any write.
+  const stringy = await update.handler(
+    { path: 'backlog/epics/auth.md', dependenciesPlanned: 'true' },
+    agentContext('ws-1')
+  )
+  assert.equal((stringy.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  assert.equal(marks.length, 2, 'an invalid mark never reaches the writer')
+}
+
 async function testBacklogAssignBuildsTheCanonicalLink(): Promise<void> {
   const linked: Array<Record<string, unknown>> = []
   const workspace = testWorkspace('ws-1', {
@@ -1749,6 +1788,61 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
   })
   const failed = await tool(failing, 'sprint.create').handler({ folderPath: '/tmp/p', goal: 'g' })
   assert.equal((failed.structuredContent as { error: { code: string } }).error.code, 'sprint_team_exists')
+}
+
+// MC-2137 — starting a sprint from an epic whose ordering was never declared
+// finished. The gate INFORMS: the run is always created, and the response says
+// what happened to the intake.
+async function testSprintCreateWarnsOnAnUnmarkedEpic(): Promise<void> {
+  const workspace = testWorkspace('ws-sprint', { folderPath: '/tmp/project-a', mode: 'sprintengine' as never })
+  const epics: Record<string, { isEpic: boolean; dependenciesPlanned?: boolean }> = {
+    'backlog/epics/unmarked.md': { isEpic: true },
+    'backlog/epics/marked.md': { isEpic: true, dependenciesPlanned: true },
+    'backlog/plain-item.md': { isEpic: false },
+  }
+  const tools = createAutomationTools({
+    ...backendsOf(),
+    getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
+    delegateToRenderer: async () => ({ ok: true, workspaceId: 'ws-sprint' }),
+    readBacklogItem: async (_root, relativePath) => {
+      const item = epics[relativePath]
+      return item
+        ? { ok: true, item: { relativePath, title: 'x', status: 'ready', ...item }, body: '' }
+        : { ok: false, message: `no item ${relativePath}` }
+    },
+  })
+  const warningsOf = async (args: Record<string, unknown>): Promise<string[]> => {
+    const result = await tool(tools, 'sprint.create').handler(args as never)
+    assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent))
+    return ((result.structuredContent as { warnings?: string[] }).warnings ?? [])
+  }
+
+  const explicitDirect = await warningsOf({
+    folderPath: '/tmp/project-a',
+    sourceRef: 'backlog/epics/unmarked.md',
+    intake: 'direct',
+  })
+  assert.equal(explicitDirect.length, 1, 'an explicit direct over an unmarked epic is warned about, not refused')
+  assert.match(explicitDirect[0], /dependenciesPlanned/)
+  assert.match(explicitDirect[0], /unordered/)
+
+  const omitted = await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/epics/unmarked.md' })
+  assert.equal(omitted.length, 1, 'omitting intake on an unmarked epic no longer takes the epic default silently')
+  assert.match(omitted[0], /"planned"/)
+
+  // The states with nothing to say: a marked epic, an explicit planned request,
+  // a non-epic source, and a source that cannot be read at all.
+  assert.deepEqual(await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/epics/marked.md' }), [])
+  assert.deepEqual(
+    await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/epics/unmarked.md', intake: 'planned' }),
+    [],
+  )
+  assert.deepEqual(await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/plain-item.md' }), [])
+  assert.deepEqual(
+    await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/gone.md' }),
+    [],
+    'an unreadable source costs the warning, never the run',
+  )
 }
 
 async function testSprintLifecycleToolsMutateViaMainServices(): Promise<void> {
@@ -2929,6 +3023,7 @@ const tests = [
   testReadToolsPassServiceFailuresThrough,
   testBacklogRepairRoutesOnlyValidatedIntegrityOperations,
   testBacklogUpdateAppliesInOrderAndStopsOnFailure,
+  testBacklogUpdateCarriesTheEpicOrderingMark,
   testBacklogAssignBuildsTheCanonicalLink,
   testBacklogWorkHandsItemToAgent,
   testBacklogWorkFallsBackAndRefusesFinishedItems,
@@ -2940,6 +3035,7 @@ const tests = [
   testAutomationMutationToolsPassPipelineFailuresThrough,
   testSprintReadToolsAnswerFromDisk,
   testSprintCreateDelegatesAndConfirms,
+  testSprintCreateWarnsOnAnUnmarkedEpic,
   testSprintLifecycleToolsMutateViaMainServices,
   testSprintSteeringToolsMutateViaMainServices,
   testSprintVcsAndUsageToolsReadViaMainServices,

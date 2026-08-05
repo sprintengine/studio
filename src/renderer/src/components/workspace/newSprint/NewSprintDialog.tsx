@@ -131,6 +131,7 @@ import {
   seedPickedKeysFromSource,
   sprintIsolationUsesWorktrees,
   sprintIsolationUsesTaskWorktrees,
+  UNPLANNED_EPIC_CONSEQUENCE,
   type SprintIsolation,
 } from './newSprintModel'
 import { SprintIsolationRowView } from './SprintIsolationRow'
@@ -510,7 +511,15 @@ export default function NewSprintDialog({
     [pickedEpics, items],
   )
   const canPlanNone = sourcePlanKindSupportsDirectIntake(source?.sourcePlanKind)
-  const planningIsNone = canPlanNone && (planningNoneOverride ?? true)
+  // The epic ordering gate (MC-2137). A row untouched by the user shows the
+  // epic's own answer: None when the epic says its children are ordered
+  // (`dependenciesPlanned: true` — no edges at all counts, it means deliberately
+  // parallel), a planning agent when it never said so. A default flip, never a
+  // wall: None stays reachable, and picking it shows the consequence on the
+  // source row instead of blocking the start.
+  const epicOrderingPlanned = pickedEpics.length > 0
+    && pickedEpics.every((epic) => epic.dependenciesPlanned === true)
+  const planningIsNone = canPlanNone && (planningNoneOverride ?? epicOrderingPlanned)
   const intake: SprintEngineIntake = planningIsNone ? 'direct' : 'planned'
   // What the sprint will actually contain: an epic contributes its open children
   // (one task each), every other pick contributes itself.
@@ -1105,6 +1114,14 @@ export default function NewSprintDialog({
                             title={epic.title}
                             tail={epicSourceTail(epicImportCounts([...items], slug))}
                             color={epic.highlight?.color ?? null}
+                            // The consequence of running an unordered epic with no
+                            // planner, stated where the epic is (MC-2137) — shown
+                            // only when that is what is about to happen.
+                            note={
+                              planningIsNone && epic.dependenciesPlanned !== true
+                                ? UNPLANNED_EPIC_CONSEQUENCE
+                                : undefined
+                            }
                             onRemove={() => togglePick(epicPickKey(slug))}
                           />
                         )
@@ -1530,32 +1547,39 @@ function SourceChip({
   title,
   tail,
   color,
+  note,
   onRemove,
 }: {
   id?: string
   title: string
   tail?: string
   color?: Parameters<typeof EpicColorDot>[0]['color']
+  /** One line under the chip stating a consequence of the current choice (the
+   *  unordered-epic case, MC-2137). Earned: passed only when it applies. */
+  note?: string
   onRemove: () => void
 }): JSX.Element {
   return (
-    <div className="flex items-center gap-2 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 py-1 text-meta">
-      {color !== undefined ? <EpicColorDot color={color} /> : null}
-      {id ? (
-        <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">{id}</span>
-      ) : null}
-      <span className="min-w-0 flex-1 truncate text-[color:var(--text-default)]">{title}</span>
-      {tail ? <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">{tail}</span> : null}
-      <button
-        type="button"
-        aria-label={`Remove ${title}`}
-        onClick={onRemove}
-        className="shrink-0 rounded p-0.5 text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-      >
-        <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-          <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
-      </button>
+    <div className="flex flex-col rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 py-1 text-meta">
+      <div className="flex items-center gap-2">
+        {color !== undefined ? <EpicColorDot color={color} /> : null}
+        {id ? (
+          <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">{id}</span>
+        ) : null}
+        <span className="min-w-0 flex-1 truncate text-[color:var(--text-default)]">{title}</span>
+        {tail ? <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">{tail}</span> : null}
+        <button
+          type="button"
+          aria-label={`Remove ${title}`}
+          onClick={onRemove}
+          className="shrink-0 rounded p-0.5 text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+        >
+          <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+      {note ? <span className="pb-0.5 text-micro text-[color:var(--text-muted)]">{note}</span> : null}
     </div>
   )
 }

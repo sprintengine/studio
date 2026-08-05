@@ -35,6 +35,15 @@ export const PLANNING_AGENT_NONE_LABEL = 'None'
 
 export const PLANNING_AGENT_NONE_DESCRIPTION = 'Your epic is the plan'
 
+// ── the epic ordering gate (MC-2137) ────────────────────────────────────────
+//
+// "Your epic is the plan" is only true once someone has finished ordering it.
+// The epic's `dependenciesPlanned: true` says so; without it the row defaults to
+// a planning agent instead. Choosing None anyway is allowed — it is a
+// default-flip, not a wall — and the epic's source row states what that means,
+// once, in plain words.
+export const UNPLANNED_EPIC_CONSEQUENCE = 'Ordering not marked done — items run in parallel'
+
 // ── the "Runs in" row (MC-2123) ─────────────────────────────────────────────
 //
 // Worktree mode was reachable from the deleted wizard and from nowhere at all

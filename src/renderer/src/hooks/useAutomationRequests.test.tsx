@@ -57,13 +57,25 @@ const DONE_CHILD_REF = 'backlog/done-child.md'
 const IDEA_CHILD_REF = 'backlog/idea-child.md'
 const ARCHIVED_CHILD_REF = 'backlog/archived-child.md'
 const LOOSE_REF = 'backlog/loose-item.md'
+const UNPLANNED_EPIC_REF = 'backlog/epics/unplanned-epic.md'
+const UNPLANNED_CHILD_REF = 'backlog/unplanned-child.md'
 
 function itemFile(frontmatter: string[], heading: string): string {
   return ['---', ...frontmatter, '---', '', `# ${heading}`, ''].join('\n')
 }
 
 const FILES: Record<string, string> = {
-  [`${ROOT}/${EPIC_REF}`]: itemFile(['type: epic', 'id: 900'], 'Demo epic title'),
+  // Ordering declared finished (MC-2137) — the mark that keeps an epic source
+  // on the direct intake. Its unmarked twin below covers the other default.
+  [`${ROOT}/${EPIC_REF}`]: itemFile(
+    ['type: epic', 'dependenciesPlanned: true', 'id: 900'],
+    'Demo epic title',
+  ),
+  [`${ROOT}/${UNPLANNED_EPIC_REF}`]: itemFile(['type: epic', 'id: 906'], 'Unplanned epic title'),
+  [`${ROOT}/${UNPLANNED_CHILD_REF}`]: itemFile(
+    ['type: feature', 'status: ready', 'epic: unplanned-epic', 'id: 907'],
+    'Unplanned child title',
+  ),
   [`${ROOT}/${OPEN_CHILD_REF}`]: itemFile(
     ['type: feature', 'status: ready', 'epic: demo-epic', 'id: 901'],
     'Open child title',
@@ -90,8 +102,12 @@ const DIRS: Record<string, Array<{ name: string; isDir: boolean }>> = {
     { name: 'idea-child.md', isDir: false },
     { name: 'loose-item.md', isDir: false },
     { name: 'open-child.md', isDir: false },
+    { name: 'unplanned-child.md', isDir: false },
   ],
-  [`${ROOT}/backlog/epics`]: [{ name: 'demo-epic.md', isDir: false }],
+  [`${ROOT}/backlog/epics`]: [
+    { name: 'demo-epic.md', isDir: false },
+    { name: 'unplanned-epic.md', isDir: false },
+  ],
 }
 
 type LinkCall = {
@@ -409,6 +425,29 @@ async function main(): Promise<void> {
       hasHandoffPrompt(response.workspaceId),
       false,
       'a direct run has no planning pass to start, so the coordinator gets no handoff prompt',
+    )
+  })
+
+  await check('an epic that never declared its ordering done plans, prompt and all (MC-2137)', async () => {
+    // Horizon and automations omit `intake`, so this path resolves the engine's
+    // default itself. Get it wrong and a planned run opens its plan gate with
+    // nobody prompted to fill it — the exact stall the mirror exists to prevent.
+    const response = await send({
+      kind: 'sprint.create',
+      folderPath: ROOT,
+      goal: '',
+      sourceRelativePath: UNPLANNED_EPIC_REF,
+    })
+    assert.equal(response.ok, true, response.message)
+    assert.equal(
+      'intake' in initCalls[0],
+      false,
+      'the resolution stays the engine\'s: the caller still sends nothing',
+    )
+    assert.equal(
+      hasHandoffPrompt(response.workspaceId),
+      true,
+      'an unmarked epic plans first, so somebody must be prompted to plan it',
     )
   })
 

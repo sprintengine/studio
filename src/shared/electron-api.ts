@@ -2831,6 +2831,16 @@ export type BacklogDependenciesInput = {
   dependsOn: string[] | null
 }
 
+// The epic-side ordering mark (MC-2137): the author asserting that this epic's
+// children are ordered — deliberately parallel counts — so a sprint may start
+// from it with no planning agent. `true` writes `dependenciesPlanned: true`;
+// `false` removes the line, since absent is the same assertion as false.
+export type BacklogDependenciesPlannedInput = {
+  workspaceRoot: string
+  relativePath: string
+  dependenciesPlanned: boolean
+}
+
 // Mockup attachments are the item-side write: `mockups` is the list of
 // project-relative mockup paths, serialized to the single comma-separated
 // `mockups:` frontmatter line (mirrors `dependsOn`). An empty list or null clears

@@ -24,6 +24,13 @@ from helpers import SwarmCli, read_state
 
 EPIC = "backlog/epics/auth-revamp.md"
 
+# A PLANNED epic: its author declared the ordering pass over its children
+# finished (MC-2137), which is what makes direct intake this source's default.
+# Every test below that exercises the import starts from one, because an
+# unmarked epic now plans first — the gate's own tests are at the bottom.
+EPIC_FILE = "---\ntype: epic\ndependenciesPlanned: true\n---\n\n# Auth revamp\n"
+EPIC_FILE_UNPLANNED = "---\ntype: epic\n---\n\n# Auth revamp\n"
+
 
 def _write(path: Path, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -43,9 +50,14 @@ def _child(root: Path, slug: str, title: str, *, status: str = "ready", depends_
 
 
 def _init_epic_run(
-    root: Path, children: list[str], *, intake: str | None = None, name: str = "auth-revamp"
+    root: Path,
+    children: list[str],
+    *,
+    intake: str | None = None,
+    name: str = "auth-revamp",
+    epic_file: str = EPIC_FILE,
 ) -> tuple[SwarmCli, Path]:
-    _write(root / EPIC, "---\ntype: epic\n---\n\n# Auth revamp\n\nEpic design.\n")
+    _write(root / EPIC, epic_file + "\nEpic design.\n")
     state_path = root / ".multi-code" / "sprintengine" / name / "run.yaml"
     cli = SwarmCli(state_path, cwd=root)
     cli.run(
@@ -118,7 +130,7 @@ def test_the_closed_children_are_reported_not_silently_dropped(tmp_path) -> None
         _child(root, "passkeys-someday", "Passkeys someday", status="idea"),
         _child(root, "dead-idea", "Dead idea", status="archived"),
     ]
-    _write(root / EPIC, "---\ntype: epic\n---\n\n# Auth revamp\n")
+    _write(root / EPIC, EPIC_FILE)
     state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
     cli = SwarmCli(state_path, cwd=root)
     payload = cli.run(
@@ -188,7 +200,7 @@ def test_a_completed_outside_dependency_yields_no_edge_and_no_warning(tmp_path) 
         "---\ntype: feature\nstatus: completed\n---\n\n# Old groundwork\n",
     )
     children = [_child(root, "login-form", "Login form", depends_on="old-groundwork")]
-    _write(root / EPIC, "---\ntype: epic\n---\n\n# Auth revamp\n")
+    _write(root / EPIC, EPIC_FILE)
     state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
     payload = SwarmCli(state_path, cwd=root).run(
         "init",
@@ -214,7 +226,7 @@ def test_an_open_outside_dependency_warns_but_never_blocks_creation(tmp_path) ->
         "---\ntype: feature\nstatus: ready\n---\n\n# Unfinished groundwork\n",
     )
     children = [_child(root, "login-form", "Login form", depends_on="unfinished-groundwork")]
-    _write(root / EPIC, "---\ntype: epic\n---\n\n# Auth revamp\n")
+    _write(root / EPIC, EPIC_FILE)
     state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
     payload = SwarmCli(state_path, cwd=root).run(
         "init",
@@ -236,6 +248,99 @@ def test_an_open_outside_dependency_warns_but_never_blocks_creation(tmp_path) ->
     assert any(event["type"] == "epic_import_warning" for event in state["events"])
     # And the task still runs: no edge means nothing blocks it.
     assert state["tasks"][0]["dependsOn"] == []
+
+
+# --- the ordering gate (MC-2137) ----------------------------------------------
+#
+# `dependenciesPlanned: true` is the epic author declaring the ordering pass
+# over. Without it, "no `dependsOn` edges" is ambiguous — deliberately parallel,
+# or never ordered — so the DEFAULT flips to planning. The gate informs; it
+# never blocks.
+
+
+def test_an_unmarked_epic_defaults_to_planning_instead_of_importing(tmp_path) -> None:
+    root = tmp_path / "project"
+    children = [_child(root, "login-form", "Login form")]
+    _cli, state_path = _init_epic_run(root, children, epic_file=EPIC_FILE_UNPLANNED)
+
+    state = read_state(state_path)
+    assert state["sprintengine"]["intake"] == "planned"
+    assert state["artifacts"], "an unmarked epic opens the plan gate it would have skipped"
+    assert [task["title"] for task in state["tasks"]] == [
+        "Sequence the epic's child items into a task graph",
+    ]
+
+
+def test_an_explicit_direct_over_an_unmarked_epic_still_runs_and_says_so(tmp_path) -> None:
+    """Warn, never block: the run is created, and the choice is on the record."""
+    root = tmp_path / "project"
+    children = [_child(root, "login-form", "Login form"), _child(root, "session-store", "Session store")]
+    _cli, state_path = _init_epic_run(
+        root, children, intake="direct", epic_file=EPIC_FILE_UNPLANNED
+    )
+
+    state = read_state(state_path)
+    assert state["sprintengine"]["intake"] == "direct"
+    assert [task["title"] for task in state["tasks"]] == ["Login form", "Session store"]
+    assert state["artifacts"] == [], "an explicit direct still skips the plan gate"
+    warning = next(
+        (event for event in state["events"] if event["type"] == "intake_epic_unplanned"), None
+    )
+    assert warning is not None, "the unmarked-epic direct start must be recorded on the run"
+    assert "dependenciesPlanned" in warning["message"]
+
+
+def test_the_unmarked_warning_is_not_repeated_by_a_second_init(tmp_path) -> None:
+    """A settled run is not a fresh choice; re-init must not restate the warning."""
+    root = tmp_path / "project"
+    children = [_child(root, "login-form", "Login form")]
+    cli, state_path = _init_epic_run(root, children, intake="direct", epic_file=EPIC_FILE_UNPLANNED)
+
+    cli.run(
+        "init",
+        "--name", "auth-revamp",
+        "--goal", "Revamp authentication",
+        "--source-json", json.dumps({
+            "kind": "markdown", "origin": "reference", "path": EPIC, "planKind": "epic",
+        }),
+    )
+    events = [event for event in read_state(state_path)["events"] if event["type"] == "intake_epic_unplanned"]
+    assert len(events) == 1
+
+
+def test_a_marked_epic_with_no_edges_imports_every_task_ready_at_once(tmp_path) -> None:
+    """Deliberate parallelism is a first-class case, not a missing plan."""
+    root = tmp_path / "project"
+    children = [
+        _child(root, "login-form", "Login form"),
+        _child(root, "session-store", "Session store"),
+        _child(root, "token-refresh", "Token refresh"),
+    ]
+    _cli, state_path = _init_epic_run(root, children)
+
+    state = read_state(state_path)
+    assert state["sprintengine"]["intake"] == "direct"
+    assert len(state["tasks"]) == 3
+    assert all(task["dependsOn"] == [] for task in state["tasks"]), "no serialization is invented"
+    assert not any(event["type"] == "intake_epic_unplanned" for event in state["events"])
+
+
+def test_the_mark_is_read_case_insensitively_and_only_true_counts(tmp_path) -> None:
+    """It is an assertion, so anything that is not `true` is not one."""
+    for spelling, expected in (
+        ("dependenciesPlanned: TRUE", "direct"),
+        ("dependenciesplanned: true", "direct"),
+        ("dependenciesPlanned: false", "planned"),
+        ("dependenciesPlanned: maybe", "planned"),
+    ):
+        root = tmp_path / spelling.replace(":", "").replace(" ", "-")
+        children = [_child(root, "login-form", "Login form")]
+        _cli, state_path = _init_epic_run(
+            root,
+            children,
+            epic_file=f"---\ntype: epic\n{spelling}\n---\n\n# Auth revamp\n",
+        )
+        assert read_state(state_path)["sprintengine"]["intake"] == expected, spelling
 
 
 # --- the opt-in planner, and the intakes this must not touch ------------------
@@ -354,7 +459,7 @@ def test_a_direct_import_works_under_per_task_worktree_isolation(tmp_path) -> No
     subprocess.run(["git", "commit", "-qm", "seed"], cwd=str(root), check=True, capture_output=True)
 
     children = [_child(root, "login-form", "Login form")]
-    _write(root / EPIC, "---\ntype: epic\n---\n\n# Auth revamp\n")
+    _write(root / EPIC, EPIC_FILE)
     state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
     cli = SwarmCli(state_path, cwd=root)
     cli.run(

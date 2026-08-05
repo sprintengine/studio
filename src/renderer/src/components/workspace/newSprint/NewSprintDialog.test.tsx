@@ -54,10 +54,31 @@ const FILES: Record<string, string> = {
   '/proj/backlog/epics/demo-epic.md': [
     '---',
     'type: epic',
+    // Ordering declared finished (MC-2137), which is what makes this epic's
+    // Planning-agent default None. Its unmarked twin below is the other half.
+    'dependenciesPlanned: true',
     'id: 900',
     '---',
     '',
     '# Demo epic title',
+  ].join('\n'),
+  '/proj/backlog/epics/unplanned-epic.md': [
+    '---',
+    'type: epic',
+    'id: 903',
+    '---',
+    '',
+    '# Unplanned epic title',
+  ].join('\n'),
+  '/proj/backlog/unplanned-child.md': [
+    '---',
+    'type: feature',
+    'status: ready',
+    'epic: unplanned-epic',
+    'id: 904',
+    '---',
+    '',
+    '# Unplanned child title',
   ].join('\n'),
   '/proj/backlog/child-item.md': [
     '---',
@@ -84,8 +105,12 @@ const DIRS: Record<string, Array<{ name: string; isDir: boolean }>> = {
     { name: 'epics', isDir: true },
     { name: 'child-item.md', isDir: false },
     { name: 'loose-item.md', isDir: false },
+    { name: 'unplanned-child.md', isDir: false },
   ],
-  '/proj/backlog/epics': [{ name: 'demo-epic.md', isDir: false }],
+  '/proj/backlog/epics': [
+    { name: 'demo-epic.md', isDir: false },
+    { name: 'unplanned-epic.md', isDir: false },
+  ],
 }
 
 ;(dom.window as unknown as { api: Record<string, unknown> }).api = {
@@ -184,7 +209,9 @@ async function main(): Promise<void> {
     statPath: (path) => api.statPath(path),
   })
   assert.equal(scanned.state, 'ready', 'the fake project scans cleanly')
-  const epic = scanned.items.find((item) => item.isEpic)
+  const epic = scanned.items.find(
+    (item) => item.relativePath === 'backlog/epics/demo-epic.md',
+  )
   const loose = scanned.items.find((item) => item.relativePath === 'backlog/loose-item.md')
   assert.ok(epic && loose, 'the fake project has an epic and a loose item')
   const preloadedSource = buildBacklogSelectionSourcePlan({
@@ -204,6 +231,21 @@ async function main(): Promise<void> {
   })
   assert.ok(epicOnlySource, 'the single-epic pick builds one source plan')
   assert.equal(epicOnlySource!.sourcePlanKind, 'epic')
+
+  // The same shape from an epic that never declared its ordering finished
+  // (MC-2137): direct is still reachable, but it is no longer the default.
+  const unplannedEpic = scanned.items.find(
+    (item) => item.relativePath === 'backlog/epics/unplanned-epic.md',
+  )
+  assert.ok(unplannedEpic, 'the fake project has an unmarked epic too')
+  assert.equal(unplannedEpic!.dependenciesPlanned, undefined, 'the unmarked epic carries no mark')
+  assert.equal(epic!.dependenciesPlanned, true, 'the marked epic carries the mark')
+  const unplannedEpicSource = buildBacklogSelectionSourcePlan({
+    workspaceRoot: ROOT,
+    items: [unplannedEpic!],
+    projectItems: scanned.items,
+  })
+  assert.ok(unplannedEpicSource, 'the unmarked-epic pick builds one source plan')
 
   async function mountDialog(
     initialSource: typeof preloadedSource,
@@ -962,6 +1004,80 @@ async function main(): Promise<void> {
     } finally {
       delete apiRecord.initializeSprintEngineState
       delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  // ── the epic ordering gate (MC-2137) ──────────────────────────────────────
+
+  await check('an epic that never declared its ordering done defaults to a planning agent', async () => {
+    const { container, unmount } = await mountDialog(unplannedEpicSource)
+    try {
+      const picker = container.querySelector('button[aria-label^="Planning agent"]')
+      assert.ok(picker, 'the row renders a picker')
+      assert.notEqual(
+        picker?.getAttribute('aria-label'),
+        'Planning agent: None',
+        'an unmarked epic does not default to None',
+      )
+      const text = container.textContent ?? ''
+      assert.match(text, /planned first/, 'the footer states the run will plan first')
+      // A default flip, never a wall: None is still on offer, and until it is
+      // chosen there is no consequence line to show.
+      assert.doesNotMatch(text, /Ordering not marked done/, 'the consequence rides the None choice')
+    } finally {
+      unmount()
+    }
+  })
+
+  await check('choosing None on an unmarked epic starts direct and states the consequence', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<{ intake?: string }> = []
+    apiRecord.initializeSprintEngineState = async (input: (typeof initCalls)[number]) => {
+      initCalls.push({ intake: input.intake })
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(unplannedEpicSource)
+    try {
+      await clickAndSettle(container.querySelector('button[aria-label^="Planning agent"]'))
+      const noneRow = (
+        Array.from(
+          dom.window.document.body.querySelectorAll(
+            '[role="listbox"][aria-label="Planning agent options"] [role="option"]',
+          ),
+        ) as Element[]
+      ).find((row) => row.textContent?.includes('None'))
+      await clickAndSettle(noneRow)
+
+      assert.match(
+        container.textContent ?? '',
+        /Ordering not marked done — items run in parallel/,
+        'the epic source row states what running it unordered means',
+      )
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(initCalls[0]?.intake, 'direct', 'the gate informs, it never blocks the start')
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  await check('a marked epic picking None shows no consequence line', async () => {
+    const { container, unmount } = await mountDialog(epicOnlySource)
+    try {
+      assert.doesNotMatch(
+        container.textContent ?? '',
+        /Ordering not marked done/,
+        'a marked epic running direct is exactly what the mark asked for',
+      )
+    } finally {
       unmount()
     }
   })

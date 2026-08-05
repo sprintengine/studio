@@ -31,6 +31,7 @@ import type { Workspace } from '../../renderer/src/types/workspace'
 import type {
   BacklogAddOrUpdateLinkInput,
   BacklogCriticalityPayload,
+  BacklogDependenciesPlannedInput,
   BacklogDifficultyPayload,
   BacklogEpicInput,
   BacklogItemStatusPayload,
@@ -209,6 +210,7 @@ export type BacklogWriteBackends = {
   updateType(input: BacklogTypeInput): Promise<BacklogMutationResult>
   updateTriage(input: BacklogTriageInput): Promise<BacklogMutationResult>
   updateEpic(input: BacklogEpicInput): Promise<BacklogMutationResult>
+  updateDependenciesPlanned(input: BacklogDependenciesPlannedInput): Promise<BacklogMutationResult>
   addOrUpdateLink(input: BacklogAddOrUpdateLinkInput): Promise<BacklogMutationResult>
   repairIntegrity(input: BacklogIntegrityRepairInput): Promise<BacklogIntegrityRepairResult>
 }
@@ -782,9 +784,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     name: 'backlog.update',
     description:
       "Update one Backlog item's lifecycle or triage frontmatter: status, type, difficulty, criticality, risk, "
-      + 'or epic membership. Pass null to clear a field (status cannot be cleared). Only supplied fields change; '
+      + 'epic membership, or (on an epic) the dependenciesPlanned ordering mark. Pass null to clear a field '
+      + '(status cannot be cleared). Only supplied fields change; '
       + 'the item body is never touched and a real change gets a server-owned precise updated timestamp. '
-      + 'Fields apply in a fixed order (status, type, triage, epic) and the first '
+      + 'Fields apply in a fixed order (status, type, triage, epic, dependenciesPlanned) and the first '
       + 'invalid field stops the write — fields earlier in the order stay applied.',
     inputSchema: {
       type: 'object',
@@ -797,6 +800,15 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         criticality: { type: ['string', 'null'], enum: [...BACKLOG_CRITICALITIES, null] },
         risk: { type: ['string', 'null'], enum: [...BACKLOG_RISKS, null] },
         epic: { type: ['string', 'null'], description: 'Epic slug, or null to remove the item from its epic.' },
+        dependenciesPlanned: {
+          type: 'boolean',
+          description:
+            "On an EPIC: the ordering pass over its children is finished — their dependsOn edges are authored, "
+            + 'and no edges at all means deliberately parallel. Set it as the LAST act of planning an epic. '
+            + 'A sprint started from an unmarked epic plans first instead of importing the epic as its graph. '
+            + 'Nothing recomputes it: editing the epic\'s membership is your cue to re-check it. '
+            + 'false removes the mark.',
+        },
       },
       required: ['path'],
       additionalProperties: false,
@@ -805,13 +817,18 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const path = requireString(args, 'path')
       if (typeof path !== 'string') return path
       const fields = ['status', 'type', 'difficulty', 'criticality', 'risk', 'epic'] as const
-      if (!fields.some((field) => field in args)) {
+      if (!fields.some((field) => field in args) && !('dependenciesPlanned' in args)) {
         return failure('invalid_arguments', 'Supply at least one field to update.')
       }
       for (const field of fields) {
         if (field in args && args[field] !== null && typeof args[field] !== 'string') {
           return failure('invalid_arguments', `"${field}" must be a string${field === 'status' ? '' : ' or null'}.`)
         }
+      }
+      // The one boolean field: an assertion of intent, so it is true or false —
+      // never a string "true", which would read as an accidental write.
+      if ('dependenciesPlanned' in args && typeof args.dependenciesPlanned !== 'boolean') {
+        return failure('invalid_arguments', '"dependenciesPlanned" must be true or false.')
       }
       if (args.status === null) return failure('invalid_arguments', 'Status cannot be cleared, only changed.')
       const resolved = resolveBacklogRoot(args, context)
@@ -847,6 +864,14 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       }
       if ('epic' in args) {
         writes.push(() => backends.backlogWrite.updateEpic({ ...base, epic: (args.epic ?? null) as string | null }))
+      }
+      if ('dependenciesPlanned' in args) {
+        writes.push(() =>
+          backends.backlogWrite.updateDependenciesPlanned({
+            ...base,
+            dependenciesPlanned: args.dependenciesPlanned as boolean,
+          })
+        )
       }
       for (const write of writes) {
         const written = await write()
@@ -1541,6 +1566,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       }
       const intake = args.intake as 'direct' | 'planned' | undefined
       const startRunner = args.startRunner === true
+      // The epic ordering gate (MC-2137). It never blocks: an unmarked epic that
+      // explicitly asked for `direct` still starts, and the caller is TOLD the
+      // items will run unordered. Read at the tool boundary because this is the
+      // only place that answer reaches the caller — the run itself resolves the
+      // same flag independently, so a read that fails here costs the warning,
+      // never the run.
+      const warnings = sourceRef ? await epicOrderingWarnings(folderPath, sourceRef, intake) : []
 
       const delegated = await backends.delegateToRenderer({
         kind: 'sprint.create',
@@ -1588,8 +1620,36 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           )
         }
       }
-      return success({ workspaceId, started: startRunner })
+      return success({ workspaceId, started: startRunner, ...(warnings.length > 0 ? { warnings } : {}) })
     },
+  }
+
+  // The two things a caller must hear about an epic whose ordering was never
+  // marked done (MC-2137): that an explicit `direct` is running items with no
+  // authored order, or that omitting `intake` did NOT take the epic default.
+  // Silence on both would be the old behaviour — a plannerless run over an
+  // unordered epic, with nothing said.
+  async function epicOrderingWarnings(
+    folderPath: string,
+    sourceRef: string,
+    intake: 'direct' | 'planned' | undefined,
+  ): Promise<string[]> {
+    if (intake === 'planned') return []
+    const read = await backends.readBacklogItem(folderPath, sourceRef).catch(() => null)
+    if (!read?.ok || !read.item.isEpic || read.item.dependenciesPlanned === true) return []
+    const mark =
+      `Set "dependenciesPlanned: true" on ${sourceRef} once its children's dependsOn order is authored `
+      + '(no edges at all is a valid answer — it means deliberately parallel), '
+      + 'or with backlog.update {path, dependenciesPlanned: true}.'
+    return intake === 'direct'
+      ? [
+        `Epic ${sourceRef} is not marked dependenciesPlanned, so its ordering was never declared finished. `
+        + `The run was started anyway with intake "direct": its items run unordered, all claimable at once. ${mark}`,
+      ]
+      : [
+        `Epic ${sourceRef} is not marked dependenciesPlanned, so this run takes intake "planned" `
+        + `(a planning agent orders the work) instead of importing the epic as its task graph. ${mark}`,
+      ]
   }
 
   const sprintArtifactApprove: McpToolRegistration = {

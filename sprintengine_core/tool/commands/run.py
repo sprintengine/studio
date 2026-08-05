@@ -26,6 +26,7 @@ from sprintengine_core.tool.plans import (
     SELECTED_ITEM_SOURCE_LABEL,
     SELECTION_READING_KINDS,
     epic_child_source_paths,
+    epic_source_dependencies_planned,
     mint_epic_child_tasks,
     normalize_selection_bundle,
     resolve_run_intake,
@@ -461,7 +462,17 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         # there is no authored order to import, so every other intake still plans.
         # `--intake planned` is the opt-in planner, selecting today's behaviour
         # unchanged (the dialog's Planning-agent row is how a human picks it).
-        intake = resolve_run_intake(state, getattr(args, "intake", None), has_epic_source)
+        #
+        # The default is gated on the epic's own `dependenciesPlanned:` mark
+        # (MC-2137): an epic that never declared its ordering finished plans first,
+        # because "no edges" would otherwise be indistinguishable from "never
+        # ordered". An explicit `--intake direct` still runs direct and warns.
+        intake = resolve_run_intake(
+            state,
+            getattr(args, "intake", None),
+            has_epic_source,
+            epic_source_dependencies_planned(state, state_path),
+        )
         is_direct_epic_intake = intake == "direct" and has_epic_source
         # A selection root (backlog item 2061) is the general bundle shape —
         # several plain items, several epics, one sprint — of which the epic

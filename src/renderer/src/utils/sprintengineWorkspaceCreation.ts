@@ -30,6 +30,10 @@ import {
 } from './sprintengine'
 import type { SprintEngineIntake } from '../../../shared/sprintengine/run-types'
 import { sourcePlanKindSupportsDirectIntake } from '../../../shared/sprintengine/run-types'
+import {
+  backlogDependenciesPlannedFromFields,
+  parseBacklogFrontmatter,
+} from '../../../shared/backlog/frontmatter'
 import { buildPlanFileSprintEngineHandoffPrompt } from './sprintengineHandoff'
 import { buildRunWorkspaceContext } from './runWorkspaceCreation'
 import { deriveSprintEngineAutomationDesiredMode } from './sprintengineAutomationLifecycle'
@@ -274,7 +278,19 @@ export async function createPlanSourcedSprintEngineWorkspace({
   // source to planned (warn-not-block), so a requested-but-unsupported direct
   // must still get the coordinator handoff prompt here or the plan gate the
   // engine mints would sit with nobody prompted to fill it.
-  const runsDirect = sourcePlanKindSupportsDirectIntake(sourcePlanKind) && intake !== 'planned'
+  //
+  // With no intake stated, the engine's DEFAULT for an epic now follows the
+  // epic's own `dependenciesPlanned:` mark (MC-2137) — an epic whose ordering
+  // was never declared finished plans first. Callers that omit `intake`
+  // (Horizon, automations) must resolve it the same way here, or a planned run
+  // would open its plan gate with nobody prompted to fill it.
+  const supportsDirect = sourcePlanKindSupportsDirectIntake(sourcePlanKind)
+  const resolvedIntake: SprintEngineIntake =
+    intake
+    ?? (supportsDirect && backlogDependenciesPlannedFromFields(parseBacklogFrontmatter(sourceContent).fields)
+      ? 'direct'
+      : 'planned')
+  const runsDirect = supportsDirect && resolvedIntake === 'direct'
 
   if (initializeSprintEngineState) {
     const initResult = await initializeSprintEngineState({

@@ -307,6 +307,9 @@ export const BacklogRowContent = memo(function BacklogRowContent({
           <>
             {epicProgress ? <EpicProgressMeter progress={epicProgress} color={epicMeta?.color ?? null} /> : null}
             {epicBlocked && epicBlocked.blocked > 0 ? <EpicBlockedCount rollup={epicBlocked} /> : null}
+            {item.dependenciesPlanned !== true && !EPIC_ORDER_TERMINAL_STATUSES.has(item.status) ? (
+              <UnorderedEpicMark />
+            ) : null}
           </>
         ) : (
           <>
@@ -420,6 +423,51 @@ function EpicBlockedCount({ rollup }: { rollup: BacklogEpicBlockedRollup }): JSX
       </svg>
       <span aria-hidden="true" className="tabular-nums">{rollup.blocked} blocked</span>
     </span>
+  )
+}
+
+// An epic whose work is over has no ordering left to plan, so the mark below
+// would be pure noise on it.
+const EPIC_ORDER_TERMINAL_STATUSES: ReadonlySet<BacklogItemStatus> = new Set<BacklogItemStatus>([
+  'completed',
+  'archived',
+])
+
+// The epic ordering mark (MC-2137), on the epic row so an epic whose ordering was
+// never declared finished is visible before any sprint dialog is opened. It reads
+// the ABSENCE of `dependenciesPlanned: true` because that is the state with
+// something left to do — a marked epic is simply ready and earns no token, the
+// same rule the star and the status dot follow.
+//
+// Small and muted, deliberately not a status: it changes nothing about what the
+// epic IS, only what a sprint started from it would do (plan first, rather than
+// import the epic as its graph).
+const UNORDERED_EPIC_LABEL = 'Order not planned'
+
+function UnorderedEpicMark(): JSX.Element {
+  const explanation =
+    'Ordering not marked done — a sprint from this epic plans first. '
+    + 'Set `dependenciesPlanned: true` on the epic once its children’s order is authored '
+    + '(no dependsOn edges at all is a valid answer: it means deliberately parallel).'
+  return (
+    <Tooltip content={explanation} placement="top" wrapperClassName="inline-flex shrink-0">
+      <span
+        role="img"
+        aria-label={explanation}
+        className="inline-flex shrink-0 items-center gap-1 text-micro text-[color:var(--text-muted)]"
+      >
+        <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
+          <path
+            d="M3 4.5h6M3 8h4M3 11.5h6"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+          />
+          <path d="M11 5.5l3 5M14 5.5l-3 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" opacity=".7" />
+        </svg>
+        <span aria-hidden="true">{UNORDERED_EPIC_LABEL}</span>
+      </span>
+    </Tooltip>
   )
 }
 
