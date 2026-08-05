@@ -65,6 +65,7 @@ from .auth import MUTATING_TOOLS, ActorContext, AuthorizationError, authorize_to
 from .capabilities import (
     CALLER_REPO_PAYLOAD_TOOLS,
     CALLER_ROLE_PAYLOAD_TOOLS,
+    CALLER_TASK_PAYLOAD_TOOLS,
     allowed_tools_for_classification,
     classify_session,
     permitted_alternative,
@@ -92,6 +93,10 @@ class McpRequestContext:
     # from the cwd the session was spawned into. Empty for single-repo runs and
     # operator sessions, which are bound to no repo and see every task.
     repo: str = ""
+    # The one task this session may work (MC-2136), bound at registration from
+    # the task worktree it was spawned into. Empty for every session on a run
+    # that shares one worktree, and for operator sessions, which see every task.
+    task_id: str = ""
     cli: str = ""
     # Whether the launching workspace has a Knowledge Graph root configured.
     # None = registration did not say (older caller / stdio): resolve from env.
@@ -182,6 +187,7 @@ class SprintEngineMcpServer:
             authorize_tool(tool_name, payload, actor_context, state_path)
             self._authorize_role_capability(tool_name, payload, actor_context, state_path)
             payload = self._bind_session_repo(tool_name, payload)
+            payload = self._bind_session_task(tool_name, payload)
             if tool_name == "sprintengine.health":
                 result = build_health_report(
                     state_path=state_path,
@@ -228,6 +234,28 @@ class SprintEngineMcpServer:
         if not bound_repo or tool_name not in CALLER_REPO_PAYLOAD_TOOLS:
             return payload
         return {**payload, "repo": bound_repo}
+
+    def _bind_session_task(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Route a task-bound session's claim to its own task (MC-2136).
+
+        Under per-task isolation the session's cwd IS one task's worktree, and
+        the engine commits that task's work from that tree. So the bound task is
+        stamped onto claim selection here rather than trusted from the payload:
+        an agent that ignores its brief and asks for the queue still gets only
+        the task whose tree it is sitting in. Sessions on a shared-worktree run
+        are unbound and untouched, exactly as before isolation existed.
+        """
+        if tool_name not in CALLER_TASK_PAYLOAD_TOOLS:
+            return payload
+        context = self._request_context()
+        bound_task = (context.task_id if context else "") or ""
+        bound = {key: value for key, value in payload.items() if key != "taskId"}
+        # An unbound session's claim carries no task at all: the field is the
+        # server's to set, so a caller-supplied one is dropped rather than
+        # honored as a self-selected queue filter.
+        if bound_task:
+            bound["taskId"] = bound_task
+        return bound
 
     def _dispatch(
         self,

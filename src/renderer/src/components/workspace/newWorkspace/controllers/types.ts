@@ -119,6 +119,9 @@ export type SprintEngineNewTeamInput = {
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean
+  // Per-task worktrees (MC-2136): every task works in its own checkout branched
+  // off the run branch. Layered on useWorktrees, which the engine requires.
+  taskIsolation?: boolean
   // The other projects this run also works in (MC-1613, restored by item 1765 as
   // the wizard's "Also works in" field), each `{id, root}` with a root relative to
   // the workspace folder. Forwarded verbatim to init as `--repo`. Requires
@@ -163,6 +166,9 @@ export type SprintEnginePlanSourcedInput = {
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean
+  // Per-task worktrees (MC-2136): every task works in its own checkout branched
+  // off the run branch. Layered on useWorktrees, which the engine requires.
+  taskIsolation?: boolean
   // No `repos` here on purpose (item 1765): a launch sourced from a backlog item,
   // an epic, or the roadmap orchestrator runs in that item's own project, and the
   // "Also works in" field is withheld for those paths. Such a run brings another

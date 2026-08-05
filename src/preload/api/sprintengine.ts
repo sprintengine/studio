@@ -32,6 +32,8 @@ import type {
   SprintEngineTaskResolveInput,
   SprintEngineTaskStatusSetInput,
   SprintEngineTaskUpdateInput,
+  SprintEngineTaskWorktreeInput,
+  SprintEngineTaskWorktreeResult,
 } from '../../shared/electron-api'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
 import type { SprintEngineLaunchSettings } from '../../shared/sprintengine/launch-settings'
@@ -113,6 +115,10 @@ export const sprintEngineApi = {
     repo?: string
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:vcs:pr-merge', { statePath, repo }),
+  ensureSprintEngineTaskWorktree: (
+    input: SprintEngineTaskWorktreeInput
+  ): Promise<SprintEngineTaskWorktreeResult> =>
+    ipcRenderer.invoke('sprintengine:vcs:task-worktree', input),
   setSprintEngineRoleRuntime: (
     input: SprintEngineRosterRuntimeInput
   ): Promise<SprintEngineArtifactCommandResult> =>
@@ -279,6 +285,7 @@ export const sprintEngineApi = {
   | 'createSprintEnginePullRequest'
   | 'refreshSprintEnginePullRequestStatus'
   | 'mergeSprintEnginePullRequest'
+  | 'ensureSprintEngineTaskWorktree'
   | 'setSprintEngineRoleRuntime'
   | 'enableSprintEngineRole'
   | 'readSprintEngineProjection'

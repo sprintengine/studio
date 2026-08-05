@@ -1483,6 +1483,57 @@ async function reconcileDuplicateAgentSessions(
  */
 export type SpawnAutoRunCandidateResult = 'started' | 'failed' | 'skipped' | 'missing_cli'
 
+/**
+ * Stand up the task's own worktree so the spawn can cwd into it (MC-2136), and
+ * return its project-root-relative path. Null on every run that shares one
+ * worktree — the overwhelmingly common case, and the only one where this costs
+ * nothing, because it never runs.
+ *
+ * A failure here is reported and then survived: the caller falls back to the run
+ * worktree rather than losing the spawn. That is a degraded cwd, not a silent
+ * one — the diagnostic says the agent is about to work outside its task's tree.
+ */
+async function ensureTaskWorktreeForSpawn(
+  ports: SprintEngineAutoRunCyclePorts,
+  input: {
+    sprintEngineState: SprintEngineState
+    sprintEngineStatePath: string
+    taskId: string
+    workspace: Workspace
+    agentId: string
+  }
+): Promise<string | null> {
+  if (input.sprintEngineState.vcs?.taskIsolation !== true || !input.taskId) return null
+  const result = await ports
+    .ensureSprintEngineTaskWorktree({ statePath: input.sprintEngineStatePath, taskId: input.taskId })
+    .catch((error: unknown) => ({
+      ok: false,
+      isolated: true,
+      worktreePath: null,
+      message: error instanceof Error ? error.message : String(error),
+    }))
+  if (result.ok && result.worktreePath) return result.worktreePath
+  await ports.publishDiagnostic({
+    level: 'error',
+    source: 'filesystem',
+    title: 'Task worktree could not be prepared',
+    message:
+      'This sprint gives every task its own worktree, but one could not be prepared. '
+      + 'The agent starts in the shared run worktree, where its changes may not be committed.',
+    details: [
+      `Workspace: ${input.workspace.name}`,
+      `Agent: ${input.agentId}`,
+      `Task: ${input.taskId}`,
+      result.message ?? 'No reason reported.',
+    ].join('\n'),
+    workspaceId: input.workspace.id,
+    workspaceName: input.workspace.name,
+    agentId: input.agentId,
+    taskId: input.taskId,
+  })
+  return null
+}
+
 export async function spawnAutoRunCandidate(
   ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
@@ -1648,7 +1699,23 @@ export async function spawnAutoRunCandidate(
     // routing exemplar task id is the key; a bound owner's respawn carries its
     // own task id here, which is what lands a resumed owner back in the tree it
     // was working in.
-    const sessionCwd = resolveSprintEngineSessionCwd(sprintEngineState, nextRun.taskId)
+    //
+    // Under per-task isolation (MC-2136) the tree is the TASK's own, and it is
+    // provisioned right here, before the terminal exists: claim provisions
+    // lazily, and by then the session's cwd is already fixed. Provisioning
+    // failure is not a spawn failure — the session falls back to the run
+    // worktree, exactly where it would have gone before isolation existed, and
+    // the engine's own claim-time provisioning still stands the tree up.
+    const provisionedTaskWorktreePath = await ensureTaskWorktreeForSpawn(ports, {
+      sprintEngineState,
+      sprintEngineStatePath,
+      taskId: nextRun.taskId,
+      workspace,
+      agentId: nextRun.agentId,
+    })
+    const sessionCwd = resolveSprintEngineSessionCwd(sprintEngineState, nextRun.taskId, {
+      provisionedTaskWorktreePath,
+    })
     const executionMode = sessionCwd.executionMode
     const executionCwd = sessionCwd.worktreeRelativePath
       ? pathJoin(workspaceFolderPath, sessionCwd.worktreeRelativePath)

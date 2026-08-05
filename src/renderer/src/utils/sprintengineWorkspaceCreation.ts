@@ -56,6 +56,10 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   workspaceWindowId?: WorkspaceWindowId | null
   useWorktrees?: boolean
+  // Per-task worktrees (MC-2136): every task gets its own checkout branched off
+  // the run branch and merged back at publish, instead of the whole run sharing
+  // one. Layered on useWorktrees — never sent without it.
+  taskIsolation?: boolean
   // The other projects this run also changes (MC-1613). Forwarded verbatim to
   // init as `--repo <id>=<root>`; only meaningful alongside useWorktrees.
   repos?: Array<{ id: string; root: string }>
@@ -207,6 +211,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   sprintEngineAutoState,
   workspaceWindowId,
   useWorktrees,
+  taskIsolation,
   repos,
   baseStartPoint,
   sourceReference,
@@ -281,6 +286,9 @@ export async function createPlanSourcedSprintEngineWorkspace({
       events: sprintEngineState.events,
       artifacts: sprintEngineState.artifacts,
       useWorktrees: useWorktrees === true,
+      // Only when chosen: an absent field keeps a per-sprint run's init payload
+      // exactly what it was before per-task isolation was reachable.
+      ...(useWorktrees === true && taskIsolation === true ? { taskIsolation: true } : {}),
       ...(repos && repos.length > 0 ? { repos } : {}),
       ...(useWorktrees === true && baseStartPoint?.trim() ? { baseStartPoint: baseStartPoint.trim() } : {}),
       roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults, roleReasoningOverrides),

@@ -228,6 +228,13 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
             session_repo = str(getattr(args, "repo", None) or "").strip()
             if session_repo:
                 session_repo = ensure_task_repo_declared(state, session_repo, context=f"Worker {args.id}")
+            # The task this session is BOUND to (MC-2136), bound by the MCP
+            # server from the task worktree the session was spawned into. Under
+            # per-task isolation a session's cwd is one task's own tree and the
+            # engine commits that task's work from it, so claiming anything else
+            # would edit one tree and commit another. Absent everywhere else,
+            # which leaves selection exactly as it is on a shared-worktree run.
+            session_task = str(getattr(args, "task_id", None) or "").strip()
             ready_ids = read_ready_task_ids(state)
             tasks_by_id = {
                 str(t.get("id")): t
@@ -240,6 +247,8 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 if not t or not task_is_claimable_by_role(t, args.role) or not task_is_ready(state, t):
                     continue
                 if session_repo and folder_store.task_repo(t) != session_repo:
+                    continue
+                if session_task and str(t.get("id")) != session_task:
                     continue
                 candidates.append(t)
             # Ready ids are already priority-ordered by the materialized ready
@@ -339,6 +348,26 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                     "task": {"id": blocked.get("id"), "status": blocked.get("status")},
                     "agent": agent,
                     "blocker": {"reason": "module_held_by_active_task", **conflict},
+                    "releasedExpired": expired["released"],
+                    "write": runtime["dirty"] or phase_dirty or expired["dirty"],
+                }
+            if session_task:
+                # A bound session has exactly one claimable task, so "nothing
+                # ready" means THAT task is not claimable — say which, or the
+                # agent reads it as an idle queue and stops for the wrong reason.
+                bound = tasks_by_id.get(session_task)
+                return {
+                    "ok": True,
+                    "claimed": False,
+                    "reason": "bound_task_not_claimable",
+                    "message": (
+                        f"This terminal is task {session_task}'s own worktree and may claim no other task. "
+                        f"{session_task} is not claimable right now"
+                        + (f" (status {bound.get('status')})." if bound else " (no such task on this run).")
+                        + " Stop."
+                    ),
+                    "task": {"id": session_task, "status": bound.get("status")} if bound else {"id": session_task},
+                    "agent": agent,
                     "releasedExpired": expired["released"],
                     "write": runtime["dirty"] or phase_dirty or expired["dirty"],
                 }

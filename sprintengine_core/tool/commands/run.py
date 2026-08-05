@@ -1077,6 +1077,56 @@ def cmd_vcs_status(args: argparse.Namespace) -> Dict[str, Any]:
     }
 
 
+def cmd_vcs_task_worktree(args: argparse.Namespace) -> Dict[str, Any]:
+    """Provision one task's own worktree ahead of its claim, and say where it is.
+
+    The dispatch half of per-task isolation (MC-2136). Claim provisions lazily,
+    which is right for the engine and too late for the app: a terminal must be
+    spawned INTO the task's tree, and a cwd cannot be moved afterwards. So the
+    launcher calls this first, spawns the session there, and the agent's claim
+    finds the tree already standing (`ensure_task_worktree` is re-entrant).
+
+    Isolation off — or a run with no worktrees at all — is not an error: the
+    answer is `isolated: false` and no path, and the caller keeps using the run
+    worktree it already resolves.
+    """
+    from sprintengine_core.tool.paths import project_relative_path, workspace_root_for_state_path
+    from sprintengine_core.tool.shell import ensure_task_worktree, task_isolation_enabled
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        task = find_task(state, args.task_id)
+        if not task_isolation_enabled(state):
+            return {
+                "ok": True,
+                "isolated": False,
+                "taskId": args.task_id,
+                "worktreePath": None,
+                "message": "Sprint Engine run does not use per-task worktrees.",
+                "write": False,
+            }
+        worktree = ensure_task_worktree(state, args.state, task)
+        if not worktree:
+            # Isolation is on but the run tree this task branches from is not
+            # there. Say so instead of inventing a path the caller would cwd into.
+            return {
+                "ok": False,
+                "isolated": True,
+                "taskId": args.task_id,
+                "worktreePath": None,
+                "error": f"Could not provision a worktree for task {args.task_id}; its project's run worktree is missing.",
+                "write": False,
+            }
+        return {
+            "ok": True,
+            "isolated": True,
+            "taskId": args.task_id,
+            "worktreePath": project_relative_path(workspace_root_for_state_path(args.state), worktree),
+            "write": True,
+        }
+
+    return with_locked_state(args.state, run)
+
+
 def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
     from sprintengine_core.tool.repo_model import repo_for_task
     from sprintengine_core.tool.shell import (
@@ -1718,6 +1768,7 @@ runner_status = cmd_runner_status
 runner_set = cmd_runner_set
 triage_needs_input = cmd_triage_needs_input
 vcs_status = cmd_vcs_status
+vcs_task_worktree = cmd_vcs_task_worktree
 vcs_commit = cmd_vcs_commit
 vcs_request_repo = cmd_vcs_request_repo
 vcs_pr = cmd_vcs_pr

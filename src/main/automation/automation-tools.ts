@@ -1427,8 +1427,19 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'boolean',
           description:
             'Run the sprint in ONE shared git worktree (a per-run isolated checkout on its own branch), '
-            + 'keeping agents out of the main working tree. Default false. Per-TASK isolation is a separate '
-            + 'engine capability (MC-2130) not yet reachable from this tool — see MC-2136.',
+            + 'keeping agents out of the main working tree. Default false. Kept for compatibility: prefer '
+            + '`isolation`, which says the same thing and can also ask for a worktree per task.',
+        },
+        isolation: {
+          type: 'string',
+          enum: ['none', 'sprint', 'task'],
+          description:
+            'Where this sprint works. "none" = the project folder itself (agents edit the working tree you '
+            + 'have open). "sprint" = ONE shared worktree for the whole run, on its own branch. "task" = a '
+            + 'worktree PER TASK, branched off the run branch and merged back at publish, so two tasks '
+            + 'changing the same file meet as a merge conflict instead of overwriting each other; each '
+            + 'agent\'s terminal opens in its own task\'s tree. Omit to take `useWorktrees`: "sprint" when '
+            + 'it is true, "none" when it is not. Fixed at run creation.',
         },
         intake: {
           type: 'string',
@@ -1486,6 +1497,23 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           return failure('invalid_arguments', `"${key}" must be a boolean when provided.`)
         }
       }
+      // One field, two spellings (MC-2136). `isolation` is the whole ladder;
+      // `useWorktrees` is its first two rungs and stays accepted, so a caller
+      // written before this creates the byte-identical run it always did.
+      // Sending both a `task` isolation and `useWorktrees: false` is a
+      // contradiction, refused rather than silently resolved either way.
+      if (args.isolation !== undefined && !['none', 'sprint', 'task'].includes(args.isolation as string)) {
+        return failure('invalid_arguments', '"isolation" must be "none", "sprint", or "task".')
+      }
+      const isolation = (args.isolation as 'none' | 'sprint' | 'task' | undefined)
+        ?? (args.useWorktrees === true ? 'sprint' : 'none')
+      if (args.isolation !== undefined && args.useWorktrees !== undefined
+        && (isolation !== 'none') !== (args.useWorktrees === true)) {
+        return failure(
+          'invalid_arguments',
+          `"isolation": "${args.isolation as string}" contradicts "useWorktrees": ${String(args.useWorktrees)}. Pass one, or agreeing values.`
+        )
+      }
       let roster: Record<string, number> | undefined
       if (args.roster !== undefined) {
         if (typeof args.roster !== 'object' || args.roster === null || Array.isArray(args.roster)) {
@@ -1519,7 +1547,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         ...(roster ? { roster } : {}),
         startRunner,
         autoApproveArtifacts: args.autoApproveArtifacts === true,
-        useWorktrees: args.useWorktrees === true,
+        useWorktrees: isolation !== 'none',
+        ...(isolation === 'task' ? { taskIsolation: true } : {}),
         // Omitted leaves the default with the engine, which knows the source shape.
         ...(intake ? { intake } : {}),
       })

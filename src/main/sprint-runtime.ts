@@ -30,6 +30,7 @@ import type {
   MemoryRootStatus,
   SprintEngineArtifactCommandResult,
   SprintEngineProjectionReadResult,
+  SprintEngineTaskWorktreeResult,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
@@ -140,6 +141,7 @@ export type SprintRuntimeDeps = {
   artifacts: {
     readProjection(input: { statePath: string; knownToken?: string }): Promise<SprintEngineProjectionReadResult>
     autoApproveArtifact(input: { statePath: string; artifactId: string }): Promise<SprintEngineArtifactCommandResult>
+    ensureTaskWorktree(input: { statePath: string; taskId: string }): Promise<SprintEngineTaskWorktreeResult>
   }
   pathExists(path: string): Promise<boolean>
   resolveMemoryRoot(workspaceRoot: string | null, relativeRoot: string | null): Promise<MemoryRootStatus>
@@ -387,6 +389,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         deps.artifacts.autoApproveArtifact({ statePath, artifactId }),
       memoryResolveRoot: ({ workspaceRoot, relativeRoot }) =>
         deps.resolveMemoryRoot(workspaceRoot, relativeRoot),
+      ensureSprintEngineTaskWorktree: (input) => deps.artifacts.ensureTaskWorktree(input),
 
       publishDiagnostic: async (input) => {
         const entry = await deps.logDiagnostic(input)

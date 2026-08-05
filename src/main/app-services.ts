@@ -386,6 +386,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       readProjection: (input) => sprintEngineArtifacts.readProjection(input),
       autoApproveArtifact: ({ statePath, artifactId }) =>
         sprintEngineArtifacts.reviewArtifact({ statePath, artifactId }, 'approve', 'auto-run'),
+      ensureTaskWorktree: (input) => sprintEngineArtifacts.ensureTaskWorktree(input),
     },
     pathExists: async (path) => {
       try {

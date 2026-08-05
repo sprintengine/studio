@@ -22,8 +22,9 @@ import type { AutoRunCandidate, SprintEngineDispatchAttempt } from './auto-run'
 import { createSprintEngineAutoRunCycleState, spawnAutoRunCandidate, superviseWorkspace } from './auto-run-cycle'
 
 type Captured = {
-  spawns: Array<{ sessionId: string; agentId?: string; initialPrompt?: string }>
+  spawns: Array<{ sessionId: string; agentId?: string; initialPrompt?: string; cwd?: string }>
   diagnostics: Array<{ title?: string; details?: string }>
+  taskWorktreeRequests?: string[]
   writes: Array<{ sessionId: string; data: string }>
 }
 
@@ -65,7 +66,10 @@ function makePorts(
   captured: Captured,
   workspace: SprintEngineWorkspaceView,
   sessions: TerminalSessionSnapshot[],
-  options: { terminalWriteFails?: boolean } = {},
+  options: {
+    terminalWriteFails?: boolean
+    taskWorktreeResult?: { ok: boolean; isolated: boolean; worktreePath: string | null; message?: string }
+  } = {},
 ): SprintEngineAutoRunCyclePorts {
   return {
     terminalList: async () => sessions,
@@ -82,6 +86,7 @@ function makePorts(
         sessionId: args.sessionId,
         agentId: (args.metadata as { agentId?: string })?.agentId,
         initialPrompt: args.initialPrompt,
+        cwd: args.cwd,
       })
       return { ok: true, sessionId: args.sessionId }
     },
@@ -89,6 +94,10 @@ function makePorts(
     readSprintEngineProjection: async () => ({ ok: true, unchanged: true } as never),
     autoApproveSprintEngineArtifact: async () => ({ ok: true } as never),
     memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null } as never),
+    ensureSprintEngineTaskWorktree: async (input: { taskId: string }) => {
+      captured.taskWorktreeRequests?.push(input.taskId)
+      return options.taskWorktreeResult ?? { ok: true, isolated: false, worktreePath: null }
+    },
     publishDiagnostic: async (input) => { captured.diagnostics.push({ title: input.title, details: input.details }) },
     applyTerminalRevealPolicy: () => {},
     isAgentTabVisible: () => false,
@@ -701,6 +710,106 @@ async function testRolelessCoordinatorGetsTheAutonomousPlanningOverride(): Promi
   )
 }
 
+// --- MC-2136: per-task isolation routes the spawn into its task's own tree ---
+
+function isolatedWorkspace(): { state: SprintEngineState; workspace: SprintEngineWorkspaceView } {
+  const state = {
+    roleRuntimes: { developer: { cli: 'claude-code' } },
+    sprintEngineAgents: {},
+    tasks: [{ id: 'T7', repo: 'primary', status: 'ready' }],
+    vcs: {
+      mode: 'run_worktree',
+      taskIsolation: true,
+      worktreePath: '.multi-code/sprintengine/team/worktree',
+      branchName: 'run/main',
+      repos: [{
+        id: 'primary',
+        root: '.',
+        worktreePath: '.multi-code/sprintengine/team/worktree',
+        branchName: 'run/main',
+      }],
+    },
+  } as unknown as SprintEngineState
+  const workspace = {
+    id: 'workspace-1',
+    name: 'Isolated run',
+    folderPath: '/tmp/workspace',
+    agents: {},
+    sprintEngineState: state,
+    sprintEngineContext: { teamSlug: 'team', statePath: STATE_PATH },
+  } as unknown as SprintEngineWorkspaceView
+  return { state, workspace }
+}
+
+async function testPerTaskIsolationSpawnsInTheTasksOwnWorktree(): Promise<void> {
+  // The whole point of the terminal-cwd half: the engine commits a task's work
+  // from that task's tree, so the agent has to be born inside it. The tree is
+  // provisioned here, before the spawn, because a claim provisions too late —
+  // by then the session's cwd is already fixed.
+  const { state, workspace } = isolatedWorkspace()
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+  const candidate = { agentId: 'developer-1', label: 'Dev', role: 'developer', taskId: 'T7' } as unknown as AutoRunCandidate
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [], taskWorktreeRequests: [] }
+  const ports = makePorts(captured, workspace, [], {
+    taskWorktreeResult: {
+      ok: true,
+      isolated: true,
+      worktreePath: '.multi-code/sprintengine/team/task-worktrees/T7/primary',
+    },
+  })
+  const result = await spawnAutoRunCandidate(
+    ports, workspace, state, candidate, cliRuntimes, {} as McpSettings, ref(new Set<string>()), {},
+  )
+  assert.equal(result, 'started')
+  assert.deepEqual(captured.taskWorktreeRequests, ['T7'], 'the spawn provisions its own task’s tree first')
+  assert.equal(
+    captured.spawns[0]?.cwd,
+    '/tmp/workspace/.multi-code/sprintengine/team/task-worktrees/T7/primary',
+    'the terminal opens in the task worktree, not the shared run worktree',
+  )
+}
+
+async function testFailedTaskWorktreeStillSpawnsAndWarns(): Promise<void> {
+  // Provisioning failure degrades the cwd; it must not lose the spawn. And it
+  // must be loud — an agent working outside its task's tree is a silent
+  // no-op at publish, which is exactly what the diagnostic exists to prevent.
+  const { state, workspace } = isolatedWorkspace()
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+  const candidate = { agentId: 'developer-1', label: 'Dev', role: 'developer', taskId: 'T7' } as unknown as AutoRunCandidate
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [], taskWorktreeRequests: [] }
+  const ports = makePorts(captured, workspace, [], {
+    taskWorktreeResult: { ok: false, isolated: true, worktreePath: null, message: 'run worktree is missing' },
+  })
+  const result = await spawnAutoRunCandidate(
+    ports, workspace, state, candidate, cliRuntimes, {} as McpSettings, ref(new Set<string>()), {},
+  )
+  assert.equal(result, 'started', 'a provisioning failure is not a spawn failure')
+  assert.equal(
+    captured.spawns[0]?.cwd,
+    '/tmp/workspace/.multi-code/sprintengine/team/worktree',
+    'it falls back to the run worktree it would have used before isolation existed',
+  )
+  const warned = captured.diagnostics.find((entry) => entry.title === 'Task worktree could not be prepared')
+  assert.ok(warned, `the degraded cwd is reported; diagnostics=${JSON.stringify(captured.diagnostics.map((d) => d.title))}`)
+  assert.match(warned?.details ?? '', /run worktree is missing/u, 'the engine’s own reason survives into the diagnostic')
+}
+
+async function testSharedWorktreeRunNeverAsksForATaskTree(): Promise<void> {
+  // The normal run must pay nothing for a feature it does not use: no engine
+  // process per spawn, and byte-identical cwd.
+  const { state, workspace } = isolatedWorkspace()
+  ;(state.vcs as { taskIsolation?: boolean }).taskIsolation = false
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+  const candidate = { agentId: 'developer-1', label: 'Dev', role: 'developer', taskId: 'T7' } as unknown as AutoRunCandidate
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [], taskWorktreeRequests: [] }
+  const ports = makePorts(captured, workspace, [])
+  await spawnAutoRunCandidate(
+    ports, workspace, state, candidate, cliRuntimes, {} as McpSettings, ref(new Set<string>()), {},
+  )
+  assert.deepEqual(captured.taskWorktreeRequests, [], 'a shared-worktree run never provisions a task tree')
+  assert.equal(captured.spawns[0]?.cwd, '/tmp/workspace/.multi-code/sprintengine/team/worktree')
+}
+
 async function main(): Promise<void> {
   await testAThrowingStageDoesNotPreventSpawning()
   await testTriageActingDoesNotSuppressPoolSpawning()
@@ -712,6 +821,9 @@ async function main(): Promise<void> {
   await testGhostSessionIsReapedAfterBootAllowance()
   await testRolelessTriageEngagesTheCoordinatorSeat()
   await testRolelessCoordinatorGetsTheAutonomousPlanningOverride()
+  await testPerTaskIsolationSpawnsInTheTasksOwnWorktree()
+  await testFailedTaskWorktreeStillSpawnsAndWarns()
+  await testSharedWorktreeRunNeverAsksForATaskTree()
   console.log('auto-run-cycle.test.ts: all tests passed')
 }
 

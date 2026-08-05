@@ -42,6 +42,7 @@ from .commands.run import (
     cmd_vcs_pr,
     cmd_vcs_request_repo,
     cmd_vcs_status,
+    cmd_vcs_task_worktree,
 )
 from .commands.task import (
     cmd_task_advance,

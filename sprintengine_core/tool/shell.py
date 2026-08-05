@@ -367,6 +367,11 @@ def ensure_task_worktree(
     Only the ONE repo the task declares gets a tree. A task targets a single
     project by definition (`repo_for_task`), so isolation costs one checkout per
     active task, not one per project per task.
+
+    The provisioned path is recorded on the task (`worktreePath`) so the run
+    store — and therefore the app's projection — states where this task's agent
+    must work (MC-2136). Deriving it app-side instead would duplicate this path
+    algebra in a second language and drift from it.
     """
     if not task_isolation_enabled(state):
         return None
@@ -380,6 +385,7 @@ def ensure_task_worktree(
     branch = task_branch_name(repo, task)
     existing = run_git_checked(run_worktree, ["worktree", "list", "--porcelain"], allow_failure=True)
     if existing.returncode == 0 and str(worktree_path.resolve()) in existing.stdout:
+        _record_task_worktree(state_path, task, worktree_path)
         return worktree_path
     worktree_path.parent.mkdir(parents=True, exist_ok=True)
     if git_branch_exists(run_worktree, branch):
@@ -393,7 +399,19 @@ def ensure_task_worktree(
         )
     if not worktree_path.exists():
         raise SystemExit(f"Sprint Engine task worktree was not created: {worktree_path}")
+    _record_task_worktree(state_path, task, worktree_path)
     return worktree_path
+
+
+def _record_task_worktree(state_path: Path, task: Dict[str, Any], worktree_path: Path) -> None:
+    """Write the task's own worktree onto the task, project-root-relative.
+
+    Same relative form the run worktree records, so every reader joins it onto
+    the workspace root the same way.
+    """
+    task["worktreePath"] = project_relative_path(
+        workspace_root_for_state_path(state_path), worktree_path
+    )
 
 
 def remove_task_worktree(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> bool:
@@ -421,7 +439,12 @@ def remove_task_worktree(state: Dict[str, Any], state_path: Path, task: Dict[str
     run_git_checked(
         run_worktree, ["branch", "-D", task_branch_name(repo, task)], allow_failure=True
     )
-    return not worktree_path.exists()
+    gone = not worktree_path.exists()
+    # The recorded path outlives nothing: a task whose tree is gone must not keep
+    # advertising a cwd the next spawn would land in.
+    if gone:
+        task.pop("worktreePath", None)
+    return gone
 
 
 def task_branch_is_ahead(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> bool:

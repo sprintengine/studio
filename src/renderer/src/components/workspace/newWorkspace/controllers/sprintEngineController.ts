@@ -217,6 +217,9 @@ export async function runSprintEngineNewTeamCreation(
       events: args.sprintEngineState.events,
       artifacts: args.sprintEngineState.artifacts,
       useWorktrees: input.useWorktrees === true,
+      // Per-task worktrees (MC-2136), only ever alongside run worktrees — the
+      // engine refuses the pair, and absent keeps the payload as it was.
+      ...(input.useWorktrees === true && input.taskIsolation === true ? { taskIsolation: true } : {}),
       // The other projects this run also works in (item 1765), declared here so a
       // multi-project run has every worktree the moment it initializes. Only ever
       // present alongside worktree mode — the engine refuses the pair, and the
@@ -322,6 +325,7 @@ export async function runSprintEnginePlanSourcedCreation(
       ...(input.defaultPhases !== undefined ? { defaultPhases: input.defaultPhases } : {}),
       workspaceWindowId: input.workspaceWindowId,
       useWorktrees: input.useWorktrees === true,
+      taskIsolation: input.taskIsolation === true,
       sourceReference: input.sourceReference === true,
       // Only when the caller chose; absent leaves the default with the engine.
       ...(input.intake ? { intake: input.intake } : {}),

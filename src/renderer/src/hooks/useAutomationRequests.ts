@@ -279,6 +279,7 @@ async function createSprint(
         startRunner: request.startRunner === true,
         autoApproveArtifacts: request.autoApproveArtifacts === true,
         useWorktrees: request.useWorktrees === true,
+        taskIsolation: request.taskIsolation === true,
         // External creation never escalates CLI permissions. This is the
         // GOAL-sourced path: an arbitrary caller with a bare goal and no
         // human-authored plan file behind it, so there is no consent to read.
@@ -575,6 +576,7 @@ async function createPlanSourcedSprint(
       },
       workspaceWindowId: 'primary',
       useWorktrees: request.useWorktrees === true,
+      taskIsolation: request.taskIsolation === true,
       ...(request.baseStartPoint?.trim() ? { baseStartPoint: request.baseStartPoint.trim() } : {}),
       // Backlog/file sources are referenced in place, never copied.
       sourceReference: true,

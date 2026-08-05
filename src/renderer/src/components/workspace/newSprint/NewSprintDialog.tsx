@@ -130,6 +130,7 @@ import {
   plannedSprintFootSummary,
   seedPickedKeysFromSource,
   sprintIsolationUsesWorktrees,
+  sprintIsolationUsesTaskWorktrees,
   type SprintIsolation,
 } from './newSprintModel'
 import { SprintIsolationRowView } from './SprintIsolationRow'
@@ -737,6 +738,7 @@ export default function NewSprintDialog({
           startRunner: true,
           autoApproveArtifacts: true,
           useWorktrees: sprintIsolationUsesWorktrees(isolation),
+          taskIsolation: sprintIsolationUsesTaskWorktrees(isolation),
           sourceReference: true,
           intake,
           epicChildRelativePaths:

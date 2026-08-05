@@ -39,7 +39,15 @@ def command_payload_to_namespace(
     elif tool_name == "sprintengine.triage.needs_input":
         base.update(id=payload["id"])
     elif tool_name == "sprintengine.task.next":
-        base.update(role=payload.get("role"), id=payload["id"], repo=payload.get("repo"))
+        # `taskId` here is the session's BOUND task (MC-2136), stamped by the
+        # server from the task worktree the session sits in — never something an
+        # agent asks for. Absent on every run that shares one worktree.
+        base.update(
+            role=payload.get("role"),
+            id=payload["id"],
+            repo=payload.get("repo"),
+            task_id=payload.get("taskId"),
+        )
     elif tool_name == "sprintengine.task.claim":
         base.update(task_id=payload["taskId"], id=payload["id"])
     elif tool_name == "sprintengine.task.status":

@@ -42,12 +42,16 @@ export const PLANNING_AGENT_NONE_DESCRIPTION = 'Your epic is the plan'
 // 2026-08-05 (owner): isolation is a VISIBLE choice, not invisible plumbing,
 // and a sprint runs in ONE worktree per sprint by default.
 //
-// The ladder is none / per-sprint / per-task. This row carries the first two
-// rungs; MC-2136 adds "A worktree per task" as a third item of the same list,
-// which is why the value vocabulary is its ("One worktree"), and why the label
-// is the sentence opener rather than the noun — every rung completes it.
+// The ladder is none / per-sprint / per-task, and all three rungs are here
+// (MC-2136 added the third). The value vocabulary is the ladder's ("One
+// worktree"), and the label is the sentence opener rather than the noun —
+// every rung completes it.
+//
+// Ruled 2026-08-05 (owner): one shared worktree per sprint is the DEFAULT and
+// the normal mode; per-task is a configuration chosen per sprint, never
+// silently on.
 
-export type SprintIsolation = 'none' | 'sprint'
+export type SprintIsolation = 'none' | 'sprint' | 'task'
 
 export const DEFAULT_SPRINT_ISOLATION: SprintIsolation = 'sprint'
 
@@ -56,16 +60,23 @@ export const SPRINT_ISOLATION_ROW_LABEL = 'Runs in'
 export const SPRINT_ISOLATION_TOOLTIP =
   'Where this sprint works. A worktree is a second checkout of the project on its own branch, so the '
   + 'run can be inspected, abandoned, or run alongside your own edits without touching them. In the '
-  + 'project folder, the agents edit the files you have open.'
+  + 'project folder, the agents edit the files you have open. With one per task, agents never share a '
+  + 'checkout, so two tasks changing the same file meet as a merge conflict instead of overwriting.'
 
 export const SPRINT_ISOLATION_ITEMS: ReadonlyArray<{ value: SprintIsolation; label: string }> = [
   { value: 'sprint', label: 'One worktree' },
+  { value: 'task', label: 'A worktree per task' },
   { value: 'none', label: 'The project folder' },
 ]
 
 /** The engine's run-level flag: every rung but `none` needs run worktrees. */
 export function sprintIsolationUsesWorktrees(isolation: SprintIsolation): boolean {
   return isolation !== 'none'
+}
+
+/** The engine's `vcs.taskIsolation` flag, layered on run worktrees (MC-2130). */
+export function sprintIsolationUsesTaskWorktrees(isolation: SprintIsolation): boolean {
+  return isolation === 'task'
 }
 
 /**

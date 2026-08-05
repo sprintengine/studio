@@ -1073,8 +1073,8 @@ async function main(): Promise<void> {
       ) as Element[]
       assert.deepEqual(
         options.map((option) => option.textContent?.trim()),
-        ['One worktree', 'The project folder'],
-        'the ladder reads best-first; MC-2136 adds "A worktree per task" to this same list',
+        ['One worktree', 'A worktree per task', 'The project folder'],
+        'the whole isolation ladder, best-first (MC-2136 added the per-task rung)',
       )
       await clickAndSettle(options.find((option) => option.textContent?.includes('project folder')))
       assert.match(
@@ -1093,6 +1093,82 @@ async function main(): Promise<void> {
         initCalls[0]?.useWorktrees,
         false,
         'the off rung is byte-for-byte the run the dialog made before this row existed',
+      )
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  // MC-2136: the per-task rung. The dialog's job is to turn the picked rung into
+  // the engine's two flags — worktrees on, isolation on — and nothing else; what
+  // those flags then do to the run belongs to the engine's own tests.
+  await check('picking a worktree per task asks the engine for per-task isolation', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<{ useWorktrees?: boolean; taskIsolation?: boolean }> = []
+    apiRecord.initializeSprintEngineState = async (input: (typeof initCalls)[number]) => {
+      initCalls.push({ useWorktrees: input.useWorktrees, taskIsolation: input.taskIsolation })
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      await clickAndSettle(isolationTrigger(container))
+      const options = Array.from(
+        dom.window.document.body.querySelectorAll(
+          '[role="listbox"][aria-label="Runs in"] [role="option"]',
+        ),
+      ) as Element[]
+      await clickAndSettle(options.find((option) => option.textContent?.includes('per task')))
+      assert.match(
+        isolationTrigger(container)?.textContent ?? '',
+        /A worktree per task/,
+        'the picked value is what the row shows',
+      )
+
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.deepEqual(
+        initCalls[0],
+        { useWorktrees: true, taskIsolation: true },
+        'per-task isolation is layered ON run worktrees, never sent alone',
+      )
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  // The default rung must stay the run it always made: one shared worktree, and
+  // no isolation field at all in the payload (MC-2136 ruling — per-task is a
+  // choice, never a silent default).
+  await check('the default rung still creates a plain one-worktree run', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<Record<string, unknown>> = []
+    apiRecord.initializeSprintEngineState = async (input: Record<string, unknown>) => {
+      initCalls.push(input)
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(initCalls[0]?.useWorktrees, true, 'one worktree per sprint is the default')
+      assert.equal(
+        'taskIsolation' in (initCalls[0] ?? {}),
+        false,
+        'the default payload carries no isolation field at all',
       )
     } finally {
       delete apiRecord.initializeSprintEngineState

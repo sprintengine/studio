@@ -34,6 +34,7 @@ import type {
   MemoryRootStatus,
   SprintEngineArtifactCommandResult,
   SprintEngineProjectionReadResult,
+  SprintEngineTaskWorktreeResult,
   TerminalSessionSnapshot,
   TerminalSpawnMetadata,
   TerminalSpawnResult,
@@ -102,6 +103,15 @@ export interface SprintEngineAutoRunExecutorPorts {
     workspaceRoot: string | null
     relativeRoot: string | null
   }): Promise<MemoryRootStatus>
+  /**
+   * Provision one task's own worktree before its agent spawns (MC-2136). Only
+   * called on a per-task-isolation run: everywhere else the session's cwd is
+   * already standing, and this would be a process launch per spawn for nothing.
+   */
+  ensureSprintEngineTaskWorktree(input: {
+    statePath: string
+    taskId: string
+  }): Promise<SprintEngineTaskWorktreeResult>
 
   // Diagnostics ---------------------------------------------------------
   publishDiagnostic(input: DiagnosticLogInput): Promise<DiagnosticLogEntry | void>

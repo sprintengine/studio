@@ -1687,6 +1687,45 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
     assert.equal((bad.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
   }
 
+  // MC-2136 — the isolation ladder. `isolation` is the whole thing; the older
+  // `useWorktrees` boolean stays accepted and means its first two rungs, so a
+  // caller written before this creates the byte-identical run it always did.
+  requests.length = 0
+  const perTask = await tool(tools, 'sprint.create').handler({
+    folderPath: '/tmp/project-a',
+    goal: 'Ship checkout',
+    isolation: 'task',
+  })
+  assert.equal(perTask.isError, undefined, JSON.stringify(perTask.structuredContent))
+  assert.equal((requests[0] as { useWorktrees?: boolean }).useWorktrees, true, 'per-task rides on run worktrees')
+  assert.equal((requests[0] as { taskIsolation?: boolean }).taskIsolation, true)
+
+  requests.length = 0
+  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', isolation: 'sprint' })
+  assert.equal((requests[0] as { useWorktrees?: boolean }).useWorktrees, true)
+  assert.equal(
+    'taskIsolation' in (requests[0] as object),
+    false,
+    'the per-sprint rung sends no isolation field at all — the pre-2136 payload',
+  )
+
+  requests.length = 0
+  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', useWorktrees: true })
+  assert.equal((requests[0] as { useWorktrees?: boolean }).useWorktrees, true, 'the old spelling still means one worktree')
+  assert.equal('taskIsolation' in (requests[0] as object), false)
+
+  // Two spellings that disagree are refused rather than silently resolved either
+  // way — an unreadable request must not quietly create the weaker run.
+  for (const args of [
+    { folderPath: '/tmp/project-a', goal: 'g', isolation: 'task', useWorktrees: false },
+    { folderPath: '/tmp/project-a', goal: 'g', isolation: 'none', useWorktrees: true },
+    { folderPath: '/tmp/project-a', goal: 'g', isolation: 'per-task' },
+  ]) {
+    const bad = await tool(tools, 'sprint.create').handler(args as never)
+    assert.equal(bad.isError, true, JSON.stringify(args))
+    assert.equal((bad.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  }
+
   // Delegate failures pass through verbatim (no window, controller errors).
   const failing = createAutomationTools({
     ...backendsOf(),

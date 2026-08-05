@@ -40,6 +40,11 @@ export type SprintEngineMcpRunRegistrationInput = {
   // repo, so it never claims work living in another project's tree. Absent keeps
   // the session repo-unbound (single-repo runs, operator surface).
   repo?: string
+  // The one task this session may work (MC-2136): set when it launches into that
+  // task's own worktree under per-task isolation. The returned token binds the
+  // claim queue to that task alone, so the session cannot end up editing one
+  // task's tree while owning another. Absent on runs that share one worktree.
+  taskId?: string
   // The workspace's configured Knowledge Graph root ('' when unset). Sent so
   // the server can gate the workspace_knowledge prompt layer at compose time
   // instead of paying its tokens on every join.
@@ -150,6 +155,7 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
         agentId: input.agentId,
         role: input.role,
         repo: input.repo,
+        taskId: input.taskId,
         knowledgeRoot: input.knowledgeRoot ?? '',
       })
     } catch (error) {
@@ -466,6 +472,7 @@ function runRegistrationKey(input: SprintEngineMcpRunRegistrationInput): string 
   // not the cached one from its first launch.
   const agentSuffix = input.agentId
     ? `::agent::${input.agentId}::${input.role ?? ''}${input.repo ? `::repo::${input.repo}` : ''}`
+      + (input.taskId ? `::task::${input.taskId}` : '')
     : ''
   return `${resolve(input.statePath)}${agentSuffix}`
 }

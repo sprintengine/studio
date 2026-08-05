@@ -40,6 +40,7 @@ export async function syncManagedSprintEngineMcpConfig(
       agentId: input.managedSprintEngine.agentId,
       role: input.managedSprintEngine.role,
       repo: input.managedSprintEngine.repo,
+      taskId: input.managedSprintEngine.taskId,
       knowledgeRoot: input.managedSprintEngine.knowledgeRoot ?? '',
     })
     registeredRunId = run.runId

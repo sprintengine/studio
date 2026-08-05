@@ -125,6 +125,22 @@ function repoIdForRouting(
 }
 
 /**
+ * The recorded worktree of the task a routing key names, under per-task
+ * isolation. Only a TASK id can carry one — a bare repo id names the shared run
+ * tree by definition — so an unmatched key yields nothing rather than the tree
+ * of some other task.
+ */
+function optionalTaskWorktreePath(
+  state: Pick<SprintEngineState, 'tasks'>,
+  taskOrRepoId: string | null | undefined
+): string | undefined {
+  const value = taskOrRepoId?.trim()
+  if (!value) return undefined
+  const task = state.tasks?.find((candidate) => candidate.id === value)
+  return task?.worktreePath?.trim() || undefined
+}
+
+/**
  * MC-1615 single cwd choke point. THE one reader of the vcs worktree paths in
  * the TS spawn path — every sprint session cwd resolves through here, so a
  * caller never dereferences the vcs seam directly.
@@ -137,13 +153,34 @@ function repoIdForRouting(
  * resolvable: the session skips to the main checkout rather than borrowing the
  * primary's tree, which would silently run it against the wrong repo (backlog
  * 1722). Only the primary repo falls back to the run's flat worktree.
+ *
+ * Per-task isolation (MC-2136): when the run gives every task its own worktree,
+ * the session opens in THE TASK'S tree rather than its repo's shared one — the
+ * engine commits a task's work from that tree, so an agent editing anywhere else
+ * would have its changes committed by nobody. The path is read from the task
+ * (the engine records it when it provisions the tree), never computed here; a
+ * task with no recorded tree has none yet, and falls back to the run worktree
+ * exactly as the engine's own `worktree_for_task` does.
  */
 export function resolveSprintEngineSessionCwd(
   state: Pick<SprintEngineState, 'vcs' | 'tasks'>,
-  taskOrRepoId: string | null | undefined
+  taskOrRepoId: string | null | undefined,
+  options: {
+    /**
+     * A task worktree the spawn path just provisioned, which the projection in
+     * hand predates. It wins over the recorded value for exactly that reason —
+     * it is the same field, one refresh newer.
+     */
+    provisionedTaskWorktreePath?: string | null
+  } = {}
 ): SprintEngineSessionCwd {
   const vcs = state.vcs
   if (vcs?.mode !== 'run_worktree') return { executionMode: 'current_workspace' }
+  if (vcs.taskIsolation === true) {
+    const taskWorktree =
+      options.provisionedTaskWorktreePath?.trim() || optionalTaskWorktreePath(state, taskOrRepoId)
+    if (taskWorktree) return { executionMode: 'worktree', worktreeRelativePath: taskWorktree }
+  }
   const repoId = repoIdForRouting(state, taskOrRepoId)
   const declaredWorktree = vcs.repos?.find((repo) => repo.id === repoId)?.worktreePath
   const worktreePath = declaredWorktree
@@ -162,14 +199,29 @@ export function resolveSprintEngineSessionCwd(
  * Null when the session is not in any declared repo's worktree (a
  * non-worktree run, or a terminal opened in the main checkout), which reads as
  * "no repo evidence", never as the primary repo.
+ *
+ * Task trees are matched first (MC-2136): under isolation a session sits in its
+ * TASK's worktree, which is no repo's tree, so matching repos alone would read a
+ * perfectly bound session as repo-less evidence. The task is the authority on
+ * the project it works in.
  */
 export function sprintEngineRepoIdForSessionCwd(
-  state: Pick<SprintEngineState, 'vcs'>,
+  state: Pick<SprintEngineState, 'vcs' | 'tasks'>,
   workspaceFolderPath: string | null | undefined,
   sessionCwd: string | null | undefined
 ): string | null {
   const vcs = state.vcs
-  if (!vcs?.repos?.length || !sessionCwd || !workspaceFolderPath) return null
+  if (!sessionCwd || !workspaceFolderPath) return null
+  if (vcs?.taskIsolation === true) {
+    for (const candidate of state.tasks ?? []) {
+      const taskWorktree = candidate.worktreePath?.trim()
+      if (!taskWorktree) continue
+      if (samePath(pathJoin(workspaceFolderPath, taskWorktree), sessionCwd)) {
+        return sprintEngineSessionRepoId(candidate.repo)
+      }
+    }
+  }
+  if (!vcs?.repos?.length) return null
   for (const repo of vcs.repos) {
     if (!repo.worktreePath) continue
     if (samePath(pathJoin(workspaceFolderPath, repo.worktreePath), sessionCwd)) return repo.id
