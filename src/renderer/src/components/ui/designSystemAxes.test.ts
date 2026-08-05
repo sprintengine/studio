@@ -105,9 +105,11 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     'components/panels': 173,
     'components/settings': 36,
     'components/backlog': 21,
-    // Rose 15 → 17 when CommandPalette MOVED into the kit (MC-2117) carrying its
-    // own two radii. Nothing regressed; the debt changed address.
-    'components/ui': 17,
+    // 15 → 17 when CommandPalette MOVED into the kit (MC-2117) carrying its own
+    // two radii — nothing regressed, the debt changed address — then 17 → 14
+    // when the menu unification dropped ContextMenu's surface `rounded-md` and
+    // its two per-item `rounded` fills.
+    'components/ui': 14,
     'components/worktree': 9,
     'components/diagnostics': 7,
     utils: 4,
@@ -338,6 +340,62 @@ for (const axis of Object.keys(AXES) as Axis[]) {
     )
   })
 }
+
+// ── the menu family agrees ───────────────────────────────────────────────────
+// The symptom that started the whole audit: a row could be right-clicked and
+// kebab-pressed into two menus that disagreed on radius, border, ground, item
+// type, hover shape and divider. Nothing was comparing them, because each was
+// internally consistent — the defect only existed BETWEEN components.
+//
+// Ruled in design-system/components/menu (MC-2118), enforced here.
+
+run('every menu draws its divider in the same token', () => {
+  for (const file of ['ContextMenu.tsx', 'OverflowMenu.tsx', 'FilterMenu.tsx']) {
+    const source = code(join(KIT, file))
+    assert.ok(
+      !/border-default\)\]"?\s*$|bg-\[color:var\(--border-default\)\]/m.test(source),
+      `${file} draws a divider in border-default; inside a bordered surface that competes with the surface's own edge`,
+    )
+  }
+})
+
+run('no menu item carries its own radius', () => {
+  // Full-bleed rows. An inset rounded fill inside a padded surface reads as a
+  // card nested in a card, and it is what made ContextMenu look like a
+  // different component from the kebab menu onto the same actions.
+  const source = code(join(KIT, 'ContextMenu.tsx'))
+  assert.ok(
+    !/\brounded px-2\.5\b/.test(source),
+    'a menu item with its own radius is the inset-fill shape the spec rules out',
+  )
+})
+
+run('the pointer-positioned menu is made of the same material as the anchored ones', () => {
+  const source = code(join(KIT, 'ContextMenu.tsx'))
+  // The popover archetype, spelled out — these are the six values that differed.
+  for (const [token, why] of [
+    ['rounded-\\[7px\\]', 'radius.overlay, like every other floating surface'],
+    ['--border-strong', 'the popover border, not border-default'],
+    ['--bg-surface-raised', 'the popover ground, not bg-surface'],
+    ['--shadow-popover', 'the popover elevation token'],
+    ['text-meta', 'menu items are chrome (12px), not body copy'],
+  ] as const) {
+    assert.match(source, new RegExp(token), `ContextMenu's surface must use ${why}`)
+  }
+  assert.ok(
+    !/\bp-1\b/.test(source),
+    'vertical padding only — horizontal surface padding is what forces an inset fill',
+  )
+})
+
+run('destructive is ink, never a fill', () => {
+  const source = code(join(KIT, 'ContextMenu.tsx'))
+  assert.ok(
+    !/rgba\(255,\s*120,\s*124/.test(source),
+    'the danger row carried a raw rgba hover tint — a second signal saying what the ink already says',
+  )
+  assert.match(source, /--tone-error/, 'and it still says it in ink')
+})
 
 run('no sanctioned exception has gone stale', () => {
   // An allowlist entry that no longer matches anything is a decision still on

@@ -50,7 +50,9 @@
   align-items: center;
   gap: var(--sem-space-sm);
   width: 100%;
-  padding: var(--sem-space-2xs) var(--sem-space-md);
+  /* 6/10px — what all three menus already used. Vertical padding was never one
+   * of the divergences, so the spec does not move it. */
+  padding: var(--sem-space-xs) var(--sem-space-md);
   border: 0;
   border-radius: 0;
   background: transparent;

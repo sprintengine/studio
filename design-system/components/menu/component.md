@@ -113,8 +113,18 @@ menu. A menu that needs to be denser is a menu with too many items in it.
 `MenuItem` / `MenuDivider` / `MenuFlyoutItem` vocabulary),
 `OverflowMenu.tsx` (the kebab), `FilterMenu.tsx` (the narrowing glyph).
 
-**Not yet reconciled to this spec.** The three still carry the divergences
-tabulated above; this entry is the ruling they converge onto, written first so
-the unification has something to point at (MC-2118). `ContextMenu`'s surface is
-the one that moves furthest — onto the popover shell, losing its own radius,
-border, ground and 4px padding.
+**Reconciled 2026-08-05.** All three now meet this spec. `ContextMenu` moved
+furthest: onto the popover shell (7px radius, `border.strong`,
+`bg.surface-raised`), vertical-only padding so its rows are full-bleed, `meta`
+items instead of `body`, an inset focus ring, and its destructive row lost a raw
+`rgba(255,120,124,0.08)` hover tint — a second signal saying what the ink
+already said. `OverflowMenu`'s divider moved from `border.default` to
+`border.subtle`. `FilterMenu` already met the spec.
+
+Held by `ui/designSystemAxes.test.ts`, which compares the three against each
+other rather than each against itself — the divergence only ever existed
+*between* components, so a per-component test could not have caught it.
+
+Item vertical padding (6px) is deliberately unchanged: all three already agreed
+on it, and a spec that moves values which were never divergent is a spec nobody
+can adopt cheaply.

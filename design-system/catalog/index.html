@@ -2033,7 +2033,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   align-items: center;
   gap: var(--sem-space-sm);
   width: 100%;
-  padding: var(--sem-space-2xs) var(--sem-space-md);
+  /* 6/10px — what all three menus already used. Vertical padding was never one
+   * of the divergences, so the spec does not move it. */
+  padding: var(--sem-space-xs) var(--sem-space-md);
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -11889,7 +11891,9 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <ul><li>The surface is <code>role=&quot;menu&quot;</code>; items are <code>role=&quot;menuitem&quot;</code>, or <code>menuitemradio</code> / <code>menuitemcheckbox</code> when they carry a selected state.</li><li>Focus moves through items with <code>ArrowUp</code> / <code>ArrowDown</code>, wrapping. <code>Home</code> and <code>End</code> jump to the ends. <code>Escape</code> closes the menu and returns focus to the trigger that opened it — the menu never leaves focus on <code>&lt;body&gt;</code>.</li><li>The trigger carries <code>aria-haspopup=&quot;menu&quot;</code> and <code>aria-expanded</code>.</li><li>A checked item states it with <code>aria-checked</code>, not with the tick glyph alone.</li><li>Disabled items keep <code>aria-disabled=&quot;true&quot;</code> rather than the <code>disabled</code> attribute where they must stay arrow-reachable, so a keyboard user can read what is unavailable instead of skipping past it silently.</li></ul>
 <h4>Shipped implementation</h4>
 <p><code>src/renderer/src/components/ui/ContextMenu.tsx</code> (pointer-positioned, and the <code>MenuItem</code> / <code>MenuDivider</code> / <code>MenuFlyoutItem</code> vocabulary), <code>OverflowMenu.tsx</code> (the kebab), <code>FilterMenu.tsx</code> (the narrowing glyph).</p>
-<p><strong>Not yet reconciled to this spec.</strong> The three still carry the divergences tabulated above; this entry is the ruling they converge onto, written first so the unification has something to point at (MC-2118). <code>ContextMenu</code>'s surface is the one that moves furthest — onto the popover shell, losing its own radius, border, ground and 4px padding.</p>
+<p><strong>Reconciled 2026-08-05.</strong> All three now meet this spec. <code>ContextMenu</code> moved furthest: onto the popover shell (7px radius, <code>border.strong</code>, <code>bg.surface-raised</code>), vertical-only padding so its rows are full-bleed, <code>meta</code> items instead of <code>body</code>, an inset focus ring, and its destructive row lost a raw <code>rgba(255,120,124,0.08)</code> hover tint — a second signal saying what the ink already said. <code>OverflowMenu</code>'s divider moved from <code>border.default</code> to <code>border.subtle</code>. <code>FilterMenu</code> already met the spec.</p>
+<p>Held by <code>ui/designSystemAxes.test.ts</code>, which compares the three against each other rather than each against itself — the divergence only ever existed *between* components, so a per-component test could not have caught it.</p>
+<p>Item vertical padding (6px) is deliberately unchanged: all three already agreed on it, and a spec that moves values which were never divergent is a spec nobody can adopt cheaply.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/menu/component.css</summary><pre><code>/* Menu — the list of actions inside a popover surface.
@@ -11944,7 +11948,9 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
   align-items: center;
   gap: var(--sem-space-sm);
   width: 100%;
-  padding: var(--sem-space-2xs) var(--sem-space-md);
+  /* 6/10px — what all three menus already used. Vertical padding was never one
+   * of the divergences, so the spec does not move it. */
+  padding: var(--sem-space-xs) var(--sem-space-md);
   border: 0;
   border-radius: 0;
   background: transparent;

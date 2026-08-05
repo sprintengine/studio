@@ -173,7 +173,11 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
                 <div
                   key={item.id}
                   role="separator"
-                  className="my-1 h-px bg-[color:var(--border-default)]"
+                  // `border-subtle`, per design-system/components/menu. Inside
+                  // an already-bordered surface a divider separates siblings; at
+                  // `border-default` it competes with the surface's own edge and
+                  // the menu reads as two stacked panels.
+                  className="my-1 h-px bg-[color:var(--border-subtle)]"
                 />
               )
             }

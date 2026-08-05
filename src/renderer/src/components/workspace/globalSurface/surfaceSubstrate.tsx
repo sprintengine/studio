@@ -585,7 +585,13 @@ export function SurfaceRail({
           {rows.map(renderRow)}
         </ul>
       )}
-      {afterRows}
+      {/* The inner level goes with its outer one. While a search has narrowed
+          the rows to nothing, the row that OWNS this second level is not on
+          screen either — rendering it anyway put the Horizon door's plan
+          directly under "No horizons match.", a plan belonging to a horizon the
+          filter had just hidden. The notice explains an empty list; it cannot
+          also explain the populated thing under it. */}
+      {afterRows && !(emptyNotice && rows.length === 0) ? afterRows : null}
       </div>
     </div>
   )

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Tooltip } from './Tooltip'
-import { FOCUS_RING_CLASS } from './tokens'
+import { FOCUS_RING_INSET_CLASS } from './tokens'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import type { HighlightColor } from '../../types/workspace'
 
@@ -37,9 +37,19 @@ import type { HighlightColor } from '../../types/workspace'
 // across enabled items, and checkable items render role="menuitemcheckbox"
 // with aria-checked.
 
-// design-tokens-allow: popover-elevation reuses the OverflowMenu shadow shape (no glow CTA pattern)
+// The popover archetype, per design-system/components/menu (MC-2118). This
+// surface used to be its own thing — 6px radius, `border-default`, `bg-surface`,
+// 4px padding all round, `text-body` items — while every other menu in the app
+// rendered inside `Popover` at 7px, `border-strong`, `bg-surface-raised` with
+// 12px items. Right-clicking a row and pressing its kebab opened two visibly
+// different menus onto the same actions.
+//
+// What actually distinguishes this component is that it positions at a POINTER
+// rather than an anchor. That is positioning; it is not a reason to be made of
+// different material. Vertical padding only, so rows reach both edges and the
+// fill is full-bleed.
 const MENU_SURFACE_CLASS =
-  'rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1 text-body text-[color:var(--text-default)] shadow-[var(--shadow-popover)]'
+  'rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] py-1 text-meta text-[color:var(--text-default)] shadow-[var(--shadow-popover)]'
 
 const MENU_Z_INDEX = 'var(--z-menu)'
 
@@ -252,11 +262,20 @@ export function MenuItem({
       onClick={onClick}
       onContextMenu={onContextMenu}
       onKeyDown={onKeyDown}
-      className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+      // Full-bleed, no per-item radius: an inset rounded fill inside a padded
+      // surface reads as a card nested in a card, and every other row list in
+      // the system fills to its own inset. Focus is drawn INSET for the same
+      // reason — a full-bleed row touches the surface border, and an outset ring
+      // would be clipped by it.
+      //
+      // Destructive is ink, never a fill (design-system/components/menu). This
+      // carried its own `rgba(255,120,124,0.08)` hover tint, which is both a raw
+      // colour and a second signal saying what the ink already says.
+      className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
         variant === 'danger'
-          ? 'text-[color:var(--tone-error)] hover:bg-[rgba(255,120,124,0.08)]'
+          ? 'text-[color:var(--tone-error)] hover:bg-[color:var(--bg-hover)]'
           : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-      } ${FOCUS_RING_CLASS}`}
+      } ${FOCUS_RING_INSET_CLASS}`}
     >
       {icon ?? null}
       <span className="min-w-0 flex-1 truncate">{children}</span>
@@ -511,9 +530,9 @@ export function MenuFlyoutItem({
             openFlyout()
           }
         }}
-        className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${
+        className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${
           open ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : ''
-        } ${FOCUS_RING_CLASS}`}
+        } ${FOCUS_RING_INSET_CLASS}`}
       >
         {icon ?? null}
         <span className="min-w-0 flex-1 truncate">{label}</span>

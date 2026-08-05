@@ -358,6 +358,50 @@ async function main(): Promise<void> {
     console.log('ok - a two-level rail has one scrollport and rests only its outer rows')
     twoLevel.unmount()
 
+    // A search that narrows the OUTER level to nothing hides the inner one with
+    // it. The row that owns the second level is off screen too, so leaving the
+    // plan rendered put it directly under "No horizons match." — a plan for a
+    // horizon the filter had just hidden.
+    const narrowed = mount(
+      <SurfaceRail
+        label="Horizons"
+        rows={[]}
+        selectedId={null}
+        onSelect={() => undefined}
+        newAffordance={{ label: 'New horizon', onActivate: () => undefined }}
+        outerContext
+        emptyNotice="No horizons match."
+        afterRows={<section data-testid="plan">A plan</section>}
+      />,
+    )
+    assert.match(narrowed.container.textContent ?? '', /No horizons match\./, 'the notice explains the empty list')
+    assert.equal(
+      narrowed.container.querySelector('[data-testid="plan"]'),
+      null,
+      'and the orphaned second level is not rendered beneath it',
+    )
+    console.log('ok - narrowing the outer level to nothing hides the inner one')
+    narrowed.unmount()
+
+    // But an outer level that is legitimately empty with no notice (nothing to
+    // narrow) still shows its second level — this must not become "a rail with
+    // no rows never shows afterRows".
+    const noRowsNoNotice = mount(
+      <SurfaceRail
+        label="Horizons"
+        rows={[]}
+        selectedId={null}
+        onSelect={() => undefined}
+        newAffordance={{ label: 'New horizon', onActivate: () => undefined }}
+        afterRows={<section data-testid="plan">A plan</section>}
+      />,
+    )
+    assert.ok(
+      noRowsNoNotice.container.querySelector('[data-testid="plan"]'),
+      'an empty rail that is not NARROWED still carries its second level',
+    )
+    noRowsNoNotice.unmount()
+
     // Without the flag there is no marker at all: a one-level rail's selection
     // is the focused one, and a stray marker would rest it.
     const oneLevel = mount(railWith(<svg className="icon-sm" />))
