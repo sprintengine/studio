@@ -85,11 +85,17 @@ expectIncludes(popover, 'computeSurfacePosition(', 'Popover computes placement f
 // The stacking tier is the token, not the number it happens to equal: MC-2119
 // put every overlay layer on `--sem-z-*` (aliased `--z-*`) after Modal's private
 // ladder was found sitting a tier BELOW the menus.
+// The shell itself is now one constant (MC-2103) — `OVERLAY_SURFACE_CLASS` in
+// tokens.ts — because ContextMenu drew a hand-written second copy of it that had
+// drifted by a radius, a border token and a ground token. The values it must
+// carry are asserted in designSystemAxes.test.ts; what belongs here is that this
+// surface still takes its tier from the token and its chrome from the shell.
 expectIncludes(
   popover,
-  'popover-enter z-[var(--z-popover)] rounded-[7px]',
-  'Popover uses the canonical popover shell',
+  'popover-enter z-[var(--z-popover)]',
+  'Popover stacks on the token tier, not on a number that happens to equal it',
 )
+expectIncludes(popover, 'OVERLAY_SURFACE_CLASS', 'Popover uses the canonical popover shell')
 expectIncludes(popover, "window.addEventListener('scroll', reposition, true)", 'Popover tracks its trigger on scroll')
 expectIncludes(popover, "wantsBottom && surfaceHeight + SURFACE_GAP > spaceBelow", 'Popover flips above the trigger when space is tight')
 
@@ -130,11 +136,24 @@ expectIncludes(contextMenu, "event.key === 'ArrowLeft'", 'MenuFlyoutItem flyout 
 // full-bleed to the surface edge now, so an outset ring is clipped by the
 // surface border. Still the shared treatment — just the shape that survives
 // touching the edge.
+//
+// It reaches the rows through MENU_ITEM_CLASS (MC-2103) rather than being
+// applied host by host, which is why every menu surface is asserted here and not
+// just this one: a host that hand-rolls its row is a host that can forget the
+// ring, and three of them had.
+const menuClasses = read('src/renderer/src/components/ui/menuClasses.ts')
 expectIncludes(
-  contextMenu,
+  menuClasses,
   'FOCUS_RING_INSET_CLASS',
-  'ContextMenu items apply the shared focus ring class',
+  'the shared menu item carries the inset focus ring',
 )
+for (const host of ['ContextMenu', 'OverflowMenu', 'FilterMenu', 'SplitButton']) {
+  expectIncludes(
+    read(`src/renderer/src/components/ui/${host}.tsx`),
+    "from './menuClasses'",
+    `${host} rows take the shared focus ring with the rest of the menu canon`,
+  )
+}
 
 // WorkspaceSidebar consumes the primitive — it must not hand-roll menu chrome.
 expectIncludes(workspaceSidebar, '<ContextMenu', 'WorkspaceSidebar menus render through the ui ContextMenu primitive')
@@ -555,6 +574,30 @@ expectIncludes(settingsPanel, 'await window.api.copyPathInto(target.sourcePath, 
     offenders.map((path) => relative(root, path)),
     [],
     'no component declares a focus treatment of its own — the utility is the only one',
+  )
+}
+
+// No renderer surface opens a NATIVE context menu (MC-2104). Four did — the
+// editor, the file tree, Git's change rows, and the tab strip — and an OS-drawn
+// popup can carry none of the menu contract this file asserts: no role="menu",
+// no Escape-restores-focus, no roving focus, no shortcut hints, no destructive
+// ink, and metrics and casing owned by the platform rather than by the product.
+// The one native menu that survives is the application MENU BAR
+// (`src/main/app-menu.ts`), which is the OS's own surface and outside this tree.
+//
+// The check is on `window.api.showContextMenu`, the only route from the
+// renderer to `Menu.popup`. A host that genuinely needs one again has to state
+// its reason in design-system/components/menu/component.md and add itself here.
+{
+  const NATIVE_CONTEXT_MENU = /window\.api\.showContextMenu\s*\(/
+  const nativeMenuHosts = collectSources(join(root, 'src/renderer/src')).filter((path) => {
+    if (/\.test\.tsx?$/.test(path)) return false
+    return NATIVE_CONTEXT_MENU.test(readFileSync(path, 'utf8'))
+  })
+  assert.deepEqual(
+    nativeMenuHosts.map((path) => relative(root, path)),
+    [],
+    'no renderer surface opens a native context menu — every in-app menu is ContextMenu/MenuItem',
   )
 }
 

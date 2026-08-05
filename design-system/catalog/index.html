@@ -2191,7 +2191,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 /* Destructive is ink, never a fill. A red row in a list of black ones is read
  * before it is aimed at; a red BLOCK is read as already-happened. */
 .ds-menu-item[data-destructive="true"] {
-  color: var(--sem-color-tone-error);
+  color: var(--sem-color-status-danger);
 }
 
 /* The leading slot is reserved, not sized by the item: a menu where only some
@@ -2214,6 +2214,11 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * because a shortcut is keys: read as glyphs, not as words, and wanting the
  * column to stay straight. */
 .ds-menu-item-hint {
+  /* inline-flex, not inline: the slot also carries a chevron, and an inline box
+   * would sit the glyph on the text baseline with a descender's worth of gap
+   * under it. */
+  display: inline-flex;
+  align-items: center;
   margin-left: auto;
   flex: none;
   color: var(--sem-color-text-disabled);
@@ -12392,7 +12397,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p><code>border.subtle</code>, 1px, with <code>space.2xs</code> (4px) of air above and below. A group label is the *alternative* to a divider, not an addition to it: one or the other says &quot;a new group starts here&quot;, and both together says it twice.</p>
 <p>A group label is <code>font.size.micro</code> at <code>text.subtle</code>, on the item's own horizontal inset so the heading and its rows share a left edge — quieter than the rows, and never bolder. A heading that out-weighs the actions under it is competing with them.</p>
 <h4>Destructive item</h4>
-<p>Ink, never a fill: <code>tone.error</code> on the label, and the same <code>bg.hover</code> on hover that every other row gets. A red row among black ones is read before it is aimed at; a red *block* is read as something that has already happened.</p>
+<p>Ink, never a fill: <code>status.danger</code> on the label (the product aliases it <code>--tone-error</code>), and the same <code>bg.hover</code> on hover that every other row gets. A red row among black ones is read before it is aimed at; a red *block* is read as something that has already happened.</p>
 <p>There is no size variant, no tone variant beyond destructive, and no &quot;compact&quot; menu. A menu that needs to be denser is a menu with too many items in it.</p>
 <h4>Keyboard hints</h4>
 <p>A shortcut hint sits in the trailing slot as <strong>mono <code>font.size.micro</code> (11px) at <code>text.disabled</code></strong> — plain text, not [kbd-chord](../kbd-chord/component.md) capsules. The chord is the right vocabulary where the shortcut is the subject (a settings row that lists it, a walkthrough step that teaches it); in a menu it is a footnote to an action the row already offers, and a line of capsules out-weighs the label they annotate.</p>
@@ -12528,7 +12533,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 /* Destructive is ink, never a fill. A red row in a list of black ones is read
  * before it is aimed at; a red BLOCK is read as already-happened. */
 .ds-menu-item[data-destructive=&quot;true&quot;] {
-  color: var(--sem-color-tone-error);
+  color: var(--sem-color-status-danger);
 }
 
 /* The leading slot is reserved, not sized by the item: a menu where only some
@@ -12551,6 +12556,11 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
  * because a shortcut is keys: read as glyphs, not as words, and wanting the
  * column to stay straight. */
 .ds-menu-item-hint {
+  /* inline-flex, not inline: the slot also carries a chevron, and an inline box
+   * would sit the glyph on the text baseline with a descender's worth of gap
+   * under it. */
+  display: inline-flex;
+  align-items: center;
   margin-left: auto;
   flex: none;
   color: var(--sem-color-text-disabled);

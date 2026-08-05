@@ -107,7 +107,7 @@
 /* Destructive is ink, never a fill. A red row in a list of black ones is read
  * before it is aimed at; a red BLOCK is read as already-happened. */
 .ds-menu-item[data-destructive="true"] {
-  color: var(--sem-color-tone-error);
+  color: var(--sem-color-status-danger);
 }
 
 /* The leading slot is reserved, not sized by the item: a menu where only some
@@ -130,6 +130,11 @@
  * because a shortcut is keys: read as glyphs, not as words, and wanting the
  * column to stay straight. */
 .ds-menu-item-hint {
+  /* inline-flex, not inline: the slot also carries a chevron, and an inline box
+   * would sit the glyph on the text baseline with a descender's worth of gap
+   * under it. */
+  display: inline-flex;
+  align-items: center;
   margin-left: auto;
   flex: none;
   color: var(--sem-color-text-disabled);

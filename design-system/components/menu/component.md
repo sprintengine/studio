@@ -146,8 +146,8 @@ competing with them.
 
 ## Destructive item
 
-Ink, never a fill: `tone.error` on the label, and the same `bg.hover` on hover
-that every other row gets. A red row among black ones is read before it is aimed
+Ink, never a fill: `status.danger` on the label (the product aliases it
+`--tone-error`), and the same `bg.hover` on hover that every other row gets. A red row among black ones is read before it is aimed
 at; a red *block* is read as something that has already happened.
 
 There is no size variant, no tone variant beyond destructive, and no "compact"

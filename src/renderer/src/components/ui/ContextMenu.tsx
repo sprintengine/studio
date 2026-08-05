@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Tooltip } from './Tooltip'
-import { FOCUS_RING_INSET_CLASS } from './tokens'
+import { MENU_DIVIDER_CLASS, MENU_ITEM_CLASS, MENU_SURFACE_CLASS } from './menuClasses'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import type { HighlightColor } from '../../types/workspace'
 
@@ -37,20 +37,18 @@ import type { HighlightColor } from '../../types/workspace'
 // across enabled items, and checkable items render role="menuitemcheckbox"
 // with aria-checked.
 
-// The popover archetype, per design-system/components/menu (MC-2118). This
-// surface used to be its own thing — 6px radius, `border-default`, `bg-surface`,
-// 4px padding all round, `text-body` items — while every other menu in the app
+// The surface comes from `menuClasses`, not from here (MC-2103). This component
+// used to spell its own — 6px radius, `border-default`, `bg-surface`, 4px
+// padding all round, `text-body` items — while every other menu in the app
 // rendered inside `Popover` at 7px, `border-strong`, `bg-surface-raised` with
 // 12px items. Right-clicking a row and pressing its kebab opened two visibly
-// different menus onto the same actions.
+// different menus onto the same actions. Converging the values was step one;
+// this is step two, and it is what stops them diverging again.
 //
 // What actually distinguishes this component is that it positions at a POINTER
 // rather than an anchor. That is positioning; it is not a reason to be made of
-// different material. Vertical padding only, so rows reach both edges and the
-// fill is full-bleed.
-const MENU_SURFACE_CLASS =
-  'rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] py-1 text-meta text-[color:var(--text-default)] shadow-[var(--shadow-popover)]'
-
+// different material — so it takes the standalone form of the shared surface
+// (chrome plus list) instead of getting the chrome from `Popover`.
 const MENU_Z_INDEX = 'var(--z-menu)'
 
 type ClampOptions = {
@@ -262,20 +260,17 @@ export function MenuItem({
       onClick={onClick}
       onContextMenu={onContextMenu}
       onKeyDown={onKeyDown}
-      // Full-bleed, no per-item radius: an inset rounded fill inside a padded
-      // surface reads as a card nested in a card, and every other row list in
-      // the system fills to its own inset. Focus is drawn INSET for the same
-      // reason — a full-bleed row touches the surface border, and an outset ring
-      // would be clipped by it.
-      //
-      // Destructive is ink, never a fill (design-system/components/menu). This
-      // carried its own `rgba(255,120,124,0.08)` hover tint, which is both a raw
-      // colour and a second signal saying what the ink already says.
-      className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+      // Shape, size, hover fill and focus ring are the shared item's, so this
+      // row is identical to the one a kebab or a split button opens. Only the
+      // ink is decided here: destructive is ink, never a fill
+      // (design-system/components/menu). It carried its own
+      // `rgba(255,120,124,0.08)` hover tint, which was both a raw colour and a
+      // second signal saying what the ink already says.
+      className={`${MENU_ITEM_CLASS} ${
         variant === 'danger'
-          ? 'text-[color:var(--tone-error)] hover:bg-[color:var(--bg-hover)]'
-          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-      } ${FOCUS_RING_INSET_CLASS}`}
+          ? 'text-[color:var(--tone-error)]'
+          : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]'
+      }`}
     >
       {icon ?? null}
       <span className="min-w-0 flex-1 truncate">{children}</span>
@@ -288,7 +283,7 @@ export function MenuItem({
 }
 
 export function MenuDivider() {
-  return <div role="separator" className="my-1 h-px bg-[color:var(--border-subtle)]" />
+  return <div role="separator" className={MENU_DIVIDER_CLASS} />
 }
 
 type MenuSwatchRowProps = {
@@ -390,7 +385,7 @@ type MenuFlyoutItemProps = {
 // item and its flyout surface.
 const FLYOUT_CLOSE_DELAY_MS = 150
 // Offset so the flyout's first item top-aligns with the parent item: the
-// surface carries p-1 (4px) padding plus a 1px border above its first child.
+// surface carries py-1 (4px) padding plus a 1px border above its first child.
 const FLYOUT_SURFACE_INSET = 5
 const FLYOUT_GAP = 2
 
@@ -530,9 +525,9 @@ export function MenuFlyoutItem({
             openFlyout()
           }
         }}
-        className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${
+        className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)] ${
           open ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : ''
-        } ${FOCUS_RING_INSET_CLASS}`}
+        }`}
       >
         {icon ?? null}
         <span className="min-w-0 flex-1 truncate">{label}</span>

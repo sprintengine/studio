@@ -39,7 +39,13 @@ function walk(dir: string, out: string[] = []): string[] {
     const full = join(dir, name)
     if (statSync(full).isDirectory()) {
       walk(full, out)
-    } else if (/\.(tsx|ts)$/.test(name) && !/\.test\./.test(name)) {
+    } else if (/\.(tsx|ts)$/.test(name) && !/\.test\./.test(name) && !/\.d\.ts$/.test(name)) {
+      // `.d.ts` is build output, not source. A stray `tsc` run beside the
+      // sources re-declares every exported class constant as a string literal,
+      // so the same off-ramp is counted twice and a directory nobody edited
+      // "grows" one — which reads as a regression in whatever change happens to
+      // be in flight. The ratchet asks a question about source text; declaration
+      // files are not it.
       out.push(full)
     }
   }
@@ -298,7 +304,24 @@ run('overlay elevation comes from a shadow token, in both themes', () => {
   // literally the value `--sem-shadow-drawer` takes in DARK mode — so every
   // light-theme popover cast a shadow tuned for a dark one, and
   // `--sem-shadow-popover` went unconsumed entirely.
-  for (const file of ['Popover.tsx', 'PointerPopover.tsx', 'ContextMenu.tsx', 'CursorErrorPopover.tsx', 'SkillPickerPopover.tsx']) {
+  //
+  // `Popover` and `ContextMenu` now take the whole chrome from
+  // OVERLAY_SURFACE_CLASS rather than spelling the shadow themselves (MC-2103),
+  // so they are asserted through the constant they consume — the token still has
+  // to be reachable from each of them, which is what this checks.
+  assert.match(
+    code(join(KIT, 'tokens.ts')),
+    /OVERLAY_SURFACE_CLASS[\s\S]*shadow-\[var\(--shadow-popover\)\]/,
+    'the shared overlay chrome takes its elevation from the popover token',
+  )
+  for (const file of ['Popover.tsx', 'ContextMenu.tsx']) {
+    assert.match(
+      code(join(KIT, file)),
+      /OVERLAY_SURFACE_CLASS|MENU_SURFACE_CLASS/,
+      `${file} draws the shared overlay chrome rather than a copy of it`,
+    )
+  }
+  for (const file of ['PointerPopover.tsx', 'CursorErrorPopover.tsx', 'SkillPickerPopover.tsx']) {
     assert.match(
       code(join(KIT, file)),
       /shadow-\[var\(--shadow-popover\)\]/,
@@ -347,54 +370,87 @@ for (const axis of Object.keys(AXES) as Axis[]) {
 // type, hover shape and divider. Nothing was comparing them, because each was
 // internally consistent — the defect only existed BETWEEN components.
 //
-// Ruled in design-system/components/menu (MC-2118), enforced here.
+// Source of truth: `design-system/components/menu/component.md` (MC-2105) — the
+// spec that fixes these values and names the anti-patterns; when it and the code
+// disagree, the spec is right. MC-2103 then made the
+// agreement structural: the values live in `menuClasses.ts`, every host
+// consumes them, and none of them can restate one. So these assertions moved
+// with the code — they check the canon once, then check that nothing spells it
+// twice, which is the only shape that stays true as hosts are added.
 
-run('every menu draws its divider in the same token', () => {
-  for (const file of ['ContextMenu.tsx', 'OverflowMenu.tsx', 'FilterMenu.tsx']) {
-    const source = code(join(KIT, file))
-    assert.ok(
-      !/border-default\)\]"?\s*$|bg-\[color:var\(--border-default\)\]/m.test(source),
-      `${file} draws a divider in border-default; inside a bordered surface that competes with the surface's own edge`,
-    )
-  }
-})
+const MENU_CANON = join(KIT, 'menuClasses.ts')
+// Every menu surface in the app. Select is here because its popup is the same
+// object at a different role: same chrome, same row geometry, same highlight —
+// its option keeps `text-body` to match the trigger it echoes, which is a
+// ruling (design-system/components/select), not a drift.
+const MENU_HOSTS = [
+  'ContextMenu.tsx',
+  'OverflowMenu.tsx',
+  'FilterMenu.tsx',
+  'SplitButton.tsx',
+  'Select.tsx',
+] as const
 
-run('no menu item carries its own radius', () => {
-  // Full-bleed rows. An inset rounded fill inside a padded surface reads as a
-  // card nested in a card, and it is what made ContextMenu look like a
-  // different component from the kebab menu onto the same actions.
-  const source = code(join(KIT, 'ContextMenu.tsx'))
-  assert.ok(
-    !/\brounded px-2\.5\b/.test(source),
-    'a menu item with its own radius is the inset-fill shape the spec rules out',
-  )
-})
-
-run('the pointer-positioned menu is made of the same material as the anchored ones', () => {
-  const source = code(join(KIT, 'ContextMenu.tsx'))
-  // The popover archetype, spelled out — these are the six values that differed.
-  for (const [token, why] of [
+run('the menu canon is stated once, with the ruled values', () => {
+  const canon = code(MENU_CANON)
+  const chrome = code(join(KIT, 'tokens.ts'))
+  for (const [pattern, why] of [
     ['rounded-\\[7px\\]', 'radius.overlay, like every other floating surface'],
     ['--border-strong', 'the popover border, not border-default'],
     ['--bg-surface-raised', 'the popover ground, not bg-surface'],
     ['--shadow-popover', 'the popover elevation token'],
-    ['text-meta', 'menu items are chrome (12px), not body copy'],
   ] as const) {
-    assert.match(source, new RegExp(token), `ContextMenu's surface must use ${why}`)
+    assert.match(chrome, new RegExp(pattern), `the shared overlay chrome must use ${why}`)
   }
+  assert.match(canon, /OVERLAY_SURFACE_CLASS/, 'the menu surface is the overlay chrome plus a list')
+  assert.match(canon, /text-meta/, 'menu items are chrome (12px), not body copy')
+  assert.match(canon, /--border-subtle/, 'the divider separates siblings inside a bordered surface')
+  assert.match(canon, /FOCUS_RING_INSET_CLASS/, 'a full-bleed row would clip an outset ring')
   assert.ok(
-    !/\bp-1\b/.test(source),
+    !/\bp-1\b/.test(canon),
     'vertical padding only — horizontal surface padding is what forces an inset fill',
+  )
+  assert.ok(
+    !/\brounded\b/.test(canon.replace(/rounded-\[7px\]/g, '')),
+    'a menu item with its own radius is the inset-fill shape the spec rules out',
   )
 })
 
+run('no menu host restates a value the canon already carries', () => {
+  for (const file of MENU_HOSTS) {
+    const source = code(join(KIT, file))
+    assert.match(
+      source,
+      /from '\.\/menuClasses'/,
+      `${file} must take the menu canon from menuClasses, not from a copy of it`,
+    )
+    assert.ok(
+      !/px-2\.5 py-1\.5/.test(source),
+      `${file} spells the menu row's own geometry; that is how the five drifted apart`,
+    )
+    assert.ok(
+      !/rounded-\[7px\]/.test(source),
+      `${file} draws its own overlay chrome instead of taking the shared surface`,
+    )
+    assert.ok(
+      !/bg-\[color:var\(--border-/.test(source),
+      `${file} draws its own divider; MenuDivider / MENU_DIVIDER_CLASS is the one line`,
+    )
+    assert.ok(
+      !/surfaceClassName=(?:\{`|")[^`"]*\btext-(?:meta|body|micro)\b/.test(source),
+      `${file} pins a type size onto a menu surface — the per-host pin the class pair replaced`,
+    )
+  }
+})
+
 run('destructive is ink, never a fill', () => {
-  const source = code(join(KIT, 'ContextMenu.tsx'))
-  assert.ok(
-    !/rgba\(255,\s*120,\s*124/.test(source),
-    'the danger row carried a raw rgba hover tint — a second signal saying what the ink already says',
-  )
-  assert.match(source, /--tone-error/, 'and it still says it in ink')
+  for (const file of MENU_HOSTS) {
+    assert.ok(
+      !/rgba\(255,\s*120,\s*124/.test(code(join(KIT, file))),
+      `${file}'s danger row carried a raw rgba hover tint — a second signal saying what the ink already says`,
+    )
+  }
+  assert.match(code(join(KIT, 'ContextMenu.tsx')), /--tone-error/, 'and it still says it in ink')
 })
 
 run('no sanctioned exception has gone stale', () => {

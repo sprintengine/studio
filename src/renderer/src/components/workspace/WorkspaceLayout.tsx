@@ -41,7 +41,7 @@ import { captureRailWidthFractions, consumePendingAgentFlash, deleteTabPreservin
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
-import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
+import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
 import WorkspaceLauncher from './WorkspaceLauncher'
@@ -52,7 +52,7 @@ import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
 import { TabPromptPeek } from './TabPromptPeek'
 import { GitBranchGlyph } from './WorkspaceActions'
-import { LifecycleGlyph, type LifecycleState, StatusDot, type Tone } from '../ui'
+import { ContextMenu, LifecycleGlyph, type LifecycleState, MenuDivider, MenuItem, MenuSwatchRow, StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'
 
@@ -123,6 +123,18 @@ const DISABLED_SURFACE = (
     </p>
   </div>
 )
+// What the tab strip's right-click menu offers, sampled when it opens.
+type TabMenuState = {
+  x: number
+  y: number
+  node: TabNode
+  canHideTab: boolean
+  canHideAllTabs: boolean
+  canCloseOtherTabs: boolean
+  isTerminal: boolean
+  currentColor: HighlightColor | null
+}
+
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 const loadedPanelComponents = new Set<string>()
 const EMPTY_WORKSPACE_AGENTS: Workspace['agents'] = {}
@@ -342,6 +354,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
   const killOnUnmountSessionIdsRef = useRef(new Set<string>())
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
 
   if (!layoutModel) return null
   if (!modelRef.current) {
@@ -838,7 +851,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
     })
   }, [])
 
-  const showTabContextMenu = useCallback(async (event: React.MouseEvent, node: TabNode) => {
+  // The tab strip's right-click menu (MC-2104). It was a native Electron popup,
+  // which meant the tab colour picker could only offer the seven highlights as
+  // Title-Cased checkbox rows of their NAMES — the same choice the workspace
+  // sidebar has always made as a row of swatches. Availability is sampled at
+  // open time; nothing here can change while the menu is up.
+  const openTabContextMenu = useCallback((event: React.MouseEvent, node: TabNode) => {
     event.preventDefault()
     event.stopPropagation()
 
@@ -852,76 +870,40 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
       if (candidate instanceof TabNode && candidate.getComponent() === 'agent') agentTabCount += 1
     })
 
-    const isTerminal = node.getComponent() === 'terminal'
     const config = node.getConfig() as { highlightColor?: HighlightColor } | undefined
-    const currentColor = config?.highlightColor ?? null
 
-    const colorSubmenu = HIGHLIGHT_COLORS.map((color) => ({
-      id: `color:${color}`,
-      label: getHighlightSwatch(color).label,
-      type: 'checkbox' as const,
-      checked: currentColor === color,
-    }))
+    setTabMenu({
+      x: event.clientX,
+      y: event.clientY,
+      node,
+      canHideTab: node.getComponent() === 'agent',
+      canHideAllTabs: agentTabCount > 0,
+      canCloseOtherTabs: otherClosableTabs.length > 0,
+      isTerminal: node.getComponent() === 'terminal',
+      currentColor: config?.highlightColor ?? null,
+    })
+  }, [])
 
-    const items = [
-      { id: 'hide-tab', label: 'Hide Tab', enabled: node.getComponent() === 'agent' },
-      { id: 'hide-all-tabs', label: 'Hide All', enabled: agentTabCount > 0 },
-      { id: 'close-other-tabs', label: 'Close Other Tabs', enabled: otherClosableTabs.length > 0 },
-      ...(isTerminal
-        ? [
-            { type: 'separator' as const },
-            {
-              label: 'Color',
-              enabled: true,
-              submenu: [
-                ...colorSubmenu,
-                { type: 'separator' as const },
-                { id: 'color:none', label: 'Clear color', enabled: currentColor !== null },
-              ],
-            },
-          ]
-        : []),
-    ]
+  const setTabHighlightColor = useCallback((node: TabNode, nextColor: HighlightColor | undefined) => {
+    const nextConfig = { ...(node.getConfig() ?? {}), highlightColor: nextColor }
 
-    const command = await window.api.showContextMenu(items)
+    // Preserve any existing non-highlight class names on the tab while we
+    // replace the tab-highlight-* class. Other classes here include
+    // `agent-tab-needs-input`.
+    const existingClassName = node.getClassName() ?? ''
+    const baseClassNames = existingClassName
+      .split(/\s+/u)
+      .filter((cls) => cls && !cls.startsWith('tab-highlight-'))
+    if (nextColor) baseClassNames.push(`tab-highlight-${nextColor}`)
+    const nextClassName = baseClassNames.join(' ').trim() || undefined
 
-    if (command === 'hide-tab') {
-      hideTab(node)
-    }
-    if (command === 'hide-all-tabs') {
-      hideAllAgentTabs()
-    }
-    if (command === 'close-other-tabs') {
-      closeOtherTabsInSet(node)
-    }
-    if (command?.startsWith('color:')) {
-      const value = command.slice('color:'.length)
-      const nextColor =
-        value === 'none'
-          ? undefined
-          : (HIGHLIGHT_COLORS as readonly string[]).includes(value)
-            ? (value as HighlightColor)
-            : undefined
-      const nextConfig = { ...(node.getConfig() ?? {}), highlightColor: nextColor }
-
-      // Preserve any existing non-highlight class names on the tab while we
-      // replace the tab-highlight-* class. Other classes here include
-      // `agent-tab-needs-input`.
-      const existingClassName = node.getClassName() ?? ''
-      const baseClassNames = existingClassName
-        .split(/\s+/u)
-        .filter((cls) => cls && !cls.startsWith('tab-highlight-'))
-      if (nextColor) baseClassNames.push(`tab-highlight-${nextColor}`)
-      const nextClassName = baseClassNames.join(' ').trim() || undefined
-
-      modelRef.current?.doAction(
-        Actions.updateNodeAttributes(node.getId(), {
-          config: nextConfig,
-          className: nextClassName,
-        })
-      )
-    }
-  }, [closeOtherTabsInSet, hideAllAgentTabs, hideTab])
+    modelRef.current?.doAction(
+      Actions.updateNodeAttributes(node.getId(), {
+        config: nextConfig,
+        className: nextClassName,
+      })
+    )
+  }, [])
 
   const renderTab = useCallback(
     (node: TabNode, renderValues: ITabRenderValues) => {
@@ -1057,7 +1039,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
           draggable={canDragOut}
           onDragStart={handleTabDragStart}
           onDragEnd={handleTabDragEnd}
-          onContextMenu={(event) => void showTabContextMenu(event, node)}
+          onContextMenu={(event) => openTabContextMenu(event, node)}
           onDoubleClick={canRenameTab ? (event) => startRename(event, node) : undefined}
         >
           {renderValues.content}
@@ -1350,15 +1332,15 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         </AgentTabIdentityPopover>
       )
     },
-    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, showTabContextMenu, sprintEngineAgents, startRename, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
+    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, openTabContextMenu, sprintEngineAgents, startRename, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {
     if (!(node instanceof TabNode)) return
     event.preventDefault()
     event.stopPropagation()
-    void showTabContextMenu(event, node)
-  }, [showTabContextMenu])
+    openTabContextMenu(event, node)
+  }, [openTabContextMenu])
 
   const isEmpty = countOpenTabs(modelRef.current) === 0
 
@@ -1406,6 +1388,64 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
           onNewWorkspace={onNewWorkspace}
           onClose={onCloseWorkspace ? () => onCloseWorkspace(workspaceId) : undefined}
         />
+      ) : null}
+      {tabMenu ? (
+        <ContextMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          ariaLabel={`Tab actions: ${tabMenu.node.getName()}`}
+          onClose={() => setTabMenu(null)}
+          surfaceClassName="min-w-[196px]"
+        >
+          <MenuItem
+            disabled={!tabMenu.canHideTab}
+            onClick={() => {
+              const { node } = tabMenu
+              setTabMenu(null)
+              hideTab(node)
+            }}
+          >
+            Hide tab
+          </MenuItem>
+          <MenuItem
+            disabled={!tabMenu.canHideAllTabs}
+            onClick={() => {
+              setTabMenu(null)
+              hideAllAgentTabs()
+            }}
+          >
+            Hide all
+          </MenuItem>
+          <MenuItem
+            disabled={!tabMenu.canCloseOtherTabs}
+            onClick={() => {
+              const { node } = tabMenu
+              setTabMenu(null)
+              closeOtherTabsInSet(node)
+            }}
+          >
+            Close other tabs
+          </MenuItem>
+          {tabMenu.isTerminal ? (
+            <>
+              <MenuDivider />
+              <MenuSwatchRow
+                label="Color"
+                value={tabMenu.currentColor}
+                onPick={(color) => {
+                  const { node } = tabMenu
+                  setTabMenu(null)
+                  setTabHighlightColor(node, color)
+                }}
+                onClear={() => {
+                  const { node } = tabMenu
+                  setTabMenu(null)
+                  setTabHighlightColor(node, undefined)
+                }}
+              />
+            </>
+          ) : null}
+        </ContextMenu>
       ) : null}
     </div>
   )

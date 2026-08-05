@@ -12,6 +12,7 @@
 // All chrome is token-only; no inline hex literals.
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Popover } from './Popover'
+import { MENU_LIST_CLASS, MENU_ROW_CLASS } from './menuClasses'
 import { FOCUS_RING_CLASS, TONE_COLOR_VAR, TONE_SOFT_VAR, type Tone } from './tokens'
 
 export type SelectItem<V extends string = string> = {
@@ -211,7 +212,7 @@ export function Select<V extends string = string>({
       popupRole="listbox"
       className={className}
       surfaceAs="ul"
-      surfaceClassName="max-h-[240px] min-w-[var(--popover-trigger-width)] overflow-y-auto py-1"
+      surfaceClassName={`max-h-[240px] min-w-[var(--popover-trigger-width)] overflow-y-auto ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={(surface) => {
         listboxRef.current = surface
       }}
@@ -291,8 +292,16 @@ export function Select<V extends string = string>({
                   event.preventDefault()
                 }}
                 onClick={() => selectAt(index)}
+                // The shared menu row: same padding, same gap, same highlight as
+                // an action row, so a value list and an action list do not drift
+                // apart. `text-body` rather than the menu's 12px is deliberate —
+                // this popup echoes the string its own trigger is already
+                // showing at that size (design-system/components/select), and
+                // picking a value must not resize it. A menu item has no such
+                // at-rest twin, which is why 12px is right there and not here.
                 className={[
-                  'flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-body',
+                  MENU_ROW_CLASS,
+                  'cursor-pointer text-body',
                   item.disabled ? 'cursor-not-allowed opacity-45' : '',
                   active ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]',
                 ].join(' ')}

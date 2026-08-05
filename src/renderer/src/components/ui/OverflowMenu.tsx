@@ -1,7 +1,8 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react'
 import { Popover } from './Popover'
-import { MenuSwatchRow, MenuFlyoutItem } from './ContextMenu'
+import { MenuDivider, MenuSwatchRow, MenuFlyoutItem } from './ContextMenu'
 import { Tooltip } from './Tooltip'
+import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from './menuClasses'
 import { FOCUS_RING_CLASS } from './tokens'
 import { TruncatedText } from './TruncatedText'
 import type { HighlightColor } from '../../types/workspace'
@@ -129,11 +130,10 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
       ariaLabel={ariaLabel}
       popupRole="menu"
       placement={align === 'end' ? 'bottom-end' : 'bottom-start'}
-      // text-meta matches the flat items' own explicit size, so nested
-      // primitives without one (MenuFlyoutItem triggers, MenuSwatchRow) inherit
-      // it instead of the app default — inside a ContextMenu they inherit from
-      // MENU_SURFACE_CLASS, but this Popover surface must set its own.
-      surfaceClassName="min-w-[200px] py-1 text-meta"
+      // The shared list layer. `Popover` draws the chrome; this adds the menu's
+      // own padding and type floor, so the kebab and the right-click menu are
+      // the same surface reached two ways. Only the width floor is this host's.
+      surfaceClassName={`min-w-[200px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusFirstItem}
       renderTrigger={({ ref, openPopover, open: opened, togglePopover, triggerProps }) => {
         const button = (
@@ -169,17 +169,7 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
     >
           {items.map((item) => {
             if (item.kind === 'separator') {
-              return (
-                <div
-                  key={item.id}
-                  role="separator"
-                  // `border-subtle`, per design-system/components/menu. Inside
-                  // an already-bordered surface a divider separates siblings; at
-                  // `border-default` it competes with the surface's own edge and
-                  // the menu reads as two stacked panels.
-                  className="my-1 h-px bg-[color:var(--border-subtle)]"
-                />
-              )
+              return <MenuDivider key={item.id} />
             }
             if (item.kind === 'swatch') {
               return (
@@ -201,10 +191,10 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
                   ariaLabel={item.ariaLabel}
                   icon={item.icon}
                   disabled={item.disabled}
-                  // The nested surface's own base class is the 13px right-click
-                  // idiom; pin it to this menu's 12px so the choices match their
-                  // trigger.
-                  surfaceClassName={`text-meta ${item.surfaceClassName ?? ''}`}
+                  // No size pin. The flyout draws the shared menu surface, which
+                  // carries the type size — a host that re-pins it is rebuilding
+                  // the divergence the class pair exists to prevent.
+                  surfaceClassName={item.surfaceClassName}
                   onItemKeyDown={onItemKey}
                   onOpenChange={item.onOpenChange}
                 >
@@ -228,13 +218,10 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
                   setOpen(false)
                 }}
                 className={[
-                  'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-meta',
-                  'disabled:cursor-not-allowed disabled:opacity-45',
-                  'hover:bg-[color:var(--bg-hover)]',
+                  MENU_ITEM_CLASS,
                   item.destructive
                     ? 'text-[color:var(--tone-error)]'
                     : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]',
-                  FOCUS_RING_CLASS,
                 ].join(' ')}
               >
                 {item.icon ? <span className="shrink-0">{item.icon}</span> : null}
