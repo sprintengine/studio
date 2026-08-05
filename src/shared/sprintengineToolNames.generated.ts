@@ -655,6 +655,14 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "items": {
             "type": "string"
           }
+        },
+        "intake": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "planned"
+          ],
+          "description": "How this run gets its task graph. `direct` imports it from the source epic's child items at init \u2014 one task per open child, ordered by the items' own dependsOn, with no planning agent and no plan-approval gate. `planned` runs a planning agent behind the plan gate. Default: direct for an epic source, planned for everything else. Fixed at run creation."
         }
       }
     }

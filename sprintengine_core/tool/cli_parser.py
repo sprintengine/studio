@@ -323,6 +323,16 @@ def build_parser() -> argparse.ArgumentParser:
         dest="source_bundle_json",
         help="JSON array of resolved source bundle items (kind/origin/path/capturedAt) seeded into run.yaml alongside --source-json.",
     )
+    p.add_argument(
+        "--intake",
+        choices=sorted(VALID_RUN_INTAKES),
+        help=(
+            "How this run gets its task graph. `direct` imports it from the source epic's child items at init "
+            "— one task per open child, in the order the items' own dependsOn declares, with no planning agent "
+            "and no plan-approval gate. `planned` runs a planning agent behind the plan gate. "
+            "Default: direct for an epic source, planned for everything else. Fixed at run creation."
+        ),
+    )
     p.set_defaults(handler=run_commands.init)
 
     # recover

@@ -77,6 +77,17 @@ OWNED_MODULES_PROPERTY = {
     ),
 }
 
+INTAKE_PROPERTY = {
+    "type": "string",
+    "enum": ["direct", "planned"],
+    "description": (
+        "How this run gets its task graph. `direct` imports it from the source epic's child items at init — "
+        "one task per open child, ordered by the items' own dependsOn, with no planning agent and no "
+        "plan-approval gate. `planned` runs a planning agent behind the plan gate. Default: direct for an "
+        "epic source, planned for everything else. Fixed at run creation."
+    ),
+}
+
 CHANGED_PATHS_PROPERTY = {
     "type": "array",
     "items": {"type": "string"},
@@ -249,7 +260,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
             "force": {"type": "boolean"},
         },
     ),
-    "sprintengine.init": object_schema(["statePath"], {"goal": {"type": "string"}, "useWorktrees": {"type": "boolean"}, "agent": {"type": "array", "items": {"type": "string"}}}),
+    "sprintengine.init": object_schema(["statePath"], {"goal": {"type": "string"}, "useWorktrees": {"type": "boolean"}, "agent": {"type": "array", "items": {"type": "string"}}, "intake": INTAKE_PROPERTY}),
     "sprintengine.recover": object_schema(["statePath"], {}),
     "sprintengine.agent.join": object_schema(
         ["statePath", "agentId"],

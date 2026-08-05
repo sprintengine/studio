@@ -26,7 +26,9 @@ from sprintengine_core.tool.plans import (
     SELECTED_ITEM_SOURCE_LABEL,
     SELECTION_READING_KINDS,
     epic_child_source_paths,
+    mint_epic_child_tasks,
     normalize_selection_bundle,
+    resolve_run_intake,
     selected_epic_slugs,
     selection_work_entry_paths,
     handover_path_for_state,
@@ -430,6 +432,14 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         # and builds the task graph. It is `epic` only as the root planKind — its
         # children carry their own leaf kinds in the source bundle.
         has_epic_source = source_plan_kind(state) == "epic"
+        # Direct intake (MC-2128): an epic whose children are already written and
+        # ordered IS the plan, so the engine mints the graph itself and no planning
+        # agent runs. Default on for epic sources, and only for them — with no epic
+        # there is no authored order to import, so every other intake still plans.
+        # `--intake planned` is the opt-in planner, selecting today's behaviour
+        # unchanged (the dialog's Planning-agent row is how a human picks it).
+        intake = resolve_run_intake(state, getattr(args, "intake", None), has_epic_source)
+        is_direct_epic_intake = intake == "direct" and has_epic_source
         # A selection root (backlog item 2061) is the general bundle shape —
         # several plain items, several epics, one sprint — of which the epic
         # launch is the single-epic special case. A selection of exactly one
@@ -444,6 +454,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
             recompute_phase(state)
             return {"ok": True, "planGate": plan_gate}
+
 
         # The run's ENABLED roles (configuredRoles) decide this, not any seated
         # worker: init runs before any worker has claimed, and a product gate opened
@@ -501,6 +512,46 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 ]
                 apply_source_context_to_task(product_task, state, state_path)
             refresh_artifact_fingerprint(product_gate["artifact"], state_path)
+        if is_direct_epic_intake:
+            # The mode itself, and the whole cost saving: mint the graph here and
+            # return. No plan-gate task, no plan artifact, no planning session —
+            # the human authored the epic, and the imported graph is on the board
+            # the moment the run opens.
+            #
+            # RULED (the item's open question): skip the plan gate outright rather
+            # than minting it pre-approved. Its auto-root machinery
+            # (`apply_plan_gate_dependency`) already no-ops when no gate exists, so
+            # a dependency-free task is simply claimable — exactly what direct mode
+            # wants, including for a mid-sprint `sprint.task.create`. Nothing else
+            # was found to depend on the gate existing.
+            #
+            # The PRODUCT intake gate is a different thing and survives: it only
+            # opens when the epic actually carries a product_plan child and the run
+            # rosters a product reviewer, which is a human asking for requirements
+            # review out loud. Dropping that silently would lose stated intent, so
+            # the imported tasks root on it instead — the one case where a direct
+            # run does not open fully claimable.
+            imported = mint_epic_child_tasks(state, state_path, "sprintengine")
+            if product_task:
+                for task in imported["tasks"]:
+                    if not task.get("dependsOn"):
+                        add_unique_values(task, "dependsOn", [str(product_task.get("id"))])
+            recompute_phase(state)
+            return {
+                "ok": True,
+                "team": sprintengine.get("name") or default_name,
+                "productGate": product_gate,
+                # No plan gate exists to report. Callers read `planTask`/
+                # `planArtifact` off this, and both being None is the honest answer
+                # for a run that has no plan to approve.
+                "planGate": {"task": None, "artifact": None},
+                "intake": intake,
+                "importedTasks": imported["tasks"],
+                "skippedChildren": [entry["path"] for entry in imported["skipped"]],
+                "warnings": imported["warnings"],
+                "vcs": get_run_vcs(state),
+            }
+
         plan_gate = ensure_plan_approval_gate(
             state,
             state_path,
@@ -731,6 +782,12 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         "planTask": plan_gate["task"],
         "planArtifact": plan_gate["artifact"],
         "vcs": init_state.get("vcs"),
+        # Direct intake only (MC-2128): what the engine imported instead of
+        # planning it. Absent on every other run, so existing readers are unchanged.
+        **({"intake": init_state["intake"]} if init_state.get("intake") else {}),
+        **({"importedTasks": init_state["importedTasks"]} if "importedTasks" in init_state else {}),
+        **({"skippedChildren": init_state["skippedChildren"]} if init_state.get("skippedChildren") else {}),
+        **({"warnings": init_state["warnings"]} if init_state.get("warnings") else {}),
     }
 def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
     """One-shot routing + role prompt for a human or debug CLI operator.

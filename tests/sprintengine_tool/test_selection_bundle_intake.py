@@ -295,6 +295,9 @@ def test_a_one_epic_selection_still_arrives_as_epic_and_the_gate_is_byte_identic
     )
     init_payload = cli.run(
         "init", "--goal", "Revamp authentication",
+        # The gate this pins is the opt-in planner's (MC-2128); an epic source
+        # otherwise takes the direct intake and mints no gate at all.
+        "--intake", "planned",
         "--configured-roles-json", json.dumps(["architect", "developer"]),
     )
     plan_task = init_payload["planTask"]

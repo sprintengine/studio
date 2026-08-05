@@ -28,6 +28,8 @@ import {
   sprintEngineCoordinatorSeatForRoleCounts,
   sprintEngineEnabledRoles,
 } from './sprintengine'
+import type { SprintEngineIntake } from '../../../shared/sprintengine/run-types'
+import { sourcePlanKindSupportsDirectIntake } from '../../../shared/sprintengine/run-types'
 import { buildPlanFileSprintEngineHandoffPrompt } from './sprintengineHandoff'
 import { buildRunWorkspaceContext } from './runWorkspaceCreation'
 import { deriveSprintEngineAutomationDesiredMode } from './sprintengineAutomationLifecycle'
@@ -65,6 +67,9 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   // the run store). Set for backlog/file-sourced launches so the canonical design
   // docs stay authoritative and are reviewed/updated in place.
   sourceReference?: boolean
+  // How the run gets its task graph (MC-2128). Omit to let the engine apply its
+  // per-source default — `direct` for an epic, `planned` for everything else.
+  intake?: SprintEngineIntake
   pathExists?: (path: string) => boolean | Promise<boolean>
   initializeSprintEngineState?: (
     input: SprintEngineStateInitializeInput
@@ -205,6 +210,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   repos,
   baseStartPoint,
   sourceReference,
+  intake,
   pathExists,
   initializeSprintEngineState,
 }: PlanSourcedSprintEngineWorkspaceArgs): Promise<PlanSourcedSprintEngineWorkspaceResult> {
@@ -257,6 +263,11 @@ export async function createPlanSourcedSprintEngineWorkspace({
     ? buildSprintEngineInitSourceSeed(trimmedSourcePath, sourcePlanKind, sourceBundle)
     : null
 
+  // Whether THIS run will plan (MC-2128). Mirrors the engine's own default rather
+  // than sending one: an unset `intake` on an epic source means the engine imports
+  // the children directly, and there is then no plan for a coordinator to write.
+  const runsDirect = intake === 'direct' || (intake === undefined && sourcePlanKindSupportsDirectIntake(sourcePlanKind))
+
   if (initializeSprintEngineState) {
     const initResult = await initializeSprintEngineState({
       statePath: sprintEngineContext.statePath,
@@ -276,6 +287,8 @@ export async function createPlanSourcedSprintEngineWorkspace({
       ...(initSourceSeed
         ? { source: initSourceSeed.source, sourceBundle: initSourceSeed.sourceBundle }
         : {}),
+      // Only when the caller chose; absent leaves the default with the engine.
+      ...(intake ? { intake } : {}),
     })
     if (!initResult.ok) {
       throw new Error(initResult.message || 'Could not initialize sprint run state.')
@@ -299,26 +312,33 @@ export async function createPlanSourcedSprintEngineWorkspace({
     windowId: workspaceWindowId,
   })
 
-  const startupPrompt = buildPlanFileSprintEngineHandoffPrompt({
-    teamSlug: sprintEngineContext.teamSlug,
-    goal: trimmedGoal,
-    sourcePath: trimmedSourcePath,
-    sourceContent,
-    sourcePlanKind,
-    sourceBundle,
-    statePath: sprintEngineContext.statePath,
-    rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
-    configuredRoles: enabledRoles,
-    autoRunRequested: deriveSprintEngineAutomationDesiredMode(sprintEngineAutoState) !== 'manual',
-    useWorktrees: useWorktrees === true,
-    reference: sourceReference === true,
-    seedAlreadyPersisted: seedSourceAtInit,
-  })
+  // A direct run has no planning session to start (MC-2128). The graph already
+  // exists on the board, so handing the coordinator seat a "review the sources and
+  // build the task graph" prompt would spend the exact ~200k-token planning pass
+  // this mode exists to remove — and would spend it re-deriving a graph the engine
+  // already minted. Workers claim from the queue without it.
+  if (!runsDirect) {
+    const startupPrompt = buildPlanFileSprintEngineHandoffPrompt({
+      teamSlug: sprintEngineContext.teamSlug,
+      goal: trimmedGoal,
+      sourcePath: trimmedSourcePath,
+      sourceContent,
+      sourcePlanKind,
+      sourceBundle,
+      statePath: sprintEngineContext.statePath,
+      rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
+      configuredRoles: enabledRoles,
+      autoRunRequested: deriveSprintEngineAutomationDesiredMode(sprintEngineAutoState) !== 'manual',
+      useWorktrees: useWorktrees === true,
+      reference: sourceReference === true,
+      seedAlreadyPersisted: seedSourceAtInit,
+    })
 
-  useWorkspaceStore.getState().updateAgent(workspaceId, planner.id, {
-    cliStartupPrompt: startupPrompt,
-    cliOnboardingPromptSent: false,
-  })
+    useWorkspaceStore.getState().updateAgent(workspaceId, planner.id, {
+      cliStartupPrompt: startupPrompt,
+      cliOnboardingPromptSent: false,
+    })
+  }
 
   return {
     workspaceId,

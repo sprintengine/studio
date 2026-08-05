@@ -655,6 +655,32 @@ export type SprintEngineWorkspaceContext = {
   statePath: string
 }
 
+/**
+ * How a run gets its task graph (MC-2128).
+ *
+ * `direct` imports it from the source epic's child items at init — one task per
+ * open child, ordered by the items' own `dependsOn`, with no planning agent and
+ * no plan-approval gate. `planned` runs a planning agent behind the plan gate.
+ *
+ * The default is the engine's and depends on the source: `direct` for an epic
+ * (its children are already a written, ordered plan), `planned` for everything
+ * else (with no epic there is no authored order to import, so something must
+ * plan). Fixed at run creation.
+ */
+export type SprintEngineIntake = 'direct' | 'planned'
+
+/**
+ * Does this source shape have an authored plan to import, rather than one an
+ * agent must derive? The single place that answer lives, so the dialog's copy,
+ * the creation path, and the automation surfaces cannot drift from the engine's
+ * own default.
+ */
+export function sourcePlanKindSupportsDirectIntake(
+  planKind: SprintEngineSourcePlanKind | undefined
+): boolean {
+  return planKind === 'epic'
+}
+
 export type SprintEngineSourcePlanKind =
   | 'unknown'
   | 'product_plan'

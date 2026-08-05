@@ -2012,6 +2012,13 @@ export type SprintEngineStateInitializeInput = {
   // Guided Brief and CLI/headless paths seed the source through handover instead.
   source?: SprintEngineStateInitializeSource
   sourceBundle?: SprintEngineStateInitializeSourceBundleItem[]
+  // How this run gets its task graph (MC-2128). `direct` imports it from the
+  // source epic's child items at init — one task per open child, ordered by the
+  // items' own `dependsOn`, with no planning agent and no plan-approval gate.
+  // `planned` runs a planning agent behind the plan gate. Omit to let the engine
+  // apply its per-source default: `direct` for an epic, `planned` for everything
+  // else. Fixed at run creation.
+  intake?: 'direct' | 'planned'
   // When true, Sprint Engine creates one shared git worktree + branch for the
   // whole team before any task runs, and all agents work and commit there.
   useWorktrees?: boolean

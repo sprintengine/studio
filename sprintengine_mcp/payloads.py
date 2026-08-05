@@ -20,7 +20,7 @@ def command_payload_to_namespace(
 ) -> SimpleNamespace:
     base: dict[str, Any] = {"state": state_path}
     if tool_name == "sprintengine.init":
-        base.update(goal=payload.get("goal"), use_worktrees=bool(payload.get("useWorktrees", False)), agent=_string_list(payload.get("agent")))
+        base.update(goal=payload.get("goal"), use_worktrees=bool(payload.get("useWorktrees", False)), agent=_string_list(payload.get("agent")), intake=payload.get("intake"))
     elif tool_name == "sprintengine.handover":
         base.update(
             name=payload["name"],

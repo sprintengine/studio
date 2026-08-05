@@ -81,7 +81,9 @@ def test_epic_init_mints_review_in_place_plan_task_without_seeding_plan(tmp_path
         "--source", f"generic_context:{child_b}",
         "--reference-sources",
     )
-    init_payload = cli.run("init", "--goal", "Revamp authentication")
+    # The planning agent is opt-in since MC-2128; an epic source defaults to the
+    # direct intake, which mints the graph itself and opens no plan gate.
+    init_payload = cli.run("init", "--goal", "Revamp authentication", "--intake", "planned")
     assert init_payload["ok"] is True
 
     team_dir = state_path.parent

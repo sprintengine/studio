@@ -143,6 +143,9 @@ type SerializableSprintEngineStatePayload = {
   defaultPhases: string[] | null
   source: SprintEngineStateInitializeSource | null
   sourceBundle: SprintEngineStateInitializeSourceBundleItem[]
+  // `null` = the caller made no choice, so the engine applies its per-source
+  // default (MC-2128): `direct` for an epic, `planned` for everything else.
+  intake: 'direct' | 'planned' | null
 }
 
 type SprintEngineEventMetadata = {
@@ -428,7 +431,16 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     defaultPhases: resolveDefaultPhases(payload?.defaultPhases),
     source: resolveInitSource(payload?.source),
     sourceBundle: resolveInitSourceBundle(payload?.sourceBundle),
+    intake: resolveInitIntake(payload?.intake),
   }
+}
+
+// How the run gets its task graph (MC-2128). Absent is the normal case and is
+// never defaulted here: the engine decides, and it knows the source shape — an
+// epic imports its children directly, everything else plans. Forwarding a guess
+// from this layer would put the default in two places.
+function resolveInitIntake(input: SprintEngineStateInitializeInput['intake']): 'direct' | 'planned' | null {
+  return input === 'direct' || input === 'planned' ? input : null
 }
 
 // The run's phase list. `undefined` stays `null` (absent -> engine default);
@@ -624,6 +636,11 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   }
   if (payload.sourceBundle.length > 0) {
     args.push('--source-bundle-json', JSON.stringify(payload.sourceBundle))
+  }
+  // Only when the caller made a choice; absent lets the engine apply its own
+  // per-source default (MC-2128).
+  if (payload.intake) {
+    args.push('--intake', payload.intake)
   }
   return args
 }

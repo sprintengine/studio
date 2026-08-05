@@ -147,7 +147,10 @@ def _init_epic_run(tmp_path, *, roles: list[str] | None = None):
     root, epic, child_a, child_b, _mockup, state_path = _epic_workspace(tmp_path)
     cli = SwarmCli(state_path, cwd=root)
     _epic_handover(cli, epic, child_a, child_b)
-    init_args = ["init", "--goal", "Revamp authentication"]
+    # `--intake planned` is the opt-in planning agent (MC-2128). An epic source
+    # now defaults to the direct intake, which mints the graph itself and has no
+    # plan gate; everything below tests the planner that a human opted into.
+    init_args = ["init", "--goal", "Revamp authentication", "--intake", "planned"]
     if roles is not None:
         init_args += ["--configured-roles-json", json.dumps(roles)]
     return cli, state_path, cli.run(*init_args)
@@ -193,6 +196,7 @@ def test_an_unmarked_bundle_gets_the_live_grep_and_no_phantom_list(tmp_path) -> 
         "init",
         "--name", "auth-revamp",
         "--goal", "Revamp authentication",
+        "--intake", "planned",
         "--source-json", json.dumps({
             "kind": "markdown", "origin": "reference",
             "path": "backlog/epics/auth-revamp.md", "planKind": "epic",

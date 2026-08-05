@@ -150,6 +150,260 @@ def backlog_item_epic_slug(path: Path) -> str:
             return match.group(1)
     return ""
 
+# Child statuses that are not work: the same skip rule the planning agent was
+# given in prose, now executed by the engine. `idea` is deliberately here — an
+# unshaped idea is not something a worker can pick up and finish.
+CLOSED_CHILD_STATUSES = {"completed", "archived", "idea"}
+
+VALID_RUN_INTAKES = {"direct", "planned"}
+
+
+def run_intake(state: Dict[str, Any]) -> str:
+    """This run's intake, as recorded. Empty when the run predates the field."""
+    value = str(state.get("sprintengine", {}).get("intake") or "").strip()
+    return value if value in VALID_RUN_INTAKES else ""
+
+
+def resolve_run_intake(state: Dict[str, Any], requested: Optional[str], has_epic_source: bool) -> str:
+    """Settle and persist the run's intake (MC-2128).
+
+    Fixed at run creation, like the worktree toggle and the repo set, and for the
+    same reason: by the second init the task graph already exists, and flipping a
+    directly-imported run to `planned` would both misdescribe how its graph was
+    built and open a plan gate over a graph that needs no approval. So what the
+    run already recorded wins; then what the caller asked for; then the default —
+    `direct` for an epic source, `planned` for everything else.
+
+    Recording it makes the choice readable by the board and by later inits rather
+    than re-derived from the source shape every time.
+    """
+    requested_value = str(requested or "").strip()
+    if requested_value and requested_value not in VALID_RUN_INTAKES:
+        raise SystemExit(
+            f"--intake must be one of: {', '.join(sorted(VALID_RUN_INTAKES))}."
+        )
+    intake = run_intake(state) or requested_value or ("direct" if has_epic_source else "planned")
+    state.setdefault("sprintengine", {})["intake"] = intake
+    return intake
+
+
+def backlog_item_frontmatter(path: Path) -> Dict[str, str]:
+    """The frontmatter fields of a backlog item, or ``{}``.
+
+    Deliberately not a YAML parse: these files carry flat scalars, and depending on
+    a YAML library here would make the engine's task graph hostage to a parser the
+    backlog format never needed. Block lists ARE folded in, because `dependsOn` is
+    authored both ways in this repo:
+
+        dependsOn: slug-a, slug-b        ->  "slug-a, slug-b"
+        dependsOn:                       ->  "slug-a, slug-b"
+          - slug-a
+          - slug-b
+
+    A block list collapses to the comma form so both spellings leave one shape for
+    the caller to read.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    fields: Dict[str, str] = {}
+    pending_list_key = ""
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        list_entry = re.match(r"^\s+-\s*(.+?)\s*$", line)
+        if pending_list_key and list_entry:
+            existing = fields.get(pending_list_key, "")
+            value = list_entry.group(1).strip().strip("'\"")
+            fields[pending_list_key] = f"{existing}, {value}" if existing else value
+            continue
+        match = re.match(r"^([A-Za-z][A-Za-z0-9_-]*):\s*(.*?)\s*$", line)
+        if not match:
+            pending_list_key = ""
+            continue
+        key, value = match.group(1), match.group(2)
+        fields[key] = value
+        # An empty value opens a possible block list on the following lines.
+        pending_list_key = key if not value else ""
+    return fields
+
+
+def backlog_item_title(path: Path) -> str:
+    """The item's first H1 — the minted task's title (backlog item 2018).
+
+    Falls back to the slug when the file has no heading, so a malformed item
+    still yields a task a human can recognise rather than an empty card.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return path.stem
+    for line in text.splitlines():
+        if line.startswith("# "):
+            title = line[2:].strip()
+            if title:
+                return title
+    return path.stem
+
+
+def _frontmatter_slug_list(value: str) -> List[str]:
+    """`dependsOn:` as a list of item SLUGS.
+
+    Accepts every spelling this repo's items actually use — `a, b`, `[a, b]`, and
+    the block-list form folded to commas by the reader above — and reduces each
+    entry to its slug, so a dependency authored as a full path
+    (`backlog/checkout-total.md`) and one authored as a bare slug
+    (`checkout-total`) resolve to the same sibling.
+    """
+    cleaned = str(value or "").strip().strip("[]")
+    slugs: List[str] = []
+    for part in cleaned.split(","):
+        entry = part.strip().strip("'\"")
+        if entry:
+            slugs.append(Path(entry).stem)
+    return slugs
+
+
+def epic_child_import_entries(state: Dict[str, Any], state_path: Path) -> List[Dict[str, Any]]:
+    """One record per seeded epic child, in seed order.
+
+    The deterministic half of what the planning agent used to read every child in
+    full to produce: slug, title, status, and declared dependencies. Nothing here
+    needs judgement, which is the whole argument of this mode.
+    """
+    entries: List[Dict[str, Any]] = []
+    for item in epic_child_source_items(state):
+        path_value = str(item.get("path") or "").strip()
+        if not path_value:
+            continue
+        absolute = source_item_absolute_path(state_path, item, path_value)
+        frontmatter = backlog_item_frontmatter(absolute)
+        entries.append({
+            # `backlogRef` and `sourceDocs` are project-root-relative by contract,
+            # and a bundle entry is not guaranteed to be — the MCP handover path
+            # records absolutes when the server's cwd is not the project. Re-derive
+            # rather than trusting the seeded spelling; an absolute would otherwise
+            # fail validation and take the whole init down with it.
+            "path": project_relative_display_path(state_path, absolute),
+            "slug": Path(path_value).stem,
+            "title": backlog_item_title(absolute),
+            "status": str(frontmatter.get("status") or "").strip().lower(),
+            "dependsOn": _frontmatter_slug_list(frontmatter.get("dependsOn", "")),
+            "absolutePath": absolute,
+        })
+    return entries
+
+
+def _outside_item_is_satisfied(state_path: Path, entry: Dict[str, Any], slug: str) -> bool:
+    """Is a `dependsOn` slug outside this sprint already finished?
+
+    A completed item is a dependency that is met, so its edge is simply absent.
+    An open one is a real gap the run should say out loud — but never a reason to
+    refuse creation, which would make one stale frontmatter line block a sprint.
+    """
+    sibling = Path(entry["absolutePath"]).with_name(f"{slug}.md")
+    status = str(backlog_item_frontmatter(sibling).get("status") or "").strip().lower()
+    return status in {"completed", "archived"}
+
+
+def mint_epic_child_tasks(
+    state: Dict[str, Any], state_path: Path, actor: str = "sprintengine"
+) -> Dict[str, Any]:
+    """Mint one `kind: work` task per OPEN epic child, deterministically.
+
+    The mode itself (MC-2128). The epic and its children are already an ordered,
+    human-authored plan; an agent re-deriving that graph read every child in full
+    and replayed a loop the engine can execute for nothing. This is that loop.
+
+    Task shape follows backlog item 2018 exactly: title from the item's H1,
+    `backlogRef` and `sourceDocs` pointing at the item, and NO description,
+    acceptance, or implementation notes — the item is the spec, injected into the
+    worker's claim prompt in full, so restating it only creates a second version
+    to drift. No `ownedPaths` either: publish scope comes from what the task
+    actually changed (MC-2127), which is why that landed first.
+
+    Returns the minted tasks, the children skipped as closed, and warnings for
+    dependencies that could not be resolved.
+    """
+    entries = epic_child_import_entries(state, state_path)
+    # Re-init is idempotent: a child already carried by a task is not minted twice.
+    # `assert_backlog_ref_unclaimed` enforces one-task-per-item at write time; this
+    # is the same rule applied before writing, so a second init is a clean no-op
+    # rather than a refusal.
+    already_imported = _delivered_backlog_paths(state)
+    entries = [entry for entry in entries if entry["path"].replace("\\", "/") not in already_imported]
+    open_entries = [entry for entry in entries if entry["status"] not in CLOSED_CHILD_STATUSES]
+    skipped = [entry for entry in entries if entry["status"] in CLOSED_CHILD_STATUSES]
+
+    minted: List[Dict[str, Any]] = []
+    task_id_by_slug: Dict[str, str] = {}
+    warnings: List[str] = []
+    for entry in open_entries:
+        if Path(entry["path"]).is_absolute():
+            # The item lives outside this project, so there is no reference a task
+            # could carry. Say so and move on: one stray bundle entry must not stop
+            # a sprint from being created.
+            warnings.append(
+                f"Child `{entry['slug']}` resolves outside this project ({entry['path']}) and was not "
+                "imported. Move it into the project's backlog, or add its task by hand."
+            )
+            continue
+        task_id = next_task_id(state.get("tasks", []))
+        task = normalize_task({
+            "id": task_id,
+            "title": entry["title"],
+            "kind": "work",
+            "status": "todo",
+            "ownerAgentId": None,
+            "dependsOn": [],
+            "backlogRef": {"projectRelativePath": entry["path"]},
+            "sourceDocs": [entry["path"]],
+            "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": [], "scopeExpansions": []},
+            "notes": [],
+            "startedAt": None,
+            "completedAt": None,
+        })
+        state.setdefault("tasks", []).append(task)
+        minted.append(task)
+        task_id_by_slug[entry["slug"]] = task_id
+        append_event(state, "task_added", actor, f"{actor} added {task_id}: {task['title']}.")
+
+    # Edges second: a child may depend on one seeded after it, so every sibling
+    # must already have an id before any edge is resolved.
+    imported_entries = [entry for entry in open_entries if not Path(entry["path"]).is_absolute()]
+    for entry, task in zip(imported_entries, minted):
+        for slug in entry["dependsOn"]:
+            sibling_id = task_id_by_slug.get(slug)
+            if sibling_id:
+                add_unique_values(task, "dependsOn", [sibling_id])
+                continue
+            if _outside_item_is_satisfied(state_path, entry, slug):
+                continue
+            warnings.append(
+                f"{task['id']} ({entry['slug']}) declares `dependsOn: {slug}`, which is not in this "
+                "sprint and is not completed. The task was created with no edge for it — check "
+                "whether it can actually run."
+            )
+
+    for warning in warnings:
+        append_event(state, "epic_import_warning", actor, warning)
+    if minted:
+        append_event(
+            state,
+            "epic_imported",
+            actor,
+            f"{actor} imported {len(minted)} task(s) from the epic's children"
+            + (f", skipping {len(skipped)} closed item(s)" if skipped else "")
+            + ".",
+            {"taskIds": [task["id"] for task in minted]},
+        )
+    return {"tasks": minted, "skipped": skipped, "warnings": warnings}
+
+
 def normalize_selection_bundle(state: Dict[str, Any], state_path: Path) -> None:
     """Settle a `selection` bundle's work entries: dedupe, then classify.
 

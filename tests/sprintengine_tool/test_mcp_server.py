@@ -1004,9 +1004,43 @@ def test_mcp_epic_reference_handover_and_init_over_mcp_route(tmp_path) -> None:
         actor("workspace-user", "user"),
     )
     assert initialized["ok"] is True
-    assert initialized["result"]["planTask"]["title"] == "Sequence the epic's child items into a task graph"
+    # An epic source takes the direct intake by default (MC-2128): no plan gate and
+    # no planning session. Nothing is imported HERE because this fixture's children
+    # sit outside the derived repo root (see the absolute-path note above), which is
+    # the guard doing its job — a child with no project-relative path gets a named
+    # warning instead of an unreferencable task or a failed init.
+    assert initialized["result"]["intake"] == "direct"
+    assert initialized["result"]["planTask"] is None
     assert initialized["result"].get("productTask") is None
+    assert initialized["result"]["importedTasks"] == []
+    assert len(initialized["result"]["warnings"]) == 2
+    assert all("resolves outside this project" in warning for warning in initialized["result"]["warnings"])
     assert not (team_dir / "plan.md").exists()
+
+    # The opt-in planner is still one param away, over the same MCP route.
+    planned_state_path = workspace / ".multi-code" / "sprintengine" / "auth-revamp-planned" / "run.yaml"
+    server.call_tool(
+        "sprintengine.handover",
+        {
+            "statePath": str(planned_state_path),
+            "workspaceRoot": str(workspace),
+            "name": "auth-revamp-planned",
+            "goal": "Revamp authentication",
+            "handoverPath": "backlog/epics/auth-revamp.md",
+            "sourcePlanKind": "epic",
+            "reference": True,
+            "sourceBundle": [{"kind": "generic_context", "sourcePath": "backlog/login-form.md"}],
+            "actor": "workspace-user",
+        },
+        actor("workspace-user", "user"),
+    )
+    planned = server.call_tool(
+        "sprintengine.init",
+        {"statePath": str(planned_state_path), "intake": "planned"},
+        actor("workspace-user", "user"),
+    )
+    assert planned["ok"] is True
+    assert planned["result"]["planTask"]["title"] == "Sequence the epic's child items into a task graph"
 
 
 def test_mcp_agent_join_resolves_workspace_only_custom_role(tmp_path) -> None:

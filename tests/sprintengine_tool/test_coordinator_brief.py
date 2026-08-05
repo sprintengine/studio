@@ -152,6 +152,9 @@ def test_the_brief_survives_the_epic_branch_and_points_at_the_source_documents(t
     initialized = cli.run(
         "init",
         "--goal", "Revamp authentication",
+        # The planner path is opt-in since MC-2128; an epic source defaults to the
+        # direct intake, which has no plan gate for a brief to land on.
+        "--intake", "planned",
         "--configured-roles-json", json.dumps(["developer", "tester"]),
     )
 
@@ -169,7 +172,7 @@ def test_the_brief_survives_the_epic_branch_and_points_at_the_source_documents(t
     assert str(root) not in description
 
     # A second init (the app re-inits an existing run) neither drops nor doubles it.
-    reinitialized = cli.run("init", "--goal", "Revamp authentication")
+    reinitialized = cli.run("init", "--goal", "Revamp authentication", "--intake", "planned")
     reinit_description = str(reinitialized["planTask"]["description"])
     assert reinit_description.count(COORDINATOR_BRIEF_HEADING) == 1
     assert brief_of(reinit_description) == brief
@@ -190,6 +193,7 @@ def test_an_architect_run_from_the_same_source_shape_gains_no_brief(tmp_path) ->
     initialized = cli.run(
         "init",
         "--goal", "Revamp authentication",
+        "--intake", "planned",
         "--configured-roles-json", json.dumps(["architect", "developer"]),
     )
 

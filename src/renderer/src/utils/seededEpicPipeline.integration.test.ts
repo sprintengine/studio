@@ -140,13 +140,23 @@ function makeFixtureEpic(root: string): void {
  * Worktree mode, because that is where module ownership is load-bearing and where
  * "landed" means a merged branch rather than a finished run.
  */
-function launchEpicRun(root: string, statePath: string, children: readonly string[]): Json {
+function launchEpicRun(
+  root: string,
+  statePath: string,
+  children: readonly string[],
+  intake: 'direct' | 'planned' = 'planned',
+): Json {
   return engine(
     root,
     statePath,
     'init',
     '--name', 'delivery',
     '--goal', 'Deliver the epic',
+    // The walk below plays the COORDINATOR sequencing the children, so it asks for
+    // the planning intake by name. An epic source otherwise defaults to `direct`
+    // (MC-2128), where the engine mints the same graph itself and no gate exists;
+    // `testDirectEpicImportPipeline` walks that path.
+    '--intake', intake,
     '--use-worktrees', 'true',
     '--agent', 'developer:developer-1',
     '--agent', 'developer:developer-2',
@@ -719,6 +729,78 @@ function testPreChangeRunStoreStillWorks(root: string): void {
 //    engine's branch-ancestry detection, which is the same signal a merged PR
 //    produces. The `gh pr view` arm needs a live GitHub repo.
 
+/**
+ * The same epic, launched the way the app now launches one by default (MC-2128):
+ * the engine imports the graph at init and no planning agent runs.
+ *
+ * The walk above proves the coordinator-planned path still works. This proves the
+ * engine reaches the same place for free — one task per OPEN child, titled from
+ * the item, carrying its pointer, with the authored dependency edge reproduced —
+ * and that everything downstream of the graph (dispatch, and the app's one-way
+ * child status propagation) is indifferent to which path minted it.
+ */
+async function testDirectEpicImportPipeline(root: string): Promise<void> {
+  const statePath = join(root, '.multi-code', 'sprintengine', 'delivery', 'run.yaml')
+  const runRelativePath = '.multi-code/sprintengine/delivery/run.yaml'
+  makeGitProject(root)
+  makeFixtureEpic(root)
+
+  const launched = launchEpicRun(root, statePath, CHILDREN, 'direct')
+
+  // No planning session: no gate task, no plan artifact, nothing for an agent to
+  // be spawned against. This is the whole cost saving.
+  assert.equal(launched.planTask, null, 'a direct run must mint no plan gate')
+  assert.equal(launched.planArtifact, null, 'a direct run must mint no plan artifact')
+  assert.equal(launched.intake, 'direct')
+
+  // One task per OPEN child: the `idea` child is skipped, exactly as the planner
+  // was told to skip it.
+  const imported = projection(root, statePath).tasks
+  assert.deepEqual(
+    imported.map((task) => task.backlogRef?.projectRelativePath),
+    [CHILD_TOTAL, CHILD_MAILER, CHILD_DOCS],
+    'exactly one task per open child, in the epic order, skipping the idea',
+  )
+  for (const task of imported) {
+    assert.equal(
+      task.title,
+      itemTitle(root, task.backlogRef!.projectRelativePath),
+      `${task.id} is not titled from its item`,
+    )
+    assert.equal(task.description ?? '', '', `${task.id} must carry no description — the item is the spec`)
+    assert.deepEqual(task.acceptanceCriteria ?? [], [], `${task.id} must carry no acceptance criteria`)
+    // No declared modules: publish commits what the task changed (MC-2127).
+    assert.deepEqual(task.ownedPaths ?? [], [], `${task.id} must declare no modules`)
+  }
+
+  // The authored `dependsOn` frontmatter, reproduced as a graph edge — the one
+  // piece of the coordinator's job that was never judgement.
+  const docsTask = imported.find((task) => task.backlogRef?.projectRelativePath === CHILD_DOCS)!
+  const totalTask = imported.find((task) => task.backlogRef?.projectRelativePath === CHILD_TOTAL)!
+  assert.deepEqual(docsTask.dependsOn, [totalTask.id], 'the authored dependency edge is missing')
+
+  // The board opens claimable: no gate stands between init and the first worker.
+  const first = engine(root, statePath, 'task', 'next', '--role', 'developer', '--id', 'developer-1')
+  assert.equal(first.claimed, true, `the first worker must claim immediately: ${JSON.stringify(first)}`)
+  assert.equal((first.task as Json).id, totalTask.id)
+
+  // And the app's child status propagation is unchanged by the import path: the
+  // claim above moves that child, and only that child.
+  const store = launchedStore({
+    runRelativePath,
+    childStatuses: {
+      [CHILD_TOTAL]: 'ready', [CHILD_TAX]: 'idea', [CHILD_MAILER]: 'ready', [CHILD_DOCS]: 'ready',
+    },
+  })
+  const { writes } = await tick({ root, statePath, store })
+  assert.equal(
+    writeFor(writes, CHILD_TOTAL)?.status,
+    'in_progress',
+    'the claimed child moves to in_progress',
+  )
+  assert.equal(writeFor(writes, CHILD_MAILER)?.status, undefined, 'an unclaimed child must not move')
+}
+
 async function main(): Promise<void> {
   // Run from the repo root: the engine wrapper and the legacy fixture are both
   // resolved relative to it, and a wrong cwd would otherwise fail deep in a step.
@@ -729,6 +811,7 @@ async function main(): Promise<void> {
   const scratch = mkdtempSync(join(tmpdir(), 'seeded-epic-pipeline-'))
   try {
     await testSeededEpicPipeline(join(scratch, 'pipeline'))
+    await testDirectEpicImportPipeline(join(scratch, 'direct'))
     await testCancelRestoresPriorStatus(join(scratch, 'cancel'))
     testPreChangeRunStoreStillWorks(join(scratch, 'legacy'))
   } finally {
