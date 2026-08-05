@@ -324,7 +324,10 @@ function RepoEventFields({
           items={REPO_EVENT_PROVIDERS}
         />
       </Field>
-      <Field label="Event types" htmlFor="automation-repo-events" help="Fire when a matching item is created or updated.">
+      {/* No `htmlFor`: the row is a chip group, not one labellable control, and
+          the group names itself. Passing one put the id on this div and left the
+          label addressing an element that cannot be labelled. */}
+      <Field label="Event types" help="Fire when a matching item is created or updated.">
         <div className="flex flex-wrap gap-1" role="group" aria-label="Event types">
           {REPO_EVENT_TYPES.map((event) => {
             const checked = value.eventTypes.includes(event.value)
@@ -425,12 +428,16 @@ function WebhookFields({
         <code className="font-mono text-[color:var(--text-muted)]">{WEBHOOK_ROUTE_PREFIX}{deliveryPath || '<path>'}</code>
       </div>
 
-      <Field label="Secret" htmlFor="automation-webhook-secret" help="Used to sign deliveries. Shown once when generated.">
+      {/* No `htmlFor`: both branches are composites. With one, the cloned id
+          landed on the wrapper div AND the field below carried the same id, so
+          the document held it twice and the label resolved to the div. */}
+      <Field label="Secret" help="Used to sign deliveries. Shown once when generated.">
         {value.secret ? (
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5">
               <Input
                 id="automation-webhook-secret"
+                aria-label="Webhook secret"
                 readOnly
                 value={value.secret}
                 className="font-mono"

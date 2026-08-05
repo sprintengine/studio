@@ -1474,6 +1474,41 @@ async function main(): Promise<void> {
     assert.deepEqual(importers, [], 'Field comes from `../ui`, never from `../ui/Modal`')
   })
 
+  await run('MC-2114 a Field that names a control wraps a control, not a wrapper div', () => {
+    // `Field` clones its `htmlFor` onto its child. Given a layout wrapper the id
+    // lands on a `<div>` — which cannot be labelled, so the `<label for>`
+    // addresses nothing — and where the composite ALSO held a real field
+    // carrying that same id (the webhook secret), the document had the id twice
+    // and the label resolved to the div. Three rows shipped that way. The fix is
+    // to omit `htmlFor` on a composite: the label renders as a span and the
+    // caller names the group or the control inside it.
+    //
+    // Read from source because the shape is a JSX authoring mistake, and it
+    // renders as a perfectly ordinary-looking row.
+    const FIELD_WITH_FOR = /<Field\b[^>]*\bhtmlFor=[^>]*>\s*(?:\{[^\n]*)?\s*<([A-Za-z][\w.]*)/g
+    // The tags a `<label for>` can legitimately address. A capitalised tag is a
+    // component — `Input`, `Textarea`, `Select`, `Combobox` — and those forward
+    // the cloned id to a real control, which is the whole contract.
+    const LABELLABLE = new Set(['input', 'textarea', 'select'])
+
+    const offenders: string[] = []
+    for (const path of rendererSources()) {
+      const source = withoutComments(path)
+      for (const match of source.matchAll(FIELD_WITH_FOR)) {
+        const tag = match[1]
+        if (tag[0] === tag[0].toUpperCase() || LABELLABLE.has(tag)) continue
+        const line = source.slice(0, match.index).split('\n').length
+        offenders.push(`${relative(process.cwd(), path)}:${line}: <Field htmlFor …><${tag}>`)
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'a Field with `htmlFor` must wrap the control it names; a composite row omits `htmlFor` and names ' +
+        'itself (`role="group" aria-label`, or `aria-label` on the control inside)',
+    )
+  })
+
   // Mounted, not read: a label that points at nothing renders identically to one
   // that works. Before this item a `Field` wrapping a `Select` produced exactly
   // that — the Select took no `id`, so the `<label htmlFor>` addressed an element
@@ -1509,6 +1544,17 @@ async function main(): Promise<void> {
             onChange: () => {},
           }),
         ),
+        // The composite form: no `htmlFor`, so nothing is cloned and the group
+        // names itself.
+        React.createElement(
+          Field,
+          { key: 'composite', label: 'Event types' },
+          React.createElement(
+            'div',
+            { role: 'group', 'aria-label': 'Event types', id: 'seam-field-group' },
+            React.createElement('button', { type: 'button' }, 'created'),
+          ),
+        ),
       ),
     )
   })
@@ -1529,6 +1575,29 @@ async function main(): Promise<void> {
       input?.getAttribute('aria-describedby'),
       'seam-field-input-help',
       'help text is referenced by the control it supports',
+    )
+  })
+
+  await run('MC-2114 a Field with no htmlFor labels nothing and clones nothing', () => {
+    // The composite form has to be honest in both directions: no `<label for>`
+    // pointing at an element that cannot be labelled, and no id smuggled onto
+    // the caller's wrapper — which is what silently replaced the group's own id
+    // before, and would have collided with any real field inside it.
+    const group = fieldContainer.querySelector('[role="group"]')
+    assert.ok(group, 'the composite row mounted')
+    assert.equal(group?.id, 'seam-field-group', 'the caller keeps its own id — the Field clones nothing')
+    const labels = Array.from(fieldContainer.querySelectorAll('label')) as Element[]
+    for (const label of labels) {
+      const target = label.getAttribute('for')
+      assert.ok(target, 'a <label> here always carries a `for`')
+      assert.ok(
+        fieldContainer.querySelector(`#${target}`),
+        `the <label for="${target}"> addresses an element that exists`,
+      )
+    }
+    assert.ok(
+      !labels.some((label) => label.textContent?.startsWith('Event types')),
+      'the composite label renders as a span, not a <label> that names nothing',
     )
   })
 

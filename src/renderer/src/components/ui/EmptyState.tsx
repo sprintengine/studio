@@ -54,8 +54,11 @@ export function EmptyState({
         // `icon-lg` is the slot's SIZE, not its ceiling: a 22px glyph lands
         // exactly on the ramp, and an illustration that is deliberately larger
         // (the gallery's card skeleton) sets its own box rather than overflowing
-        // a fixed one into the title (MC-2115).
-        <span className="mb-1 flex min-h-icon-lg min-w-icon-lg items-center justify-center text-[color:var(--text-subtle)]">
+        // a fixed one into the title (MC-2115). Spelled as the token in an
+        // arbitrary value because `min-w-icon-lg` is not a utility Tailwind
+        // emits — the `--spacing-*` namespace reaches `size-*`, not `min-*`, so
+        // the scale-named form compiles to nothing and silently drops the slot.
+        <span className="mb-1 flex min-h-[var(--icon-lg)] min-w-[var(--icon-lg)] items-center justify-center text-[color:var(--text-subtle)]">
           {glyph}
         </span>
       ) : null}

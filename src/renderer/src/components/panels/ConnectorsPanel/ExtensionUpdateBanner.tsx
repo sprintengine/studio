@@ -90,9 +90,11 @@ export function ModuleUpdateBanner({
           // The kit's button (MC-2115). This was a hand-rolled `<button>` with its
           // own radius, padding and hover — the one control in this banner, and
           // the only one in the manage canvas that was not a kit primitive.
-          <GhostButton size="xs" onClick={onUpdate} disabled={flow.status !== 'idle'} className="ml-auto shrink-0">
+          // Outline, not ghost: it sits on the row's own accent-soft tint, where a
+          // borderless control reads as inert.
+          <OutlineButton size="xs" onClick={onUpdate} disabled={flow.status !== 'idle'} className="ml-auto shrink-0">
             {copy.actionLabel}
-          </GhostButton>
+          </OutlineButton>
         )}
       </div>
     )

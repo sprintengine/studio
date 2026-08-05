@@ -10,9 +10,21 @@ type FieldChildProps = {
 type FieldProps = {
   /** Visible label text. Rendered in sentence case. */
   label: string
-  /** Stable id given to the labelled control. The Field clones the child to
-   *  receive this id, so a single child element is required. */
-  htmlFor: string
+  /**
+   * Stable id given to the labelled control. The Field clones the child to
+   * receive this id, so a single child element is required.
+   *
+   * OMIT IT when the row holds a composite rather than one labellable control —
+   * a chip group, a value plus a Clear button, a read-only field beside a Copy
+   * button. The label then renders as a `<span>` and nothing is cloned, and the
+   * caller owns the accessible name (`role="group" aria-label` on the group, or
+   * `aria-label` on the control inside). Passing it anyway was the bug this
+   * replaced: `cloneElement` put the id on the WRAPPER DIV, so the `<label for>`
+   * addressed an element that cannot be labelled — and where the composite also
+   * held a real field carrying that same id, the document had it twice and the
+   * label resolved to the div (MC-2114 review).
+   */
+  htmlFor?: string
   /** Optional help text rendered below the control. Hidden when an error is
    *  shown so the labelled element only references one supporting message. */
   help?: string
@@ -39,30 +51,47 @@ function FieldLabel({ children, className }: { children: React.ReactNode; classN
 }
 
 export function Field({ label, htmlFor, help, error, required, children, className }: FieldProps) {
-  const helpId = help && !error ? `${htmlFor}-help` : undefined
-  const errorId = error ? `${htmlFor}-error` : undefined
+  const helpId = htmlFor && help && !error ? `${htmlFor}-help` : undefined
+  const errorId = htmlFor && error ? `${htmlFor}-error` : undefined
   const describedBy = errorId ?? helpId
 
-  const labelledChild = React.cloneElement<FieldChildProps>(children, {
-    id: htmlFor,
-    'aria-invalid': error ? true : undefined,
-    'aria-describedby': describedBy,
-    'aria-required': required ? true : undefined,
-  })
+  // Without an `htmlFor` there is no control to clone onto: the row is a
+  // composite the caller has named itself. The child is rendered untouched.
+  const labelledChild = htmlFor
+    ? React.cloneElement<FieldChildProps>(children, {
+        id: htmlFor,
+        'aria-invalid': error ? true : undefined,
+        'aria-describedby': describedBy,
+        'aria-required': required ? true : undefined,
+      })
+    : children
+
+  const labelBody = (
+    <>
+      {label}
+      {required ? (
+        <span aria-hidden="true" className="ml-1 text-[color:var(--tone-error)]">
+          *
+        </span>
+      ) : null}
+    </>
+  )
 
   return (
     <div className={['flex flex-col gap-1.5', className ?? ''].join(' ')}>
-      <label
-        htmlFor={htmlFor}
-        className="text-meta font-medium text-[color:var(--text-default)]"
-      >
-        {label}
-        {required ? (
-          <span aria-hidden="true" className="ml-1 text-[color:var(--tone-error)]">
-            *
-          </span>
-        ) : null}
-      </label>
+      {htmlFor ? (
+        <label
+          htmlFor={htmlFor}
+          className="text-meta font-medium text-[color:var(--text-default)]"
+        >
+          {labelBody}
+        </label>
+      ) : (
+        // A `<label>` with no `for` and no control inside it labels nothing —
+        // it is a span that lies about being a label, which is worse than a
+        // span. So: a span, at the same type step.
+        <span className="text-meta font-medium text-[color:var(--text-default)]">{labelBody}</span>
+      )}
       {labelledChild}
       {error ? (
         <p id={errorId} className="text-micro text-[color:var(--tone-error)]">

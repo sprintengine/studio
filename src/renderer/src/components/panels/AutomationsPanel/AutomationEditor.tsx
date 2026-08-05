@@ -824,9 +824,12 @@ export function AutomationEditor({
                   and the saved-team roster; the generic loop below skips both keys. */}
               {isSprintStartAction ? (
                 <>
+                  {/* No `htmlFor`: the row is a composite — the chosen item with a
+                      Clear button, above a search picker — not one labellable
+                      control, and the picker names itself. Passing one put the id
+                      on the wrapper div, where a `<label for>` cannot reach. */}
                   <Field
                     label="Start from backlog item"
-                    htmlFor="automation-sprint-start-backlog-item"
                     required
                     help="The chained sprint plans and works this item on the refreshed base branch."
                   >
