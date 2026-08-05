@@ -166,7 +166,7 @@ export function PluginDetailPanel({
         <div className="flex min-w-0 items-center gap-3">
           <PluginIcon iconUrl={resolveIconUrl(registryUrl, plugin.icon)} name={plugin.name} size={32} />
           <div className="min-w-0">
-            {/* design-system-allow: heading is a programmatic focus target only (tabIndex -1, moved to on selection) — it never receives keyboard focus */}
+            {/* design-tokens-allow: heading is a programmatic focus target only (tabIndex -1, moved to on selection) — it never receives keyboard focus */}
             <h5 ref={headingRef} tabIndex={-1} className="truncate text-body font-semibold leading-5 text-[color:var(--text-strong)] focus:outline-none">
               {plugin.name}
             </h5>

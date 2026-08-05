@@ -690,12 +690,11 @@ async function main(): Promise<void> {
   const trapRoot = createRoot(trapContainer)
   act(() => {
     trapRoot.render(
-      React.createElement(
-        Modal,
-        { open: true, onClose: () => {} },
-        React.createElement('button', { id: 'first', key: 'a' }, 'First'),
-        React.createElement('button', { id: 'last', key: 'b' }, 'Last'),
-      ),
+      // JSX for the same TS2769 reason as the Field block below.
+      <Modal open onClose={() => {}}>
+        <button id="first" key="a">First</button>
+        <button id="last" key="b">Last</button>
+      </Modal>,
     )
   })
 
@@ -768,20 +767,15 @@ async function main(): Promise<void> {
   const siblingRoot = createRoot(trapContainer)
   act(() => {
     siblingRoot.render(
-      React.createElement(
-        'div',
-        null,
-        React.createElement(
-          FocusTrap,
-          { key: 'trap' },
-          React.createElement(
-            'div',
-            { role: 'dialog', 'aria-modal': 'true', tabIndex: -1 },
-            React.createElement('button', { id: 'inside' }, 'Inside'),
-          ),
-        ),
-        React.createElement('button', { key: 'sibling', id: 'sibling' }, 'Sibling'),
-      ),
+      // JSX for the same TS2769 reason as the Field block below.
+      <div>
+        <FocusTrap key="trap">
+          <div role="dialog" aria-modal="true" tabIndex={-1}>
+            <button id="inside">Inside</button>
+          </div>
+        </FocusTrap>
+        <button key="sibling" id="sibling">Sibling</button>
+      </div>,
     )
   })
 
@@ -1521,41 +1515,32 @@ async function main(): Promise<void> {
   const { Select } = await import('./Select')
   act(() => {
     fieldRoot.render(
-      React.createElement(
-        'div',
-        null,
-        React.createElement(
-          Field,
-          { key: 'text', label: 'Server id', htmlFor: 'seam-field-input', help: 'Lowercase.' },
-          React.createElement(Input, { value: '', onChange: () => {} }),
-        ),
-        React.createElement(
-          Field,
-          { key: 'multiline', label: 'Description', htmlFor: 'seam-field-textarea' },
-          React.createElement(Textarea, { value: '', onChange: () => {}, rows: 3 }),
-        ),
-        React.createElement(
-          Field,
-          { key: 'choice', label: 'Transport', htmlFor: 'seam-field-select' },
-          React.createElement(Select, {
-            ariaLabel: 'Transport',
-            items: [{ value: 'stdio', label: 'stdio' }],
-            value: 'stdio',
-            onChange: () => {},
-          }),
-        ),
-        // The composite form: no `htmlFor`, so nothing is cloned and the group
-        // names itself.
-        React.createElement(
-          Field,
-          { key: 'composite', label: 'Event types' },
-          React.createElement(
-            'div',
-            { role: 'group', 'aria-label': 'Event types', id: 'seam-field-group' },
-            React.createElement('button', { type: 'button' }, 'created'),
-          ),
-        ),
-      ),
+      // JSX, not createElement: Field's REQUIRED `children` prop breaks
+      // createElement's overload resolution (TS2769) — JSX children inference
+      // handles it.
+      <div>
+        <Field key="text" label="Server id" htmlFor="seam-field-input" help="Lowercase.">
+          <Input value="" onChange={() => {}} />
+        </Field>
+        <Field key="multiline" label="Description" htmlFor="seam-field-textarea">
+          <Textarea value="" onChange={() => {}} rows={3} />
+        </Field>
+        <Field key="choice" label="Transport" htmlFor="seam-field-select">
+          <Select
+            ariaLabel="Transport"
+            items={[{ value: 'stdio', label: 'stdio' }]}
+            value="stdio"
+            onChange={() => {}}
+          />
+        </Field>
+        {/* The composite form: no `htmlFor`, so nothing is cloned and the
+            group names itself. */}
+        <Field key="composite" label="Event types">
+          <div role="group" aria-label="Event types" id="seam-field-group">
+            <button type="button">created</button>
+          </div>
+        </Field>
+      </div>,
     )
   })
 

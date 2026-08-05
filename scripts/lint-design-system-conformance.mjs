@@ -109,7 +109,7 @@
 //
 // ## Exemptions
 //
-// A `design-system-allow: <reason>` marker suppresses a violation on its own
+// A `design-tokens-allow: <reason>` marker suppresses a violation on its own
 // line or on one of the two following lines — mirroring the `design-tokens-allow`
 // convention, and the same reach it has in `lint-design-tokens.mjs`. The marker
 // is per-line: there is no block or per-file form. A marker with no reason text
@@ -135,7 +135,7 @@ const SOURCE_EXT = new Set(['.tsx', '.ts'])
 // legitimately declares the values the app must not restate.
 const EXCLUDED_DIRS = new Set(['__preview__'])
 
-const ALLOW_MARKER = 'design-system-allow:'
+const ALLOW_MARKER = 'design-tokens-allow:'
 
 const repoRoot = process.cwd()
 
@@ -1008,7 +1008,7 @@ const QUIET = args.includes('--quiet')
 if (args.includes('--write-baseline')) {
   process.stderr.write(
     'This guard no longer carries baselines: every rule sweeps clean and any violation fails.\n' +
-      'Fix the violation, or document a genuine exception with a `design-system-allow: <reason>` marker.\n',
+      'Fix the violation, or document a genuine exception with a `design-tokens-allow: <reason>` marker.\n',
   )
   process.exit(2)
 }

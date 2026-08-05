@@ -67,6 +67,11 @@ const CHROME = [
   'text-body text-[color:var(--text-default)] transition-colors',
   'placeholder:text-[color:var(--text-disabled)]',
   'hover:border-[color:var(--border-strong)]',
+  // The validity edge rides `aria-invalid`, not a caller className: an
+  // attribute variant out-specifies both the resting border and the hover
+  // lift, so an invalid field's red edge is deterministic instead of a
+  // stylesheet-order coin flip — and the state is announced, not just drawn.
+  'aria-invalid:border-[color:var(--tone-error)] aria-invalid:hover:border-[color:var(--tone-error)]',
   FOCUS_RING_CLASS,
   'disabled:cursor-not-allowed disabled:opacity-45',
 ].join(' ')

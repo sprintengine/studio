@@ -386,12 +386,10 @@ export function SavedRostersMenu({
                 close()
               }
             }}
-            // The error edge is the only thing left of this field's own box: the
-            // chrome (and the ramp height — it ran `h-7`, 28px, off 26/30/34) is
-            // the kit's now. A resting-border recolour on an INVALID field is a
-            // validity signal, not a focus one, so it does not collide with the
-            // ring (MC-2114).
-            className={collides ? 'border-[color:var(--tone-error)]' : ''}
+            // The error edge is the kit's own `aria-invalid` state (already
+            // set above): drawn by an attribute variant that deterministically
+            // beats the chrome's resting border and hover lift — a bare
+            // className tied with them and lost the edge on hover (MC-2114).
           />
           {collides ? (
             <span className="px-0.5 text-micro text-[color:var(--tone-error)]">

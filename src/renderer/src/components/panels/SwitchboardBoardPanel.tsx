@@ -1287,29 +1287,38 @@ function BoardDetailPane({
     return items
   }, [executionStatus, record, task])
 
+  const hasActionBand = Boolean(detailStatus) || canOpenTerminal || targets.length > 0
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* The same hand-rolled `px-5 py-4` band Watchtower's detail pane ran —
-          a status line stacked over a `text-title` heading — so both detail
-          panes opened taller than the boards they open from (2112). One row:
-          the id, folder status and time are the title's scope. */}
-      <PanelHeader
-        title={task.title}
-        scope={
-          <span className="flex min-w-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
-            <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-default)]">
-              {shortIdentifier(record)}
-            </span>
-            <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
-            <StatusIcon status={record.location.folderStatus} className="h-3 w-3 shrink-0 text-[color:var(--text-muted)]" />
-            <span className="truncate">{statusLabel(record.location.folderStatus)}</span>
-            <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
-            <span className="shrink-0 tabular-nums">{formatRelativeTime(task.updatedAt)}</span>
+      {/* NOT the PanelHeader primitive — the same MC-1923 refusal BacklogPanel
+          records: PanelHeader is a one-line identity row, and a task title must
+          own a full line and wrap rather than truncate. The metadata takes the
+          first row (with the close affordance), the heading the second; the
+          `px-3 py-2` inset is what 2112 actually converges here, so the pane
+          still opens at the same height as every other header. */}
+      <header
+        className={`shrink-0 px-3 py-2 ${hasActionBand ? '' : 'border-b border-[color:var(--border-default)]'}`}
+      >
+        <div className="flex items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
+          <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-default)]">
+            {shortIdentifier(record)}
           </span>
-        }
-        primaryAction={<CloseIconButton onClick={onClose} aria-label="Close task detail" />}
-        divider={false}
-      />
+          <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
+          <StatusIcon status={record.location.folderStatus} className="h-3 w-3 shrink-0 text-[color:var(--text-muted)]" />
+          <span className="truncate">{statusLabel(record.location.folderStatus)}</span>
+          <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
+          <span className="shrink-0 tabular-nums">{formatRelativeTime(task.updatedAt)}</span>
+          <span className="min-w-0 flex-1" />
+          <CloseIconButton onClick={onClose} aria-label="Close task detail" />
+        </div>
+        <h3 className="mt-1 text-title font-semibold leading-6 text-[color:var(--text-strong)]">
+          {task.title}
+        </h3>
+      </header>
+      {/* The status/actions band renders only when it has content — an empty
+          bordered strip is not a divider. */}
+      {hasActionBand ? (
       <div className="border-b border-[color:var(--border-default)] px-3 pb-2">
         {detailStatus ? (
           <div className="mb-2 flex items-center">
@@ -1352,6 +1361,7 @@ function BoardDetailPane({
           </div>
         ) : null}
       </div>
+      ) : null}
 
       {record.warnings.length > 0 ? (
         <div className="border-b border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-5 py-2 text-meta leading-5 text-[color:var(--text-strong)]">

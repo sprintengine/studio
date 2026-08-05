@@ -12,7 +12,7 @@ import { modifiedZoneLineForAnchor, type DiffFileModel } from './diffModel'
 // editor's code column, past Monaco's line-number and decoration gutters, so a
 // zone never reads as a differently-indented block wedged into the diff. Named
 // once here because all three surfaces must move together if the gutter does.
-// design-system-allow: tracks Monaco's gutter width, not the app's space scale
+// design-tokens-allow: tracks Monaco's gutter width, not the app's space scale
 export const ZONE_CONTENT_INSET = 'pl-[55px]'
 
 export interface AnnotationPlacement {

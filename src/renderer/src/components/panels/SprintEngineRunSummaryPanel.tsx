@@ -1670,7 +1670,7 @@ function ProjectionStatusBanner({ state }: { state: SprintEngineState }) {
   // the tone now, where this used to be a neutral bar with the failure spelled in
   // red text (MC-2115).
   return (
-    <InlineNotice tone={tone} className="mb-4 text-meta">
+    <InlineNotice tone={tone} className="mb-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-mono text-micro text-[color:var(--text-muted)]">Projection</span>
         <span className="text-[color:var(--text-default)]">{projectionSourceLabel[source]}</span>

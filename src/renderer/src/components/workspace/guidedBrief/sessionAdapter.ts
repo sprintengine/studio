@@ -351,7 +351,7 @@ export function markerDetectionForInput(input: StartGuidedBriefSpecialistSession
 // marker still matches when wrapped by tools like Claude Code (`⏺ MARKER`) or
 // Codex (`│ MARKER │`). The marker must still appear alone on its own line —
 // the regex only removes whitespace and a small allowlist of prompt glyphs.
-// design-system-allow: matches chrome a CLI printed, not a glyph the product draws
+// design-tokens-allow: matches chrome a CLI printed, not a glyph the product draws
 const PROMPT_CHROME = /^[\s>│●⏺•*»]+|[\s>│●⏺•*»]+$/gu
 
 // Cheap structural equality so React state only updates when the parsed

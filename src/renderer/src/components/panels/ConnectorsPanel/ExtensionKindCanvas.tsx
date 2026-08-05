@@ -651,7 +651,7 @@ function AutomationDetailPanel({
             <h5
               ref={headingRef}
               tabIndex={-1}
-              // design-system-allow: heading is a programmatic focus target only (tabIndex -1, moved to on selection) — it never receives keyboard focus
+              // design-tokens-allow: heading is a programmatic focus target only (tabIndex -1, moved to on selection) — it never receives keyboard focus
               className="truncate text-title font-semibold text-[color:var(--text-strong)] focus:outline-none"
             >
               {plugin.name}

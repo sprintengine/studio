@@ -1408,7 +1408,7 @@ function PickRow({
   // (prototypes/2026-07-31-new-sprint-dialog.html) marks it with a thin accent
   // rule, deliberately not the selection fill, so an 8-child epic never reads
   // as eight separate picks.
-  // design-system-allow: implied-child accent rule from the approved mockup — not selection paint
+  // design-tokens-allow: implied-child accent rule from the approved mockup — not selection paint
   const impliedClass = implied && !picked ? 'border-l-[color:var(--accent-primary)]' : ''
   const cursorClass = cursored ? 'outline outline-1 -outline-offset-1 outline-[color:var(--border-focus)]' : 'outline-none'
   // A child that will NOT be imported reads as excluded: struck, and without the

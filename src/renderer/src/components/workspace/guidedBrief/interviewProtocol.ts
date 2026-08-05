@@ -55,7 +55,7 @@ export const EMPTY_GUIDED_INTERVIEW_STATE: GuidedInterviewState = {
 
 // Same prompt-chrome allowlist the readiness marker uses: CLIs like Codex wrap
 // output lines in box-drawing (`│ … │`) and Claude Code prefixes glyphs (`⏺`).
-// design-system-allow: matches chrome a CLI printed, not a glyph the product draws
+// design-tokens-allow: matches chrome a CLI printed, not a glyph the product draws
 const PROMPT_CHROME = /^[\s>│●⏺•*»]+|[\s>│●⏺•*»]+$/gu
 
 function stripChrome(line: string): string {

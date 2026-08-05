@@ -896,7 +896,7 @@ async function main(): Promise<void> {
       // menu's own rows are what restore a planning agent.
       const rows = Array.from(
         doc.body.querySelectorAll('[role="listbox"][aria-label="Planning agent options"] [role="option"]'),
-      )
+      ) as Element[]
       assert.ok(rows.length > 1, 'the menu offers None plus at least one runtime')
       assert.equal(rows[0]?.textContent?.includes('None'), true, 'None is pinned first')
       const runtimeRow = rows.find((row) => !row.textContent?.includes('None'))
@@ -934,7 +934,7 @@ async function main(): Promise<void> {
         dom.window.document.body.querySelectorAll(
           '[role="listbox"][aria-label="Planning agent options"] [role="option"]',
         ),
-      )
+      ) as Element[]
       assert.ok(rows.length > 0, 'the menu lists runtimes')
       assert.ok(
         rows.every((row) => !row.textContent?.startsWith('None')),

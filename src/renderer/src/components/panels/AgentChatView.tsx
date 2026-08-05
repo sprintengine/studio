@@ -3871,7 +3871,7 @@ function StepOutput({ output }: { output: string }) {
       <pre className="overflow-x-auto px-3 py-2 font-mono text-meta leading-[1.6] text-[color:var(--terminal-fg)]">
         {/* Matches a tick the test runner already printed into its own output:
             agent-authored text this pane only tones, never a glyph the product
-            draws. design-system-allow: matcher for agent-authored output */}
+            draws. design-tokens-allow: matcher for agent-authored output */}
         {visible.map((line, index) => (
           <div key={index} className={/^\s*✓/.test(line) ? 'text-[color:var(--tone-good)]' : undefined}>
             {line || ' '}

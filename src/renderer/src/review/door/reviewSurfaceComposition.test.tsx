@@ -30,6 +30,7 @@ function stubSession(overrides: Partial<ReviewSession>): ReviewSession {
     workspaceRoot: '/proj/multicode',
     status: 'ready',
     isDegraded: false,
+    reloadChangeset: NOOP,
     changeset: reviewFixture.changeset,
     brief: reviewFixture.brief,
     errorMessage: null,
