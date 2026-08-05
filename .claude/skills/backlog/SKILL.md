@@ -42,6 +42,16 @@ start with frontmatter carrying only fields you can honestly fill, then a
 `# Title` and the body: what, why, user impact, and anything needed to
 understand the request. Omit `id:` and `updated:`; the app assigns them.
 
+**Plan an epic's order.** Planning happens here, not in the sprint engine —
+the engine is a primitive that executes tasks in the dependency order the
+epic declares. When authoring or finishing an epic: add `dependsOn:` edges
+between children wherever order matters (comma-separated sibling slugs), and
+when the ordering is deliberate and complete — including "no edges, these
+run in parallel" — set `dependenciesPlanned: true` on the epic's frontmatter
+as the last act. That flag is what tells a direct (plannerless) sprint the
+epic is ready to execute as written; an epic without it defaults to getting
+a planning agent first.
+
 **Triage.** Judge every non-archived item against the current codebase: still
 worth doing, already built, overtaken, or simply mis-statused. Report them
 grouped with a one-line reason and a proposed action each, change nothing yet,
