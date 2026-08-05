@@ -1645,6 +1645,124 @@ async function testLaunchingItemKeepsItsRunLevelLink(): Promise<void> {
   )
 }
 
+// A write that FAILED must be retried, not remembered as done: the mutation
+// writes the link before the item's frontmatter, so a failed status write leaves
+// the link claiming a propagation that never landed.
+async function testFailedWriteIsRetriedOnTheNextTick(): Promise<void> {
+  const data = unlinkedRunProjection({ taskStatuses: ['done'], itemPaths: ['backlog/item-a.md'], runStatus: 'complete' })
+  const store = unlinkedStore({ itemPaths: ['backlog/item-a.md'] })
+  const failed: BacklogMutation[] = []
+  const diagnostics: string[] = []
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: workspace(),
+    tokens: new Map(),
+    cause: 'supervisor',
+    force: true,
+    ports: portsFor({
+      data,
+      applied: [],
+      backlogMutations: failed,
+      backlogStore: store,
+      backlogMutationResult: { ok: false, message: 'could not write Backlog item' },
+      diagnostics,
+    }),
+  })
+  assert.equal(failed.length, 1, 'the first tick attempts the write')
+  assert.deepEqual(diagnostics, ['could not write Backlog item'], 'and says so when it fails')
+
+  // A file the app simply cannot write must not raise the same warning every four
+  // seconds for the rest of the run: the retry keeps trying, silently, until it
+  // either heals or the run ends.
+  const secondAttempt: BacklogMutation[] = []
+  const repeated: string[] = []
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: workspace(),
+    tokens: new Map(),
+    cause: 'supervisor',
+    force: true,
+    ports: portsFor({
+      data,
+      applied: [],
+      backlogMutations: secondAttempt,
+      backlogStore: unlinkedStore({
+        itemPaths: ['backlog/item-a.md'],
+        links: { 'backlog/item-a.md': [failed[0].link] },
+      }),
+      backlogMutationResult: { ok: false, message: 'could not write Backlog item' },
+      diagnostics: repeated,
+    }),
+  })
+  assert.equal(secondAttempt.length, 1, 'a still-failing item keeps being retried')
+  assert.deepEqual(repeated, [], 'but the identical failure is reported once, not every tick')
+
+  // The link the failed call would have persisted is now in the store, so the
+  // ledger reads "already propagated" — the retry marker is what overrides it.
+  const retried = await runUnlinkedRefresh({
+    data,
+    store: unlinkedStore({
+      itemPaths: ['backlog/item-a.md'],
+      links: { 'backlog/item-a.md': [failed[0].link] },
+    }),
+  })
+  assert.deepEqual(
+    retried.map((mutation) => [mutation.relativePath, mutation.status]),
+    [['backlog/item-a.md', 'completed']],
+    'the next tick retries the item whose write failed',
+  )
+
+  // And once it succeeds, the ledger holds again: no third write.
+  const settled = await runUnlinkedRefresh({
+    data,
+    store: unlinkedStore({
+      itemPaths: ['backlog/item-a.md'],
+      links: { 'backlog/item-a.md': [retried[0].link] },
+    }),
+  })
+  assert.deepEqual(settled, [], 'a healed item stops being retried')
+}
+
+// A run store outside the project can carry no resolvable link, so the items this
+// sprint names would never be written. Say it out loud — silence here reads as
+// "nothing to propagate", which is the failure mode this whole item is about.
+async function testUnwritableRunStoreIsReportedNotSwallowed(): Promise<void> {
+  const stranded = {
+    ...workspace(),
+    sprintEngineContext: {
+      statePath: '/elsewhere/.multi-code/sprintengine/unified-refresh/run.yaml',
+      teamSlug: 'unified-refresh',
+      teamName: 'Unified Refresh',
+    },
+  } as unknown as Workspace
+  const backlogMutations: BacklogMutation[] = []
+  const diagnostics: string[] = []
+  const tick = async (): Promise<void> => {
+    await refreshSprintEngineWorkspaceProjection({
+      workspace: stranded,
+      tokens: new Map(),
+      cause: 'supervisor',
+      force: true,
+      ports: portsFor({
+        data: unlinkedRunProjection({ taskStatuses: ['done', 'done'], runStatus: 'complete' }),
+        applied: [],
+        backlogMutations,
+        backlogStore: unlinkedStore(),
+        diagnostics,
+      }),
+    })
+  }
+  await tick()
+
+  assert.deepEqual(backlogMutations, [], 'nothing is written against an unresolvable run store')
+  assert.equal(diagnostics.length, 1, 'the skipped write-back is reported')
+  assert.match(diagnostics[0], /2 Backlog item\(s\)/, 'and names how many items it left unwritten')
+
+  // Where the run store lives cannot change under an open run, so the poll
+  // re-enters this branch every tick. Reporting it each time would bury the
+  // notification centre under one permanent warning repeated all day.
+  await tick()
+  assert.equal(diagnostics.length, 1, 'and is reported once per run store, not once per tick')
+}
+
 // A sibling project's `backlogRef` is relative to ITS root while this store is
 // the workspace's own — the two can spell the same path. That project's items
 // are written from its own workspace, never from here.
@@ -1844,6 +1962,8 @@ await testCanceledAndNeedsInputTasksNeverCompleteTheirItems()
 await testLateFinishingTaskStillCompletesItsItem()
 await testPropagationNeverWritesAnEpicFile()
 await testLaunchingItemKeepsItsRunLevelLink()
+await testFailedWriteIsRetriedOnTheNextTick()
+await testUnwritableRunStoreIsReportedNotSwallowed()
 await testSiblingProjectItemsAreLeftToTheirOwnWorkspace()
 
 console.log('sprintengine projection refresh tests passed')

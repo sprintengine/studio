@@ -653,21 +653,50 @@ async function propagateBacklogRefTaskItems(input: {
   const context = workspace.sprintEngineContext
   const addOrUpdateBacklogLink = ports.addOrUpdateBacklogLink
   if (!workspaceRoot || !context || !addOrUpdateBacklogLink) return
+
+  // The items this run's tasks deliver from THIS project. A sibling project's ref
+  // is relative to ITS root while this store is the workspace's own, and the two
+  // can spell the same `backlog/x.md`; that project's items are written from its
+  // own workspace, never from here.
+  const delivered = state.tasks.flatMap((task) => {
+    const itemPath = task.backlogRef?.projectRelativePath
+    return itemPath && task.repo === DEFAULT_SPRINTENGINE_TASK_REPO ? [{ task, itemPath }] : []
+  })
+  if (!delivered.length) return
+
   // The link target must be the project-relative run.yaml — `addOrUpdateBacklogLink`
-  // rejects anything else, so a run store outside the workspace writes nothing
-  // rather than a link no reader could resolve.
+  // rejects anything else, so a run store the workspace does not contain writes no
+  // link a reader could resolve. Said out loud rather than skipped quietly: this
+  // run names items it would then never write, and silence would read as "nothing
+  // to propagate".
   const runRelativePath = runRelativePathForStatePath(workspaceRoot, context.statePath)
-  if (!runRelativePath) return
+  if (!runRelativePath) {
+    // Once per run store, not once per tick. Where a run lives cannot change
+    // under an open run, so this is a standing condition, and the projection
+    // poll re-enters here every four seconds — reporting it each time would bury
+    // the notification centre under one permanent warning repeated all day.
+    const strandedKey = `${workspaceRoot}::${normalizedPathKey(context.statePath)}`
+    if (!strandedRunStores.has(strandedKey)) {
+      strandedRunStores.add(strandedKey)
+      await ports.publishDiagnostic?.({
+        level: 'warning',
+        source: 'sprintengine',
+        title: 'Backlog write-back skipped',
+        message:
+          `This sprint delivers ${delivered.length} Backlog item(s), but its run store is not inside the project, `
+          + 'so their status cannot be written back.',
+        details: context.statePath,
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+      })
+    }
+    return
+  }
 
   const recordsByPathKey = new Map(
     input.records.map((record) => [normalizedPathKey(record.source.relativePath), record]),
   )
-  for (const task of state.tasks) {
-    const itemPath = task.backlogRef?.projectRelativePath
-    // A sibling project's ref is relative to ITS root while this store is the
-    // workspace's own, and the two can spell the same `backlog/x.md`. That
-    // project's items are written from its own workspace, never from here.
-    if (!itemPath || task.repo !== DEFAULT_SPRINTENGINE_TASK_REPO) continue
+  for (const { task, itemPath } of delivered) {
     const pathKey = normalizedPathKey(itemPath)
     if (input.linkedItemPathKeys.has(pathKey)) continue
     // No record means no such item in this workspace's backlog — a ref into
@@ -721,7 +750,8 @@ async function propagateBacklogRefTaskItems(input: {
  * `priorStatus` since it was created; leaving it stranded `in_progress` is worse
  * than never having moved it.
  *
- * Returns a message when the write failed, so the caller can surface it.
+ * Returns a message when the write failed and that failure is new, so the caller
+ * can surface it once rather than on every tick of a retry that keeps failing.
  */
 async function reconcileBacklogChildLink(input: {
   workspaceRoot: string
@@ -765,11 +795,19 @@ async function reconcileBacklogChildLink(input: {
   // on a real store. Comparing against the item's status instead would rewrite
   // the same value — and re-stamp items.json — on every tick of the run, and on
   // a run delivering a dozen items that is a dozen writes per projection change.
+  //
+  // A FAILED write is the one case the ledger lies about: the mutation writes the
+  // link and then the item's frontmatter, so a status write that fails leaves the
+  // link claiming a propagation that never landed, and every later tick would read
+  // it as settled. The failure marker is the correction — one entry per item that
+  // failed, forcing the next tick to try again and clearing itself on success.
+  const failureKey = `${input.workspaceRoot}::${normalizedPathKey(record.source.relativePath)}`
+  const retrying = backlogWriteFailures.has(failureKey)
   const linkUnchanged =
     link.status === nextLink.status
     && link.target.taskId === nextLink.target.taskId
     && link.priorStatus === nextLink.priorStatus
-  if (linkUnchanged) return null
+  if (linkUnchanged && !retrying) return null
 
   const result = await input.addOrUpdateBacklogLink({
     workspaceRoot: input.workspaceRoot,
@@ -777,8 +815,29 @@ async function reconcileBacklogChildLink(input: {
     link: nextLink,
     ...(nextStatus ? { status: nextStatus } : {}),
   })
-  return result.ok ? null : result.message
+  if (result.ok) {
+    backlogWriteFailures.delete(failureKey)
+    return null
+  }
+  backlogWriteFailures.add(failureKey)
+  // Report the FIRST failure of a streak only. The retry above re-runs on every
+  // projection tick (4s while the workspace is active), so an item the app
+  // genuinely cannot write would otherwise raise the identical warning every four
+  // seconds for the life of the run. The user has been told; a later success
+  // clears the marker and re-arms the report.
+  return retrying ? null : result.message
 }
+
+// Items whose last propagation write failed, keyed by workspace root + item path.
+// Session-scoped on purpose: it exists only to un-stick the tick after a transient
+// failure, and a failure that outlives the session is a file the app cannot write
+// at all — which the diagnostic said out loud when it happened.
+const backlogWriteFailures = new Set<string>()
+
+// Run stores whose stranded-write-back warning has already been raised, keyed by
+// workspace root + state path. Same session scope, for the same reason: the
+// condition never clears under an open run, so it is reported once, not per tick.
+const strandedRunStores = new Set<string>()
 
 // The status a child should be written to for a resolved child-link status, or
 // undefined to leave it alone. Pure so the propagation rules read as one table.
