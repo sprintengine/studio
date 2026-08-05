@@ -62,7 +62,7 @@ export const MENU_SURFACE_CLASS = `${OVERLAY_SURFACE_CLASS} ${MENU_LIST_CLASS}`
  * idea.
  */
 export const MENU_ROW_CLASS =
-  'flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)]'
+  'flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)] aria-disabled:hover:bg-transparent'
 
 /**
  * The menu item. Full-bleed with no radius of its own: an inset rounded fill
@@ -75,8 +75,16 @@ export const MENU_ROW_CLASS =
  * Ink stays with the caller: neutral rows lift to `text-strong` on hover,
  * destructive rows are `tone-error` and stay it — destructive is ink, never a
  * fill.
+ *
+ * A disabled row takes no fill, per the spec's states table. `:hover` still
+ * matches a disabled button in CSS — the pointer-events exemption applies to
+ * form controls' events, not to the hover pseudo-class — so every menu in the
+ * app was painting an "about to be activated" highlight onto rows that cannot
+ * be activated. The `disabled:` and `aria-disabled:` variants both add a second
+ * selector on top of the hover rule, so they win on specificity rather than on
+ * stylesheet order.
  */
-export const MENU_ITEM_CLASS = `${MENU_ROW_CLASS} text-meta disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING_INSET_CLASS}`
+export const MENU_ITEM_CLASS = `${MENU_ROW_CLASS} text-meta disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent ${FOCUS_RING_INSET_CLASS}`
 
 /**
  * The separator. `border-subtle`: inside an already-bordered surface a divider
@@ -84,3 +92,18 @@ export const MENU_ITEM_CLASS = `${MENU_ROW_CLASS} text-meta disabled:cursor-not-
  * own edge — the menu then reads as two stacked panels.
  */
 export const MENU_DIVIDER_CLASS = 'my-1 h-px bg-[color:var(--border-subtle)]'
+
+/**
+ * A group heading — the alternative to a separator, never an addition to one.
+ *
+ * `micro` at `text-subtle`, on the item's own horizontal inset, and never bolder
+ * than the rows it heads: a label that outweighs its own contents inverts the
+ * hierarchy it exists to state. The two that shipped disagreed on exactly that —
+ * FilterMenu's heading was subtle and unweighted, MenuSwatchRow's caption was
+ * `text-muted` and `font-medium`.
+ *
+ * Vertical rhythm stays with the caller: a caption above a swatch strip and a
+ * heading above a row list sit in different company, and the spec rules the
+ * treatment, not the gap.
+ */
+export const MENU_GROUP_LABEL_CLASS = 'px-2.5 text-micro text-[color:var(--text-subtle)]'

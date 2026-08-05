@@ -2,7 +2,7 @@ import React, { useCallback, useRef, useState } from 'react'
 
 import { Popover } from './Popover'
 import type { SelectItem } from './Select'
-import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from './menuClasses'
+import { MENU_GROUP_LABEL_CLASS, MENU_ITEM_CLASS, MENU_LIST_CLASS } from './menuClasses'
 import { FOCUS_RING_CLASS } from './tokens'
 
 // The shared filter/sort affordance: axis controls collapse behind a single
@@ -153,7 +153,7 @@ function FilterGroup({
       aria-label={label}
       className={`py-1 ${divider ? 'mt-1 border-t border-[color:var(--border-subtle)] pt-1.5' : ''}`}
     >
-      <p className="px-2.5 pb-0.5 text-micro text-[color:var(--text-subtle)]">{label}</p>
+      <p className={`${MENU_GROUP_LABEL_CLASS} pb-0.5`}>{label}</p>
       {items.map((item) => {
         const selected = item.value === current
         return (

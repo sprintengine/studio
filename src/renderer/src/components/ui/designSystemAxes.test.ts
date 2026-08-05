@@ -436,9 +436,38 @@ run('no menu host restates a value the canon already carries', () => {
       !/bg-\[color:var\(--border-/.test(source),
       `${file} draws its own divider; MenuDivider / MENU_DIVIDER_CLASS is the one line`,
     )
+    // Covers the nested case as well as the flat one: `OverflowMenu` used to
+    // pass `text-meta` into MenuFlyoutItem's `surfaceClassName` to drag the
+    // submenu down to its own size, with a comment calling ContextMenu "the 13px
+    // right-click idiom". The size travels with the item now, so a host that
+    // re-pins a flyout is rebuilding the divergence the spec retired — and a
+    // submenu is exactly where it would go unnoticed longest.
     assert.ok(
       !/surfaceClassName=(?:\{`|")[^`"]*\btext-(?:meta|body|micro)\b/.test(source),
       `${file} pins a type size onto a menu surface — the per-host pin the class pair replaced`,
+    )
+  }
+})
+
+run('a group label never outweighs the rows it heads', () => {
+  // The last hand-rolled treatment: FilterMenu's heading was `text-subtle` and
+  // unweighted, MenuSwatchRow's caption `text-muted` and `font-medium`. The spec
+  // rules the first — a label heavier than its own contents inverts the
+  // hierarchy it exists to state.
+  assert.match(
+    code(MENU_CANON),
+    /MENU_GROUP_LABEL_CLASS[\s\S]*text-micro[\s\S]*--text-subtle/,
+    'the group label is micro at text-subtle, on the item inset',
+  )
+  assert.ok(
+    !/font-medium text-\[color:var\(--text-muted\)\]/.test(code(MENU_CANON)),
+    'and it carries no weight of its own',
+  )
+  for (const file of ['ContextMenu.tsx', 'FilterMenu.tsx']) {
+    assert.match(
+      code(join(KIT, file)),
+      /MENU_GROUP_LABEL_CLASS/,
+      `${file} takes its group heading from the canon`,
     )
   }
 })

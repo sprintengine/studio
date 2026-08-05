@@ -1,7 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Tooltip } from './Tooltip'
-import { MENU_DIVIDER_CLASS, MENU_ITEM_CLASS, MENU_SURFACE_CLASS } from './menuClasses'
+import {
+  MENU_DIVIDER_CLASS,
+  MENU_GROUP_LABEL_CLASS,
+  MENU_ITEM_CLASS,
+  MENU_SURFACE_CLASS,
+} from './menuClasses'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import type { HighlightColor } from '../../types/workspace'
 
@@ -306,9 +311,7 @@ export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: 
   return (
     <>
       {label ? (
-        <div className="px-2.5 pb-1 pt-1.5 text-micro font-medium text-[color:var(--text-muted)]">
-          {label}
-        </div>
+        <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>{label}</div>
       ) : null}
       <div className="flex items-center gap-1 px-2 pb-1.5">
         <Tooltip content="Clear color">

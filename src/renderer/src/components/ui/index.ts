@@ -49,6 +49,7 @@ export {
 // resort, not the entry point.
 export {
   MENU_DIVIDER_CLASS,
+  MENU_GROUP_LABEL_CLASS,
   MENU_ITEM_CLASS,
   MENU_LIST_CLASS,
   MENU_ROW_CLASS,

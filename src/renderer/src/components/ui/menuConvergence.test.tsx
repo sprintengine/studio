@@ -36,6 +36,18 @@ anyGlobal.getComputedStyle = dom.window.getComputedStyle
 anyGlobal.requestAnimationFrame = (cb: FrameRequestCallback) => dom.window.setTimeout(() => cb(0), 0)
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
 domWindow.api = { platform: 'darwin' }
+// jsdom implements no layout, so it ships neither of these. Select scrolls its
+// active option into view on open; the surfaces measure themselves to clamp
+// inside the viewport and read 0 for everything, which is fine — this file asks
+// what classes they carry, not where they landed.
+dom.window.Element.prototype.scrollIntoView = function scrollIntoView(): void {}
+class NoopResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+anyGlobal.ResizeObserver = NoopResizeObserver
+domWindow.ResizeObserver = NoopResizeObserver
 
 let failures = 0
 function run(name: string, fn: () => void): void {
@@ -52,7 +64,17 @@ function run(name: string, fn: () => void): void {
 // The properties the audit measured as divergent, each expressed as the class
 // that carries it. A menu "agrees" when every host answers all six the same way.
 const SURFACE_AXES = ['rounded-[7px]', 'border-[color:var(--border-strong)]', 'bg-[color:var(--bg-surface-raised)]', 'py-1'] as const
-const ITEM_AXES = ['text-meta', 'px-2.5', 'py-1.5', 'hover:bg-[color:var(--bg-hover)]', 'focus-visible:focus-ring-inset'] as const
+const ITEM_AXES = [
+  'text-meta',
+  'px-2.5',
+  'py-1.5',
+  'hover:bg-[color:var(--bg-hover)]',
+  // A row that cannot be activated must not paint the "about to be activated"
+  // highlight. `:hover` matches a disabled button, so this is a class the row
+  // has to carry, not a state CSS gives it for free.
+  'disabled:hover:bg-transparent',
+  'focus-visible:focus-ring-inset',
+] as const
 
 function classesOf(el: Element | null): string[] {
   assert.ok(el, 'element is in the DOM')
@@ -234,7 +256,9 @@ async function main(): Promise<void> {
       const host = HOSTS.find((candidate) => candidate.name === name)
       assert.ok(host, `${name} is under test`)
       const view = host.open()
-      const dividers = Array.from(document.querySelectorAll('[role="separator"]'))
+      // jsdom ships no types, so annotate: without it every element off this
+      // query degrades to `unknown` and nothing below is checked.
+      const dividers: Element[] = Array.from(document.querySelectorAll('[role="separator"]'))
       const tokens = dividers.map((divider) =>
         classesOf(divider).filter((cls) => cls.includes('--border')),
       )
