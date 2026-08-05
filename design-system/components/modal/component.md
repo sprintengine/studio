@@ -104,12 +104,21 @@ pending-state lockout.
 - The scrim is `aria-hidden` plumbing, never `backdrop-filter` — separation
   comes from `overlay.scrim` plus `shadow.modal`.
 
+## Shipped implementation
+
+`src/renderer/src/components/ui/Modal.tsx`, with `ConfirmDialog.tsx` as the
+`--confirm` variant above: its `title` / `body` / `confirmLabel` /
+`cancelLabel` / `pendingLabel` / `tone` / `pending` options are this entry's
+confirm and prompt specs, and `ConfirmDialogProvider` + `useConfirmDialog()` are how a caller asks the
+question without mounting a dialog of its own.
+
 ## Known drift
 
-- `Modal.tsx` ships `z-50` — and a header comment declaring its own six-tier
-  ladder with "z-50 — modals … always above everything else" — while the token
-  ladder puts modals at `--sem-z-modal: 70`. Two ladders of record; the token
-  is the spec. Backlog item **MC-2109**.
+- ~~`Modal.tsx` ships `z-50` against the token ladder's 70.~~ **Resolved
+  2026-08-05 (MC-2119):** the token ladder is canonical and `Modal` consumes
+  `--z-modal`. It mattered more than it looked — at 50 the modal sat a tier
+  *below* the menu layer at 60, so a context menu opened over a dialog painted
+  on top of it.
 - `Modal.tsx` ships **no focus trap**: focus moves into the shell but Tab
   walks out into the scrimmed page behind it. The trap specified above is the
   contract; the gap is **MC-2109**.

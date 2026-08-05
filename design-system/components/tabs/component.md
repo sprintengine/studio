@@ -95,3 +95,8 @@ next tabs pass:
   is `icon.size.xs` (13px).
 - Disabled tabs ship `opacity-45`; the system-wide disabled treatment
   (list-row, task-card) is 0.5.
+
+## Shipped implementation
+
+`src/renderer/src/components/ui/Tabs.tsx`, exporting `Tabs` (the strip) and
+`TabPanel` (the panel bound to it by `aria-controls` / `aria-labelledby`).

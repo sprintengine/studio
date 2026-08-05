@@ -99,3 +99,10 @@ otherwise an empty column and a failed load render identically.
   give it `tabindex="0"` and the inward focus ring, as `tabs` does for its
   panel. When every card inside is focusable, the cards themselves usually
   carry the scroll and the extra tab stop is noise — decide per surface.
+
+## Shipped implementation
+
+`src/renderer/src/components/ui/BoardLane.tsx`, exporting `BoardLane`,
+`BoardLaneDropIndicator` (the between-cards insertion mark) and
+`computeBoardLaneDropIndex` (the pure drop-target maths, kept separate so the
+drop position is testable without a drag).

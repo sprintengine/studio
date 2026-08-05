@@ -110,7 +110,9 @@ menu. A menu that needs to be denser is a menu with too many items in it.
 ## Shipped implementation
 
 `src/renderer/src/components/ui/ContextMenu.tsx` (pointer-positioned, and the
-`MenuItem` / `MenuDivider` / `MenuFlyoutItem` vocabulary),
+`MenuItem` / `MenuDivider` / `MenuFlyoutItem` / `MenuSwatchRow` vocabulary —
+`MenuSwatchRow` being the one row that is not a label, a line of colour swatches
+for picking a workspace accent without leaving the menu),
 `OverflowMenu.tsx` (the kebab), `FilterMenu.tsx` (the narrowing glyph).
 
 **Reconciled 2026-08-05.** All three now meet this spec. `ContextMenu` moved

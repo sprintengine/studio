@@ -100,6 +100,37 @@ done.
    lines above it — the reason is mandatory, and token metadata has no such
    escape hatch.
 
+## What this system deliberately does not contain
+
+Ruled 2026-08-05 (MC-2118). The consuming app exports a handful of primitives
+from its kit that have **no entry here, on purpose**:
+
+`CliModelPickerButton`, `CliModelPopoverSurface`, `ReasoningSelector`,
+`CliProviderStateLine`, `InlineSkillPicker`, `FilePreviewPane`,
+`HtmlPreviewCard`.
+
+Each encodes a **product** decision rather than a reusable pattern — which
+agent CLIs exist and how their models are grouped, what a reasoning axis means,
+how a skill installs, which file types get a preview. A design system that
+absorbed them would be shipping one product's domain model as though it were
+design vocabulary, and every future consumer would inherit choices that are not
+theirs to make.
+
+They are still held to the system: they consume the same tokens and are policed
+by the same conformance gates. What they do not get is a spec here, because
+there is nothing framework-neutral to specify.
+
+The general shapes underneath them **are** documented, and that is where a
+rebuild should start: [combobox](components/combobox/component.md) for the
+filter-and-pick pattern, [popover](components/popover/component.md) for the
+anchored surface, [menu](components/menu/component.md) for the action list,
+[provider-row](components/provider-row/component.md) for the connected-service
+row.
+
+Every other export from the app's `ui/index.ts` resolves to an entry here — as
+a component, a pattern, a glyph, or a named part of one (`CloseIconButton` under
+button, `TabPanel` under tabs, the `Menu*` vocabulary under menu, and so on).
+
 ## Derived files — never hand-edit
 
 `foundations/tokens.css` and `catalog/index.html` are generated; the `derived`

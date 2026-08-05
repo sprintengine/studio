@@ -516,6 +516,8 @@ code {
 #ds-view-component-kbd-chord:checked ~ .ds-catalog #component-kbd-chord { display: block; }
 #ds-view-component-list-row:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-list-row:checked ~ .ds-catalog #component-list-row { display: block; }
+#ds-view-component-liveness:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-liveness:checked ~ .ds-catalog #component-liveness { display: block; }
 #ds-view-component-menu:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-menu:checked ~ .ds-catalog #component-menu { display: block; }
 #ds-view-component-modal:checked ~ .ds-catalog #components { display: block; }
@@ -556,6 +558,8 @@ code {
 #ds-view-component-tooltip:checked ~ .ds-catalog #component-tooltip { display: block; }
 #ds-view-component-truncated-text:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-truncated-text:checked ~ .ds-catalog #component-truncated-text { display: block; }
+#ds-view-component-wizard-progress:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-wizard-progress:checked ~ .ds-catalog #component-wizard-progress { display: block; }
 #ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-components:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-badge:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-badge"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -590,6 +594,8 @@ code {
 #ds-view-component-kbd-chord:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-kbd-chord"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-list-row:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-list-row"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-list-row:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-list-row"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-liveness:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-liveness"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-liveness:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-liveness"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-menu:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-menu"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-menu:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-menu"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-modal:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-modal"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -630,6 +636,8 @@ code {
 #ds-view-component-tooltip:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-tooltip"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-truncated-text:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-truncated-text"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-truncated-text:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-truncated-text"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-wizard-progress:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-wizard-progress"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-wizard-progress:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-wizard-progress"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns { display: block; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns .catalog-view { display: block; }
 #ds-view-pattern-context-rail:checked ~ .ds-catalog #patterns { display: block; }
@@ -1983,6 +1991,93 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   .ds-list-row,
   .ds-list-row-actions {
     transition: none;
+  }
+}
+
+/* components/liveness/component.css */
+/* Liveness — the two marks motion is allowed to make.
+ *
+ * Both animations live here rather than in the consuming component, so the
+ * `prefers-reduced-motion` guard cannot be forgotten by a caller: the class
+ * that animates is the class that carries the guard. */
+
+/* ── working dots: alive right now, unbounded ──────────────────────────────── */
+
+.ds-working-dots {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sem-space-3xs);
+  width: 14px;
+  flex: none;
+}
+
+.ds-working-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-accent-primary);
+  animation: ds-working-dot 1.2s var(--sem-motion-ease-standard) infinite;
+}
+
+/* Staggered, not synchronised — three dots blinking together read as one
+ * flashing mark rather than as movement. */
+.ds-working-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.ds-working-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes ds-working-dot {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ── change pulse: just changed, one shot ──────────────────────────────────── */
+
+/* The tint is written by the consumer as --ds-pulse-tint and is always a status
+ * colour that ALREADY applies to the thing being marked, so the pulse never
+ * introduces an accent of its own. */
+.ds-change-pulse {
+  animation: ds-change-pulse var(--sem-motion-duration-slow) var(--sem-motion-ease-standard) 1;
+}
+
+@keyframes ds-change-pulse {
+  0% {
+    color: var(--ds-pulse-tint, currentColor);
+    transform: scale(1);
+  }
+  35% {
+    color: var(--ds-pulse-tint, currentColor);
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* One guard, both marks. Reduced motion keeps the INFORMATION — a single steady
+ * dot still says "working" — and drops only the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .ds-working-dot {
+    animation: none;
+    opacity: 1;
+  }
+
+  .ds-working-dot:nth-child(2),
+  .ds-working-dot:nth-child(3) {
+    display: none;
+  }
+
+  .ds-change-pulse {
+    animation: none;
   }
 }
 
@@ -4047,6 +4142,92 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   overflow-wrap: anywhere;
 }
 
+/* components/wizard-progress/component.css */
+/* Wizard progress — position in a flow of known length.
+ *
+ * The strip is a status indicator and nothing else. Where back-jumping is
+ * offered the controls are a SIBLING group layered over it, because a
+ * role="progressbar" that is also a button carries two contracts on one element
+ * and assistive tech announces the wrong one. */
+
+.ds-wizard {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+}
+
+.ds-wizard-step {
+  height: 2px;
+  min-width: 24px;
+  flex: 1 1 auto;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-border-default);
+}
+
+.ds-wizard-step[data-state='done'],
+.ds-wizard-step[data-state='current'] {
+  background: var(--sem-color-accent-primary);
+}
+
+/* Current is distinguished from done by weight rather than by hue: the accent
+ * already means "progressed", and a second accent would need a second meaning. */
+.ds-wizard-step[data-state='current'] {
+  height: 3px;
+}
+
+/* ── labeled variant ───────────────────────────────────────────────────────── */
+
+.ds-wizard--labeled {
+  gap: var(--sem-space-lg);
+}
+
+.ds-wizard--labeled .ds-wizard-step {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+  height: auto;
+  min-width: 0;
+  flex: 0 1 auto;
+  border-radius: 0;
+  background: none;
+  color: var(--sem-color-text-subtle);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-wizard--labeled .ds-wizard-step[data-state='done'] {
+  color: var(--sem-color-text-muted);
+}
+
+.ds-wizard--labeled .ds-wizard-step[data-state='current'] {
+  color: var(--sem-color-text-primary);
+  font-weight: var(--sem-font-weight-medium);
+}
+
+.ds-wizard-glyph {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  flex: none;
+}
+
+/* ── back-jump controls ────────────────────────────────────────────────────── */
+
+/* Back, never forward: only a completed step gets one of these. */
+.ds-wizard-jump {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ds-wizard-jump:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+  border-radius: var(--sem-radius-chip);
+}
+
 </style>
 <style>
 /* Demo and pattern scaffolding, scoped to each embed wrapper. */
@@ -4481,6 +4662,33 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   }
 .ds-embed-component-list-row .demo-pane--narrow {
     max-width: 220px;
+  }
+.ds-embed-component-liveness {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-liveness .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-liveness .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-liveness .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-lg);
+    padding: var(--sem-space-xs) var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+  }
+.ds-embed-component-liveness .demo-note {
+    margin: var(--sem-space-lg) 0 0;
+    max-width: 60ch;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
   }
 .ds-embed-component-menu {
     margin: 0;
@@ -5558,6 +5766,18 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     font-size: var(--sem-font-size-meta);
     color: var(--sem-color-text-muted);
   }
+.ds-embed-component-wizard-progress { margin: 0; font-family: var(--sem-font-family-ui); }
+.ds-embed-component-wizard-progress .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-wizard-progress .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-wizard-progress .demo-box { max-width: 420px; margin-bottom: var(--sem-space-3xl); }
 .ds-embed-pattern-context-rail {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -6080,6 +6300,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-input" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-kbd-chord" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-list-row" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-liveness" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-menu" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-modal" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-panel-header" />
@@ -6100,6 +6321,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-toast" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tooltip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-truncated-text" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-wizard-progress" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-patterns" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-pattern-context-rail" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-pattern-list-surface" />
@@ -6137,6 +6359,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-input">Input</label>
 <label class="catalog-nav-item" for="ds-view-component-kbd-chord">Kbd chord</label>
 <label class="catalog-nav-item" for="ds-view-component-list-row">List row</label>
+<label class="catalog-nav-item" for="ds-view-component-liveness">Liveness</label>
 <label class="catalog-nav-item" for="ds-view-component-menu">Menu</label>
 <label class="catalog-nav-item" for="ds-view-component-modal">Modal</label>
 <label class="catalog-nav-item" for="ds-view-component-panel-header">Panel header</label>
@@ -6157,6 +6380,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-toast">Toast</label>
 <label class="catalog-nav-item" for="ds-view-component-tooltip">Tooltip</label>
 <label class="catalog-nav-item" for="ds-view-component-truncated-text">Truncated text</label>
+<label class="catalog-nav-item" for="ds-view-component-wizard-progress">Wizard progress</label>
 <label class="catalog-nav-group" for="ds-view-patterns">Patterns</label>
 <label class="catalog-nav-item" for="ds-view-pattern-context-rail">Context rail</label>
 <label class="catalog-nav-item" for="ds-view-pattern-list-surface">List surface</label>
@@ -6882,6 +7106,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>Empty is a state, not an absence.</strong> An empty lane keeps its header and its body height, and says what the emptiness means (&quot;Nothing in review&quot;) — otherwise an empty column and a failed load render identically.</p>
 <h4>Accessibility</h4>
 <ul><li>Each lane is a <code>&lt;section&gt;</code> with an <code>aria-label</code> naming the stage (&quot;In review lane&quot;); the body is an <code>&lt;ol&gt;</code>, so assistive technology reports position in set for free.</li><li>The lane label's glyph is <code>aria-hidden</code> — the label carries the meaning.</li><li>The drop indicator is <code>aria-hidden</code>; the *result* of a drop is announced by the move's non-drag path, not by decoration.</li><li>The dimmed state keeps its content readable — 0.4 opacity signals ineligibility during a drag that a pointer user is already mid-gesture on; it never carries information a keyboard user cannot get elsewhere.</li><li>If the lane's body scrolls and must be keyboard-scrollable on its own, give it <code>tabindex=&quot;0&quot;</code> and the inward focus ring, as <code>tabs</code> does for its panel. When every card inside is focusable, the cards themselves usually carry the scroll and the extra tab stop is noise — decide per surface.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/BoardLane.tsx</code>, exporting <code>BoardLane</code>, <code>BoardLaneDropIndicator</code> (the between-cards insertion mark) and <code>computeBoardLaneDropIndex</code> (the pure drop-target maths, kept separate so the drop position is testable without a drag).</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/board-lane/component.css</summary><pre><code>/* Board lane — the column chrome of a board: header band, scrollable card
@@ -7300,6 +7526,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>Reconciled against <code>src/renderer/src/components/ui/Buttons.tsx</code>. <strong>The shipped vocabulary wins on all three counts, and is now folded into the spec above rather than listed as drift.</strong></p>
 <ul><li><strong>Label padding</strong> — 8px at xs/sm, 12px at md. The reference CSS's constant <code>0 var(--sem-space-lg)</code> predates the <code>xs</code> step; applied to a 26px control it is mostly padding.</li><li><strong><code>xs</code> size</strong> — real, in use across dense chrome, and it has a token (<code>size.control.xs</code>). A ramp step the tokens already carry is not drift.</li><li><strong><code>OutlineButton</code></strong> — canonical. It is outlined rather than filled, so the one-accent rule is untouched.</li></ul>
 <p>Control <strong>heights were never drift</strong>: both the reference CSS and the shipped code already sit on <code>size.control.*</code>. MC-2118's own drift table listed a 28/32px prose ramp against the tokens' 26/30/34 — that prose is not in this entry, and the numbers here come from the tokens.</p>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/Buttons.tsx</code>, exporting <code>PrimaryButton</code>, <code>GhostButton</code>, <code>OutlineButton</code>, <code>IconButton</code> and <code>CloseIconButton</code> — the last being the canonical close affordance named under Variants, exported separately so no surface has to re-pick the glyph or the label.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/button/component.css</summary><pre><code>/* Button — extracted from the source product's PrimaryButton / GhostButton /
@@ -11804,6 +12032,220 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 &lt;/html&gt;
 </code></pre></details>
 </div>
+<div id="component-liveness" class="catalog-view catalog-component">
+<h3>Liveness</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-liveness">
+<div class="demo-stage">
+    <p class="demo-label">Alive right now — unbounded work on a row that stays readable</p>
+    <div class="demo-row">
+      <span class="ds-working-dots" role="img" aria-label="Agent working">
+        <span class="ds-working-dot" aria-hidden="true"></span>
+        <span class="ds-working-dot" aria-hidden="true"></span>
+        <span class="ds-working-dot" aria-hidden="true"></span>
+      </span>
+      <span>Reviewing the changeset</span>
+    </div>
+
+    <p class="demo-label" style="margin-top: var(--sem-space-3xl)">
+      Just changed — one shot, in a status colour that already applies
+    </p>
+    <div class="demo-row">
+      <span class="ds-change-pulse" style="--ds-pulse-tint: var(--sem-color-status-danger)" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="18" height="18" fill="none">
+          <path d="M8 2.5 14.5 13.5h-13z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+          <path d="M8 6.5v3.2M8 11.4v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+        </svg>
+      </span>
+      <span>3 errors</span>
+    </div>
+
+    <p class="demo-note">
+      The pulse is decoration: the count beside it is what actually says three.
+      The dots carry a required label, because "working" is information and a
+      purely visual liveness cue is invisible to a screen reader.
+    </p>
+  </div>
+</div>
+<div class="catalog-doc">
+<p>The two things motion is allowed to mean, and the marks that mean them.</p>
+<p>Motion in this system says exactly one of two things: <strong>something is alive right now</strong>, or <strong>something just changed</strong>. Anything else — an entrance flourish, a hover lift, a decorative loop — is noise competing with the two signals that carry information, and it teaches people to ignore movement.</p>
+<p>| Mark | Means | Shipped as | |---|---|---| | Working dots | alive right now, for an unknown duration | <code>ui/AgentWorkingDots.tsx</code> | | Change pulse | just changed, one shot | <code>ui/ChangePulse.tsx</code> | | Spinner | alive right now, for a bounded wait | [spinner](../spinner/component.md) |</p>
+<h4>Working dots</h4>
+<p>Three staggered dots in <code>accent.primary</code>, ~14px wide, on a pure-CSS keyframe loop. Use it where work is genuinely in flight and has no predictable end — an agent running, a job with no progress to report.</p>
+<p>It is <strong>not</strong> a spinner substitute. A spinner says &quot;wait, this will finish&quot;; the dots say &quot;this is ongoing&quot;, which is why they live on a row that stays readable and interactive around them rather than over a blocked surface.</p>
+<p>Never ambient. A mark that is always moving stops meaning anything, and it is the single most effective way to make a list feel unquiet.</p>
+<h4>Change pulse</h4>
+<p>A one-shot tint-and-glow that eases back to rest when a watched number moves. It paints in the <strong>status colour that already applies</strong> — passed in as a tint — so it never introduces a new accent, and it never fires on first render, only on a change from a value that was already on screen.</p>
+<p>Wrap the icon, not the number. The pulse is decoration; the real count stays on a sibling [badge](../badge/component.md) or in the control's accessible name, so nothing depends on having seen the animation.</p>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Rest | no motion at all — both marks are absent or static | | Live | dots cycle; the surface around them stays interactive | | Changed | one pulse, then rest — never a repeat, never a loop | | Reduced motion | dots collapse to a single static accent dot; the pulse does not play |</p>
+<p>Reduced motion is handled in the stylesheet rather than in each component, so a consumer cannot forget it: the same class that animates is the class that carries the <code>prefers-reduced-motion</code> guard.</p>
+<h4>Accessibility</h4>
+<ul><li>The working dots are <code>role=&quot;img&quot;</code> with a <strong>required</strong> label — &quot;Agent working&quot; is information, and a purely visual liveness cue is invisible to a screen reader.</li><li>The change pulse is <strong>decorative only</strong> and takes no ARIA. Whatever changed is announced by the thing that actually changed — the badge count, the status line — not by the animation.</li><li>Neither mark may be the only carrier of its meaning. Someone with reduced motion, or not looking at that corner of the screen when it fired, must still be able to find out.</li></ul>
+<h4>Usage</h4>
+<ul><li>One liveness mark per row. Dots *and* a spinner *and* a pulsing badge on the same row is three components saying one thing.</li><li>Never pulse on a value the person just typed. The pulse means &quot;this changed underneath you&quot;; replaying their own edit back at them is noise.</li><li>Motion is not emphasis. Something important but static gets ink, weight or a tone — never movement.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/liveness/component.css</summary><pre><code>/* Liveness — the two marks motion is allowed to make.
+ *
+ * Both animations live here rather than in the consuming component, so the
+ * `prefers-reduced-motion` guard cannot be forgotten by a caller: the class
+ * that animates is the class that carries the guard. */
+
+/* ── working dots: alive right now, unbounded ──────────────────────────────── */
+
+.ds-working-dots {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sem-space-3xs);
+  width: 14px;
+  flex: none;
+}
+
+.ds-working-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-accent-primary);
+  animation: ds-working-dot 1.2s var(--sem-motion-ease-standard) infinite;
+}
+
+/* Staggered, not synchronised — three dots blinking together read as one
+ * flashing mark rather than as movement. */
+.ds-working-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.ds-working-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes ds-working-dot {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ── change pulse: just changed, one shot ──────────────────────────────────── */
+
+/* The tint is written by the consumer as --ds-pulse-tint and is always a status
+ * colour that ALREADY applies to the thing being marked, so the pulse never
+ * introduces an accent of its own. */
+.ds-change-pulse {
+  animation: ds-change-pulse var(--sem-motion-duration-slow) var(--sem-motion-ease-standard) 1;
+}
+
+@keyframes ds-change-pulse {
+  0% {
+    color: var(--ds-pulse-tint, currentColor);
+    transform: scale(1);
+  }
+  35% {
+    color: var(--ds-pulse-tint, currentColor);
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* One guard, both marks. Reduced motion keeps the INFORMATION — a single steady
+ * dot still says &quot;working&quot; — and drops only the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .ds-working-dot {
+    animation: none;
+    opacity: 1;
+  }
+
+  .ds-working-dot:nth-child(2),
+  .ds-working-dot:nth-child(3) {
+    display: none;
+  }
+
+  .ds-change-pulse {
+    animation: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/liveness/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Liveness&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-lg);
+    padding: var(--sem-space-xs) var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+  }
+  .demo-note {
+    margin: var(--sem-space-lg) 0 0;
+    max-width: 60ch;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;div class=&quot;demo-stage&quot;&gt;
+    &lt;p class=&quot;demo-label&quot;&gt;Alive right now — unbounded work on a row that stays readable&lt;/p&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;ds-working-dots&quot; role=&quot;img&quot; aria-label=&quot;Agent working&quot;&gt;
+        &lt;span class=&quot;ds-working-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-working-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-working-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span&gt;Reviewing the changeset&lt;/span&gt;
+    &lt;/div&gt;
+
+    &lt;p class=&quot;demo-label&quot; style=&quot;margin-top: var(--sem-space-3xl)&quot;&gt;
+      Just changed — one shot, in a status colour that already applies
+    &lt;/p&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;ds-change-pulse&quot; style=&quot;--ds-pulse-tint: var(--sem-color-status-danger)&quot; aria-hidden=&quot;true&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;18&quot; height=&quot;18&quot; fill=&quot;none&quot;&gt;
+          &lt;path d=&quot;M8 2.5 14.5 13.5h-13z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;path d=&quot;M8 6.5v3.2M8 11.4v.1&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
+        &lt;/svg&gt;
+      &lt;/span&gt;
+      &lt;span&gt;3 errors&lt;/span&gt;
+    &lt;/div&gt;
+
+    &lt;p class=&quot;demo-note&quot;&gt;
+      The pulse is decoration: the count beside it is what actually says three.
+      The dots carry a required label, because &quot;working&quot; is information and a
+      purely visual liveness cue is invisible to a screen reader.
+    &lt;/p&gt;
+  &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
 <div id="component-menu" class="catalog-view catalog-component">
 <h3>Menu</h3>
 <div class="catalog-component-grid">
@@ -11904,7 +12346,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <h4>Accessibility</h4>
 <ul><li>The surface is <code>role=&quot;menu&quot;</code>; items are <code>role=&quot;menuitem&quot;</code>, or <code>menuitemradio</code> / <code>menuitemcheckbox</code> when they carry a selected state.</li><li>Focus moves through items with <code>ArrowUp</code> / <code>ArrowDown</code>, wrapping. <code>Home</code> and <code>End</code> jump to the ends. <code>Escape</code> closes the menu and returns focus to the trigger that opened it — the menu never leaves focus on <code>&lt;body&gt;</code>.</li><li>The trigger carries <code>aria-haspopup=&quot;menu&quot;</code> and <code>aria-expanded</code>.</li><li>A checked item states it with <code>aria-checked</code>, not with the tick glyph alone.</li><li>Disabled items keep <code>aria-disabled=&quot;true&quot;</code> rather than the <code>disabled</code> attribute where they must stay arrow-reachable, so a keyboard user can read what is unavailable instead of skipping past it silently.</li></ul>
 <h4>Shipped implementation</h4>
-<p><code>src/renderer/src/components/ui/ContextMenu.tsx</code> (pointer-positioned, and the <code>MenuItem</code> / <code>MenuDivider</code> / <code>MenuFlyoutItem</code> vocabulary), <code>OverflowMenu.tsx</code> (the kebab), <code>FilterMenu.tsx</code> (the narrowing glyph).</p>
+<p><code>src/renderer/src/components/ui/ContextMenu.tsx</code> (pointer-positioned, and the <code>MenuItem</code> / <code>MenuDivider</code> / <code>MenuFlyoutItem</code> / <code>MenuSwatchRow</code> vocabulary — <code>MenuSwatchRow</code> being the one row that is not a label, a line of colour swatches for picking a workspace accent without leaving the menu), <code>OverflowMenu.tsx</code> (the kebab), <code>FilterMenu.tsx</code> (the narrowing glyph).</p>
 <p><strong>Reconciled 2026-08-05.</strong> All three now meet this spec. <code>ContextMenu</code> moved furthest: onto the popover shell (7px radius, <code>border.strong</code>, <code>bg.surface-raised</code>), vertical-only padding so its rows are full-bleed, <code>meta</code> items instead of <code>body</code>, an inset focus ring, and its destructive row lost a raw <code>rgba(255,120,124,0.08)</code> hover tint — a second signal saying what the ink already said. <code>OverflowMenu</code>'s divider moved from <code>border.default</code> to <code>border.subtle</code>. <code>FilterMenu</code> already met the spec.</p>
 <p>Held by <code>ui/designSystemAxes.test.ts</code>, which compares the three against each other rather than each against itself — the divergence only ever existed *between* components, so a per-component test could not have caught it.</p>
 <p>Item vertical padding (6px) is deliberately unchanged: all three already agreed on it, and a spec that moves values which were never divergent is a spec nobody can adopt cheaply.</p>
@@ -12252,8 +12694,10 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p><strong>Rebuilding it in a framework:</strong> what must survive is the focus contract below, the scrim-press-not-scrim-click distinction (<code>pointerdown</code> on the scrim itself, so a drag that ends outside the shell does not dismiss), and the pending-state lockout.</p>
 <h4>Accessibility</h4>
 <ul><li><code>role=&quot;dialog&quot;</code> with <code>aria-modal=&quot;true&quot;</code> and <code>aria-labelledby</code> pointing at the title. The shell takes <code>tabindex=&quot;-1&quot;</code> so focus can land on it when the content has no obvious first control.</li><li><strong>Focus is trapped while open.</strong> Tab from the last focusable element wraps to the first; Shift+Tab from the first wraps to the last (sentinel elements before and after the shell, as the shipped Drawer does). The page behind the scrim is never reachable by keyboard while the modal holds the floor.</li><li>Initial focus: the confirm button in a confirm, the input in a prompt, the shell itself otherwise. On close, focus returns to the element that opened the modal.</li><li>Escape closes — unless a popover is open inside the modal, in which case the popover consumes it first: Escape closes the topmost surface only.</li><li>The scrim is <code>aria-hidden</code> plumbing, never <code>backdrop-filter</code> — separation comes from <code>overlay.scrim</code> plus <code>shadow.modal</code>.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/Modal.tsx</code>, with <code>ConfirmDialog.tsx</code> as the <code>--confirm</code> variant above: its <code>title</code> / <code>body</code> / <code>confirmLabel</code> / <code>cancelLabel</code> / <code>pendingLabel</code> / <code>tone</code> / <code>pending</code> options are this entry's confirm and prompt specs, and <code>ConfirmDialogProvider</code> + <code>useConfirmDialog()</code> are how a caller asks the question without mounting a dialog of its own.</p>
 <h4>Known drift</h4>
-<ul><li><code>Modal.tsx</code> ships <code>z-50</code> — and a header comment declaring its own six-tier ladder with &quot;z-50 — modals … always above everything else&quot; — while the token ladder puts modals at <code>--sem-z-modal: 70</code>. Two ladders of record; the token is the spec. Backlog item <strong>MC-2109</strong>.</li><li><code>Modal.tsx</code> ships <strong>no focus trap</strong>: focus moves into the shell but Tab walks out into the scrimmed page behind it. The trap specified above is the contract; the gap is <strong>MC-2109</strong>.</li><li><code>Modal.tsx</code> ships shadowless (vs <code>--sem-shadow-modal</code>), <code>rounded-[8px]</code> (a radius on no ramp step, vs <code>radius.shell</code> 9px), and a 20px inset (vs <code>space.3xl</code> 24px, which the token's own metadata names as the modal inset). All <strong>MC-2110</strong>.</li></ul>
+<ul><li>~~<code>Modal.tsx</code> ships <code>z-50</code> against the token ladder's 70.~~ <strong>Resolved 2026-08-05 (MC-2119):</strong> the token ladder is canonical and <code>Modal</code> consumes <code>--z-modal</code>. It mattered more than it looked — at 50 the modal sat a tier *below* the menu layer at 60, so a context menu opened over a dialog painted on top of it.</li><li><code>Modal.tsx</code> ships <strong>no focus trap</strong>: focus moves into the shell but Tab walks out into the scrimmed page behind it. The trap specified above is the contract; the gap is <strong>MC-2109</strong>.</li><li><code>Modal.tsx</code> ships shadowless (vs <code>--sem-shadow-modal</code>), <code>rounded-[8px]</code> (a radius on no ramp step, vs <code>radius.shell</code> 9px), and a 20px inset (vs <code>space.3xl</code> 24px, which the token's own metadata names as the modal inset). All <strong>MC-2110</strong>.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/modal/component.css</summary><pre><code>/* Modal — the one surface allowed to stop the page. Extracted from the source
@@ -17801,6 +18245,8 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 <h4>Known drift</h4>
 <p>All in <code>src/renderer/src/components/ui/Tabs.tsx</code>, unfiled — fold into the next tabs pass:</p>
 <ul><li>Tabs render 32px tall (<code>h-8</code>); the control ramp has no 32px step. Canon is <code>size.control.sm</code> (30px) — the default for a labeled control.</li><li>Tab icons render at 14px (<code>h-3.5</code>); the icon ramp has no 14px step. Canon is <code>icon.size.xs</code> (13px).</li><li>Disabled tabs ship <code>opacity-45</code>; the system-wide disabled treatment (list-row, task-card) is 0.5.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/Tabs.tsx</code>, exporting <code>Tabs</code> (the strip) and <code>TabPanel</code> (the panel bound to it by <code>aria-controls</code> / <code>aria-labelledby</code>).</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/tabs/component.css</summary><pre><code>/* Tabs — the view switcher inside a panel. Extracted from the shipped Tabs
@@ -19728,6 +20174,205 @@ targets.forEach((el) =&gt; {
 window.addEventListener('resize', measureAll)
 measureAll()
 &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-wizard-progress" class="catalog-view catalog-component">
+<h3>Wizard progress</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-wizard-progress">
+<div class="demo-stage">
+    <div class="demo-box">
+      <p class="demo-label">Dashes — short flow, position is the whole message</p>
+      <div class="ds-wizard" role="progressbar" aria-valuemin="1" aria-valuemax="4" aria-valuenow="3" aria-label="Step 3 of 4: Roster">
+        <span class="ds-wizard-step" data-state="done"></span>
+        <span class="ds-wizard-step" data-state="done"></span>
+        <span class="ds-wizard-step" data-state="current" aria-current="step"></span>
+        <span class="ds-wizard-step" data-state="upcoming"></span>
+      </div>
+    </div>
+
+    <div class="demo-box">
+      <p class="demo-label">Labeled — past four steps, people need to know which stations they passed</p>
+      <div class="ds-wizard ds-wizard--labeled" role="progressbar" aria-valuemin="1" aria-valuemax="4" aria-valuenow="3" aria-label="Step 3 of 4: Roster">
+        <span class="ds-wizard-step" data-state="done">
+          <svg class="ds-wizard-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <button type="button" class="ds-wizard-jump">Project</button>
+        </span>
+        <span class="ds-wizard-step" data-state="done">
+          <svg class="ds-wizard-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <button type="button" class="ds-wizard-jump">Goal</button>
+        </span>
+        <span class="ds-wizard-step" data-state="current" aria-current="step">Roster</span>
+        <span class="ds-wizard-step" data-state="upcoming">Review</span>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="catalog-doc">
+<p>Where you are in a flow that has a known number of steps, and — once a step is behind you — a way back to it.</p>
+<p>Use it only when the total is known and fixed. A flow whose length depends on what the person picks needs a different affordance: a count that changes as you go is worse than no count, because it removes the one thing this component is for. For an indeterminate wait use [liveness](../liveness/component.md); for navigation between peers use [tabs](../tabs/component.md).</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Strip | <code>.ds-wizard</code> | yes — <code>role=&quot;progressbar&quot;</code> with <code>aria-valuenow/min/max</code> | | Step | <code>.ds-wizard-step</code> | yes — one per step, in order | | Jump control | <code>.ds-wizard-jump</code> | no — only over already-completed steps | | Step label | <code>.ds-wizard-label</code> | labeled variant only |</p>
+<p><strong>The progressbar itself is never interactive.</strong> Where back-jumping is offered, the controls are a sibling group layered over the strip — a <code>role=&quot;progressbar&quot;</code> that is also a button is two contracts on one element, and screen readers announce the wrong one.</p>
+<h4>Variants</h4>
+<ul><li><strong>Dashes</strong> (default) — anonymous hairline segments. Right when the steps have no names worth reading, or the flow is short enough that position is the whole message.</li><li><strong>Labeled</strong> — each step's name inline, done steps ticked, the current one marked. Right past about four steps, where a count stops being orientation and people need to know *which* stations they have passed. Requires step names; without them it is dashes.</li></ul>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Done | filled in <code>accent.primary</code>; ticked in the labeled variant | | Current | filled, and the only step carrying <code>aria-current=&quot;step&quot;</code> | | Upcoming | <code>border.default</code> hairline, unfilled, inert | | Jumpable | a done step that is also focusable and activates the back-jump |</p>
+<p><strong>Done and current are separable.</strong> By default every step before the active one counts as done, which is what a simple wizard wants. A flow whose active step can itself still be working passes the completed count explicitly, so the current step reads as &quot;in progress&quot; rather than &quot;finished&quot; — the difference between &quot;you are on step 3&quot; and &quot;you have finished 3&quot;.</p>
+<h4>Usage</h4>
+<ul><li><strong>Back, never forward.</strong> Completed steps are reachable; upcoming ones are not. A wizard exists because the order matters, and a jump-ahead control quietly says it does not.</li><li>One strip per flow, at the top of the surface it describes.</li><li>Do not animate the fill between steps. Movement here would mean &quot;alive right now&quot;, which is not what a step change is.</li><li>Never the only statement of where you are. The surface should also say it in words — a heading naming the current step — because a person returning to a half-finished flow reads the heading, not the dashes.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The strip is <code>role=&quot;progressbar&quot;</code> with <code>aria-valuemin</code>, <code>aria-valuemax</code> and <code>aria-valuenow</code>, and an accessible name that reads &quot;Step 3 of 6&quot; — with the current step's own name appended when there is one.</li><li>The current step carries <code>aria-current=&quot;step&quot;</code>.</li><li>Jump controls are real buttons with their own names (&quot;Back to Project&quot;), not bare dashes: &quot;button&quot; repeated six times orients nobody.</li><li>Upcoming steps are not focusable and are not announced as available.</li><li>State is never carried by fill colour alone — done steps tick in the labeled variant, and the accessible name always carries the position.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/WizardProgress.tsx</code>.</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/wizard-progress/component.css</summary><pre><code>/* Wizard progress — position in a flow of known length.
+ *
+ * The strip is a status indicator and nothing else. Where back-jumping is
+ * offered the controls are a SIBLING group layered over it, because a
+ * role=&quot;progressbar&quot; that is also a button carries two contracts on one element
+ * and assistive tech announces the wrong one. */
+
+.ds-wizard {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+}
+
+.ds-wizard-step {
+  height: 2px;
+  min-width: 24px;
+  flex: 1 1 auto;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-border-default);
+}
+
+.ds-wizard-step[data-state='done'],
+.ds-wizard-step[data-state='current'] {
+  background: var(--sem-color-accent-primary);
+}
+
+/* Current is distinguished from done by weight rather than by hue: the accent
+ * already means &quot;progressed&quot;, and a second accent would need a second meaning. */
+.ds-wizard-step[data-state='current'] {
+  height: 3px;
+}
+
+/* ── labeled variant ───────────────────────────────────────────────────────── */
+
+.ds-wizard--labeled {
+  gap: var(--sem-space-lg);
+}
+
+.ds-wizard--labeled .ds-wizard-step {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+  height: auto;
+  min-width: 0;
+  flex: 0 1 auto;
+  border-radius: 0;
+  background: none;
+  color: var(--sem-color-text-subtle);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-wizard--labeled .ds-wizard-step[data-state='done'] {
+  color: var(--sem-color-text-muted);
+}
+
+.ds-wizard--labeled .ds-wizard-step[data-state='current'] {
+  color: var(--sem-color-text-primary);
+  font-weight: var(--sem-font-weight-medium);
+}
+
+.ds-wizard-glyph {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  flex: none;
+}
+
+/* ── back-jump controls ────────────────────────────────────────────────────── */
+
+/* Back, never forward: only a completed step gets one of these. */
+.ds-wizard-jump {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ds-wizard-jump:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+  border-radius: var(--sem-radius-chip);
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/wizard-progress/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Wizard progress&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body { margin: 0; font-family: var(--sem-font-family-ui); }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-box { max-width: 420px; margin-bottom: var(--sem-space-3xl); }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;div class=&quot;demo-stage&quot;&gt;
+    &lt;div class=&quot;demo-box&quot;&gt;
+      &lt;p class=&quot;demo-label&quot;&gt;Dashes — short flow, position is the whole message&lt;/p&gt;
+      &lt;div class=&quot;ds-wizard&quot; role=&quot;progressbar&quot; aria-valuemin=&quot;1&quot; aria-valuemax=&quot;4&quot; aria-valuenow=&quot;3&quot; aria-label=&quot;Step 3 of 4: Roster&quot;&gt;
+        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;done&quot;&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;done&quot;&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;current&quot; aria-current=&quot;step&quot;&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;upcoming&quot;&gt;&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-box&quot;&gt;
+      &lt;p class=&quot;demo-label&quot;&gt;Labeled — past four steps, people need to know which stations they passed&lt;/p&gt;
+      &lt;div class=&quot;ds-wizard ds-wizard--labeled&quot; role=&quot;progressbar&quot; aria-valuemin=&quot;1&quot; aria-valuemax=&quot;4&quot; aria-valuenow=&quot;3&quot; aria-label=&quot;Step 3 of 4: Roster&quot;&gt;
+        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;done&quot;&gt;
+          &lt;svg class=&quot;ds-wizard-glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;path d=&quot;M3 8.5 6.5 12 13 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-wizard-jump&quot;&gt;Project&lt;/button&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;done&quot;&gt;
+          &lt;svg class=&quot;ds-wizard-glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;path d=&quot;M3 8.5 6.5 12 13 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-wizard-jump&quot;&gt;Goal&lt;/button&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;current&quot; aria-current=&quot;step&quot;&gt;Roster&lt;/span&gt;
+        &lt;span class=&quot;ds-wizard-step&quot; data-state=&quot;upcoming&quot;&gt;Review&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>

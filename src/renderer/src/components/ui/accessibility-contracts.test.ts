@@ -82,7 +82,14 @@ expectIncludes(popover, 'createPortal(', 'Popover portals its surface out of cli
 expectIncludes(popover, 'document.body,', 'Popover mounts the surface on document.body')
 expectIncludes(popover, "position: 'fixed'", 'Popover anchors the surface with fixed coordinates')
 expectIncludes(popover, 'computeSurfacePosition(', 'Popover computes placement from the trigger rect')
-expectIncludes(popover, 'popover-enter z-50 rounded-[7px]', 'Popover uses the canonical popover shell')
+// The stacking tier is the token, not the number it happens to equal: MC-2119
+// put every overlay layer on `--sem-z-*` (aliased `--z-*`) after Modal's private
+// ladder was found sitting a tier BELOW the menus.
+expectIncludes(
+  popover,
+  'popover-enter z-[var(--z-popover)] rounded-[7px]',
+  'Popover uses the canonical popover shell',
+)
 expectIncludes(popover, "window.addEventListener('scroll', reposition, true)", 'Popover tracks its trigger on scroll')
 expectIncludes(popover, "wantsBottom && surfaceHeight + SURFACE_GAP > spaceBelow", 'Popover flips above the trigger when space is tight')
 
@@ -119,7 +126,15 @@ expectIncludes(contextMenu, 'aria-haspopup="menu"', 'MenuFlyoutItem advertises i
 expectIncludes(contextMenu, 'aria-expanded={open}', 'MenuFlyoutItem reports flyout expanded state')
 expectIncludes(contextMenu, "event.key === 'ArrowRight'", 'MenuFlyoutItem opens its flyout on ArrowRight')
 expectIncludes(contextMenu, "event.key === 'ArrowLeft'", 'MenuFlyoutItem flyout closes back to its item on ArrowLeft')
-expectIncludes(contextMenu, 'FOCUS_RING_CLASS', 'ContextMenu items apply the shared focus ring class')
+// The INSET variant specifically (MC-2118's menu unification): menu rows are
+// full-bleed to the surface edge now, so an outset ring is clipped by the
+// surface border. Still the shared treatment — just the shape that survives
+// touching the edge.
+expectIncludes(
+  contextMenu,
+  'FOCUS_RING_INSET_CLASS',
+  'ContextMenu items apply the shared focus ring class',
+)
 
 // WorkspaceSidebar consumes the primitive — it must not hand-roll menu chrome.
 expectIncludes(workspaceSidebar, '<ContextMenu', 'WorkspaceSidebar menus render through the ui ContextMenu primitive')

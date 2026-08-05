@@ -74,3 +74,10 @@ Control **heights were never drift**: both the reference CSS and the shipped
 code already sit on `size.control.*`. MC-2118's own drift table listed a
 28/32px prose ramp against the tokens' 26/30/34 — that prose is not in this
 entry, and the numbers here come from the tokens.
+
+## Shipped implementation
+
+`src/renderer/src/components/ui/Buttons.tsx`, exporting `PrimaryButton`,
+`GhostButton`, `OutlineButton`, `IconButton` and `CloseIconButton` — the last
+being the canonical close affordance named under Variants, exported separately
+so no surface has to re-pick the glyph or the label.

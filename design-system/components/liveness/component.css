@@ -1,0 +1,85 @@
+/* Liveness — the two marks motion is allowed to make.
+ *
+ * Both animations live here rather than in the consuming component, so the
+ * `prefers-reduced-motion` guard cannot be forgotten by a caller: the class
+ * that animates is the class that carries the guard. */
+
+/* ── working dots: alive right now, unbounded ──────────────────────────────── */
+
+.ds-working-dots {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sem-space-3xs);
+  width: 14px;
+  flex: none;
+}
+
+.ds-working-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-accent-primary);
+  animation: ds-working-dot 1.2s var(--sem-motion-ease-standard) infinite;
+}
+
+/* Staggered, not synchronised — three dots blinking together read as one
+ * flashing mark rather than as movement. */
+.ds-working-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.ds-working-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes ds-working-dot {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ── change pulse: just changed, one shot ──────────────────────────────────── */
+
+/* The tint is written by the consumer as --ds-pulse-tint and is always a status
+ * colour that ALREADY applies to the thing being marked, so the pulse never
+ * introduces an accent of its own. */
+.ds-change-pulse {
+  animation: ds-change-pulse var(--sem-motion-duration-slow) var(--sem-motion-ease-standard) 1;
+}
+
+@keyframes ds-change-pulse {
+  0% {
+    color: var(--ds-pulse-tint, currentColor);
+    transform: scale(1);
+  }
+  35% {
+    color: var(--ds-pulse-tint, currentColor);
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* One guard, both marks. Reduced motion keeps the INFORMATION — a single steady
+ * dot still says "working" — and drops only the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .ds-working-dot {
+    animation: none;
+    opacity: 1;
+  }
+
+  .ds-working-dot:nth-child(2),
+  .ds-working-dot:nth-child(3) {
+    display: none;
+  }
+
+  .ds-change-pulse {
+    animation: none;
+  }
+}
