@@ -2,6 +2,7 @@ import React, { useCallback, useRef, useState } from 'react'
 
 import { Popover } from './Popover'
 import type { SelectItem } from './Select'
+import { MENU_GROUP_LABEL_CLASS, MENU_ITEM_CLASS, MENU_LIST_CLASS } from './menuClasses'
 import { FOCUS_RING_CLASS } from './tokens'
 
 // The shared filter/sort affordance: axis controls collapse behind a single
@@ -85,7 +86,7 @@ export function FilterMenu({ ariaLabel, groups, className }: FilterMenuProps): J
       popupRole="menu"
       placement="bottom-end"
       className={className}
-      surfaceClassName="min-w-[12rem] py-1"
+      surfaceClassName={`min-w-[12rem] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusSelected}
       renderTrigger={({ ref, togglePopover, triggerProps, open: opened }) => (
         <button
@@ -152,7 +153,7 @@ function FilterGroup({
       aria-label={label}
       className={`py-1 ${divider ? 'mt-1 border-t border-[color:var(--border-subtle)] pt-1.5' : ''}`}
     >
-      <p className="px-2.5 pb-0.5 text-micro text-[color:var(--text-subtle)]">{label}</p>
+      <p className={`${MENU_GROUP_LABEL_CLASS} pb-0.5`}>{label}</p>
       {items.map((item) => {
         const selected = item.value === current
         return (
@@ -169,12 +170,10 @@ function FilterGroup({
             onKeyDown={onOptionKey}
             onClick={() => onSelect(item.value)}
             className={[
-              'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-meta',
-              'hover:bg-[color:var(--bg-hover)]',
+              MENU_ITEM_CLASS,
               selected
                 ? 'text-[color:var(--text-strong)]'
                 : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]',
-              FOCUS_RING_CLASS,
             ].join(' ')}
           >
             <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[color:var(--accent-primary)]">

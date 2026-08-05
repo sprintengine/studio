@@ -22,7 +22,10 @@ import { resolve } from 'node:path'
 // since MC-1533 (switchboard-module.ts), so their dispatch ids live there;
 // the shell palette carries the Sprint Engine rows.
 const PALETTE_FILES = [
-  'src/renderer/src/components/CommandPalette.tsx',
+  // Moved into the kit by MC-2117; this path was left behind and the lint has
+  // been crashing on ENOENT ever since, taking the whole `npm run lint` gate
+  // with it.
+  'src/renderer/src/components/ui/CommandPalette.tsx',
   'src/renderer/src/modules/switchboard-module.ts',
 ]
 const PANEL_FILES = [

@@ -44,6 +44,17 @@ export {
   roveMenuFocus,
   useClampedMenuPosition,
 } from './ContextMenu'
+// The menu canon itself, for a surface that must build a menu row the kit does
+// not already own. Prefer the components above — a class string is the last
+// resort, not the entry point.
+export {
+  MENU_DIVIDER_CLASS,
+  MENU_GROUP_LABEL_CLASS,
+  MENU_ITEM_CLASS,
+  MENU_LIST_CLASS,
+  MENU_ROW_CLASS,
+  MENU_SURFACE_CLASS,
+} from './menuClasses'
 export { ProviderRow, ProviderStateId } from './ProviderRow'
 export type { ProviderRowProps } from './ProviderRow'
 export { CliProviderStateLine } from './CliProviderStateLine'

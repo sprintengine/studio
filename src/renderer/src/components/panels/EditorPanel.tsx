@@ -16,7 +16,7 @@ import {
 import { removeFileTabsForPath } from '../../utils/modelRegistry'
 import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
-import { IconButton, Tooltip } from '../ui'
+import { ContextMenu, IconButton, MenuDivider, MenuItem, Tooltip } from '../ui'
 
 interface Props {
   workspaceId: string
@@ -29,6 +29,17 @@ const GIT_DECORATION_DEBOUNCE_MS = 200
 const GIT_DECORATION_MAX_CHARS = 600_000
 const GIT_DECORATION_MAX_LINES = 8_000
 const MARKDOWN_PREVIEW_MAX_CHARS = 2 * 1024 * 1024
+
+// What the editor's right-click menu needs to know, sampled at open time —
+// selection and tab count can both change while the menu is up.
+type EditorMenuState = { x: number; y: number; hasSelection: boolean; canCloseOtherEditorTabs: boolean }
+
+// The chord Monaco already binds for its clipboard and select-all actions.
+// Read per render, never once at module load: preload publishes `window.api`
+// after this module is first evaluated.
+function editorModifier(): string {
+  return typeof window !== 'undefined' && window.api?.platform === 'darwin' ? '⌘' : 'Ctrl+'
+}
 
 function isPathOrChild(path: string, parentPath: string): boolean {
   const trimmedParent = trimPath(parentPath)
@@ -80,6 +91,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   const [imageDataUrl, setImageDataUrl] = useState<{ path: string; url: string } | null>(null)
   const [markdownMode, setMarkdownMode] = useState<'preview' | 'source'>('preview')
   const [restoringFilePath, setRestoringFilePath] = useState<string | null>(null)
+  const [editorMenu, setEditorMenu] = useState<EditorMenuState | null>(null)
   const isMarkdown = activeFile?.language === 'markdown'
   const markdownPreviewTooLarge = isMarkdown && activeContent.length > MARKDOWN_PREVIEW_MAX_CHARS
   const showPreview = isMarkdown && markdownMode === 'preview' && !markdownPreviewTooLarge
@@ -284,41 +296,80 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     return () => window.removeEventListener(EDITOR_FOCUS_EVENT, handleFocusRequest)
   }, [activeFilePath, showPreview, workspaceId])
 
-  const showEditorContextMenu = async (event: React.MouseEvent<HTMLDivElement>) => {
+  // Monaco's own menu is off (`contextmenu: false`); this is the replacement.
+  // It was a native Electron popup until MC-2104 — OS-drawn, Title-Cased, and
+  // unable to carry the shortcut hints Monaco actually binds.
+  const openEditorContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
     if (showPreview || !editorRef.current) return
 
     event.preventDefault()
-    const editor = editorRef.current
-    const selection = editor.getSelection()
-    const hasSelection = Boolean(selection && !selection.isEmpty())
-    const canCloseOtherEditorTabs = Boolean(activeFilePath && openFiles.some((file) => file.path !== activeFilePath))
+    const selection = editorRef.current.getSelection()
+    setEditorMenu({
+      x: event.clientX,
+      y: event.clientY,
+      hasSelection: Boolean(selection && !selection.isEmpty()),
+      canCloseOtherEditorTabs: Boolean(activeFilePath && openFiles.some((file) => file.path !== activeFilePath)),
+    })
+  }
 
-    const command = await window.api.showContextMenu([
-      { id: 'cut', label: 'Cut', enabled: hasSelection },
-      { id: 'copy', label: 'Copy', enabled: hasSelection },
-      { id: 'paste', label: 'Paste' },
-      { type: 'separator' },
-      { id: 'select-all', label: 'Select All' },
-      { type: 'separator' },
-      { id: 'close-other-editor-tabs', label: 'Close Other Editor Tabs', enabled: canCloseOtherEditorTabs },
-    ])
+  // The clipboard actions run through Monaco's hidden textarea, so the editor
+  // has to hold focus when they fire. Closing the menu hands focus back on
+  // unmount, which happens after this handler returns — hence the deferral:
+  // focus and trigger land once React has finished putting focus back.
+  const runEditorAction = (action: string) => {
+    setEditorMenu(null)
+    window.setTimeout(() => {
+      const editor = editorRef.current
+      if (!editor) return
+      editor.focus()
+      editor.trigger('context-menu', action, null)
+    }, 0)
+  }
 
-    if (command === 'cut') {
-      editor.trigger('context-menu', 'editor.action.clipboardCutAction', null)
-    } else if (command === 'copy') {
-      editor.trigger('context-menu', 'editor.action.clipboardCopyAction', null)
-    } else if (command === 'paste') {
-      editor.trigger('context-menu', 'editor.action.clipboardPasteAction', null)
-    } else if (command === 'select-all') {
-      editor.trigger('context-menu', 'editor.action.selectAll', null)
-    } else if (command === 'close-other-editor-tabs' && activeFilePath) {
-      openFiles
-        .filter((file) => file.path !== activeFilePath)
-        .forEach((file) => {
-          closeFile(workspaceId, file.path)
-          removeFileTabsForPath(workspaceId, file.path)
-        })
-    }
+  // Paste cannot go through Monaco's `clipboardPasteAction` like cut and copy
+  // do. Those two run `document.execCommand` over a selection the renderer
+  // already owns; paste asks for content the page has no permission to read, so
+  // Chromium refuses a programmatic one and the action silently no-ops. (It did
+  // under the native menu too — the row has never worked. Verified by
+  // `scripts/testing/native-menu-conformance-pass.mjs`, which cuts the buffer
+  // and pastes it back.) ⌘V still works because a real key press hands Monaco a
+  // genuine paste event the OS filled in.
+  //
+  // So this reads the clipboard through the app's own IPC — the same route
+  // `clipboardPasteBridge` uses for plain inputs, which skips Monaco precisely
+  // because Monaco owns the keyboard path — and applies it as an edit. Empty
+  // clipboard is a no-op, never an edit that clears the selection.
+  //
+  // Deferred like `runEditorAction` and for the same reason: the menu hands
+  // focus back on unmount, after this handler returns. Not left to the IPC
+  // round trip to provide that ordering — the focus is what makes the edit land
+  // in the editor, and it should not depend on how slow a clipboard read is.
+  const pasteFromClipboard = () => {
+    setEditorMenu(null)
+    window.setTimeout(() => {
+      void (async () => {
+        const text = await window.api.clipboardReadText()
+        const editor = editorRef.current
+        if (!editor || !text) return
+        const selection = editor.getSelection()
+        if (!selection) return
+        editor.focus()
+        editor.pushUndoStop()
+        editor.executeEdits('context-menu', [{ range: selection, text, forceMoveMarkers: true }])
+        editor.pushUndoStop()
+      })()
+    }, 0)
+  }
+
+  const closeOtherEditorTabs = () => {
+    setEditorMenu(null)
+    if (!activeFilePath) return
+    openFiles
+      .filter((file) => file.path !== activeFilePath)
+      .forEach((file) => {
+        closeFile(workspaceId, file.path)
+        removeFileTabsForPath(workspaceId, file.path)
+      })
   }
 
   useEffect(() => {
@@ -524,7 +575,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
             </div>
           </div>
         ) : (
-          <div className="h-full" onContextMenu={(event) => void showEditorContextMenu(event)}>
+          <div className="h-full" onContextMenu={openEditorContextMenu}>
             <MonacoEditor
               height="100%"
               language={activeFile.language}
@@ -555,6 +606,41 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
           </div>
         )}
       </div>
+      {editorMenu ? (
+        <ContextMenu
+          x={editorMenu.x}
+          y={editorMenu.y}
+          ariaLabel={`Editor actions for ${activeFile.name}`}
+          onClose={() => setEditorMenu(null)}
+          surfaceClassName="min-w-[196px]"
+        >
+          <MenuItem
+            disabled={!editorMenu.hasSelection}
+            shortcut={`${editorModifier()}X`}
+            onClick={() => runEditorAction('editor.action.clipboardCutAction')}
+          >
+            Cut
+          </MenuItem>
+          <MenuItem
+            disabled={!editorMenu.hasSelection}
+            shortcut={`${editorModifier()}C`}
+            onClick={() => runEditorAction('editor.action.clipboardCopyAction')}
+          >
+            Copy
+          </MenuItem>
+          <MenuItem shortcut={`${editorModifier()}V`} onClick={pasteFromClipboard}>
+            Paste
+          </MenuItem>
+          <MenuDivider />
+          <MenuItem shortcut={`${editorModifier()}A`} onClick={() => runEditorAction('editor.action.selectAll')}>
+            Select all
+          </MenuItem>
+          <MenuDivider />
+          <MenuItem disabled={!editorMenu.canCloseOtherEditorTabs} onClick={closeOtherEditorTabs}>
+            Close other editor tabs
+          </MenuItem>
+        </ContextMenu>
+      ) : null}
     </div>
   )
 }

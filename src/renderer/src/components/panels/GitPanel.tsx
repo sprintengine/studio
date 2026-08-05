@@ -14,7 +14,7 @@ import {
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { FOCUS_RING_CLASS, GhostButton, IconButton, InboxRow, InlineNotice, PanelHeader, RefreshIcon, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
+import { ContextMenu, FOCUS_RING_CLASS, GhostButton, IconButton, InboxRow, InlineNotice, MenuItem, PanelHeader, RefreshIcon, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
@@ -2131,23 +2131,11 @@ function StashList({
   )
 }
 
-async function showChangeRowContextMenu(
-  event: React.MouseEvent,
-  entry: GitStatusEntry,
-  scope: 'staged' | 'unstaged',
-  onOpenFile: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => Promise<void>,
-  onOpenFileInEditor: (entry: GitStatusEntry) => Promise<void>
-): Promise<void> {
-  event.preventDefault()
-  event.stopPropagation()
-  if (typeof window.api.showContextMenu !== 'function') return
-  const command = await window.api.showContextMenu([
-    { id: 'view-diff', label: 'View Git Diff' },
-    { id: 'open-in-editor', label: 'Open File in Editor' },
-  ])
-  if (command === 'view-diff') return void onOpenFile(entry, scope)
-  if (command === 'open-in-editor') return void onOpenFileInEditor(entry)
-}
+// The change row's right-click menu (MC-2104). It used to be a native Electron
+// popup, which put two menu systems inside one panel: change rows opened an
+// OS-drawn, Title-Cased menu while the log rows next door opened the in-app
+// `OverflowMenu`. Same panel, same kind of row, two registers.
+type ChangeRowMenuState = { x: number; y: number; entry: GitStatusEntry; scope: 'staged' | 'unstaged' }
 
 function ChangeGroup({
   group,
@@ -2170,6 +2158,7 @@ function ChangeGroup({
   onRowRevert: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => void
   registerRowNode: (key: string, node: HTMLElement | null) => void
 }) {
+  const [rowMenu, setRowMenu] = useState<ChangeRowMenuState | null>(null)
   const selectedInGroup = group.entries.reduce(
     (count, entry) => (selectedKeys.has(changeSelectionKey(group.scope, entry.path)) ? count + 1 : count),
     0
@@ -2251,9 +2240,11 @@ function ChangeGroup({
                   ref={(node) => registerRowNode(rowKey, node)}
                   data-git-change-row="true"
                   className="group/row flex items-center gap-1"
-                  onContextMenu={(event) =>
-                    void showChangeRowContextMenu(event, entry, group.scope, onOpenFile, onOpenFileInEditor)
-                  }
+                  onContextMenu={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setRowMenu({ x: event.clientX, y: event.clientY, entry, scope: group.scope })
+                  }}
                 >
                   <div className="min-w-0 flex-1">
                     <InboxRow
@@ -2305,6 +2296,34 @@ function ChangeGroup({
           ) : null}
         </>
       )}
+      {rowMenu ? (
+        <ContextMenu
+          x={rowMenu.x}
+          y={rowMenu.y}
+          ariaLabel={`Actions for ${rowMenu.entry.relativePath}`}
+          onClose={() => setRowMenu(null)}
+          surfaceClassName="min-w-[188px]"
+        >
+          <MenuItem
+            onClick={() => {
+              const { entry, scope } = rowMenu
+              setRowMenu(null)
+              void onOpenFile(entry, scope)
+            }}
+          >
+            View Git diff
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              const { entry } = rowMenu
+              setRowMenu(null)
+              void onOpenFileInEditor(entry)
+            }}
+          >
+            Open file in editor
+          </MenuItem>
+        </ContextMenu>
+      ) : null}
     </section>
   )
 }

@@ -58,10 +58,23 @@
             </span>
             Reveal file
           </button>
-          <!-- No glyph: the slot is still reserved, so the label does not shift. -->
+          <!-- No glyph of its own: the empty slot is still rendered, so the
+               label holds the same left edge as its neighbours. -->
           <button type="button" class="ds-menu-item" role="menuitem">
             <span class="ds-menu-item-glyph" aria-hidden="true"></span>
             Rename…
+            <span class="ds-menu-item-hint">F2</span>
+          </button>
+          <!-- A flyout trigger: chevron in the hint slot, held highlighted
+               while its nested menu is open. -->
+          <button type="button" class="ds-menu-item" role="menuitem" aria-haspopup="menu" aria-expanded="true">
+            <span class="ds-menu-item-glyph" aria-hidden="true"></span>
+            Move to
+            <span class="ds-menu-item-hint" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none">
+                <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
           </button>
           <div class="ds-menu-separator" role="separator"></div>
           <button type="button" class="ds-menu-item" role="menuitem" data-destructive="true">
@@ -85,12 +98,10 @@
               </svg>
             </span>
             All projects
-            <span class="ds-menu-item-hint">49</span>
           </button>
           <button type="button" class="ds-menu-item" role="menuitemradio" aria-checked="false">
             <span class="ds-menu-item-glyph" aria-hidden="true"></span>
             multicode
-            <span class="ds-menu-item-hint">31</span>
           </button>
           <div class="ds-menu-separator" role="separator"></div>
           <div class="ds-menu-group-label">Sort</div>

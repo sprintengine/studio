@@ -121,16 +121,22 @@ async function main(): Promise<void> {
     }
   }
 
+  // Queried off the DOCUMENT, not off `container`. `ContextMenu` portals its
+  // surface to `document.body` — it has to, because a `position: fixed` menu is
+  // clipped by any ancestor carrying a transform, and the panels it opens over
+  // carry one permanently. So the rows are a sibling of the mount point, never a
+  // descendant, and every query off `container` silently matched nothing: the
+  // deep-equal below compared [] against the expected labels and this whole file
+  // went red the day the portal landed.
+  const rows = (): HTMLElement[] =>
+    Array.from(dom.window.document.querySelectorAll('[data-menu-item="true"]'))
+
   function labels(): string[] {
-    return Array.from(container.querySelectorAll('[data-menu-item="true"]')).map(
-      (node) => node.textContent?.trim() ?? '',
-    )
+    return rows().map((node) => node.textContent?.trim() ?? '')
   }
 
   function click(label: string): void {
-    const button = Array.from(container.querySelectorAll('[data-menu-item="true"]')).find(
-      (node) => node.textContent?.trim() === label,
-    )
+    const button = rows().find((node) => node.textContent?.trim() === label)
     assert.ok(button, `menu has a "${label}" row`)
     act(() => {
       button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -222,7 +228,7 @@ async function main(): Promise<void> {
 
   await run('the surface is a named menu and Escape closes it', () => {
     const view = mount(fileTarget(`${ROOT}/src/App.tsx`))
-    const surface = container.querySelector('[role="menu"]')
+    const surface = dom.window.document.querySelector('[role="menu"]')
     assert.ok(surface, 'renders a role="menu" surface')
     assert.equal(
       surface.getAttribute('aria-label'),

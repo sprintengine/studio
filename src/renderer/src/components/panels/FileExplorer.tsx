@@ -12,6 +12,7 @@ import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } fr
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
 import { consumePendingFileReveal, subscribeFileReveal } from '../../utils/fileReveal'
+import { ContextMenu, MenuDivider, MenuFlyoutItem, MenuItem } from '../ui/ContextMenu'
 import { IconButton } from '../ui/Buttons'
 import { PanelHeader } from '../ui/PanelHeader'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
@@ -673,6 +674,29 @@ async function searchFiles(
   }
 }
 
+// The tree's right-click menu, as it stood the instant it opened. Every field
+// is an availability the native template used to encode as `enabled` or as a
+// conditional spread, sampled once so the open menu cannot contradict itself
+// mid-interaction.
+type ExplorerMenuState = {
+  x: number
+  y: number
+  entry: Entry | null
+  contextSelection: Entry[]
+  targetDir: string
+  canOpenPath: boolean
+  canOpenInBrowser: boolean
+  canViewGitDiff: boolean
+  canStartFuturePlan: boolean
+  canStartFuturePlanBundle: boolean
+  hasSourceBundleOutsideBacklog: boolean
+  directoryToggle: 'expand' | 'collapse' | null
+  canUseSinglePathCommands: boolean
+  canPaste: boolean
+  canDeletePath: boolean
+  deleteLabel: string
+}
+
 interface ExplorerTreeProps {
   workspaceId: string
   rootPath: string
@@ -740,6 +764,7 @@ function ExplorerTree({
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null)
   const [rootDropActive, setRootDropActive] = useState(false)
   const [errorToast, setErrorToast] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<ExplorerMenuState | null>(null)
   const refreshTimeoutRef = useRef<number | null>(null)
   const searchTimeoutRef = useRef<number | null>(null)
   const searchRequestSeqRef = useRef(0)
@@ -1556,7 +1581,12 @@ function ExplorerTree({
     void copyExternalFilesIntoDirectory(collectNativeDropPaths(event.dataTransfer), rootPath)
   }
 
-  const showContextMenu = async (event: React.MouseEvent, entry?: Entry) => {
+  // The tree's right-click menu (MC-2104). It was a native Electron popup until
+  // this item — OS-drawn and Title-Cased, so the richest menu in the product was
+  // also the one that looked least like it. Everything the menu offers is
+  // sampled here, when it opens, exactly as the native template was: the
+  // selection, the clipboard and the git status can all move while it is up.
+  const openContextMenu = (event: React.MouseEvent, entry?: Entry) => {
     event.preventDefault()
     event.stopPropagation()
     focusTree()
@@ -1594,49 +1624,40 @@ function ExplorerTree({
     )
     const deleteLabel = contextSelection.length > 1
       ? canDeletePath
-        ? `Delete ${contextSelection.length} Items`
-        : 'Delete Items (restart app)'
+        ? `Delete ${contextSelection.length} items`
+        : 'Delete items (restart app)'
       : canDeletePath
         ? 'Delete'
         : 'Delete (restart app)'
-    const command = await window.api.showContextMenu([
-      ...(isSingleSelection && entry && !entry.isDir && canUsePathCommands ? [{ id: 'open', label: 'Open' }] : []),
-      ...(isSingleSelection && entry && isHtmlFile(entry) && canUsePathCommands ? [{ id: 'open-in-browser', label: 'Open in Browser' }] : []),
-      ...(isSingleSelection && entry && !entry.isDir && canUsePathCommands ? [{ id: 'open-in-explorer', label: 'Open in Explorer' }] : []),
-      ...(canViewGitDiff ? [{ id: 'view-git-diff', label: 'View Git Diff' }] : []),
-      ...(canStartFuturePlan
-        ? [{
-          label: 'Run a Sprint From',
-          submenu: [
-            { id: 'create-markdown-sprintengine-product', label: 'Product Plan...' },
-            { id: 'create-markdown-sprintengine-architect', label: 'Implementation Plan...' },
-            { type: 'separator' as const },
-            { id: 'create-markdown-sprintengine-generic', label: 'Generic Handoff...' },
-          ],
-        }]
-        : []),
-      ...(canStartFuturePlanBundle ? [{ id: 'create-source-bundle-sprintengine', label: `Run a Sprint From ${contextSelection.length === 1 ? 'Source' : `${contextSelection.length} Sources`}...` }] : []),
-      ...(hasSourceBundleOutsideBacklog ? [{
-        id: 'source-bundle-backlog-only',
-        label: 'Source bundles must be under backlog/',
-        enabled: false,
-      }] : []),
-      ...(isSingleSelection && entry?.isDir && !isSearching && canUsePathCommands
-        ? [{ id: expandedPaths[entry.path] ? 'collapse' : 'expand', label: expandedPaths[entry.path] ? 'Collapse' : 'Expand' }]
-        : []),
-      ...(entry ? [{ type: 'separator' as const }] : []),
-      { id: 'new-file', label: 'New File' },
-      { id: 'new-folder', label: 'New Folder' },
-      { type: 'separator' as const },
-      ...(isSingleSelection && entry && canUsePathCommands ? [{ id: 'copy', label: 'Copy' }] : []),
-      { id: 'paste', label: 'Paste', enabled: Boolean(clipboard) && !isSearching },
-      ...(isSingleSelection && entry && canUsePathCommands ? [{ id: 'rename', label: 'Rename' }] : []),
-      ...(entry ? [{ id: 'delete', label: deleteLabel, enabled: canDeletePath }] : []),
-      { type: 'separator' as const },
-      { id: 'refresh', label: 'Refresh' },
-    ])
 
-    if (!command) return
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      entry: entry ?? null,
+      contextSelection,
+      targetDir,
+      canOpenPath: Boolean(isSingleSelection && entry && !entry.isDir && canUsePathCommands),
+      canOpenInBrowser: Boolean(isSingleSelection && entry && isHtmlFile(entry) && canUsePathCommands),
+      canViewGitDiff,
+      canStartFuturePlan,
+      canStartFuturePlanBundle,
+      hasSourceBundleOutsideBacklog,
+      directoryToggle:
+        isSingleSelection && entry?.isDir && !isSearching && canUsePathCommands
+          ? expandedPaths[entry.path]
+            ? 'collapse'
+            : 'expand'
+          : null,
+      canUseSinglePathCommands: Boolean(isSingleSelection && entry && canUsePathCommands),
+      canPaste: Boolean(clipboard) && !isSearching,
+      canDeletePath,
+      deleteLabel,
+    })
+  }
+
+  const runContextMenuCommand = async (command: string, menu: ExplorerMenuState) => {
+    const { entry, contextSelection, targetDir } = menu
+    setContextMenu(null)
     if (command === 'open' && entry) return void activateEntry(entry)
     if (command === 'open-in-browser' && entry && isHtmlFile(entry)) {
       try {
@@ -1646,7 +1667,7 @@ function ExplorerTree({
       }
       return
     }
-    if (command === 'open-in-explorer' && entry && !entry.isDir) {
+    if (command === 'reveal-in-file-manager' && entry && !entry.isDir) {
       try {
         await window.api.showItemInFolder(entry.path)
       } catch (error) {
@@ -2097,7 +2118,7 @@ function ExplorerTree({
         data-selection-pane="auto"
         title={searchDiagnosticsTitle}
         onKeyDown={(event) => void handleKeyDown(event)}
-        onContextMenu={(event) => void showContextMenu(event)}
+        onContextMenu={(event) => openContextMenu(event)}
         onMouseDown={beginBackgroundDragSelection}
         onDragOver={handleRootDragOver}
         onDragLeave={handleRootDragLeave}
@@ -2151,7 +2172,7 @@ function ExplorerTree({
                 void activateEntry(entry)
                 focusTree()
               }}
-              onContextMenu={(event) => void showContextMenu(event, entry)}
+              onContextMenu={(event) => openContextMenu(event, entry)}
               className={`group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-meta transition-colors ${
                 isDropTarget
                   ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ring-1 ring-[color:var(--accent-primary)]'
@@ -2205,6 +2226,93 @@ function ExplorerTree({
           )
         })}
       </div>
+      {contextMenu ? (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          ariaLabel={contextMenu.entry ? `Actions for ${contextMenu.entry.name}` : 'File tree actions'}
+          onClose={() => setContextMenu(null)}
+          surfaceClassName="min-w-[214px]"
+        >
+          {contextMenu.canOpenPath ? (
+            <MenuItem onClick={() => void runContextMenuCommand('open', contextMenu)}>Open</MenuItem>
+          ) : null}
+          {contextMenu.canOpenInBrowser ? (
+            <MenuItem onClick={() => void runContextMenuCommand('open-in-browser', contextMenu)}>
+              Open in browser
+            </MenuItem>
+          ) : null}
+          {contextMenu.canOpenPath ? (
+            <MenuItem onClick={() => void runContextMenuCommand('reveal-in-file-manager', contextMenu)}>
+              Reveal in file manager
+            </MenuItem>
+          ) : null}
+          {contextMenu.canViewGitDiff ? (
+            <MenuItem onClick={() => void runContextMenuCommand('view-git-diff', contextMenu)}>
+              View Git diff
+            </MenuItem>
+          ) : null}
+          {contextMenu.canStartFuturePlan ? (
+            <MenuFlyoutItem label="Run a sprint from" ariaLabel="Run a sprint from" surfaceClassName="min-w-[196px]">
+              <MenuItem onClick={() => void runContextMenuCommand('create-markdown-sprintengine-product', contextMenu)}>
+                Product plan…
+              </MenuItem>
+              <MenuItem onClick={() => void runContextMenuCommand('create-markdown-sprintengine-architect', contextMenu)}>
+                Implementation plan…
+              </MenuItem>
+              <MenuDivider />
+              <MenuItem onClick={() => void runContextMenuCommand('create-markdown-sprintengine-generic', contextMenu)}>
+                Generic handoff…
+              </MenuItem>
+            </MenuFlyoutItem>
+          ) : null}
+          {contextMenu.canStartFuturePlanBundle ? (
+            <MenuItem onClick={() => void runContextMenuCommand('create-source-bundle-sprintengine', contextMenu)}>
+              {contextMenu.contextSelection.length === 1
+                ? 'Run a sprint from source…'
+                : `Run a sprint from ${contextMenu.contextSelection.length} sources…`}
+            </MenuItem>
+          ) : null}
+          {contextMenu.hasSourceBundleOutsideBacklog ? (
+            <MenuItem disabled onClick={() => {}}>
+              Source bundles must be under backlog/
+            </MenuItem>
+          ) : null}
+          {contextMenu.directoryToggle ? (
+            <MenuItem
+              onClick={() =>
+                void runContextMenuCommand(contextMenu.directoryToggle === 'collapse' ? 'collapse' : 'expand', contextMenu)
+              }
+            >
+              {contextMenu.directoryToggle === 'collapse' ? 'Collapse' : 'Expand'}
+            </MenuItem>
+          ) : null}
+          {contextMenu.entry ? <MenuDivider /> : null}
+          <MenuItem onClick={() => void runContextMenuCommand('new-file', contextMenu)}>New file</MenuItem>
+          <MenuItem onClick={() => void runContextMenuCommand('new-folder', contextMenu)}>New folder</MenuItem>
+          <MenuDivider />
+          {contextMenu.canUseSinglePathCommands ? (
+            <MenuItem onClick={() => void runContextMenuCommand('copy', contextMenu)}>Copy</MenuItem>
+          ) : null}
+          <MenuItem disabled={!contextMenu.canPaste} onClick={() => void runContextMenuCommand('paste', contextMenu)}>
+            Paste
+          </MenuItem>
+          {contextMenu.canUseSinglePathCommands ? (
+            <MenuItem onClick={() => void runContextMenuCommand('rename', contextMenu)}>Rename</MenuItem>
+          ) : null}
+          {contextMenu.entry ? (
+            <MenuItem
+              variant="danger"
+              disabled={!contextMenu.canDeletePath}
+              onClick={() => void runContextMenuCommand('delete', contextMenu)}
+            >
+              {contextMenu.deleteLabel}
+            </MenuItem>
+          ) : null}
+          <MenuDivider />
+          <MenuItem onClick={() => void runContextMenuCommand('refresh', contextMenu)}>Refresh</MenuItem>
+        </ContextMenu>
+      ) : null}
     </>
   )
 }

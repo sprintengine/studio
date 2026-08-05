@@ -15,6 +15,7 @@
 import React from 'react'
 import { Popover } from './Popover'
 import { MenuItem, roveMenuFocus } from './ContextMenu'
+import { MENU_LIST_CLASS } from './menuClasses'
 import { FOCUS_RING_INSET_CLASS } from './tokens'
 
 export type SplitButtonItem = {
@@ -144,7 +145,10 @@ export function SplitButton({
       ariaLabel={menuAriaLabel}
       popupRole="menu"
       placement="bottom-end"
-      surfaceClassName="min-w-[200px] p-1 text-meta"
+      // The shared list layer. This surface carried `p-1` — horizontal padding,
+      // which insets the rows and is exactly what makes a full-bleed `MenuItem`
+      // look like a card inside a card. Vertical only, like every other menu.
+      surfaceClassName={`min-w-[200px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusFirstItem}
       className={className}
       renderTrigger={({ ref, togglePopover, triggerProps }) => (

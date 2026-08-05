@@ -2118,13 +2118,24 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  *   fills to its own inset instead.
  *
  *   DIVIDER — border.subtle. A divider inside a bordered surface separates
- *   siblings; at border.default it competes with the surface's own edge. */
+ *   siblings; at border.default it competes with the surface's own edge.
+ *
+ *   HINT — mono micro at text.disabled, in a trailing column. A hint is carried
+ *   only for a shortcut that works WITHOUT the menu open: it teaches the reader
+ *   how to skip this menu next time. Not kbd-chord capsules — the chord is for
+ *   surfaces where the shortcut is the subject, and a line of capsules
+ *   out-weighs the label it annotates.
+ *
+ *   SUBMENU — the nested surface is this same material and INHERITS this type
+ *   size. A host that pins the size of a submenu it opens is rebuilding the
+ *   divergence above; see component.md for anchoring and open/close. */
 
 .ds-menu {
   /* Vertical padding only: rows reach both side edges, so the fill is full-bleed
    * and the surface's border is the only vertical line in the component. */
   padding: var(--sem-space-2xs) 0;
-  min-width: 200px;
+  /* No width of its own: the floor belongs to the host, which knows what its
+   * labels are (a kebab menu sets one; a select matches its trigger). */
   font-size: var(--sem-font-size-meta);
   color: var(--sem-color-text-default);
 }
@@ -2161,17 +2172,26 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   outline-offset: calc(var(--sem-focus-ring-offset) * -1);
 }
 
+/* A flyout trigger holds the highlight while its nested menu is open, so the
+ * path back to the parent stays visible. */
+.ds-menu-item[aria-expanded="true"] {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+/* The whole row dims rather than only its ink: a row is label PLUS leading
+ * glyph plus hint, and a colour rule reaches only the label. */
 .ds-menu-item[aria-disabled="true"],
 .ds-menu-item:disabled {
   cursor: not-allowed;
-  color: var(--sem-color-text-disabled);
+  opacity: 0.45;
   background: transparent;
 }
 
 /* Destructive is ink, never a fill. A red row in a list of black ones is read
  * before it is aimed at; a red BLOCK is read as already-happened. */
 .ds-menu-item[data-destructive="true"] {
-  color: var(--sem-color-tone-error);
+  color: var(--sem-color-status-danger);
 }
 
 /* The leading slot is reserved, not sized by the item: a menu where only some
@@ -2181,18 +2201,28 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--sem-icon-size-sm);
-  height: var(--sem-icon-size-sm);
+  /* The inline-glyph step — the one that sits beside meta copy without
+   * out-weighing it. */
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
   flex: none;
   color: var(--sem-color-text-subtle);
 }
 
-/* Trailing hint — a keyboard shortcut, a submenu chevron, a check. Pushed to
- * the far edge so hints line up as a column rather than trailing each label. */
+/* Trailing hint — a keyboard shortcut, or a submenu chevron. Pushed to the far
+ * edge so hints line up as a column rather than trailing each label. Mono,
+ * because a shortcut is keys: read as glyphs, not as words, and wanting the
+ * column to stay straight. */
 .ds-menu-item-hint {
+  /* inline-flex, not inline: the slot also carries a chevron, and an inline box
+   * would sit the glyph on the text baseline with a descender's worth of gap
+   * under it. */
+  display: inline-flex;
+  align-items: center;
   margin-left: auto;
   flex: none;
   color: var(--sem-color-text-disabled);
+  font-family: var(--sem-font-family-mono);
   font-size: var(--sem-font-size-micro);
   font-variant-numeric: tabular-nums;
 }
@@ -2206,10 +2236,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 /* A group heading is the alternative to a separator, not an addition to it:
  * one or the other says "a new group starts here". */
 .ds-menu-group-label {
+  /* On the item's own horizontal inset, so the heading and the rows it heads
+   * share a left edge. Quieter than the rows, and not bolder: a heading that
+   * out-weighs the actions under it is competing with them. */
   padding: var(--sem-space-sm) var(--sem-space-md) var(--sem-space-3xs);
   color: var(--sem-color-text-subtle);
   font-size: var(--sem-font-size-micro);
-  font-weight: var(--sem-font-weight-emphasis);
 }
 
 /* components/modal/component.css */
@@ -10987,7 +11019,8 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>| Part | Class | Required | |---|---|---| | Chord | <code>.ds-kbd-chord</code> | yes — <code>role=&quot;img&quot;</code> with an <code>aria-label</code> naming the chord | | Key | <code>.ds-kbd-chord-key</code> | yes — a real <code>&lt;kbd&gt;</code>: mono <code>font.size.micro</code>, <code>bg.surface-raised</code>, <code>border.subtle</code> hairline, <code>radius.chip</code> | | Separator | <code>.ds-kbd-chord-sep</code> | between keys — a <code>+</code> in <code>text.disabled</code>, <code>aria-hidden</code> | | Sequence word | <code>.ds-kbd-chord-then</code> | between strokes of a multi-stroke chord — the word &quot;then&quot;, <code>aria-hidden</code> |</p>
 <p>The capsule is a 16px-tall micro-type chip — glyph scale, deliberately below the 24px hit-target floor, because it is not a target. Anything this small that could be clicked would be a defect; a label cannot be.</p>
 <h4>Variants</h4>
-<p>None. One appearance, in every context — a menu's trailing hint, a tooltip's suffix, a settings row. A chord that changes style per surface stops reading as the same vocabulary.</p>
+<p>None. One appearance, in every context — a settings row, a walkthrough step, a composer's footer. A chord that changes style per surface stops reading as the same vocabulary.</p>
+<p>Not every shortcut hint is a chord. A [menu](../menu/component.md) row annotates its shortcut as plain mono micro text: there the shortcut is a footnote to an action, and capsules would out-weigh the label. The chord is for surfaces where the shortcut itself is the subject.</p>
 <h4>States</h4>
 <p>None. The chord is display-only: no hover, no focus, no pressed state. A &quot;pressed key&quot; animation would be motion meaning nothing.</p>
 <h4>Usage</h4>
@@ -12272,10 +12305,23 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
             </span>
             Reveal file
           </button>
-          <!-- No glyph: the slot is still reserved, so the label does not shift. -->
+          <!-- No glyph of its own: the empty slot is still rendered, so the
+               label holds the same left edge as its neighbours. -->
           <button type="button" class="ds-menu-item" role="menuitem">
             <span class="ds-menu-item-glyph" aria-hidden="true"></span>
             Rename…
+            <span class="ds-menu-item-hint">F2</span>
+          </button>
+          <!-- A flyout trigger: chevron in the hint slot, held highlighted
+               while its nested menu is open. -->
+          <button type="button" class="ds-menu-item" role="menuitem" aria-haspopup="menu" aria-expanded="true">
+            <span class="ds-menu-item-glyph" aria-hidden="true"></span>
+            Move to
+            <span class="ds-menu-item-hint" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none">
+                <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
           </button>
           <div class="ds-menu-separator" role="separator"></div>
           <button type="button" class="ds-menu-item" role="menuitem" data-destructive="true">
@@ -12299,12 +12345,10 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
               </svg>
             </span>
             All projects
-            <span class="ds-menu-item-hint">49</span>
           </button>
           <button type="button" class="ds-menu-item" role="menuitemradio" aria-checked="false">
             <span class="ds-menu-item-glyph" aria-hidden="true"></span>
             multicode
-            <span class="ds-menu-item-hint">31</span>
           </button>
           <div class="ds-menu-separator" role="separator"></div>
           <div class="ds-menu-group-label">Sort</div>
@@ -12325,7 +12369,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>A list of actions, summoned onto a popover surface. Right-click a row, press a kebab, or open a narrowing glyph: whichever way it was asked for, what appears is this.</p>
 <p>Use a menu when the list is *actions*. Use [select](../select/component.md) when it is a value being chosen, [combobox](../combobox/component.md) when that value has to be filtered for, and the detail pane when the answer is something to read rather than something to do.</p>
 <h4>Why this spec exists</h4>
-<p>The system shipped three menus and no spec, so each host answered the same questions alone — and a row could be right-clicked and kebab-pressed into two menus that disagreed about radius, border, ground, item type, hover shape and divider colour. <code>OverflowMenu.tsx:200</code> admits the split in a comment.</p>
+<p>The system shipped three menus and no spec, so each host answered the same questions alone — and a row could be right-clicked and kebab-pressed into two menus that disagreed about radius, border, ground, item type, hover shape and divider colour. <code>OverflowMenu.tsx:200</code> admitted the split in a comment.</p>
 <p>Measured 2026-08-05, before this ruling:</p>
 <p>| | ContextMenu | OverflowMenu | FilterMenu | |---|---|---|---| | Surface radius | 6px | 7px (popover) | 7px (popover) | | Surface border | <code>border.default</code> | <code>border.strong</code> | <code>border.strong</code> | | Surface ground | <code>bg.surface</code> | <code>bg.surface-raised</code> | <code>bg.surface-raised</code> | | Item type | body (13px) | meta (12px) | meta (12px) | | Hover fill | inset, 4px radius | full-bleed | full-bleed | | Divider | <code>border.subtle</code> | <code>border.default</code> | <code>border.subtle</code> |</p>
 <h4>The rulings</h4>
@@ -12335,21 +12379,55 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p><strong>Hover fill: full-bleed, no per-item radius.</strong> An inset rounded fill inside a padded surface reads as a card nested inside a card. Every other row list in the system — <code>list-surface</code>, <code>context-rail</code>, <code>inbox-row</code> — fills to its own inset instead, and a menu is a row list.</p>
 <p><strong>Divider: <code>border.subtle</code>.</strong> Inside an already-bordered surface a divider separates siblings; at <code>border.default</code> it competes with the surface's own edge and the menu reads as two stacked panels.</p>
 <p><strong>Hover and keyboard highlight are one state.</strong> A menu is walked with the arrow keys as often as with the pointer, and &quot;the row about to be activated&quot; is one idea. Two highlights for it is the same class of split this spec closes.</p>
+<p><strong>Casing: sentence case, including a menu that stays native.</strong> The product's <code>principles.md</code> rule — *&quot;sentence case everywhere except real keyboard shortcuts&quot;* — is a rule about the product's voice, so it does not stop at the edge of a surface the OS draws. macOS conventionally Title-Cases its menus, and that convention loses here: a native menu borrows the OS's metrics and rendering, never its wording. &quot;Close other editor tabs&quot;, not &quot;Close Other Editor Tabs&quot;. Keys stay keys. Which hosts may stay native at all is a separate question, ruled per host under [native menus](#native-menus--the-per-host-ruling) — where the single exception, the OS application menu bar, is also ruled.</p>
+<h5>Why the losing values lost</h5>
+<ul><li><strong>13px items</strong> — retired above: chrome, not prose.</li><li><strong>6px radius</strong> (<code>rounded-md</code>) — a radius off-ramp, and one step off the <code>radius.overlay</code> every other floating surface in the product uses. A menu is not a shape of its own.</li><li><strong><code>border.default</code> on <code>bg.surface</code></strong> — ContextMenu's border/ground pair described a *flat* surface. It floats, and floating chrome is already ruled: the popover shell's <code>border.strong</code> on <code>bg.surface-raised</code>. The weaker border on the lower ground made the same menu read as nearer the page when opened by right-click than when opened by kebab.</li><li><strong><code>border.default</code> dividers</strong> — retired above, for <code>border.subtle</code>.</li><li><strong>The inset rounded hover fill</strong> — retired above, for full-bleed.</li></ul>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Surface | <code>.ds-popover</code> | yes — the shared shell, <code>role=&quot;menu&quot;</code> | | List | <code>.ds-menu</code> | yes — vertical padding only, so rows reach both edges | | Item | <code>.ds-menu-item</code> | yes — <code>role=&quot;menuitem&quot;</code> (or <code>menuitemradio</code> / <code>menuitemcheckbox</code>) | | Leading slot | <code>.ds-menu-item-glyph</code> | reserved on every item once any item has one | | Trailing hint | <code>.ds-menu-item-hint</code> | no — a shortcut, a count, a submenu chevron | | Separator | <code>.ds-menu-separator</code> | no — <code>role=&quot;separator&quot;</code> | | Group label | <code>.ds-menu-group-label</code> | no — the alternative to a separator, not an addition |</p>
-<p>The <strong>leading slot is reserved by the menu, never sized by the item</strong>. A menu where only some rows carry a glyph would otherwise ladder its own labels — the same defect the context rail's row icon slot fixes, and the same fix.</p>
-<h4>Variants</h4>
-<p><strong>Destructive</strong> (<code>data-destructive=&quot;true&quot;</code>) is ink, never a fill. A red row among black ones is read before it is aimed at; a red *block* is read as something that has already happened.</p>
+<p>| Part | Class | Required | |---|---|---| | Surface | <code>.ds-popover</code> | yes — the shared shell, <code>role=&quot;menu&quot;</code> | | List | <code>.ds-menu</code> | yes — vertical padding only, so rows reach both edges | | Item | <code>.ds-menu-item</code> | yes — <code>role=&quot;menuitem&quot;</code> (or <code>menuitemradio</code> / <code>menuitemcheckbox</code>) | | Leading slot | <code>.ds-menu-item-glyph</code> | all items in a menu, or none | | Trailing hint | <code>.ds-menu-item-hint</code> | no — a shortcut, or a submenu chevron | | Separator | <code>.ds-menu-separator</code> | no — <code>role=&quot;separator&quot;</code> | | Group label | <code>.ds-menu-group-label</code> | no — the alternative to a separator, not an addition |</p>
+<p>The <strong>leading slot is all-or-nothing per menu</strong>. Give every item a glyph or give none of them one: a menu where only some rows carry one ladders its own labels, and the reader's eye loses the left edge it was tracking. Where a menu is genuinely mixed, render the empty slot on the rows without a glyph rather than letting their labels slide left.</p>
+<h4>Surface</h4>
+<p>| Property | Token | Value | |---|---|---| | Radius | <code>radius.overlay</code> | 7px | | Border | <code>border.strong</code> | 1px | | Ground | <code>bg.surface-raised</code> | | | Shadow | <code>shadow.popover</code> | | | Padding | <code>space.2xs</code> vertical, none horizontal | 4px / 0 | | Layer | <code>z.popover</code>, or <code>z.menu</code> when pointer-positioned | 50 / 60 |</p>
+<p>The horizontal zero is the load-bearing part: it is what makes rows full-bleed, and it is what an inset fill needs in order to look wrong.</p>
+<p>A pointer-positioned menu sits one tier up, at <code>z.menu</code>, because it is summoned *over* whatever is already open — including an open popover.</p>
+<h4>Item</h4>
+<p>| Property | Token | Value | |---|---|---| | Type | <code>font.size.meta</code> | 12px | | Padding | <code>space.xs</code> vertical, <code>space.md</code> horizontal | 6px / 10px | | Gap | <code>space.sm</code> | 8px | | Radius | none | full-bleed |</p>
+<p>Vertical padding (6px) is deliberately what the three menus already agreed on before this spec. A spec that moves values which were never divergent is a spec nobody can adopt cheaply.</p>
+<p><strong>The size travels with the item, never with the host.</strong> A host that sets the type size on the surface — including the surface of a submenu it opens — is rebuilding the drift this spec closed.</p>
+<h4>Divider</h4>
+<p><code>border.subtle</code>, 1px, with <code>space.2xs</code> (4px) of air above and below. A group label is the *alternative* to a divider, not an addition to it: one or the other says &quot;a new group starts here&quot;, and both together says it twice.</p>
+<p>A group label is <code>font.size.micro</code> at <code>text.subtle</code>, on the item's own horizontal inset so the heading and its rows share a left edge — quieter than the rows, and never bolder. A heading that out-weighs the actions under it is competing with them.</p>
+<h4>Destructive item</h4>
+<p>Ink, never a fill: <code>status.danger</code> on the label (the product aliases it <code>--tone-error</code>), and the same <code>bg.hover</code> on hover that every other row gets. A red row among black ones is read before it is aimed at; a red *block* is read as something that has already happened.</p>
 <p>There is no size variant, no tone variant beyond destructive, and no &quot;compact&quot; menu. A menu that needs to be denser is a menu with too many items in it.</p>
+<h4>Keyboard hints</h4>
+<p>A shortcut hint sits in the trailing slot as <strong>mono <code>font.size.micro</code> (11px) at <code>text.disabled</code></strong> — plain text, not [kbd-chord](../kbd-chord/component.md) capsules. The chord is the right vocabulary where the shortcut is the subject (a settings row that lists it, a walkthrough step that teaches it); in a menu it is a footnote to an action the row already offers, and a line of capsules out-weighs the label they annotate.</p>
+<p>Carry a hint only for a shortcut that <strong>works without the menu open</strong> — the hint teaches the reader how to skip this menu next time. A key that only works while the menu is open is menu mechanics, not an accelerator, and belongs in the keyboard contract below rather than painted onto a row.</p>
+<p>Hints are <code>text.disabled</code> and right-aligned into a column, so they read as one quiet annotation rather than as trailing content on each label.</p>
+<h4>Submenu</h4>
+<p>A flyout item opens a nested menu beside itself. The nested surface is the same material as its parent — same class, same tokens — and <strong>inherits its type size</strong>; no host pins it.</p>
+<p><strong>Anchoring.</strong> The flyout opens at the parent item's right edge with a 2px gap, pulled up by 5px (the surface's 4px vertical padding plus its 1px border) so its first row top-aligns with the item that opened it. When the viewport is tight on the right, it flips to open leftward of the item rather than sliding across and covering the parent menu.</p>
+<p><strong>Opening.</strong> Hovering the trigger, clicking it, or pressing <code>ArrowRight</code>, <code>Enter</code>, or <code>Space</code>. The trigger keeps the hover highlight while its flyout is open, so the path back is visible.</p>
+<p><strong>Closing.</strong> <code>Escape</code> or <code>ArrowLeft</code> closes the flyout and returns focus to the trigger; the pointer leaving both the trigger and the flyout closes it after a short grace period, so crossing the gap between them does not dismiss it. A choice inside the flyout dismisses the whole menu the way any item does — by the consumer closing it, which is what lets a toggle row leave it open.</p>
+<p><strong>Structure.</strong> The trigger is a <code>menuitem</code> with <code>aria-haspopup=&quot;menu&quot;</code> and <code>aria-expanded</code>, and a trailing chevron. The nested surface is its own <code>menu</code> with its own accessible name and its own roving focus — each surface roves only its own level. It stays inside the parent menu's DOM so a click in the flyout reads as a click inside the parent.</p>
 <h4>States</h4>
-<ul><li><strong>Rest</strong> — transparent; the surface is the only ground.</li><li><strong>Hover / active</strong> (<code>data-active=&quot;true&quot;</code>) — <code>bg.hover</code>, ink lifts to <code>text.primary</code>. One state for both pointer and keyboard.</li><li><strong>Focus-visible</strong> — the shared ring, drawn *inset*, because a full-bleed row touches the surface border and an outset ring would be clipped by it.</li><li><strong>Disabled</strong> — <code>text.disabled</code>, no fill, <code>aria-disabled</code>. Kept in the list rather than removed: a control that vanishes when unavailable teaches nothing, and the gap it leaves moves every row below it.</li></ul>
+<ul><li><strong>Rest</strong> — transparent; the surface is the only ground.</li><li><strong>Hover / active</strong> (<code>data-active=&quot;true&quot;</code>) — <code>bg.hover</code>, ink lifts to <code>text.primary</code>. One state for both pointer and keyboard.</li><li><strong>Focus-visible</strong> — the shared ring, drawn *inset*, because a full-bleed row touches the surface border and an outset ring straddles it.</li><li><strong>Disabled</strong> — the whole row dims to 45% and the cursor says not-allowed. It dims rather than re-inking because the row is label *plus* leading glyph plus hint, and an ink rule reaches only the label. Kept in the list rather than removed: a control that vanishes when unavailable teaches nothing, and the gap it leaves moves every row below it.</li></ul>
 <h4>Accessibility</h4>
-<ul><li>The surface is <code>role=&quot;menu&quot;</code>; items are <code>role=&quot;menuitem&quot;</code>, or <code>menuitemradio</code> / <code>menuitemcheckbox</code> when they carry a selected state.</li><li>Focus moves through items with <code>ArrowUp</code> / <code>ArrowDown</code>, wrapping. <code>Home</code> and <code>End</code> jump to the ends. <code>Escape</code> closes the menu and returns focus to the trigger that opened it — the menu never leaves focus on <code>&lt;body&gt;</code>.</li><li>The trigger carries <code>aria-haspopup=&quot;menu&quot;</code> and <code>aria-expanded</code>.</li><li>A checked item states it with <code>aria-checked</code>, not with the tick glyph alone.</li><li>Disabled items keep <code>aria-disabled=&quot;true&quot;</code> rather than the <code>disabled</code> attribute where they must stay arrow-reachable, so a keyboard user can read what is unavailable instead of skipping past it silently.</li></ul>
+<ul><li>The surface is <code>role=&quot;menu&quot;</code>; items are <code>role=&quot;menuitem&quot;</code>, or <code>menuitemradio</code> / <code>menuitemcheckbox</code> when they carry a selected state.</li><li>Focus moves through items with <code>ArrowUp</code> / <code>ArrowDown</code>, wrapping. <code>Home</code> and <code>End</code> jump to the ends. <code>Escape</code> closes the menu and returns focus to the trigger that opened it — the menu never leaves focus on <code>&lt;body&gt;</code>.</li><li>The trigger carries <code>aria-haspopup=&quot;menu&quot;</code> and <code>aria-expanded</code>.</li><li>A checked item states it with <code>aria-checked</code>, not with the tick glyph alone.</li><li>Disabled items carry the <code>disabled</code> attribute and are skipped by the arrow keys, so the keyboard walk only ever lands on rows that do something. They stay visible, and their dimmed state is what says why they were skipped.</li></ul>
+<h4>Native menus — the per-host ruling</h4>
+<p>The product also shipped a third register: <strong>native Electron context menus</strong>, drawn by the OS through <code>window.api.showContextMenu</code>. Four hosts used one, and after MC-2104 none do.</p>
+<p>| Host | Ruling | |---|---| | Editor (<code>EditorPanel</code>) | <strong>In-app.</strong> Monaco's own menu was already off; the native popup only returned a command id, so nothing about the clipboard actions depended on it. In-app, the rows carry the ⌘X/⌘C/⌘V/⌘A hints Monaco already binds — which a native menu built from ids, not roles, could not show. The conversion also found Paste dead: a programmatic <code>clipboardPasteAction</code> is refused by Chromium, so the row had never worked under either menu. It reads the clipboard over IPC and applies an edit instead. | | File tree (<code>FileExplorer</code>) | <strong>In-app.</strong> The richest menu in the product, and the one that looked least like it. Its submenu is <code>MenuFlyoutItem</code>, its explainer row a disabled <code>MenuItem</code>, and Delete is destructive ink for the first time. | | Git change rows (<code>GitPanel</code>) | <strong>In-app.</strong> Two menu systems lived in one panel: change rows opened an OS menu while the log rows beside them opened <code>OverflowMenu</code>. | | Tab strip (<code>WorkspaceLayout</code>) | <strong>In-app.</strong> Its colour submenu could only list the seven highlights as Title-Cased rows of their *names*; in-app it is <code>MenuSwatchRow</code>, the control the workspace sidebar already used for the same choice. |</p>
+<p><strong>Why none stayed.</strong> A native menu can carry none of this spec: no <code>role=&quot;menu&quot;</code>, no Escape-restores-focus, no roving focus, no shortcut column, no destructive ink, and metrics the OS owns. That is a price worth paying only for something the DOM cannot do — an OS-level integration, a services menu, a drag-target the renderer never sees. None of the four needed one. A host that does may stay native, but it states its reason in this table first; silence is not a ruling.</p>
+<p><strong>The one native menu that remains is the application MENU BAR</strong> (<code>src/main/app-menu.ts</code>), and it is the exception to the casing rule above. It is not a product surface: it is the OS's, sitting among every other app's menu bar, and half its rows are Electron <code>role:</code> items — Undo, Cut, Paste, Toggle Full Screen — whose labels the OS supplies and the app cannot restyle. Sentence case there would produce a submenu that disagreed with itself. <strong>Title Case in the menu bar, sentence case in every menu the product draws inside its own window.</strong></p>
+<p>Held by <code>ui/accessibility-contracts.test.ts</code>, which fails on any <code>window.api.showContextMenu</code> call under <code>src/renderer/src</code>, and exercised against the running app by <code>scripts/testing/native-menu-conformance-pass.mjs</code> — a native menu has no DOM, so a pass that finds <code>role=&quot;menu&quot;</code> at each of these four places is proof the conversion is real.</p>
+<h4>Retired — reject these on sight</h4>
+<p>Both shipped, both are named here by where they lived so a reviewer can recognise them coming back:</p>
+<p>1. <strong>Host-pinned item size</strong> — <code>OverflowMenu.tsx:200</code> (pre-convergence) passed <code>text-meta</code> onto the surface of every flyout it opened, with a comment explaining that the nested surface's own base class was &quot;the 13px right-click idiom&quot;. A host that knows it must correct another component's type size is evidence the size lives in the wrong place. The size now travels with the item; a new pin is a regression, not a fix. 2. <strong>Literal danger hover</strong> — <code>ui/ContextMenu.tsx:257</code> (pre-convergence) drew the destructive row's hover as <code>rgba(255, 120, 124, 0.08)</code>: a raw colour invisible to the token system, and a second signal saying what the ink already said. Destructive rows hover like every other row.</p>
 <h4>Shipped implementation</h4>
 <p><code>src/renderer/src/components/ui/ContextMenu.tsx</code> (pointer-positioned, and the <code>MenuItem</code> / <code>MenuDivider</code> / <code>MenuFlyoutItem</code> / <code>MenuSwatchRow</code> vocabulary — <code>MenuSwatchRow</code> being the one row that is not a label, a line of colour swatches for picking a workspace accent without leaving the menu), <code>OverflowMenu.tsx</code> (the kebab), <code>FilterMenu.tsx</code> (the narrowing glyph).</p>
-<p><strong>Reconciled 2026-08-05.</strong> All three now meet this spec. <code>ContextMenu</code> moved furthest: onto the popover shell (7px radius, <code>border.strong</code>, <code>bg.surface-raised</code>), vertical-only padding so its rows are full-bleed, <code>meta</code> items instead of <code>body</code>, an inset focus ring, and its destructive row lost a raw <code>rgba(255,120,124,0.08)</code> hover tint — a second signal saying what the ink already said. <code>OverflowMenu</code>'s divider moved from <code>border.default</code> to <code>border.subtle</code>. <code>FilterMenu</code> already met the spec.</p>
-<p>Held by <code>ui/designSystemAxes.test.ts</code>, which compares the three against each other rather than each against itself — the divergence only ever existed *between* components, so a per-component test could not have caught it.</p>
-<p>Item vertical padding (6px) is deliberately unchanged: all three already agreed on it, and a spec that moves values which were never divergent is a spec nobody can adopt cheaply.</p>
+<p><strong>Reconciled 2026-08-05.</strong> <code>ContextMenu</code> moved furthest: onto the popover shell (7px radius, <code>border.strong</code>, <code>bg.surface-raised</code>), vertical-only padding so its rows are full-bleed, <code>meta</code> items instead of <code>body</code>, an inset focus ring, and the retired hover literal above. <code>OverflowMenu</code>'s divider moved from <code>border.default</code> to <code>border.subtle</code>. <code>FilterMenu</code> already met the spec.</p>
+<p>The values then moved out of the components and into one shared class pair, <code>ui/menuClasses.ts</code> — the surface and the item — which is what makes a host unable to drift: a component that takes <code>MENU_ITEM_CLASS</code> gets the size, the full-bleed geometry, the one highlight state and the inset ring together, and has nothing left to answer for itself. Every menu host now consumes it, and the flyout size pin above is gone with it.</p>
+<p><code>SplitButton</code>'s alternatives list and <code>Select</code>'s listbox belong to the same family: same chrome, same row geometry, same highlight. A select option keeps <code>body</code> (13px) rather than <code>meta</code>, because its popup echoes strings its trigger is already showing at that size and picking a value must not resize it ([select](../select/component.md)). A menu item has no such at-rest twin, which is why 12px is right here and not there.</p>
+<p>Held by <code>ui/designSystemAxes.test.ts</code>, whose menu checks take <strong>this document — <code>design-system/components/menu/component.md</code> — as their source of truth</strong>, and which compares the three components against each other rather than each against itself: the divergence only ever existed *between* components, so a per-component test could not have caught it.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/menu/component.css</summary><pre><code>/* Menu — the list of actions inside a popover surface.
@@ -12388,13 +12466,24 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
  *   fills to its own inset instead.
  *
  *   DIVIDER — border.subtle. A divider inside a bordered surface separates
- *   siblings; at border.default it competes with the surface's own edge. */
+ *   siblings; at border.default it competes with the surface's own edge.
+ *
+ *   HINT — mono micro at text.disabled, in a trailing column. A hint is carried
+ *   only for a shortcut that works WITHOUT the menu open: it teaches the reader
+ *   how to skip this menu next time. Not kbd-chord capsules — the chord is for
+ *   surfaces where the shortcut is the subject, and a line of capsules
+ *   out-weighs the label it annotates.
+ *
+ *   SUBMENU — the nested surface is this same material and INHERITS this type
+ *   size. A host that pins the size of a submenu it opens is rebuilding the
+ *   divergence above; see component.md for anchoring and open/close. */
 
 .ds-menu {
   /* Vertical padding only: rows reach both side edges, so the fill is full-bleed
    * and the surface's border is the only vertical line in the component. */
   padding: var(--sem-space-2xs) 0;
-  min-width: 200px;
+  /* No width of its own: the floor belongs to the host, which knows what its
+   * labels are (a kebab menu sets one; a select matches its trigger). */
   font-size: var(--sem-font-size-meta);
   color: var(--sem-color-text-default);
 }
@@ -12431,17 +12520,26 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
   outline-offset: calc(var(--sem-focus-ring-offset) * -1);
 }
 
+/* A flyout trigger holds the highlight while its nested menu is open, so the
+ * path back to the parent stays visible. */
+.ds-menu-item[aria-expanded=&quot;true&quot;] {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+/* The whole row dims rather than only its ink: a row is label PLUS leading
+ * glyph plus hint, and a colour rule reaches only the label. */
 .ds-menu-item[aria-disabled=&quot;true&quot;],
 .ds-menu-item:disabled {
   cursor: not-allowed;
-  color: var(--sem-color-text-disabled);
+  opacity: 0.45;
   background: transparent;
 }
 
 /* Destructive is ink, never a fill. A red row in a list of black ones is read
  * before it is aimed at; a red BLOCK is read as already-happened. */
 .ds-menu-item[data-destructive=&quot;true&quot;] {
-  color: var(--sem-color-tone-error);
+  color: var(--sem-color-status-danger);
 }
 
 /* The leading slot is reserved, not sized by the item: a menu where only some
@@ -12451,18 +12549,28 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--sem-icon-size-sm);
-  height: var(--sem-icon-size-sm);
+  /* The inline-glyph step — the one that sits beside meta copy without
+   * out-weighing it. */
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
   flex: none;
   color: var(--sem-color-text-subtle);
 }
 
-/* Trailing hint — a keyboard shortcut, a submenu chevron, a check. Pushed to
- * the far edge so hints line up as a column rather than trailing each label. */
+/* Trailing hint — a keyboard shortcut, or a submenu chevron. Pushed to the far
+ * edge so hints line up as a column rather than trailing each label. Mono,
+ * because a shortcut is keys: read as glyphs, not as words, and wanting the
+ * column to stay straight. */
 .ds-menu-item-hint {
+  /* inline-flex, not inline: the slot also carries a chevron, and an inline box
+   * would sit the glyph on the text baseline with a descender's worth of gap
+   * under it. */
+  display: inline-flex;
+  align-items: center;
   margin-left: auto;
   flex: none;
   color: var(--sem-color-text-disabled);
+  font-family: var(--sem-font-family-mono);
   font-size: var(--sem-font-size-micro);
   font-variant-numeric: tabular-nums;
 }
@@ -12476,10 +12584,12 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 /* A group heading is the alternative to a separator, not an addition to it:
  * one or the other says &quot;a new group starts here&quot;. */
 .ds-menu-group-label {
+  /* On the item's own horizontal inset, so the heading and the rows it heads
+   * share a left edge. Quieter than the rows, and not bolder: a heading that
+   * out-weighs the actions under it is competing with them. */
   padding: var(--sem-space-sm) var(--sem-space-md) var(--sem-space-3xs);
   color: var(--sem-color-text-subtle);
   font-size: var(--sem-font-size-micro);
-  font-weight: var(--sem-font-weight-emphasis);
 }
 </code></pre></details>
 <details class="catalog-source"><summary>components/menu/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
@@ -12542,10 +12652,23 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
             &lt;/span&gt;
             Reveal file
           &lt;/button&gt;
-          &lt;!-- No glyph: the slot is still reserved, so the label does not shift. --&gt;
+          &lt;!-- No glyph of its own: the empty slot is still rendered, so the
+               label holds the same left edge as its neighbours. --&gt;
           &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitem&quot;&gt;
             &lt;span class=&quot;ds-menu-item-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
             Rename…
+            &lt;span class=&quot;ds-menu-item-hint&quot;&gt;F2&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;!-- A flyout trigger: chevron in the hint slot, held highlighted
+               while its nested menu is open. --&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitem&quot; aria-haspopup=&quot;menu&quot; aria-expanded=&quot;true&quot;&gt;
+            &lt;span class=&quot;ds-menu-item-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+            Move to
+            &lt;span class=&quot;ds-menu-item-hint&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;13&quot; height=&quot;13&quot; fill=&quot;none&quot;&gt;
+                &lt;path d=&quot;M6 4L10 8L6 12&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.6&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
           &lt;/button&gt;
           &lt;div class=&quot;ds-menu-separator&quot; role=&quot;separator&quot;&gt;&lt;/div&gt;
           &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitem&quot; data-destructive=&quot;true&quot;&gt;
@@ -12569,12 +12692,10 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
               &lt;/svg&gt;
             &lt;/span&gt;
             All projects
-            &lt;span class=&quot;ds-menu-item-hint&quot;&gt;49&lt;/span&gt;
           &lt;/button&gt;
           &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitemradio&quot; aria-checked=&quot;false&quot;&gt;
             &lt;span class=&quot;ds-menu-item-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
             multicode
-            &lt;span class=&quot;ds-menu-item-hint&quot;&gt;31&lt;/span&gt;
           &lt;/button&gt;
           &lt;div class=&quot;ds-menu-separator&quot; role=&quot;separator&quot;&gt;&lt;/div&gt;
           &lt;div class=&quot;ds-menu-group-label&quot;&gt;Sort&lt;/div&gt;

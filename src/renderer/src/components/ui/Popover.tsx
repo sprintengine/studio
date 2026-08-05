@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { OVERLAY_SURFACE_CLASS } from './tokens'
 
 export type PopoverPlacement = 'bottom-start' | 'bottom-end' | 'top-start' | 'top-end'
 
@@ -267,9 +268,11 @@ export function Popover({
                 visibility: position ? 'visible' : 'hidden',
               }}
               className={[
-                // design-tokens-allow: canonical popover elevation shared by anchored app-shell surfaces
-                'popover-enter z-[var(--z-popover)] rounded-[7px] border border-[color:var(--border-strong)]',
-                'bg-[color:var(--bg-surface-raised)] shadow-[var(--shadow-popover)]',
+                // The chrome is the shared one, so the surface a pointer-summoned
+                // menu draws for itself cannot drift from the surface an anchored
+                // one gets here. What sits on it owns its own inset.
+                'popover-enter z-[var(--z-popover)]',
+                OVERLAY_SURFACE_CLASS,
                 surfaceClassName ?? '',
               ].join(' ')}
             >

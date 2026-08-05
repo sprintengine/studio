@@ -105,3 +105,26 @@ export const FOCUS_RING_PEER_CLASS = 'peer-focus-visible:focus-ring'
  * Chromium treats text inputs as focus-visible on click anyway.
  */
 export const FOCUS_RING_WITHIN_INPUT_CLASS = 'has-[input:focus]:focus-ring'
+
+/**
+ * The floating chrome — the four values that make something read as an overlay
+ * rather than as part of the page: `radius.overlay` (7px, on the 3/5/7/9 ramp),
+ * the strong border, the raised ground, and the popover elevation, which is
+ * defined per theme so a light-mode surface does not cast a shadow tuned for a
+ * dark one.
+ *
+ * `Popover` draws it for every anchored surface; `ContextMenu` draws it for the
+ * pointer-positioned one. Those were two hand-written copies that drifted apart
+ * by a pixel of radius, a border token and a ground token (MC-2103) — the same
+ * material spelled twice is the mechanism by which a system grows two of
+ * everything.
+ *
+ * Deliberately NO padding and no stacking tier: what sits on the surface owns
+ * its own inset (a menu wants full-bleed rows, a dialog wants a gutter), and the
+ * tier is the caller's — `--z-popover` for an anchored surface, `--z-menu` for a
+ * pointer-summoned one that must clear it.
+ *
+ * Written out in full, per the literal rule above.
+ */
+export const OVERLAY_SURFACE_CLASS =
+  'rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] shadow-[var(--shadow-popover)]'
