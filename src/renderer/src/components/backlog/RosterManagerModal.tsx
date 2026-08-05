@@ -1,9 +1,11 @@
 // The roster manager (MC-1880): the ONE door behind the Horizon roster
 // picker's single "Manage rosters…" action. Since MC-2065 it is shell plus
-// editor: this file owns the modal chrome (scrim, dialog, header, footer) and
-// mounts the shared shell-free `RosterEditor` — the same surface the New
-// sprint dialog hosts as its second screen — driven by the very same
-// `useRosterEditor()` seam (MC-1879).
+// editor, and since MC-2110 it owns neither of the two: `Modal` is the shell
+// (scrim, dialog, geometry, trap, Escape, focus) and the shared shell-free
+// `RosterEditor` is the editor — the same surface the New sprint dialog hosts
+// as its second screen, driven by the very same `useRosterEditor()` seam
+// (MC-1879). What this file contributes is the header, the footer, and the
+// sentence explaining that editing here is global.
 //
 // Reuse over lookalikes is the point: this file contributes NO roster state of
 // its own. If it ever needs some, the boundary in useRosterEditor was drawn

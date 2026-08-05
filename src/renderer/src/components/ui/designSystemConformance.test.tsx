@@ -714,6 +714,32 @@ async function main(): Promise<void> {
     }
   })
 
+  // The same mount, read for geometry (MC-2110). The source rules further down
+  // police what a developer may TYPE; this is what a dialog actually renders,
+  // which is the claim that matters: the primitive shipped shadowless, so the
+  // surface every other dialog is supposed to converge on was the one that
+  // looked wrong.
+  await run('MC-2110 the default Modal renders the shell chrome and a step of the width scale', () => {
+    const dialog = trapContainer.querySelector('[role="dialog"]') as HTMLElement | null
+    assert.ok(dialog, 'the dialog mounted')
+    const classes = classesOf(dialog)
+    assert.ok(
+      classes.includes('shadow-[var(--shadow-modal)]'),
+      'the shell casts the modal elevation — it used to cast none at all',
+    )
+    assert.ok(
+      classes.includes('rounded-[var(--radius-lg)]'),
+      'and rounds at radius.shell, not at a value between the ramp steps',
+    )
+    assert.ok(
+      classes.includes('border-[color:var(--border-subtle)]'),
+      'with the shell border, so a dialog and the palette draw one edge',
+    )
+    // A step, not a pixel count a caller typed. `standard` is the default.
+    assert.equal(dialog.style.width, '560px', 'width comes from the scale')
+    assert.equal(dialog.style.maxWidth, '95vw', 'and every step gives way to the viewport the same amount')
+  })
+
   await run('MC-2109 Tab off the end of the dialog returns to its first control', () => {
     act(() => {
       sentinels[1].focus()
