@@ -201,7 +201,7 @@ export function CursorErrorPopover({
         className={[
           'cursor-error-surface',
           // design-tokens-allow: popover elevation reuses the canonical OverflowMenu/Popover shadow shape (directional drop, not a glow CTA)
-          'rounded-[6px] border shadow-[var(--shadow-popover)]',
+          'rounded-[var(--radius-md)] border shadow-[var(--shadow-popover)]',
           expanded ? 'overflow-y-auto' : 'overflow-hidden',
         ].join(' ')}
       >

@@ -92,7 +92,7 @@ export function AddSkillSourceModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} labelledBy="add-skill-source-title" width={520}>
+    <Modal open={open} onClose={onClose} labelledBy="add-skill-source-title" size="standard">
       <ModalHeader
         titleId="add-skill-source-title"
         title="Add a skill source from GitHub"

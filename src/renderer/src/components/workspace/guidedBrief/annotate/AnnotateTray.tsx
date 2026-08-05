@@ -57,7 +57,7 @@ export function AnnotateTray({
       {listOpen ? (
         <ul
           aria-label="Pending notes"
-          className="max-h-48 w-[300px] max-w-full overflow-y-auto rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] py-1 shadow-[var(--shadow-drawer)]"
+          className="max-h-48 w-[300px] max-w-full overflow-y-auto rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] py-1 shadow-[var(--shadow-drawer)]"
         >
           {annotations.map((annotation, index) => {
             const unanchored = annotationDisplayRect(annotation, anchors) === null

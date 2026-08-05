@@ -2022,7 +2022,7 @@ export default function WorkspaceSidebar({
         open={confirmClose !== null}
         onClose={() => setConfirmClose(null)}
         labelledBy="ws-close-title"
-        width={420}
+        size="confirm"
       >
         {confirmClose ? (
           (() => {
@@ -2064,7 +2064,7 @@ export default function WorkspaceSidebar({
         open={confirmCancelSprint !== null}
         onClose={() => setConfirmCancelSprint(null)}
         labelledBy="ws-cancel-sprint-title"
-        width={440}
+        size="confirm"
       >
         {confirmCancelSprint ? (
           (() => {
@@ -2104,7 +2104,7 @@ export default function WorkspaceSidebar({
         open={confirmForget !== null}
         onClose={() => setConfirmForget(null)}
         labelledBy="ws-forget-title"
-        width={460}
+        size="confirm"
       >
         {confirmForget ? (
           (() => {
@@ -2142,7 +2142,7 @@ export default function WorkspaceSidebar({
         open={confirmDelete !== null}
         onClose={() => setConfirmDelete(null)}
         labelledBy="ws-delete-title"
-        width={500}
+        size="confirm"
       >
         {confirmDelete
           ? (() => {

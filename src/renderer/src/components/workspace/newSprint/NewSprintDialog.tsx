@@ -62,7 +62,6 @@ import {
 import { backlogRowPaintClass } from '../../backlog/backlogRowPaint'
 import { matchesBacklogQuery } from '../globalSurface/backlog/backlogSurfaceModel'
 import {
-  FocusTrap,
   GhostButton,
   IconButton,
   InboxSearchInput,
@@ -74,6 +73,7 @@ import {
   Tooltip,
   type SelectItem,
 } from '../../ui'
+import { Modal } from '../../ui/Modal'
 import { CheckIcon } from '../../AppIcons'
 import {
   compareBacklogItems,
@@ -607,22 +607,11 @@ export default function NewSprintDialog({
   const backButtonRef = useRef<HTMLButtonElement | null>(null)
   const prevScreenRef = useRef<'sprint' | 'roster'>('sprint')
 
-  // Focus in on open, back to whatever opened the dialog on close — the same
-  // contract `Modal` carries, so every dialog in the app opens and closes the
-  // same way for the keyboard (MC-2109). `openerRef` below is the SCREEN-level
-  // opener (screen 2 → back to the roster control); this one is the dialog's.
-  useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const frame = window.requestAnimationFrame(() => {
-      const node = dialogRef.current
-      if (!node || node.contains(document.activeElement)) return
-      node.focus()
-    })
-    return () => {
-      window.cancelAnimationFrame(frame)
-      if (opener?.isConnected) opener.focus()
-    }
-  }, [])
+  // Focus in on open and back to the opener on close is `Modal`'s contract, not
+  // this file's, now that the shell IS a Modal (MC-2110). `dialogRef` survives
+  // for the SCREEN swap below: `openerRef` is the screen-level opener (screen 2
+  // → back to the roster control), and this is where focus lands when that
+  // opener has unmounted.
 
   const openRosterScreen = useCallback(() => {
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -646,20 +635,15 @@ export default function NewSprintDialog({
     prevScreenRef.current = screen
   }, [screen])
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
-      // The New-item capture modal is the topmost surface while open: its own
-      // Modal handler closes it, and this handler must not also peel the
-      // dialog. (This listener registered first, so it runs first and cannot
-      // rely on the modal having consumed the key.)
-      if (creatingItemRef.current) return
-      event.preventDefault()
-      if (prevScreenRef.current === 'roster') setScreen('sprint')
-      else onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+  // What Escape means here, handed to the shell's `Modal` rather than fought
+  // for with a listener of our own: the shell's runs first either way, being a
+  // child effect. Three cases, unchanged from when this dialog owned the key —
+  // the New-item capture is the topmost surface while open and closes itself,
+  // screen 2 steps back to screen 1, and only then does Escape mean close.
+  const handleEscape = useCallback(() => {
+    if (creatingItemRef.current) return
+    if (prevScreenRef.current === 'roster') setScreen('sprint')
+    else onClose()
   }, [onClose])
 
   // --- start --------------------------------------------------------------
@@ -841,19 +825,27 @@ export default function NewSprintDialog({
         : plannedSprintFootSummary(workItemCount)
 
   return (
-    <div className="overlay-scrim fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-6">
-      {/* Tab stays in the dialog while it claims `aria-modal` (MC-2109).
-          The trap wraps the dialog element only, so the New-item capture below
-          — a sibling `Modal` with a trap of its own — keeps its own cycle. */}
-      <FocusTrap>
+    <>
+      {/* The shell is `Modal`, not a copy of it. This dialog used to restate the
+          whole thing — the same scrim string, its own Escape and focus effects,
+          its own trap, and a `rounded-lg` / `border-default` / 1000px geometry
+          that matched no other dialog — and got no click-outside close for the
+          trouble. All of that is the primitive's now (MC-2110); what stays here
+          is what is actually the New sprint dialog: its two screens, its
+          Enter-to-start, and its header. */}
+      <Modal
+        open
+        onClose={onClose}
+        onEscape={handleEscape}
+        label="New sprint"
+        size="workbench"
+        layout="panel"
+      >
         <div
           ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label="New sprint"
           tabIndex={-1}
           onKeyDown={onDialogKeyDown}
-          className="flex h-[min(720px,85vh)] w-[1000px] max-w-full flex-col overflow-hidden rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)] outline-none"
+          className="flex min-h-0 flex-1 flex-col outline-none"
         >
           <header className="flex shrink-0 items-center gap-3 border-b border-[color:var(--border-subtle)] px-4 py-2.5">
             <span className="text-body font-semibold text-[color:var(--text-strong)]">New sprint</span>
@@ -1260,9 +1252,10 @@ export default function NewSprintDialog({
             )}
           </footer>
         </div>
-      </FocusTrap>
-      {/* The shared New-item capture, stacked as a sibling of the dialog so
-          its keystrokes never reach the dialog's Enter-to-start handler. */}
+      </Modal>
+      {/* The shared New-item capture, stacked as a sibling of the dialog — not
+          inside it — so its keystrokes never reach the dialog's Enter-to-start
+          handler and its own trap keeps its own cycle. */}
       {creatingItem && folderPath ? (
         <BacklogCreateDialog
           difficultyItems={DIFFICULTY_EDIT_ITEMS}
@@ -1271,7 +1264,7 @@ export default function NewSprintDialog({
           onCreate={submitCreateItem}
         />
       ) : null}
-    </div>
+    </>
   )
 }
 

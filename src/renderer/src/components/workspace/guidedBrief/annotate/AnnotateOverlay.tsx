@@ -181,7 +181,7 @@ function NoteComposer({
         }
       }}
       className={`
-        pointer-events-auto absolute flex flex-col gap-2 rounded-md border border-[color:var(--border-default)]
+        pointer-events-auto absolute flex flex-col gap-2 rounded-[var(--radius-md)] border border-[color:var(--border-default)]
         bg-[color:var(--bg-surface-raised)] p-2.5 shadow-[var(--shadow-drawer)]
         motion-safe:transition-opacity motion-safe:duration-150
         ${entered ? 'opacity-100' : 'motion-safe:opacity-0'}

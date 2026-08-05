@@ -112,7 +112,7 @@ function ExpandedCard({ name, children }: { name: string; children: ReactNode })
       aria-label={`${name} conversation`}
       className={`
         absolute bottom-5 right-5 z-30 flex h-[480px] max-h-[calc(100%-2.5rem)] w-[380px]
-        max-w-[calc(100%-2.5rem)] flex-col overflow-hidden rounded-[14px] border
+        max-w-[calc(100%-2.5rem)] flex-col overflow-hidden rounded-[var(--radius-md)] border
         border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] p-3
         shadow-[var(--shadow-drawer)]
         motion-safe:transition motion-safe:duration-150

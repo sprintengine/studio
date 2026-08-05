@@ -107,17 +107,21 @@ type Axis = keyof typeof AXES
  */
 const BASELINE: Record<Axis, Record<string, number>> = {
   radius: {
-    'components/workspace': 197,
-    'components/panels': 173,
+    'components/workspace': 193,
+    'components/panels': 171,
     'components/settings': 36,
-    'components/backlog': 21,
+    'components/backlog': 20,
     // 15 → 17 when CommandPalette MOVED into the kit (MC-2117) carrying its own
     // two radii — nothing regressed, the debt changed address — then 17 → 14
     // when the menu unification dropped ContextMenu's surface `rounded-md` and
-    // its two per-item `rounded` fills.
-    'components/ui': 14,
+    // its two per-item `rounded` fills, and 14 → 13 when the overlay geometry
+    // canon took the palette's `rounded-xl` (MC-2110). The four other drops
+    // that item paid for are in workspace (197 → 193), panels (173 → 171),
+    // backlog (21 → 20) and diagnostics (7 → 6): every dialog-scale shell in
+    // the product now draws `OVERLAY_SHELL_CLASS` instead of its own radius.
+    'components/ui': 13,
     'components/worktree': 9,
-    'components/diagnostics': 7,
+    'components/diagnostics': 6,
     utils: 4,
     'components/automations': 2,
     'components/auxWindows': 2,
@@ -132,7 +136,10 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // so they stay visible as a debt with a known reason.
   shadow: {
     utils: 14,
-    'components/workspace': 3,
+    // 3 → 2 when the agent composer's nested engine flyout gave up its
+    // hardcoded `0 18px 50px rgba(0,0,0,0.55)` for the shared floating chrome
+    // (MC-2110). The two that remain are inset hairlines, not elevation.
+    'components/workspace': 2,
   },
   // 18 → 16 and backlog 1 → 0 when the overlay shells took their layer from the
   // `--z-*` tokens (MC-2109): the New sprint dialog and the roster manager gave

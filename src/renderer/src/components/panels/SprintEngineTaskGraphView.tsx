@@ -938,7 +938,7 @@ export function SprintEngineTaskGraphView({
  // Inline disclosure under the legend toggle: flow-positioned, no outside-click,
  // no Escape close. Not a popover semantically — kept as a graph-overlay
  // disclosure card so it doesn't fight canvas pan/zoom interactions.
- <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3 text-micro shadow-[var(--shadow-drawer)]">
+ <div className="mt-1 rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3 text-micro shadow-[var(--shadow-drawer)]">
  <div className="text-micro font-bold text-[color:var(--text-disabled)]">
  Status
  </div>
@@ -982,7 +982,7 @@ export function SprintEngineTaskGraphView({
  // Inline disclosure under the minimap toggle: flow-positioned, no
  // outside-click, no Escape close. Not a popover semantically — kept as a
  // graph-overlay disclosure card so canvas pan/zoom keeps working.
- <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 shadow-[var(--shadow-drawer)]">
+ <div className="mt-1 rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 shadow-[var(--shadow-drawer)]">
  <div
  className="relative cursor-crosshair overflow-hidden rounded bg-[color:var(--bg-surface)]"
  style={{ width: minimapInnerWidth, height: minimapInnerHeight }}

@@ -309,9 +309,13 @@ function SprintEngineModelField({
  onChange(option.id)
  setOpen(false)
  }}
+ // The chosen model is a selection, so it takes the selection fill:
+ // painted in `--bg-hover` it was the same picture as whichever option
+ // the pointer happened to be over
+ // (design-system/patterns/selection.html).
  className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm interactive ${
  selected
- ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+ ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
  }`}
  >
@@ -330,7 +334,9 @@ function SprintEngineModelField({
  role="option"
  aria-selected
  onClick={() => setOpen(false)}
- className="flex w-full items-center gap-3 rounded-md bg-[color:var(--bg-hover)] px-3 py-2 text-left font-mono text-body text-[color:var(--text-strong)]"
+ // The custom id in force is the selected option of this listbox, so it
+ // carries the same selection fill as the catalog rows above it.
+ className="flex w-full items-center gap-3 rounded-md bg-[color:var(--bg-selected)] px-3 py-2 text-left font-mono text-body text-[color:var(--text-strong)]"
  >
  <TruncatedText as="span" text={model} className="min-w-0 flex-1" />
  <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -2954,6 +2960,10 @@ export function SprintRunBoard({
  effectiveModelForAgent={effectiveModelForAgent}
  onSelectAgentCli={selectAgentCli}
  onSelectAgentModel={selectAgentModel}
+ // Picking a seat is what fills the inspector beside this list — the
+ // same selection→inspector mapping the task lists use.
+ selectedAgentId={selectedAgentId}
+ onSelectAgent={setSelectedAgentId}
  onOpenAgent={openAgentTerminal}
  onSpawnAgent={spawnAgent}
  willResumeAgent={willResumeAgent}
@@ -2966,6 +2976,10 @@ export function SprintRunBoard({
  terminalActionsUnavailable={hasResidentWorkspace ? undefined : CLOSED_WORKSPACE_REASON}
  roleConfigUnavailable={canMutateRunRoster ? undefined : CLOSED_TEAM_REASON}
  />
+ {/* The agent branch of the inspector is mapped to this view and to no
+ other, so without the aside here a picked seat had nowhere to open:
+ the mapping above resolved to an agent that nothing rendered. */}
+ {renderInspectorAside()}
  </div>
  ) : null}
 
@@ -3010,7 +3024,7 @@ export function SprintRunBoard({
  <Modal
  open
  contained
- width={520}
+ size="standard"
  labelledBy="recovery-dialog-title"
  onClose={() => {
  setCliPickerOpen(false)
@@ -3108,9 +3122,11 @@ export function SprintRunBoard({
  )
  setCliPickerOpen(false)
  }}
+ // Same listbox, same rule as the model picker above: the chosen CLI
+ // takes `--bg-selected`, never the hover fill.
  className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left interactive ${
  selected
- ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+ ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
  }`}
  >
@@ -3179,7 +3195,7 @@ export function SprintRunBoard({
  <Modal
  open
  contained
- width={520}
+ size="standard"
  labelledBy="request-changes-dialog-title"
  onClose={cancelRequestChangesDialog}
  >
@@ -3253,7 +3269,7 @@ export function SprintRunBoard({
  <Modal
  open
  contained
- width={440}
+ size="confirm"
  labelledBy="cancel-sprint-dialog-title"
  onClose={() => setConfirmCancelSprint(false)}
  >
@@ -3285,7 +3301,7 @@ export function SprintRunBoard({
  <Modal
  open
  contained
- width={760}
+ size="wide"
  labelledBy="add-member-dialog-title"
  onClose={() => setAddMemberOpen(false)}
  >

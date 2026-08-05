@@ -40,7 +40,7 @@ export function GuidedBriefCloseConfirmation({ open, stage, onCancel, onConfirm 
   if (!open) return null
 
   return (
-    <Modal open onClose={onCancel} labelledBy={titleId} width={460}>
+    <Modal open onClose={onCancel} labelledBy={titleId} size="confirm">
       <ModalHeader
         title="Close the guided brief?"
         subtitle="The wizard holds a live specialist session you have not handed off yet."

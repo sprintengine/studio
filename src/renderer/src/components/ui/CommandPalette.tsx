@@ -20,6 +20,7 @@ import { commandMatchesQuery, workspaceSearchKeywords } from '../commandPaletteS
 import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
 import { FOCUS_RING_CLASS, TruncatedText } from './index'
 import { FocusTrap } from './FocusTrap'
+import { OVERLAY_SHELL_CLASS, overlayWidthStyle } from './tokens'
 
 // The four canonical source groups the global-search palette organizes results
 // into (T6), plus a Files group for the active workspace's open editors. The
@@ -542,7 +543,14 @@ export default function CommandPalette({
           aria-modal="true"
           aria-label="Command palette"
           tabIndex={-1}
-          className="w-[600px] max-w-[95vw] overflow-hidden rounded-xl border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)] outline-none"
+          style={overlayWidthStyle('palette')}
+          // The palette keeps its own scrim — it sits at 15vh rather than
+          // centred, which no dialog does — but not its own geometry: shell
+          // chrome and width both come from the scale, so `Modal` and this read
+          // as the same surface at last (MC-2110). `overflow-hidden` is the one
+          // local addition: the input's bottom rule has to be clipped by the
+          // shell's corners.
+          className={`${OVERLAY_SHELL_CLASS} overflow-hidden outline-none`}
         >
           <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-4 py-3">
             <span className="text-heading text-[color:var(--text-disabled)]">⌘</span>

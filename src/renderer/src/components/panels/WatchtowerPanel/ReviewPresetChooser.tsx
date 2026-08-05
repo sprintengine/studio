@@ -23,7 +23,7 @@ export function ReviewPresetChooser({
   const hasAgents = presetAgents.some(([, sectors]) => (sectors ?? []).length > 0)
 
   return (
-    <Modal open onClose={onClose} contained labelledBy="watchtower-review-title" width={520}>
+    <Modal open onClose={onClose} contained labelledBy="watchtower-review-title" size="standard">
       <ModalHeader title="Run a review" titleId="watchtower-review-title" onClose={onClose} />
       <ModalBody className="space-y-3">
         <Field label="Preset">

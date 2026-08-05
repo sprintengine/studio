@@ -61,7 +61,7 @@ export function BacklogCreateDialog({
   }
 
   return (
-    <Modal open onClose={busy ? () => {} : onClose} labelledBy={titleId} width={540}>
+    <Modal open onClose={busy ? () => {} : onClose} labelledBy={titleId} size="standard">
       <form
         onSubmit={(event) => {
           event.preventDefault()

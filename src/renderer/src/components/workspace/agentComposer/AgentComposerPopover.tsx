@@ -2,6 +2,7 @@ import React from 'react'
 import { SpecialistActionIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
 import { CliModelPopoverSurface, FOCUS_RING_CLASS, SkillPickerPopover, StarGlyph, Tooltip, TruncatedText } from '../../ui'
+import { OVERLAY_SURFACE_CLASS } from '../../ui/tokens'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import {
@@ -343,8 +344,12 @@ export default function AgentComposerPopover({
                     <div
                       data-chip-popover="true"
                       aria-label={`Agent runtime for ${label}`}
-                      // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                      className="fixed z-[var(--z-popover)] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
+                      // The shared floating chrome, not a copy of it: this
+                      // carried a hardcoded `0 18px 50px rgba(0,0,0,0.55)` behind
+                      // an allow-comment claiming parity with the OverflowMenu
+                      // shadow — a shadow it did not match, tuned for dark, cast
+                      // in every light theme (MC-2110).
+                      className={`fixed z-[var(--z-popover)] overflow-hidden ${OVERLAY_SURFACE_CLASS}`}
                     >
                       {/* This host has no trigger row to sit the reasoning
                           selector beside — the trigger is the row's engine chip

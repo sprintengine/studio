@@ -166,3 +166,67 @@ export const FOCUS_RING_TERMINAL_CLASS = 'terminal-focus-ring'
  */
 export const OVERLAY_SURFACE_CLASS =
   'rounded-[7px] border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] shadow-[var(--shadow-popover)]'
+
+/* ------------------------------------------------------------------ *
+ * Overlay geometry — one scale for every floating surface (MC-2110)
+ * ------------------------------------------------------------------ */
+
+/**
+ * The dialog width scale. Five steps, each a content measure with a job, and
+ * no sixth: before this the product carried 420 / 440 / 460 / 480 / 500 / 520 /
+ * 540 / 560 / 600 / 720 / 760 / 1000 / 1040 / 1100, which is not a scale but a
+ * record of whatever each dialog's author typed. Opening two of them in a row
+ * read as visiting two different apps.
+ *
+ * Widths stay a TypeScript constant rather than a `--sem-*` token on the design
+ * system's own ruling (`design-system/components/modal/component.md`): a width
+ * is a content measure — wide enough for the form it holds, narrow enough that
+ * the eye crosses it — not a value other surfaces compose against. What the
+ * system tokenises is the shape and the elevation, which is what
+ * OVERLAY_SHELL_CLASS below spends.
+ */
+export const OVERLAY_WIDTH_PX = {
+  /** A question with two buttons. It should read in one line. */
+  confirm: 460,
+  /** The default: a short form, a list of options, a prompt. */
+  standard: 560,
+  /** The command palette — a query over a long result list, nothing else. */
+  palette: 600,
+  /** A form that needs two columns, or a list beside an editor. */
+  wide: 720,
+  /** A workbench: panes, a rail, a flow the person works inside. */
+  workbench: 1040,
+} as const
+
+export type OverlayWidth = keyof typeof OVERLAY_WIDTH_PX
+
+/**
+ * Width plus the viewport cap, as one inline style. The cap is not optional:
+ * a 1040px workbench on a 900px-wide window has to give way, and every shell
+ * gives way the same amount.
+ */
+export function overlayWidthStyle(width: OverlayWidth): { width: number; maxWidth: string } {
+  return { width: OVERLAY_WIDTH_PX[width], maxWidth: '95vw' }
+}
+
+/**
+ * The chrome of a dialog-scale shell: `radius.shell` (9px), the subtle border,
+ * the plain surface ground, and the modal elevation.
+ *
+ * Two shape steps exist and they split by surface class, exactly as the
+ * elevation ramp does. OVERLAY_SURFACE_CLASS above spends `radius.overlay`
+ * (7px) on the popover family — anchored menus, flyouts, floating cards. This
+ * spends `radius.shell` on the surfaces that stop the page. That split is the
+ * design system's, per `sem.radius.*` metadata and
+ * `design-system/components/modal/component.css`; what MC-2110 removed was the
+ * `rounded-[8px]` / `rounded-lg` / `rounded-xl` / `rounded-[14px]` values
+ * sitting between the two steps and landing on neither.
+ *
+ * Ground is `bg-surface`, not `bg-surface-raised`: the scrim and the shadow
+ * already separate the shell from the page, and a tone step on top would be a
+ * third signal for the same fact.
+ *
+ * Written out in full, per the literal rule above.
+ */
+export const OVERLAY_SHELL_CLASS =
+  'rounded-[var(--radius-lg)] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)]'

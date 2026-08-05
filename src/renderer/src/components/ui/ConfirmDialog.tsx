@@ -71,7 +71,7 @@ export function ConfirmDialog({
       open={open}
       onClose={pending ? () => {} : onCancel}
       labelledBy={titleId}
-      width={460}
+      size="confirm"
       contained={contained}
     >
       <ModalHeader title={title} titleId={titleId} onClose={pending ? undefined : onCancel} />
@@ -199,7 +199,7 @@ function PromptDialog({
   const shownError = touched ? validationError : null
 
   return (
-    <Modal open onClose={onCancel} labelledBy={titleId} width={460} contained={options.contained}>
+    <Modal open onClose={onCancel} labelledBy={titleId} size="confirm" contained={options.contained}>
       <form
         onSubmit={(event) => {
           event.preventDefault()

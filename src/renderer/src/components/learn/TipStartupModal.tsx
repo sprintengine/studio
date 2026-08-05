@@ -115,7 +115,7 @@ export function TipStartupModal({
     : { label: 'Open Learn Center', onClick: () => { onClose(); onOpenLearnCenter() } }
 
   return (
-    <Modal open={open} onClose={onClose} labelledBy="tip-startup-title" width={480}>
+    <Modal open={open} onClose={onClose} labelledBy="tip-startup-title" size="standard">
       <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">

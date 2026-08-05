@@ -53,6 +53,7 @@ import {
 import MulticodeMark from '../brand/MulticodeMark'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
 import { Checkbox, CliModelPickerButton, CloseIconButton, Field, FOCUS_RING_CLASS, GhostButton, TruncatedText, WizardProgress } from '../ui'
+import { OVERLAY_SHELL_CLASS, OVERLAY_WIDTH_PX } from '../ui/tokens'
 import {
   analyzeWorkspaceTargetPath,
   defaultWorkspaceFolderPath,
@@ -1480,7 +1481,16 @@ export default function NewWorkspacePanel({
           contract). The rail is the type choice — never a step — and the pane
           beside it pages through that type's flow with a pinned primary action. */}
       <div className="flex min-h-0 flex-1 items-center justify-center p-4 sm:p-6">
-        <div className="flex h-full max-h-[min(820px,100%)] w-full max-w-[1040px] flex-col overflow-hidden rounded-[8px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-drawer)]">
+        <div
+          style={{ maxWidth: OVERLAY_WIDTH_PX.workbench }}
+          // Same shell chrome as every dialog in the product, off the same
+          // scale (MC-2110). The hub is not a `Modal` — it floats on the
+          // creation backdrop rather than a scrim, and closes through the flow
+          // rather than by clicking out — but it is a workbench-width floating
+          // surface, and it used to say so in a private `rounded-[8px]` at the
+          // drawer's elevation.
+          className={`${OVERLAY_SHELL_CLASS} flex h-full max-h-[min(820px,100%)] w-full flex-col overflow-hidden`}
+        >
           <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-5 py-3">
             <div className="flex min-w-0 items-center gap-2">
               <MulticodeMark className="size-icon-md" variant="mono" />

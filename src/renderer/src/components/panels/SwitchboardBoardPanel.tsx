@@ -1531,7 +1531,7 @@ function CreateTaskDialog({
     'block w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-body ' +
   `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`
   return (
-    <Modal open onClose={onClose} contained labelledBy="switchboard-create-title" width={540}>
+    <Modal open onClose={onClose} contained labelledBy="switchboard-create-title" size="standard">
       <ModalHeader title="New Switchboard task" titleId="switchboard-create-title" onClose={onClose} />
       <ModalBody className="space-y-3">
         <Field label="Title">
