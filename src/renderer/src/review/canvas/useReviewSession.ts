@@ -123,6 +123,10 @@ export interface ReviewSession {
   onPostReview: () => void
   startRun: () => void
   refresh: () => void
+  // Re-read the change set from its source. The recovery for the `error` status,
+  // where `refresh` cannot help: it returns early without a change set, which is
+  // precisely the state that failed (MC-2115).
+  reloadChangeset: () => void
   // Deliver one question to the guide's terminal. The answer is not in the result
   // — the reviewer reads it there; this reports only whether it was delivered.
   askGuide: (message: string) => Promise<ReviewAskGuideResult>
@@ -686,6 +690,12 @@ export function useReviewSession({
     onPostReview,
     startRun,
     refresh,
+    reloadChangeset: () => {
+      void (async () => {
+        const changeset = await loadChangeset()
+        if (changeset) await loadBrief()
+      })()
+    },
     askGuide,
     trayController,
     askController,

@@ -60,7 +60,7 @@ export function ReviewCanvas({ session, guideActions }: { session: ReviewSession
           className="max-w-md"
           title="Couldn’t open this review"
           hint={session.errorMessage ?? 'The change set could not be read.'}
-          action={<GhostButton onClick={session.refresh}>Try again</GhostButton>}
+          action={<GhostButton onClick={session.reloadChangeset}>Try again</GhostButton>}
         />
       </CenteredState>
     )

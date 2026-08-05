@@ -9,7 +9,7 @@
 import type { ReactNode } from 'react'
 
 import type { CapabilityPermission } from '../../../../../shared/modules/permissions'
-import { GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot } from '../../ui'
+import { GhostButton, InlineNotice, OutlineButton, PrimaryButton, Spinner, StatusDot } from '../../ui'
 import { TrustPrompt, type PluginTrust } from '../../settings/BrowseStorefront'
 import {
   COULDNT_CHECK_COPY,
