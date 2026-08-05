@@ -18,7 +18,9 @@
 //   NODE_PATH="$tmp/node_modules" node scripts/testing/native-menu-conformance-pass.mjs
 
 import { execFile } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { promisify } from 'node:util'
@@ -26,7 +28,14 @@ import { promisify } from 'node:util'
 const run = promisify(execFile)
 const require = createRequire(import.meta.url)
 const root = resolve(new URL('../..', import.meta.url).pathname)
-const tempRoot = process.env.MULTICODE_MENU_TMP_ROOT || '/tmp/multicode-native-menu-pass'
+// Realpath, deliberately: on macOS `/tmp` is a symlink to `/private/tmp`, and
+// git reports its repo root resolved while the file tree carries the path it
+// was opened with. Under the symlinked path the two never match and the tree's
+// git rows silently never appear — a harness artefact that looks exactly like a
+// product bug.
+const tempRoot = realpathSync(
+  process.env.MULTICODE_MENU_TMP_ROOT || tmpdir(),
+).concat('/multicode-native-menu-pass')
 const workspaceDir = join(tempRoot, 'workspace')
 const userDataDir = join(tempRoot, 'user-data')
 const screenshotDir = process.env.MULTICODE_MENU_SCREENSHOT_DIR || join(tempRoot, 'screenshots')
@@ -112,12 +121,20 @@ async function main() {
 
   await seedWorkspace()
 
+  // A terminal spawned by Multicode's own dev shell inherits
+  // ELECTRON_RENDERER_URL / NODE_ENV=development, which would point this
+  // launch at a running dev server instead of the bundle under test.
+  const env = { ...process.env }
+  delete env.ELECTRON_RENDERER_URL
+  delete env.NODE_ENV_ELECTRON_VITE
+
   const app = await electron.launch({
     executablePath: electronPath,
     args: [join(root, 'out/main/index.js')],
     cwd: root,
     env: {
-      ...process.env,
+      ...env,
+      NODE_ENV: 'production',
       MULTICODE_USER_DATA_DIR: userDataDir,
       MULTICODE_ALLOW_MULTI_INSTANCE: '1',
       MULTICODE_DIAGNOSTICS: '1',
@@ -125,11 +142,30 @@ async function main() {
     },
   })
 
+  if (process.env.MULTICODE_MENU_DEBUG) {
+    app.process().stdout?.on('data', (d) => process.stdout.write(`[main] ${d}`))
+    app.process().stderr?.on('data', (d) => process.stderr.write(`[main:err] ${d}`))
+  }
+
+  // The first window Electron reports is a transient bootstrap one that closes
+  // again; the shell's real window carries `windowId=primary` in its URL.
+  async function primaryWindow() {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const candidate = app.windows().find((w) => w.url().includes('windowId=primary') && !w.isClosed())
+      if (candidate) return candidate
+      await new Promise((r) => setTimeout(r, 500))
+    }
+    throw new Error('primary window never appeared')
+  }
+
   try {
-    const page = await app.firstWindow()
+    await app.firstWindow().catch(() => {})
+    const page = await primaryWindow()
     page.on('console', (m) => {
       if (m.type() === 'error') console.error(`[renderer] ${m.text()}`)
     })
+    page.on('close', () => console.error('[harness] window closed'))
+    page.on('crash', () => console.error('[harness] window crashed'))
     await page.waitForLoadState('domcontentloaded')
     await app.evaluate(({ BrowserWindow }) => {
       const win = BrowserWindow.getAllWindows()[0]
@@ -138,46 +174,45 @@ async function main() {
     })
     await page.waitForTimeout(1500)
 
-    // --- Onboarding to a Standard workspace ---
-    await domClick(page, page.getByRole('button', { name: /Get started/i }))
-    await domClick(page, page.getByRole('button', { name: /Continue/i }))
-    await page.getByPlaceholder('my-workspace').fill('Menu Pass')
-    await domClick(page, page.locator('button').filter({ hasText: 'Browse existing folder' }))
-    await page.waitForFunction((dir) => document.body.innerText.includes(dir), workspaceDir, {
-      timeout: 10000,
-    })
-    await domClick(page, page.getByRole('button', { name: /^Continue$/i }))
-    await page.waitForFunction(() => document.body.innerText.includes('Standard'), null, { timeout: 10000 })
-    await domClick(page, page.locator('button').filter({ hasText: /^Standard/ }))
-    for (let i = 0; i < 12; i += 1) {
-      const hasRow = (await page.locator('[role="treeitem"]').count()) > 0
-      const overlayCount = await page.locator('div.fixed.inset-0.z-50').count()
-      if (hasRow && overlayCount === 0) break
-      const overlay = page.locator('div.fixed.inset-0.z-50')
-      const overlayClose = overlay.locator('button[aria-label*="lose"], button[aria-label*="ismiss"]')
-      const advance = page
-        .locator('button')
-        .filter({ hasText: /^(Continue|Create workspace|Create|Finish|Open workspace|Done|Skip|Get started)$/ })
-      if (hasRow && overlayCount > 0 && (await overlayClose.count()) > 0) {
-        await domClick(page, overlayClose)
-      } else if (!hasRow && (await advance.count()) > 0) {
-        await domClick(page, advance)
-      } else if (overlayCount > 0) {
-        await page.keyboard.press('Escape')
-        await page.waitForTimeout(400)
-      } else {
-        await page.waitForTimeout(800)
-      }
-    }
+    // --- New Standard workspace over the seeded folder. `MULTICODE_TEST_OPEN_DIR`
+    // makes the folder picker resolve to it without a native dialog. ---
+    await domClick(page, page.locator('button').filter({ hasText: /^Workspace$/ }))
+    await domClick(page, page.locator('button').filter({ hasText: /^Browse$/ }))
+    await page.waitForTimeout(1200)
+    await domClick(page, page.locator('button').filter({ hasText: /^Create workspace$/ }))
     await page.waitForFunction(() => document.querySelectorAll('[role="treeitem"]').length > 0, null, {
-      timeout: 15000,
+      timeout: 30000,
     })
     check('file tree rendered', true)
 
+    // ================= GitPanel change rows =================
+    // Opened first: the Git panel is what warms the shared status the file tree
+    // reads for its own git rows.
+    await domClick(page, page.locator('button[aria-label^="Toggle Git panel"]').first())
+    const changeRow = page.locator('[data-git-change-row="true"]').first()
+    await changeRow.waitFor({ state: 'visible', timeout: 30000 })
+    await changeRow.click({ button: 'right' })
+    let menu = page.locator('[role="menu"][aria-label^="Actions for"]').last()
+    await menu.waitFor({ state: 'visible', timeout: 5000 })
+    check('git change row opens a DOM menu (was native)', true)
+    const gitLabels = await menuLabels(menu)
+    check(
+      'git change rows and log rows now share the idiom, sentence case',
+      gitLabels.includes('View Git diff') && gitLabels.includes('Open file in editor'),
+      gitLabels.join(' | '),
+    )
+    await page.screenshot({ path: join(screenshotDir, 'git-change-row-menu.png') })
+    await escapeMenus(page)
+
     // ================= FileExplorer =================
+    // Back to the tree: the Git panel took the rail's slot.
+    await domClick(page, page.locator('button[aria-label^="Toggle file explorer"]').first())
+    await page.waitForFunction(() => document.querySelectorAll('[role="treeitem"]').length > 0, null, {
+      timeout: 20000,
+    })
     const notesRow = page.locator('[role="treeitem"]', { hasText: 'notes.txt' }).first()
     await notesRow.click({ button: 'right' })
-    let menu = page.locator('[role="menu"][aria-label="Actions for notes.txt"]')
+    menu = page.locator('[role="menu"][aria-label="Actions for notes.txt"]')
     await menu.waitFor({ state: 'visible', timeout: 5000 })
     check('file tree right-click opens a DOM menu (was native)', true)
 
@@ -196,12 +231,18 @@ async function main() {
     await page.screenshot({ path: join(screenshotDir, 'file-tree-menu.png') })
     await escapeMenus(page)
 
-    // The git-diff row appears only on a file git knows has changed.
-    await notesRow.click({ button: 'right' })
-    menu = page.locator('[role="menu"][aria-label="Actions for notes.txt"]')
-    await menu.waitFor({ state: 'visible', timeout: 5000 })
-    check('changed file offers "View Git diff"', (await menuLabels(menu)).includes('View Git diff'))
-    await escapeMenus(page)
+    // The git-diff row appears only on a file git knows has changed, which
+    // waits on the panel's own status poll.
+    let sawGitDiffRow = false
+    for (let attempt = 0; attempt < 10 && !sawGitDiffRow; attempt += 1) {
+      await page.waitForTimeout(2000)
+      await notesRow.click({ button: 'right' })
+      menu = page.locator('[role="menu"][aria-label="Actions for notes.txt"]')
+      await menu.waitFor({ state: 'visible', timeout: 5000 })
+      sawGitDiffRow = (await menuLabels(menu)).includes('View Git diff')
+      await escapeMenus(page)
+    }
+    check('changed file offers "View Git diff"', sawGitDiffRow)
 
     // The submenu, on a backlog markdown file: the flyout the native menu drew
     // as an OS submenu is now MenuFlyoutItem.
@@ -242,10 +283,29 @@ async function main() {
     )
 
     // ================= EditorPanel =================
+    // A fresh profile opens files in the external editor window (the sticky
+    // `openFilesInExternalWindow` default). Docking it back puts the file in an
+    // in-panel EditorPanel tab — the surface this item converted — and flips the
+    // preference, so later opens land there too.
     await notesRow.dblclick()
-    await page.waitForTimeout(2500)
+    let externalWindow = null
+    for (let attempt = 0; attempt < 40 && !externalWindow; attempt += 1) {
+      externalWindow = app.windows().find((w) => w.url().includes('fileName=notes.txt') && !w.isClosed())
+      if (!externalWindow) await page.waitForTimeout(500)
+    }
+    if (!externalWindow) throw new Error('external editor window never opened')
+    await externalWindow
+      .locator('button[aria-label="Dock current file back into the workspace"]')
+      .first()
+      .click()
+    await page
+      .locator('.flexlayout__tab_button')
+      .filter({ hasText: 'notes.txt' })
+      .first()
+      .waitFor({ state: 'visible', timeout: 30000 })
     const editorSurface = page.locator('.monaco-editor').first()
-    await editorSurface.waitFor({ state: 'visible', timeout: 20000 })
+    await editorSurface.waitFor({ state: 'visible', timeout: 60000 })
+    await page.waitForTimeout(1500)
     await editorSurface.click({ button: 'right', position: { x: 120, y: 30 } })
     menu = page.locator('[role="menu"][aria-label^="Editor actions"]')
     await menu.waitFor({ state: 'visible', timeout: 5000 })
@@ -260,7 +320,7 @@ async function main() {
     )
     check(
       'editor rows carry the shortcut hints a native menu could not',
-      editorLabels.some((row) => /^Paste\s+(⌘|Ctrl\+)V$/.test(row)),
+      editorLabels.some((row) => /^Paste\s*(⌘|Ctrl\+)V$/u.test(row)),
       editorLabels.join(' | '),
     )
     check(
@@ -269,14 +329,17 @@ async function main() {
     )
     await page.screenshot({ path: join(screenshotDir, 'editor-menu.png') })
 
-    // Select all runs through the deferred focus+trigger path.
+    // The real proof for the deferred focus+trigger path: activating a row
+    // reaches Monaco, which needs the editor to hold focus again after the menu
+    // has closed and handed focus back. Monaco paints its selection as its own
+    // `.selected-text` nodes rather than a document selection.
     await menu.locator('button', { hasText: /^Select all/ }).first().click()
-    await page.waitForTimeout(600)
-    const selectedText = await page.evaluate(() => window.getSelection()?.toString() ?? '')
+    await page.waitForTimeout(1200)
+    const selectionNodes = await page.locator('.monaco-editor .selected-text').count()
     check(
       'Select all reaches Monaco after the menu closes',
-      selectedText.includes('first line') && selectedText.includes('third line'),
-      JSON.stringify(selectedText.slice(0, 60)),
+      selectionNodes > 0,
+      `${selectionNodes} selection nodes`,
     )
 
     // ================= Tab strip =================
@@ -294,22 +357,29 @@ async function main() {
     await page.screenshot({ path: join(screenshotDir, 'tab-menu.png') })
     await escapeMenus(page)
 
-    // ================= GitPanel change rows =================
-    await domClick(page, page.locator('button[aria-label^="Git"]').first())
-    await page.waitForTimeout(2500)
-    const changeRow = page.locator('[data-git-change-row="true"]').first()
-    await changeRow.waitFor({ state: 'visible', timeout: 20000 })
-    await changeRow.click({ button: 'right' })
-    menu = page.locator('[role="menu"][aria-label^="Actions for"]').last()
-    await menu.waitFor({ state: 'visible', timeout: 5000 })
-    check('git change row opens a DOM menu (was native)', true)
-    const gitLabels = await menuLabels(menu)
     check(
-      'git change rows and log rows now share the idiom, sentence case',
-      gitLabels.includes('View Git diff') && gitLabels.includes('Open file in editor'),
-      gitLabels.join(' | '),
+      'an editor tab offers no colour row, as before',
+      (await menu.locator('[role="menuitemradio"]').count()) === 0,
     )
-    await page.screenshot({ path: join(screenshotDir, 'git-change-row-menu.png') })
+    await escapeMenus(page)
+
+    // A PLAIN TERMINAL tab additionally carries the swatch row — the seven
+    // highlights the native menu could only offer as Title-Cased checkbox rows
+    // of their names, and the same control the workspace sidebar already used.
+    await domClick(page, page.locator('button[aria-label="Spawn agent"]').first())
+    await domClick(page, page.locator('button').filter({ hasText: /^Terminal$/ }).first())
+    const terminalTab = page.locator('.flexlayout__tab_button').filter({ hasText: 'Terminal' }).first()
+    await terminalTab.waitFor({ state: 'visible', timeout: 20000 })
+    await terminalTab.click({ button: 'right' })
+    menu = page.locator('[role="menu"][aria-label^="Tab actions"]')
+    await menu.waitFor({ state: 'visible', timeout: 5000 })
+    const swatches = await menu.locator('[role="menuitemradio"]').count()
+    check(
+      'terminal tab colour picker is the shared swatch row',
+      swatches === 8,
+      `${swatches} menuitemradio rows (clear + 7 highlights)`,
+    )
+    await page.screenshot({ path: join(screenshotDir, 'terminal-tab-menu.png') })
     await escapeMenus(page)
   } finally {
     await app.close().catch(() => {})

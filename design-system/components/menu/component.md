@@ -65,7 +65,8 @@ edge of a surface the OS draws. macOS conventionally Title-Cases its menus, and
 that convention loses here: a native menu borrows the OS's metrics and
 rendering, never its wording. "Close other editor tabs", not "Close Other
 Editor Tabs". Keys stay keys. Which hosts may stay native at all is a separate
-question, ruled per host and recorded with its reason.
+question, ruled per host under [native menus](#native-menus--the-per-host-ruling)
+— where the single exception, the OS application menu bar, is also ruled.
 
 ### Why the losing values lost
 
@@ -223,6 +224,43 @@ reads as a click inside the parent.
 - Disabled items carry the `disabled` attribute and are skipped by the arrow
   keys, so the keyboard walk only ever lands on rows that do something. They
   stay visible, and their dimmed state is what says why they were skipped.
+
+## Native menus — the per-host ruling
+
+The product also shipped a third register: **native Electron context menus**,
+drawn by the OS through `window.api.showContextMenu`. Four hosts used one, and
+after MC-2104 none do.
+
+| Host | Ruling |
+|---|---|
+| Editor (`EditorPanel`) | **In-app.** Monaco's own menu was already off; the native popup only returned a command id, so nothing about the clipboard actions depended on it. In-app, the rows carry the ⌘X/⌘C/⌘V/⌘A hints Monaco already binds — which a native menu built from ids, not roles, could not show. |
+| File tree (`FileExplorer`) | **In-app.** The richest menu in the product, and the one that looked least like it. Its submenu is `MenuFlyoutItem`, its explainer row a disabled `MenuItem`, and Delete is destructive ink for the first time. |
+| Git change rows (`GitPanel`) | **In-app.** Two menu systems lived in one panel: change rows opened an OS menu while the log rows beside them opened `OverflowMenu`. |
+| Tab strip (`WorkspaceLayout`) | **In-app.** Its colour submenu could only list the seven highlights as Title-Cased rows of their *names*; in-app it is `MenuSwatchRow`, the control the workspace sidebar already used for the same choice. |
+
+**Why none stayed.** A native menu can carry none of this spec: no
+`role="menu"`, no Escape-restores-focus, no roving focus, no shortcut column, no
+destructive ink, and metrics the OS owns. That is a price worth paying only for
+something the DOM cannot do — an OS-level integration, a services menu, a
+drag-target the renderer never sees. None of the four needed one. A host that
+does may stay native, but it states its reason in this table first; silence is
+not a ruling.
+
+**The one native menu that remains is the application MENU BAR**
+(`src/main/app-menu.ts`), and it is the exception to the casing rule above. It
+is not a product surface: it is the OS's, sitting among every other app's menu
+bar, and half its rows are Electron `role:` items — Undo, Cut, Paste, Toggle
+Full Screen — whose labels the OS supplies and the app cannot restyle. Sentence
+case there would produce a submenu that disagreed with itself. **Title Case in
+the menu bar, sentence case in every menu the product draws inside its own
+window.**
+
+Held by `ui/accessibility-contracts.test.ts`, which fails on any
+`window.api.showContextMenu` call under `src/renderer/src`, and exercised
+against the running app by
+`scripts/testing/native-menu-conformance-pass.mjs` — a native menu has no DOM,
+so a pass that finds `role="menu"` at each of these four places is proof the
+conversion is real.
 
 ## Retired — reject these on sight
 
