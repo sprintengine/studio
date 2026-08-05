@@ -564,21 +564,34 @@ async function main(): Promise<void> {
     })
   }
 
-  await check('the left pane header renders icon-only Rescan and New item actions', async () => {
+  // The header carries ONE action (2112): `ui/PanelHeader` takes a single
+  // `primaryAction`, and the pair of icon buttons that used to share that slot
+  // is what gave every panel a different action cluster. Adding an item is what
+  // the left column is for, so the plus keeps the slot; Rescan moved into the
+  // overflow menu beside it and is exercised through that menu below.
+  await check('the left pane header renders New item as its one icon-only action', async () => {
     const { container, unmount } = await mountDialog(preloadedSource)
     try {
-      const rescan = container.querySelector('button[aria-label="Rescan"]')
       const newItem = container.querySelector('button[aria-label="New item"]')
-      assert.ok(rescan, 'the Rescan icon button renders')
       assert.ok(newItem, 'the New item icon button renders')
-      for (const button of [rescan!, newItem!]) {
-        assert.equal(button.textContent, '', 'the action is icon-only, no text label')
-        assert.match(
-          button.closest('header')?.textContent ?? '',
-          /Backlog/,
-          'the action sits in the left pane header row',
-        )
-      }
+      assert.equal(newItem!.textContent, '', 'the action is icon-only, no text label')
+      assert.match(
+        newItem!.closest('header')?.textContent ?? '',
+        /Backlog/,
+        'the action sits in the left pane header row',
+      )
+      assert.equal(
+        container.querySelector('button[aria-label="Rescan"]'),
+        null,
+        'Rescan is not a second button in the header — it lives in the overflow menu',
+      )
+      const overflow = container.querySelector('button[aria-label="Backlog actions"]')
+      assert.ok(overflow, 'the header offers the overflow menu that now holds it')
+      assert.match(
+        overflow!.closest('header')?.textContent ?? '',
+        /Backlog/,
+        'in the same header row',
+      )
     } finally {
       unmount()
     }
@@ -601,7 +614,15 @@ async function main(): Promise<void> {
         '# Late arrival title',
       ].join('\n')
       DIRS['/proj/backlog'].push({ name: 'late-arrival.md', isDir: false })
-      await clickAndSettle(container.querySelector('button[aria-label="Rescan"]'))
+      // Reached through the overflow menu it moved into (2112) — the point of
+      // this check is that a rescan refreshes the list, not where the control
+      // sits, so it opens the menu and picks the item.
+      await clickAndSettle(container.querySelector('button[aria-label="Backlog actions"]'))
+      const rescan = [...dom.window.document.querySelectorAll('[role="menuitem"]')].find(
+        (candidate) => candidate.textContent?.trim() === 'Rescan',
+      )
+      assert.ok(rescan, 'the overflow menu offers Rescan')
+      await clickAndSettle(rescan as Element)
       await flush()
       assert.match(
         container.textContent ?? '',

@@ -27,7 +27,7 @@ import {
 } from '../../utils/sprintengine'
 import { formatSprintEngineGoal } from '../../utils/sprintengineRunSummary'
 import { isEditableTarget } from '../../utils/keyboard'
-import { Tooltip, TruncatedText } from '../ui'
+import { PanelHeader, Tooltip, TruncatedText } from '../ui'
 import {
   buildTaskGraphLayout,
   defaultTaskGraphZoom,
@@ -751,109 +751,122 @@ export function SprintEngineTaskGraphView({
  className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--bg-surface)]"
  onKeyDown={handleGraphKeyDown}
  >
- <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-6 py-3">
- <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
- <h3 className="text-micro font-bold text-[color:var(--text-muted)]">
- Task Graph
- </h3>
- <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-meta text-[color:var(--text-subtle)]">
- <span>
- <span className="font-semibold text-[color:var(--text-default)]">{taskCount}</span> task{taskCount === 1 ? '' : 's'}
- </span>
- {readyCount > 0 ? (
- <span className="text-[color:var(--tone-good)]">
- <span className="font-semibold">{readyCount}</span> ready
- </span>
- ) : null}
- {inFlightCount > 0 ? (
- <span className="text-[color:var(--tone-warn)]">
- <span className="font-semibold">{inFlightCount}</span> in flight
- </span>
- ) : null}
- {reviewCount > 0 ? (
- <span className="text-[color:var(--tone-warn)]">
- <span className="font-semibold">{reviewCount}</span> review
- </span>
- ) : null}
- {doneCount > 0 ? (
- <span className="text-[color:var(--tone-good)]">
- <span className="font-semibold">{doneCount}</span> done
- </span>
- ) : null}
- {terminalCount > 0 ? (
- <span>
- <span className="font-semibold text-[color:var(--text-default)]">{terminalCount}</span> final {terminalCount === 1 ? 'chain' : 'chains'}
- </span>
- ) : null}
- </div>
- {hasWarning ? (
- <span
- role="alert"
- className="inline-flex items-center gap-1.5 text-micro font-medium text-[color:var(--tone-warn)]"
- >
- <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
- <path d="M8 1.75L14.75 13.5H1.25L8 1.75Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
- <path d="M8 6.5V9.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
- <circle cx="8" cy="11.6" r="0.7" fill="currentColor" />
- </svg>
- {warningMessage}
- </span>
- ) : null}
- </div>
- <div className="flex items-center gap-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-0.5">
- <Tooltip content="Zoom out">
- <button
- type="button"
- onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'out'))}
- disabled={!canZoomOut}
- className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
- aria-label="Zoom out task graph"
- >
- <ZoomOutSprintEngineIcon />
- </button>
- </Tooltip>
- <div
- className="min-w-[2.75rem] px-1 text-center text-micro font-semibold tabular-nums text-[color:var(--text-default)]"
- aria-live="polite"
- >
- {zoomPercent}%
- </div>
- <Tooltip content="Zoom in">
- <button
- type="button"
- onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'in'))}
- disabled={!canZoomIn}
- className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
- aria-label="Zoom in task graph"
- >
- <ZoomInSprintEngineIcon />
- </button>
- </Tooltip>
- <span className="mx-0.5 h-4 w-px bg-[color:var(--border-default)]" aria-hidden="true" />
- <Tooltip content="Fit graph">
- <button
- type="button"
- onClick={fitGraphToViewport}
- className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
- aria-label="Fit task graph to viewport"
- >
- <FitGraphZoomIcon />
- </button>
- </Tooltip>
- <Tooltip content="Reset zoom">
- <button
- type="button"
- onClick={() => setGraphZoomFromAnchor(defaultTaskGraphZoom)}
- disabled={!canResetZoom}
- className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
- aria-label="Reset task graph zoom"
- >
- <ResetGraphZoomIcon />
- </button>
- </Tooltip>
- </div>
- </header>
+      {/* The graph's identity row, on the shared primitive. It hand-rolled the
+          band at `px-6 py-3` — 12px in from every sibling and 4px taller —
+          under a `text-micro font-bold` heading, which is the smallest type in
+          the ramp doing a title's job (2112). The per-state counts are the
+          title's scope; the zoom cluster is its one control.
 
+          The band used to `flex-wrap`, so on a narrow pane the counts pushed
+          the header onto a second line and the graph below it moved. One row
+          now: the counts give up their space first, and the warning — which
+          must never be the thing that gets clipped — states itself in a band of
+          its own beneath. */}
+      <PanelHeader
+        title="Task graph"
+        count={taskCount}
+        scope={
+          // `overflow-hidden`, not `flex-wrap`: the counts are the first thing
+          // that may be given up when the pane narrows, and a header that grows
+          // a second line moves the graph under it.
+          <div className="flex min-w-0 items-center gap-x-4 overflow-hidden text-meta text-[color:var(--text-subtle)]">
+            {readyCount > 0 ? (
+              <span className="text-[color:var(--tone-good)]">
+                <span className="font-semibold">{readyCount}</span> ready
+              </span>
+            ) : null}
+            {inFlightCount > 0 ? (
+              <span className="text-[color:var(--tone-warn)]">
+                <span className="font-semibold">{inFlightCount}</span> in flight
+              </span>
+            ) : null}
+            {reviewCount > 0 ? (
+              <span className="text-[color:var(--tone-warn)]">
+                <span className="font-semibold">{reviewCount}</span> review
+              </span>
+            ) : null}
+            {doneCount > 0 ? (
+              <span className="text-[color:var(--tone-good)]">
+                <span className="font-semibold">{doneCount}</span> done
+              </span>
+            ) : null}
+            {terminalCount > 0 ? (
+              <span>
+                <span className="font-semibold text-[color:var(--text-default)]">{terminalCount}</span> final {terminalCount === 1 ? 'chain' : 'chains'}
+              </span>
+            ) : null}
+          </div>
+        }
+        primaryAction={
+          <div className="flex items-center gap-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-0.5">
+            <Tooltip content="Zoom out">
+              <button
+                type="button"
+                onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'out'))}
+                disabled={!canZoomOut}
+                className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
+                aria-label="Zoom out task graph"
+              >
+                <ZoomOutSprintEngineIcon />
+              </button>
+            </Tooltip>
+            <div
+              className="min-w-[2.75rem] px-1 text-center text-micro font-semibold tabular-nums text-[color:var(--text-default)]"
+              aria-live="polite"
+            >
+              {zoomPercent}%
+            </div>
+            <Tooltip content="Zoom in">
+              <button
+                type="button"
+                onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'in'))}
+                disabled={!canZoomIn}
+                className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
+                aria-label="Zoom in task graph"
+              >
+                <ZoomInSprintEngineIcon />
+              </button>
+            </Tooltip>
+            <span className="mx-0.5 h-4 w-px bg-[color:var(--border-default)]" aria-hidden="true" />
+            <Tooltip content="Fit graph">
+              <button
+                type="button"
+                onClick={fitGraphToViewport}
+                className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+                aria-label="Fit task graph to viewport"
+              >
+                <FitGraphZoomIcon />
+              </button>
+            </Tooltip>
+            <Tooltip content="Reset zoom">
+              <button
+                type="button"
+                onClick={() => setGraphZoomFromAnchor(defaultTaskGraphZoom)}
+                disabled={!canResetZoom}
+                className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
+                aria-label="Reset task graph zoom"
+              >
+                <ResetGraphZoomIcon />
+              </button>
+            </Tooltip>
+          </div>
+        }
+      />
+      {hasWarning ? (
+        <div className="flex shrink-0 items-center border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
+          <span
+            role="alert"
+            className="inline-flex items-center gap-1.5 text-micro font-medium text-[color:var(--tone-warn)]"
+          >
+            <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 1.75L14.75 13.5H1.25L8 1.75Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+              <path d="M8 6.5V9.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              <circle cx="8" cy="11.6" r="0.7" fill="currentColor" />
+            </svg>
+            {warningMessage}
+          </span>
+        </div>
+      ) : null}
  <div className="relative min-h-[460px] flex-1">
  <div
  ref={graphScrollRef}

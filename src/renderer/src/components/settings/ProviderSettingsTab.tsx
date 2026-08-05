@@ -307,7 +307,7 @@ function ProviderRow({
               size="md"
               onClick={onSave}
               disabled={busy || !draft.trim()}
-              className="h-control-md shrink-0"
+              className="shrink-0"
             >
               {pending === 'saving' ? 'Saving…' : 'Save'}
             </PrimaryButton>

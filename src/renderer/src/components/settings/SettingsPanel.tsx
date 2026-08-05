@@ -399,7 +399,7 @@ function CliCredentialRow({
               <span aria-hidden="true">••••••••••••</span>
             </div>
             {canClear ? (
-              <GhostButton size="md" onClick={() => void clear()} disabled={busy} className="h-control-md shrink-0">
+              <GhostButton size="md" onClick={() => void clear()} disabled={busy} className="shrink-0">
                 {busy ? 'Removing…' : 'Remove'}
               </GhostButton>
             ) : null}
@@ -425,7 +425,7 @@ function CliCredentialRow({
               disabled={busy}
               className={`${ROW_INPUT_CLASS} min-w-0 flex-1`}
             />
-            <PrimaryButton size="md" onClick={() => void save()} disabled={busy || !draft.trim()} className="h-control-md shrink-0">
+            <PrimaryButton size="md" onClick={() => void save()} disabled={busy || !draft.trim()} className="shrink-0">
               {busy ? 'Saving…' : 'Save'}
             </PrimaryButton>
           </div>

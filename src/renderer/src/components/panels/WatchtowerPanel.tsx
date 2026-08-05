@@ -739,6 +739,12 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
             )
           }
           overflow={<OverflowMenu ariaLabel="Watchtower overflow" items={overflowItems} />}
+          // Every band below the header — the banners, the running strip, the
+          // status chip, and the filter bar that always renders — closes with
+          // its own hairline. A rule here as well would double up on the first
+          // of them; the line under the filter row is the one that says a list
+          // starts here.
+          divider={false}
         />
 
         {state.kind === 'error' ? (

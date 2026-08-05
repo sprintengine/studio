@@ -10,6 +10,7 @@ import {
   MenuFlyoutItem,
   MenuItem,
   OutlineButton,
+  PanelHeader,
   Popover,
   StatusDot,
   Tooltip,
@@ -372,113 +373,120 @@ export function SprintEngineRosterView({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--bg-surface)]">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-4">
-        <h3 className="text-body font-semibold text-[color:var(--text-strong)]">Agents</h3>
-        <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">
-          {rolelessRun ? (
-            `${liveAgentCount} of ${roster.length} active`
+      {/* The shared identity row. This band was `h-11` (44px) over
+          `--border-subtle` with the state line at `text-micro` — a taller row
+          on a fainter rule than the panels it sits beside (2112).
+
+          The mockup's run-level model picker is NOT here, and deliberately so:
+          a run-level runtime edit is written by `roster runtime --role`, which
+          both the main-process role validator and the engine's
+          `require_configured_role` reject for a run whose legal role set is
+          empty. A control that can only fail is worse than no control — the
+          per-agent picker (right-click / ⋮) writes the same runtime and does
+          work, so it carries this until the run-level write has a roleless
+          route. */}
+      <PanelHeader
+        title="Agents"
+        subtitle={
+          rolelessRun
+            ? `${liveAgentCount} of ${roster.length} active`
+            : `${workingCount} working · ${configuredRoleCount} configured ${
+                configuredRoleCount === 1 ? 'role' : 'roles'
+              }`
+        }
+        // Staffing the run is the one action this panel exists for, so it takes
+        // the primary slot. Adding a ROLE changes what the run may staff at all
+        // — rarer, and secondary to it — so it moves to the overflow side of the
+        // cluster rather than stacking a second control in this slot.
+        primaryAction={
+          rolelessRun ? (
+            // No role to pick, so the control is the action itself rather than a
+            // menu of one.
+            <OutlineButton
+              size="xs"
+              disabled={Boolean(terminalActionsUnavailable)}
+              aria-label={unavailableLabel('Add an agent')}
+              onClick={() => onAddAgent()}
+            >
+              <span aria-hidden="true">＋</span> Add an agent
+            </OutlineButton>
+          ) : configuredRoleOptions.length === 0 ? undefined : terminalActionsUnavailable ? (
+            // Both halves of "Add an agent" — raising the run's concurrent-agent
+            // count and starting the agent — live in the workspace, so with none
+            // resident the control says so instead of opening a menu that cannot
+            // finish what it starts.
+            <OutlineButton size="xs" disabled aria-label={unavailableLabel('Add an agent')}>
+              <span aria-hidden="true">＋</span> Add an agent
+            </OutlineButton>
           ) : (
-            <>
-              {workingCount} working · {configuredRoleCount} configured{' '}
-              {configuredRoleCount === 1 ? 'role' : 'roles'}
-            </>
-          )}
-        </span>
-        <span className="flex-1" />
-        {/* The mockup's run-level model picker is NOT here, and deliberately so:
-            a run-level runtime edit is written by `roster runtime --role`, which
-            both the main-process role validator and the engine's
-            `require_configured_role` reject for a run whose legal role set is
-            empty. A control that can only fail is worse than no control — the
-            per-agent picker (right-click / ⋮) writes the same runtime and does
-            work, so it carries this until the run-level write has a roleless
-            route. */}
-        {rolelessRun ? (
-          // No role to pick, so the control is the action itself rather than a
-          // menu of one.
-          <OutlineButton
-            size="xs"
-            disabled={Boolean(terminalActionsUnavailable)}
-            aria-label={unavailableLabel('Add an agent')}
-            onClick={() => onAddAgent()}
-          >
-            <span aria-hidden="true">＋</span> Add an agent
-          </OutlineButton>
-        ) : null}
-        {!rolelessRun && addableRoleOptions.length > 0 && roleConfigUnavailable ? (
-          <OutlineButton size="xs" disabled aria-label={labelWithReason('Add a role', roleConfigUnavailable)}>
-            <span aria-hidden="true">＋</span> Add a role
-          </OutlineButton>
-        ) : !rolelessRun && addableRoleOptions.length > 0 ? (
-          <Popover
-            open={addRoleOpen}
-            onOpenChange={setAddRoleOpen}
-            ariaLabel="Add a role"
-            popupRole="menu"
-            placement="bottom-end"
-            surfaceClassName="w-[240px] p-1 text-meta"
-            renderTrigger={({ ref, triggerProps, togglePopover }) => (
-              <OutlineButton ref={ref} size="xs" onClick={togglePopover} {...triggerProps}>
-                <span aria-hidden="true">＋</span> Add a role
-              </OutlineButton>
-            )}
-          >
-            <div role="none">
-              {addableRoleOptions.map((option) => (
-                <MenuItem
-                  key={option.role}
-                  onClick={() => {
-                    onEnableRole(option.role as SprintEngineRole)
-                    setAddRoleOpen(false)
-                  }}
-                >
-                  {option.label}
-                </MenuItem>
-              ))}
-            </div>
-          </Popover>
-        ) : null}
-        {configuredRoleOptions.length > 0 && terminalActionsUnavailable ? (
-          // Both halves of "Add an agent" — raising the run's concurrent-agent
-          // count and starting the agent — live in the workspace, so with none
-          // resident the control says so instead of opening a menu that cannot
-          // finish what it starts.
-          <OutlineButton size="xs" disabled aria-label={unavailableLabel('Add an agent')}>
-            <span aria-hidden="true">＋</span> Add an agent
-          </OutlineButton>
-        ) : configuredRoleOptions.length > 0 ? (
-          <Popover
-            open={addAgentOpen}
-            onOpenChange={setAddAgentOpen}
-            ariaLabel="Add an agent"
-            popupRole="menu"
-            placement="bottom-end"
-            surfaceClassName="w-[240px] p-1 text-meta"
-            renderTrigger={({ ref, triggerProps, togglePopover }) => (
-              <OutlineButton ref={ref} size="xs" onClick={togglePopover} {...triggerProps}>
-                <span aria-hidden="true">＋</span> Add an agent
-              </OutlineButton>
-            )}
-          >
-            <div role="none">
-              <p className="px-2 pb-0.5 pt-1 text-micro font-semibold text-[color:var(--text-subtle)]">
-                Start another agent for
-              </p>
-              {configuredRoleOptions.map((option) => (
-                <MenuItem
-                  key={option.role}
-                  onClick={() => {
-                    onAddAgent(option.role as SprintEngineRole)
-                    setAddAgentOpen(false)
-                  }}
-                >
-                  {option.label}
-                </MenuItem>
-              ))}
-            </div>
-          </Popover>
-        ) : null}
-      </div>
+            <Popover
+              open={addAgentOpen}
+              onOpenChange={setAddAgentOpen}
+              ariaLabel="Add an agent"
+              popupRole="menu"
+              placement="bottom-end"
+              surfaceClassName="w-[240px] p-1 text-meta"
+              renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                <OutlineButton ref={ref} size="xs" onClick={togglePopover} {...triggerProps}>
+                  <span aria-hidden="true">＋</span> Add an agent
+                </OutlineButton>
+              )}
+            >
+              <div role="none">
+                <p className="px-2 pb-0.5 pt-1 text-micro font-semibold text-[color:var(--text-subtle)]">
+                  Start another agent for
+                </p>
+                {configuredRoleOptions.map((option) => (
+                  <MenuItem
+                    key={option.role}
+                    onClick={() => {
+                      onAddAgent(option.role as SprintEngineRole)
+                      setAddAgentOpen(false)
+                    }}
+                  >
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </div>
+            </Popover>
+          )
+        }
+        overflow={
+          rolelessRun || addableRoleOptions.length === 0 ? undefined : roleConfigUnavailable ? (
+            <OutlineButton size="xs" disabled aria-label={labelWithReason('Add a role', roleConfigUnavailable)}>
+              <span aria-hidden="true">＋</span> Add a role
+            </OutlineButton>
+          ) : (
+            <Popover
+              open={addRoleOpen}
+              onOpenChange={setAddRoleOpen}
+              ariaLabel="Add a role"
+              popupRole="menu"
+              placement="bottom-end"
+              surfaceClassName="w-[240px] p-1 text-meta"
+              renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                <OutlineButton ref={ref} size="xs" onClick={togglePopover} {...triggerProps}>
+                  <span aria-hidden="true">＋</span> Add a role
+                </OutlineButton>
+              )}
+            >
+              <div role="none">
+                {addableRoleOptions.map((option) => (
+                  <MenuItem
+                    key={option.role}
+                    onClick={() => {
+                      onEnableRole(option.role as SprintEngineRole)
+                      setAddRoleOpen(false)
+                    }}
+                  >
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </div>
+            </Popover>
+          )
+        }
+      />
 
       <div className="min-h-0 flex-1 overflow-auto">
         {/* Agents with no role: seats on the same left edge as a band's rows,

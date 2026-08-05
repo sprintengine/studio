@@ -2472,6 +2472,11 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
         <>
           <PanelHeader
             title={rootName}
+            // The search band below draws the panel's one rule. Keeping the
+            // header's as well stacks two hairlines and boxes the search into a
+            // strip of its own — the defect PanelHeader's `divider` documents.
+            // With no folder open there is no search band, so the header keeps it.
+            divider={!folderReadyPath}
             overflow={
               folderReadyPath ? (
                 <>

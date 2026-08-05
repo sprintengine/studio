@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { GhostButton, InlineNotice, LifecycleGlyph, Section, Spinner, TruncatedText } from '../../ui'
+import { GhostButton, InlineNotice, LifecycleGlyph, PanelHeader, Section, Spinner, TruncatedText } from '../../ui'
 import type { AutomationDefinition, AutomationRun } from '../../../../../shared/automations/contracts'
 import { AutomationRunActions } from './AutomationRunActions'
 import {
@@ -56,19 +56,28 @@ export function AutomationDetailPane({
 
   return (
     <div className="flex flex-col">
-      <div className="border-b border-[color:var(--border-default)] px-4 py-3">
-        <div className="flex items-center gap-2">
-          <LifecycleGlyph
-            state={DEFINITION_LIFECYCLE[definition.status]}
-            live={definition.status === 'enabled'}
-            label={DEFINITION_STATUS_LABEL[definition.status]}
-          />
-          <h3 className="truncate text-body font-semibold text-[color:var(--text-strong)]">{definition.name}</h3>
-          {definition.ownerModuleId ? (
-            <ModuleAttribution moduleId={definition.ownerModuleId} className="text-micro" />
-          ) : null}
-        </div>
-        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-micro">
+      {/* Identity row on the shared primitive — this band was `px-4 py-3`, so a
+          detail pane opened 4px taller and 4px further in than its siblings
+          (2112). The lifecycle glyph and the owning module are the title's
+          scope; the trigger/next-run grid keeps the band below. */}
+      <PanelHeader
+        title={definition.name}
+        scope={
+          <span className="flex min-w-0 items-center gap-2">
+            <LifecycleGlyph
+              state={DEFINITION_LIFECYCLE[definition.status]}
+              live={definition.status === 'enabled'}
+              label={DEFINITION_STATUS_LABEL[definition.status]}
+            />
+            {definition.ownerModuleId ? (
+              <ModuleAttribution moduleId={definition.ownerModuleId} className="text-micro" />
+            ) : null}
+          </span>
+        }
+        divider={false}
+      />
+      <div className="border-b border-[color:var(--border-default)] px-3 pb-2">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-micro">
           <Meta label="Trigger" value={cadenceSummary(definition.trigger)} />
           <Meta label="Action" value={actionLabel(definition.action.kind)} />
           <Meta label="Next run" value={nextAt !== null ? `${relativeFromNow(nextAt, now)} (${absoluteTime(nextAt)})` : definition.status === 'enabled' ? 'Pending' : 'Paused'} />

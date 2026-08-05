@@ -1,5 +1,5 @@
 import { ActionStatusChip, type ActionStatus } from '../../ui/ActionFeedback'
-import { DefinitionList, FOCUS_RING_CLASS, GhostButton, PrimaryButton, Select, StatusDot, type Tone } from '../../ui'
+import { DefinitionList, FOCUS_RING_CLASS, GhostButton, OverflowMenu, PanelHeader, PrimaryButton, Select, StatusDot, type Tone } from '../../ui'
 import { CommentIcon, PriorityIcon, SpecialistActionIcon } from '../../AppIcons'
 import type { SwitchboardTaskRecord } from '../../../../../shared/switchboard'
 import { confidenceLabel, confidenceToneClass, formatRelativeTime, priorityLabel, shortIdentifier, sourceLabel } from '../../../utils/switchboardBoard'
@@ -72,30 +72,61 @@ export function DetailPane({
   const anyDetailMutation = isEditing || isPromoting || isCanceling || isTriaging
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[color:var(--border-default)] px-5 py-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-micro text-[color:var(--text-muted)]">
-            <span className="font-mono tabular-nums text-meta text-[color:var(--text-default)]">
-              {shortIdentifier(record)}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span>Inbox</span>
-            <span aria-hidden="true">·</span>
-            <span className="tabular-nums">{formatRelativeTime(task.createdAt)}</span>
-          </div>
-          {editing ? (
-            <input
-              value={editForm.title}
-              onChange={(event) => onEditFormChange({ ...editForm, title: event.target.value })}
-              className={`mt-2 block w-full bg-transparent text-title font-semibold text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+      {/* The identity row is the shared primitive, so this pane sits at the same
+          height as the inbox beside it. It used to hand-roll the band at
+          `px-5 py-4` with a `text-title` heading, and carried five buttons plus
+          two status chips in the action cluster (2112). One promote action stays
+          here; the rest are the overflow menu, the chips moved to a band of
+          their own, and the edit form's Cancel/Save moved down to the form. */}
+      <PanelHeader
+        title={task.title}
+        subtitle={`${shortIdentifier(record)} · Inbox · ${formatRelativeTime(task.createdAt)}`}
+        primaryAction={
+          editing ? undefined : (
+            <PrimaryButton onClick={onPromote} disabled={anyDetailMutation}>
+              {isPromoting ? 'Promoting…' : 'Promote to Switchboard'}
+            </PrimaryButton>
+          )
+        }
+        overflow={
+          editing ? undefined : (
+            <OverflowMenu
+              ariaLabel="Task actions"
+              items={[
+                {
+                  id: 'view-file',
+                  label: loadingFile ? 'Opening…' : 'View file',
+                  onSelect: onOpenFile,
+                  disabled: anyDetailMutation || loadingFile,
+                },
+                {
+                  id: 'edit',
+                  label: 'Edit',
+                  onSelect: onStartEdit,
+                  disabled: anyDetailMutation,
+                },
+                {
+                  id: 'triage',
+                  label: isTriaging ? 'Starting…' : 'Triage task',
+                  onSelect: onTriageTask,
+                  disabled: anyDetailMutation,
+                },
+                { kind: 'separator', id: 'sep-destructive' },
+                {
+                  id: 'cancel-task',
+                  label: isCanceling ? 'Canceling…' : 'Cancel task',
+                  onSelect: onCancelTask,
+                  disabled: anyDetailMutation,
+                  destructive: true,
+                },
+              ]}
             />
-          ) : (
-            <h3 className="mt-2 text-title font-semibold leading-5 text-[color:var(--text-strong)]">
-              {task.title}
-            </h3>
-          )}
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          )
+        }
+      />
+
+      {detailStatus || fileError ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[color:var(--border-default)] px-3 py-2">
           {detailStatus ? (
             <ActionStatusChip
               status={detailStatus}
@@ -108,36 +139,8 @@ export function DetailPane({
               onDismiss={onDismissFileError}
             />
           ) : null}
-          {editing ? (
-            <>
-              <GhostButton onClick={onCancelEdit} disabled={isEditing}>
-                Cancel
-              </GhostButton>
-              <PrimaryButton onClick={onSaveEdit} disabled={isEditing}>
-                {isEditing ? 'Saving…' : 'Save'}
-              </PrimaryButton>
-            </>
-          ) : (
-            <>
-              <GhostButton onClick={onOpenFile} disabled={anyDetailMutation || loadingFile}>
-                {loadingFile ? 'Opening…' : 'View file'}
-              </GhostButton>
-              <GhostButton onClick={onStartEdit} disabled={anyDetailMutation}>
-                Edit
-              </GhostButton>
-              <GhostButton onClick={onCancelTask} disabled={anyDetailMutation}>
-                {isCanceling ? 'Canceling…' : 'Cancel task'}
-              </GhostButton>
-              <GhostButton onClick={onTriageTask} disabled={anyDetailMutation}>
-                {isTriaging ? 'Starting…' : 'Triage task'}
-              </GhostButton>
-              <PrimaryButton onClick={onPromote} disabled={anyDetailMutation}>
-                {isPromoting ? 'Promoting…' : 'Promote to Switchboard'}
-              </PrimaryButton>
-            </>
-          )}
         </div>
-      </header>
+      ) : null}
 
       {record.warnings.length > 0 ? (
         <div className="border-b border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-5 py-2 text-meta leading-5 text-[color:var(--tone-warn)]">
@@ -151,6 +154,21 @@ export function DetailPane({
         <DefinitionList
           layout="two-column"
           items={[
+            // The title is editable with the rest of the fields now that the
+            // header is the shared identity row rather than a form control.
+            ...(editing
+              ? [{
+                  term: 'Title',
+                  description: (
+                    <input
+                      value={editForm.title}
+                      onChange={(event) => onEditFormChange({ ...editForm, title: event.target.value })}
+                      aria-label="Task title"
+                      className={`block w-full max-w-md rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+                    />
+                  ),
+                }]
+              : []),
             {
               term: 'Identifier',
               description: editing ? (
@@ -260,6 +278,19 @@ export function DetailPane({
 
         <CommentsSection record={record} />
       </div>
+
+      {/* An edit session commits where it is entered — at the foot of the form,
+          not from the identity row above it. */}
+      {editing ? (
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[color:var(--border-default)] px-3 py-2">
+          <GhostButton onClick={onCancelEdit} disabled={isEditing}>
+            Cancel
+          </GhostButton>
+          <PrimaryButton onClick={onSaveEdit} disabled={isEditing}>
+            {isEditing ? 'Saving…' : 'Save'}
+          </PrimaryButton>
+        </div>
+      ) : null}
 
       <footer className="border-t border-[color:var(--border-default)] px-5 py-3">
         <div className="flex items-center justify-between gap-2">

@@ -413,9 +413,10 @@ export default function MobileSettingsTab() {
                 </div>
                 <OutlineButton
                   size="md"
+                  tone="danger"
                   onClick={() => void revokeDevice(device)}
                   disabled={!enabled || revokingDeviceId === device.deviceId}
-                  className="justify-self-start hover:text-[color:var(--tone-error)] sm:justify-self-end"
+                  className="justify-self-start sm:justify-self-end"
                 >
                   {revokingDeviceId === device.deviceId ? 'Revoking' : 'Revoke'}
                 </OutlineButton>

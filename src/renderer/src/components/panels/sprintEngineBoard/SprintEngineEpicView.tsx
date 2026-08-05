@@ -1,11 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { FOCUS_RING_INSET_CLASS, GhostButton, SidePane, Tooltip } from '../../ui'
+import { FOCUS_RING_INSET_CLASS, GhostButton, PanelHeader, SidePane, Tooltip } from '../../ui'
 import {
   BACKLOG_STATUS_LABEL,
   BacklogRowContent,
   BacklogRowHoverCard,
-  EpicProgressMeter,
 } from '../../backlog/BacklogRow'
 import { BacklogItemDetailPane } from '../../backlog/BacklogItemDetailPane'
 import { useSprintEngineEpicBacklog } from './useSprintEngineEpicBacklog'
@@ -126,7 +125,6 @@ export function SprintEngineEpicView({
   )
 
   const epicTitle = model?.epic?.title ?? basename(seed.relativePath)
-  const epicColor = backlog.feed.derived.epicMetaBySlug.get(seed.slug)?.color ?? null
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
@@ -136,22 +134,23 @@ export function SprintEngineEpicView({
           surfaces. `lg` is the documented primary-content-column preset. */}
       <SidePane as="section" side="left" width="lg" ariaLabel="Epic" className="min-h-0">
         {/* Heading + completion, then the children indented beneath it. No rule
-            between the two: space is what groups them. */}
-        <header className="flex shrink-0 items-center gap-2.5 px-3 pb-2 pt-4">
-          <h3 className="min-w-0 truncate text-heading font-semibold text-[color:var(--text-strong)]">
-            {epicTitle}
-          </h3>
-          {model?.epic?.displayId ? (
-            <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
-              {model.epic.displayId}
-            </span>
-          ) : null}
-          {model ? (
-            <span className="ml-auto shrink-0">
-              <EpicProgressMeter progress={model.progress} color={epicColor} />
-            </span>
-          ) : null}
-        </header>
+            between the two: space is what groups them, so `divider={false}`.
+
+            This was a hand-rolled band at `px-3 pb-2 pt-4` with a `text-heading`
+            title — one type step and 8px above every sibling panel (2112).
+
+            Completion is the header's `count`, and NOT its `progress`: that prop
+            draws a 2px hairline across the header's bottom edge, which is the
+            exact seam this tab's acceptance keeps clear, and
+            `scripts/testing/sprintengine-epic-tab-pass.mjs` measures it on the
+            rendered surface. A fraction says the same thing without putting a
+            line where the design says there is none. */}
+        <PanelHeader
+          title={epicTitle}
+          count={model ? `${model.progress.done}/${model.progress.total}` : undefined}
+          subtitle={model?.epic?.displayId ?? undefined}
+          divider={false}
+        />
 
         {model?.epicUnavailableReason ? (
           <p className="shrink-0 px-3 pb-2 text-micro leading-4 text-[color:var(--tone-warn)]">

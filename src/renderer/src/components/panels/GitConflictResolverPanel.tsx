@@ -282,12 +282,17 @@ function ConflictReadOnlyPane({
 // The take-a-side actions on a conflict hunk. On the kit's `sm` step, like
 // every other labelled control in the Git surfaces: this ran the panel's
 // private 28px/6px ramp, which is what put a Git button a pixel or two off
-// every button beside it (MC-2113). `text-left` survives because these sit in a
-// stacked column where the labels have to align on their left edge.
+// every button beside it (MC-2113).
+//
+// Left alignment is a full-width CHILD rather than a `justify-start` on the
+// button. The primitive already declares `justify-center`, and a second
+// `justify-content` utility of equal specificity in `className` would leave
+// which one wins to stylesheet order — the same trap the `tone` prop exists to
+// close. A child that fills the line box sidesteps the question entirely.
 function ConflictActionButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <GhostButton size="sm" onClick={onClick} className="justify-start text-left">
-      {label}
+    <GhostButton size="sm" onClick={onClick}>
+      <span className="w-full text-left">{label}</span>
     </GhostButton>
   )
 }

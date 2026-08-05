@@ -3,7 +3,11 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { FOCUS_RING_CLASS, InboxRow, Skeleton } from '../ui'
+import { FOCUS_RING_CLASS, InboxRow, PanelHeader, Skeleton } from '../ui'
+
+// The panel names itself the same way in every state, including the one where
+// the folder is still being verified and there is nothing to count yet.
+const SEARCH_TITLE = 'Search in files'
 
 interface Props {
   workspaceId: string
@@ -57,8 +61,10 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
     if (error) return error
     if (!trimmedQuery) return null
     if (!diagnostics) return null
-    const suffix = diagnostics.truncated ? '+' : ''
-    return `${diagnostics.resultCount}${suffix} result${diagnostics.resultCount === 1 ? '' : 's'} in ${diagnostics.elapsedMs} ms`
+    // The result count is the header's now — the canonical count next to the
+    // panel's name — so this line carries only what the header cannot: how long
+    // the search took.
+    return `Searched in ${diagnostics.elapsedMs} ms`
   }, [diagnostics, error, folderReadyPath, searching, trimmedQuery])
 
   useEffect(() => {
@@ -147,7 +153,8 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
         <span role="status" className="sr-only">
           Loading workspace…
         </span>
-        <div aria-hidden="true" className="border-b border-[color:var(--border-default)] px-3 py-3">
+        <PanelHeader title={SEARCH_TITLE} divider={false} />
+        <div aria-hidden="true" className="border-b border-[color:var(--border-default)] px-3 py-2">
           <Skeleton className="h-8 w-full rounded-md bg-[color:var(--skeleton-shimmer-high)]" />
         </div>
       </div>
@@ -160,7 +167,17 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
 
   return (
     <div className="flex h-full flex-col bg-[color:var(--bg-app)]">
-      <div className="border-b border-[color:var(--border-default)] px-3 py-3">
+      {/* This panel had no identity row at all, and its search strip sat at
+          `py-3` — 12px against the primitive's 8px — so it and the file tree
+          beside it started at different heights (2112). The header names the
+          panel and carries the result count; the strip below keeps the panel's
+          one rule, which is why the header sets `divider={false}`. */}
+      <PanelHeader
+        title={SEARCH_TITLE}
+        count={trimmedQuery && diagnostics ? `${diagnostics.resultCount}${diagnostics.truncated ? '+' : ''}` : undefined}
+        divider={false}
+      />
+      <div className="border-b border-[color:var(--border-default)] px-3 py-2">
         <input
           ref={inputRef}
           value={query}

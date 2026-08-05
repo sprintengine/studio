@@ -82,12 +82,14 @@ import {
   InboxRow,
   LIFECYCLE_LABEL,
   LifecycleGlyph,
+  PanelHeader,
   PrimaryButton,
   RoleAvatar,
   Spinner,
   Tooltip,
   TruncatedText,
   type DefinitionItem,
+  type LifecycleState,
 } from '../ui'
 import {
   SOURCE_HANDOFF_ARTIFACT_ID,
@@ -401,29 +403,26 @@ function SprintEngineArtifactInspector({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="border-b border-[color:var(--border-default)] px-5 py-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">
-              <LifecycleGlyph state={lifecycle} live={false} />
-              <span>{statusLabel}</span>
-              <span>·</span>
-              <span className="font-mono text-[color:var(--text-muted)]">{artifact.id}</span>
-            </div>
-            <TruncatedText
-              as="h3"
-              text={artifact.title}
-              className="mt-2 text-title font-semibold leading-7 text-[color:var(--text-strong)]"
-            />
-          </div>
+      {/* The three inspector panes all led with the same hand-rolled band —
+          `px-5 py-4`, a status line stacked over a `text-title` heading — so a
+          detail pane opened a type step and 8px taller than the list it opened
+          from (2112). One row now: the status line is the title's `scope`, the
+          actions keep the band below. */}
+      <PanelHeader
+        title={artifact.title}
+        scope={<InspectorStatusScope lifecycle={lifecycle} live={false} label={statusLabel} id={artifact.id} />}
+        primaryAction={
           <InspectorChromeActions
             expanded={isExpanded}
             onToggleExpand={onToggleExpand}
             onClose={onClose}
             closeLabel="Close artifact detail"
           />
-        </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        }
+        divider={false}
+      />
+      <div className="border-b border-[color:var(--border-default)] px-3 pb-2">
+        <div className="flex flex-wrap gap-1.5">
           {canOpenArtifact ? (
             <GhostButton onClick={() => onOpenArtifact(artifact)} disabled={pending}>
               {pending && actionState?.kind === 'open' ? 'Opening…' : 'Open'}
@@ -445,7 +444,7 @@ function SprintEngineArtifactInspector({
             </span>
           ) : null}
         </div>
-      </header>
+      </div>
 
       <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-body leading-6 text-[color:var(--text-default)]">
         <DefinitionList items={items} />
@@ -2505,6 +2504,46 @@ function TaskReadouts({
 // Inspector panel — task / artifact / agent / preview branches.
 // ──────────────────────────────────────────────────────────────────────────
 
+// The lifecycle line an inspector pane wears beside its title, as one node so
+// the artifact, agent and task panes state it identically. It rides
+// `PanelHeader`'s `scope` slot — the interactive-or-stateful counterpart to a
+// plain `subtitle` — which is what let all three panes drop their hand-rolled
+// two-line bands (2112).
+function InspectorStatusScope({
+  lifecycle,
+  live,
+  label,
+  id,
+  glyph,
+  busy = false,
+}: {
+  lifecycle?: LifecycleState
+  live?: boolean
+  label: string
+  id?: string
+  /** Replaces the lifecycle glyph — the agent pane leads with a role avatar. */
+  glyph?: React.ReactNode
+  /** Work in flight right now. Draws the spinner the agent pane's status line
+   *  carried, which a status WORD alone ("running") does not convey as live. */
+  busy?: boolean
+}): JSX.Element {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
+      {glyph ?? (lifecycle ? <LifecycleGlyph state={lifecycle} live={Boolean(live)} /> : null)}
+      {busy ? <Spinner size={12} /> : null}
+      <span className="truncate">{label}</span>
+      {id ? (
+        <>
+          <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">
+            ·
+          </span>
+          <span className="shrink-0 font-mono tabular-nums">{id}</span>
+        </>
+      ) : null}
+    </span>
+  )
+}
+
 // Arrows-out (expand) and arrows-in (collapse) corner glyphs. Borderless icon
 // next to CloseIconButton in every closable inspector header. The pattern
 // matches Notion's side-peek and Figma's panel expand.
@@ -2694,42 +2733,36 @@ export function SprintEngineInspectorPanel({
     const agentActivity = getSprintEngineAgentActivityDescending(agent.id, sprintEngineState.tasks)
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <header className="border-b border-[color:var(--border-default)] px-5 py-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">
-                {/* An agent with no role is its id and its status, and the id is
-                    the heading right below. Nothing stands in for the role, and
-                    no separator is left where one would have gone (MC-2055). */}
-                {agent.role ? (
-                  <>
-                    <RoleAvatar role={agent.role} size="sm" ariaLabel="" />
-                    <span>{getSprintEngineRoleLabel(agent.role)}</span>
-                    <span>·</span>
-                  </>
-                ) : null}
-                <span className="flex items-center gap-1.5">
-                  {runtimeStatus === 'running' ? <Spinner size={12} /> : null}
-                  {runtimeStatus}
-                </span>
-              </div>
-              <TruncatedText
-                as="h3"
-                text={displayName}
-                className="mt-2 text-title font-semibold leading-7 text-[color:var(--text-strong)]"
-              />
-              <div className="mt-1 font-mono text-micro text-[color:var(--text-disabled)]">
-                {agent.id}
-              </div>
-            </div>
+        {/* An agent with no role is its id and its status. Nothing stands in
+            for the role, and no separator is left where one would have gone
+            (MC-2055) — so the scope opens on the avatar only when there is a
+            role to name, and the id trails the status either way. */}
+        <PanelHeader
+          title={displayName}
+          scope={
+            <InspectorStatusScope
+              glyph={agent.role ? <RoleAvatar role={agent.role} size="sm" ariaLabel="" /> : undefined}
+              label={
+                agent.role
+                  ? `${getSprintEngineRoleLabel(agent.role)} · ${runtimeStatus}`
+                  : runtimeStatus
+              }
+              id={agent.id}
+              busy={runtimeStatus === 'running'}
+            />
+          }
+          primaryAction={
             <InspectorChromeActions
               expanded={isExpanded}
               onToggleExpand={onToggleExpand}
               onClose={onClose}
               closeLabel="Close agent detail"
             />
-          </div>
-          <div className="mt-3 flex flex-wrap gap-1.5">
+          }
+          divider={false}
+        />
+        <div className="border-b border-[color:var(--border-default)] px-3 pb-2">
+          <div className="flex flex-wrap gap-1.5">
             {hasLiveTerminal ? (
               <button
                 type="button"
@@ -2760,7 +2793,7 @@ export function SprintEngineInspectorPanel({
               </button>
             )}
           </div>
-        </header>
+        </div>
 
         <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-body leading-6 text-[color:var(--text-default)]">
           <div>
@@ -2816,34 +2849,33 @@ export function SprintEngineInspectorPanel({
     <div data-sprintengine-task-detail className="flex h-full min-h-0 flex-col">
       {/* Who and what. No rule under it: the space between this group and the
           next is what separates them (item 2029 anatomy). */}
-      <header className="px-5 pb-2 pt-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">
-              <LifecycleGlyph state={lifecycle} live={lifecycleLive} />
-              <span>{LIFECYCLE_LABEL[lifecycle]}</span>
-              <span>·</span>
-              <span className="font-mono tabular-nums text-[color:var(--text-muted)]">
-                {selectedTask.id}
-              </span>
-            </div>
-            <h3 className="mt-2 text-title font-semibold leading-7 text-[color:var(--text-strong)]">
-              {selectedTask.title}
-            </h3>
-          </div>
+      <PanelHeader
+        title={selectedTask.title}
+        scope={
+          <InspectorStatusScope
+            lifecycle={lifecycle}
+            live={lifecycleLive}
+            label={LIFECYCLE_LABEL[lifecycle]}
+            id={selectedTask.id}
+          />
+        }
+        primaryAction={
           <InspectorChromeActions
             expanded={isExpanded}
             onToggleExpand={onToggleExpand}
             onClose={onClose}
             closeLabel="Close task detail"
           />
-        </div>
+        }
+        divider={false}
+      />
+      <div className="px-3 pb-2">
         <TaskItemPointer
           task={selectedTask}
           inEpic={taskItemInEpic}
           onOpenBacklogItem={onOpenBacklogItem ?? null}
         />
-      </header>
+      </div>
 
       <SprintEngineTaskBody
         key={selectedTask.id}

@@ -9,7 +9,7 @@ import {
   MemoryGraphTooltip,
 } from '../memory/MemoryGraphHud'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
-import { LoadingOverlay, StatusDot } from '../ui'
+import { IconButton, LoadingOverlay, PanelHeader, RefreshIcon, StatusDot } from '../ui'
 import { Tooltip } from '../ui/Tooltip'
 
 type CursorPoint = { x: number; y: number }
@@ -221,42 +221,48 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
       ref={containerRef}
       className="relative flex h-full flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-default)]"
     >
-      {/* Floating top bar sits over the canvas without owning atmosphere. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-end gap-2 p-3">
-        {/* Opaque surface + hairline, never a frost: the graph canvas underneath
-            repaints on every pan, and a blur over it re-runs each frame. */}
-        <div className="pointer-events-auto flex items-center gap-1.5 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1">
-          <div className="relative">
-            <span
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-meta text-[color:var(--text-subtle)]"
-              aria-hidden
-            >
-              ⌕
-            </span>
-            <input
-              ref={searchInputRef}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search notes…"
-              className="h-8 w-64 rounded-[5px] border border-[color:var(--border-strong)] bg-transparent pl-7 pr-7 text-xs text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-subtle)] focus-visible:focus-ring"
-            />
-            <kbd
-              className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded-[3px] bg-[color:var(--bg-surface-raised)] px-1 py-0.5 font-mono text-micro text-[color:var(--text-disabled)]"
-            >
-              /
-            </kbd>
-          </div>
+      {/* The panel used to float its controls over the canvas in a pill at
+          `p-3` and name itself nowhere — so the one row a person scans to know
+          which panel they are in was missing here, and the tool sat at a
+          different height from every sibling (2112). Identity row first, then
+          the search band that carries the panel's one rule; the canvas starts
+          below it, full-bleed as before. */}
+      <PanelHeader
+        title="Knowledge Graph"
+        count={allNodes.length}
+        primaryAction={
           <Tooltip content="Refresh index" placement="bottom">
-            <button
-              type="button"
-              onClick={() => void loadGraph()}
-              className="flex h-8 items-center gap-1.5 rounded-[5px] px-2.5 text-xs text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-              aria-label="Refresh knowledge index"
-            >
-              <span aria-hidden>↻</span>
-              <span>Refresh</span>
-            </button>
+            <IconButton aria-label="Refresh knowledge index" onClick={() => void loadGraph()}>
+              <RefreshIcon />
+            </IconButton>
           </Tooltip>
+        }
+        divider={false}
+      />
+      <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] px-3 py-2">
+        {/* Not `InboxSearchInput`: the `/` shortcut focuses this field by ref,
+            and the primitive owns no ref to hand back. Same 30px control height
+            and 5px radius, so the band measures the same either way. */}
+        <div className="relative min-w-0 flex-1">
+          <span
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-meta text-[color:var(--text-subtle)]"
+            aria-hidden
+          >
+            ⌕
+          </span>
+          <input
+            ref={searchInputRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            aria-label="Search notes"
+            placeholder="Search notes…"
+            className="h-control-sm w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-field)] pl-7 pr-7 text-meta text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-subtle)] focus-visible:focus-ring"
+          />
+          <kbd
+            className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded-[3px] bg-[color:var(--bg-surface-raised)] px-1 py-0.5 font-mono text-micro text-[color:var(--text-disabled)]"
+          >
+            /
+          </kbd>
         </div>
       </div>
 

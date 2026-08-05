@@ -27,9 +27,10 @@ const DIFF_VIEW_ITEMS: { value: DiffView; label: string }[] = [
   { value: 'inline', label: 'Inline' },
 ]
 
-// The 46px top bar: change identity on the left, then the reading-effort and
-// stats signals, the persisted view toggle, and Re-run. Complexity is a word,
-// never a color — it signals reading effort without competing for the accent.
+// The top bar, at the shared header height: change identity on the left, then
+// the reading-effort and stats signals, the persisted view toggle, and Re-run.
+// Complexity is a word, never a color — it signals reading effort without
+// competing for the accent.
 export function TopBar({
   title,
   source,
@@ -44,8 +45,20 @@ export function TopBar({
   onOpenChat,
 }: TopBarProps) {
   return (
-    <div className="flex h-[46px] shrink-0 items-center gap-2.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-4">
-      <span className="shrink-0 text-heading font-semibold text-[color:var(--text-strong)]">{title}</span>
+    // Geometry and type are `ui/PanelHeader`'s — `px-3 py-2` over
+    // `--border-default`, title at `text-body font-semibold` — so the review
+    // canvas opens at the same height as every panel beside it. It sat at
+    // `h-[46px] px-4` under a `text-heading` title (2112).
+    //
+    // NOT the primitive itself, deliberately. PanelHeader carries one action
+    // plus an overflow menu; this bar carries a view toggle and four controls,
+    // and one of them — "Your review" with its pending count in the accent — is
+    // discoverable-without-opening-the-drawer by design (see below). Moving
+    // that set into a kebab is a product decision about the review loop, not a
+    // consequence of standardising a header, so the row keeps its control set
+    // and takes only the anatomy.
+    <div className="flex shrink-0 items-center gap-2.5 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
+      <span className="shrink-0 text-body font-semibold text-[color:var(--text-strong)]">{title}</span>
       <span className="min-w-0 flex-1 truncate font-mono text-meta text-[color:var(--text-subtle)]">{source}</span>
       <span className="shrink-0 rounded-[5px] border border-[color:var(--border-default)] px-2 py-0.5 font-mono text-micro tabular-nums text-[color:var(--text-muted)]">
         {stats.files} {stats.files === 1 ? 'file' : 'files'} · <span className="text-[color:var(--tone-good)]">+{stats.additions}</span>{' '}

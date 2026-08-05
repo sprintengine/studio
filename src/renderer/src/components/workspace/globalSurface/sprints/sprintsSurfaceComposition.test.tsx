@@ -943,8 +943,15 @@ async function main(): Promise<void> {
     ([...container.querySelectorAll('button')] as HTMLButtonElement[]).find((candidate) =>
       candidate.textContent?.includes(text),
     )
+  // The census rides the Agents header. Found by the header that names itself
+  // "Agents" rather than by a tag adjacency: the roster renders its identity row
+  // through `ui/PanelHeader` now (2112), so the census is that row's subtitle
+  // and the heading is the primitive's `h2` — the old `h3 + span` was reading
+  // the hand-rolled band's shape, not the fact under test.
   const agentsCensus = (): string =>
-    container.querySelector('h3 + span')?.textContent ?? ''
+    [...container.querySelectorAll('header')].find((candidate) =>
+      candidate.textContent?.trimStart().startsWith('Agents'),
+    )?.textContent ?? ''
 
   await openAgentsTab()
   assert.ok(

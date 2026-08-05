@@ -130,8 +130,21 @@ export const GhostButton = React.forwardRef<HTMLButtonElement, SizedButtonProps 
 // with border/rounded/hover chrome) that had accreted across the roster,
 // tracker, and backlog surfaces; each had subtly different radius, hover, and
 // focus. This is the one canonical secondary-action button.
-export const OutlineButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>(
-  function OutlineButton({ className, size = 'sm', type, ...rest }, ref) {
+// Tone here is INK ONLY — the border and the ground stay neutral in both. A
+// destructive secondary action is still a secondary action: `DangerButton`'s
+// solid fill is the terminal confirm, and giving this one a red edge as well
+// would spend the danger tone twice on the weaker of the two.
+const OUTLINE_TONE: Record<ButtonTone, string> = {
+  neutral:
+    'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)] ' +
+    'disabled:hover:text-[color:var(--text-default)]',
+  danger:
+    'text-[color:var(--text-default)] hover:text-[color:var(--tone-error)] ' +
+    'disabled:hover:text-[color:var(--text-default)]',
+}
+
+export const OutlineButton = React.forwardRef<HTMLButtonElement, SizedButtonProps & { tone?: ButtonTone }>(
+  function OutlineButton({ className, size = 'sm', tone = 'neutral', type, ...rest }, ref) {
     return (
       <button
         ref={ref}
@@ -140,9 +153,10 @@ export const OutlineButton = React.forwardRef<HTMLButtonElement, SizedButtonProp
         className={[
           SHARED,
           SIZE[size],
-          'border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)]',
-          'hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-          'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface)] disabled:hover:text-[color:var(--text-default)]',
+          'border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]',
+          OUTLINE_TONE[tone],
+          'hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]',
+          'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface)]',
           FOCUS_RING_CLASS,
           className ?? '',
         ].join(' ')}

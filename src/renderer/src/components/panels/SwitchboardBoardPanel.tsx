@@ -1287,32 +1287,38 @@ function BoardDetailPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="border-b border-[color:var(--border-default)] px-5 py-4">
-        <div className="flex items-start gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-micro text-[color:var(--text-muted)]">
-              <span className="font-mono tabular-nums text-meta text-[color:var(--text-default)]">
-                {shortIdentifier(record)}
-              </span>
-              <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
-              <span className="flex items-center gap-1.5">
-                <StatusIcon status={record.location.folderStatus} className="h-3 w-3 text-[color:var(--text-muted)]" />
-                {statusLabel(record.location.folderStatus)}
-              </span>
-              <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
-              <span className="tabular-nums">{formatRelativeTime(task.updatedAt)}</span>
-              <ActionStatusChip
-                status={detailStatus}
-                onDismiss={detailStatus?.tone === 'error' ? onDismissDetailStatus : undefined}
-                className="ml-auto"
-              />
-            </div>
-            <h3 className="mt-2 text-title font-semibold leading-6 text-[color:var(--text-strong)]">{task.title}</h3>
+      {/* The same hand-rolled `px-5 py-4` band Watchtower's detail pane ran —
+          a status line stacked over a `text-title` heading — so both detail
+          panes opened taller than the boards they open from (2112). One row:
+          the id, folder status and time are the title's scope. */}
+      <PanelHeader
+        title={task.title}
+        scope={
+          <span className="flex min-w-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
+            <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-default)]">
+              {shortIdentifier(record)}
+            </span>
+            <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
+            <StatusIcon status={record.location.folderStatus} className="h-3 w-3 shrink-0 text-[color:var(--text-muted)]" />
+            <span className="truncate">{statusLabel(record.location.folderStatus)}</span>
+            <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
+            <span className="shrink-0 tabular-nums">{formatRelativeTime(task.updatedAt)}</span>
+          </span>
+        }
+        primaryAction={<CloseIconButton onClick={onClose} aria-label="Close task detail" />}
+        divider={false}
+      />
+      <div className="border-b border-[color:var(--border-default)] px-3 pb-2">
+        {detailStatus ? (
+          <div className="mb-2 flex items-center">
+            <ActionStatusChip
+              status={detailStatus}
+              onDismiss={detailStatus?.tone === 'error' ? onDismissDetailStatus : undefined}
+            />
           </div>
-          <CloseIconButton onClick={onClose} aria-label="Close task detail" />
-        </div>
+        ) : null}
         {canOpenTerminal || targets.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Task actions">
+          <div className="flex flex-wrap gap-1.5" aria-label="Task actions">
             {canOpenTerminal ? (
               <Tooltip content={terminalButtonLabel}>
                 <PrimaryButton onClick={handleOpenTerminal}>
@@ -1343,7 +1349,7 @@ function BoardDetailPane({
             ))}
           </div>
         ) : null}
-      </header>
+      </div>
 
       {record.warnings.length > 0 ? (
         <div className="border-b border-[color:var(--border-default)] bg-[color:var(--tone-warn-soft)] px-5 py-2 text-meta leading-5 text-[color:var(--text-strong)]">

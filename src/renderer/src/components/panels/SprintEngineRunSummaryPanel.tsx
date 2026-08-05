@@ -401,7 +401,11 @@ function PanelShell({
             title="Run summary"
             titleId={titleId}
             subtitle={subtitle}
-            overflow={
+            // Close is the panel's one action, so it takes the primary slot.
+            // It used to ride `overflow`, which is the OverflowMenu's slot —
+            // a menu of secondary actions, not a place to park a control that
+            // has nowhere else to sit (2112).
+            primaryAction={
               onClose ? (
                 <CloseIconButton onClick={onClose} aria-label="Close run summary" />
               ) : undefined

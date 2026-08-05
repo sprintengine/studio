@@ -18,6 +18,7 @@ import {
   Tooltip,
   TruncatedText,
   useConfirmDialog,
+  type OverflowMenuItem,
   type SelectItem,
 } from '../ui'
 import { useShallow } from 'zustand/react/shallow'
@@ -1399,40 +1400,39 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     startSprintFromTrackerIssue,
   } = useBacklogTrackerSeeding({ items, folderPath, runScan })
 
-  // One "Add from <tracker>" entry per connected tracker (T7). Plain-human
-  // ("Add from Jira · ACME"), never "materialize"/"provider". With no tracker
-  // connected there is nothing left to overflow — refresh is its own glyph now
-  // — so the menu button is omitted entirely rather than opening empty.
-  const backlogOverflowItems = folderPath
-    ? trackerConnections.map((connection) => ({
-        id: `add-from-tracker-${connection.id}`,
-        label: `Add from ${connection.label}`,
-        onSelect: () => setTrackerPicker({ connectionId: connection.id, open: true }),
-      }))
+  // Refresh, then one "Add from <tracker>" entry per connected tracker (T7).
+  // Tracker labels stay plain-human ("Add from Jira · ACME"), never
+  // "materialize"/"provider".
+  //
+  // Refresh sits in this menu rather than beside the plus: PanelHeader carries
+  // ONE primary action, and stacking a second glyph in that slot is what gave
+  // every panel a different action cluster (2112). Creating an item is the
+  // action the panel exists for, so the plus keeps the slot and re-scanning —
+  // still one click away — moves in here.
+  const backlogOverflowItems: OverflowMenuItem[] = folderPath
+    ? [
+        {
+          id: 'refresh-backlog',
+          label: 'Refresh backlog',
+          onSelect: () => void runScan(),
+          disabled: loading,
+          icon: <RefreshIcon />,
+        },
+        ...trackerConnections.map((connection) => ({
+          id: `add-from-tracker-${connection.id}`,
+          label: `Add from ${connection.label}`,
+          onSelect: () => setTrackerPicker({ connectionId: connection.id, open: true }),
+        })),
+      ]
     : []
 
   const backlogOverflow = backlogOverflowItems.length > 0 ? (
     <OverflowMenu ariaLabel="Backlog actions" items={backlogOverflowItems} />
   ) : undefined
 
-  // Re-read the backlog from disk. The same glyph the Git panel uses for the
-  // equivalent job, promoted out of the overflow menu because re-scanning after
-  // an agent edits items is the action reached for most often here.
-  const refreshBacklogButton = (
-    <Tooltip content="Refresh backlog" placement="bottom">
-      <IconButton
-        aria-label="Refresh backlog"
-        onClick={() => void runScan()}
-        disabled={loading || !folderPath}
-      >
-        <RefreshIcon />
-      </IconButton>
-    </Tooltip>
-  )
-
-  // A bare plus, beside the refresh glyph. The word is redundant next to a
-  // panel that already says Backlog, and at panel widths it was the thing that
-  // squeezed the title into an ellipsis.
+  // A bare plus. The word is redundant next to a panel that already says
+  // Backlog, and at panel widths it was the thing that squeezed the title into
+  // an ellipsis.
   const newPlanButton = (
     <Tooltip content="New item" placement="bottom">
       <IconButton aria-label="New backlog item" onClick={openCreate} disabled={!folderPath}>
@@ -1774,12 +1774,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         title="Backlog"
         count={filtered.length}
         subtitle={headerScopeLabel}
-        primaryAction={
-          <>
-            {refreshBacklogButton}
-            {newPlanButton}
-          </>
-        }
+        primaryAction={newPlanButton}
         overflow={backlogOverflow}
         divider={false}
       />
@@ -2506,7 +2501,17 @@ export function BacklogDetail({
     // width instead of shrinking — at 1024px the right edge is clipped away
     // with no scrollbar to say so.
     <div className="flex h-full min-h-0 min-w-0 flex-col">
-      <header className="shrink-0 border-b border-[color:var(--border-default)] px-4 py-3">
+      {/* `px-3 py-2` — `ui/PanelHeader`'s inset, so this pane starts where every
+          other header does; it sat at `px-4 py-3` (2112).
+
+          NOT the primitive itself. PanelHeader is a one-line identity row, and
+          this header's shape is a deliberate decision (MC-1923): the crumb takes
+          the first line so the title can own a full one of its own and wrap to
+          two. Rendering it through a row that truncates to one line would undo
+          exactly what that item landed, which a header sweep does not get to
+          decide. The inset is what makes the heights agree, and that is what
+          converges here. */}
+      <header className="shrink-0 border-b border-[color:var(--border-default)] px-3 py-2">
         {/* Nav + metadata row: the single back affordance leads, then the status
             glyph, id, status word, time, and file path — all the chrome the title
             used to share its line, moved up here so the title below can own a full

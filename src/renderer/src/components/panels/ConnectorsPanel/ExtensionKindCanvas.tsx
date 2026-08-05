@@ -699,9 +699,19 @@ function AutomationDetailPanel({
   )
 }
 
-// The list's chrome row: title on the left, the freshness of the registry read
-// and the two list-wide controls on the right. One band rather than a toolbar
-// stacked on a status line — the same shape Settings → Agent CLIs uses.
+// The list's chrome row: the shared section heading on the left, the freshness
+// of the registry read and the two list-wide controls on the right. One band
+// rather than a toolbar stacked on a status line — the same shape
+// Settings → Agent CLIs uses.
+//
+// This is in-content chrome inside a scrolling padded canvas, NOT a panel
+// identity row: the Extensions door already names itself in the surface bar
+// (`GlobalSurfaceShell`, 36px / `px-3` / `text-body font-semibold` — the same
+// anatomy `ui/PanelHeader` draws), and the rail names the section. So the
+// primitive this owes is `ConnectorSectionHeading`, the heading its own module
+// and agent-CLI siblings render three lines further down. It used to hand-roll
+// an `h3` at `text-title` instead, which is why the automation shelf's heading
+// sat a type step above the other two kinds on the same component (2112).
 function AutomationsBand({
   count,
   checkedAt,
@@ -719,12 +729,11 @@ function AutomationsBand({
 }): JSX.Element {
   const freshness = formatRelativeMsAgo(checkedAt, now)
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex min-w-0 items-baseline gap-2">
-        <h3 className="text-title font-semibold text-[color:var(--text-strong)]">Automations</h3>
-        <span className="tabular-nums text-body text-[color:var(--text-muted)]">{count}</span>
+    <div className="flex items-center gap-3">
+      <div className="min-w-0 flex-1">
+        <ConnectorSectionHeading label="Automations" count={count} />
       </div>
-      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-1.5">
         {freshness ? (
           <span className="text-micro text-[color:var(--text-subtle)]">{`Checked ${freshness}`}</span>
         ) : null}

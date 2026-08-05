@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { FilePreviewPane, FOCUS_RING_INSET_CLASS, InboxRow, InboxSearchInput, Section, SidePane } from '../../ui'
+import { FilePreviewPane, FOCUS_RING_INSET_CLASS, InboxRow, InboxSearchInput, PanelHeader, Section, SidePane } from '../../ui'
 import { HtmlArtifactFrame } from '../../workspace/guidedBrief/MockupPreviewPane'
 import { isEditableTarget } from '../../../utils/keyboard'
 import { getSprintEngineArtifactDependencyBlockers, isCanceledSprintEngineRun } from '../../../utils/sprintengine'
@@ -797,28 +797,33 @@ function SprintEngineSeedPreviewShell({
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] px-5 py-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-meta font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-          aria-label="Back"
-        >
-          <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
-            <path
-              d="M10 4L6 8L10 12"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          Back
-        </button>
-        <span className="min-w-0 truncate text-body font-medium text-[color:var(--text-strong)]" title={path}>
-          {title}
-        </span>
-      </header>
+      {/* Drill-in shell on the shared identity row — it hand-rolled the band at
+          `px-5 py-3`, 4px taller and 8px further in than the panel it drills
+          out of (2112). Back is the row's `leading` control; the file's path is
+          its scope. */}
+      <PanelHeader
+        title={title}
+        subtitle={path}
+        leading={
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-meta font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            aria-label="Back"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
+              <path
+                d="M10 4L6 8L10 12"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Back
+          </button>
+        }
+      />
       <div className="min-h-0 flex-1 overflow-auto">{children}</div>
     </div>
   )

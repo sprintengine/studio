@@ -62,9 +62,11 @@ import {
 import { backlogRowPaintClass } from '../../backlog/backlogRowPaint'
 import { matchesBacklogQuery } from '../globalSurface/backlog/backlogSurfaceModel'
 import {
+  CloseIconButton,
   GhostButton,
   IconButton,
   InboxSearchInput,
+  OverflowMenu,
   PanelHeader,
   Popover,
   PrimaryButton,
@@ -853,25 +855,22 @@ export default function NewSprintDialog({
           onKeyDown={onDialogKeyDown}
           className="flex min-h-0 flex-1 flex-col outline-none"
         >
-          <header className="flex shrink-0 items-center gap-3 border-b border-[color:var(--border-subtle)] px-4 py-2.5">
-            <span className="text-body font-semibold text-[color:var(--text-strong)]">New sprint</span>
-            <ProjectChip
-              label={projectLabel}
-              currentPath={folderPath}
-              options={projectOptions}
-              onSelect={switchProject}
-            />
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="ml-auto rounded p-1 text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus-visible:focus-ring"
-            >
-              <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-              </svg>
-            </button>
-          </header>
+          {/* The dialog's own identity row, on the shared primitive: it named
+              itself and picked its project in a hand-rolled band at
+              `px-4 py-2.5` over `--border-subtle`, the same dialect the agent
+              composer ran (2112). The project picker is the row's `scope`. */}
+          <PanelHeader
+            title="New sprint"
+            scope={
+              <ProjectChip
+                label={projectLabel}
+                currentPath={folderPath}
+                options={projectOptions}
+                onSelect={switchProject}
+              />
+            }
+            primaryAction={<CloseIconButton onClick={onClose} aria-label="Close" />}
+          />
 
           {/* Screen 1 stays mounted while screen 2 shows (display swap, exactly
               like the prototype): the picks, scroll position, and the focus
@@ -883,29 +882,36 @@ export default function NewSprintDialog({
                   title="Backlog"
                   count={visibleItems.length}
                   subtitle={projectLabel}
+                  // One control in the primary slot, the rest in the menu —
+                  // the same split the Backlog panel this list mirrors makes
+                  // (2112). Adding an item is what the left column is for;
+                  // rescanning moves into the overflow.
                   primaryAction={
-                    <>
-                      <Tooltip content="Rescan" placement="bottom">
-                        <IconButton
-                          aria-label="Rescan"
-                          onClick={() => void scan.rescan()}
-                          disabled={scan.isScanning || !folderPath}
-                        >
-                          <RefreshIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip content="New item" placement="bottom">
-                        <IconButton
-                          aria-label="New item"
-                          onClick={() => setCreatingItem(true)}
-                          disabled={!folderPath}
-                        >
-                          <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                            <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                          </svg>
-                        </IconButton>
-                      </Tooltip>
-                    </>
+                    <Tooltip content="New item" placement="bottom">
+                      <IconButton
+                        aria-label="New item"
+                        onClick={() => setCreatingItem(true)}
+                        disabled={!folderPath}
+                      >
+                        <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                          <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                      </IconButton>
+                    </Tooltip>
+                  }
+                  overflow={
+                    <OverflowMenu
+                      ariaLabel="Backlog actions"
+                      items={[
+                        {
+                          id: 'rescan-backlog',
+                          label: 'Rescan',
+                          onSelect: () => void scan.rescan(),
+                          disabled: scan.isScanning || !folderPath,
+                          icon: <RefreshIcon />,
+                        },
+                      ]}
+                    />
                   }
                   divider={false}
                 />

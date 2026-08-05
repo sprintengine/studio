@@ -418,7 +418,7 @@ export default function AgentComposer({
                 accent fill at its own padding-derived height, 40% disabled
                 rather than the kit's 45%, and a 6px radius against the kit's
                 5px (MC-2113). Same accent, same job — now the same button. */}
-            <PrimaryButton size="md" onClick={() => commit(selection)} disabled={!selectedRow} className="gap-2">
+            <PrimaryButton size="md" onClick={() => commit(selection)} disabled={!selectedRow}>
               {selection.kind === 'terminal' ? 'Open terminal' : 'Start chat'}
               <kbd className="rounded bg-black/15 px-1 font-mono text-micro">⏎</kbd>
             </PrimaryButton>
