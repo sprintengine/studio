@@ -232,6 +232,14 @@ export default function AgentComposerPopover({
           onKeyDown={onSearchKeyDown}
           placeholder="Search agents"
           aria-label="Search agents"
+          // This field already WAS a combobox — it owns the query, keeps focus
+          // while the arrows move the highlight, and names the active option
+          // through `aria-activedescendant`. It just never said so, so a screen
+          // reader announced a plain text box and never read the highlighted
+          // row (MC-2134's audit). The roster below is rendered for as long as
+          // this popover is, hence the constant `aria-expanded`.
+          role="combobox"
+          aria-expanded
           aria-controls="agent-composer-pop-roster"
           aria-activedescendant={selectedRow ? optionId(selectedRow) : undefined}
           className={`min-w-0 flex-1 bg-transparent text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
