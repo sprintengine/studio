@@ -326,6 +326,41 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     }, 0)
   }
 
+  // Paste cannot go through Monaco's `clipboardPasteAction` like cut and copy
+  // do. Those two run `document.execCommand` over a selection the renderer
+  // already owns; paste asks for content the page has no permission to read, so
+  // Chromium refuses a programmatic one and the action silently no-ops. (It did
+  // under the native menu too — the row has never worked. Verified by
+  // `scripts/testing/native-menu-conformance-pass.mjs`, which cuts the buffer
+  // and pastes it back.) ⌘V still works because a real key press hands Monaco a
+  // genuine paste event the OS filled in.
+  //
+  // So this reads the clipboard through the app's own IPC — the same route
+  // `clipboardPasteBridge` uses for plain inputs, which skips Monaco precisely
+  // because Monaco owns the keyboard path — and applies it as an edit. Empty
+  // clipboard is a no-op, never an edit that clears the selection.
+  //
+  // Deferred like `runEditorAction` and for the same reason: the menu hands
+  // focus back on unmount, after this handler returns. Not left to the IPC
+  // round trip to provide that ordering — the focus is what makes the edit land
+  // in the editor, and it should not depend on how slow a clipboard read is.
+  const pasteFromClipboard = () => {
+    setEditorMenu(null)
+    window.setTimeout(() => {
+      void (async () => {
+        const text = await window.api.clipboardReadText()
+        const editor = editorRef.current
+        if (!editor || !text) return
+        const selection = editor.getSelection()
+        if (!selection) return
+        editor.focus()
+        editor.pushUndoStop()
+        editor.executeEdits('context-menu', [{ range: selection, text, forceMoveMarkers: true }])
+        editor.pushUndoStop()
+      })()
+    }, 0)
+  }
+
   const closeOtherEditorTabs = () => {
     setEditorMenu(null)
     if (!activeFilePath) return
@@ -593,10 +628,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
           >
             Copy
           </MenuItem>
-          <MenuItem
-            shortcut={`${editorModifier()}V`}
-            onClick={() => runEditorAction('editor.action.clipboardPasteAction')}
-          >
+          <MenuItem shortcut={`${editorModifier()}V`} onClick={pasteFromClipboard}>
             Paste
           </MenuItem>
           <MenuDivider />

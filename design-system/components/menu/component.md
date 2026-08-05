@@ -233,7 +233,7 @@ after MC-2104 none do.
 
 | Host | Ruling |
 |---|---|
-| Editor (`EditorPanel`) | **In-app.** Monaco's own menu was already off; the native popup only returned a command id, so nothing about the clipboard actions depended on it. In-app, the rows carry the ⌘X/⌘C/⌘V/⌘A hints Monaco already binds — which a native menu built from ids, not roles, could not show. |
+| Editor (`EditorPanel`) | **In-app.** Monaco's own menu was already off; the native popup only returned a command id, so nothing about the clipboard actions depended on it. In-app, the rows carry the ⌘X/⌘C/⌘V/⌘A hints Monaco already binds — which a native menu built from ids, not roles, could not show. The conversion also found Paste dead: a programmatic `clipboardPasteAction` is refused by Chromium, so the row had never worked under either menu. It reads the clipboard over IPC and applies an edit instead. |
 | File tree (`FileExplorer`) | **In-app.** The richest menu in the product, and the one that looked least like it. Its submenu is `MenuFlyoutItem`, its explainer row a disabled `MenuItem`, and Delete is destructive ink for the first time. |
 | Git change rows (`GitPanel`) | **In-app.** Two menu systems lived in one panel: change rows opened an OS menu while the log rows beside them opened `OverflowMenu`. |
 | Tab strip (`WorkspaceLayout`) | **In-app.** Its colour submenu could only list the seven highlights as Title-Cased rows of their *names*; in-app it is `MenuSwatchRow`, the control the workspace sidebar already used for the same choice. |

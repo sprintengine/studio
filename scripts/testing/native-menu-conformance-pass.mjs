@@ -12,6 +12,11 @@
 // Covers: the file tree (incl. its flyout submenu, its disabled explainer row
 // and its destructive row), the editor, Git's change rows, and the tab strip.
 //
+// The editor section exercises the real system clipboard (Monaco's cut/paste
+// run through its hidden textarea, which is the whole reason the menu has to
+// hand focus back before triggering). It reads the clipboard first and writes
+// it back at the end, so a run does not cost you what you had copied.
+//
 // Prereqs: `npm run build` (needs out/main), playwright available:
 //   tmp=/tmp/multicode-playwright
 //   npm --prefix "$tmp" install playwright --no-audit --no-fund
@@ -341,6 +346,44 @@ async function main() {
       selectionNodes > 0,
       `${selectionNodes} selection nodes`,
     )
+
+    // The clipboard rows are the ones that actually depend on the editor
+    // holding focus — Monaco routes them through its hidden textarea, so a menu
+    // that had not handed focus back would silently no-op. Cut then Paste, on
+    // the real system clipboard, which is saved and put back afterwards.
+    const savedClipboard = await app.evaluate(({ clipboard }) => clipboard.readText())
+    // Monaco renders spaces as non-breaking, so normalise before matching.
+    const editorText = async () =>
+      (await page.locator('.monaco-editor .view-lines').first().innerText()).replace(/\u00a0/gu, ' ')
+    const before = await editorText()
+
+    await editorSurface.click({ button: 'right', position: { x: 120, y: 30 } })
+    await menu.waitFor({ state: 'visible', timeout: 5000 })
+    check(
+      'Cut enables once there is a selection',
+      !(await menu.locator('button', { hasText: /^Cut/ }).first().isDisabled()),
+    )
+    await menu.locator('button', { hasText: /^Cut/ }).first().click()
+    await page.waitForTimeout(1200)
+    const afterCut = await editorText()
+    check('Cut reaches Monaco and empties the buffer', afterCut.trim() === '', JSON.stringify(afterCut.slice(0, 40)))
+    check(
+      'Cut put the text on the real clipboard',
+      (await app.evaluate(({ clipboard }) => clipboard.readText())).includes('first line'),
+    )
+
+    await editorSurface.click({ button: 'right', position: { x: 60, y: 20 } })
+    await menu.waitFor({ state: 'visible', timeout: 5000 })
+    await menu.locator('button', { hasText: /^Paste/ }).first().click()
+    await page.waitForTimeout(1200)
+    const afterPaste = await editorText()
+    check(
+      'Paste reaches Monaco and restores the buffer',
+      afterPaste.includes('first line') && afterPaste.includes('third line'),
+      JSON.stringify(afterPaste.slice(0, 40)),
+    )
+    check('the buffer round-tripped', afterPaste.trim() === before.trim())
+    await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), savedClipboard)
 
     // ================= Tab strip =================
     const editorTab = page.locator('.flexlayout__tab_button').filter({ hasText: 'notes.txt' }).first()
