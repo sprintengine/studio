@@ -11,8 +11,9 @@
 // Consumer migration (Switchboard runner, Watchtower active review, Sprint
 // Engine inspector) is T11, not this task.
 
-import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
+import React, { useEffect, useId, useRef, useState } from 'react'
 import { CloseIconButton } from './Buttons'
+import { FocusTrap } from './FocusTrap'
 import { TruncatedText } from './TruncatedText'
 
 type DrawerLifecycle = 'closed' | 'entering' | 'open' | 'closing'
@@ -23,9 +24,6 @@ function prefersReducedMotion(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
-
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 type DrawerProps = {
   open: boolean
@@ -144,23 +142,6 @@ function DrawerRoot({ open, onClose, title, ariaLabel, width = 360, children }: 
     return () => window.removeEventListener('keydown', onKey)
   }, [lifecycle, onClose])
 
-  const trapFocus = useCallback(
-    (position: 'start' | 'end') => () => {
-      const root = panelRef.current
-      if (!root) return
-      const focusables = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-        (el) => !el.hasAttribute('data-focus-sentinel'),
-      )
-      if (focusables.length === 0) {
-        root.focus()
-        return
-      }
-      if (position === 'start') focusables[focusables.length - 1].focus()
-      else focusables[0].focus()
-    },
-    [],
-  )
-
   if (lifecycle === 'closed') return null
 
   return (
@@ -172,43 +153,33 @@ function DrawerRoot({ open, onClose, title, ariaLabel, width = 360, children }: 
         onMouseDown={onClose}
       />
 
-      <div
-        data-focus-sentinel="true"
-        tabIndex={0}
-        onFocus={trapFocus('start')}
-        className="sr-only"
-      />
+      {/* Same trap as every dialog in the kit (MC-2109) — the drawer used to
+          carry its own copy of it. */}
+      <FocusTrap>
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="false"
+          aria-label={ariaLabel}
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          data-state={lifecycle}
+          style={{ width }}
+          className="drawer-panel absolute inset-y-0 right-0 flex h-full max-w-full flex-col border-l border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] outline-none"
+        >
+          <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-default)] px-3 py-2">
+            <TruncatedText
+              as="h2"
+              id={titleId}
+              text={title}
+              className="text-[length:var(--text-size-md)] font-semibold tracking-tight text-[color:var(--text-strong)]"
+            />
+            <CloseIconButton aria-label="Close" onClick={onClose} />
+          </header>
 
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="false"
-        aria-label={ariaLabel}
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        data-state={lifecycle}
-        style={{ width }}
-        className="drawer-panel absolute inset-y-0 right-0 flex h-full max-w-full flex-col border-l border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] outline-none"
-      >
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-default)] px-3 py-2">
-          <TruncatedText
-            as="h2"
-            id={titleId}
-            text={title}
-            className="text-[length:var(--text-size-md)] font-semibold tracking-tight text-[color:var(--text-strong)]"
-          />
-          <CloseIconButton aria-label="Close" onClick={onClose} />
-        </header>
-
-        {children}
-      </div>
-
-      <div
-        data-focus-sentinel="true"
-        tabIndex={0}
-        onFocus={trapFocus('end')}
-        className="sr-only"
-      />
+          {children}
+        </div>
+      </FocusTrap>
     </div>
   )
 }

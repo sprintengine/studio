@@ -344,7 +344,7 @@ export default function AgentComposerPopover({
                       data-chip-popover="true"
                       aria-label={`Agent runtime for ${label}`}
                       // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                      className="fixed z-50 overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
+                      className="fixed z-[var(--z-popover)] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
                     >
                       {/* This host has no trigger row to sit the reasoning
                           selector beside — the trigger is the row's engine chip
