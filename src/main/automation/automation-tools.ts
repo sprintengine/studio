@@ -1427,8 +1427,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'boolean',
           description:
             'Run the sprint in ONE shared git worktree (a per-run isolated checkout on its own branch), '
-            + 'keeping agents out of the main working tree. Default false. Kept for compatibility: prefer '
-            + '`isolation`, which says the same thing and can also ask for a worktree per task.',
+            + 'keeping agents out of the main working tree. Kept for compatibility and equivalent to '
+            + '`isolation`: true = "sprint", false = "none". Prefer `isolation`, which says the same thing '
+            + 'and can also ask for a worktree per task. NOTE: omitting BOTH fields now means one worktree '
+            + 'per sprint, not the main working tree — pass false (or `isolation: "none"`) for that.',
         },
         isolation: {
           type: 'string',
@@ -1438,8 +1440,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             + 'have open). "sprint" = ONE shared worktree for the whole run, on its own branch. "task" = a '
             + 'worktree PER TASK, branched off the run branch and merged back at publish, so two tasks '
             + 'changing the same file meet as a merge conflict instead of overwriting each other; each '
-            + 'agent\'s terminal opens in its own task\'s tree. Omit to take `useWorktrees`: "sprint" when '
-            + 'it is true, "none" when it is not. Fixed at run creation.',
+            + 'agent\'s terminal opens in its own task\'s tree. Omit BOTH this and `useWorktrees` and the '
+            + 'run takes the default: "sprint", one worktree for the whole run. An explicit `useWorktrees` '
+            + 'still decides on its own ("sprint" when true, "none" when false). Fixed at run creation.',
         },
         intake: {
           type: 'string',
@@ -1505,8 +1508,11 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (args.isolation !== undefined && !['none', 'sprint', 'task'].includes(args.isolation as string)) {
         return failure('invalid_arguments', '"isolation" must be "none", "sprint", or "task".')
       }
-      const isolation = (args.isolation as 'none' | 'sprint' | 'task' | undefined)
-        ?? (args.useWorktrees === true ? 'sprint' : 'none')
+      // Omitting BOTH is the ruled default (MC-2136): one worktree per sprint,
+      // the normal mode. An explicit `useWorktrees` still decides on its own, so
+      // a caller that states what it wants keeps the run it always got.
+      const isolation: 'none' | 'sprint' | 'task' = (args.isolation as 'none' | 'sprint' | 'task' | undefined)
+        ?? (args.useWorktrees === false ? 'none' : 'sprint')
       if (args.isolation !== undefined && args.useWorktrees !== undefined
         && (isolation !== 'none') !== (args.useWorktrees === true)) {
         return failure(

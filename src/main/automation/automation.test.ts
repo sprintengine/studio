@@ -1628,7 +1628,11 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
       name: undefined,
       startRunner: true,
       autoApproveArtifacts: false,
-      useWorktrees: false,
+      // MC-2136 flipped this default from false: a sprint runs in one worktree
+      // per sprint unless asked otherwise, on every creation surface. A caller
+      // that wants the main working tree says so (`useWorktrees: false` /
+      // `isolation: "none"`), which is checked below.
+      useWorktrees: true,
     },
   ])
 
@@ -1708,6 +1712,18 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
     false,
     'the per-sprint rung sends no isolation field at all — the pre-2136 payload',
   )
+
+  requests.length = 0
+  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', useWorktrees: false })
+  assert.equal(
+    (requests[0] as { useWorktrees?: boolean }).useWorktrees,
+    false,
+    'an explicit false still means the project folder — only OMITTING both takes the new default',
+  )
+
+  requests.length = 0
+  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', isolation: 'none' })
+  assert.equal((requests[0] as { useWorktrees?: boolean }).useWorktrees, false)
 
   requests.length = 0
   await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', useWorktrees: true })

@@ -66,6 +66,7 @@ from .capabilities import (
     CALLER_REPO_PAYLOAD_TOOLS,
     CALLER_ROLE_PAYLOAD_TOOLS,
     CALLER_TASK_PAYLOAD_TOOLS,
+    CALLER_TASK_REFUSAL_TOOLS,
     allowed_tools_for_classification,
     classify_session,
     permitted_alternative,
@@ -974,6 +975,19 @@ class SprintEngineMcpServer:
                     "tool_not_permitted_for_repo",
                     f"This session works in project {bound_repo!r} and cannot call {tool_name} for project {payload_repo!r}.",
                     {"repo": bound_repo, "payloadRepo": payload_repo},
+                )
+        # The direct-claim door (MC-2136): `task.next` is stamped with the bound
+        # task, so a claim BY ID is the only way left to end up owning a task
+        # whose worktree this session is not sitting in. Refuse it there.
+        bound_task = (context.task_id if context else "") or ""
+        if bound_task and tool_name in CALLER_TASK_REFUSAL_TOOLS:
+            payload_task = str(payload.get("taskId") or "").strip()
+            if payload_task and payload_task != bound_task:
+                raise McpToolError(
+                    "tool_not_permitted_for_task",
+                    f"This session works in task {bound_task}'s own worktree and cannot claim {payload_task}: "
+                    "that task's work would be committed from a tree that never saw it.",
+                    {"taskId": bound_task, "payloadTaskId": payload_task},
                 )
         allowed = allowed_tools_for_classification(classification, TOOL_SCHEMAS)
         if tool_name in allowed:

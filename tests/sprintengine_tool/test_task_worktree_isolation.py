@@ -456,3 +456,24 @@ def test_a_task_bound_session_can_claim_only_its_own_task(tmp_path) -> None:
     assert get_task(read_state(fixture.state_path), "T1")["status"] != "in_progress", (
         "the ready sibling stays untouched by a session bound elsewhere"
     )
+
+    # The direct-claim door is shut too: `task.next` is stamped, so claiming BY ID
+    # would otherwise be the one way left to end up owning a task whose tree this
+    # session is not in.
+    refused = server.call_tool(
+        "sprintengine.task.claim",
+        {"taskId": "T1", "id": "developer-3"},
+        actor,
+        context=McpRequestContext(
+            actor=ActorContext.from_value(actor),
+            state_path=fixture.state_path,
+            workspace_root=workspace_root,
+            allowed_roots=(workspace_root,),
+            agent_id="developer-3",
+            role="developer",
+            task_id="T2",
+        ),
+    )
+    assert refused["ok"] is False
+    assert refused["error"]["code"] == "tool_not_permitted_for_task"
+    assert get_task(read_state(fixture.state_path), "T1")["status"] != "in_progress"
