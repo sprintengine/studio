@@ -1646,15 +1646,21 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 }
 
 .ds-input::placeholder {
-  color: var(--sem-color-text-subtle);
+  /* Placeholder is not content: it must sit clearly below the value that
+   * replaces it, or an empty field reads as a filled one at a glance. */
+  color: var(--sem-color-text-disabled);
 }
 
-/* Focus signals with both the accent border and the ring, so it never reads
- * by color shift alone. */
-.ds-input:focus {
-  outline: none;
-  border-color: var(--sem-color-accent-primary);
+/* Hover is the border's state. */
+.ds-input:hover {
+  border-color: var(--sem-color-border-strong);
 }
+
+/* Focus is the ring, and only the ring (MC-2118). This used to move the border
+ * to the accent as well — two signals for one state, and the weaker of the two:
+ * a 1px hue change on a control that already has a 2px ring around it, spending
+ * the accent on something the person did not choose. Every other focusable
+ * control in the system says focus with the ring alone. */
 
 .ds-input:focus-visible {
   outline: var(--sem-focus-ring);
@@ -7282,17 +7288,18 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>Anatomy</h4>
 <ul><li>A single <code>&lt;button&gt;</code> element with the base class <code>ds-button</code> plus one variant modifier.</li><li>Optional leading icon sized by <code>sem.icon.size.sm</code>, gap 6px.</li><li>Label set in <code>font.size.body</code> at <code>font.weight.medium</code>, sentence case.</li></ul>
 <h4>Variants</h4>
-<ul><li><code>ds-button--primary</code> — accent fill (<code>accent.primary</code>), <code>text.on-accent</code> label. The single primary action of a view.</li><li><code>ds-button--ghost</code> — transparent, <code>text.muted</code> label; hover lifts to <code>bg.hover</code> + <code>text.primary</code>. Secondary and tertiary actions.</li><li><code>ds-button--icon</code> — a <code>size.control.xs</code> square padded out to <code>size.hit-target-min</code>, borderless, icon-only. Must carry an <code>aria-label</code>. The canonical close affordance uses the <code>close</code> glyph.</li><li>Sizes: default sm at <code>size.control.sm</code> and <code>ds-button--md</code> at <code>size.control.md</code>.</li></ul>
+<ul><li><code>ds-button--primary</code> — accent fill (<code>accent.primary</code>), <code>text.on-accent</code> label. The single primary action of a view.</li><li><code>ds-button--ghost</code> — transparent, <code>text.muted</code> label; hover lifts to <code>bg.hover</code> + <code>text.primary</code>. Secondary and tertiary actions.</li><li><code>ds-button--icon</code> — a <code>size.control.xs</code> square padded out to <code>size.hit-target-min</code>, borderless, icon-only. Must carry an <code>aria-label</code>. The canonical close affordance uses the <code>close</code> glyph.</li><li><code>ds-button--outline</code> — a bordered neutral secondary: <code>border.default</code> hairline, transparent fill, <code>text.default</code> label. Outlined rather than a third *filled* variant, so the one-accent rule still holds. Use it where a ghost reads too weak to be found but the action is not the view's primary.</li><li>Sizes: <code>ds-button--xs</code> at <code>size.control.xs</code> with a <code>font.size.meta</code> label (dense chrome — toolbars, row actions), default sm at <code>size.control.sm</code>, and <code>ds-button--md</code> at <code>size.control.md</code>.</li></ul>
+<p>Label padding tracks the size rather than being constant: 8px at xs and sm, 12px at md. A single 12px inset makes a dense <code>xs</code> control read as mostly padding.</p>
 <h4>States</h4>
 <ul><li>Hover: primary deepens/brightens to <code>accent.hover</code>; ghost and icon gain <code>bg.hover</code> and stronger ink. No shadow, scale, or glow on hover.</li><li>Active: scale(0.97) press, removed under reduced motion.</li><li>Focus-visible: 2px ring of <code>border.focus</code>; never remove the ring without replacing it.</li><li>Disabled: 45% opacity, <code>not-allowed</code> cursor, hover suppressed.</li></ul>
 <h4>Usage</h4>
 <ul><li>One primary button per view; everything else is ghost or icon.</li><li>Destructive confirmation buttons swap the fill to <code>status.danger</code> — do not invent a third neutral-filled variant.</li><li>Keep labels to sentence case verbs (&quot;Create workspace&quot;, not &quot;CREATE&quot;).</li></ul>
 <h4>Accessibility</h4>
 <ul><li>Icon-only buttons require <code>aria-label</code>.</li><li>Focus is always visible via the <code>border.focus</code> ring.</li><li>The press animation is disabled under <code>prefers-reduced-motion: reduce</code>.</li><li>Contrast: label-on-fill clears AA in both modes (<code>text.on-accent</code> flips between white and near-black with the mode).</li></ul>
-<h4>Known drift</h4>
-<p>Verified against <code>src/renderer/src/components/ui/Buttons.tsx</code> (2026-08-04). Heights agree — both the reference CSS and the shipped code sit on <code>size.control.*</code> — but three things ship that this spec does not say:</p>
-<ul><li><strong>Label padding.</strong> The reference CSS pads labels <code>0 var(--sem-space-lg)</code> (12px); shipped buttons use 8px (<code>px-2</code>) at sm and 12px (<code>px-3</code>) at md.</li><li><strong>A <code>xs</code> size.</strong> Shipped adds an undocumented dense-chrome step: <code>size.control.xs</code> height with a <code>font.size.meta</code> label.</li><li><strong><code>OutlineButton</code>.</strong> A bordered neutral secondary the shipped kit made canonical. It is outlined, not a third *filled* variant, so it does not break the rule above — but it is system vocabulary this doc lacks.</li></ul>
-<p>MC-2113 standardizes the product on the shipped ramp and variants; MC-2118 owns reconciling this entry with that ruling.</p>
+<h4>Drift ruling (MC-2118, 2026-08-05)</h4>
+<p>Reconciled against <code>src/renderer/src/components/ui/Buttons.tsx</code>. <strong>The shipped vocabulary wins on all three counts, and is now folded into the spec above rather than listed as drift.</strong></p>
+<ul><li><strong>Label padding</strong> — 8px at xs/sm, 12px at md. The reference CSS's constant <code>0 var(--sem-space-lg)</code> predates the <code>xs</code> step; applied to a 26px control it is mostly padding.</li><li><strong><code>xs</code> size</strong> — real, in use across dense chrome, and it has a token (<code>size.control.xs</code>). A ramp step the tokens already carry is not drift.</li><li><strong><code>OutlineButton</code></strong> — canonical. It is outlined rather than filled, so the one-accent rule is untouched.</li></ul>
+<p>Control <strong>heights were never drift</strong>: both the reference CSS and the shipped code already sit on <code>size.control.*</code>. MC-2118's own drift table listed a 28/32px prose ramp against the tokens' 26/30/34 — that prose is not in this entry, and the numbers here come from the tokens.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/button/component.css</summary><pre><code>/* Button — extracted from the source product's PrimaryButton / GhostButton /
@@ -9704,8 +9711,9 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p><strong>The search field narrows the list it sits above.</strong> It belongs to the column, spans it, and the surface's one divider sits directly under its row (<code>patterns/list-surface</code>). Escape with text in the field clears the text and consumes the event — a hosting overlay must not also close on the same press; Escape empty passes through.</p>
 <h4>Accessibility</h4>
 <ul><li>Interactive rows are <code>&lt;button type=&quot;button&quot;&gt;</code>; display-only rows are <code>&lt;div&gt;</code>s and take no focus. The selected row carries <code>aria-current=&quot;true&quot;</code> — which is also the hook a pane-scoping implementation keys the resting tier off.</li><li>When the title node is not plain text, give the row an <code>aria-label</code>.</li><li>Leading marks follow the <code>status-dot</code> contract: <code>aria-hidden</code> beside text that states the state, labelled otherwise.</li><li>The search input carries a real <code>aria-label</code> (&quot;Search inbox&quot;) — the placeholder is not a label. The clear button has its own (&quot;Clear search&quot;).</li><li>The wrapper's ring is keyed to the input's focus, not <code>:focus-within</code>: the clear button is a descendant with its own ring, and <code>:focus-within</code> would keep both painted at once.</li></ul>
-<h4>Known drift</h4>
-<ul><li><strong>MC-2118</strong> — <code>InboxRow.tsx</code> renders its title at <code>text-meta</code> (12px), one type step below the list-row family's <code>font.size.body</code> (13px) title, and its supporting line at the same size, collapsing the title/supporting step. This spec is the 13px canon.</li><li><code>InboxSearchInput.tsx</code> renders 28px tall (<code>h-7</code>); the control ramp has no 28px step. Canon here is <code>size.control.sm</code> (30px), the default for a labeled control. Unfiled.</li><li>Shipped <code>InboxRow</code> implements the resting tier by pane cascade (<code>data-selection-pane</code> rules in <code>assets/index.css</code>) rather than this spec's <code>--resting</code> modifier — same rendered result, different mechanism. Framework rebuilds may keep either, provided exactly one pane renders the focused tier.</li></ul>
+<h4>Drift ruling (MC-2118, 2026-08-05)</h4>
+<p><strong>This spec won on both counts; the code moved.</strong></p>
+<ul><li><strong>Title is <code>font.size.body</code> (13px).</strong> It shipped at <code>meta</code>, the same step as its own supporting line — so the row's primary content read at exactly the size of the text explaining it, and the pair had no hierarchy at all. The same title/supporting pairing was ruled the same way for the door rails in MC-2101, so the two row families now agree.</li><li><strong><code>InboxSearchInput</code> is <code>size.control.sm</code> (30px).</strong> It shipped at <code>h-7</code> (28px), which is not a step on the control ramp (26/30/34) — a number from before the ramp existed.</li><li>Shipped <code>InboxRow</code> implements the resting tier by pane cascade (<code>data-selection-pane</code> rules in <code>assets/index.css</code>) rather than this spec's <code>--resting</code> modifier — same rendered result, different mechanism. Framework rebuilds may keep either, provided exactly one pane renders the focused tier.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/inbox-row/component.css</summary><pre><code>/* Inbox row — the two-line triage row: leading status mark, title,
@@ -10510,15 +10518,15 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <h4>Variants</h4>
 <ul><li>Default text input. The same chrome serves search inputs (add a leading <code>search</code> glyph) and other single-line controls.</li></ul>
 <h4>States</h4>
-<ul><li>Focus: border moves to <code>accent.primary</code>; keyboard focus adds the 2px <code>border.focus</code> ring.</li><li>Invalid: <code>aria-invalid=&quot;true&quot;</code> moves the border to <code>status.danger</code>; the error message replaces the help text (never both).</li><li>Disabled: <code>text.disabled</code> ink, reduced opacity, <code>not-allowed</code> cursor.</li><li>Placeholder: <code>text.subtle</code>.</li></ul>
+<ul><li>Hover: border moves to <code>border.strong</code>.</li><li>Focus: the shared 2px <code>border.focus</code> ring, and nothing else — the border does not change colour.</li><li>Invalid: <code>aria-invalid=&quot;true&quot;</code> moves the border to <code>status.danger</code>; the error message replaces the help text (never both).</li><li>Disabled: <code>text.disabled</code> ink, reduced opacity, <code>not-allowed</code> cursor.</li><li>Placeholder: <code>text.disabled</code>.</li></ul>
 <h4>Usage</h4>
 <ul><li>Exactly one supporting message at a time — help hides while an error shows.</li><li>Labels are sentence case, no trailing colon.</li><li>Do not stretch inputs beyond their content column; <code>size.control.sm</code> is the panel-chrome standard height.</li></ul>
 <h4>Accessibility</h4>
 <ul><li>The label is a real <code>&lt;label for&gt;</code> pointing at the control.</li><li><code>aria-describedby</code> points at the visible help or error message, whichever is shown.</li><li>Invalid state is conveyed by <code>aria-invalid</code>, not color alone (the error text names the problem).</li></ul>
-<h4>Known drift</h4>
-<p>Verified against <code>src/renderer/src/components/ui/Input.tsx</code> (2026-08-04):</p>
-<ul><li><strong>No focus border swap.</strong> This spec (and the reference CSS) moves the border to <code>accent.primary</code> on focus; the shipped input never swaps the border — hover moves it to <code>border.strong</code>, and focus is the shared 2px ring only.</li><li><strong>Placeholder ink.</strong> Spec: <code>text.subtle</code>; shipped: <code>text.disabled</code>.</li></ul>
-<p>MC-2114 (Input/Field adoption) and MC-2118 (doc reconciliation) own ruling which focus treatment wins and re-syncing this entry.</p>
+<h4>Drift ruling (MC-2118, 2026-08-05)</h4>
+<p>Reconciled against <code>src/renderer/src/components/ui/Input.tsx</code>. <strong>The shipped behaviour wins on both counts</strong>, and the States section above now describes it.</p>
+<ul><li><strong>No focus border swap.</strong> The spec moved the border to <code>accent.primary</code> on focus *as well as* drawing the ring. Two signals for one state, and the border one is the weaker: it is a 1px hue change on a control that already has a 2px ring around it, and it spends the accent on a state that is not a choice the person made. Every other focusable control in the system — button, switch, segmented control, checkbox, menu item — says focus with the ring alone; an input saying it twice is the odd one out. Hover keeps <code>border.strong</code>, which is a real second state the border is free to carry.</li><li><strong>Placeholder ink is <code>text.disabled</code>.</strong> Placeholder text is not content and must sit clearly below the value that replaces it; <code>text.subtle</code> is close enough to real input ink to read as a filled field at a glance.</li></ul>
+<p>The reference CSS in <code>component.css</code> moves with this ruling.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/input/component.css</summary><pre><code>/* Input — extracted from the source product's Field wrapper and the
@@ -10556,15 +10564,21 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 }
 
 .ds-input::placeholder {
-  color: var(--sem-color-text-subtle);
+  /* Placeholder is not content: it must sit clearly below the value that
+   * replaces it, or an empty field reads as a filled one at a glance. */
+  color: var(--sem-color-text-disabled);
 }
 
-/* Focus signals with both the accent border and the ring, so it never reads
- * by color shift alone. */
-.ds-input:focus {
-  outline: none;
-  border-color: var(--sem-color-accent-primary);
+/* Hover is the border's state. */
+.ds-input:hover {
+  border-color: var(--sem-color-border-strong);
 }
+
+/* Focus is the ring, and only the ring (MC-2118). This used to move the border
+ * to the accent as well — two signals for one state, and the weaker of the two:
+ * a 1px hue change on a control that already has a 2px ring around it, spending
+ * the accent on something the person did not choose. Every other focusable
+ * control in the system says focus with the ring alone. */
 
 .ds-input:focus-visible {
   outline: var(--sem-focus-ring);
@@ -18194,10 +18208,9 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <ul><li>The dot is a status signal, not decoration or category color; done/healthy rows usually carry no mark at all.</li><li>Do not add a second interactive element inside the card; actions live in a context menu or the detail surface.</li><li>Keep the trailing slot to short meta (relative age, a count).</li></ul>
 <h4>Accessibility</h4>
 <ul><li>The card exposes one accessible name combining identifier and title.</li><li>Selection is conveyed with <code>aria-pressed</code> (or <code>aria-selected</code> in list semantics), never by the fill alone — assistive technology reads the state from the attribute, and the ink lift to <code>text.primary</code> carries it visually.</li><li>Status dots are <code>aria-hidden</code> when adjacent text already carries the state; otherwise give them a <code>role=&quot;img&quot;</code> label.</li></ul>
-<h4>Known drift</h4>
-<p>Verified against <code>src/renderer/src/components/ui/TaskCard.tsx</code> (2026-08-04):</p>
-<ul><li><strong>Identifier.</strong> This spec says <code>font.size.meta</code> in <code>text.subtle</code>; shipped identifiers are <code>font.size.micro</code> in both variants — in <code>text.subtle</code> on the row variant but <code>text.muted</code> on the card variant.</li><li><strong>Title.</strong> This spec says <code>font.size.body</code>; shipped titles are <code>font.size.meta</code>, one step smaller.</li></ul>
-<p>MC-2118 owns ruling which type step is canonical and reconciling this entry.</p>
+<h4>Drift ruling (MC-2118, 2026-08-05)</h4>
+<p><strong>This spec won on both counts; the code moved.</strong></p>
+<ul><li><strong>Title is <code>font.size.body</code> (13px)</strong>, not <code>meta</code>. A card's title is its primary content; at <code>meta</code> it sat level with the supporting line beneath it. Ruled together with <code>inbox-row</code> and the door rails (MC-2101) so every title-over-supporting pair in the system uses the same two steps.</li><li><strong>Identifier is <code>font.size.meta</code> in <code>text.subtle</code></strong>, in both variants. It shipped at <code>micro</code>, and — only on the card variant — in <code>text.muted</code>, so the same identifier changed weight depending on which variant happened to be showing it. One identifier, one treatment.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/task-card/component.css</summary><pre><code>/* Task card — extracted from the source product's TaskCard primitive
@@ -18952,7 +18965,7 @@ for (const button of document.querySelectorAll('.demo-parked .ds-toast-dismiss')
 </div>
 <div class="catalog-doc">
 <p>The description for a value the surface itself cannot show: a title truncated to one line, an icon-only control's name, a path abbreviated to its tail. It elaborates what is already on screen, and never becomes the only route to a value: the detail pane, a menu, or the control's own accessible name still carries it.</p>
-<p>One surface per document, repositioned per trigger. A list of 200 rows mounts one tooltip, not 200.</p>
+<p>One surface on screen at a time. A list of 200 rows puts one tooltip in the document, not 200 — the surface exists only while a tooltip is shown.</p>
 <p>Use a popover instead when the content is interactive, a menu when it is a list of actions, and the detail pane when the value is long enough to read rather than glance at. Never a native <code>title</code> attribute on a control: it is unstyleable, slow, invisible to touch, and inconsistent between browsers.</p>
 <h4>Anatomy</h4>
 <p>| Part | Class | Required | |---|---|---| | Trigger | — | the consumer's own element, carrying <code>aria-describedby</code> only while the surface is shown | | Surface | <code>.ds-tooltip</code> | yes — <code>role=&quot;tooltip&quot;</code>, a stable <code>id</code>, <code>hidden</code> at rest | | Title | <code>.ds-tooltip-title</code> | no — the identifier the description elaborates |</p>
@@ -18962,23 +18975,24 @@ for (const button of document.querySelectorAll('.demo-parked .ds-toast-dismiss')
 <p>None. A tooltip has one appearance, and the only optional part is the title.</p>
 <p>There is no arrow, no tone variant, and no size variant. An error or warning tooltip in particular is a rejected idea: a state a person must act on is never disclosed on hover.</p>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | <code>hidden</code> — out of view and out of the accessibility tree | | Shown from pointer | Appears after ~350 ms of hover over the trigger | | Shown from keyboard | Appears immediately on <code>:focus-visible</code> | | Preferred side | Inline-start of the trigger, <code>8px</code> clear of it, vertically centred | | Flipped | Inline-end instead, when the preferred side has no room; then clamped inside the viewport |</p>
+<p>| State | Treatment | |---|---| | Rest | <code>hidden</code> — out of view and out of the accessibility tree | | Shown from pointer | Appears after a short hover delay over the trigger (~200 ms shipped) | | Shown from keyboard | Appears immediately on <code>:focus-visible</code> | | Default side | Above the trigger, <code>6px</code> clear of it, horizontally centred | | Overridden | A consumer may name a side per trigger — load-bearing where the default has no room (see the ruling below) | | Flipped | The opposite side, when the chosen one has no room; then clamped inside the viewport |</p>
 <p>The surface has no entrance animation. It is neither *alive right now* nor *just changed* — the two things motion is allowed to mean — and the pointer delay already does the pacing a fade would be reaching for.</p>
 <h4>Usage</h4>
 <p><strong>Both paths, always.</strong> Shown on pointer-over <strong>and</strong> on <code>:focus-visible</code>. Hover-only fails the same progressive-disclosure clause that governs row actions. <code>:focus-visible</code> and not <code>:focus</code>: clicking a control must not draw a tooltip over the thing that was just clicked.</p>
-<p><strong>The delay is asymmetric on purpose.</strong> ~350 ms on pointer, so crossing a list does not fire every row in turn; none on keyboard focus, because there is no crossing to absorb.</p>
+<p><strong>The delay is asymmetric on purpose.</strong> A short delay on pointer, so crossing a list does not fire every row in turn; none on keyboard focus, because there is no crossing to absorb.</p>
 <p><strong>Four ways out</strong>, all of them cheap: the pointer leaves the trigger, focus leaves it, Escape, or any scroll. Scroll dismissal is not optional — a fixed surface anchored to a row that has scrolled away is pointing at nothing. Listen for scroll in the capture phase so nested containers dismiss too.</p>
 <p><strong>Never interactive.</strong> <code>pointer-events: none</code>. Anything clickable belongs in a popover, which is a different component with a different keyboard contract.</p>
-<p><strong>Flip, do not shrink.</strong> Prefer the inline-start side and flip when there is no room. This is load-bearing for a right-docked pane, where the natural side is off-screen.</p>
+<p><strong>Flip, do not shrink.</strong> Flip to the opposite side when the chosen one has no room, and clamp inside the viewport rather than resizing the surface. Where a whole surface's default side is wrong — a right-docked pane, a row at the top of a window — name the side per trigger instead of relying on the flip.</p>
 <p><strong>Restate a value only when it is actually cut off.</strong> When the tooltip's job is to repeat a title the row truncated, compare <code>scrollWidth</code> with <code>clientWidth</code> and attach only when it overflows — on text that fits it repeats what the person can already read. A tooltip that instead *adds* a description the row has no room for is a different job, and that description has to stay reachable without hovering.</p>
 <p><strong>Touch has no hover.</strong> Anything a tooltip explains must also be reachable without one — in the detail pane, an overflow menu, or the accessible name of the control itself.</p>
-<p><strong>Rebuilding it in a framework:</strong> keep the single shared surface. Mounting one per row is the defect this component exists to prevent, and it is the easy mistake to make in a component tree. When a subtree forces <code>data-mode</code>, mirror that mode onto the surface — it sits on the body and would otherwise be lit by the document's mode instead of the container's.</p>
+<p><strong>Rebuilding it in a framework:</strong> the requirement is that the *document* holds one surface at a time, not that one surface object is reused. A component that portals its surface on open and tears it down on close satisfies it, and keeps each trigger's content and <code>aria-describedby</code> wiring local — which is what ships. What this component exists to prevent is 200 rows putting 200 surfaces in the document *at rest*; a per-trigger component that renders nothing until shown does not do that. When a subtree forces <code>data-mode</code>, mirror that mode onto the surface — it sits on the body and would otherwise be lit by the document's mode instead of the container's.</p>
 <h4>Accessibility</h4>
 <ul><li>The surface carries <code>role=&quot;tooltip&quot;</code> and a stable <code>id</code>. The trigger carries <code>aria-describedby</code> pointing at that <code>id</code> <strong>only while it is shown</strong>, so a screen reader announces the description at the moment it appears rather than on every trigger in the list.</li><li><code>aria-describedby</code>, never <code>aria-labelledby</code>: a tooltip describes a control, it does not name one. An icon-only button still needs its own <code>aria-label</code>, and the tooltip says something that label does not — the consequence of the action, not a restatement of its name.</li><li>The trigger must be focusable. A tooltip on a <code>&lt;div&gt;</code> nobody can Tab to is unreachable for keyboard and screen-reader users.</li><li>Escape dismisses, matching the overlay rule that Escape closes the topmost surface only. The tooltip never takes focus, so nothing has to be restored.</li><li>The surface is never the only place a value exists. It is an elaboration of on-screen content, so a person who cannot summon it loses nothing they cannot reach another way.</li><li>Contrast is <code>text.default</code> on <code>bg.surface-raised</code> in both modes. Do not drop the description to <code>text.subtle</code> to make it feel secondary — it is already secondary by being hidden.</li></ul>
-<h4>Known drift</h4>
-<p>Verified against <code>src/renderer/src/components/ui/Tooltip.tsx</code> (2026-08-04):</p>
-<ul><li><strong>Type and padding.</strong> This spec (and the reference CSS) says <code>font.size.meta</code> with <code>space.xs</code> / <code>space.md</code> padding (6/10px); shipped is <code>font.size.micro</code> (11px) with <code>px-2 py-1</code> (8/4px), ink at <code>--text-strong</code> on a <code>border.strong</code> hairline.</li><li><strong>Architecture.</strong> Shipped mounts a portal <strong>per trigger instance</strong> (created on open — one visible at a time, but N instances across a list), the exact pattern this spec rules out for 200-row lists; the single shared surface positioned by <code>--ds-tooltip-top/left</code> is not what ships.</li><li><strong>Placement and delay.</strong> Spec prefers inline-start, 8px clear, ~350ms pointer delay; shipped defaults to <code>top</code> with a 6px gap, a per-trigger <code>placement</code> prop, and a 200ms delay.</li></ul>
-<p>MC-2118 owns the reconciliation.</p>
+<h4>Drift ruling (MC-2118, 2026-08-05)</h4>
+<p>Reconciled against <code>src/renderer/src/components/ui/Tooltip.tsx</code>. The three drifts do not resolve the same way, so each is ruled on its own.</p>
+<p><strong>Type and padding — the spec wins; the code moved.</strong> Shipped was <code>font.size.micro</code> (11px) with 8/4px padding, which put the tooltip a type step *below* the 12px row it exists to make readable. That is backwards for a component whose entire job is to show what the surface could not. Now <code>font.size.meta</code> at 10/6px.</p>
+<p><strong>Architecture — the code wins; this spec was over-specified.</strong> &quot;One surface per document, positioned by <code>--ds-tooltip-top/left</code>&quot; described an implementation, not a property. What actually matters is that a 200-row list does not put 200 surfaces in the document, and the shipped component already guarantees that: the portal is created *on open* and torn down on close, so the document holds one at a time regardless of how many triggers exist. A singleton surface driven by custom properties would need a global controller and would have to re-derive each trigger's content and <code>aria-describedby</code> wiring, trading a real cost for a naming preference. The lede above now states the property rather than the mechanism.</p>
+<p><strong>Placement and delay — the code wins.</strong> A per-trigger <code>placement</code> prop is load-bearing, not a convenience: the app's own context rail documents why (<code>top</code> sent the topmost row's tip into the macOS traffic-light zone, where the viewport clamp pinned it to the window corner). The 200ms delay is a shipped product decision and this entry has no better one to offer.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/tooltip/component.css</summary><pre><code>/* Tooltip — the trigger-anchored description for a value the surface itself

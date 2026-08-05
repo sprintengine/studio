@@ -27,7 +27,9 @@ export function InboxSearchInput({
   return (
     <div
       className={[
-        'flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)]',
+        // `h-control-sm` (30px). This shipped at `h-7` = 28px, which is not a step
+        // on the control ramp at all (26/30/34) — MC-2118.
+        'flex h-control-sm min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)]',
         // `--bg-field`, not the raised tone directly: identical on an opaque
         // window, translucent under glass so a field sitting in the chrome is made
         // of the same material as the bar around it (assets/index.css).

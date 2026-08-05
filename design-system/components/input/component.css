@@ -33,15 +33,21 @@
 }
 
 .ds-input::placeholder {
-  color: var(--sem-color-text-subtle);
+  /* Placeholder is not content: it must sit clearly below the value that
+   * replaces it, or an empty field reads as a filled one at a glance. */
+  color: var(--sem-color-text-disabled);
 }
 
-/* Focus signals with both the accent border and the ring, so it never reads
- * by color shift alone. */
-.ds-input:focus {
-  outline: none;
-  border-color: var(--sem-color-accent-primary);
+/* Hover is the border's state. */
+.ds-input:hover {
+  border-color: var(--sem-color-border-strong);
 }
+
+/* Focus is the ring, and only the ring (MC-2118). This used to move the border
+ * to the accent as well — two signals for one state, and the weaker of the two:
+ * a 1px hue change on a control that already has a 2px ring around it, spending
+ * the accent on something the person did not choose. Every other focusable
+ * control in the system says focus with the ring alone. */
 
 .ds-input:focus-visible {
   outline: var(--sem-focus-ring);

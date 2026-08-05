@@ -24,8 +24,8 @@ import { FOCUS_RING_CLASS, type Tone } from './tokens'
  * Family-resemblance contract — documented in
  * `knowledge/brand/panel-patterns.md`:
  *   - StatusDot leading at 6 px.
- *   - Identifier: `font-mono tabular-nums text-micro text-[color:var(--text-subtle)]`.
- *   - Title: `text-meta font-medium`.
+ *   - Identifier: `font-mono tabular-nums text-meta text-[color:var(--text-subtle)]`.
+ *   - Title: `text-body font-medium`.
  *   - Selected state: neutral `--bg-selected` fill + title ink at
  *     `--text-strong`. No left bar, no border box, no accent.
  *   - Hover: `--bg-hover` only — no shadow, no scale, no glow.
@@ -159,11 +159,15 @@ export function TaskCard({
       <div className="min-w-0 flex-1">
         {isCard ? (
           <>
-            <div className="font-mono tabular-nums text-micro text-[color:var(--text-muted)]">
+            {/* `meta` in `text.subtle`, per design-system/components/task-card
+                (MC-2118). The identifier shipped at `micro` and — only on this
+                variant — in `text.muted`, so the same identifier read at a
+                different weight of ink depending on which variant showed it. */}
+            <div className="font-mono tabular-nums text-meta text-[color:var(--text-subtle)]">
               {identifier}
             </div>
             <div
-              className={`mt-0.5 text-meta font-medium leading-[1.35] text-[color:var(--text-strong)] ${
+              className={`mt-0.5 text-body font-medium leading-[1.35] text-[color:var(--text-strong)] ${
                 clampTitle ? 'line-clamp-2' : 'break-words [overflow-wrap:anywhere]'
               }`}
             >
@@ -177,10 +181,10 @@ export function TaskCard({
           </>
         ) : (
           <div className="flex items-baseline gap-2">
-            <span className="font-mono tabular-nums text-micro text-[color:var(--text-subtle)]">
+            <span className="font-mono tabular-nums text-meta text-[color:var(--text-subtle)]">
               {identifier}
             </span>
-            <span className="min-w-0 flex-1 truncate text-meta font-medium leading-[1.4]">
+            <span className="min-w-0 flex-1 truncate text-body font-medium leading-[1.4]">
               {title}
             </span>
           </div>

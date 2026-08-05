@@ -52,14 +52,15 @@ reserved for the primary action.
 - Status dots are `aria-hidden` when adjacent text already carries the state;
   otherwise give them a `role="img"` label.
 
-## Known drift
+## Drift ruling (MC-2118, 2026-08-05)
 
-Verified against `src/renderer/src/components/ui/TaskCard.tsx` (2026-08-04):
+**This spec won on both counts; the code moved.**
 
-- **Identifier.** This spec says `font.size.meta` in `text.subtle`; shipped
-  identifiers are `font.size.micro` in both variants — in `text.subtle` on
-  the row variant but `text.muted` on the card variant.
-- **Title.** This spec says `font.size.body`; shipped titles are
-  `font.size.meta`, one step smaller.
-
-MC-2118 owns ruling which type step is canonical and reconciling this entry.
+- **Title is `font.size.body` (13px)**, not `meta`. A card's title is its
+  primary content; at `meta` it sat level with the supporting line beneath it.
+  Ruled together with `inbox-row` and the door rails (MC-2101) so every
+  title-over-supporting pair in the system uses the same two steps.
+- **Identifier is `font.size.meta` in `text.subtle`**, in both variants. It
+  shipped at `micro`, and — only on the card variant — in `text.muted`, so the
+  same identifier changed weight depending on which variant happened to be
+  showing it. One identifier, one treatment.

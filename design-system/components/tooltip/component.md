@@ -6,8 +6,8 @@ elaborates what is already on screen, and never becomes the only route to a
 value: the detail pane, a menu, or the control's own accessible name still
 carries it.
 
-One surface per document, repositioned per trigger. A list of 200 rows mounts
-one tooltip, not 200.
+One surface on screen at a time. A list of 200 rows puts one tooltip in the
+document, not 200 — the surface exists only while a tooltip is shown.
 
 Use a popover instead when the content is interactive, a menu when it is a list
 of actions, and the detail pane when the value is long enough to read rather
@@ -43,10 +43,11 @@ disclosed on hover.
 | State | Treatment |
 |---|---|
 | Rest | `hidden` — out of view and out of the accessibility tree |
-| Shown from pointer | Appears after ~350 ms of hover over the trigger |
+| Shown from pointer | Appears after a short hover delay over the trigger (~200 ms shipped) |
 | Shown from keyboard | Appears immediately on `:focus-visible` |
-| Preferred side | Inline-start of the trigger, `8px` clear of it, vertically centred |
-| Flipped | Inline-end instead, when the preferred side has no room; then clamped inside the viewport |
+| Default side | Above the trigger, `6px` clear of it, horizontally centred |
+| Overridden | A consumer may name a side per trigger — load-bearing where the default has no room (see the ruling below) |
+| Flipped | The opposite side, when the chosen one has no room; then clamped inside the viewport |
 
 The surface has no entrance animation. It is neither *alive right now* nor
 *just changed* — the two things motion is allowed to mean — and the pointer
@@ -59,9 +60,9 @@ Hover-only fails the same progressive-disclosure clause that governs row
 actions. `:focus-visible` and not `:focus`: clicking a control must not draw a
 tooltip over the thing that was just clicked.
 
-**The delay is asymmetric on purpose.** ~350 ms on pointer, so crossing a list
-does not fire every row in turn; none on keyboard focus, because there is no
-crossing to absorb.
+**The delay is asymmetric on purpose.** A short delay on pointer, so crossing a
+list does not fire every row in turn; none on keyboard focus, because there is
+no crossing to absorb.
 
 **Four ways out**, all of them cheap: the pointer leaves the trigger, focus
 leaves it, Escape, or any scroll. Scroll dismissal is not optional — a fixed
@@ -71,9 +72,10 @@ for scroll in the capture phase so nested containers dismiss too.
 **Never interactive.** `pointer-events: none`. Anything clickable belongs in a
 popover, which is a different component with a different keyboard contract.
 
-**Flip, do not shrink.** Prefer the inline-start side and flip when there is no
-room. This is load-bearing for a right-docked pane, where the natural side is
-off-screen.
+**Flip, do not shrink.** Flip to the opposite side when the chosen one has no
+room, and clamp inside the viewport rather than resizing the surface. Where a
+whole surface's default side is wrong — a right-docked pane, a row at the top of
+a window — name the side per trigger instead of relying on the flip.
 
 **Restate a value only when it is actually cut off.** When the tooltip's job is
 to repeat a title the row truncated, compare `scrollWidth` with `clientWidth`
@@ -86,11 +88,15 @@ without hovering.
 without one — in the detail pane, an overflow menu, or the accessible name of
 the control itself.
 
-**Rebuilding it in a framework:** keep the single shared surface. Mounting one
-per row is the defect this component exists to prevent, and it is the easy
-mistake to make in a component tree. When a subtree forces `data-mode`, mirror
-that mode onto the surface — it sits on the body and would otherwise be lit by
-the document's mode instead of the container's.
+**Rebuilding it in a framework:** the requirement is that the *document* holds
+one surface at a time, not that one surface object is reused. A component that
+portals its surface on open and tears it down on close satisfies it, and keeps
+each trigger's content and `aria-describedby` wiring local — which is what
+ships. What this component exists to prevent is 200 rows putting 200 surfaces in
+the document *at rest*; a per-trigger component that renders nothing until shown
+does not do that. When a subtree forces `data-mode`, mirror that mode onto the
+surface — it sits on the body and would otherwise be lit by the document's mode
+instead of the container's.
 
 ## Accessibility
 
@@ -113,20 +119,30 @@ the document's mode instead of the container's.
   the description to `text.subtle` to make it feel secondary — it is already
   secondary by being hidden.
 
-## Known drift
+## Drift ruling (MC-2118, 2026-08-05)
 
-Verified against `src/renderer/src/components/ui/Tooltip.tsx` (2026-08-04):
+Reconciled against `src/renderer/src/components/ui/Tooltip.tsx`. The three
+drifts do not resolve the same way, so each is ruled on its own.
 
-- **Type and padding.** This spec (and the reference CSS) says
-  `font.size.meta` with `space.xs` / `space.md` padding (6/10px); shipped is
-  `font.size.micro` (11px) with `px-2 py-1` (8/4px), ink at `--text-strong`
-  on a `border.strong` hairline.
-- **Architecture.** Shipped mounts a portal **per trigger instance** (created
-  on open — one visible at a time, but N instances across a list), the exact
-  pattern this spec rules out for 200-row lists; the single shared surface
-  positioned by `--ds-tooltip-top/left` is not what ships.
-- **Placement and delay.** Spec prefers inline-start, 8px clear, ~350ms
-  pointer delay; shipped defaults to `top` with a 6px gap, a per-trigger
-  `placement` prop, and a 200ms delay.
+**Type and padding — the spec wins; the code moved.** Shipped was
+`font.size.micro` (11px) with 8/4px padding, which put the tooltip a type step
+*below* the 12px row it exists to make readable. That is backwards for a
+component whose entire job is to show what the surface could not. Now
+`font.size.meta` at 10/6px.
 
-MC-2118 owns the reconciliation.
+**Architecture — the code wins; this spec was over-specified.** "One surface
+per document, positioned by `--ds-tooltip-top/left`" described an
+implementation, not a property. What actually matters is that a 200-row list
+does not put 200 surfaces in the document, and the shipped component already
+guarantees that: the portal is created *on open* and torn down on close, so the
+document holds one at a time regardless of how many triggers exist. A singleton
+surface driven by custom properties would need a global controller and would
+have to re-derive each trigger's content and `aria-describedby` wiring, trading
+a real cost for a naming preference. The lede above now states the property
+rather than the mechanism.
+
+**Placement and delay — the code wins.** A per-trigger `placement` prop is
+load-bearing, not a convenience: the app's own context rail documents why
+(`top` sent the topmost row's tip into the macOS traffic-light zone, where the
+viewport clamp pinned it to the window corner). The 200ms delay is a shipped
+product decision and this entry has no better one to offer.

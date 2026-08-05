@@ -262,8 +262,13 @@ export function Tooltip({
                   ? 'max-w-[420px] whitespace-pre-wrap break-words'
                   : 'whitespace-nowrap',
                 'rounded-[5px] border border-[color:var(--border-strong)]',
-                'bg-[color:var(--bg-surface-raised)] px-2 py-1',
-                'text-micro leading-snug text-[color:var(--text-strong)]',
+                // 10/6px and `meta`, per design-system/components/tooltip
+                // (MC-2118). This shipped at `micro` (11px), which put the
+                // tooltip a type step BELOW the 12px row it exists to make
+                // readable — backwards for a component whose whole job is to
+                // show what the surface could not.
+                'bg-[color:var(--bg-surface-raised)] px-2.5 py-1.5',
+                'text-meta leading-snug text-[color:var(--text-strong)]',
                 className ?? '',
               ].join(' ')}
             >

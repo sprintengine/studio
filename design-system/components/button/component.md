@@ -20,8 +20,17 @@ primary button, and it shares its hue with selection chrome.
 - `ds-button--icon` — a `size.control.xs` square padded out to
   `size.hit-target-min`, borderless, icon-only. Must carry an `aria-label`.
   The canonical close affordance uses the `close` glyph.
-- Sizes: default sm at `size.control.sm` and `ds-button--md` at
-  `size.control.md`.
+- `ds-button--outline` — a bordered neutral secondary: `border.default`
+  hairline, transparent fill, `text.default` label. Outlined rather than a
+  third *filled* variant, so the one-accent rule still holds. Use it where a
+  ghost reads too weak to be found but the action is not the view's primary.
+- Sizes: `ds-button--xs` at `size.control.xs` with a `font.size.meta` label
+  (dense chrome — toolbars, row actions), default sm at `size.control.sm`, and
+  `ds-button--md` at `size.control.md`.
+
+Label padding tracks the size rather than being constant: 8px at xs and sm,
+12px at md. A single 12px inset makes a dense `xs` control read as mostly
+padding.
 
 ## States
 
@@ -47,19 +56,21 @@ primary button, and it shares its hue with selection chrome.
 - Contrast: label-on-fill clears AA in both modes (`text.on-accent` flips
   between white and near-black with the mode).
 
-## Known drift
+## Drift ruling (MC-2118, 2026-08-05)
 
-Verified against `src/renderer/src/components/ui/Buttons.tsx` (2026-08-04).
-Heights agree — both the reference CSS and the shipped code sit on
-`size.control.*` — but three things ship that this spec does not say:
+Reconciled against `src/renderer/src/components/ui/Buttons.tsx`. **The shipped
+vocabulary wins on all three counts, and is now folded into the spec above
+rather than listed as drift.**
 
-- **Label padding.** The reference CSS pads labels `0 var(--sem-space-lg)`
-  (12px); shipped buttons use 8px (`px-2`) at sm and 12px (`px-3`) at md.
-- **A `xs` size.** Shipped adds an undocumented dense-chrome step:
-  `size.control.xs` height with a `font.size.meta` label.
-- **`OutlineButton`.** A bordered neutral secondary the shipped kit made
-  canonical. It is outlined, not a third *filled* variant, so it does not break
-  the rule above — but it is system vocabulary this doc lacks.
+- **Label padding** — 8px at xs/sm, 12px at md. The reference CSS's constant
+  `0 var(--sem-space-lg)` predates the `xs` step; applied to a 26px control it
+  is mostly padding.
+- **`xs` size** — real, in use across dense chrome, and it has a token
+  (`size.control.xs`). A ramp step the tokens already carry is not drift.
+- **`OutlineButton`** — canonical. It is outlined rather than filled, so the
+  one-accent rule is untouched.
 
-MC-2113 standardizes the product on the shipped ramp and variants; MC-2118
-owns reconciling this entry with that ruling.
+Control **heights were never drift**: both the reference CSS and the shipped
+code already sit on `size.control.*`. MC-2118's own drift table listed a
+28/32px prose ramp against the tokens' 26/30/34 — that prose is not in this
+entry, and the numbers here come from the tokens.

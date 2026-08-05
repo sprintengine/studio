@@ -98,15 +98,18 @@ press; Escape empty passes through.
   the clear button is a descendant with its own ring, and `:focus-within`
   would keep both painted at once.
 
-## Known drift
+## Drift ruling (MC-2118, 2026-08-05)
 
-- **MC-2118** — `InboxRow.tsx` renders its title at `text-meta` (12px), one
-  type step below the list-row family's `font.size.body` (13px) title, and
-  its supporting line at the same size, collapsing the title/supporting
-  step. This spec is the 13px canon.
-- `InboxSearchInput.tsx` renders 28px tall (`h-7`); the control ramp has no
-  28px step. Canon here is `size.control.sm` (30px), the default for a
-  labeled control. Unfiled.
+**This spec won on both counts; the code moved.**
+
+- **Title is `font.size.body` (13px).** It shipped at `meta`, the same step as
+  its own supporting line — so the row's primary content read at exactly the
+  size of the text explaining it, and the pair had no hierarchy at all. The
+  same title/supporting pairing was ruled the same way for the door rails in
+  MC-2101, so the two row families now agree.
+- **`InboxSearchInput` is `size.control.sm` (30px).** It shipped at `h-7`
+  (28px), which is not a step on the control ramp (26/30/34) — a number from
+  before the ramp existed.
 - Shipped `InboxRow` implements the resting tier by pane cascade
   (`data-selection-pane` rules in `assets/index.css`) rather than this
   spec's `--resting` modifier — same rendered result, different mechanism.

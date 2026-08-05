@@ -69,7 +69,11 @@ export function InboxRow({
             focus, the selection-tier rules in assets/index.css rebind
             --text-strong on this row and the lift drops back out. */}
         <div
-          className={`truncate text-meta font-medium ${
+          // `body` (13px), per design-system/components/inbox-row (MC-2118).
+          // Title and supporting line both shipped at `meta`, which collapsed
+          // the step between them — the row's primary content read at the same
+          // size as the text explaining it.
+          className={`truncate text-body font-medium ${
             selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
           }`}
         >
