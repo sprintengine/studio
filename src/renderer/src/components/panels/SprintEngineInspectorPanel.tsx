@@ -2515,7 +2515,15 @@ function InspectorStatusScope({
   busy?: boolean
 }): JSX.Element {
   return (
-    <span className="flex min-w-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
+    // `overflow-hidden` is load-bearing, not cosmetic. `min-w-0` lets this box
+    // shrink past its own content — which is what makes the title truncate last
+    // — but `·` and the id are `shrink-0`, so without a clip they keep full
+    // width and spill out of the box onto PanelHeader's action cluster, drawing
+    // the id underneath the expand glyph. Clipping keeps the overflow inside the
+    // scope's own bounds. Safe here because this scope is text and glyphs only;
+    // it must not migrate up into PanelHeader's shared slot, which also hosts
+    // interactive pickers whose focus ring a clip would cut.
+    <span className="flex min-w-0 items-center gap-1.5 overflow-hidden text-meta text-[color:var(--text-muted)]">
       {glyph ?? (lifecycle ? <LifecycleGlyph state={lifecycle} live={Boolean(live)} /> : null)}
       {busy ? <Spinner size={12} /> : null}
       <span className="truncate">{label}</span>

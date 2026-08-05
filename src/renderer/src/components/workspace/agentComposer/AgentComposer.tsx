@@ -209,7 +209,10 @@ export default function AgentComposer({
           {/* The wrapper owns the visible border box, so it is what the ring goes
               round — keyed to the input's own focus rather than focus-within, per
               FOCUS_RING_WITHIN_INPUT_CLASS. Ringing the inner input instead drew
-              the indicator inside the box (MC-2107). */}
+              the indicator inside the box (MC-2107). The input still has to say
+              `outline-none`: the wrapper's ring replaces the UA one, but the UA
+              draws its own on the element that actually holds focus, so without
+              it one tab stop wears two rings. */}
           <div className={`mb-2 flex items-center gap-2 rounded border border-[color:var(--border-subtle)] px-2.5 py-1.5 ${FOCUS_RING_WITHIN_INPUT_CLASS}`}>
             <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
@@ -224,7 +227,7 @@ export default function AgentComposer({
               aria-label="Search agents"
               aria-controls="agent-composer-roster"
               aria-activedescendant={selectedRow ? optionId(selectedRow) : undefined}
-              className="min-w-0 flex-1 bg-transparent text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)]"
+              className="min-w-0 flex-1 bg-transparent text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)]"
             />
           </div>
 
