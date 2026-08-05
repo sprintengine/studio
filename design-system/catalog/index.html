@@ -6382,8 +6382,16 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
 </div>
 <div class="catalog-doc">
-<p><strong>Status: planned — not yet shipped.</strong> Built by MC-2117.</p>
+<p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
 <p>The small display-only label or count chip: a tone-carrying word (&quot;draft&quot;, &quot;merged&quot;) or a number docked on a row or a control. &quot;Badge&quot; appears across 10+ files today (<code>BacklogRow</code>, <code>WorkspaceActions</code>, <code>PanelSwitches</code>, <code>ThirdPartyModuleList</code>, <code>AttentionQueuePopover</code>, …) as ad-hoc rounded spans, with count-badge styling reinvented per surface. This entry replaces those with one primitive: <code>font.size.micro</code>/<code>meta</code> type on <code>radius.chip</code>, tones drawn from the <code>status.*-soft</code> fills with their matching ink, never interactive, and never a second status idiom beside a status dot that already says the same thing.</p>
+<h4>As shipped</h4>
+<p>Two species under one name, because the audit found two:</p>
+<p>| | Shape | Fill | Ink | |---|---|---|---| | <strong>Count</strong> | circle at one digit, pill beyond | solid <code>tone.*</code> | <code>text.on-accent</code> | | <strong>Label</strong> | pill | <code>tone.*-soft</code> with a <code>tone.*</code> hairline | <code>text.muted</code> |</p>
+<p><code>tabular-nums</code> on counts, so 1 → 2 does not jog the row. A <code>max</code> caps the number (&quot;99+&quot;) rather than letting the badge widen past its trigger.</p>
+<p><strong>Ruling — radius is <code>pill</code>, not <code>radius.chip</code>.</strong> The intent above said <code>radius.chip</code> (3px); every badge actually shipping is <code>rounded-full</code>, and a one-digit counter has to be a circle for the docked corner position to read as a badge rather than a clipped square. <code>radius.chip</code> is the right token for a *rectangular* chip; this is not one.</p>
+<p><strong>Ruling — a count's ink is <code>text.on-accent</code>, not <code>bg.app</code>.</strong> All three shipped counters hardcoded <code>bg.app</code> as their foreground, which is only legible while the badge sits on a saturated tone. <code>text.on-accent</code> is the token that means &quot;foreground for a filled surface&quot; and holds on every theme.</p>
+<p><strong>Corner mode</strong> docks the badge to the top-right of a positioned trigger with a 1px border in the surface behind it, so it reads as sitting *on* the control. A box-shadow ring would hold the box at exactly 16px, but the token lint's <code>no-glow-shadow</code> rule forbids that spelling — and every counter this replaces already used a border.</p>
+<p>Never interactive, and never a second status idiom beside a <code>status-dot</code> that already says the same thing. A badge carrying meaning takes an <code>ariaLabel</code> (a bare &quot;3&quot; tells a screen reader nothing); one that merely repeats adjacent text is marked <code>decorative</code> so it is not read twice.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/badge/component.css</summary><pre><code>/* Placeholder — badge is planned (built by MC-2117) and not yet specified.
@@ -7455,7 +7463,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
 </div>
 <div class="catalog-doc">
-<p><strong>Status: planned — not yet shipped.</strong> Built by MC-2117.</p>
+<p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
 <p>The one-of-a-set form control: a value the person marks now and submits later. The <code>switch</code> entry already draws the line — a switch commits immediately, a checkbox belongs to a form — and today the checkbox side of that line has no primitive. Five hand-rolled <code>type=&quot;checkbox&quot;</code> stylings ship in the product (<code>learn/TipStartupModal.tsx</code>, <code>settings/TrackerWriteBackSettings.tsx</code> — the styled-peer control that motivated <code>FOCUS_RING_PEER_CLASS</code> — <code>workspace/NewWorkspacePanel.tsx</code>, <code>panels/SprintEngineBoardPanel.tsx</code>, <code>worktree/WorktreeManager.tsx</code>), each with its own box chrome and focus treatment. This entry replaces all five with one token-backed control: <code>radius.chip</code> box, <code>accent.primary</code> checked fill, the shared focus ring, and a real <code>&lt;label&gt;</code>.</p>
 </div>
 </div>
@@ -7496,8 +7504,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
 </div>
 <div class="catalog-doc">
-<p><strong>Status: planned — not yet shipped.</strong> Built by MC-2117.</p>
+<p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
 <p>The filter-as-you-type input over a listbox — for choosing from a set large enough to search. <code>Select</code> is select-only by design, so every filterable case rebuilt the pattern: five bespoke listboxes ship today (<code>CliModelPicker</code>, <code>SkillPickerPopover</code>, <code>CommandPalette</code>, <code>agentComposer/AgentComposerPopover.tsx</code>, and <code>newSprint/NewSprintDialog.tsx</code>'s own <code>role=&quot;listbox&quot;</code>), each re-owning typeahead, active-option state, and keyboard handling. This entry replaces those with one WAI-ARIA combobox contract on the shared popover surface — <code>CommandPalette.tsx</code> already has the correct ARIA and is the reference implementation the primitive should share bones with, not duplicate.</p>
+<h4>As shipped</h4>
+<p>The ARIA is <code>CommandPalette</code>'s, as intended: <strong>the input is the combobox and keeps focus throughout</strong>, options are never focused, and the highlighted one is named by <code>aria-activedescendant</code>. That is what lets typing and arrowing work at the same time — moving real focus onto an option takes it off the field, and the next keystroke goes nowhere. This is the thing the five bespoke versions each got differently.</p>
+<p>| Key | Behaviour | |---|---| | <code>↑</code> / <code>↓</code> | move the active option, skipping disabled rows | | <code>Home</code> / <code>End</code> | jump to the ends | | <code>Enter</code> | commit the active option | | <code>Escape</code> | close the list only — <code>stopPropagation</code>, so a dialog hosting a combobox does not close with it |</p>
+<p>Options commit on <code>pointerdown</code>, not <code>click</code>: a click fires after the field has lost focus, and the blur closes the popup out from under the pointer.</p>
+<p><strong>Ruling — one shape: a trigger opening a surface that carries the field above the list.</strong> There is deliberately no inline-field variant. <code>Popover</code> hands its trigger a button ref and owns anchoring, flipping, clamping and outside-click; an inline field would have to either fight that contract or hand-roll an absolutely-positioned surface — which <code>lint-panel-composition</code>'s <code>no-bespoke-popover-shell</code> rule forbids outright. A caller wanting the field to *be* the control passes a full-width trigger styled as one.</p>
+<p><strong>No picker has adopted it yet.</strong> The five named above each carry behaviour past filter-plus-listbox — favourites, model families, an inline handle, their own selection models — so adoption means deciding, per picker, what moves into the primitive and what stays local. Tracked on MC-2117; rewriting them on assumption is how a shared primitive collects five escape hatches and stops being shared.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/combobox/component.css</summary><pre><code>/* Placeholder — combobox is planned (built by MC-2117) and not yet specified.
@@ -8399,8 +8413,14 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
 </div>
 <div class="catalog-doc">
-<p><strong>Status: planned — not yet shipped.</strong> Built by MC-2117.</p>
+<p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
 <p>What a surface shows when it has nothing to show: a glyph, a title, an optional body line, and at most one call-to-action — never a dead end on a first-run surface. Five local <code>EmptyState</code> components re-declare this idea today (<code>workspace/WorkspaceManager.tsx</code>, <code>AutomationsPanel.tsx</code>, <code>AutomationsList.tsx</code>, <code>SkillsDiscover.tsx</code>, <code>SkillSourceCanvas.tsx</code>), and the <code>icon.size.lg</code> token already names &quot;empty-state glyphs&quot; as a use with no component to consume it. The likely base is <code>SurfaceCanvasState</code> in <code>workspace/globalSurface/surfaceSubstrate.tsx</code> — the six-door unification that already renders one shared loading/empty/error anatomy (glyph in an <code>accent.soft</code> disc, title, one CTA) across every global surface. This entry generalizes that anatomy; MC-2115's consolidation consumes it.</p>
+<h4>As shipped</h4>
+<p>Two densities, because the five hand-rolls were doing two different jobs:</p>
+<p>| Density | Where | Shape | |---|---|---| | <code>pane</code> (default) | a region with nothing in it — no workspace open, nothing selected | fills the height, centred | | <code>list</code> | a list that came back empty | top-aligned and compact |</p>
+<p>Title in <code>text.muted</code>, optional body in <code>text.subtle</code>, optional glyph in the <code>icon.size.lg</code> slot the token's own comment reserves for exactly this, and at most one action.</p>
+<p><strong>Ruling — copy is readable ink, never <code>text.disabled</code>.</strong> One hand-roll rendered its sentence in <code>text.disabled</code>: copy meant to be read, greyed out as though it were a dead control, next to the only thing on screen you could actually do.</p>
+<p><strong>Ruling — no accent disc, and <code>SurfaceCanvasState</code> is not generalized into this.</strong> The intent above proposed basing this on <code>SurfaceCanvasState</code>'s anatomy (a glyph in an <code>accent.soft</code> disc). They are different jobs. A door's *first-run* canvas earns a prominent accent treatment; a list that filtered down to nothing does not, and giving every empty list an accent disc would spend the accent budget on absence. <code>SurfaceCanvasState</code> keeps its richer door-canvas treatment; this is the quiet general one.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/empty-state/component.css</summary><pre><code>/* Placeholder — empty-state is planned (built by MC-2117) and not yet specified.
@@ -17602,8 +17622,15 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 <p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
 </div>
 <div class="catalog-doc">
-<p><strong>Status: planned — not yet shipped.</strong> Built by MC-2117.</p>
+<p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
 <p>The shared header/row/cell chrome for genuinely tabular data — columns of values compared across rows, where <code>list-row</code> (a pick-an-item list) is the wrong shape. Three bespoke implementations ship today: hand-rolled <code>&lt;table&gt;</code> markup in <code>panels/SprintEngineRunSummaryPanel.tsx</code> and <code>diagnostics/DiagnosticsContent.tsx</code>, plus a third div-grid variant in <code>workspace/newWorkspace/SprintEngineRosterTable.tsx</code>. This entry replaces all three with one contract: real <code>&lt;table&gt;</code> semantics, <code>font.size.meta</code> header row in <code>text.muted</code>, <code>border.subtle</code> row hairlines, mono tabular numerals for numeric cells, and no per-surface reinvention of alignment or padding.</p>
+<h4>As shipped</h4>
+<p>Composed (<code>Table</code>, <code>Table.Head</code>, <code>Table.Cell</code>, <code>Table.Row</code>) rather than data-driven. The call sites need <code>&lt;colgroup&gt;</code> tracks, per-cell titles, spanning rows and conditional row paint; a <code>columns={[…]} rows={[…]}</code> API would have to grow an escape hatch for each, and the escape hatches are where the chrome would drift apart again. What is shared is the chrome — nothing about the data model.</p>
+<p>| Part | Contract | |---|---| | <code>Table</code> | <code>border-collapse</code>, <code>font.size.meta</code>; <code>fixed</code> takes widths from <code>colgroup</code> | | <code>Table.Head</code> | <code>scope=&quot;col&quot;</code>, <code>text.muted</code>, medium weight, <code>border.default</code> underline | | <code>Table.Cell</code> | <code>numeric</code> right-aligns and sets tabular figures | | <code>Table.Row</code> | <code>border.subtle</code> hairline |</p>
+<p><strong>Header cells are sticky by default.</strong> Every one of these tables sits in a scrollport, and a header that scrolls away turns the numbers beneath it into unlabelled figures. Sticky headers paint <code>bg.surface</code> and sit on <code>z.sticky</code> — without a ground, rows show through as they pass under.</p>
+<p><strong>Ruling — tabular figures in the UI face, not the mono family.</strong> The intent above said &quot;mono tabular numerals&quot;. The UI face already has tabular figures, and switching family mid-row is a louder change than the alignment it buys, in a row whose labels are UI-face.</p>
+<p><strong>Not migrated: <code>SprintEngineRosterTable</code>.</strong> Named in the intent above as a third variant, but it is a roster *editor* — rows of avatars, CLI pickers and per-role toggles. <code>&lt;table&gt;</code> semantics are wrong for configurable rows, and the rewrite would be large for no accessibility gain.</p>
+<p><strong><code>SprintEngineRunSummaryPanel</code> keeps its own header classes</strong> deliberately: it is a dense comparison matrix whose labels carry full words, wrap to two lines and bottom-align above their numbers. Sharing the table chrome does not mean every table wears one header.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/table/component.css</summary><pre><code>/* Placeholder — table is planned (built by MC-2117) and not yet specified.
