@@ -1,4 +1,4 @@
-import { InboxRow, Skeleton } from '../../ui'
+import { EmptyState, InboxRow, Skeleton } from '../../ui'
 import type { SwitchboardTaskRecord } from '../../../../../shared/switchboard'
 import { formatRelativeTime, shortIdentifier } from '../../../utils/switchboardBoard'
 import { inboxRowTone } from './types'
@@ -58,14 +58,8 @@ export function InboxSkeleton() {
   )
 }
 
+// The detail pane with nothing selected — the kit's empty state (MC-2115).
 export function EmptyDetail() {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <div className="text-meta font-semibold text-[color:var(--text-default)]">Triage</div>
-      <div className="text-meta text-[color:var(--text-muted)]">
-        Select an inbox task to inspect, edit, comment, or promote.
-      </div>
-    </div>
-  )
+  return <EmptyState title="Triage" body="Select an inbox task to inspect, edit, comment, or promote." />
 }
 

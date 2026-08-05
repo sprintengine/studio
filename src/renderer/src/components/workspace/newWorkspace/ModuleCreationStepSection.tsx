@@ -1,6 +1,7 @@
 import React, { Suspense, type ReactNode } from 'react'
 
 import type { WorkspaceTypeCreationStep } from '../../../modules/renderer-host'
+import { InlineNotice } from '../../ui'
 
 // A throwing module step component must never block the hub: the boundary
 // swallows the throw, reports it inline, and creation proceeds zero-config
@@ -59,9 +60,9 @@ export function ModuleCreationStepSection({
         ) : null}
       </header>
       {broken ? (
-        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--text-muted)]">
+        <InlineNotice tone="error">
           This step hit an error and was skipped — the workspace is created with its default setup.
-        </div>
+        </InlineNotice>
       ) : (
         <ModuleStepBoundary onBroken={onBroken}>
           <Suspense fallback={null}>

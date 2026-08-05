@@ -24,6 +24,19 @@ import { getHighlightSwatch } from '../../utils/highlight'
 // Painting the token rather than a baked colour is also what lets a Backlog row
 // honour the resting tier: on a pane that is not the one holding focus,
 // assets/index.css rebinds `--bg-selected` on the row carrying the ARIA state.
+//
+// RULING 2026-08-05 (MC-2115) — the 3px bar stays, and it is not the banned one.
+// `foundations/principles.md` rejects the LEFT TONE-BAR on sight: a coloured
+// stripe standing in for a notice's tone, where the tone is then carried by
+// colour alone and doubles the card's own border. This bar says something else
+// entirely — it is a row's EPIC IDENTITY, a hue the user assigned, and it is
+// never the only carrier of that identity (the epic chip names it in words, and
+// the tint reads on every unselected member). Nothing about it is a notice: no
+// tone vocabulary, no severity, nothing to recover from.
+// Rejecting it would cost the one channel that makes an epic's members read as a
+// block, and would buy nothing — so this is a ruling, not a debt.
+// The `left-bar` axis in `components/ui/designSystemAxes.test.ts` carries the
+// matching allow-marker; this comment is the reason it points at.
 export function backlogRowPaintClass({
   color,
   litFill,

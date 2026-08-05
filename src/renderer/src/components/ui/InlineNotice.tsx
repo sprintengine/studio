@@ -34,16 +34,18 @@ export type InlineNoticeProps = {
    * sentence (`title`) + what-it-means (`hint`), with any raw technical string
    * (`detail`) tucked behind a "Show details" disclosure — never inline.
    */
-  title?: string
-  hint?: string
+  title?: React.ReactNode
+  hint?: React.ReactNode
   /**
    * Raw technical string (ENOENT / HTTP body / zod / stack). Rendered only
    * inside a collapsed "Show details" disclosure. Omit when there is none.
    */
   detail?: string
   /**
-   * Simple one-line advisory body, when there is no structured `title` — e.g. a
-   * short degraded-state note. Ignored when `title` is set.
+   * The body. Without a `title` it is the whole advisory — a short
+   * degraded-state line. With one it sits under the hint, for the failure whose
+   * body is more than a sentence: the list of blockers, the warnings the
+   * registry returned. Keep it neutral ink; the glyph and the tint are the tone.
    */
   children?: React.ReactNode
   /**
@@ -95,6 +97,7 @@ export function InlineNotice({ tone, title, hint, detail, children, action, clas
         <div className="min-w-0 flex-1">
           <div className="text-body leading-6 text-[color:var(--text-strong)]">{title}</div>
           {hint ? <div className="mt-0.5 text-meta leading-5 text-[color:var(--text-muted)]">{hint}</div> : null}
+          {children ? <div className="mt-1.5">{children}</div> : null}
           {details}
           {action ? <div className="mt-2 flex flex-wrap items-center gap-2">{action}</div> : null}
         </div>
@@ -119,5 +122,52 @@ export function InlineNotice({ tone, title, hint, detail, children, action, clas
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
+  )
+}
+
+/**
+ * The outcome of an action the user just took, in the tone vocabulary the system
+ * actually has (MC-2115).
+ *
+ * Five surfaces had declared their own version of this — `MessageBlock`
+ * (SettingsPanel), `Note` (ProviderSettingsTab), `MESSAGE_CLASS`
+ * (ThirdPartyModuleList), `ManageNote` (ConnectorsManage) and `ChatNotice`
+ * (AgentChatView) — and every one of them was the same shape: a four-tone
+ * `border-l-2 … pl-3` bar, tone carried by colour alone, which is the pattern
+ * `foundations/principles.md` rejects on sight and this file's own header
+ * forbids. They also each invented an `accent`/`neutral` tone for "it worked"
+ * and "here is a fact", which the notice vocabulary deliberately does not have:
+ * **there is no info notice and no success notice** (see the system's
+ * `inline-notice` entry) — information is content, and success is the state the
+ * screen already shows.
+ *
+ * So this is a dispatcher, not a sixth dialect. A failure or a degraded state
+ * renders as the notice it is; anything else renders as the copy it is.
+ */
+export type ActionResultTone = 'info' | 'warn' | 'error'
+export type ActionResult = { tone: ActionResultTone; text: string }
+
+export function ActionResultMessage({
+  message,
+  action,
+  className,
+}: {
+  message: ActionResult | null | undefined
+  /** Recovery action, offered on the failure/degraded tones only. */
+  action?: React.ReactNode
+  className?: string
+}): JSX.Element | null {
+  if (!message) return null
+  if (message.tone === 'info') {
+    return (
+      <p role="status" className={['text-body leading-5 text-[color:var(--text-muted)]', className ?? ''].join(' ')}>
+        {message.text}
+      </p>
+    )
+  }
+  return (
+    <InlineNotice tone={message.tone} action={action} className={className}>
+      {message.text}
+    </InlineNotice>
   )
 }

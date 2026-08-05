@@ -52,7 +52,7 @@ import {
 } from '../../utils/sprintengine'
 import MulticodeMark from '../brand/MulticodeMark'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { Checkbox, CliModelPickerButton, CloseIconButton, Field, FOCUS_RING_CLASS, GhostButton, OutlineButton, PrimaryButton, TruncatedText, WizardProgress } from '../ui'
+import { Checkbox, CliModelPickerButton, CloseIconButton, Field, FOCUS_RING_CLASS, GhostButton, InlineNotice, OutlineButton, PrimaryButton, TruncatedText, WizardProgress } from '../ui'
 import { OVERLAY_SHELL_CLASS, OVERLAY_WIDTH_PX } from '../ui/tokens'
 import {
   analyzeWorkspaceTargetPath,
@@ -1713,12 +1713,7 @@ export default function NewWorkspacePanel({
           ) : null}
 
           {advancedSetupError ? (
-            <div
-              role="alert"
-              className="border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]"
-            >
-              {advancedSetupError}
-            </div>
+            <InlineNotice tone="error">{advancedSetupError}</InlineNotice>
           ) : null}
                     </div>
                   </main>
@@ -2460,9 +2455,7 @@ function GuidedIdeaStep({
       ) : null}
 
       {error ? (
-        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]">
-          {error}
-        </div>
+        <InlineNotice tone="error">{error}</InlineNotice>
       ) : null}
     </div>
   )

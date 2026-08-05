@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 
 import type { ReviewChangeSet } from '../../../../shared/review'
+import { GhostButton } from '../../components/ui/Buttons'
+import { EmptyState } from '../../components/ui/EmptyState'
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { Spinner } from '../../components/ui/Spinner'
 import { ReviewWalkthrough } from './ReviewWalkthrough'
@@ -34,12 +36,7 @@ export function ReviewCanvas({ session, guideActions }: { session: ReviewSession
   if (status === 'idle') {
     return (
       <CenteredState>
-        <div className="max-w-md text-center">
-          <h3 className="mb-1.5 text-title font-semibold text-[color:var(--text-strong)]">No review selected</h3>
-          <p className="text-body leading-5 text-[color:var(--text-muted)]">
-            Choose a review from the list to open its walkthrough.
-          </p>
-        </div>
+        <EmptyState title="No review selected" body="Choose a review from the list to open its walkthrough." />
       </CenteredState>
     )
   }
@@ -55,12 +52,16 @@ export function ReviewCanvas({ session, guideActions }: { session: ReviewSession
   if (status === 'error') {
     return (
       <CenteredState>
-        <div className="max-w-md">
-          <h3 className="mb-1.5 text-title font-semibold text-[color:var(--text-strong)]">Couldn’t open this review</h3>
-          <p className="text-body leading-5 text-[color:var(--text-muted)]">
-            {session.errorMessage ?? 'The change set could not be read.'}
-          </p>
-        </div>
+        {/* A failure with no way out was the one state here that broke the notice
+            contract (MC-2115): reloading the change is the recovery, and it
+            exists — it just was not offered. */}
+        <InlineNotice
+          tone="error"
+          className="max-w-md"
+          title="Couldn’t open this review"
+          hint={session.errorMessage ?? 'The change set could not be read.'}
+          action={<GhostButton onClick={session.refresh}>Try again</GhostButton>}
+        />
       </CenteredState>
     )
   }
@@ -68,12 +69,10 @@ export function ReviewCanvas({ session, guideActions }: { session: ReviewSession
   if (status === 'no-change' || !changeset) {
     return (
       <CenteredState>
-        <div className="max-w-md">
-          <h3 className="mb-1.5 text-title font-semibold text-[color:var(--text-strong)]">No change to review yet</h3>
-          <p className="text-body leading-5 text-[color:var(--text-muted)]">
-            This review has no change loaded. Start a new one from a pull request, branch, or patch.
-          </p>
-        </div>
+        <EmptyState
+          title="No change to review yet"
+          body="This review has no change loaded. Start a new one from a pull request, branch, or patch."
+        />
       </CenteredState>
     )
   }
@@ -81,12 +80,14 @@ export function ReviewCanvas({ session, guideActions }: { session: ReviewSession
   if (status === 'invalid-brief') {
     return (
       <PrepareShell changeset={changeset}>
-        <InlineNotice tone="error" className="max-w-2xl">
-          <span className="font-medium">The walkthrough didn’t pass its checks.</span>
-          <pre className="mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-meta leading-5">
-            {session.invalidErrors}
-          </pre>
-        </InlineNotice>
+        {/* The validator's raw output goes behind the disclosure, where the
+            notice contract puts every raw technical string. */}
+        <InlineNotice
+          tone="error"
+          className="max-w-2xl"
+          title="The walkthrough didn’t pass its checks."
+          detail={session.invalidErrors ?? undefined}
+        />
         <div className="mt-3 flex flex-wrap items-center gap-2">{guideActions}</div>
         <RunLine run={run} />
       </PrepareShell>

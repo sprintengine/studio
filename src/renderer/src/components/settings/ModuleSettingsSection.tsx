@@ -8,7 +8,7 @@ import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { moduleSettingsNamespace } from '../../store/slices/settingsSlice'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
-import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { GhostButton, InlineNotice } from '../ui'
 
 const EMPTY_SECTION_VALUES: Readonly<Record<string, unknown>> = Object.freeze({})
 
@@ -21,22 +21,16 @@ export function ModuleSectionErrorFallback({
   section: RegisteredSettingsSection
   onRetry: () => void
 }) {
+  // The kit's failure card, not a hand-rolled tone bar (MC-2115): `role="alert"`,
+  // the failure sentence, the owning module behind the hint, and the recovery on
+  // the action row — the anatomy the notice contract asks for.
   return (
-    <div role="alert" className="border-l-2 border-[color:var(--tone-error)] pl-3 text-body leading-5">
-      <p className="text-[color:var(--tone-error)]">
-        {section.label} failed to render. The rest of Settings is unaffected.
-      </p>
-      <p className="mt-0.5 font-mono text-meta leading-4 text-[color:var(--text-subtle)]">
-        From {section.moduleId}
-      </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className={`mt-1.5 text-body font-semibold text-[color:var(--text-default)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-      >
-        Try again
-      </button>
-    </div>
+    <InlineNotice
+      tone="error"
+      title={`${section.label} failed to render. The rest of Settings is unaffected.`}
+      hint={`From ${section.moduleId}`}
+      action={<GhostButton onClick={onRetry}>Try again</GhostButton>}
+    />
   )
 }
 

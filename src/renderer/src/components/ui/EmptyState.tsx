@@ -51,7 +51,11 @@ export function EmptyState({
       ].join(' ')}
     >
       {glyph ? (
-        <span className="mb-1 flex size-icon-lg items-center justify-center text-[color:var(--text-subtle)]">
+        // `icon-lg` is the slot's SIZE, not its ceiling: a 22px glyph lands
+        // exactly on the ramp, and an illustration that is deliberately larger
+        // (the gallery's card skeleton) sets its own box rather than overflowing
+        // a fixed one into the title (MC-2115).
+        <span className="mb-1 flex min-h-icon-lg min-w-icon-lg items-center justify-center text-[color:var(--text-subtle)]">
           {glyph}
         </span>
       ) : null}

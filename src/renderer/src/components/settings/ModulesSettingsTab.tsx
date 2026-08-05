@@ -10,7 +10,7 @@ import {
 } from '../../specialists/specialistPacks'
 import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../AppIcons'
 import { ConnectorRow, ConnectorSectionHeading } from '../panels/ConnectorsPanel/ConnectorRow'
-import { GhostButton, InboxSearchInput, Switch } from '../ui'
+import { EmptyState, GhostButton, InboxSearchInput, Switch } from '../ui'
 import { mcpMonogram } from './mcpMonogram'
 import { COMING_SOON_IDS, MODULE_CATEGORY_GROUPS, categoryLabel } from './ModuleControls'
 import { ThirdPartyModuleList } from './ThirdPartyModuleList'
@@ -218,19 +218,20 @@ export function ModulesSettingsTab() {
       {!q && packs.length === 0 ? (
         <section className="space-y-2">
           <ConnectorSectionHeading label="Specialist packs" count={0} />
-          <div className="flex flex-col items-start gap-3 border-l-2 border-[color:var(--border-strong)] pl-3">
-            <p className="text-body leading-5 text-[color:var(--text-muted)]">
-              No specialist packs installed. Install one from the marketplace and its agents appear in
-              the spawn menu, alongside the Terminal, General, and Conversation rows.
-            </p>
-            <GhostButton
-              size="md"
-              onClick={() => openExtensionsSurface({ view: 'browse' })}
-              className="h-control-md"
-            >
-              Browse marketplace
-            </GhostButton>
-          </div>
+          <EmptyState
+            density="list"
+            title="No specialist packs installed."
+            body="Install one from the marketplace and its agents appear in the spawn menu, alongside the Terminal, General, and Conversation rows."
+            action={
+              <GhostButton
+                size="md"
+                onClick={() => openExtensionsSurface({ view: 'browse' })}
+                className="h-control-md"
+              >
+                Browse marketplace
+              </GhostButton>
+            }
+          />
         </section>
       ) : visiblePacks.length > 0 ? (
         <section className="space-y-2">

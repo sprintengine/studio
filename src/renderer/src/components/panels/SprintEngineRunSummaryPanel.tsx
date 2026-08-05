@@ -2,7 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   CloseIconButton,
+  EmptyState,
   FOCUS_RING_CLASS,
+  InlineNotice,
+  type InlineNoticeTone,
   LifecycleGlyph,
   PanelHeader,
   RoleGlyph,
@@ -260,9 +263,7 @@ export default function SprintEngineRunSummaryPanel({
   if (!sprintEngineState || !report) {
     return (
       <PanelShell titleId={TITLE_ID} subtitle="Sprint state is not available for this workspace." onClose={onClose} embedded={embedded}>
-        <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-body leading-6 text-[color:var(--text-muted)]">
-          Open a Sprint Engine workspace to see its run summary.
-        </div>
+        <EmptyState title="Open a Sprint Engine workspace to see its run summary." />
       </PanelShell>
     )
   }
@@ -340,9 +341,11 @@ export default function SprintEngineRunSummaryPanel({
       </div>
 
       {report.totalTasks === 0 ? (
-        <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-body leading-6 text-[color:var(--text-muted)]">
-          This run has no tasks yet. Configure a roster and dispatch work to populate the summary.
-        </div>
+        <EmptyState
+          density="list"
+          title="This run has no tasks yet."
+          body="Configure a roster and dispatch work to populate the summary."
+        />
       ) : (
         <>
           {/* Overview → output → who-worked-when → by-type headline → measured issues → who. */}
@@ -602,14 +605,16 @@ function AgentBreakdownSection({
     <SectionDivider>
       <Section title="Per-agent breakdown" count={activeRows.length} level={3}>
         {analysisStatus === 'error' ? (
-          <div className="mb-2 border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]">
-            Couldn't load agent metrics{analysisError ? `: ${analysisError}` : '.'} Roster and task
-            counts below are from the run state.
-          </div>
+          <InlineNotice
+            tone="error"
+            className="mb-2"
+            title="Couldn't load agent metrics."
+            hint={`${analysisError ? `${analysisError}. ` : ''}Roster and task counts below are from the run state.`}
+          />
         ) : analysisStatus === 'unavailable' ? (
-          <div className="mb-2 border-l-2 border-[color:var(--border-strong)] pl-3 text-meta leading-5 text-[color:var(--text-muted)]">
+          <p className="mb-2 text-meta leading-5 text-[color:var(--text-muted)]">
             Agent metrics are unavailable for this run.
-          </div>
+          </p>
         ) : null}
 
         {implRows.length > 0 ? (
@@ -1481,9 +1486,7 @@ function TokenUsageSection({ report }: { report: SprintEngineTokenUsageReport | 
     return (
       <SectionDivider>
         <Section title="Token usage" level={3}>
-          <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-body leading-6 text-[color:var(--text-muted)]">
-            {coverageNote}
-          </div>
+          <EmptyState density="list" title={coverageNote} />
         </Section>
       </SectionDivider>
     )
@@ -1661,24 +1664,22 @@ function ProjectionStatusBanner({ state }: { state: SprintEngineState }) {
   if (!hasError && lockWarnings.length === 0) return null
 
   const source: SprintEngineProjectionSource = projection?.source ?? 'folder_store'
-  const tone: Tone = hasError ? 'error' : 'warn'
+  const tone: InlineNoticeTone = hasError ? 'error' : 'warn'
 
+  // The kit's notice, tone-matched to the condition: the glyph and the tint are
+  // the tone now, where this used to be a neutral bar with the failure spelled in
+  // red text (MC-2115).
   return (
-    <div className="mb-4 border-l-2 border-[color:var(--border-strong)] pl-3 text-meta leading-5 text-[color:var(--text-default)]">
+    <InlineNotice tone={tone} className="mb-4 text-meta">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="inline-flex items-center gap-1.5">
-          <StatusDot tone={tone} />
-          <span className="font-mono text-micro text-[color:var(--text-muted)]">Projection</span>
-        </span>
+        <span className="font-mono text-micro text-[color:var(--text-muted)]">Projection</span>
         <span className="text-[color:var(--text-default)]">{projectionSourceLabel[source]}</span>
         {projection?.errorMessage ? (
-          <span className="text-[color:var(--tone-error)] [overflow-wrap:anywhere]">
-            {projection.errorMessage}
-          </span>
+          <span className="[overflow-wrap:anywhere]">{projection.errorMessage}</span>
         ) : null}
       </div>
       {lockWarnings.length > 0 ? (
-        <ul className="mt-1 space-y-0.5 text-[color:var(--tone-warn)]">
+        <ul className="mt-1 space-y-0.5">
           {lockWarnings.map((warning) => (
             <li key={warning.name} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">
               <span className="font-mono text-micro">{warning.name}</span>
@@ -1689,6 +1690,6 @@ function ProjectionStatusBanner({ state }: { state: SprintEngineState }) {
           ))}
         </ul>
       ) : null}
-    </div>
+    </InlineNotice>
   )
 }

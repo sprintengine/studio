@@ -21,7 +21,7 @@ import { getRendererHost } from '../../modules'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import type { Tone } from '../ui/tokens'
-import { GhostButton, StatusDot, Switch } from '../ui'
+import { type ActionResult, ActionResultMessage, EmptyState, GhostButton, InlineNotice, StatusDot, Switch } from '../ui'
 
 // Settings → Modules: the third-party (installed-from-disk) module group. It
 // installs, validates, trust-classifies modules, and reports startup readiness;
@@ -123,13 +123,9 @@ export function resolveModuleEnabled(
   return overrides[module.manifest.id] ?? module.manifest.defaultEnabled
 }
 
-type Message = { tone: 'accent' | 'warn' | 'error'; text: string } | null
-
-const MESSAGE_CLASS: Record<NonNullable<Message>['tone'], string> = {
-  accent: 'border-[color:var(--accent-primary)] text-[color:var(--accent-primary)]',
-  warn: 'border-[color:var(--tone-warn)] text-[color:var(--tone-warn)]',
-  error: 'border-[color:var(--tone-error)] text-[color:var(--tone-error)]',
-}
+// `MESSAGE_CLASS` was this file's copy of the left tone-bar (MC-2115); the
+// install result is a kit notice when it failed and plain copy when it did not.
+type Message = ActionResult | null
 
 // Requested-access chips. Disclosure only: the chip text is what the module
 // says it does (describeCapabilityPermission keeps every string free of
@@ -304,7 +300,7 @@ export function ThirdPartyModuleList({
         setMessage({ tone: 'error', text: result.message ?? 'Could not install the module.' })
       } else {
         setMessage({
-          tone: result.trust === 'invalid' ? 'error' : 'accent',
+          tone: result.trust === 'invalid' ? 'error' : 'info',
           text: `Installed "${result.id}". Review its access and trust it when you're ready.`,
         })
       }
@@ -372,15 +368,14 @@ export function ThirdPartyModuleList({
         </GhostButton>
       </div>
 
-      {message ? (
-        <div className={`border-l-2 pl-3 text-body leading-5 ${MESSAGE_CLASS[message.tone]}`}>{message.text}</div>
-      ) : null}
+      <ActionResultMessage message={message} />
 
       {modules.length === 0 ? (
-        <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-body leading-5 text-[color:var(--text-muted)]">
-          No third-party modules installed. Install a module folder (a manifest.json plus its files) to
-          review and trust it.
-        </div>
+        <EmptyState
+          density="list"
+          title="No third-party modules installed."
+          body="Install a module folder (a manifest.json plus its files) to review and trust it."
+        />
       ) : (
         <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
           {modules.map((module) => (
@@ -397,10 +392,10 @@ export function ThirdPartyModuleList({
       )}
 
       {rejected.length > 0 ? (
-        <div className="border-l-2 border-[color:var(--tone-warn)] pl-3 text-body leading-5 text-[color:var(--tone-warn)]">
+        <InlineNotice tone="warn">
           {rejected.length} module folder{rejected.length === 1 ? '' : 's'} could not be loaded:{' '}
           {rejected.map((entry) => entry.issues[0]?.message ?? entry.path).join('; ')}
-        </div>
+        </InlineNotice>
       ) : null}
     </div>
   )

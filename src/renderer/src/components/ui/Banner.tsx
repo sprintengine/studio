@@ -9,6 +9,17 @@ export type BannerProps = {
   tone: BannerTone
   message: string
   onRetry?: () => void
+  /**
+   * The recovery slot, for a condition whose recovery is not spelled "Retry" —
+   * a "Relink" beside the retry on a missing folder, or the progress line while
+   * a refresh is in flight. It sits after the Retry when both are given
+   * (MC-2115: the hand-rolled strips this replaced had labelled actions, and a
+   * banner that cannot carry them is a banner nobody adopts).
+   *
+   * Still one recovery cluster, not a toolbar: if it needs a third control, the
+   * condition belongs in an `InlineNotice` at the failure site.
+   */
+  action?: React.ReactNode
 }
 
 /**
@@ -16,7 +27,7 @@ export type BannerProps = {
  * leads with a status dot, and offers an optional Retry. For inline-scoped
  * advisories inside a section, use InlineNotice instead.
  */
-export function Banner({ tone, message, onRetry }: BannerProps) {
+export function Banner({ tone, message, onRetry, action }: BannerProps) {
   const softVar = tone === 'error' ? 'var(--tone-error-soft)' : 'var(--tone-warn-soft)'
   return (
     <div
@@ -28,7 +39,12 @@ export function Banner({ tone, message, onRetry }: BannerProps) {
         <StatusDot tone={tone} />
         <TruncatedText as="span" text={message} className="min-w-0" />
       </span>
-      {onRetry ? <GhostButton onClick={onRetry}>Retry</GhostButton> : null}
+      {onRetry || action ? (
+        <span className="flex shrink-0 items-center gap-2">
+          {onRetry ? <GhostButton onClick={onRetry}>Retry</GhostButton> : null}
+          {action}
+        </span>
+      ) : null}
     </div>
   )
 }

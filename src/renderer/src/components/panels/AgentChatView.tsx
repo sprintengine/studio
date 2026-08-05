@@ -34,7 +34,7 @@ import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetChips } from '../worksp
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { renderMarkdown } from '../../utils/markdown'
-import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, InlineSkillPicker, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, InlineNotice, InlineSkillPicker, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillPrefill } from '../../utils/skillInvocation'
@@ -1854,7 +1854,9 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   if (!conversation) {
     return (
       <ChatShell>
-        <ChatNotice tone="error">This agent has no conversation provider selected.</ChatNotice>
+        <InlineNotice tone="error" className="mx-3 my-2">
+          This agent has no conversation provider selected.
+        </InlineNotice>
       </ChatShell>
     )
   }
@@ -2007,15 +2009,25 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   return (
     <ChatShell>
       <CreationBackdrop surface="chat" visible={timelineRows.length === 0} />
+      {/* Loading is not a notice — it is the state the screen is in, so it reads
+          as the quiet line it is; anything else here is a degraded session. */}
       {!ready && timelineRows.length > 0 ? (
-        <ChatNotice tone={readiness.kind === 'loading' ? 'neutral' : 'warn'}>{readinessLabel(readiness)}</ChatNotice>
+        readiness.kind === 'loading' ? (
+          <p className="mx-3 my-2 text-meta leading-5 text-[color:var(--text-muted)]">{readinessLabel(readiness)}</p>
+        ) : (
+          <InlineNotice tone="warn" className="mx-3 my-2">
+            {readinessLabel(readiness)}
+          </InlineNotice>
+        )
       ) : null}
       {/* Warn only about the CURRENT session: after a restart the replayed
           transcript may carry a previous session's source, but no session is
           live until the next send (which resets the source via
           session_started). */}
       {sessionId !== null && projection.apiKeySource !== null && projection.apiKeySource !== 'none' ? (
-        <ChatNotice tone="warn">This session is using an API key, not your subscription.</ChatNotice>
+        <InlineNotice tone="warn" className="mx-3 my-2">
+          This session is using an API key, not your subscription.
+        </InlineNotice>
       ) : null}
 
       <div
@@ -3039,17 +3051,6 @@ function ChevronGlyph({ className }: { className?: string }) {
       <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
-}
-
-const NOTICE_TONE: Record<'neutral' | 'warn' | 'error', { border: string; text: string }> = {
-  neutral: { border: 'border-[color:var(--border-strong)]', text: 'text-[color:var(--text-muted)]' },
-  warn: { border: 'border-[color:var(--tone-warn)]', text: 'text-[color:var(--tone-warn)]' },
-  error: { border: 'border-[color:var(--tone-error)]', text: 'text-[color:var(--tone-error)]' },
-}
-
-function ChatNotice({ tone, children }: { tone: 'neutral' | 'warn' | 'error'; children: React.ReactNode }) {
-  const style = NOTICE_TONE[tone]
-  return <div className={`mx-3 my-2 border-l-2 pl-3 text-meta leading-5 ${style.border} ${style.text}`}>{children}</div>
 }
 
 // The shared card shell docked above the composer: eyebrow row with an earned

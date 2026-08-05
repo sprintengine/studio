@@ -99,9 +99,29 @@ reporting the same condition say it with the same shape.
 - The mono detail block may scroll horizontally; it is inside the disclosure,
   so it never traps a keyboard user who did not opt in.
 
-## Known drift (MC-2115)
+## Consolidation (MC-2115, 2026-08-05)
 
-Shipped `InlineNotice.tsx` conforms to this anatomy — it is the source of it.
-Its spacing is written as Tailwind steps that land on the scale but bypass
-the variables, and the app-wide consolidation of hand-rolled notice surfaces
-onto this component is tracked as MC-2115.
+The app-wide sweep of hand-rolled notice surfaces onto this component is
+done. Five surfaces had each declared their own four-tone `border-l-2 … pl-3`
+bar — `MessageBlock` (Settings), `Note` (Providers), `MESSAGE_CLASS`
+(third-party modules), `ManageNote` (Connectors) and `ChatNotice` (agent chat,
+the tone-coloured bar with no glyph that the rejected-on-sight rule names) —
+and every one of them is gone. `designSystemAxes.test.ts` fails on the next
+one, and on any coloured left bar anywhere in the renderer that is not ruled
+on in the test's own `LEFT_BAR_RULED` list.
+
+Two things the sweep changed here, because the hand-rolls were carrying jobs
+the primitive could not take:
+
+- **The body slot works with a title.** The structured card renders `children`
+  under the hint, for the failure whose body is a list rather than a sentence
+  (the artifacts blocking a review, the warnings a registry returned).
+- **`ActionResultMessage` (exported alongside)** — the dispatcher for the
+  shape all five hand-rolls actually had: the outcome of an action the user
+  just took, typed `info | warn | error`. Failures and degraded states render
+  as this notice; **`info` renders as a plain line of copy**, because there is
+  no info notice in this system. It is where the rule "information is content"
+  is enforced in code rather than restated in prose.
+
+Remaining drift: spacing here is written as Tailwind steps that land on the
+scale but bypass the variables.

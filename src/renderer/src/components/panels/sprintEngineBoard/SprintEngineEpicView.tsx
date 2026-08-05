@@ -7,6 +7,7 @@ import {
   BacklogRowHoverCard,
 } from '../../backlog/BacklogRow'
 import { BacklogItemDetailPane } from '../../backlog/BacklogItemDetailPane'
+import { SprintEngineEmptyDetail } from './SprintEngineEmptyDetail'
 import { useSprintEngineEpicBacklog } from './useSprintEngineEpicBacklog'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
 import { basename } from '../../../utils/paths'
@@ -327,9 +328,7 @@ export function SprintEngineEpicView({
             }
           />
         ) : (
-          <div className="flex h-full items-center justify-center px-6 text-meta text-[color:var(--text-muted)]">
-            Select an item to preview.
-          </div>
+          <SprintEngineEmptyDetail message="Select an item to preview." />
         )}
       </aside>
     </div>

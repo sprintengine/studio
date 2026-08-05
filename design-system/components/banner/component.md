@@ -90,9 +90,23 @@ interactive part.
 - Truncated messages still expose their full text (the `list-row`/tooltip
   truncation contract applies).
 
-## Known drift (MC-2115)
+## The action slot (MC-2115, 2026-08-05)
 
-Shipped `Banner.tsx` conforms to this anatomy; its paddings are Tailwind
-steps (`px-3 py-2`) that land on the scale but bypass the variables, and the
-notices consolidation (which surfaces use `Banner` vs hand-rolled strips) is
-tracked as MC-2115.
+The anatomy above says the action slot "holds a ghost button" — it did not say
+that button has to be spelled *Retry*, and the two strips that were rebuilding
+this component by hand both needed to say something else: **Relink** beside the
+retry on a Sprint board whose saved folder went missing, and **Refresh
+walkthrough** on a review whose head moved. Shipped `Banner` takes an optional
+`action` node for exactly that, rendered after the Retry when both are given.
+
+It is still one recovery cluster, not a toolbar. A condition that wants a third
+control is not a banner condition — it belongs in an `inline-notice` at the
+site of the failure.
+
+**Ruling — there is no quiet banner.** The review canvas's freshness strip had
+invented a third "quiet" tone for the walkthrough being current. A resolved
+condition unmounts its banner; what is left when nothing is wrong is a plain
+provenance line, not a tinted strip in a calmer colour.
+
+Remaining drift: paddings here are Tailwind steps (`px-3 py-2`) that land on
+the scale but bypass the variables.

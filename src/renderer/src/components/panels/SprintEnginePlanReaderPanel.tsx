@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { renderMarkdown } from '../../utils/markdown'
 import { focusOrAddFileTab } from '../../utils/modelRegistry'
 import {
+  EmptyState,
   GhostButton,
   InlineNotice,
   OverflowMenu,
@@ -157,9 +158,7 @@ export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Pr
               {content ? (
                 renderMarkdown(content)
               ) : (
-                <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[color:var(--text-muted)]">
-                  No architect plan has been written yet.
-                </div>
+                <EmptyState density="list" title="No architect plan has been written yet." />
               )}
             </div>
           ) : null}

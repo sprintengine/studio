@@ -38,3 +38,23 @@ canvas earns a prominent accent treatment; a list that filtered down to nothing
 does not, and giving every empty list an accent disc would spend the accent
 budget on absence. `SurfaceCanvasState` keeps its richer door-canvas treatment;
 this is the quiet general one.
+
+## Consumers (MC-2115, 2026-08-05)
+
+The three dialects the audit found are one row now. Module absence (workspace
+and door), the aux windows' bare centred mono text, the review canvas's
+hand-rolled resting states, the Sprint board's detail empties and its task
+graph's "waiting for the plan" canvas all render this component; the settings
+and connectors lists that used to say "nothing here" inside a left-barred div
+render it at `list` density.
+
+**Ruling — the glyph slot is a size, not a ceiling.** It is `icon.size.lg`, and
+a glyph on the ramp lands exactly on it; an illustration that is deliberately
+larger (the component gallery's card skeleton) sets its own box rather than
+overflowing a fixed one into the title.
+
+`designSystemAxes.test.ts` fails on the next component that names itself for
+this job without consuming the primitive — with two ruled exceptions on the
+record there: a first-run chat CANVAS (the richer class this entry declined to
+absorb) and a card's dashed preview placeholder, which is not a surface with
+nothing to show.

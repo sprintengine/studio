@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react'
-import { HtmlPreviewCard, htmlArtifactFrameSandbox, TruncatedText } from '../../ui'
+import { EmptyState, HtmlPreviewCard, htmlArtifactFrameSandbox, TruncatedText } from '../../ui'
 import type { DesignArtifactIndex } from './designArtifacts'
 import {
   buildComponentGalleryModel,
@@ -510,24 +510,20 @@ function FoundationCard({
 // designer begins rather than showing a void.
 function EmptyGallery() {
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-      <span aria-hidden="true" className="flex gap-2">
-        {[0, 1, 2].map((index) => (
-          <span
-            key={index}
-            className="h-10 w-14 rounded-sm border border-dashed border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]"
-          />
-        ))}
-      </span>
-      <span className="flex flex-col gap-1">
-        <span className="text-body font-semibold text-[color:var(--text-strong)]">
-          No components yet
+    <EmptyState
+      className="min-h-0 flex-1"
+      glyph={
+        <span aria-hidden="true" className="flex gap-2">
+          {[0, 1, 2].map((index) => (
+            <span
+              key={index}
+              className="h-10 w-14 rounded-sm border border-dashed border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]"
+            />
+          ))}
         </span>
-        <span className="max-w-[360px] text-meta leading-5 text-[color:var(--text-muted)]">
-          The designer starts with your tokens and principles — components appear here as each one is
-          built.
-        </span>
-      </span>
-    </div>
+      }
+      title="No components yet"
+      body="The designer starts with your tokens and principles — components appear here as each one is built."
+    />
   )
 }

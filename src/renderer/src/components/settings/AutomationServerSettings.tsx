@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import type { AutomationServerStatus } from '../../../../shared/automation'
 import { STUDIO_MCP_SERVER_NAME } from '../../../../shared/product-identity'
+import { InlineNotice } from '../ui'
 import { SettingsSectionTitle } from './SettingsAtoms'
 
 // Settings → MCPs: read-only diagnostics for the always-on SprintEngine Studio
@@ -51,9 +52,7 @@ export function AutomationServerSettings() {
         </div>
       ) : null}
       {status.lastError ? (
-        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-body leading-5 text-[color:var(--tone-error)]">
-          {status.lastError}
-        </div>
+        <InlineNotice tone="error">{status.lastError}</InlineNotice>
       ) : null}
     </section>
   )

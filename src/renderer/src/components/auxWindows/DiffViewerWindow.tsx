@@ -11,6 +11,7 @@ import {
   type DiffFileItem,
 } from './diffFileList'
 import { nextDiffPosition, resolveEdgeHunkIndex } from './diffNavigation'
+import { EmptyState, InlineNotice } from '../ui'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
 
 type Props = {
@@ -120,14 +121,20 @@ function ChevronButton({
   )
 }
 
-function CenteredMessage({ children, tone = 'muted' }: { children: React.ReactNode; tone?: 'muted' | 'error' }) {
+// The aux window's empty states were their own dialect (MC-2115): bare centred
+// mono text, no CTA, and copy a person is meant to READ rendered in
+// `--text-disabled` — the ink of a dead control. They are the kit's `EmptyState`
+// now; a failure is the kit's notice, because a failure is not an empty state.
+function CenteredMessage({ children }: { children: React.ReactNode }) {
+  return <EmptyState title={children} />
+}
+
+function CenteredError({ message }: { message: string }) {
   return (
-    <div
-      className={`flex h-full items-center justify-center px-6 text-center text-body font-mono ${
-        tone === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-disabled)]'
-      }`}
-    >
-      {children}
+    <div className="flex h-full items-center justify-center px-6">
+      <InlineNotice tone="error" className="max-w-md">
+        {message}
+      </InlineNotice>
     </div>
   )
 }
@@ -151,7 +158,7 @@ function DiffBody({
     return <CenteredMessage>No changed files.</CenteredMessage>
   }
   if (content.state === 'loading') return <CenteredMessage>Loading diff…</CenteredMessage>
-  if (content.state === 'error') return <CenteredMessage tone="error">{content.message}</CenteredMessage>
+  if (content.state === 'error') return <CenteredError message={content.message} />
   if (content.state === 'binary') return <CenteredMessage>Binary file — diff not shown.</CenteredMessage>
   if (content.state === 'too-large') return <CenteredMessage>File is too large to diff.</CenteredMessage>
 

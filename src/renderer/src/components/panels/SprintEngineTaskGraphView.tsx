@@ -27,7 +27,7 @@ import {
 } from '../../utils/sprintengine'
 import { formatSprintEngineGoal } from '../../utils/sprintengineRunSummary'
 import { isEditableTarget } from '../../utils/keyboard'
-import { PanelHeader, Tooltip, TruncatedText } from '../ui'
+import { EmptyState, PanelHeader, Tooltip, TruncatedText } from '../ui'
 import {
   buildTaskGraphLayout,
   defaultTaskGraphZoom,
@@ -879,19 +879,14 @@ export function SprintEngineTaskGraphView({
  }`}
  >
  {taskCount === 0 ? (
- <div className="absolute inset-0 flex items-center justify-center p-6 text-center">
- <div className="max-w-xl">
- <div
- aria-hidden="true"
- className="mx-auto h-10 w-10 rounded-full border border-[color:var(--border-default)]"
+ <div className="absolute inset-0">
+ <EmptyState
+ glyph={
+ <span aria-hidden="true" className="block size-icon-lg rounded-full border border-[color:var(--border-default)]" />
+ }
+ title="Waiting for the architect plan"
+ body="Tasks and their dependencies will appear here as the architect builds out the run."
  />
- <div className="mt-4 text-sm font-semibold text-[color:var(--text-strong)]">
- Waiting for the architect plan
- </div>
- <p className="mt-2 text-sm leading-6 text-[color:var(--text-muted)]">
- Tasks and their dependencies will appear here as the architect builds out the run.
- </p>
- </div>
  </div>
  ) : (
  <div

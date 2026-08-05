@@ -10,8 +10,10 @@ import {
   type SprintRunHandle,
 } from '../../store/sprintRunStoreSlice'
 import {
+ Banner,
  CliModelPickerButton,
  CloseIconButton,
+ InlineNotice,
  OverflowMenu,
  GhostButton,
  LifecycleGlyph,
@@ -1431,30 +1433,16 @@ export function SprintRunBoard({
  // on-disk check that precedes it stays silent — the board area below renders
  // its normal idle state during the brief verification rather than flashing a
  // "Checking workspace folder…" message on every refresh.
+ // The kit's Banner (MC-2115): this was the only board strip painted at `px-4`
+ // on `--border-strong` with two hand-rolled buttons, saying the same thing the
+ // primitive says — a failure, a dot, and the recovery beside it.
  const folderStatusBanner = folderMissing && savedFolderPath ? (
- <div className="border-b border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-4 py-2 text-meta text-[color:var(--text-muted)]">
- <div className="flex flex-wrap items-center justify-between gap-3">
- <TruncatedText
- as="span"
- text={`Saved folder is missing: ${savedFolderPath}`}
- className="min-w-0"
+ <Banner
+ tone="error"
+ message={`Saved folder is missing: ${savedFolderPath}`}
+ onRetry={() => void recheckFolder()}
+ action={<GhostButton onClick={() => void relinkFolder()}>Relink</GhostButton>}
  />
- <span className="flex shrink-0 items-center gap-2">
- <button
- onClick={() => void recheckFolder()}
- className="rounded-md px-2.5 py-1 text-micro font-semibold text-[color:var(--text-default)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
- >
- Retry
- </button>
- <button
- onClick={() => void relinkFolder()}
- className="rounded-md bg-[color:var(--accent-primary-soft)] px-2.5 py-1 text-micro font-semibold text-[color:var(--accent-primary)] interactive hover:bg-[color:var(--accent-primary-soft)]"
- >
- Relink
- </button>
- </span>
- </div>
- </div>
  ) : null
  const needsInputAgent = runtimeAgents.find((agent) => agent.status === 'needs_input')
  const runningAgent = runtimeAgents.find((agent) => agent.status === 'running')
@@ -3430,9 +3418,7 @@ export function SprintRunBoard({
  ) : null}
 
  {addMemberError ? (
- <p role="alert" className="border-l-2 border-[color:var(--tone-error)] pl-3 text-meta leading-5 text-[color:var(--tone-error)]">
- {addMemberError}
- </p>
+ <InlineNotice tone="error">{addMemberError}</InlineNotice>
  ) : null}
  </div>
  </ModalBody>

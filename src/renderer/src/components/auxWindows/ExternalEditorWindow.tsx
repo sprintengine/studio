@@ -5,7 +5,7 @@ import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { renderMarkdown } from '../../utils/markdown'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
-import { IconButton, Tooltip } from '../ui'
+import { EmptyState, IconButton, InlineNotice, Spinner, Tooltip } from '../ui'
 import {
   createExternalFileLoadingBuffer,
   createExternalFileTab,
@@ -281,6 +281,15 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
   )
 }
 
+function AuxLoadingState({ label }: { label: string }) {
+  return (
+    <div className="flex h-full items-center justify-center gap-2 text-body text-[color:var(--text-muted)]">
+      <Spinner />
+      {label}
+    </div>
+  )
+}
+
 function renderBody(
   activeTab: FileTab | null,
   buffer: FileBuffer | undefined,
@@ -289,34 +298,27 @@ function renderBody(
   showPreview: boolean,
   monacoTheme: 'vs' | 'vs-dark'
 ): React.ReactNode {
+  // Kit states, not the window's own dialect (MC-2115): the sentences a person
+  // reads are `EmptyState` copy rather than `--text-disabled` mono, and a read
+  // failure is the kit's notice.
   if (!activeTab || !activePath) {
-    return (
-      <div className="flex h-full items-center justify-center text-body font-mono text-[color:var(--text-disabled)]">
-        No file open.
-      </div>
-    )
+    return <EmptyState title="No file open." />
   }
   if (!buffer || buffer.loading) {
-    return (
-      <div className="flex h-full items-center justify-center text-body font-mono text-[color:var(--text-disabled)]">
-        Loading…
-      </div>
-    )
+    return <AuxLoadingState label="Loading…" />
   }
   if (buffer.error) {
     return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-body font-mono text-[color:var(--tone-error)]">
-        {buffer.error}
+      <div className="flex h-full items-center justify-center px-6">
+        <InlineNotice tone="error" className="max-w-md">
+          {buffer.error}
+        </InlineNotice>
       </div>
     )
   }
   if (buffer.kind === 'image') {
     if (!buffer.dataUrl) {
-      return (
-        <div className="flex h-full items-center justify-center text-body font-mono text-[color:var(--text-disabled)]">
-          Loading image…
-        </div>
-      )
+      return <AuxLoadingState label="Loading image…" />
     }
     return (
       <div className="flex h-full flex-col bg-[color:var(--bg-app)]">

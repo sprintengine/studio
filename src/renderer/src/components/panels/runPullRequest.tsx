@@ -215,8 +215,16 @@ export function RunPullRequestActionButton({
       >
         {busy ? busyLabel : error ? retryLabel : createLabel}
       </PrimaryButton>
+      {/* One error idiom (MC-2115): creating the pull request FAILED, so this is
+          `--tone-error` like every sibling failure — it was the one place in the
+          app that coloured a hard failure amber. The button beside it already
+          carries the recovery (it reads "Retry" once there is an error), which
+          is why the failure can stay a line rather than a card. */}
       {error ? (
-        <span className="max-w-[260px] text-right text-micro text-[color:var(--tone-warn)] [overflow-wrap:anywhere]">
+        <span
+          role="alert"
+          className="max-w-[260px] text-right text-micro text-[color:var(--tone-error)] [overflow-wrap:anywhere]"
+        >
           {error}
         </span>
       ) : null}

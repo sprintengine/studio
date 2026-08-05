@@ -53,6 +53,11 @@ export function ModuleUpdateBanner({
   if (banner.kind === 'couldnt-check') {
     line = <div className="text-meta leading-4 text-[color:var(--text-muted)]">{COULDNT_CHECK_COPY}</div>
   } else if (banner.kind === 'updates') {
+    // Ruling (MC-2115): this row stays its own accent-soft line rather than
+    // becoming `ui/Banner`. The kit's banner is the two-tone notice — a failure
+    // or a degraded state, dot-led, with a recovery. "There is a newer version"
+    // is neither: it is an offer, and painting it error or warn would say the
+    // module is broken. What DID belong to the kit was its control, below.
     const copy = manageUpdateBannerCopy(banner.updates)
     line = (
       <div className="flex items-center gap-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--accent-primary-soft)] px-2.5 py-1.5 text-meta text-[color:var(--text-default)]">
@@ -82,14 +87,12 @@ export function ModuleUpdateBanner({
             {flow.label}
           </span>
         ) : (
-          <button
-            type="button"
-            onClick={onUpdate}
-            disabled={flow.status !== 'idle'}
-            className="interactive ml-auto shrink-0 rounded-[5px] bg-[color:var(--accent-primary-soft-strong)] px-2 py-0.5 text-meta font-medium text-[color:var(--accent-primary)] hover:opacity-90 focus-visible:focus-ring disabled:opacity-45"
-          >
+          // The kit's button (MC-2115). This was a hand-rolled `<button>` with its
+          // own radius, padding and hover — the one control in this banner, and
+          // the only one in the manage canvas that was not a kit primitive.
+          <GhostButton size="xs" onClick={onUpdate} disabled={flow.status !== 'idle'} className="ml-auto shrink-0">
             {copy.actionLabel}
-          </button>
+          </GhostButton>
         )}
       </div>
     )

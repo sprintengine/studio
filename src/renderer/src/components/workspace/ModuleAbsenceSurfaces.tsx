@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react'
 import type { MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import { ACTIVE_RENDERER_MODULE_MANIFESTS, COMING_SOON_MODULE_MANIFESTS } from '../../modules'
 import { getThirdPartyRendererLoadState } from '../../modules/third-party-loader'
-import { PrimaryButton } from '../ui'
+import { EmptyState, PrimaryButton } from '../ui'
 
 // Explicit absence surfaces for module-owned UI (MC-1532). A workspace whose
 // mode's module is not installed — fresh machine, uninstalled, marketplace
@@ -30,23 +30,25 @@ export function ModuleNotInstalledSurface({
   installed?: boolean
   onOpenMarketplace: () => void
 }) {
+  // The kit's empty state (MC-2115/MC-2117): this and the door surface below
+  // were their own dialect — `text-meta` title, `text-micro` body, and one of
+  // them painting `bg-app` while the other painted nothing. The wrapper keeps
+  // the `role="note"` labelling, which is this surface's own contract.
   return (
-    <div
-      role="note"
-      aria-label="Module not installed"
-      className="flex h-full flex-col items-center justify-center gap-3 bg-[color:var(--bg-app)] px-6 text-center"
-    >
-      <p className="text-meta font-semibold text-[color:var(--text-strong)]">
-        {installed ? `${label} is turned off` : `${label} isn’t installed`}
-      </p>
-      <p className="max-w-sm text-micro leading-5 text-[color:var(--text-muted)]">
-        {installed
-          ? `This workspace needs the ${label} module. Your work here is safe on disk — turn the module back on and the workspace opens right where you left it.`
-          : `This workspace needs the ${label} module. Your work here is safe on disk — install the module and the workspace opens right where you left it.`}
-      </p>
-      <PrimaryButton size="sm" onClick={onOpenMarketplace}>
-        Find it in Connectors
-      </PrimaryButton>
+    <div role="note" aria-label="Module not installed" className="h-full bg-[color:var(--bg-app)]">
+      <EmptyState
+        title={installed ? `${label} is turned off` : `${label} isn’t installed`}
+        body={
+          installed
+            ? `This workspace needs the ${label} module. Your work here is safe on disk — turn the module back on and the workspace opens right where you left it.`
+            : `This workspace needs the ${label} module. Your work here is safe on disk — install the module and the workspace opens right where you left it.`
+        }
+        action={
+          <PrimaryButton size="sm" onClick={onOpenMarketplace}>
+            Find it in Connectors
+          </PrimaryButton>
+        }
+      />
     </div>
   )
 }
@@ -67,18 +69,16 @@ export function DoorModuleNotInstalledSurface({
   onOpenExtensions: () => void
 }) {
   return (
-    <div
-      role="note"
-      aria-label="Door module not installed"
-      className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"
-    >
-      <p className="text-meta font-semibold text-[color:var(--text-strong)]">{label}</p>
-      <p className="max-w-sm text-micro leading-5 text-[color:var(--text-muted)]">
-        {installed ? `The ${label} module is turned off.` : `The ${label} module isn’t installed.`}
-      </p>
-      <PrimaryButton size="sm" onClick={onOpenExtensions}>
-        Find it in Extensions
-      </PrimaryButton>
+    <div role="note" aria-label="Door module not installed" className="h-full">
+      <EmptyState
+        title={label}
+        body={installed ? `The ${label} module is turned off.` : `The ${label} module isn’t installed.`}
+        action={
+          <PrimaryButton size="sm" onClick={onOpenExtensions}>
+            Find it in Extensions
+          </PrimaryButton>
+        }
+      />
     </div>
   )
 }

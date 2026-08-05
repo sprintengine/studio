@@ -23,7 +23,7 @@ import type { CapabilityPermission } from '../../../../../shared/modules/permiss
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type { PluginRegistryListEntry } from '../../../../../shared/plugin-manifest'
 import type { McpServerConfig, McpSettings } from '../../../types/workspace'
-import { GhostButton, InlineNotice, Popover, PrimaryButton, Spinner, StatusDot } from '../../ui'
+import { EmptyState, GhostButton, InlineNotice, Popover, PrimaryButton, Spinner, StatusDot } from '../../ui'
 import { bracketedPaste } from '../../../utils/terminalDrop'
 import {
   ensureSkillForAgent,
@@ -485,10 +485,11 @@ function InstalledView({
 
   if (view.status === 'empty') {
     return (
-      <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-body leading-5 text-[color:var(--text-muted)]">
-        Nothing installed yet. Get MCP servers, skills, agent CLIs, or modules from the Browse view and they appear
-        here.
-      </div>
+      <EmptyState
+        density="list"
+        title="Nothing installed yet."
+        body="Get MCP servers, skills, agent CLIs, or modules from the Browse view and they appear here."
+      />
     )
   }
 

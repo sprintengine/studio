@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useEffect, useState } from 'react'
 import type { AuxWindowKind } from '../../../../shared/electron-api'
 import { useAppTheme } from '../../hooks/useAppTheme'
 import { writeAuxWindowBounds } from './auxWindowPlacement'
+import { InlineNotice, Spinner } from '../ui'
 
 // Monaco is heavy and must stay out of the eager boot chunk (enforced by
 // scripts/check-bundle-budget.mjs), so the diff viewer loads behind React.lazy
@@ -11,8 +12,21 @@ const ExternalEditorWindow = lazy(() => import('./ExternalEditorWindow'))
 
 function AuxLoading() {
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-[color:var(--bg-app)] text-body text-[color:var(--text-disabled)]">
+    <div className="flex h-screen w-screen items-center justify-center gap-2 bg-[color:var(--bg-app)] text-body text-[color:var(--text-muted)]">
+      <Spinner />
       Loading…
+    </div>
+  )
+}
+
+// A window that cannot open at all: the kit's notice, centred in the empty
+// window, rather than a red sentence floating in the middle of it (MC-2115).
+function AuxFailure({ message }: { message: string }) {
+  return (
+    <div className="flex h-screen w-screen items-center justify-center bg-[color:var(--bg-app)] px-6">
+      <InlineNotice tone="error" className="max-w-md">
+        {message}
+      </InlineNotice>
     </div>
   )
 }
@@ -65,21 +79,13 @@ export default function AuxWindowApp() {
   }, [descriptor])
 
   if (!descriptor) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[color:var(--bg-app)] text-body text-[color:var(--tone-error)]">
-        Unknown auxiliary window.
-      </div>
-    )
+    return <AuxFailure message="Unknown auxiliary window." />
   }
 
   if (descriptor.kind === 'diff') {
     const focusKind = params.scope === 'staged' ? 'staged' : params.scope === 'unstaged' ? 'unstaged' : null
     if (!params.repoRoot) {
-      return (
-        <div className="flex h-screen w-screen items-center justify-center bg-[color:var(--bg-app)] text-body text-[color:var(--tone-error)]">
-          Missing repository for diff viewer.
-        </div>
-      )
+      return <AuxFailure message="Missing repository for diff viewer." />
     }
     return (
       <Suspense fallback={<AuxLoading />}>
