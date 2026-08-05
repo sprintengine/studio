@@ -24,9 +24,14 @@ that could be clicked would be a defect; a label cannot be.
 
 ## Variants
 
-None. One appearance, in every context — a menu's trailing hint, a
-tooltip's suffix, a settings row. A chord that changes style per surface
-stops reading as the same vocabulary.
+None. One appearance, in every context — a settings row, a walkthrough
+step, a composer's footer. A chord that changes style per surface stops
+reading as the same vocabulary.
+
+Not every shortcut hint is a chord. A [menu](../menu/component.md) row
+annotates its shortcut as plain mono micro text: there the shortcut is a
+footnote to an action, and capsules would out-weigh the label. The chord is
+for surfaces where the shortcut itself is the subject.
 
 ## States
 

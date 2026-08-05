@@ -34,13 +34,24 @@
  *   fills to its own inset instead.
  *
  *   DIVIDER — border.subtle. A divider inside a bordered surface separates
- *   siblings; at border.default it competes with the surface's own edge. */
+ *   siblings; at border.default it competes with the surface's own edge.
+ *
+ *   HINT — mono micro at text.disabled, in a trailing column. A hint is carried
+ *   only for a shortcut that works WITHOUT the menu open: it teaches the reader
+ *   how to skip this menu next time. Not kbd-chord capsules — the chord is for
+ *   surfaces where the shortcut is the subject, and a line of capsules
+ *   out-weighs the label it annotates.
+ *
+ *   SUBMENU — the nested surface is this same material and INHERITS this type
+ *   size. A host that pins the size of a submenu it opens is rebuilding the
+ *   divergence above; see component.md for anchoring and open/close. */
 
 .ds-menu {
   /* Vertical padding only: rows reach both side edges, so the fill is full-bleed
    * and the surface's border is the only vertical line in the component. */
   padding: var(--sem-space-2xs) 0;
-  min-width: 200px;
+  /* No width of its own: the floor belongs to the host, which knows what its
+   * labels are (a kebab menu sets one; a select matches its trigger). */
   font-size: var(--sem-font-size-meta);
   color: var(--sem-color-text-default);
 }
@@ -77,10 +88,19 @@
   outline-offset: calc(var(--sem-focus-ring-offset) * -1);
 }
 
+/* A flyout trigger holds the highlight while its nested menu is open, so the
+ * path back to the parent stays visible. */
+.ds-menu-item[aria-expanded="true"] {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+/* The whole row dims rather than only its ink: a row is label PLUS leading
+ * glyph plus hint, and a colour rule reaches only the label. */
 .ds-menu-item[aria-disabled="true"],
 .ds-menu-item:disabled {
   cursor: not-allowed;
-  color: var(--sem-color-text-disabled);
+  opacity: 0.45;
   background: transparent;
 }
 
@@ -97,18 +117,23 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--sem-icon-size-sm);
-  height: var(--sem-icon-size-sm);
+  /* The inline-glyph step — the one that sits beside meta copy without
+   * out-weighing it. */
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
   flex: none;
   color: var(--sem-color-text-subtle);
 }
 
-/* Trailing hint — a keyboard shortcut, a submenu chevron, a check. Pushed to
- * the far edge so hints line up as a column rather than trailing each label. */
+/* Trailing hint — a keyboard shortcut, or a submenu chevron. Pushed to the far
+ * edge so hints line up as a column rather than trailing each label. Mono,
+ * because a shortcut is keys: read as glyphs, not as words, and wanting the
+ * column to stay straight. */
 .ds-menu-item-hint {
   margin-left: auto;
   flex: none;
   color: var(--sem-color-text-disabled);
+  font-family: var(--sem-font-family-mono);
   font-size: var(--sem-font-size-micro);
   font-variant-numeric: tabular-nums;
 }
@@ -122,8 +147,10 @@
 /* A group heading is the alternative to a separator, not an addition to it:
  * one or the other says "a new group starts here". */
 .ds-menu-group-label {
+  /* On the item's own horizontal inset, so the heading and the rows it heads
+   * share a left edge. Quieter than the rows, and not bolder: a heading that
+   * out-weighs the actions under it is competing with them. */
   padding: var(--sem-space-sm) var(--sem-space-md) var(--sem-space-3xs);
   color: var(--sem-color-text-subtle);
   font-size: var(--sem-font-size-micro);
-  font-weight: var(--sem-font-weight-emphasis);
 }
