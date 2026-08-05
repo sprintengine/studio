@@ -8,6 +8,7 @@ import {
   resolveBacklogStripeColor,
   TYPE_LABEL,
   isBacklogUnestimated,
+  isBacklogUnfiled,
   matchesBacklogView,
   type BacklogSort,
   type BacklogView,
@@ -22,6 +23,7 @@ type Triage = {
   createdAtMs?: number
   relativePath?: string
   isEpic?: boolean
+  epic?: string
 }
 
 function mk(triage: Triage): {
@@ -33,6 +35,7 @@ function mk(triage: Triage): {
   createdAtMs: number
   relativePath: string
   isEpic: boolean
+  epic?: string
 } {
   return {
     difficulty: triage.difficulty,
@@ -43,6 +46,7 @@ function mk(triage: Triage): {
     createdAtMs: triage.createdAtMs ?? triage.modifiedAt ?? 0,
     relativePath: triage.relativePath ?? 'backlog/item.md',
     isEpic: triage.isEpic ?? false,
+    epic: triage.epic,
   }
 }
 
@@ -139,6 +143,60 @@ run('created sort orders by newest created first, independent of modified time',
   ]
   const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'created'))
   assert.deepEqual(ids(sorted, (item) => String(item.createdAtMs)), ['30', '20', '10'])
+})
+
+run('isBacklogUnfiled is true only for a leaf item pointing at no epic', () => {
+  assert.equal(isBacklogUnfiled(mk({})), true)
+  // A blank `epic:` is the same gap as an absent one, not a slug named "".
+  assert.equal(isBacklogUnfiled(mk({ epic: '   ' })), true)
+  assert.equal(isBacklogUnfiled(mk({ epic: 'auth' })), false)
+  // An epic container is the filing cabinet, never a loose item.
+  assert.equal(isBacklogUnfiled(mk({ isEpic: true })), false)
+})
+
+run('no_epic sort leads with unfiled items, newest first', () => {
+  const items = [
+    mk({ relativePath: 'filed-old.md', epic: 'auth', modifiedAt: 5 }),
+    mk({ relativePath: 'loose-old.md', modifiedAt: 1 }),
+    mk({ relativePath: 'loose-new.md', modifiedAt: 9 }),
+  ]
+  const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'no_epic'))
+  assert.deepEqual(ids(sorted, (item) => item.relativePath), [
+    'loose-new.md',
+    'loose-old.md',
+    'filed-old.md',
+  ])
+})
+
+run('no_epic sort keeps each epic members adjacent below the unfiled band', () => {
+  // Two epics interleaved by recency in the input: the sort must gather each
+  // epic's members rather than letting recency shuffle them together.
+  const items = [
+    mk({ relativePath: 'b1.md', epic: 'billing', modifiedAt: 40 }),
+    mk({ relativePath: 'a1.md', epic: 'auth', modifiedAt: 30 }),
+    mk({ relativePath: 'b2.md', epic: 'billing', modifiedAt: 20 }),
+    mk({ relativePath: 'a2.md', epic: 'auth', modifiedAt: 10 }),
+    mk({ relativePath: 'loose.md', modifiedAt: 1 }),
+  ]
+  const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'no_epic'))
+  assert.deepEqual(ids(sorted, (item) => item.relativePath), [
+    'loose.md',
+    'a1.md',
+    'a2.md',
+    'b1.md',
+    'b2.md',
+  ])
+})
+
+run('no_epic sort does not strand epic containers in the unfiled band', () => {
+  // The epic header has no `epic:` of its own, but it is not loose work — only
+  // the genuinely unfiled leaf may lead.
+  const items = [
+    mk({ relativePath: 'epic.md', isEpic: true, modifiedAt: 50 }),
+    mk({ relativePath: 'loose.md', modifiedAt: 1 }),
+  ]
+  const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'no_epic'))
+  assert.deepEqual(ids(sorted, (item) => item.relativePath), ['loose.md', 'epic.md'])
 })
 
 run('epics view shows only epic containers, at any lifecycle stage', () => {

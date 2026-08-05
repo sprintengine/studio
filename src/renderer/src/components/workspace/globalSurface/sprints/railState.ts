@@ -160,8 +160,8 @@ function stampOf(iso: string | null): number {
 export type SprintSort = 'recent' | 'created' | 'status'
 
 export const SPRINT_SORT_ITEMS: ReadonlyArray<{ value: SprintSort; label: string }> = [
-  { value: 'recent', label: 'Recently updated' },
-  { value: 'created', label: 'Recently created' },
+  { value: 'recent', label: 'Updated at' },
+  { value: 'created', label: 'Created at' },
   { value: 'status', label: 'Status' },
 ]
 

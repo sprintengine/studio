@@ -120,7 +120,17 @@ function sampleProject(): BacklogItem[] {
 // ── golden: single-project filter == that project's panel ────────────────────
 
 const VIEWS: BacklogView[] = ['active', 'all', 'epics', 'quick_wins', 'unestimated', 'completed', 'archived']
-const SORTS: BacklogSort[] = ['best', 'recent', 'created', 'status', 'priority', 'largest', 'smallest', 'dependency']
+const SORTS: BacklogSort[] = [
+  'best',
+  'recent',
+  'created',
+  'status',
+  'priority',
+  'largest',
+  'smallest',
+  'dependency',
+  'no_epic',
+]
 
 test('filtering the door to one project reproduces that project’s panel list (visible set + order)', () => {
   const items = sampleProject()

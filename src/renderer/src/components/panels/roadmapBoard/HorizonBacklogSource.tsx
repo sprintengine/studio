@@ -46,8 +46,8 @@ const VIEW_ITEMS: SelectItem<BacklogView>[] = [
 
 const SORT_ITEMS: SelectItem<BacklogSort>[] = [
   { value: 'best', label: 'Best' },
-  { value: 'recent', label: 'Recently updated' },
-  { value: 'created', label: 'Recently created' },
+  { value: 'recent', label: 'Updated at' },
+  { value: 'created', label: 'Created at' },
   { value: 'status', label: 'Status' },
   { value: 'priority', label: 'Priority' },
   { value: 'largest', label: 'Largest first' },

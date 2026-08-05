@@ -192,6 +192,7 @@ const BACKLOG_SORT_VALUES = {
   largest: true,
   smallest: true,
   dependency: true,
+  no_epic: true,
 } satisfies Record<WorkspaceBacklogState['sort'], true>
 
 const BACKLOG_GROUP_VALUES = {

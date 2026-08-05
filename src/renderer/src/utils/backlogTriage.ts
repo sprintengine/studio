@@ -87,13 +87,31 @@ const URGENT: ReadonlySet<BacklogCriticality> = new Set<BacklogCriticality>(['hi
 
 type Triageable = Pick<
   BacklogItem,
-  'difficulty' | 'criticality' | 'risk' | 'status' | 'modifiedAt' | 'createdAtMs' | 'relativePath' | 'isEpic'
+  | 'difficulty'
+  | 'criticality'
+  | 'risk'
+  | 'status'
+  | 'modifiedAt'
+  | 'createdAtMs'
+  | 'relativePath'
+  | 'isEpic'
+  | 'epic'
 >
 
 // Missing either axis is the "unestimated" signal — a calm prompt to size or
 // prioritise, never an error.
 export function isBacklogUnestimated(item: Pick<BacklogItem, 'difficulty' | 'criticality'>): boolean {
   return item.difficulty == null || item.criticality == null
+}
+
+// "Unfiled" is the epic-axis gap, the structural sibling of `isBacklogUnestimated`:
+// a leaf item that points at no epic, and so belongs to no grouping. An epic
+// container is never unfiled — it *is* the filing cabinet, not a loose item —
+// which is what keeps the `no_epic` sort a list of work to file rather than a
+// list padded with every epic header.
+export function isBacklogUnfiled(item: Pick<BacklogItem, 'epic' | 'isEpic'>): boolean {
+  if (item.isEpic) return false
+  return item.epic == null || item.epic.trim() === ''
 }
 
 export function matchesBacklogView(item: Triageable, view: BacklogView): boolean {
@@ -199,6 +217,23 @@ export function compareBacklogItems(
       const db = b.difficulty ? DIFFICULTY_RANK[b.difficulty] : Number.POSITIVE_INFINITY
       if (da !== db) return da - db
       return a.relativePath.localeCompare(b.relativePath)
+    }
+    case 'no_epic': {
+      // The filing lens: items belonging to no epic rise to the top so the loose
+      // work is one glance away, with everything already filed kept below in the
+      // same order. Unlike a view, nothing is hidden — the epic'd tail is still
+      // there to scroll into, and grouping stays orthogonal (a 'By epic' grouping
+      // gathers this sort's leading band under the 'No epic' header).
+      const ua = isBacklogUnfiled(a) ? 0 : 1
+      const ub = isBacklogUnfiled(b) ? 0 : 1
+      if (ua !== ub) return ua - ub
+      // Within the filed band, keep an epic's members adjacent rather than
+      // interleaving two epics by recency; the unfiled band shares one empty key
+      // and so falls straight through to recency.
+      const ea = a.epic ?? ''
+      const eb = b.epic ?? ''
+      if (ea !== eb) return ea.localeCompare(eb)
+      return b.modifiedAt - a.modifiedAt
     }
     case 'created':
       // Newest-created first, mirroring 'recent' but keyed on creation time so an
