@@ -140,6 +140,13 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     utils: 6,
     'components/diagnostics': 2,
   },
+  // Seam with MC-2098, recorded rather than silently carried: `components/
+  // workspace` includes `DesignRail`'s `size-3` identity chip, which is a RULED
+  // 12px (a deliberate identity square, explicitly not the 6px status circle).
+  // The icon ramp's smallest step is `xs` = 13px, so that chip cannot be
+  // expressed on the ramp at all — this axis therefore cannot reach zero until
+  // either the ramp gains a 12px step or the chip gets an explicit allowlist
+  // entry. It is a decision on the record, not an off-ramp waiting to drain.
   icon: {
     'components/workspace': 44,
     'components/panels': 31,
