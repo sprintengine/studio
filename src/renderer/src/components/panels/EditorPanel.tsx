@@ -14,6 +14,7 @@ import {
   subscribeEditorBuffer,
 } from '../../utils/editorBuffers'
 import { removeFileTabsForPath } from '../../utils/modelRegistry'
+import { EDITOR_FOCUS_EVENT } from '../../utils/editorFocus'
 import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { ContextMenu, IconButton, MenuDivider, MenuItem, Tooltip } from '../ui'
@@ -24,7 +25,6 @@ interface Props {
 }
 
 type MonacoApi = Parameters<OnMount>[1]
-const EDITOR_FOCUS_EVENT = 'multicode:focus-editor'
 const GIT_DECORATION_DEBOUNCE_MS = 200
 const GIT_DECORATION_MAX_CHARS = 600_000
 const GIT_DECORATION_MAX_LINES = 8_000

@@ -29,6 +29,28 @@ export function commandMatchesQuery(command: CommandSearchFields, query: string)
   )
 }
 
+/** The source groups the palette organizes results into. The two disk-backed
+ *  ones — `files` (name matches) and `content` (text matches) — are what make
+ *  the palette a project search rather than only a launcher. */
+export type PaletteCommandGroup = 'agents' | 'skills' | 'commands' | 'actions' | 'files' | 'content'
+
+/** Which groups the palette is filtered to. `all` is the global launcher (⌘K);
+ *  `files` is Find-in-Path (⌘⇧F) — the same overlay with the non-file groups
+ *  hidden, so a snippet of code is not ranked against command rows. */
+export type PaletteScope = 'all' | 'files'
+
+const FILE_SCOPE_GROUPS: ReadonlySet<PaletteCommandGroup> = new Set<PaletteCommandGroup>([
+  'files',
+  'content',
+])
+
+/** True when a group is visible under the given scope. The scope is a filter
+ *  over one list, not a second component: `all` admits everything, so widening
+ *  back from `files` is a state change rather than a reopen. */
+export function groupInScope(group: PaletteCommandGroup, scope: PaletteScope): boolean {
+  return scope === 'all' || FILE_SCOPE_GROUPS.has(group)
+}
+
 /** A workspace type's label + curated search terms joined into one match
  *  string. Pure over the definition so it is directly testable; an
  *  unregistered/shell mode falls back to the raw mode id. */

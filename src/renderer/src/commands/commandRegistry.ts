@@ -34,6 +34,19 @@ export const COMMAND_REGISTRY = [
     defaultKeybindings: ['Primary+K', 'Primary+Shift+P'],
     handlerPath: { kind: 'workspace-manager', handler: 'setCommandPaletteOpen(true)' },
   }),
+  // Find in Path. The same overlay `commandPalette.open` raises, opened filtered
+  // to the file-backed groups — a snippet of code should not be ranked against
+  // command and workspace rows. Global scope, like the palette itself: with no
+  // workspace open the overlay says so rather than refusing to appear, which is
+  // the behaviour a user pressing a search shortcut expects.
+  command({
+    id: 'search.files.open',
+    title: 'Search in Files',
+    category: 'command_palette',
+    scopes: ['global'],
+    defaultKeybindings: ['Primary+Shift+F'],
+    handlerPath: { kind: 'workspace-manager', handler: 'setCommandPaletteOpen(true, "files")' },
+  }),
   command({
     id: 'workspace.new',
     title: 'New Workspace',

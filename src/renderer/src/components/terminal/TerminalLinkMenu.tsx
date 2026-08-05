@@ -5,6 +5,7 @@ import { focusOrAddFileTab, revealNavRailComponent } from '../../utils/modelRegi
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { dispatchBacklogReveal } from '../../utils/backlogReveal'
 import { dispatchFileReveal } from '../../utils/fileReveal'
+import { dispatchEditorFocusEvent } from '../../utils/editorFocus'
 import { basename } from '../../utils/paths'
 import { isImageFile } from '../../utils/files'
 import {
@@ -38,17 +39,12 @@ export type TerminalLinkMenuProps = {
   onError: (message: string) => void
 }
 
-// Editors mount asynchronously, so the caret hint is dispatched twice — once now
-// for an already-open tab, once after the mount tick for a cold one. Lifted
-// verbatim from the behaviour TerminalView had inline before the menu existed.
+// The caret hint, including its mount-tick retry, now lives in
+// `utils/editorFocus.ts` — this file had the event name as a second string
+// literal, so a grep for the constant did not find this sender at all. One
+// definition, one dispatch helper, both senders on it.
 function dispatchEditorFocus(workspaceId: string, filePath: string, line?: number, column?: number): void {
-  const send = () => {
-    window.dispatchEvent(new CustomEvent('multicode:focus-editor', {
-      detail: { workspaceId, filePath, line, column },
-    }))
-  }
-  window.setTimeout(send, 0)
-  window.setTimeout(send, 80)
+  dispatchEditorFocusEvent({ workspaceId, filePath, line, column })
 }
 
 function targetLabel(target: TerminalLinkTarget): string {

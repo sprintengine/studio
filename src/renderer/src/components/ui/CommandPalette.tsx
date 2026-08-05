@@ -16,18 +16,25 @@ import {
 import { isCommandEnabled, isCommandIdEnabled, type CommandAvailabilityContext } from '../../commands/availability'
 import type { CommandScope, ModuleCommandContext } from '../../commands/types'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
-import { commandMatchesQuery, workspaceSearchKeywords } from '../commandPaletteSearch'
+import {
+  commandMatchesQuery,
+  groupInScope,
+  workspaceSearchKeywords,
+  type PaletteCommandGroup,
+  type PaletteScope,
+} from '../commandPaletteSearch'
 import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
 import { FOCUS_RING_CLASS, TruncatedText } from './index'
 import { FocusTrap } from './FocusTrap'
 import { OVERLAY_SHELL_CLASS, overlayWidthStyle } from './tokens'
 
 // The four canonical source groups the global-search palette organizes results
-// into (T6), plus a Files group for the active workspace's open editors. The
+// into (T6), plus the two disk-backed groups: Files (name matches, plus the
+// active workspace's open editors) and Text in files (content matches). The
 // order here is the vertical order in the list and therefore the order the
 // arrow keys traverse. "Agents & workspaces" folds in the workspace-filtering
 // the sidebar "Search workspaces" box used to own.
-type CommandGroup = 'agents' | 'skills' | 'commands' | 'actions' | 'files'
+type CommandGroup = PaletteCommandGroup
 
 const PALETTE_GROUPS: readonly { key: CommandGroup; label: string }[] = [
   { key: 'agents', label: 'Agents & workspaces' },
@@ -35,6 +42,7 @@ const PALETTE_GROUPS: readonly { key: CommandGroup; label: string }[] = [
   { key: 'commands', label: 'Commands' },
   { key: 'actions', label: 'Actions' },
   { key: 'files', label: 'Files' },
+  { key: 'content', label: 'Text in files' },
 ]
 
 const groupRank = (group: CommandGroup): number => PALETTE_GROUPS.findIndex((entry) => entry.key === group)
@@ -43,9 +51,30 @@ const groupRank = (group: CommandGroup): number => PALETTE_GROUPS.findIndex((ent
 // so the first frame stays calm and scannable instead of dumping every command.
 const PREVIEW_PER_GROUP = 6
 
+// Disk search is a subprocess per keystroke, so it waits for a pause the
+// in-memory command filter does not need. 180ms is under the ~200ms that reads
+// as lag while still collapsing a burst of typing into one ripgrep run.
+const DISK_SEARCH_DEBOUNCE_MS = 180
+// A single character matches most of a repo, and the cost is paid in the main
+// process. File names stay cheap enough to match from the first character;
+// content search — which reads every file's bytes — waits for a second.
+const CONTENT_SEARCH_MIN_QUERY = 2
+const PALETTE_FILE_SEARCH_LIMIT = 50
+const PALETTE_CONTENT_SEARCH_LIMIT = 100
+
 // Stable empty fallbacks so store selectors returning a default don't churn refs.
 const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
 const EMPTY_DISABLED_SPECIALIST_PACKS: string[] = []
+const EMPTY_SEARCH_EXCLUDES: string[] = []
+
+// Results are labelled by their path inside the workspace: an absolute path
+// repeats the workspace root on every row and pushes the part that identifies
+// the file off the end of the line.
+function workspaceRelativePath(rootPath: string, filePath: string): string {
+  const root = rootPath.replace(/[\\/]+$/u, '')
+  if (!filePath.toLowerCase().startsWith(root.toLowerCase())) return filePath
+  return filePath.slice(root.length).replace(/^[\\/]+/u, '')
+}
 
 interface Command {
   id: string
@@ -93,6 +122,9 @@ interface Props {
   // The published context view module availability predicates evaluate
   // against — same object the dispatcher uses, so both stay in agreement.
   moduleCommandContext: ModuleCommandContext
+  // Which groups the palette opens filtered to. ⌘K opens `all`; ⌘⇧F opens
+  // `files`. Absent behaves as `all`, so existing call sites are unchanged.
+  initialScope?: PaletteScope
 }
 
 export default function CommandPalette({
@@ -107,9 +139,11 @@ export default function CommandPalette({
   activeScopes,
   commandAvailability,
   moduleCommandContext,
+  initialScope = 'all',
 }: Props) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
+  const [scope, setScope] = useState<PaletteScope>(initialScope)
   const inputRef = useRef<HTMLInputElement>(null)
   const selectedRowRef = useRef<HTMLDivElement>(null)
   const { setActiveWorkspaceForWindow, addWorkspace, setActiveFile, openExtensionsSurface } = useWorkspaceStore()
@@ -137,6 +171,79 @@ export default function CommandPalette({
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
   const openFiles = activeWorkspace?.editorState?.openFiles ?? []
   const activeFolderPath = activeWorkspace?.folderPath ?? null
+  const searchExcludes = useWorkspaceStore((state) => state.appSettings.searchExcludes ?? EMPTY_SEARCH_EXCLUDES)
+
+  // Disk-backed results. The palette's Files group used to list only the editors
+  // already open, so the launcher could not find a file the user had never
+  // opened — let alone a line of text inside one. These two are the same ripgrep
+  // the "Search in files" panel runs, driven off the palette query.
+  //
+  // Note the main process keys one active content search per sender (window), so
+  // this and an open ContentSearchPanel supersede each other's ripgrep child.
+  // Harmless — both re-run on their next keystroke — but it is why the cancel
+  // below is unconditional rather than tracked per surface.
+  const [fileMatches, setFileMatches] = useState<FileSearchEntry[]>([])
+  const [contentMatches, setContentMatches] = useState<ContentSearchEntry[]>([])
+  const [diskSearching, setDiskSearching] = useState(false)
+  const [diskSearchError, setDiskSearchError] = useState<string | null>(null)
+  // Monotonic request id: ripgrep runs are cancelled but not instantaneous, so a
+  // slow earlier run must not overwrite the results of a later one.
+  const diskSeqRef = useRef(0)
+
+  const trimmedQuery = query.trim()
+
+  useEffect(() => {
+    if (!activeFolderPath || !trimmedQuery) {
+      diskSeqRef.current += 1
+      setFileMatches([])
+      setContentMatches([])
+      setDiskSearching(false)
+      setDiskSearchError(null)
+      return
+    }
+
+    const requestSeq = ++diskSeqRef.current
+    setDiskSearching(true)
+    setDiskSearchError(null)
+    let searchStarted = false
+
+    const timeout = window.setTimeout(() => {
+      searchStarted = true
+      const wantsContent = trimmedQuery.length >= CONTENT_SEARCH_MIN_QUERY
+      void Promise.all([
+        window.api
+          .searchFiles(activeFolderPath, trimmedQuery, {
+            limit: PALETTE_FILE_SEARCH_LIMIT,
+            excludes: searchExcludes,
+          })
+          .catch((error: unknown) => ({ ok: false as const, message: String(error), engine: null })),
+        wantsContent
+          ? window.api
+              .searchContent(activeFolderPath, trimmedQuery, {
+                limit: PALETTE_CONTENT_SEARCH_LIMIT,
+                excludes: searchExcludes,
+              })
+              .catch((error: unknown) => ({ ok: false as const, message: String(error), engine: null }))
+          : Promise.resolve(null),
+      ]).then(([fileResult, contentResult]) => {
+        if (requestSeq !== diskSeqRef.current) return
+        setFileMatches(fileResult.ok ? fileResult.results : [])
+        setContentMatches(contentResult?.ok ? contentResult.results : [])
+        // Only a failure the user would otherwise read as "no matches" is worth
+        // surfacing; a cancelled run resolves ok with an empty list.
+        const failure = !fileResult.ok ? fileResult.message : contentResult && !contentResult.ok ? contentResult.message : null
+        setDiskSearchError(failure)
+        setDiskSearching(false)
+      })
+    }, DISK_SEARCH_DEBOUNCE_MS)
+
+    return () => {
+      window.clearTimeout(timeout)
+      // Superseded or unmounted: stop the ripgrep child rather than let it run
+      // the whole tree for a query nobody is waiting on.
+      if (searchStarted) void window.api.cancelContentSearch().catch(() => {})
+    }
+  }, [activeFolderPath, searchExcludes, trimmedQuery])
 
   // Skills source (T6). Built-in skills are global and always listed; installed
   // skill packs are workspace-scoped, so they load only when a workspace is
@@ -478,13 +585,64 @@ export default function CommandPalette({
     ]
   }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onNewWorkspace, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement, builtinSkills, installedSkills, specialistActions])
 
+  // Disk results are already matched — ripgrep did the matching in the main
+  // process — so they are assembled apart from `commands` and never run back
+  // through `commandMatchesQuery`, which would re-filter a content hit against
+  // its own line text and drop every match whose query spans a word boundary.
+  const diskCommands = useMemo((): Command[] => {
+    if (!activeWorkspaceId || !activeFolderPath) return []
+
+    const openFilePaths = new Set(openFiles.map((file) => file.path))
+    const openOnDisk = (path: string, name: string, lineNumber?: number, column?: number) => {
+      void window.api
+        .readfile(path)
+        .then((content) => {
+          openFileSurface({ workspaceId: activeWorkspaceId, path, name, content, lineNumber, column })
+        })
+        .catch(() => {
+          // A file ripgrep listed can be gone by the time it is picked (a branch
+          // switch, a build). Opening is best-effort; the palette is closing.
+        })
+      onClose()
+    }
+
+    return [
+      // A file already open is listed by the in-memory Files rows above; listing
+      // it again from disk would put the same file in the group twice.
+      ...fileMatches
+        .filter((entry) => !openFilePaths.has(entry.path))
+        .map((entry): Command => ({
+          id: `disk-file-${entry.path}`,
+          label: entry.name,
+          description: workspaceRelativePath(activeFolderPath, entry.path),
+          group: 'files',
+          run: () => openOnDisk(entry.path, entry.name),
+        })),
+      ...contentMatches.map((entry, index): Command => ({
+        // Line and column are part of the id: one file legitimately contributes
+        // many rows, and React keys and the selection index both need them apart.
+        id: `disk-content-${entry.path}:${entry.lineNumber}:${entry.column}:${index}`,
+        // The matched line is the row's identity here — the file path is the
+        // supporting detail, which is the inverse of the Files group.
+        label: entry.lineText.trim() || entry.matchText,
+        description: `${workspaceRelativePath(activeFolderPath, entry.path)}:${entry.lineNumber}`,
+        group: 'content',
+        run: () => openOnDisk(entry.path, entry.name, entry.lineNumber, entry.column),
+      })),
+    ]
+  }, [activeFolderPath, activeWorkspaceId, contentMatches, fileMatches, onClose, openFiles])
+
   // Matches are ordered by group so the arrow keys traverse the same top-to-
   // bottom order the grouped list renders in. With no query each group shows a
   // capped preview; a query searches every group at once.
   const filtered = useMemo((): Command[] => {
     const q = query.trim().toLowerCase()
+    const inScope = (command: Command) => groupInScope(command.group, scope)
     const matched = q ? commands.filter((command) => commandMatchesQuery(command, q)) : commands
-    const ordered = [...matched].sort((a, b) => groupRank(a.group) - groupRank(b.group))
+    // Disk results exist only for a query — with an empty one there is nothing
+    // to have searched for, so the resting palette stays the launcher it was.
+    const all = q ? [...matched.filter(inScope), ...diskCommands] : matched.filter(inScope)
+    const ordered = [...all].sort((a, b) => groupRank(a.group) - groupRank(b.group))
     if (q) return ordered
     const perGroup = new Map<CommandGroup, number>()
     return ordered.filter((command) => {
@@ -492,7 +650,7 @@ export default function CommandPalette({
       perGroup.set(command.group, count)
       return count <= PREVIEW_PER_GROUP
     })
-  }, [commands, query])
+  }, [commands, diskCommands, query, scope])
 
   const groupedResults = useMemo(
     () =>
@@ -528,6 +686,14 @@ export default function CommandPalette({
     if (event.key === 'Enter') {
       filtered[selected]?.run()
     }
+    // Backspace at an empty query pops the scope token, the way it pops a chip
+    // in a token field — so ⌘⇧F's narrowing is reversible from the keyboard
+    // without reaching for the mouse or reopening as ⌘K.
+    if (event.key === 'Backspace' && !query && scope !== 'all') {
+      event.preventDefault()
+      setScope('all')
+      setSelected(0)
+    }
   }
 
   const activeOptionId = filtered[selected] ? `palette-option-${filtered[selected].id}` : undefined
@@ -558,7 +724,36 @@ export default function CommandPalette({
           className={`${OVERLAY_SHELL_CLASS} overflow-hidden outline-none`}
         >
           <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-4 py-3">
-            <span className="text-heading text-[color:var(--text-disabled)]">⌘</span>
+            {scope === 'files' ? (
+              // The scope reads as a removable token, the way a filter chip does
+              // in the panels: it says what the palette is narrowed to, and
+              // clicking it (or Backspace at an empty query) widens back to the
+              // full launcher without reopening the overlay.
+              <button
+                type="button"
+                onClick={() => {
+                  setScope('all')
+                  setSelected(0)
+                  inputRef.current?.focus()
+                }}
+                aria-label="Search everything instead of files"
+                className={`flex shrink-0 items-center gap-1 rounded-[var(--radius-xs)] bg-[color:var(--bg-surface-raised)] px-2 py-0.5 text-micro text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+              >
+                Files
+                {/* The kit's close mark, at the chip's scale — the same stroke
+                    CloseIconButton draws, not a literal ✕ character. */}
+                <svg className="icon-xs" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path
+                    d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            ) : (
+              <span className="text-heading text-[color:var(--text-disabled)]">⌘</span>
+            )}
             <input
               ref={inputRef}
               value={query}
@@ -567,19 +762,45 @@ export default function CommandPalette({
                 setSelected(0)
               }}
               onKeyDown={handleKey}
-              placeholder="Search agents, skills, commands, actions..."
-              aria-label="Search agents, skills, commands, and actions"
+              placeholder={
+                scope === 'files'
+                  ? 'Search file names and text in files...'
+                  : 'Search agents, skills, commands, files, text...'
+              }
+              aria-label={
+                scope === 'files'
+                  ? 'Search file names and text in files'
+                  : 'Search agents, skills, commands, files, and text in files'
+              }
               role="combobox"
               aria-expanded={filtered.length > 0}
               aria-controls="command-palette-results"
               aria-activedescendant={activeOptionId}
               className={`flex-1 bg-transparent text-heading text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
             />
+            {/* Disk search is the one part of the palette that is not instant, so
+                it is the one part that says it is working. */}
+            {diskSearching && (
+              <span role="status" className="shrink-0 text-micro text-[color:var(--text-disabled)]">
+                Searching…
+              </span>
+            )}
           </div>
 
           <div id="command-palette-results" role="listbox" aria-label="Search results" className="max-h-[360px] overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <p className="px-4 py-3 text-meta text-[color:var(--text-disabled)]">No results</p>
+              // "No results" is only true once the search that would have
+              // produced them has finished, and only meaningful when there was a
+              // folder to search in the first place.
+              <p className="px-4 py-3 text-meta text-[color:var(--text-disabled)]">
+                {diskSearchError
+                  ? diskSearchError
+                  : diskSearching
+                    ? 'Searching…'
+                    : trimmedQuery && !activeFolderPath
+                      ? 'Open a folder to search files and their contents.'
+                      : 'No results'}
+              </p>
             ) : (
               groupedResults.map((group) => (
                 <div key={group.key} role="group" aria-label={group.label}>
@@ -610,9 +831,20 @@ export default function CommandPalette({
                         }`}
                       >
                         <div className="min-w-0">
-                          <TruncatedText as="div" text={command.label} className="text-heading" />
+                          {/* A content hit's label is a line of source, not a
+                              title: it reads in mono at body size, with the
+                              file:line beneath it as the locator. */}
+                          <TruncatedText
+                            as="div"
+                            text={command.label}
+                            className={command.group === 'content' ? 'font-mono text-meta' : 'text-heading'}
+                          />
                           {command.description && (
-                            <TruncatedText as="div" text={command.description} className="mt-0.5 text-micro text-[color:var(--text-disabled)]" />
+                            <TruncatedText
+                              as="div"
+                              text={command.description}
+                              className={`mt-0.5 text-micro text-[color:var(--text-disabled)] ${command.group === 'content' ? 'font-mono' : ''}`}
+                            />
                           )}
                         </div>
                         {command.shortcut && (

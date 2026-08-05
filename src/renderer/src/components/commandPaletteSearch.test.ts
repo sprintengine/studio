@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict'
-import { commandMatchesQuery, workspaceKeywordsFromDefinition } from './commandPaletteSearch'
+import {
+  commandMatchesQuery,
+  groupInScope,
+  workspaceKeywordsFromDefinition,
+  type PaletteCommandGroup,
+} from './commandPaletteSearch'
 import { createRendererHost } from '../modules/renderer-host'
 import { registerSwitchboardWorkspaceTypes } from '../modules/switchboard-workspace-types'
 
@@ -79,6 +84,31 @@ run('switchboard mode search terms derive from the live registry registration', 
   assert.equal(commandMatchesQuery(row, 'watchtower'), true)
   assert.equal(commandMatchesQuery(row, 'switchboard'), true)
   assert.equal(commandMatchesQuery(row, 'triage'), true)
+})
+
+// The ⌘⇧F scope. `all` and `files` are one list filtered two ways, so the
+// predicate is the whole difference between the launcher and Find-in-Path —
+// and a group silently falling out of `all` would make ⌘K lose a source.
+const ALL_GROUPS: PaletteCommandGroup[] = ['agents', 'skills', 'commands', 'actions', 'files', 'content']
+
+run('the all scope admits every group, so ⌘K stays the full launcher', () => {
+  ALL_GROUPS.forEach((group) => {
+    assert.equal(groupInScope(group, 'all'), true, `${group} must be visible under the all scope`)
+  })
+})
+
+run('the files scope admits exactly the two disk-backed groups', () => {
+  assert.deepEqual(
+    ALL_GROUPS.filter((group) => groupInScope(group, 'files')),
+    ['files', 'content'],
+  )
+})
+
+run('the files scope hides the launcher groups a code snippet would compete with', () => {
+  assert.equal(groupInScope('commands', 'files'), false)
+  assert.equal(groupInScope('actions', 'files'), false)
+  assert.equal(groupInScope('agents', 'files'), false)
+  assert.equal(groupInScope('skills', 'files'), false)
 })
 
 console.log('commandPaletteSearch: all assertions passed')

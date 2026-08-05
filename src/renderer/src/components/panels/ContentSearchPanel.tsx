@@ -138,7 +138,16 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
   const openResult = async (entry: ContentSearchEntry) => {
     try {
       const content = await window.api.readfile(entry.path)
-      openFileSurface({ workspaceId, path: entry.path, name: entry.name, content })
+      // The row already shows `line:column` and the panel has always known it —
+      // it just never travelled, so every match opened its file at line 1.
+      openFileSurface({
+        workspaceId,
+        path: entry.path,
+        name: entry.name,
+        content,
+        lineNumber: entry.lineNumber,
+        column: entry.column,
+      })
     } catch (openError) {
       setError(openError instanceof Error ? openError.message : String(openError))
     }

@@ -163,6 +163,10 @@ import { LEGACY_COMMAND_ID_ALIASES } from '../../commands/keybindings'
 import type { CommandAvailabilityContext } from '../../commands/availability'
 import type { CommandScope, ModuleCommandContext } from '../../commands/types'
 import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
+// From the pure search module, not the palette component: the palette is
+// React.lazy and importing a type through it would be a needless edge into the
+// deferred chunk.
+import type { PaletteScope } from '../commandPaletteSearch'
 import { buildSprintEngineAgentRosterForState, buildSprintEngineRoleRegistry, computeSprintEngineFocusAgentAvailability } from '../../utils/sprintengine'
 import { isGlobalShortcutSuppressedTarget } from '../../utils/keyboard'
 
@@ -570,6 +574,11 @@ export default function WorkspaceManager() {
   const showTipsOnStartup = useWorkspaceStore((s) => s.appSettings.learning?.showTipsOnStartup ?? true)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const [showPalette, setShowPalette] = useState(false)
+  // Which groups the palette opens filtered to. ⌘K raises the full launcher;
+  // ⌘⇧F raises the same overlay narrowed to files and their contents. Held here
+  // rather than inside the palette because the shortcut that opens it is what
+  // decides it, and the palette is unmounted when that shortcut fires.
+  const [paletteScope, setPaletteScope] = useState<PaletteScope>('all')
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
   // Installed conversation providers, loaded lazily when the spawn menu opens.
@@ -2663,7 +2672,12 @@ export default function WorkspaceManager() {
       openSettings(true, 'general')
       return true
     }
-    if (commandId === 'commandPalette.open') {
+    // ⌘K and ⌘⇧F raise the same overlay and dismiss the same competing surfaces;
+    // they differ only in the scope it opens filtered to. Sharing the branch is
+    // what keeps the two from drifting into two slightly different "open the
+    // palette" behaviours.
+    if (commandId === 'commandPalette.open' || commandId === 'search.files.open') {
+      setPaletteScope(commandId === 'search.files.open' ? 'files' : 'all')
       setShowPalette(true)
       dismissNewWorkspacePanel()
       setSpecialistMenuOpen(false)
@@ -3663,6 +3677,7 @@ export default function WorkspaceManager() {
             activeScopes={activeCommandScopes}
             commandAvailability={commandAvailability}
             moduleCommandContext={moduleCommandContext}
+            initialScope={paletteScope}
           />
         </React.Suspense>
       )}
