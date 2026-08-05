@@ -120,6 +120,7 @@ import type {
 } from '../../../types/workspace'
 import {
   buildNewSprintSource,
+  DEFAULT_SPRINT_ISOLATION,
   deriveRunName,
   directSprintFootSummary,
   epicPickKey,
@@ -128,7 +129,10 @@ import {
   isFileSource,
   plannedSprintFootSummary,
   seedPickedKeysFromSource,
+  sprintIsolationUsesWorktrees,
+  type SprintIsolation,
 } from './newSprintModel'
+import { SprintIsolationRowView } from './SprintIsolationRow'
 import type { SprintEngineIntake } from '../../../../../shared/sprintengine/run-types'
 import { sourcePlanKindSupportsDirectIntake } from '../../../../../shared/sprintengine/run-types'
 
@@ -230,6 +234,10 @@ export default function NewSprintDialog({
   // exists. Storing the OVERRIDE rather than the value is what lets the default
   // follow the picks as they change.
   const [planningNoneOverride, setPlanningNoneOverride] = useState<boolean | null>(null)
+  // Where the run works (MC-2123). A sprint gets its own worktree unless the
+  // operator says otherwise — the mode is fixed once the run exists, so this
+  // dialog is the only place it can be chosen.
+  const [isolation, setIsolation] = useState<SprintIsolation>(DEFAULT_SPRINT_ISOLATION)
   const [renaming, setRenaming] = useState(false)
 
   const [screen, setScreen] = useState<'sprint' | 'roster'>('sprint')
@@ -728,7 +736,7 @@ export default function NewSprintDialog({
           initialSpawnRoles,
           startRunner: true,
           autoApproveArtifacts: true,
-          useWorktrees: false,
+          useWorktrees: sprintIsolationUsesWorktrees(isolation),
           sourceReference: true,
           intake,
           epicChildRelativePaths:
@@ -803,6 +811,8 @@ export default function NewSprintDialog({
     editor.roleCliDefaults,
     editor.roleModelOverrides,
     editor.roleReasoningOverrides,
+    intake,
+    isolation,
     items,
     lastSpawnPermissionPreset,
     workspaceWindowId,
@@ -1157,6 +1167,7 @@ export default function NewSprintDialog({
                       editor.onSetRoleReasoning(SPRINT_ENGINE_ROLELESS_KEY, reasoning)
                     }
                     planningAgent={planningAgentRow}
+                    isolation={{ value: isolation, onChange: setIsolation }}
                   />
                 ) : (
                   <div className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
@@ -1205,9 +1216,10 @@ export default function NewSprintDialog({
                         ))
                       )}
                     </div>
-                    {/* The same row a roleless team card carries: one control in
+                    {/* The same rows a roleless team card carries: one control in
                         both worlds, never present here and absent there. */}
                     <PlanningAgentRowView row={planningAgentRow} cliOptions={cliOptions} />
+                    <SprintIsolationRowView row={{ value: isolation, onChange: setIsolation }} />
                   </div>
                 )}
 

@@ -35,6 +35,39 @@ export const PLANNING_AGENT_NONE_LABEL = 'None'
 
 export const PLANNING_AGENT_NONE_DESCRIPTION = 'Your epic is the plan'
 
+// ── the "Runs in" row (MC-2123) ─────────────────────────────────────────────
+//
+// Worktree mode was reachable from the deleted wizard and from nowhere at all
+// after it (the dialog was born with `useWorktrees: false` hardcoded). Ruled
+// 2026-08-05 (owner): isolation is a VISIBLE choice, not invisible plumbing,
+// and a sprint runs in ONE worktree per sprint by default.
+//
+// The ladder is none / per-sprint / per-task. This row carries the first two
+// rungs; MC-2136 adds "A worktree per task" as a third item of the same list,
+// which is why the value vocabulary is its ("One worktree"), and why the label
+// is the sentence opener rather than the noun — every rung completes it.
+
+export type SprintIsolation = 'none' | 'sprint'
+
+export const DEFAULT_SPRINT_ISOLATION: SprintIsolation = 'sprint'
+
+export const SPRINT_ISOLATION_ROW_LABEL = 'Runs in'
+
+export const SPRINT_ISOLATION_TOOLTIP =
+  'Where this sprint works. A worktree is a second checkout of the project on its own branch, so the '
+  + 'run can be inspected, abandoned, or run alongside your own edits without touching them. In the '
+  + 'project folder, the agents edit the files you have open.'
+
+export const SPRINT_ISOLATION_ITEMS: ReadonlyArray<{ value: SprintIsolation; label: string }> = [
+  { value: 'sprint', label: 'One worktree' },
+  { value: 'none', label: 'The project folder' },
+]
+
+/** The engine's run-level flag: every rung but `none` needs run worktrees. */
+export function sprintIsolationUsesWorktrees(isolation: SprintIsolation): boolean {
+  return isolation !== 'none'
+}
+
 /**
  * The epic source row's import arithmetic. With no plan gate there is no later
  * stop where a miscount would surface, so this row is where the import is

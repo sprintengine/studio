@@ -39,6 +39,8 @@ class ResizeObserverStub {
 }
 anyGlobal.ResizeObserver = ResizeObserverStub
 ;(dom.window as unknown as Record<string, unknown>).ResizeObserver = ResizeObserverStub
+// `ui/Select` keeps its active option in view; JSDOM implements no scrolling.
+dom.window.HTMLElement.prototype.scrollIntoView = function scrollIntoView(): void {}
 dom.window.matchMedia = ((query: string) => ({
   matches: false,
   media: query,
@@ -941,6 +943,139 @@ async function main(): Promise<void> {
         'no None row is pinned for a non-epic source',
       )
     } finally {
+      unmount()
+    }
+  })
+
+  // ── the "Runs in" row (MC-2123) ───────────────────────────────────────────
+  //
+  // The dialog used to hand engine init a hardcoded `useWorktrees: false`, so
+  // isolation was unreachable from the only path a person can use. These pin
+  // the two halves the acceptance names: the choice exists and defaults to one
+  // worktree per sprint, and BOTH of its values reach init — which is also what
+  // makes the absence of the literal observable rather than a source read.
+
+  const isolationTrigger = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector('button[role="combobox"][aria-label="Runs in"]')
+
+  const { NO_ROLES_ROSTER_ID } = await import('../newWorkspace/savedRosters')
+  const selectRoster = async (id: string | null): Promise<void> => {
+    await act(async () => {
+      useWorkspaceStore.getState().setSprintEngineLastSelectedRoster(id)
+    })
+  }
+
+  await selectRoster(NO_ROLES_ROSTER_ID)
+
+  await check('the team card offers where the sprint runs, defaulting to one worktree', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<{ useWorktrees?: boolean }> = []
+    apiRecord.initializeSprintEngineState = async (input: (typeof initCalls)[number]) => {
+      initCalls.push({ useWorktrees: input.useWorktrees })
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      const trigger = isolationTrigger(container)
+      assert.ok(trigger, 'the team card carries the Runs in row')
+      assert.match(
+        trigger!.textContent ?? '',
+        /One worktree/,
+        'a sprint runs in its own worktree unless the operator says otherwise (owner ruling 2026-08-05)',
+      )
+      // The row's VALUE is the control, exactly like Planning agent above it.
+      assert.doesNotMatch(
+        container.textContent ?? '',
+        /isolated git worktree/i,
+        'no sub-copy under the row — the explanation is the label tooltip',
+      )
+
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(initCalls.length, 1, 'Start initializes exactly one run')
+      assert.equal(
+        initCalls[0]?.useWorktrees,
+        true,
+        'the default reaches engine init, which is what mints the run worktree',
+      )
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  await check('choosing the project folder starts the run in the checkout, as before', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<{ useWorktrees?: boolean }> = []
+    apiRecord.initializeSprintEngineState = async (input: (typeof initCalls)[number]) => {
+      initCalls.push({ useWorktrees: input.useWorktrees })
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      await clickAndSettle(isolationTrigger(container))
+      const options = Array.from(
+        dom.window.document.body.querySelectorAll(
+          '[role="listbox"][aria-label="Runs in"] [role="option"]',
+        ),
+      ) as Element[]
+      assert.deepEqual(
+        options.map((option) => option.textContent?.trim()),
+        ['One worktree', 'The project folder'],
+        'the ladder reads best-first; MC-2136 adds "A worktree per task" to this same list',
+      )
+      await clickAndSettle(options.find((option) => option.textContent?.includes('project folder')))
+      assert.match(
+        isolationTrigger(container)?.textContent ?? '',
+        /The project folder/,
+        'the picked value is what the row shows',
+      )
+
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(
+        initCalls[0]?.useWorktrees,
+        false,
+        'the off rung is byte-for-byte the run the dialog made before this row existed',
+      )
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  await check('a staffed roster carries the same Runs in row — never one world only', async () => {
+    let rosterId: string | null = null
+    await act(async () => {
+      rosterId = useWorkspaceStore.getState().saveSprintEngineRoster({
+        name: 'Isolation crew',
+        roleCounts: { developer: 1 },
+        roleCliDefaults: {},
+        roleModelOverrides: {},
+      })
+    })
+    assert.ok(rosterId, 'the fixture roster saves')
+    await selectRoster(rosterId)
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      assert.match(container.textContent ?? '', /Isolation crew/, 'the staffed card is showing')
+      const trigger = isolationTrigger(container)
+      assert.ok(trigger, 'the staffed roster card carries the row too')
+      assert.match(trigger!.textContent ?? '', /One worktree/, 'with the same default')
+    } finally {
+      await selectRoster(NO_ROLES_ROSTER_ID)
       unmount()
     }
   })
