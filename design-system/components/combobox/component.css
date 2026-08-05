@@ -1,2 +1,170 @@
-/* Placeholder — combobox is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+/* Combobox — a text field that filters a listbox, for choosing from a set
+ * large enough to search. Extracted from the shipped Combobox primitive
+ * (src/renderer/src/components/ui/Combobox.tsx).
+ *
+ * Family contract with `select`: a select opens a closed set and has no
+ * query; a combobox exists because the set is too long to scan. Reach for
+ * this only when filtering is genuinely the point — a searchable four-item
+ * list is a select with a search box bolted on.
+ *
+ * The ARIA is the part the five bespoke versions each got differently, and
+ * it is the part that matters: THE INPUT IS THE COMBOBOX and keeps focus
+ * throughout, options are never focused, and the highlighted one is named by
+ * aria-activedescendant. That is what lets typing and arrowing work at the
+ * same time — moving real focus onto an option takes it off the field, and
+ * the next keystroke goes nowhere.
+ *
+ * One shape: a trigger opens a surface carrying the field above the list.
+ * There is deliberately no inline-field variant — the popover engine owns
+ * anchoring, flipping, clamping and outside-click, and an inline field would
+ * have to either fight that contract or hand-roll a second popover shell. A
+ * caller wanting the field to BE the control passes a full-width trigger
+ * styled as one; the list still opens on the shared engine.
+ *
+ * The surface itself is `popover` — this file styles only what rides on it. */
+
+/* ── Trigger ─────────────────────────────────────────────────────────────
+ * The default: a full-width button reading as a field. Muted ink, because
+ * what it shows is a prompt rather than a chosen value. */
+.ds-combobox-trigger {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ds-combobox-trigger:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* ── Field ───────────────────────────────────────────────────────────────
+ * The query field sits ABOVE the list inside the surface, divided from it by
+ * a hairline: the person is typing at the thing they are filtering, and a
+ * field docked at the bottom would put the caret below the rows it moves. */
+.ds-combobox-field {
+  padding: var(--sem-space-2xs);
+  border-bottom: 1px solid var(--sem-color-border-subtle);
+}
+
+.ds-combobox-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-combobox-input::placeholder {
+  color: var(--sem-color-text-disabled);
+}
+
+/* Focus is the ring and only the ring — and it stays on this field for the
+ * whole life of the popup, however far the highlight has arrowed down the
+ * list. A ring that moves onto an option is the bug this contract prevents. */
+.ds-combobox-input:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* ── Listbox ─────────────────────────────────────────────────────────────
+ * Capped and scrolling past roughly ten rows: a filtered list that grows
+ * past the viewport has stopped being a list of candidates. A cap, not a
+ * spacing step. */
+.ds-combobox-listbox {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--sem-space-2xs);
+}
+
+.ds-combobox-option {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-2xs) var(--sem-space-sm);
+  border-radius: var(--sem-radius-control);
+  color: var(--sem-color-text-default);
+  font-size: var(--sem-font-size-meta);
+  cursor: pointer;
+}
+
+/* Active tracks the keyboard and the pointer through ONE treatment, so there
+ * is never a hovered row and a different arrowed row lit at once. The state
+ * lives in aria-selected; the paint is its echo, which is why the selector
+ * reads off the attribute rather than a parallel class. */
+.ds-combobox-option[aria-selected='true'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+/* Disabled rows are skipped by the arrow keys rather than parked on, so this
+ * is the resting look of a row the highlight will step over. */
+.ds-combobox-option[aria-disabled='true'] {
+  color: var(--sem-color-text-disabled);
+  cursor: not-allowed;
+}
+
+.ds-combobox-option[aria-disabled='true'][aria-selected='true'] {
+  background: transparent;
+  color: var(--sem-color-text-disabled);
+}
+
+.ds-combobox-option-icon {
+  display: flex;
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  align-items: center;
+  justify-content: center;
+}
+
+/* The label takes the slack and truncates; the hint never does. A hint is
+ * short by construction, and a truncated one ("clau…") says nothing. */
+.ds-combobox-option-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-combobox-option-hint {
+  flex: none;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-subtle);
+}
+
+/* Group headings are decoration over a flat option list — consecutive
+ * options sharing a group get one. Hidden from assistive tech: the listbox
+ * is flat to a screen reader, and a heading announced as an option would be
+ * a row that cannot be chosen. */
+.ds-combobox-group {
+  padding: var(--sem-space-sm) var(--sem-space-sm) var(--sem-space-2xs);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-subtle);
+}
+
+/* No matches. Readable ink, and phrased about the query rather than about
+ * the list — "no matches" in an empty popup tells the person nothing they
+ * did not already see. */
+.ds-combobox-empty {
+  margin: 0;
+  padding: var(--sem-space-sm);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}

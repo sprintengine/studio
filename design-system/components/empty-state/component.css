@@ -1,2 +1,88 @@
-/* Placeholder — empty-state is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+/* Empty state — what a surface shows when it has nothing to show. Extracted
+ * from the shipped EmptyState primitive
+ * (src/renderer/src/components/ui/EmptyState.tsx).
+ *
+ * A glyph, one sentence, an optional second line, and at most one call to
+ * action — never a dead end on a first-run surface, and never two competing
+ * things to do.
+ *
+ * Two densities, because the five hand-rolls this replaced were doing two
+ * genuinely different jobs: `pane` fills a region where content would be,
+ * `list` sits inside a list that came back empty.
+ *
+ * No accent disc. A door's first-run canvas earns a prominent accent
+ * treatment; a list that filtered down to nothing does not, and giving every
+ * empty list one would spend the accent budget on absence. */
+
+.ds-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: var(--sem-font-family-ui);
+  text-align: center;
+}
+
+/* Pane — a region with nothing in it: no workspace open, nothing selected.
+ * Fills the height it is given and centres in it, with room around the copy.
+ * The vertical padding is the scale's top step; the source's 40px was a
+ * local value, and a missing step is a token change rather than a licence to
+ * write one here. */
+.ds-empty-state--pane {
+  height: 100%;
+  justify-content: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-4xl) var(--sem-space-3xl);
+}
+
+/* List — inside a list that came back empty. Top-aligned and compact, so it
+ * reads as "this list is empty" rather than as a page of its own. */
+.ds-empty-state--list {
+  gap: var(--sem-space-2xs);
+  padding: var(--sem-space-4xl) var(--sem-space-lg);
+}
+
+/* The glyph slot is a SIZE, not a ceiling: icon.size.lg is the step whose own
+ * token documentation names empty-state glyphs as its use, and a glyph on the
+ * ramp lands exactly on it. An illustration that is deliberately larger sets
+ * its own box rather than overflowing a fixed one into the title. */
+.ds-empty-state-glyph {
+  display: flex;
+  min-width: var(--sem-icon-size-lg);
+  min-height: var(--sem-icon-size-lg);
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--sem-space-2xs);
+  color: var(--sem-color-text-subtle);
+}
+
+/* The one sentence. Readable ink, never text.disabled — this is copy meant to
+ * be read, not a greyed-out control. One hand-roll rendered its sentence
+ * disabled, beside the only thing on screen you could actually do.
+ *
+ * The measure is a reading width, not a spacing step: past roughly 46
+ * characters a centred line stops scanning as a single thought. */
+.ds-empty-state-title {
+  max-width: 46ch;
+  margin: 0;
+  font-size: var(--sem-font-size-body);
+  color: var(--sem-color-text-muted);
+}
+
+/* The optional second line: why it is empty, or what would fill it. A step
+ * quieter than the title, so the two read in order rather than competing. */
+.ds-empty-state-body {
+  max-width: 46ch;
+  margin: 0;
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-relaxed);
+  color: var(--sem-color-text-subtle);
+}
+
+/* At most one action. The row exists because an action sometimes travels with
+ * a quiet secondary link; it is not an invitation to a button bar. */
+.ds-empty-state-action {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  margin-top: var(--sem-space-sm);
+}

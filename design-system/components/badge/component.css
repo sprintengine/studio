@@ -1,2 +1,113 @@
-/* Placeholder — badge is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+/* Badge — the small display-only mark: a count docked on a control, or a
+ * tone-carrying word sitting on a row. Extracted from the shipped Badge
+ * primitive (src/renderer/src/components/ui/Badge.tsx).
+ *
+ * Two species under one name, because the audit found two hiding under the
+ * one word: a numeric COUNT (solid tone, on-accent ink) and a LABEL chip
+ * (soft tone fill with a matching hairline, muted ink). They share a size
+ * and a radius and nothing else, so they are two classes rather than one
+ * class with a variant that swaps every property.
+ *
+ * Never interactive — a badge is a readout, and a clickable one is a button
+ * wearing a badge. Never a second status idiom beside a status-dot that
+ * already says the same thing. */
+
+/* ── Count ───────────────────────────────────────────────────────────────
+ * The 16px box every shipped counter converged on, stated in the space
+ * scale's own step for it. `min-width` with symmetric padding is what keeps
+ * one digit circular and grows two into a pill instead of clipping. */
+.ds-badge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--sem-space-xl);
+  min-width: var(--sem-space-xl);
+  padding: 0 var(--sem-space-2xs);
+  /* Pill, not radius.chip: a one-digit counter has to be a circle for the
+     docked corner position to read as a badge rather than a clipped square.
+     radius.chip is the right token for a RECTANGULAR chip; this is not one. */
+  border-radius: 999px;
+  background: var(--sem-color-status-neutral);
+  /* text.on-accent is the token that means "foreground for a filled
+     surface". The three counters this replaces each hardcoded the app
+     ground, which is legible only while the badge sits on a saturated
+     tone. */
+  color: var(--sem-color-text-on-accent);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
+  line-height: 1;
+  /* So 1 → 2 does not jog the row it is docked to. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Label ───────────────────────────────────────────────────────────────
+ * A short word about the row it sits on. Soft fill, tone hairline, muted
+ * ink: the tone classifies, the ink stays readable, and the chip never
+ * competes with the row's own text. */
+.ds-badge-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+  padding: 0 var(--sem-space-xs);
+  border: 1px solid var(--sem-color-status-neutral);
+  border-radius: 999px;
+  background: var(--sem-color-status-neutral-soft);
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-space-xl);
+}
+
+/* ── Tones ───────────────────────────────────────────────────────────────
+ * The status ramp plus the accent. A count takes the solid tone as its
+ * ground; a label takes the soft tone as its ground and the solid one as
+ * its edge. */
+.ds-badge-count--accent {
+  background: var(--sem-color-accent-primary);
+}
+.ds-badge-count--good {
+  background: var(--sem-color-status-good);
+}
+.ds-badge-count--warn {
+  background: var(--sem-color-status-warn);
+}
+.ds-badge-count--danger {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-badge-label--accent {
+  border-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-accent-soft);
+}
+.ds-badge-label--good {
+  border-color: var(--sem-color-status-good);
+  background: var(--sem-color-status-good-soft);
+}
+.ds-badge-label--warn {
+  border-color: var(--sem-color-status-warn);
+  background: var(--sem-color-status-warn-soft);
+}
+.ds-badge-label--danger {
+  border-color: var(--sem-color-status-danger);
+  background: var(--sem-color-status-danger-soft);
+}
+
+/* ── Corner ──────────────────────────────────────────────────────────────
+ * Docks the count to the top-right of a positioned trigger, with a border
+ * in the ground behind it so the badge reads as sitting ON the control
+ * rather than inside it. The host must establish a positioning context.
+ *
+ * A ring spelled as a box-shadow would hold the box at exactly 16px, but
+ * the product's token lint forbids that spelling outright — and every
+ * counter this replaces already used a border, so this is their behaviour
+ * rather than a compromise introduced here. */
+.ds-badge-count--corner {
+  position: absolute;
+  top: calc(var(--sem-space-2xs) * -1);
+  right: calc(var(--sem-space-2xs) * -1);
+  border: 1px solid var(--sem-color-bg-app);
+}

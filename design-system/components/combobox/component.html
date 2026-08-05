@@ -3,23 +3,168 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>combobox (planned)</title>
+<title>Combobox</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../popover/component.css" />
 <link rel="stylesheet" href="component.css" />
 <style>
   body {
     margin: 0;
     font-family: var(--sem-font-family-ui);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-muted);
   }
-  .planned-note {
+  .demo-stage {
     padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-column {
+    max-width: 300px;
+    margin-bottom: var(--sem-space-3xl);
+  }
+  /* The surface is `position: fixed` in the product, anchored to its trigger.
+     Pinned in flow here, directly under the trigger it belongs to, so the
+     spec renders as a static page. */
+  .demo-surface {
+    position: static;
+    margin-top: var(--sem-space-2xs);
   }
 </style>
 </head>
 <body>
-<p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — closed. The trigger carries the popup ARIA; muted ink, because this is a prompt rather than a chosen value.</p>
+  <div class="demo-column">
+    <button type="button" class="ds-combobox-trigger" aria-haspopup="listbox" aria-expanded="false">
+      Choose a model…
+    </button>
+  </div>
+
+  <p class="demo-label">Open, mid-query. The field keeps focus and the ring; the highlight is on a row named by aria-activedescendant, not focused.</p>
+  <div class="demo-column">
+    <button type="button" class="ds-combobox-trigger" aria-haspopup="listbox" aria-expanded="true" aria-controls="model-listbox">
+      Choose a model…
+    </button>
+    <div class="ds-popover demo-surface">
+      <div class="ds-combobox-field">
+        <input
+          class="ds-combobox-input"
+          type="text"
+          role="combobox"
+          aria-label="Choose a model"
+          aria-expanded="true"
+          aria-controls="model-listbox"
+          aria-autocomplete="list"
+          aria-activedescendant="model-option-1"
+          value="op"
+          placeholder="Filter models…"
+        />
+      </div>
+      <div id="model-listbox" class="ds-combobox-listbox" role="listbox" aria-label="Choose a model">
+        <div class="ds-combobox-group" aria-hidden="true">Anthropic</div>
+        <div id="model-option-0" class="ds-combobox-option" role="option" aria-selected="false">
+          <span class="ds-combobox-option-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <path d="M8 2.5 13.5 13H2.5L8 2.5Z" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <span class="ds-combobox-option-label">Opus 5</span>
+          <span class="ds-combobox-option-hint">1M</span>
+        </div>
+        <div id="model-option-1" class="ds-combobox-option" role="option" aria-selected="true">
+          <span class="ds-combobox-option-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <path d="M8 2.5 13.5 13H2.5L8 2.5Z" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <span class="ds-combobox-option-label">Opus 4.8</span>
+          <span class="ds-combobox-option-hint">200K</span>
+        </div>
+        <div id="model-option-2" class="ds-combobox-option" role="option" aria-selected="false" aria-disabled="true">
+          <span class="ds-combobox-option-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <path d="M8 2.5 13.5 13H2.5L8 2.5Z" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <span class="ds-combobox-option-label">Opus 4.1 — retired</span>
+        </div>
+        <div class="ds-combobox-group" aria-hidden="true">Local</div>
+        <div id="model-option-3" class="ds-combobox-option" role="option" aria-selected="false">
+          <span class="ds-combobox-option-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <rect x="2.5" y="4.5" width="11" height="7" rx="1.5" />
+            </svg>
+          </span>
+          <span class="ds-combobox-option-label">operator-local-7b</span>
+          <span class="ds-combobox-option-hint">32K</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="demo-label">A query that matches nothing. The message names what was typed — “no matches”, in a popup showing no rows, tells the person nothing they cannot already see.</p>
+  <div class="demo-column">
+    <div class="ds-popover demo-surface">
+      <div class="ds-combobox-field">
+        <input
+          class="ds-combobox-input"
+          type="text"
+          role="combobox"
+          aria-label="Choose a model"
+          aria-expanded="true"
+          aria-controls="empty-listbox"
+          aria-autocomplete="list"
+          value="gpt"
+        />
+      </div>
+      <div id="empty-listbox" class="ds-combobox-listbox" role="listbox" aria-label="Choose a model">
+        <p class="ds-combobox-empty">No models match “gpt”.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — one highlight at a time: the arrowed row and the hovered row are the same treatment, so the list never shows two candidates.</p>
+  <div class="demo-column">
+    <div class="ds-popover demo-surface">
+      <div class="ds-combobox-field">
+        <input
+          class="ds-combobox-input"
+          type="text"
+          role="combobox"
+          aria-label="Assign to"
+          aria-expanded="true"
+          aria-controls="assignee-listbox"
+          aria-autocomplete="list"
+          aria-activedescendant="assignee-option-0"
+          value=""
+          placeholder="Filter people…"
+        />
+      </div>
+      <div id="assignee-listbox" class="ds-combobox-listbox" role="listbox" aria-label="Assign to">
+        <div id="assignee-option-0" class="ds-combobox-option" role="option" aria-selected="true">
+          <span class="ds-combobox-option-label">Planner</span>
+          <span class="ds-combobox-option-hint">agent</span>
+        </div>
+        <div id="assignee-option-1" class="ds-combobox-option" role="option" aria-selected="false">
+          <span class="ds-combobox-option-label">Implementer</span>
+          <span class="ds-combobox-option-hint">agent</span>
+        </div>
+        <div id="assignee-option-2" class="ds-combobox-option" role="option" aria-selected="false">
+          <span class="ds-combobox-option-label">Reviewer with a very long role name that has to truncate</span>
+          <span class="ds-combobox-option-hint">agent</span>
+        </div>
+        <div id="assignee-option-3" class="ds-combobox-option" role="option" aria-selected="false" aria-disabled="true">
+          <span class="ds-combobox-option-label">Release manager — no runtime configured</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>

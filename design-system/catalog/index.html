@@ -657,8 +657,119 @@ code {
 </style>
 <style>
 /* components/badge/component.css */
-/* Placeholder — badge is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+/* Badge — the small display-only mark: a count docked on a control, or a
+ * tone-carrying word sitting on a row. Extracted from the shipped Badge
+ * primitive (src/renderer/src/components/ui/Badge.tsx).
+ *
+ * Two species under one name, because the audit found two hiding under the
+ * one word: a numeric COUNT (solid tone, on-accent ink) and a LABEL chip
+ * (soft tone fill with a matching hairline, muted ink). They share a size
+ * and a radius and nothing else, so they are two classes rather than one
+ * class with a variant that swaps every property.
+ *
+ * Never interactive — a badge is a readout, and a clickable one is a button
+ * wearing a badge. Never a second status idiom beside a status-dot that
+ * already says the same thing. */
+
+/* ── Count ───────────────────────────────────────────────────────────────
+ * The 16px box every shipped counter converged on, stated in the space
+ * scale's own step for it. `min-width` with symmetric padding is what keeps
+ * one digit circular and grows two into a pill instead of clipping. */
+.ds-badge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--sem-space-xl);
+  min-width: var(--sem-space-xl);
+  padding: 0 var(--sem-space-2xs);
+  /* Pill, not radius.chip: a one-digit counter has to be a circle for the
+     docked corner position to read as a badge rather than a clipped square.
+     radius.chip is the right token for a RECTANGULAR chip; this is not one. */
+  border-radius: 999px;
+  background: var(--sem-color-status-neutral);
+  /* text.on-accent is the token that means "foreground for a filled
+     surface". The three counters this replaces each hardcoded the app
+     ground, which is legible only while the badge sits on a saturated
+     tone. */
+  color: var(--sem-color-text-on-accent);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
+  line-height: 1;
+  /* So 1 → 2 does not jog the row it is docked to. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Label ───────────────────────────────────────────────────────────────
+ * A short word about the row it sits on. Soft fill, tone hairline, muted
+ * ink: the tone classifies, the ink stays readable, and the chip never
+ * competes with the row's own text. */
+.ds-badge-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+  padding: 0 var(--sem-space-xs);
+  border: 1px solid var(--sem-color-status-neutral);
+  border-radius: 999px;
+  background: var(--sem-color-status-neutral-soft);
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-space-xl);
+}
+
+/* ── Tones ───────────────────────────────────────────────────────────────
+ * The status ramp plus the accent. A count takes the solid tone as its
+ * ground; a label takes the soft tone as its ground and the solid one as
+ * its edge. */
+.ds-badge-count--accent {
+  background: var(--sem-color-accent-primary);
+}
+.ds-badge-count--good {
+  background: var(--sem-color-status-good);
+}
+.ds-badge-count--warn {
+  background: var(--sem-color-status-warn);
+}
+.ds-badge-count--danger {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-badge-label--accent {
+  border-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-accent-soft);
+}
+.ds-badge-label--good {
+  border-color: var(--sem-color-status-good);
+  background: var(--sem-color-status-good-soft);
+}
+.ds-badge-label--warn {
+  border-color: var(--sem-color-status-warn);
+  background: var(--sem-color-status-warn-soft);
+}
+.ds-badge-label--danger {
+  border-color: var(--sem-color-status-danger);
+  background: var(--sem-color-status-danger-soft);
+}
+
+/* ── Corner ──────────────────────────────────────────────────────────────
+ * Docks the count to the top-right of a positioned trigger, with a border
+ * in the ground behind it so the badge reads as sitting ON the control
+ * rather than inside it. The host must establish a positioning context.
+ *
+ * A ring spelled as a box-shadow would hold the box at exactly 16px, but
+ * the product's token lint forbids that spelling outright — and every
+ * counter this replaces already used a border, so this is their behaviour
+ * rather than a compromise introduced here. */
+.ds-badge-count--corner {
+  position: absolute;
+  top: calc(var(--sem-space-2xs) * -1);
+  right: calc(var(--sem-space-2xs) * -1);
+  border: 1px solid var(--sem-color-bg-app);
+}
 
 /* components/banner/component.css */
 /* Banner — the panel-spanning failure/degradation strip at the top of a
@@ -958,12 +1069,304 @@ code {
 }
 
 /* components/checkbox/component.css */
-/* Placeholder — checkbox is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+/* Checkbox — the one-of-a-set form control: a value the person marks now and
+ * submits later. Extracted from the shipped Checkbox primitive
+ * (src/renderer/src/components/ui/Checkbox.tsx).
+ *
+ * Family contract with `switch`: a switch commits immediately and needs no
+ * confirm; a checkbox belongs to a form and is read when the form is. Picking
+ * between them is a question about when the change takes effect, not about
+ * how the control looks.
+ *
+ * The native input stays and does the work — semantics, the tab stop, the
+ * indeterminate state, form participation. The visible box is decorative and
+ * hidden from assistive tech. Nothing here re-implements a checkbox; it
+ * dresses one. */
+
+.ds-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  font-family: var(--sem-font-family-ui);
+  /* meta by default; --body for form rows sitting among other 13px controls. */
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ds-checkbox--body {
+  font-size: var(--sem-font-size-body);
+}
+
+/* The positioning context the transparent input fills. */
+.ds-checkbox-control {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  align-items: center;
+  justify-content: center;
+}
+
+/* Transparent, but present and full-size: it is the tab stop, the hit target
+ * and the semantics. Hiding it with `display: none` would take the keyboard
+ * path with it. */
+.ds-checkbox-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.ds-checkbox-box {
+  display: inline-flex;
+  box-sizing: border-box;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-app);
+  color: var(--sem-color-text-on-accent);
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Marked — checked or indeterminate. Both are "this box is carrying a value",
+ * and both take the accent fill; only the glyph inside differs. */
+.ds-checkbox-input:checked + .ds-checkbox-box,
+.ds-checkbox-input:indeterminate + .ds-checkbox-box {
+  border-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-accent-primary);
+}
+
+/* Focus is the ring, and it lands on the box: the input is the tab stop, but
+ * it is invisible, so the treatment shows on what the person can see. An
+ * outline's gap needs no ring-offset colour, which is why this is right on
+ * every surface — the hand-roll it replaces pinned its offset to one surface
+ * token and was wrong on the others. */
+.ds-checkbox-input:focus-visible + .ds-checkbox-box {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-checkbox-input:disabled + .ds-checkbox-box {
+  opacity: 0.45;
+}
+
+.ds-checkbox:has(.ds-checkbox-input:disabled) {
+  color: var(--sem-color-text-disabled);
+  cursor: not-allowed;
+}
+
+/* ── Glyphs ──────────────────────────────────────────────────────────────
+ * One box, two marks, and the input's own state chooses between them: a
+ * tick for checked, a dash for the mixed state. Neither is present at rest,
+ * so an unmarked box is genuinely empty rather than holding a hidden glyph
+ * at zero opacity. */
+.ds-checkbox-mark {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  display: none;
+}
+
+.ds-checkbox-input:checked + .ds-checkbox-box .ds-checkbox-mark--check {
+  display: block;
+}
+
+/* Indeterminate wins over checked: a box that is both is showing a mixed
+ * set, and the dash is what says so. */
+.ds-checkbox-input:indeterminate + .ds-checkbox-box .ds-checkbox-mark--check {
+  display: none;
+}
+
+.ds-checkbox-input:indeterminate + .ds-checkbox-box .ds-checkbox-mark--dash {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-checkbox-box {
+    transition: none;
+  }
+}
 
 /* components/combobox/component.css */
-/* Placeholder — combobox is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+/* Combobox — a text field that filters a listbox, for choosing from a set
+ * large enough to search. Extracted from the shipped Combobox primitive
+ * (src/renderer/src/components/ui/Combobox.tsx).
+ *
+ * Family contract with `select`: a select opens a closed set and has no
+ * query; a combobox exists because the set is too long to scan. Reach for
+ * this only when filtering is genuinely the point — a searchable four-item
+ * list is a select with a search box bolted on.
+ *
+ * The ARIA is the part the five bespoke versions each got differently, and
+ * it is the part that matters: THE INPUT IS THE COMBOBOX and keeps focus
+ * throughout, options are never focused, and the highlighted one is named by
+ * aria-activedescendant. That is what lets typing and arrowing work at the
+ * same time — moving real focus onto an option takes it off the field, and
+ * the next keystroke goes nowhere.
+ *
+ * One shape: a trigger opens a surface carrying the field above the list.
+ * There is deliberately no inline-field variant — the popover engine owns
+ * anchoring, flipping, clamping and outside-click, and an inline field would
+ * have to either fight that contract or hand-roll a second popover shell. A
+ * caller wanting the field to BE the control passes a full-width trigger
+ * styled as one; the list still opens on the shared engine.
+ *
+ * The surface itself is `popover` — this file styles only what rides on it. */
+
+/* ── Trigger ─────────────────────────────────────────────────────────────
+ * The default: a full-width button reading as a field. Muted ink, because
+ * what it shows is a prompt rather than a chosen value. */
+.ds-combobox-trigger {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ds-combobox-trigger:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* ── Field ───────────────────────────────────────────────────────────────
+ * The query field sits ABOVE the list inside the surface, divided from it by
+ * a hairline: the person is typing at the thing they are filtering, and a
+ * field docked at the bottom would put the caret below the rows it moves. */
+.ds-combobox-field {
+  padding: var(--sem-space-2xs);
+  border-bottom: 1px solid var(--sem-color-border-subtle);
+}
+
+.ds-combobox-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-combobox-input::placeholder {
+  color: var(--sem-color-text-disabled);
+}
+
+/* Focus is the ring and only the ring — and it stays on this field for the
+ * whole life of the popup, however far the highlight has arrowed down the
+ * list. A ring that moves onto an option is the bug this contract prevents. */
+.ds-combobox-input:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* ── Listbox ─────────────────────────────────────────────────────────────
+ * Capped and scrolling past roughly ten rows: a filtered list that grows
+ * past the viewport has stopped being a list of candidates. A cap, not a
+ * spacing step. */
+.ds-combobox-listbox {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--sem-space-2xs);
+}
+
+.ds-combobox-option {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-2xs) var(--sem-space-sm);
+  border-radius: var(--sem-radius-control);
+  color: var(--sem-color-text-default);
+  font-size: var(--sem-font-size-meta);
+  cursor: pointer;
+}
+
+/* Active tracks the keyboard and the pointer through ONE treatment, so there
+ * is never a hovered row and a different arrowed row lit at once. The state
+ * lives in aria-selected; the paint is its echo, which is why the selector
+ * reads off the attribute rather than a parallel class. */
+.ds-combobox-option[aria-selected='true'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+/* Disabled rows are skipped by the arrow keys rather than parked on, so this
+ * is the resting look of a row the highlight will step over. */
+.ds-combobox-option[aria-disabled='true'] {
+  color: var(--sem-color-text-disabled);
+  cursor: not-allowed;
+}
+
+.ds-combobox-option[aria-disabled='true'][aria-selected='true'] {
+  background: transparent;
+  color: var(--sem-color-text-disabled);
+}
+
+.ds-combobox-option-icon {
+  display: flex;
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  align-items: center;
+  justify-content: center;
+}
+
+/* The label takes the slack and truncates; the hint never does. A hint is
+ * short by construction, and a truncated one ("clau…") says nothing. */
+.ds-combobox-option-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-combobox-option-hint {
+  flex: none;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-subtle);
+}
+
+/* Group headings are decoration over a flat option list — consecutive
+ * options sharing a group get one. Hidden from assistive tech: the listbox
+ * is flat to a screen reader, and a heading announced as an option would be
+ * a row that cannot be chosen. */
+.ds-combobox-group {
+  padding: var(--sem-space-sm) var(--sem-space-sm) var(--sem-space-2xs);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-subtle);
+}
+
+/* No matches. Readable ink, and phrased about the query rather than about
+ * the list — "no matches" in an empty popup tells the person nothing they
+ * did not already see. */
+.ds-combobox-empty {
+  margin: 0;
+  padding: var(--sem-space-sm);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
 
 /* components/definition-list/component.css */
 /* Definition list — label/value pairs for the facts a detail pane, dialog,
@@ -1178,8 +1581,94 @@ code {
 }
 
 /* components/empty-state/component.css */
-/* Placeholder — empty-state is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+/* Empty state — what a surface shows when it has nothing to show. Extracted
+ * from the shipped EmptyState primitive
+ * (src/renderer/src/components/ui/EmptyState.tsx).
+ *
+ * A glyph, one sentence, an optional second line, and at most one call to
+ * action — never a dead end on a first-run surface, and never two competing
+ * things to do.
+ *
+ * Two densities, because the five hand-rolls this replaced were doing two
+ * genuinely different jobs: `pane` fills a region where content would be,
+ * `list` sits inside a list that came back empty.
+ *
+ * No accent disc. A door's first-run canvas earns a prominent accent
+ * treatment; a list that filtered down to nothing does not, and giving every
+ * empty list one would spend the accent budget on absence. */
+
+.ds-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: var(--sem-font-family-ui);
+  text-align: center;
+}
+
+/* Pane — a region with nothing in it: no workspace open, nothing selected.
+ * Fills the height it is given and centres in it, with room around the copy.
+ * The vertical padding is the scale's top step; the source's 40px was a
+ * local value, and a missing step is a token change rather than a licence to
+ * write one here. */
+.ds-empty-state--pane {
+  height: 100%;
+  justify-content: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-4xl) var(--sem-space-3xl);
+}
+
+/* List — inside a list that came back empty. Top-aligned and compact, so it
+ * reads as "this list is empty" rather than as a page of its own. */
+.ds-empty-state--list {
+  gap: var(--sem-space-2xs);
+  padding: var(--sem-space-4xl) var(--sem-space-lg);
+}
+
+/* The glyph slot is a SIZE, not a ceiling: icon.size.lg is the step whose own
+ * token documentation names empty-state glyphs as its use, and a glyph on the
+ * ramp lands exactly on it. An illustration that is deliberately larger sets
+ * its own box rather than overflowing a fixed one into the title. */
+.ds-empty-state-glyph {
+  display: flex;
+  min-width: var(--sem-icon-size-lg);
+  min-height: var(--sem-icon-size-lg);
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--sem-space-2xs);
+  color: var(--sem-color-text-subtle);
+}
+
+/* The one sentence. Readable ink, never text.disabled — this is copy meant to
+ * be read, not a greyed-out control. One hand-roll rendered its sentence
+ * disabled, beside the only thing on screen you could actually do.
+ *
+ * The measure is a reading width, not a spacing step: past roughly 46
+ * characters a centred line stops scanning as a single thought. */
+.ds-empty-state-title {
+  max-width: 46ch;
+  margin: 0;
+  font-size: var(--sem-font-size-body);
+  color: var(--sem-color-text-muted);
+}
+
+/* The optional second line: why it is empty, or what would fill it. A step
+ * quieter than the title, so the two read in order rather than competing. */
+.ds-empty-state-body {
+  max-width: 46ch;
+  margin: 0;
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-relaxed);
+  color: var(--sem-color-text-subtle);
+}
+
+/* At most one action. The row exists because an action sometimes travels with
+ * a quiet secondary link; it is not an invitation to a button bar. */
+.ds-empty-state-action {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  margin-top: var(--sem-space-sm);
+}
 
 /* components/field/component.css */
 /* Field — the form row: label, one control, at most one supporting message
@@ -3740,8 +4229,93 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 }
 
 /* components/table/component.css */
-/* Placeholder — table is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+/* Table — the shared header/row/cell chrome for genuinely tabular data:
+ * columns of values compared across rows. Extracted from the shipped Table
+ * primitive (src/renderer/src/components/ui/Table.tsx).
+ *
+ * Family contract with `list-row`: a list-row is a pick-an-item row and its
+ * columns are decoration; a table's columns are the point, because the reader
+ * is comparing down them. Configurable rows — avatars, pickers, per-row
+ * toggles — are neither, and a real <table> is the wrong shape for them.
+ *
+ * Real <table> semantics throughout. The div-grid variant this replaced reads
+ * to a screen reader as a stack of unrelated cells, with no row/column
+ * association and no header relationship — the one difference between the
+ * three hand-rolls that was a defect rather than a preference.
+ *
+ * What is shared here is exactly the chrome; nothing about the data model. */
+
+.ds-table {
+  border-collapse: collapse;
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-table:not(.ds-table--fixed) {
+  width: 100%;
+}
+
+/* Fixed takes column widths from a <colgroup> instead of auto-sizing to
+ * content. Set it when several tables must share one set of tracks — that is
+ * what keeps a stack of them reading as one grid. */
+.ds-table--fixed {
+  table-layout: fixed;
+}
+
+/* Header cells are sticky by default. Every one of these tables sits in a
+ * scrollport, and a header that scrolls away turns the numbers beneath it
+ * into unlabelled figures.
+ *
+ * The ground is not decoration: without it, rows show through the header as
+ * they pass under it. z.sticky is the ramp's own tier for pinned in-flow
+ * chrome — a header held above its own rows, not an overlay layer. */
+.ds-table-head {
+  position: sticky;
+  top: 0;
+  z-index: var(--sem-z-sticky);
+  padding: var(--sem-space-xs) var(--sem-space-sm);
+  border-bottom: 1px solid var(--sem-color-border-default);
+  background: var(--sem-color-bg-surface);
+  font-weight: var(--sem-font-weight-medium);
+  color: var(--sem-color-text-muted);
+  text-align: left;
+}
+
+/* For a table short enough that it never scrolls. It drops the ground with
+ * the pinning: a painted header on a table that cannot scroll is a band of
+ * colour doing no work. */
+.ds-table-head--static {
+  position: static;
+  background: transparent;
+}
+
+.ds-table-cell {
+  padding: var(--sem-space-2xs) var(--sem-space-sm);
+  color: var(--sem-color-text-default);
+  text-align: left;
+}
+
+/* Numeric columns right-align and take tabular figures, so digits line up
+ * down the column and a changing value does not reflow the row.
+ *
+ * Tabular figures in the UI face, not the mono family: the UI face already
+ * has them, and switching family mid-row is a louder change than the
+ * alignment it buys, in a row whose labels are UI-face. */
+.ds-table-head--numeric {
+  text-align: right;
+}
+
+.ds-table-cell--numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Body rows are hairline-separated in the one divider token — the quieter of
+ * the two, so the header's rule stays the strongest horizontal line and the
+ * body reads as a field rather than a grid of boxes. */
+.ds-table-row {
+  border-bottom: 1px solid var(--sem-color-border-subtle);
+}
 
 /* components/tabs/component.css */
 /* Tabs — the view switcher inside a panel. Extracted from the shipped Tabs
@@ -4284,12 +4858,66 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-badge {
     margin: 0;
     font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-badge .demo-stage {
+    padding: var(--sem-space-3xl);
     background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-badge .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-badge .demo-pane {
+    max-width: 380px;
+    margin-bottom: var(--sem-space-lg);
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+.ds-embed-component-badge .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-xs) var(--sem-space-md);
+    border-radius: var(--sem-radius-control);
+    font-size: var(--sem-font-size-body);
+  }
+.ds-embed-component-badge .demo-row-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+.ds-embed-component-badge .demo-row-spacer {
+    margin-left: auto;
+  }
+.ds-embed-component-badge .demo-trigger {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--sem-size-control-sm);
+    height: var(--sem-size-control-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface-raised);
     color: var(--sem-color-text-muted);
   }
-.ds-embed-component-badge .planned-note {
-    padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+.ds-embed-component-badge .demo-triggers {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-xl);
+    padding: var(--sem-space-sm) var(--sem-space-md);
+  }
+.ds-embed-component-badge .demo-inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-sm) var(--sem-space-md);
   }
 .ds-embed-component-banner {
     margin: 0;
@@ -4377,22 +5005,57 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-checkbox {
     margin: 0;
     font-family: var(--sem-font-family-ui);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-muted);
   }
-.ds-embed-component-checkbox .planned-note {
+.ds-embed-component-checkbox .demo-stage {
     padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-checkbox .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-checkbox .demo-pane {
+    max-width: 380px;
+    margin-bottom: var(--sem-space-lg);
+    padding: var(--sem-space-md);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+.ds-embed-component-checkbox .demo-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-md);
+  }
+.ds-embed-component-checkbox .demo-nested {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-md);
+    padding-left: var(--sem-space-3xl);
   }
 .ds-embed-component-combobox {
     margin: 0;
     font-family: var(--sem-font-family-ui);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-muted);
   }
-.ds-embed-component-combobox .planned-note {
+.ds-embed-component-combobox .demo-stage {
     padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-combobox .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-combobox .demo-column {
+    max-width: 300px;
+    margin-bottom: var(--sem-space-3xl);
+  }
+.ds-embed-component-combobox .demo-surface {
+    position: static;
+    margin-top: var(--sem-space-2xs);
   }
 .ds-embed-component-definition-list {
     margin: 0;
@@ -4490,12 +5153,40 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-empty-state {
     margin: 0;
     font-family: var(--sem-font-family-ui);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-muted);
   }
-.ds-embed-component-empty-state .planned-note {
+.ds-embed-component-empty-state .demo-stage {
     padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-empty-state .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-empty-state .demo-region {
+    max-width: 420px;
+    height: 280px;
+    margin-bottom: var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+.ds-embed-component-empty-state .demo-list {
+    max-width: 420px;
+    margin-bottom: var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+.ds-embed-component-empty-state .demo-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sem-space-sm) var(--sem-space-md);
+    border-bottom: 1px solid var(--sem-color-border-subtle);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
   }
 .ds-embed-component-field {
     margin: 0;
@@ -5505,12 +6196,32 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-table {
     margin: 0;
     font-family: var(--sem-font-family-ui);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-muted);
   }
-.ds-embed-component-table .planned-note {
+.ds-embed-component-table .demo-stage {
     padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-table .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-table .demo-pane {
+    max-width: 520px;
+    margin-bottom: var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+.ds-embed-component-table .demo-scrollport {
+    max-height: 180px;
+    overflow-y: auto;
+  }
+.ds-embed-component-table .demo-name {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
   }
 .ds-embed-component-tabs {
     margin: 0;
@@ -6661,7 +7372,133 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h3>Badge</h3>
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-badge">
-<p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — labels: the tone classifies the row, the ink stays readable. One badge per row.</p>
+  <div class="demo-pane">
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2117 · Component kit</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--good">Merged</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2138 · Canon survivors</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--accent">In review</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2139 · Renderer tests</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--warn">Blocked</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2140 · Tracker write-back</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--danger">Failing</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2141 · Overlay geometry</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label">Draft</span>
+    </div>
+  </div>
+
+  <p class="demo-label">Counts — one digit is a circle, two grow it into a pill, and the figures are tabular so 9 → 10 does not shift the row.</p>
+  <div class="demo-pane">
+    <div class="demo-inline">
+      <span class="ds-badge-count" role="status" aria-label="3 unread">3</span>
+      <span class="ds-badge-count" role="status" aria-label="12 unread">12</span>
+      <span class="ds-badge-count" role="status" aria-label="More than 99 unread">99+</span>
+      <span class="ds-badge-count ds-badge-count--accent" role="status" aria-label="4 running">4</span>
+      <span class="ds-badge-count ds-badge-count--warn" role="status" aria-label="2 degraded">2</span>
+      <span class="ds-badge-count ds-badge-count--danger" role="status" aria-label="1 failing">1</span>
+    </div>
+  </div>
+
+  <p class="demo-label">Corner — docked to a trigger, with a hairline in the ground behind it so the count reads as sitting on the control.</p>
+  <div class="demo-pane">
+    <div class="demo-triggers">
+      <span class="demo-trigger">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <path d="M4 6.5a4 4 0 0 1 8 0c0 3 1 4 1 4H3s1-1 1-4Z" stroke-linejoin="round" />
+          <path d="M6.5 13a1.6 1.6 0 0 0 3 0" stroke-linecap="round" />
+        </svg>
+        <span class="ds-badge-count ds-badge-count--corner ds-badge-count--accent" role="status" aria-label="5 notifications">5</span>
+      </span>
+      <span class="demo-trigger">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <circle cx="4.5" cy="4" r="1.8" />
+          <circle cx="4.5" cy="12" r="1.8" />
+          <circle cx="11.5" cy="8" r="1.8" />
+          <path d="M4.5 5.8v4.4M6.3 4h2.4a1.6 1.6 0 0 1 1.6 1.6v.8" stroke-linecap="round" />
+        </svg>
+        <span class="ds-badge-count ds-badge-count--corner ds-badge-count--warn" role="status" aria-label="12 uncommitted changes">12</span>
+      </span>
+      <span class="demo-trigger">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <rect x="2.5" y="3.5" width="11" height="9" rx="1.5" />
+          <path d="M2.5 6h11" />
+        </svg>
+        <!-- Repeats the adjacent count in the row's own text, so it is hidden
+             from assistive tech rather than read twice. -->
+        <span class="ds-badge-count ds-badge-count--corner" aria-hidden="true">7</span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same two species, retuned by the tokens. The soft fills carry the tone; the ink does not change.</p>
+  <div class="demo-pane">
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2117 · Component kit</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--good">Merged</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2138 · Canon survivors</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--accent">In review</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2139 · Renderer tests</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--warn">Blocked</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2141 · Overlay geometry</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label">Draft</span>
+    </div>
+  </div>
+
+  <div class="demo-pane">
+    <div class="demo-inline">
+      <span class="ds-badge-count" role="status" aria-label="3 unread">3</span>
+      <span class="ds-badge-count ds-badge-count--accent" role="status" aria-label="4 running">4</span>
+      <span class="ds-badge-count ds-badge-count--good" role="status" aria-label="8 passing">8</span>
+      <span class="ds-badge-count ds-badge-count--danger" role="status" aria-label="More than 99 failing">99+</span>
+    </div>
+  </div>
+
+  <div class="demo-pane">
+    <div class="demo-triggers">
+      <span class="demo-trigger">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <path d="M4 6.5a4 4 0 0 1 8 0c0 3 1 4 1 4H3s1-1 1-4Z" stroke-linejoin="round" />
+          <path d="M6.5 13a1.6 1.6 0 0 0 3 0" stroke-linecap="round" />
+        </svg>
+        <span class="ds-badge-count ds-badge-count--corner ds-badge-count--accent" role="status" aria-label="5 notifications">5</span>
+      </span>
+      <span class="demo-trigger">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <rect x="2.5" y="3.5" width="11" height="9" rx="1.5" />
+          <path d="M2.5 6h11" />
+        </svg>
+        <span class="ds-badge-count ds-badge-count--corner ds-badge-count--warn" role="status" aria-label="12 pending">12</span>
+      </span>
+    </div>
+  </div>
+</div>
 </div>
 <div class="catalog-doc">
 <p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
@@ -6676,32 +7513,327 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>Never interactive, and never a second status idiom beside a <code>status-dot</code> that already says the same thing. A badge carrying meaning takes an <code>ariaLabel</code> (a bare &quot;3&quot; tells a screen reader nothing); one that merely repeats adjacent text is marked <code>decorative</code> so it is not read twice.</p>
 </div>
 </div>
-<details class="catalog-source"><summary>components/badge/component.css</summary><pre><code>/* Placeholder — badge is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+<details class="catalog-source"><summary>components/badge/component.css</summary><pre><code>/* Badge — the small display-only mark: a count docked on a control, or a
+ * tone-carrying word sitting on a row. Extracted from the shipped Badge
+ * primitive (src/renderer/src/components/ui/Badge.tsx).
+ *
+ * Two species under one name, because the audit found two hiding under the
+ * one word: a numeric COUNT (solid tone, on-accent ink) and a LABEL chip
+ * (soft tone fill with a matching hairline, muted ink). They share a size
+ * and a radius and nothing else, so they are two classes rather than one
+ * class with a variant that swaps every property.
+ *
+ * Never interactive — a badge is a readout, and a clickable one is a button
+ * wearing a badge. Never a second status idiom beside a status-dot that
+ * already says the same thing. */
+
+/* ── Count ───────────────────────────────────────────────────────────────
+ * The 16px box every shipped counter converged on, stated in the space
+ * scale's own step for it. `min-width` with symmetric padding is what keeps
+ * one digit circular and grows two into a pill instead of clipping. */
+.ds-badge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: var(--sem-space-xl);
+  min-width: var(--sem-space-xl);
+  padding: 0 var(--sem-space-2xs);
+  /* Pill, not radius.chip: a one-digit counter has to be a circle for the
+     docked corner position to read as a badge rather than a clipped square.
+     radius.chip is the right token for a RECTANGULAR chip; this is not one. */
+  border-radius: 999px;
+  background: var(--sem-color-status-neutral);
+  /* text.on-accent is the token that means &quot;foreground for a filled
+     surface&quot;. The three counters this replaces each hardcoded the app
+     ground, which is legible only while the badge sits on a saturated
+     tone. */
+  color: var(--sem-color-text-on-accent);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
+  line-height: 1;
+  /* So 1 → 2 does not jog the row it is docked to. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Label ───────────────────────────────────────────────────────────────
+ * A short word about the row it sits on. Soft fill, tone hairline, muted
+ * ink: the tone classifies, the ink stays readable, and the chip never
+ * competes with the row's own text. */
+.ds-badge-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+  padding: 0 var(--sem-space-xs);
+  border: 1px solid var(--sem-color-status-neutral);
+  border-radius: 999px;
+  background: var(--sem-color-status-neutral-soft);
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-space-xl);
+}
+
+/* ── Tones ───────────────────────────────────────────────────────────────
+ * The status ramp plus the accent. A count takes the solid tone as its
+ * ground; a label takes the soft tone as its ground and the solid one as
+ * its edge. */
+.ds-badge-count--accent {
+  background: var(--sem-color-accent-primary);
+}
+.ds-badge-count--good {
+  background: var(--sem-color-status-good);
+}
+.ds-badge-count--warn {
+  background: var(--sem-color-status-warn);
+}
+.ds-badge-count--danger {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-badge-label--accent {
+  border-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-accent-soft);
+}
+.ds-badge-label--good {
+  border-color: var(--sem-color-status-good);
+  background: var(--sem-color-status-good-soft);
+}
+.ds-badge-label--warn {
+  border-color: var(--sem-color-status-warn);
+  background: var(--sem-color-status-warn-soft);
+}
+.ds-badge-label--danger {
+  border-color: var(--sem-color-status-danger);
+  background: var(--sem-color-status-danger-soft);
+}
+
+/* ── Corner ──────────────────────────────────────────────────────────────
+ * Docks the count to the top-right of a positioned trigger, with a border
+ * in the ground behind it so the badge reads as sitting ON the control
+ * rather than inside it. The host must establish a positioning context.
+ *
+ * A ring spelled as a box-shadow would hold the box at exactly 16px, but
+ * the product's token lint forbids that spelling outright — and every
+ * counter this replaces already used a border, so this is their behaviour
+ * rather than a compromise introduced here. */
+.ds-badge-count--corner {
+  position: absolute;
+  top: calc(var(--sem-space-2xs) * -1);
+  right: calc(var(--sem-space-2xs) * -1);
+  border: 1px solid var(--sem-color-bg-app);
+}
 </code></pre></details>
 <details class="catalog-source"><summary>components/badge/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
 &lt;html lang=&quot;en&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
 &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
-&lt;title&gt;badge (planned)&lt;/title&gt;
+&lt;title&gt;Badge&lt;/title&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
 &lt;style&gt;
   body {
     margin: 0;
     font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
     background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-pane {
+    max-width: 380px;
+    margin-bottom: var(--sem-space-lg);
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  /* Rows a label badge actually lives on: the word sits after the item it
+     classifies, never as the row's own headline. */
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-xs) var(--sem-space-md);
+    border-radius: var(--sem-radius-control);
+    font-size: var(--sem-font-size-body);
+  }
+  .demo-row-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .demo-row-spacer {
+    margin-left: auto;
+  }
+  /* The corner count needs a positioned host — this is the trigger it docks
+     to, standing in for the notification bell and the git change count. */
+  .demo-trigger {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--sem-size-control-sm);
+    height: var(--sem-size-control-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface-raised);
     color: var(--sem-color-text-muted);
   }
-  .planned-note {
-    padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+  .demo-triggers {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-xl);
+    padding: var(--sem-space-sm) var(--sem-space-md);
+  }
+  .demo-inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-sm) var(--sem-space-md);
   }
 &lt;/style&gt;
 &lt;/head&gt;
 &lt;body&gt;
-&lt;p class=&quot;planned-note&quot;&gt;Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.&lt;/p&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — labels: the tone classifies the row, the ink stays readable. One badge per row.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-row-title&quot;&gt;MC-2117 · Component kit&lt;/span&gt;
+      &lt;span class=&quot;demo-row-spacer&quot;&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-label ds-badge-label--good&quot;&gt;Merged&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-row-title&quot;&gt;MC-2138 · Canon survivors&lt;/span&gt;
+      &lt;span class=&quot;demo-row-spacer&quot;&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-label ds-badge-label--accent&quot;&gt;In review&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-row-title&quot;&gt;MC-2139 · Renderer tests&lt;/span&gt;
+      &lt;span class=&quot;demo-row-spacer&quot;&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-label ds-badge-label--warn&quot;&gt;Blocked&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-row-title&quot;&gt;MC-2140 · Tracker write-back&lt;/span&gt;
+      &lt;span class=&quot;demo-row-spacer&quot;&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-label ds-badge-label--danger&quot;&gt;Failing&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-row-title&quot;&gt;MC-2141 · Overlay geometry&lt;/span&gt;
+      &lt;span class=&quot;demo-row-spacer&quot;&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-label&quot;&gt;Draft&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;Counts — one digit is a circle, two grow it into a pill, and the figures are tabular so 9 → 10 does not shift the row.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-inline&quot;&gt;
+      &lt;span class=&quot;ds-badge-count&quot; role=&quot;status&quot; aria-label=&quot;3 unread&quot;&gt;3&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-count&quot; role=&quot;status&quot; aria-label=&quot;12 unread&quot;&gt;12&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-count&quot; role=&quot;status&quot; aria-label=&quot;More than 99 unread&quot;&gt;99+&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-count ds-badge-count--accent&quot; role=&quot;status&quot; aria-label=&quot;4 running&quot;&gt;4&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-count ds-badge-count--warn&quot; role=&quot;status&quot; aria-label=&quot;2 degraded&quot;&gt;2&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-count ds-badge-count--danger&quot; role=&quot;status&quot; aria-label=&quot;1 failing&quot;&gt;1&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;Corner — docked to a trigger, with a hairline in the ground behind it so the count reads as sitting on the control.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-triggers&quot;&gt;
+      &lt;span class=&quot;demo-trigger&quot;&gt;
+        &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;path d=&quot;M4 6.5a4 4 0 0 1 8 0c0 3 1 4 1 4H3s1-1 1-4Z&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;path d=&quot;M6.5 13a1.6 1.6 0 0 0 3 0&quot; stroke-linecap=&quot;round&quot; /&gt;
+        &lt;/svg&gt;
+        &lt;span class=&quot;ds-badge-count ds-badge-count--corner ds-badge-count--accent&quot; role=&quot;status&quot; aria-label=&quot;5 notifications&quot;&gt;5&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;demo-trigger&quot;&gt;
+        &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;circle cx=&quot;4.5&quot; cy=&quot;4&quot; r=&quot;1.8&quot; /&gt;
+          &lt;circle cx=&quot;4.5&quot; cy=&quot;12&quot; r=&quot;1.8&quot; /&gt;
+          &lt;circle cx=&quot;11.5&quot; cy=&quot;8&quot; r=&quot;1.8&quot; /&gt;
+          &lt;path d=&quot;M4.5 5.8v4.4M6.3 4h2.4a1.6 1.6 0 0 1 1.6 1.6v.8&quot; stroke-linecap=&quot;round&quot; /&gt;
+        &lt;/svg&gt;
+        &lt;span class=&quot;ds-badge-count ds-badge-count--corner ds-badge-count--warn&quot; role=&quot;status&quot; aria-label=&quot;12 uncommitted changes&quot;&gt;12&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;demo-trigger&quot;&gt;
+        &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;rect x=&quot;2.5&quot; y=&quot;3.5&quot; width=&quot;11&quot; height=&quot;9&quot; rx=&quot;1.5&quot; /&gt;
+          &lt;path d=&quot;M2.5 6h11&quot; /&gt;
+        &lt;/svg&gt;
+        &lt;!-- Repeats the adjacent count in the row's own text, so it is hidden
+             from assistive tech rather than read twice. --&gt;
+        &lt;span class=&quot;ds-badge-count ds-badge-count--corner&quot; aria-hidden=&quot;true&quot;&gt;7&lt;/span&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same two species, retuned by the tokens. The soft fills carry the tone; the ink does not change.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-row-title&quot;&gt;MC-2117 · Component kit&lt;/span&gt;
+      &lt;span class=&quot;demo-row-spacer&quot;&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-label ds-badge-label--good&quot;&gt;Merged&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-row-title&quot;&gt;MC-2138 · Canon survivors&lt;/span&gt;
+      &lt;span class=&quot;demo-row-spacer&quot;&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-label ds-badge-label--accent&quot;&gt;In review&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-row-title&quot;&gt;MC-2139 · Renderer tests&lt;/span&gt;
+      &lt;span class=&quot;demo-row-spacer&quot;&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-label ds-badge-label--warn&quot;&gt;Blocked&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-row-title&quot;&gt;MC-2141 · Overlay geometry&lt;/span&gt;
+      &lt;span class=&quot;demo-row-spacer&quot;&gt;&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-label&quot;&gt;Draft&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-inline&quot;&gt;
+      &lt;span class=&quot;ds-badge-count&quot; role=&quot;status&quot; aria-label=&quot;3 unread&quot;&gt;3&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-count ds-badge-count--accent&quot; role=&quot;status&quot; aria-label=&quot;4 running&quot;&gt;4&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-count ds-badge-count--good&quot; role=&quot;status&quot; aria-label=&quot;8 passing&quot;&gt;8&lt;/span&gt;
+      &lt;span class=&quot;ds-badge-count ds-badge-count--danger&quot; role=&quot;status&quot; aria-label=&quot;More than 99 failing&quot;&gt;99+&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-triggers&quot;&gt;
+      &lt;span class=&quot;demo-trigger&quot;&gt;
+        &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;path d=&quot;M4 6.5a4 4 0 0 1 8 0c0 3 1 4 1 4H3s1-1 1-4Z&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;path d=&quot;M6.5 13a1.6 1.6 0 0 0 3 0&quot; stroke-linecap=&quot;round&quot; /&gt;
+        &lt;/svg&gt;
+        &lt;span class=&quot;ds-badge-count ds-badge-count--corner ds-badge-count--accent&quot; role=&quot;status&quot; aria-label=&quot;5 notifications&quot;&gt;5&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;demo-trigger&quot;&gt;
+        &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;rect x=&quot;2.5&quot; y=&quot;3.5&quot; width=&quot;11&quot; height=&quot;9&quot; rx=&quot;1.5&quot; /&gt;
+          &lt;path d=&quot;M2.5 6h11&quot; /&gt;
+        &lt;/svg&gt;
+        &lt;span class=&quot;ds-badge-count ds-badge-count--corner ds-badge-count--warn&quot; role=&quot;status&quot; aria-label=&quot;12 pending&quot;&gt;12&lt;/span&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>
@@ -7750,39 +8882,561 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h3>Checkbox</h3>
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-checkbox">
-<p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a form's checkboxes: marked now, read when the form is submitted.</p>
+  <div class="demo-pane">
+    <div class="demo-stack">
+      <label class="ds-checkbox">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" checked />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        Run the test suite before opening the pull request
+      </label>
+
+      <label class="ds-checkbox">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        Delete the worktree when the run finishes
+      </label>
+
+      <label class="ds-checkbox">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" checked disabled />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        Isolate the run in a worktree — required by this project
+      </label>
+    </div>
+  </div>
+
+  <p class="demo-label">Mixed — the parent is neither on nor off while some of its children are. Indeterminate is a DOM property, not an attribute, so it is set below in script; there is no HTML spelling for it.</p>
+  <div class="demo-pane">
+    <div class="demo-stack">
+      <label class="ds-checkbox ds-checkbox--body">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" data-demo-indeterminate />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        All gates
+      </label>
+
+      <div class="demo-nested">
+        <label class="ds-checkbox">
+          <span class="ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          Typecheck
+        </label>
+        <label class="ds-checkbox">
+          <span class="ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          Lint
+        </label>
+        <label class="ds-checkbox">
+          <span class="ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          Renderer tests
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <p class="demo-label">No visible label — the control is named by aria-label instead. Correct only when the surrounding layout already makes the meaning obvious.</p>
+  <div class="demo-pane">
+    <label class="ds-checkbox">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" type="checkbox" aria-label="Select this row" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the box grounds on the app colour rather than the surface it sits on, so it reads as a well at any depth.</p>
+  <div class="demo-pane">
+    <div class="demo-stack">
+      <label class="ds-checkbox">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" checked />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        Run the test suite before opening the pull request
+      </label>
+      <label class="ds-checkbox">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" data-demo-indeterminate />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        All gates
+      </label>
+      <label class="ds-checkbox">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" disabled />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        Publish to the shared registry — unavailable on this plan
+      </label>
+    </div>
+  </div>
+</div>
 </div>
 <div class="catalog-doc">
 <p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
 <p>The one-of-a-set form control: a value the person marks now and submits later. The <code>switch</code> entry already draws the line — a switch commits immediately, a checkbox belongs to a form — and today the checkbox side of that line has no primitive. Five hand-rolled <code>type=&quot;checkbox&quot;</code> stylings ship in the product (<code>learn/TipStartupModal.tsx</code>, <code>settings/TrackerWriteBackSettings.tsx</code> — the styled-peer control that motivated <code>FOCUS_RING_PEER_CLASS</code> — <code>workspace/NewWorkspacePanel.tsx</code>, <code>panels/SprintEngineBoardPanel.tsx</code>, <code>worktree/WorktreeManager.tsx</code>), each with its own box chrome and focus treatment. This entry replaces all five with one token-backed control: <code>radius.chip</code> box, <code>accent.primary</code> checked fill, the shared focus ring, and a real <code>&lt;label&gt;</code>.</p>
 </div>
 </div>
-<details class="catalog-source"><summary>components/checkbox/component.css</summary><pre><code>/* Placeholder — checkbox is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+<details class="catalog-source"><summary>components/checkbox/component.css</summary><pre><code>/* Checkbox — the one-of-a-set form control: a value the person marks now and
+ * submits later. Extracted from the shipped Checkbox primitive
+ * (src/renderer/src/components/ui/Checkbox.tsx).
+ *
+ * Family contract with `switch`: a switch commits immediately and needs no
+ * confirm; a checkbox belongs to a form and is read when the form is. Picking
+ * between them is a question about when the change takes effect, not about
+ * how the control looks.
+ *
+ * The native input stays and does the work — semantics, the tab stop, the
+ * indeterminate state, form participation. The visible box is decorative and
+ * hidden from assistive tech. Nothing here re-implements a checkbox; it
+ * dresses one. */
+
+.ds-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  font-family: var(--sem-font-family-ui);
+  /* meta by default; --body for form rows sitting among other 13px controls. */
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ds-checkbox--body {
+  font-size: var(--sem-font-size-body);
+}
+
+/* The positioning context the transparent input fills. */
+.ds-checkbox-control {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  align-items: center;
+  justify-content: center;
+}
+
+/* Transparent, but present and full-size: it is the tab stop, the hit target
+ * and the semantics. Hiding it with `display: none` would take the keyboard
+ * path with it. */
+.ds-checkbox-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.ds-checkbox-box {
+  display: inline-flex;
+  box-sizing: border-box;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-app);
+  color: var(--sem-color-text-on-accent);
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Marked — checked or indeterminate. Both are &quot;this box is carrying a value&quot;,
+ * and both take the accent fill; only the glyph inside differs. */
+.ds-checkbox-input:checked + .ds-checkbox-box,
+.ds-checkbox-input:indeterminate + .ds-checkbox-box {
+  border-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-accent-primary);
+}
+
+/* Focus is the ring, and it lands on the box: the input is the tab stop, but
+ * it is invisible, so the treatment shows on what the person can see. An
+ * outline's gap needs no ring-offset colour, which is why this is right on
+ * every surface — the hand-roll it replaces pinned its offset to one surface
+ * token and was wrong on the others. */
+.ds-checkbox-input:focus-visible + .ds-checkbox-box {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-checkbox-input:disabled + .ds-checkbox-box {
+  opacity: 0.45;
+}
+
+.ds-checkbox:has(.ds-checkbox-input:disabled) {
+  color: var(--sem-color-text-disabled);
+  cursor: not-allowed;
+}
+
+/* ── Glyphs ──────────────────────────────────────────────────────────────
+ * One box, two marks, and the input's own state chooses between them: a
+ * tick for checked, a dash for the mixed state. Neither is present at rest,
+ * so an unmarked box is genuinely empty rather than holding a hidden glyph
+ * at zero opacity. */
+.ds-checkbox-mark {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  display: none;
+}
+
+.ds-checkbox-input:checked + .ds-checkbox-box .ds-checkbox-mark--check {
+  display: block;
+}
+
+/* Indeterminate wins over checked: a box that is both is showing a mixed
+ * set, and the dash is what says so. */
+.ds-checkbox-input:indeterminate + .ds-checkbox-box .ds-checkbox-mark--check {
+  display: none;
+}
+
+.ds-checkbox-input:indeterminate + .ds-checkbox-box .ds-checkbox-mark--dash {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-checkbox-box {
+    transition: none;
+  }
+}
 </code></pre></details>
 <details class="catalog-source"><summary>components/checkbox/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
 &lt;html lang=&quot;en&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
 &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
-&lt;title&gt;checkbox (planned)&lt;/title&gt;
+&lt;title&gt;Checkbox&lt;/title&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
 &lt;style&gt;
   body {
     margin: 0;
     font-family: var(--sem-font-family-ui);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-muted);
   }
-  .planned-note {
+  .demo-stage {
     padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-pane {
+    max-width: 380px;
+    margin-bottom: var(--sem-space-lg);
+    padding: var(--sem-space-md);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  .demo-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-md);
+  }
+  /* The parent-and-children shape the indeterminate state exists for: the
+     parent is mixed while some but not all of its children are on. */
+  .demo-nested {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-md);
+    padding-left: var(--sem-space-3xl);
   }
 &lt;/style&gt;
 &lt;/head&gt;
 &lt;body&gt;
-&lt;p class=&quot;planned-note&quot;&gt;Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.&lt;/p&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a form's checkboxes: marked now, read when the form is submitted.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-stack&quot;&gt;
+      &lt;label class=&quot;ds-checkbox&quot;&gt;
+        &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+          &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; checked /&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+        Run the test suite before opening the pull request
+      &lt;/label&gt;
+
+      &lt;label class=&quot;ds-checkbox&quot;&gt;
+        &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+          &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; /&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+        Delete the worktree when the run finishes
+      &lt;/label&gt;
+
+      &lt;label class=&quot;ds-checkbox&quot;&gt;
+        &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+          &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; checked disabled /&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+        Isolate the run in a worktree — required by this project
+      &lt;/label&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;Mixed — the parent is neither on nor off while some of its children are. Indeterminate is a DOM property, not an attribute, so it is set below in script; there is no HTML spelling for it.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-stack&quot;&gt;
+      &lt;label class=&quot;ds-checkbox ds-checkbox--body&quot;&gt;
+        &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+          &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; data-demo-indeterminate /&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+        All gates
+      &lt;/label&gt;
+
+      &lt;div class=&quot;demo-nested&quot;&gt;
+        &lt;label class=&quot;ds-checkbox&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+            &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; checked /&gt;
+            &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+          &lt;/span&gt;
+          Typecheck
+        &lt;/label&gt;
+        &lt;label class=&quot;ds-checkbox&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+            &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; checked /&gt;
+            &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+          &lt;/span&gt;
+          Lint
+        &lt;/label&gt;
+        &lt;label class=&quot;ds-checkbox&quot;&gt;
+          &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+            &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; /&gt;
+            &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+          &lt;/span&gt;
+          Renderer tests
+        &lt;/label&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;No visible label — the control is named by aria-label instead. Correct only when the surrounding layout already makes the meaning obvious.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;label class=&quot;ds-checkbox&quot;&gt;
+      &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+        &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; aria-label=&quot;Select this row&quot; /&gt;
+        &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+          &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+            &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/span&gt;
+      &lt;/span&gt;
+    &lt;/label&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the box grounds on the app colour rather than the surface it sits on, so it reads as a well at any depth.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-stack&quot;&gt;
+      &lt;label class=&quot;ds-checkbox&quot;&gt;
+        &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+          &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; checked /&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+        Run the test suite before opening the pull request
+      &lt;/label&gt;
+      &lt;label class=&quot;ds-checkbox&quot;&gt;
+        &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+          &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; data-demo-indeterminate /&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+        All gates
+      &lt;/label&gt;
+      &lt;label class=&quot;ds-checkbox&quot;&gt;
+        &lt;span class=&quot;ds-checkbox-control&quot;&gt;
+          &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; disabled /&gt;
+          &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+            &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+              &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+        &lt;/span&gt;
+        Publish to the shared registry — unavailable on this plan
+      &lt;/label&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+  // The only thing this demo needs script for: `indeterminate` is a property
+  // on the element, with no HTML attribute to express it. A framework adapter
+  // sets it the same way, in an effect — see the shipped Checkbox.
+  for (const input of document.querySelectorAll('[data-demo-indeterminate]')) {
+    input.indeterminate = true
+  }
+&lt;/script&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>
@@ -7791,7 +9445,136 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h3>Combobox</h3>
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-combobox">
-<p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — closed. The trigger carries the popup ARIA; muted ink, because this is a prompt rather than a chosen value.</p>
+  <div class="demo-column">
+    <button type="button" class="ds-combobox-trigger" aria-haspopup="listbox" aria-expanded="false">
+      Choose a model…
+    </button>
+  </div>
+
+  <p class="demo-label">Open, mid-query. The field keeps focus and the ring; the highlight is on a row named by aria-activedescendant, not focused.</p>
+  <div class="demo-column">
+    <button type="button" class="ds-combobox-trigger" aria-haspopup="listbox" aria-expanded="true" aria-controls="model-listbox">
+      Choose a model…
+    </button>
+    <div class="ds-popover demo-surface">
+      <div class="ds-combobox-field">
+        <input
+          class="ds-combobox-input"
+          type="text"
+          role="combobox"
+          aria-label="Choose a model"
+          aria-expanded="true"
+          aria-controls="model-listbox"
+          aria-autocomplete="list"
+          aria-activedescendant="model-option-1"
+          value="op"
+          placeholder="Filter models…"
+        />
+      </div>
+      <div id="model-listbox" class="ds-combobox-listbox" role="listbox" aria-label="Choose a model">
+        <div class="ds-combobox-group" aria-hidden="true">Anthropic</div>
+        <div id="model-option-0" class="ds-combobox-option" role="option" aria-selected="false">
+          <span class="ds-combobox-option-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <path d="M8 2.5 13.5 13H2.5L8 2.5Z" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <span class="ds-combobox-option-label">Opus 5</span>
+          <span class="ds-combobox-option-hint">1M</span>
+        </div>
+        <div id="model-option-1" class="ds-combobox-option" role="option" aria-selected="true">
+          <span class="ds-combobox-option-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <path d="M8 2.5 13.5 13H2.5L8 2.5Z" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <span class="ds-combobox-option-label">Opus 4.8</span>
+          <span class="ds-combobox-option-hint">200K</span>
+        </div>
+        <div id="model-option-2" class="ds-combobox-option" role="option" aria-selected="false" aria-disabled="true">
+          <span class="ds-combobox-option-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <path d="M8 2.5 13.5 13H2.5L8 2.5Z" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <span class="ds-combobox-option-label">Opus 4.1 — retired</span>
+        </div>
+        <div class="ds-combobox-group" aria-hidden="true">Local</div>
+        <div id="model-option-3" class="ds-combobox-option" role="option" aria-selected="false">
+          <span class="ds-combobox-option-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+              <rect x="2.5" y="4.5" width="11" height="7" rx="1.5" />
+            </svg>
+          </span>
+          <span class="ds-combobox-option-label">operator-local-7b</span>
+          <span class="ds-combobox-option-hint">32K</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="demo-label">A query that matches nothing. The message names what was typed — “no matches”, in a popup showing no rows, tells the person nothing they cannot already see.</p>
+  <div class="demo-column">
+    <div class="ds-popover demo-surface">
+      <div class="ds-combobox-field">
+        <input
+          class="ds-combobox-input"
+          type="text"
+          role="combobox"
+          aria-label="Choose a model"
+          aria-expanded="true"
+          aria-controls="empty-listbox"
+          aria-autocomplete="list"
+          value="gpt"
+        />
+      </div>
+      <div id="empty-listbox" class="ds-combobox-listbox" role="listbox" aria-label="Choose a model">
+        <p class="ds-combobox-empty">No models match “gpt”.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — one highlight at a time: the arrowed row and the hovered row are the same treatment, so the list never shows two candidates.</p>
+  <div class="demo-column">
+    <div class="ds-popover demo-surface">
+      <div class="ds-combobox-field">
+        <input
+          class="ds-combobox-input"
+          type="text"
+          role="combobox"
+          aria-label="Assign to"
+          aria-expanded="true"
+          aria-controls="assignee-listbox"
+          aria-autocomplete="list"
+          aria-activedescendant="assignee-option-0"
+          value=""
+          placeholder="Filter people…"
+        />
+      </div>
+      <div id="assignee-listbox" class="ds-combobox-listbox" role="listbox" aria-label="Assign to">
+        <div id="assignee-option-0" class="ds-combobox-option" role="option" aria-selected="true">
+          <span class="ds-combobox-option-label">Planner</span>
+          <span class="ds-combobox-option-hint">agent</span>
+        </div>
+        <div id="assignee-option-1" class="ds-combobox-option" role="option" aria-selected="false">
+          <span class="ds-combobox-option-label">Implementer</span>
+          <span class="ds-combobox-option-hint">agent</span>
+        </div>
+        <div id="assignee-option-2" class="ds-combobox-option" role="option" aria-selected="false">
+          <span class="ds-combobox-option-label">Reviewer with a very long role name that has to truncate</span>
+          <span class="ds-combobox-option-hint">agent</span>
+        </div>
+        <div id="assignee-option-3" class="ds-combobox-option" role="option" aria-selected="false" aria-disabled="true">
+          <span class="ds-combobox-option-label">Release manager — no runtime configured</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 </div>
 <div class="catalog-doc">
 <p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
@@ -7804,32 +9587,345 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>No picker has adopted it yet.</strong> The five named above each carry behaviour past filter-plus-listbox — favourites, model families, an inline handle, their own selection models — so adoption means deciding, per picker, what moves into the primitive and what stays local. Tracked on MC-2117; rewriting them on assumption is how a shared primitive collects five escape hatches and stops being shared.</p>
 </div>
 </div>
-<details class="catalog-source"><summary>components/combobox/component.css</summary><pre><code>/* Placeholder — combobox is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+<details class="catalog-source"><summary>components/combobox/component.css</summary><pre><code>/* Combobox — a text field that filters a listbox, for choosing from a set
+ * large enough to search. Extracted from the shipped Combobox primitive
+ * (src/renderer/src/components/ui/Combobox.tsx).
+ *
+ * Family contract with `select`: a select opens a closed set and has no
+ * query; a combobox exists because the set is too long to scan. Reach for
+ * this only when filtering is genuinely the point — a searchable four-item
+ * list is a select with a search box bolted on.
+ *
+ * The ARIA is the part the five bespoke versions each got differently, and
+ * it is the part that matters: THE INPUT IS THE COMBOBOX and keeps focus
+ * throughout, options are never focused, and the highlighted one is named by
+ * aria-activedescendant. That is what lets typing and arrowing work at the
+ * same time — moving real focus onto an option takes it off the field, and
+ * the next keystroke goes nowhere.
+ *
+ * One shape: a trigger opens a surface carrying the field above the list.
+ * There is deliberately no inline-field variant — the popover engine owns
+ * anchoring, flipping, clamping and outside-click, and an inline field would
+ * have to either fight that contract or hand-roll a second popover shell. A
+ * caller wanting the field to BE the control passes a full-width trigger
+ * styled as one; the list still opens on the shared engine.
+ *
+ * The surface itself is `popover` — this file styles only what rides on it. */
+
+/* ── Trigger ─────────────────────────────────────────────────────────────
+ * The default: a full-width button reading as a field. Muted ink, because
+ * what it shows is a prompt rather than a chosen value. */
+.ds-combobox-trigger {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ds-combobox-trigger:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* ── Field ───────────────────────────────────────────────────────────────
+ * The query field sits ABOVE the list inside the surface, divided from it by
+ * a hairline: the person is typing at the thing they are filtering, and a
+ * field docked at the bottom would put the caret below the rows it moves. */
+.ds-combobox-field {
+  padding: var(--sem-space-2xs);
+  border-bottom: 1px solid var(--sem-color-border-subtle);
+}
+
+.ds-combobox-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-primary);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-combobox-input::placeholder {
+  color: var(--sem-color-text-disabled);
+}
+
+/* Focus is the ring and only the ring — and it stays on this field for the
+ * whole life of the popup, however far the highlight has arrowed down the
+ * list. A ring that moves onto an option is the bug this contract prevents. */
+.ds-combobox-input:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* ── Listbox ─────────────────────────────────────────────────────────────
+ * Capped and scrolling past roughly ten rows: a filtered list that grows
+ * past the viewport has stopped being a list of candidates. A cap, not a
+ * spacing step. */
+.ds-combobox-listbox {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--sem-space-2xs);
+}
+
+.ds-combobox-option {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-2xs) var(--sem-space-sm);
+  border-radius: var(--sem-radius-control);
+  color: var(--sem-color-text-default);
+  font-size: var(--sem-font-size-meta);
+  cursor: pointer;
+}
+
+/* Active tracks the keyboard and the pointer through ONE treatment, so there
+ * is never a hovered row and a different arrowed row lit at once. The state
+ * lives in aria-selected; the paint is its echo, which is why the selector
+ * reads off the attribute rather than a parallel class. */
+.ds-combobox-option[aria-selected='true'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+/* Disabled rows are skipped by the arrow keys rather than parked on, so this
+ * is the resting look of a row the highlight will step over. */
+.ds-combobox-option[aria-disabled='true'] {
+  color: var(--sem-color-text-disabled);
+  cursor: not-allowed;
+}
+
+.ds-combobox-option[aria-disabled='true'][aria-selected='true'] {
+  background: transparent;
+  color: var(--sem-color-text-disabled);
+}
+
+.ds-combobox-option-icon {
+  display: flex;
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  align-items: center;
+  justify-content: center;
+}
+
+/* The label takes the slack and truncates; the hint never does. A hint is
+ * short by construction, and a truncated one (&quot;clau…&quot;) says nothing. */
+.ds-combobox-option-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-combobox-option-hint {
+  flex: none;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-subtle);
+}
+
+/* Group headings are decoration over a flat option list — consecutive
+ * options sharing a group get one. Hidden from assistive tech: the listbox
+ * is flat to a screen reader, and a heading announced as an option would be
+ * a row that cannot be chosen. */
+.ds-combobox-group {
+  padding: var(--sem-space-sm) var(--sem-space-sm) var(--sem-space-2xs);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-subtle);
+}
+
+/* No matches. Readable ink, and phrased about the query rather than about
+ * the list — &quot;no matches&quot; in an empty popup tells the person nothing they
+ * did not already see. */
+.ds-combobox-empty {
+  margin: 0;
+  padding: var(--sem-space-sm);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
 </code></pre></details>
 <details class="catalog-source"><summary>components/combobox/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
 &lt;html lang=&quot;en&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
 &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
-&lt;title&gt;combobox (planned)&lt;/title&gt;
+&lt;title&gt;Combobox&lt;/title&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../popover/component.css&quot; /&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
 &lt;style&gt;
   body {
     margin: 0;
     font-family: var(--sem-font-family-ui);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-muted);
   }
-  .planned-note {
+  .demo-stage {
     padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-column {
+    max-width: 300px;
+    margin-bottom: var(--sem-space-3xl);
+  }
+  /* The surface is `position: fixed` in the product, anchored to its trigger.
+     Pinned in flow here, directly under the trigger it belongs to, so the
+     spec renders as a static page. */
+  .demo-surface {
+    position: static;
+    margin-top: var(--sem-space-2xs);
   }
 &lt;/style&gt;
 &lt;/head&gt;
 &lt;body&gt;
-&lt;p class=&quot;planned-note&quot;&gt;Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.&lt;/p&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — closed. The trigger carries the popup ARIA; muted ink, because this is a prompt rather than a chosen value.&lt;/p&gt;
+  &lt;div class=&quot;demo-column&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-combobox-trigger&quot; aria-haspopup=&quot;listbox&quot; aria-expanded=&quot;false&quot;&gt;
+      Choose a model…
+    &lt;/button&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;Open, mid-query. The field keeps focus and the ring; the highlight is on a row named by aria-activedescendant, not focused.&lt;/p&gt;
+  &lt;div class=&quot;demo-column&quot;&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-combobox-trigger&quot; aria-haspopup=&quot;listbox&quot; aria-expanded=&quot;true&quot; aria-controls=&quot;model-listbox&quot;&gt;
+      Choose a model…
+    &lt;/button&gt;
+    &lt;div class=&quot;ds-popover demo-surface&quot;&gt;
+      &lt;div class=&quot;ds-combobox-field&quot;&gt;
+        &lt;input
+          class=&quot;ds-combobox-input&quot;
+          type=&quot;text&quot;
+          role=&quot;combobox&quot;
+          aria-label=&quot;Choose a model&quot;
+          aria-expanded=&quot;true&quot;
+          aria-controls=&quot;model-listbox&quot;
+          aria-autocomplete=&quot;list&quot;
+          aria-activedescendant=&quot;model-option-1&quot;
+          value=&quot;op&quot;
+          placeholder=&quot;Filter models…&quot;
+        /&gt;
+      &lt;/div&gt;
+      &lt;div id=&quot;model-listbox&quot; class=&quot;ds-combobox-listbox&quot; role=&quot;listbox&quot; aria-label=&quot;Choose a model&quot;&gt;
+        &lt;div class=&quot;ds-combobox-group&quot; aria-hidden=&quot;true&quot;&gt;Anthropic&lt;/div&gt;
+        &lt;div id=&quot;model-option-0&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
+          &lt;span class=&quot;ds-combobox-option-icon&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;&gt;
+              &lt;path d=&quot;M8 2.5 13.5 13H2.5L8 2.5Z&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Opus 5&lt;/span&gt;
+          &lt;span class=&quot;ds-combobox-option-hint&quot;&gt;1M&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div id=&quot;model-option-1&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-combobox-option-icon&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;&gt;
+              &lt;path d=&quot;M8 2.5 13.5 13H2.5L8 2.5Z&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Opus 4.8&lt;/span&gt;
+          &lt;span class=&quot;ds-combobox-option-hint&quot;&gt;200K&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div id=&quot;model-option-2&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot; aria-disabled=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-combobox-option-icon&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;&gt;
+              &lt;path d=&quot;M8 2.5 13.5 13H2.5L8 2.5Z&quot; stroke-linejoin=&quot;round&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Opus 4.1 — retired&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-combobox-group&quot; aria-hidden=&quot;true&quot;&gt;Local&lt;/div&gt;
+        &lt;div id=&quot;model-option-3&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
+          &lt;span class=&quot;ds-combobox-option-icon&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;&gt;
+              &lt;rect x=&quot;2.5&quot; y=&quot;4.5&quot; width=&quot;11&quot; height=&quot;7&quot; rx=&quot;1.5&quot; /&gt;
+            &lt;/svg&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;operator-local-7b&lt;/span&gt;
+          &lt;span class=&quot;ds-combobox-option-hint&quot;&gt;32K&lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;A query that matches nothing. The message names what was typed — “no matches”, in a popup showing no rows, tells the person nothing they cannot already see.&lt;/p&gt;
+  &lt;div class=&quot;demo-column&quot;&gt;
+    &lt;div class=&quot;ds-popover demo-surface&quot;&gt;
+      &lt;div class=&quot;ds-combobox-field&quot;&gt;
+        &lt;input
+          class=&quot;ds-combobox-input&quot;
+          type=&quot;text&quot;
+          role=&quot;combobox&quot;
+          aria-label=&quot;Choose a model&quot;
+          aria-expanded=&quot;true&quot;
+          aria-controls=&quot;empty-listbox&quot;
+          aria-autocomplete=&quot;list&quot;
+          value=&quot;gpt&quot;
+        /&gt;
+      &lt;/div&gt;
+      &lt;div id=&quot;empty-listbox&quot; class=&quot;ds-combobox-listbox&quot; role=&quot;listbox&quot; aria-label=&quot;Choose a model&quot;&gt;
+        &lt;p class=&quot;ds-combobox-empty&quot;&gt;No models match “gpt”.&lt;/p&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — one highlight at a time: the arrowed row and the hovered row are the same treatment, so the list never shows two candidates.&lt;/p&gt;
+  &lt;div class=&quot;demo-column&quot;&gt;
+    &lt;div class=&quot;ds-popover demo-surface&quot;&gt;
+      &lt;div class=&quot;ds-combobox-field&quot;&gt;
+        &lt;input
+          class=&quot;ds-combobox-input&quot;
+          type=&quot;text&quot;
+          role=&quot;combobox&quot;
+          aria-label=&quot;Assign to&quot;
+          aria-expanded=&quot;true&quot;
+          aria-controls=&quot;assignee-listbox&quot;
+          aria-autocomplete=&quot;list&quot;
+          aria-activedescendant=&quot;assignee-option-0&quot;
+          value=&quot;&quot;
+          placeholder=&quot;Filter people…&quot;
+        /&gt;
+      &lt;/div&gt;
+      &lt;div id=&quot;assignee-listbox&quot; class=&quot;ds-combobox-listbox&quot; role=&quot;listbox&quot; aria-label=&quot;Assign to&quot;&gt;
+        &lt;div id=&quot;assignee-option-0&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Planner&lt;/span&gt;
+          &lt;span class=&quot;ds-combobox-option-hint&quot;&gt;agent&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div id=&quot;assignee-option-1&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
+          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Implementer&lt;/span&gt;
+          &lt;span class=&quot;ds-combobox-option-hint&quot;&gt;agent&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div id=&quot;assignee-option-2&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
+          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Reviewer with a very long role name that has to truncate&lt;/span&gt;
+          &lt;span class=&quot;ds-combobox-option-hint&quot;&gt;agent&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div id=&quot;assignee-option-3&quot; class=&quot;ds-combobox-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot; aria-disabled=&quot;true&quot;&gt;
+          &lt;span class=&quot;ds-combobox-option-label&quot;&gt;Release manager — no runtime configured&lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>
@@ -8700,7 +10796,90 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <h3>Empty state</h3>
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-empty-state">
-<p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — pane density: a region with nothing in it. Glyph, one sentence, a second line that says what would fill it, and one thing to do.</p>
+  <div class="demo-region">
+    <div class="ds-empty-state ds-empty-state--pane">
+      <span class="ds-empty-state-glyph" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.3">
+          <rect x="2.5" y="4.5" width="17" height="13" rx="2" />
+          <path d="M2.5 8.5h17M7 12.5h8" stroke-linecap="round" />
+        </svg>
+      </span>
+      <p class="ds-empty-state-title">No workspace open</p>
+      <p class="ds-empty-state-body">Open a repository to start a run, or pick one from the recent list.</p>
+      <div class="ds-empty-state-action">
+        <button type="button" class="ds-button ds-button--primary">Open workspace</button>
+        <button type="button" class="ds-button ds-button--ghost">Browse recent</button>
+      </div>
+    </div>
+  </div>
+
+  <p class="demo-label">Pane, without an action — nothing is selected, and selecting something is the thing to do. A button here would be a second way to say it.</p>
+  <div class="demo-region">
+    <div class="ds-empty-state ds-empty-state--pane">
+      <span class="ds-empty-state-glyph" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.3">
+          <path d="M4 5.5h6l1.5 2H18a1.5 1.5 0 0 1 1.5 1.5v6.5a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 4 5.5Z" stroke-linejoin="round" />
+        </svg>
+      </span>
+      <p class="ds-empty-state-title">Select an item to see its detail</p>
+    </div>
+  </div>
+
+  <p class="demo-label">List density — top-aligned and compact, inside a list that came back empty. It reads as an empty list, not as a page of its own.</p>
+  <div class="demo-list">
+    <div class="demo-list-header">
+      <span>Connectors</span>
+      <span>0</span>
+    </div>
+    <div class="ds-empty-state ds-empty-state--list">
+      <p class="ds-empty-state-title">No connectors yet</p>
+      <p class="ds-empty-state-body">Connect a tracker to write run outcomes back to it.</p>
+    </div>
+  </div>
+
+  <p class="demo-label">List, after a filter — the copy names the filter, because "nothing here" and "nothing matches what you typed" are different states.</p>
+  <div class="demo-list">
+    <div class="demo-list-header">
+      <span>Backlog · filtered by “overlay”</span>
+      <span>0</span>
+    </div>
+    <div class="ds-empty-state ds-empty-state--list">
+      <p class="ds-empty-state-title">No items match “overlay”</p>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the copy stays readable ink in both modes. This is a sentence to read, not a disabled control.</p>
+  <div class="demo-region">
+    <div class="ds-empty-state ds-empty-state--pane">
+      <span class="ds-empty-state-glyph" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.3">
+          <rect x="2.5" y="4.5" width="17" height="13" rx="2" />
+          <path d="M2.5 8.5h17M7 12.5h8" stroke-linecap="round" />
+        </svg>
+      </span>
+      <p class="ds-empty-state-title">No workspace open</p>
+      <p class="ds-empty-state-body">Open a repository to start a run, or pick one from the recent list.</p>
+      <div class="ds-empty-state-action">
+        <button type="button" class="ds-button ds-button--primary">Open workspace</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-list">
+    <div class="demo-list-header">
+      <span>Automations</span>
+      <span>0</span>
+    </div>
+    <div class="ds-empty-state ds-empty-state--list">
+      <p class="ds-empty-state-title">No automations yet</p>
+      <p class="ds-empty-state-body">An automation runs a saved prompt on a schedule or on a repository event.</p>
+    </div>
+  </div>
+</div>
 </div>
 <div class="catalog-doc">
 <p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
@@ -8717,32 +10896,232 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p><code>designSystemAxes.test.ts</code> fails on the next component that names itself for this job without consuming the primitive — with two ruled exceptions on the record there: a first-run chat CANVAS (the richer class this entry declined to absorb) and a card's dashed preview placeholder, which is not a surface with nothing to show.</p>
 </div>
 </div>
-<details class="catalog-source"><summary>components/empty-state/component.css</summary><pre><code>/* Placeholder — empty-state is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+<details class="catalog-source"><summary>components/empty-state/component.css</summary><pre><code>/* Empty state — what a surface shows when it has nothing to show. Extracted
+ * from the shipped EmptyState primitive
+ * (src/renderer/src/components/ui/EmptyState.tsx).
+ *
+ * A glyph, one sentence, an optional second line, and at most one call to
+ * action — never a dead end on a first-run surface, and never two competing
+ * things to do.
+ *
+ * Two densities, because the five hand-rolls this replaced were doing two
+ * genuinely different jobs: `pane` fills a region where content would be,
+ * `list` sits inside a list that came back empty.
+ *
+ * No accent disc. A door's first-run canvas earns a prominent accent
+ * treatment; a list that filtered down to nothing does not, and giving every
+ * empty list one would spend the accent budget on absence. */
+
+.ds-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: var(--sem-font-family-ui);
+  text-align: center;
+}
+
+/* Pane — a region with nothing in it: no workspace open, nothing selected.
+ * Fills the height it is given and centres in it, with room around the copy.
+ * The vertical padding is the scale's top step; the source's 40px was a
+ * local value, and a missing step is a token change rather than a licence to
+ * write one here. */
+.ds-empty-state--pane {
+  height: 100%;
+  justify-content: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-4xl) var(--sem-space-3xl);
+}
+
+/* List — inside a list that came back empty. Top-aligned and compact, so it
+ * reads as &quot;this list is empty&quot; rather than as a page of its own. */
+.ds-empty-state--list {
+  gap: var(--sem-space-2xs);
+  padding: var(--sem-space-4xl) var(--sem-space-lg);
+}
+
+/* The glyph slot is a SIZE, not a ceiling: icon.size.lg is the step whose own
+ * token documentation names empty-state glyphs as its use, and a glyph on the
+ * ramp lands exactly on it. An illustration that is deliberately larger sets
+ * its own box rather than overflowing a fixed one into the title. */
+.ds-empty-state-glyph {
+  display: flex;
+  min-width: var(--sem-icon-size-lg);
+  min-height: var(--sem-icon-size-lg);
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--sem-space-2xs);
+  color: var(--sem-color-text-subtle);
+}
+
+/* The one sentence. Readable ink, never text.disabled — this is copy meant to
+ * be read, not a greyed-out control. One hand-roll rendered its sentence
+ * disabled, beside the only thing on screen you could actually do.
+ *
+ * The measure is a reading width, not a spacing step: past roughly 46
+ * characters a centred line stops scanning as a single thought. */
+.ds-empty-state-title {
+  max-width: 46ch;
+  margin: 0;
+  font-size: var(--sem-font-size-body);
+  color: var(--sem-color-text-muted);
+}
+
+/* The optional second line: why it is empty, or what would fill it. A step
+ * quieter than the title, so the two read in order rather than competing. */
+.ds-empty-state-body {
+  max-width: 46ch;
+  margin: 0;
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-relaxed);
+  color: var(--sem-color-text-subtle);
+}
+
+/* At most one action. The row exists because an action sometimes travels with
+ * a quiet secondary link; it is not an invitation to a button bar. */
+.ds-empty-state-action {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  margin-top: var(--sem-space-sm);
+}
 </code></pre></details>
 <details class="catalog-source"><summary>components/empty-state/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
 &lt;html lang=&quot;en&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
 &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
-&lt;title&gt;empty-state (planned)&lt;/title&gt;
+&lt;title&gt;Empty state&lt;/title&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../button/component.css&quot; /&gt;
 &lt;style&gt;
   body {
     margin: 0;
     font-family: var(--sem-font-family-ui);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-muted);
   }
-  .planned-note {
+  .demo-stage {
     padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* A region with a height, so `pane` has something to fill and centre in —
+     that is the whole difference between the two densities. */
+  .demo-region {
+    max-width: 420px;
+    height: 280px;
+    margin-bottom: var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  .demo-list {
+    max-width: 420px;
+    margin-bottom: var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  .demo-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--sem-space-sm) var(--sem-space-md);
+    border-bottom: 1px solid var(--sem-color-border-subtle);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
   }
 &lt;/style&gt;
 &lt;/head&gt;
 &lt;body&gt;
-&lt;p class=&quot;planned-note&quot;&gt;Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.&lt;/p&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — pane density: a region with nothing in it. Glyph, one sentence, a second line that says what would fill it, and one thing to do.&lt;/p&gt;
+  &lt;div class=&quot;demo-region&quot;&gt;
+    &lt;div class=&quot;ds-empty-state ds-empty-state--pane&quot;&gt;
+      &lt;span class=&quot;ds-empty-state-glyph&quot; aria-hidden=&quot;true&quot;&gt;
+        &lt;svg width=&quot;22&quot; height=&quot;22&quot; viewBox=&quot;0 0 22 22&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;&gt;
+          &lt;rect x=&quot;2.5&quot; y=&quot;4.5&quot; width=&quot;17&quot; height=&quot;13&quot; rx=&quot;2&quot; /&gt;
+          &lt;path d=&quot;M2.5 8.5h17M7 12.5h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+        &lt;/svg&gt;
+      &lt;/span&gt;
+      &lt;p class=&quot;ds-empty-state-title&quot;&gt;No workspace open&lt;/p&gt;
+      &lt;p class=&quot;ds-empty-state-body&quot;&gt;Open a repository to start a run, or pick one from the recent list.&lt;/p&gt;
+      &lt;div class=&quot;ds-empty-state-action&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary&quot;&gt;Open workspace&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot;&gt;Browse recent&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;Pane, without an action — nothing is selected, and selecting something is the thing to do. A button here would be a second way to say it.&lt;/p&gt;
+  &lt;div class=&quot;demo-region&quot;&gt;
+    &lt;div class=&quot;ds-empty-state ds-empty-state--pane&quot;&gt;
+      &lt;span class=&quot;ds-empty-state-glyph&quot; aria-hidden=&quot;true&quot;&gt;
+        &lt;svg width=&quot;22&quot; height=&quot;22&quot; viewBox=&quot;0 0 22 22&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;&gt;
+          &lt;path d=&quot;M4 5.5h6l1.5 2H18a1.5 1.5 0 0 1 1.5 1.5v6.5a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 4 5.5Z&quot; stroke-linejoin=&quot;round&quot; /&gt;
+        &lt;/svg&gt;
+      &lt;/span&gt;
+      &lt;p class=&quot;ds-empty-state-title&quot;&gt;Select an item to see its detail&lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;List density — top-aligned and compact, inside a list that came back empty. It reads as an empty list, not as a page of its own.&lt;/p&gt;
+  &lt;div class=&quot;demo-list&quot;&gt;
+    &lt;div class=&quot;demo-list-header&quot;&gt;
+      &lt;span&gt;Connectors&lt;/span&gt;
+      &lt;span&gt;0&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-empty-state ds-empty-state--list&quot;&gt;
+      &lt;p class=&quot;ds-empty-state-title&quot;&gt;No connectors yet&lt;/p&gt;
+      &lt;p class=&quot;ds-empty-state-body&quot;&gt;Connect a tracker to write run outcomes back to it.&lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;List, after a filter — the copy names the filter, because &quot;nothing here&quot; and &quot;nothing matches what you typed&quot; are different states.&lt;/p&gt;
+  &lt;div class=&quot;demo-list&quot;&gt;
+    &lt;div class=&quot;demo-list-header&quot;&gt;
+      &lt;span&gt;Backlog · filtered by “overlay”&lt;/span&gt;
+      &lt;span&gt;0&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-empty-state ds-empty-state--list&quot;&gt;
+      &lt;p class=&quot;ds-empty-state-title&quot;&gt;No items match “overlay”&lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the copy stays readable ink in both modes. This is a sentence to read, not a disabled control.&lt;/p&gt;
+  &lt;div class=&quot;demo-region&quot;&gt;
+    &lt;div class=&quot;ds-empty-state ds-empty-state--pane&quot;&gt;
+      &lt;span class=&quot;ds-empty-state-glyph&quot; aria-hidden=&quot;true&quot;&gt;
+        &lt;svg width=&quot;22&quot; height=&quot;22&quot; viewBox=&quot;0 0 22 22&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;&gt;
+          &lt;rect x=&quot;2.5&quot; y=&quot;4.5&quot; width=&quot;17&quot; height=&quot;13&quot; rx=&quot;2&quot; /&gt;
+          &lt;path d=&quot;M2.5 8.5h17M7 12.5h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+        &lt;/svg&gt;
+      &lt;/span&gt;
+      &lt;p class=&quot;ds-empty-state-title&quot;&gt;No workspace open&lt;/p&gt;
+      &lt;p class=&quot;ds-empty-state-body&quot;&gt;Open a repository to start a run, or pick one from the recent list.&lt;/p&gt;
+      &lt;div class=&quot;ds-empty-state-action&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary&quot;&gt;Open workspace&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;demo-list&quot;&gt;
+    &lt;div class=&quot;demo-list-header&quot;&gt;
+      &lt;span&gt;Automations&lt;/span&gt;
+      &lt;span&gt;0&lt;/span&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;ds-empty-state ds-empty-state--list&quot;&gt;
+      &lt;p class=&quot;ds-empty-state-title&quot;&gt;No automations yet&lt;/p&gt;
+      &lt;p class=&quot;ds-empty-state-body&quot;&gt;An automation runs a saved prompt on a schedule or on a repository event.&lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>
@@ -12414,7 +14793,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>| Part | Class | Required | |---|---|---| | Surface | <code>.ds-popover</code> | yes — the shared shell, <code>role=&quot;menu&quot;</code> | | List | <code>.ds-menu</code> | yes — vertical padding only, so rows reach both edges | | Item | <code>.ds-menu-item</code> | yes — <code>role=&quot;menuitem&quot;</code> (or <code>menuitemradio</code> / <code>menuitemcheckbox</code>) | | Leading slot | <code>.ds-menu-item-glyph</code> | all items in a menu, or none | | Trailing hint | <code>.ds-menu-item-hint</code> | no — a shortcut, or a submenu chevron | | Separator | <code>.ds-menu-separator</code> | no — <code>role=&quot;separator&quot;</code> | | Group label | <code>.ds-menu-group-label</code> | no — the alternative to a separator, not an addition |</p>
 <p>The <strong>leading slot is all-or-nothing per menu</strong>. Give every item a glyph or give none of them one: a menu where only some rows carry one ladders its own labels, and the reader's eye loses the left edge it was tracking. Where a menu is genuinely mixed, render the empty slot on the rows without a glyph rather than letting their labels slide left.</p>
 <h4>Surface</h4>
-<p>| Property | Token | Value | |---|---|---| | Radius | <code>radius.overlay</code> | 7px | | Border | <code>border.strong</code> | 1px | | Ground | <code>bg.surface-raised</code> | | | Shadow | <code>shadow.popover</code> | | | Padding | <code>space.2xs</code> vertical, none horizontal | 4px / 0 | | Layer | <code>z.popover</code>, or <code>z.menu</code> when pointer-positioned | 50 / 60 |</p>
+<p>| Property | Token | Value | |---|---|---| | Radius | <code>radius.overlay</code> | 7px | | Border | <code>border.strong</code> | 1px | | Ground | <code>bg.surface-raised</code> | | | Shadow | <code>shadow.popover</code> | | | Padding | <code>space.2xs</code> vertical, none horizontal | 4px / 0 | | Layer | <code>z.popover</code>, or <code>z.menu</code> when pointer-positioned | 80 / 90 |</p>
 <p>The horizontal zero is the load-bearing part: it is what makes rows full-bleed, and it is what an inset fill needs in order to look wrong.</p>
 <p>A pointer-positioned menu sits one tier up, at <code>z.menu</code>, because it is summoned *over* whatever is already open — including an open popover.</p>
 <h4>Item</h4>
@@ -12852,7 +15231,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <h4>Shipped implementation</h4>
 <p><code>src/renderer/src/components/ui/Modal.tsx</code>, with <code>ConfirmDialog.tsx</code> as the <code>--confirm</code> variant above: its <code>title</code> / <code>body</code> / <code>confirmLabel</code> / <code>cancelLabel</code> / <code>pendingLabel</code> / <code>tone</code> / <code>pending</code> options are this entry's confirm and prompt specs, and <code>ConfirmDialogProvider</code> + <code>useConfirmDialog()</code> are how a caller asks the question without mounting a dialog of its own.</p>
 <h4>Known drift</h4>
-<ul><li>~~<code>Modal.tsx</code> ships <code>z-50</code> against the token ladder's 70.~~ <strong>Resolved 2026-08-05 (MC-2119):</strong> the token ladder is canonical and <code>Modal</code> consumes <code>--z-modal</code>. It mattered more than it looked — at 50 the modal sat a tier *below* the menu layer at 60, so a context menu opened over a dialog painted on top of it.</li><li>~~<code>Modal.tsx</code> ships <strong>no focus trap</strong>.~~ <strong>Resolved (MC-2109):</strong> every <code>aria-modal</code> shell in the renderer wraps its dialog in the shared <code>FocusTrap</code>, sentinels either side, as specified above.</li><li>~~<code>Modal.tsx</code> ships shadowless, <code>rounded-[8px]</code>, and a 20px inset.~~ <strong>Resolved 2026-08-05 (MC-2110):</strong> the shell casts <code>shadow.modal</code>, rounds at <code>radius.shell</code>, and insets at <code>space.3xl</code>. The same change put every other floating surface on the geometry above — the Command Palette, the New sprint dialog, the roster manager and the diagnostics overlay had each grown a private width, radius, border and shadow, and three of the four were shells re-implementing this one rather than consuming it. Worth recording is what the item asked for and did not get: it proposed <code>radius.overlay</code> (7px) as the single radius for every overlay, which would have left <code>radius.shell</code> consumed by nothing and contradicted this entry. The ramp's two steps split by surface class instead, exactly as the elevation ramp does.</li></ul>
+<ul><li>~~<code>Modal.tsx</code> ships <code>z-50</code> against the token ladder's 70.~~ <strong>Resolved 2026-08-05 (MC-2119):</strong> the token ladder is canonical and <code>Modal</code> consumes <code>--z-modal</code> (70). Note the ladder itself was then re-ruled at the interaction-canon merge review (same date): transient surfaces sit ABOVE modal — popover 80, menu 90, toast 100 — so a menu or picker opened from inside a dialog paints over the scrim by design. What the fix ended was Modal keeping a second, private ladder, not menus painting above dialogs.</li><li>~~<code>Modal.tsx</code> ships <strong>no focus trap</strong>.~~ <strong>Resolved (MC-2109):</strong> every <code>aria-modal</code> shell in the renderer wraps its dialog in the shared <code>FocusTrap</code>, sentinels either side, as specified above.</li><li>~~<code>Modal.tsx</code> ships shadowless, <code>rounded-[8px]</code>, and a 20px inset.~~ <strong>Resolved 2026-08-05 (MC-2110):</strong> the shell casts <code>shadow.modal</code>, rounds at <code>radius.shell</code>, and insets at <code>space.3xl</code>. The same change put every other floating surface on the geometry above — the Command Palette, the New sprint dialog, the roster manager and the diagnostics overlay had each grown a private width, radius, border and shadow, and three of the four were shells re-implementing this one rather than consuming it. Worth recording is what the item asked for and did not get: it proposed <code>radius.overlay</code> (7px) as the single radius for every overlay, which would have left <code>radius.shell</code> consumed by nothing and contradicted this entry. The ramp's two steps split by surface class instead, exactly as the elevation ramp does.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/modal/component.css</summary><pre><code>/* Modal — the one surface allowed to stop the page. Extracted from the source
@@ -18256,7 +20635,161 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 <h3>Table</h3>
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-table">
-<p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a scrolling table. The header is pinned and paints its own ground; the numeric column is right-aligned with tabular figures.</p>
+  <div class="demo-pane">
+    <div class="demo-scrollport">
+      <table class="ds-table" aria-label="Runs by agent">
+        <thead>
+          <tr>
+            <th class="ds-table-head" scope="col">Agent</th>
+            <th class="ds-table-head" scope="col">Model</th>
+            <th class="ds-table-head ds-table-head--numeric" scope="col">Tokens</th>
+            <th class="ds-table-head ds-table-head--numeric" scope="col">Tasks</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">
+              <span class="demo-name">
+                <span class="ds-status-dot ds-status-dot--accent ds-status-dot--pulse" aria-hidden="true"></span>
+                Planner
+              </span>
+            </td>
+            <td class="ds-table-cell">Opus</td>
+            <td class="ds-table-cell ds-table-cell--numeric">184,220</td>
+            <td class="ds-table-cell ds-table-cell--numeric">7</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">
+              <span class="demo-name">
+                <span class="ds-status-dot ds-status-dot--warn" aria-hidden="true"></span>
+                Implementer
+              </span>
+            </td>
+            <td class="ds-table-cell">Sonnet</td>
+            <td class="ds-table-cell ds-table-cell--numeric">1,209,004</td>
+            <td class="ds-table-cell ds-table-cell--numeric">31</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Reviewer</td>
+            <td class="ds-table-cell">Opus</td>
+            <td class="ds-table-cell ds-table-cell--numeric">96,510</td>
+            <td class="ds-table-cell ds-table-cell--numeric">12</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Test author</td>
+            <td class="ds-table-cell">Sonnet</td>
+            <td class="ds-table-cell ds-table-cell--numeric">42,880</td>
+            <td class="ds-table-cell ds-table-cell--numeric">9</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Doc writer</td>
+            <td class="ds-table-cell">Haiku</td>
+            <td class="ds-table-cell ds-table-cell--numeric">8,140</td>
+            <td class="ds-table-cell ds-table-cell--numeric">3</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Triage</td>
+            <td class="ds-table-cell">Haiku</td>
+            <td class="ds-table-cell ds-table-cell--numeric">2,015</td>
+            <td class="ds-table-cell ds-table-cell--numeric">1</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="demo-label">Fixed tracks — widths come from the colgroup rather than the content, which is what lets a stack of tables share one grid. The header is static here: the table is short enough that it never scrolls.</p>
+  <div class="demo-pane">
+    <table class="ds-table ds-table--fixed" aria-label="Gate results" style="width: 100%">
+      <colgroup>
+        <col style="width: 55%" />
+        <col style="width: 22%" />
+        <col style="width: 23%" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th class="ds-table-head ds-table-head--static" scope="col">Gate</th>
+          <th class="ds-table-head ds-table-head--static" scope="col">Result</th>
+          <th class="ds-table-head ds-table-head--static ds-table-head--numeric" scope="col">Duration</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="ds-table-row">
+          <td class="ds-table-cell">Typecheck</td>
+          <td class="ds-table-cell">Passed</td>
+          <td class="ds-table-cell ds-table-cell--numeric">12s</td>
+        </tr>
+        <tr class="ds-table-row">
+          <td class="ds-table-cell">Lint</td>
+          <td class="ds-table-cell">Passed</td>
+          <td class="ds-table-cell ds-table-cell--numeric">4s</td>
+        </tr>
+        <tr class="ds-table-row">
+          <td class="ds-table-cell">Renderer tests</td>
+          <td class="ds-table-cell">2 failing</td>
+          <td class="ds-table-cell ds-table-cell--numeric">108s</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same chrome. The header's rule stays the strongest horizontal line; the row hairlines are the quieter divider.</p>
+  <div class="demo-pane">
+    <div class="demo-scrollport">
+      <table class="ds-table" aria-label="Runs by agent">
+        <thead>
+          <tr>
+            <th class="ds-table-head" scope="col">Agent</th>
+            <th class="ds-table-head" scope="col">Model</th>
+            <th class="ds-table-head ds-table-head--numeric" scope="col">Tokens</th>
+            <th class="ds-table-head ds-table-head--numeric" scope="col">Tasks</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">
+              <span class="demo-name">
+                <span class="ds-status-dot ds-status-dot--accent ds-status-dot--pulse" aria-hidden="true"></span>
+                Planner
+              </span>
+            </td>
+            <td class="ds-table-cell">Opus</td>
+            <td class="ds-table-cell ds-table-cell--numeric">184,220</td>
+            <td class="ds-table-cell ds-table-cell--numeric">7</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Implementer</td>
+            <td class="ds-table-cell">Sonnet</td>
+            <td class="ds-table-cell ds-table-cell--numeric">1,209,004</td>
+            <td class="ds-table-cell ds-table-cell--numeric">31</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Reviewer</td>
+            <td class="ds-table-cell">Opus</td>
+            <td class="ds-table-cell ds-table-cell--numeric">96,510</td>
+            <td class="ds-table-cell ds-table-cell--numeric">12</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Test author</td>
+            <td class="ds-table-cell">Sonnet</td>
+            <td class="ds-table-cell ds-table-cell--numeric">42,880</td>
+            <td class="ds-table-cell ds-table-cell--numeric">9</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Doc writer</td>
+            <td class="ds-table-cell">Haiku</td>
+            <td class="ds-table-cell ds-table-cell--numeric">8,140</td>
+            <td class="ds-table-cell ds-table-cell--numeric">3</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 </div>
 <div class="catalog-doc">
 <p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
@@ -18270,32 +20803,294 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 <p><strong><code>SprintEngineRunSummaryPanel</code> keeps its own header classes</strong> deliberately: it is a dense comparison matrix whose labels carry full words, wrap to two lines and bottom-align above their numbers. Sharing the table chrome does not mean every table wears one header.</p>
 </div>
 </div>
-<details class="catalog-source"><summary>components/table/component.css</summary><pre><code>/* Placeholder — table is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+<details class="catalog-source"><summary>components/table/component.css</summary><pre><code>/* Table — the shared header/row/cell chrome for genuinely tabular data:
+ * columns of values compared across rows. Extracted from the shipped Table
+ * primitive (src/renderer/src/components/ui/Table.tsx).
+ *
+ * Family contract with `list-row`: a list-row is a pick-an-item row and its
+ * columns are decoration; a table's columns are the point, because the reader
+ * is comparing down them. Configurable rows — avatars, pickers, per-row
+ * toggles — are neither, and a real &lt;table&gt; is the wrong shape for them.
+ *
+ * Real &lt;table&gt; semantics throughout. The div-grid variant this replaced reads
+ * to a screen reader as a stack of unrelated cells, with no row/column
+ * association and no header relationship — the one difference between the
+ * three hand-rolls that was a defect rather than a preference.
+ *
+ * What is shared here is exactly the chrome; nothing about the data model. */
+
+.ds-table {
+  border-collapse: collapse;
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-table:not(.ds-table--fixed) {
+  width: 100%;
+}
+
+/* Fixed takes column widths from a &lt;colgroup&gt; instead of auto-sizing to
+ * content. Set it when several tables must share one set of tracks — that is
+ * what keeps a stack of them reading as one grid. */
+.ds-table--fixed {
+  table-layout: fixed;
+}
+
+/* Header cells are sticky by default. Every one of these tables sits in a
+ * scrollport, and a header that scrolls away turns the numbers beneath it
+ * into unlabelled figures.
+ *
+ * The ground is not decoration: without it, rows show through the header as
+ * they pass under it. z.sticky is the ramp's own tier for pinned in-flow
+ * chrome — a header held above its own rows, not an overlay layer. */
+.ds-table-head {
+  position: sticky;
+  top: 0;
+  z-index: var(--sem-z-sticky);
+  padding: var(--sem-space-xs) var(--sem-space-sm);
+  border-bottom: 1px solid var(--sem-color-border-default);
+  background: var(--sem-color-bg-surface);
+  font-weight: var(--sem-font-weight-medium);
+  color: var(--sem-color-text-muted);
+  text-align: left;
+}
+
+/* For a table short enough that it never scrolls. It drops the ground with
+ * the pinning: a painted header on a table that cannot scroll is a band of
+ * colour doing no work. */
+.ds-table-head--static {
+  position: static;
+  background: transparent;
+}
+
+.ds-table-cell {
+  padding: var(--sem-space-2xs) var(--sem-space-sm);
+  color: var(--sem-color-text-default);
+  text-align: left;
+}
+
+/* Numeric columns right-align and take tabular figures, so digits line up
+ * down the column and a changing value does not reflow the row.
+ *
+ * Tabular figures in the UI face, not the mono family: the UI face already
+ * has them, and switching family mid-row is a louder change than the
+ * alignment it buys, in a row whose labels are UI-face. */
+.ds-table-head--numeric {
+  text-align: right;
+}
+
+.ds-table-cell--numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Body rows are hairline-separated in the one divider token — the quieter of
+ * the two, so the header's rule stays the strongest horizontal line and the
+ * body reads as a field rather than a grid of boxes. */
+.ds-table-row {
+  border-bottom: 1px solid var(--sem-color-border-subtle);
+}
 </code></pre></details>
 <details class="catalog-source"><summary>components/table/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
 &lt;html lang=&quot;en&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
 &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
-&lt;title&gt;table (planned)&lt;/title&gt;
+&lt;title&gt;Table&lt;/title&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../status-dot/component.css&quot; /&gt;
 &lt;style&gt;
   body {
     margin: 0;
     font-family: var(--sem-font-family-ui);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-muted);
   }
-  .planned-note {
+  .demo-stage {
     padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-pane {
+    max-width: 520px;
+    margin-bottom: var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  /* The scrollport the sticky header exists for: scroll the body and the
+     header stays, on its own ground, with the rows passing under it. */
+  .demo-scrollport {
+    max-height: 180px;
+    overflow-y: auto;
+  }
+  .demo-name {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
   }
 &lt;/style&gt;
 &lt;/head&gt;
 &lt;body&gt;
-&lt;p class=&quot;planned-note&quot;&gt;Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.&lt;/p&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a scrolling table. The header is pinned and paints its own ground; the numeric column is right-aligned with tabular figures.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-scrollport&quot;&gt;
+      &lt;table class=&quot;ds-table&quot; aria-label=&quot;Runs by agent&quot;&gt;
+        &lt;thead&gt;
+          &lt;tr&gt;
+            &lt;th class=&quot;ds-table-head&quot; scope=&quot;col&quot;&gt;Agent&lt;/th&gt;
+            &lt;th class=&quot;ds-table-head&quot; scope=&quot;col&quot;&gt;Model&lt;/th&gt;
+            &lt;th class=&quot;ds-table-head ds-table-head--numeric&quot; scope=&quot;col&quot;&gt;Tokens&lt;/th&gt;
+            &lt;th class=&quot;ds-table-head ds-table-head--numeric&quot; scope=&quot;col&quot;&gt;Tasks&lt;/th&gt;
+          &lt;/tr&gt;
+        &lt;/thead&gt;
+        &lt;tbody&gt;
+          &lt;tr class=&quot;ds-table-row&quot;&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;
+              &lt;span class=&quot;demo-name&quot;&gt;
+                &lt;span class=&quot;ds-status-dot ds-status-dot--accent ds-status-dot--pulse&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+                Planner
+              &lt;/span&gt;
+            &lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Opus&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;184,220&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;7&lt;/td&gt;
+          &lt;/tr&gt;
+          &lt;tr class=&quot;ds-table-row&quot;&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;
+              &lt;span class=&quot;demo-name&quot;&gt;
+                &lt;span class=&quot;ds-status-dot ds-status-dot--warn&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+                Implementer
+              &lt;/span&gt;
+            &lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Sonnet&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;1,209,004&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;31&lt;/td&gt;
+          &lt;/tr&gt;
+          &lt;tr class=&quot;ds-table-row&quot;&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Reviewer&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Opus&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;96,510&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;12&lt;/td&gt;
+          &lt;/tr&gt;
+          &lt;tr class=&quot;ds-table-row&quot;&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Test author&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Sonnet&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;42,880&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;9&lt;/td&gt;
+          &lt;/tr&gt;
+          &lt;tr class=&quot;ds-table-row&quot;&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Doc writer&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Haiku&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;8,140&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;3&lt;/td&gt;
+          &lt;/tr&gt;
+          &lt;tr class=&quot;ds-table-row&quot;&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Triage&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Haiku&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;2,015&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;1&lt;/td&gt;
+          &lt;/tr&gt;
+        &lt;/tbody&gt;
+      &lt;/table&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;Fixed tracks — widths come from the colgroup rather than the content, which is what lets a stack of tables share one grid. The header is static here: the table is short enough that it never scrolls.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;table class=&quot;ds-table ds-table--fixed&quot; aria-label=&quot;Gate results&quot; style=&quot;width: 100%&quot;&gt;
+      &lt;colgroup&gt;
+        &lt;col style=&quot;width: 55%&quot; /&gt;
+        &lt;col style=&quot;width: 22%&quot; /&gt;
+        &lt;col style=&quot;width: 23%&quot; /&gt;
+      &lt;/colgroup&gt;
+      &lt;thead&gt;
+        &lt;tr&gt;
+          &lt;th class=&quot;ds-table-head ds-table-head--static&quot; scope=&quot;col&quot;&gt;Gate&lt;/th&gt;
+          &lt;th class=&quot;ds-table-head ds-table-head--static&quot; scope=&quot;col&quot;&gt;Result&lt;/th&gt;
+          &lt;th class=&quot;ds-table-head ds-table-head--static ds-table-head--numeric&quot; scope=&quot;col&quot;&gt;Duration&lt;/th&gt;
+        &lt;/tr&gt;
+      &lt;/thead&gt;
+      &lt;tbody&gt;
+        &lt;tr class=&quot;ds-table-row&quot;&gt;
+          &lt;td class=&quot;ds-table-cell&quot;&gt;Typecheck&lt;/td&gt;
+          &lt;td class=&quot;ds-table-cell&quot;&gt;Passed&lt;/td&gt;
+          &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;12s&lt;/td&gt;
+        &lt;/tr&gt;
+        &lt;tr class=&quot;ds-table-row&quot;&gt;
+          &lt;td class=&quot;ds-table-cell&quot;&gt;Lint&lt;/td&gt;
+          &lt;td class=&quot;ds-table-cell&quot;&gt;Passed&lt;/td&gt;
+          &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;4s&lt;/td&gt;
+        &lt;/tr&gt;
+        &lt;tr class=&quot;ds-table-row&quot;&gt;
+          &lt;td class=&quot;ds-table-cell&quot;&gt;Renderer tests&lt;/td&gt;
+          &lt;td class=&quot;ds-table-cell&quot;&gt;2 failing&lt;/td&gt;
+          &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;108s&lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;/tbody&gt;
+    &lt;/table&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same chrome. The header's rule stays the strongest horizontal line; the row hairlines are the quieter divider.&lt;/p&gt;
+  &lt;div class=&quot;demo-pane&quot;&gt;
+    &lt;div class=&quot;demo-scrollport&quot;&gt;
+      &lt;table class=&quot;ds-table&quot; aria-label=&quot;Runs by agent&quot;&gt;
+        &lt;thead&gt;
+          &lt;tr&gt;
+            &lt;th class=&quot;ds-table-head&quot; scope=&quot;col&quot;&gt;Agent&lt;/th&gt;
+            &lt;th class=&quot;ds-table-head&quot; scope=&quot;col&quot;&gt;Model&lt;/th&gt;
+            &lt;th class=&quot;ds-table-head ds-table-head--numeric&quot; scope=&quot;col&quot;&gt;Tokens&lt;/th&gt;
+            &lt;th class=&quot;ds-table-head ds-table-head--numeric&quot; scope=&quot;col&quot;&gt;Tasks&lt;/th&gt;
+          &lt;/tr&gt;
+        &lt;/thead&gt;
+        &lt;tbody&gt;
+          &lt;tr class=&quot;ds-table-row&quot;&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;
+              &lt;span class=&quot;demo-name&quot;&gt;
+                &lt;span class=&quot;ds-status-dot ds-status-dot--accent ds-status-dot--pulse&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+                Planner
+              &lt;/span&gt;
+            &lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Opus&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;184,220&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;7&lt;/td&gt;
+          &lt;/tr&gt;
+          &lt;tr class=&quot;ds-table-row&quot;&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Implementer&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Sonnet&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;1,209,004&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;31&lt;/td&gt;
+          &lt;/tr&gt;
+          &lt;tr class=&quot;ds-table-row&quot;&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Reviewer&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Opus&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;96,510&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;12&lt;/td&gt;
+          &lt;/tr&gt;
+          &lt;tr class=&quot;ds-table-row&quot;&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Test author&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Sonnet&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;42,880&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;9&lt;/td&gt;
+          &lt;/tr&gt;
+          &lt;tr class=&quot;ds-table-row&quot;&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Doc writer&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Haiku&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;8,140&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;3&lt;/td&gt;
+          &lt;/tr&gt;
+        &lt;/tbody&gt;
+      &lt;/table&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>

@@ -3,23 +3,239 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>checkbox (planned)</title>
+<title>Checkbox</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
 <link rel="stylesheet" href="component.css" />
 <style>
   body {
     margin: 0;
     font-family: var(--sem-font-family-ui);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-muted);
   }
-  .planned-note {
+  .demo-stage {
     padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-pane {
+    max-width: 380px;
+    margin-bottom: var(--sem-space-lg);
+    padding: var(--sem-space-md);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  .demo-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-md);
+  }
+  /* The parent-and-children shape the indeterminate state exists for: the
+     parent is mixed while some but not all of its children are on. */
+  .demo-nested {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-md);
+    padding-left: var(--sem-space-3xl);
   }
 </style>
 </head>
 <body>
-<p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a form's checkboxes: marked now, read when the form is submitted.</p>
+  <div class="demo-pane">
+    <div class="demo-stack">
+      <label class="ds-checkbox">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" checked />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        Run the test suite before opening the pull request
+      </label>
+
+      <label class="ds-checkbox">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        Delete the worktree when the run finishes
+      </label>
+
+      <label class="ds-checkbox">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" checked disabled />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        Isolate the run in a worktree — required by this project
+      </label>
+    </div>
+  </div>
+
+  <p class="demo-label">Mixed — the parent is neither on nor off while some of its children are. Indeterminate is a DOM property, not an attribute, so it is set below in script; there is no HTML spelling for it.</p>
+  <div class="demo-pane">
+    <div class="demo-stack">
+      <label class="ds-checkbox ds-checkbox--body">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" data-demo-indeterminate />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        All gates
+      </label>
+
+      <div class="demo-nested">
+        <label class="ds-checkbox">
+          <span class="ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          Typecheck
+        </label>
+        <label class="ds-checkbox">
+          <span class="ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          Lint
+        </label>
+        <label class="ds-checkbox">
+          <span class="ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          Renderer tests
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <p class="demo-label">No visible label — the control is named by aria-label instead. Correct only when the surrounding layout already makes the meaning obvious.</p>
+  <div class="demo-pane">
+    <label class="ds-checkbox">
+      <span class="ds-checkbox-control">
+        <input class="ds-checkbox-input" type="checkbox" aria-label="Select this row" />
+        <span class="ds-checkbox-box" aria-hidden="true">
+          <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M4 8h8" stroke-linecap="round" />
+          </svg>
+        </span>
+      </span>
+    </label>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the box grounds on the app colour rather than the surface it sits on, so it reads as a well at any depth.</p>
+  <div class="demo-pane">
+    <div class="demo-stack">
+      <label class="ds-checkbox">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" checked />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        Run the test suite before opening the pull request
+      </label>
+      <label class="ds-checkbox">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" data-demo-indeterminate />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        All gates
+      </label>
+      <label class="ds-checkbox">
+        <span class="ds-checkbox-control">
+          <input class="ds-checkbox-input" type="checkbox" disabled />
+          <span class="ds-checkbox-box" aria-hidden="true">
+            <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 8h8" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        Publish to the shared registry — unavailable on this plan
+      </label>
+    </div>
+  </div>
+</div>
+
+<script>
+  // The only thing this demo needs script for: `indeterminate` is a property
+  // on the element, with no HTML attribute to express it. A framework adapter
+  // sets it the same way, in an effect — see the shipped Checkbox.
+  for (const input of document.querySelectorAll('[data-demo-indeterminate]')) {
+    input.indeterminate = true
+  }
+</script>
 </body>
 </html>

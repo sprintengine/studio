@@ -1,2 +1,126 @@
-/* Placeholder — checkbox is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+/* Checkbox — the one-of-a-set form control: a value the person marks now and
+ * submits later. Extracted from the shipped Checkbox primitive
+ * (src/renderer/src/components/ui/Checkbox.tsx).
+ *
+ * Family contract with `switch`: a switch commits immediately and needs no
+ * confirm; a checkbox belongs to a form and is read when the form is. Picking
+ * between them is a question about when the change takes effect, not about
+ * how the control looks.
+ *
+ * The native input stays and does the work — semantics, the tab stop, the
+ * indeterminate state, form participation. The visible box is decorative and
+ * hidden from assistive tech. Nothing here re-implements a checkbox; it
+ * dresses one. */
+
+.ds-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  font-family: var(--sem-font-family-ui);
+  /* meta by default; --body for form rows sitting among other 13px controls. */
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ds-checkbox--body {
+  font-size: var(--sem-font-size-body);
+}
+
+/* The positioning context the transparent input fills. */
+.ds-checkbox-control {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  align-items: center;
+  justify-content: center;
+}
+
+/* Transparent, but present and full-size: it is the tab stop, the hit target
+ * and the semantics. Hiding it with `display: none` would take the keyboard
+ * path with it. */
+.ds-checkbox-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.ds-checkbox-box {
+  display: inline-flex;
+  box-sizing: border-box;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-app);
+  color: var(--sem-color-text-on-accent);
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    border-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Marked — checked or indeterminate. Both are "this box is carrying a value",
+ * and both take the accent fill; only the glyph inside differs. */
+.ds-checkbox-input:checked + .ds-checkbox-box,
+.ds-checkbox-input:indeterminate + .ds-checkbox-box {
+  border-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-accent-primary);
+}
+
+/* Focus is the ring, and it lands on the box: the input is the tab stop, but
+ * it is invisible, so the treatment shows on what the person can see. An
+ * outline's gap needs no ring-offset colour, which is why this is right on
+ * every surface — the hand-roll it replaces pinned its offset to one surface
+ * token and was wrong on the others. */
+.ds-checkbox-input:focus-visible + .ds-checkbox-box {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-checkbox-input:disabled + .ds-checkbox-box {
+  opacity: 0.45;
+}
+
+.ds-checkbox:has(.ds-checkbox-input:disabled) {
+  color: var(--sem-color-text-disabled);
+  cursor: not-allowed;
+}
+
+/* ── Glyphs ──────────────────────────────────────────────────────────────
+ * One box, two marks, and the input's own state chooses between them: a
+ * tick for checked, a dash for the mixed state. Neither is present at rest,
+ * so an unmarked box is genuinely empty rather than holding a hidden glyph
+ * at zero opacity. */
+.ds-checkbox-mark {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  display: none;
+}
+
+.ds-checkbox-input:checked + .ds-checkbox-box .ds-checkbox-mark--check {
+  display: block;
+}
+
+/* Indeterminate wins over checked: a box that is both is showing a mixed
+ * set, and the dash is what says so. */
+.ds-checkbox-input:indeterminate + .ds-checkbox-box .ds-checkbox-mark--check {
+  display: none;
+}
+
+.ds-checkbox-input:indeterminate + .ds-checkbox-box .ds-checkbox-mark--dash {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-checkbox-box {
+    transition: none;
+  }
+}

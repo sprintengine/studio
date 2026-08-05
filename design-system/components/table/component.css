@@ -1,2 +1,87 @@
-/* Placeholder — table is planned (built by MC-2117) and not yet specified.
-   The component.md stub records its intended role; no styles exist yet. */
+/* Table — the shared header/row/cell chrome for genuinely tabular data:
+ * columns of values compared across rows. Extracted from the shipped Table
+ * primitive (src/renderer/src/components/ui/Table.tsx).
+ *
+ * Family contract with `list-row`: a list-row is a pick-an-item row and its
+ * columns are decoration; a table's columns are the point, because the reader
+ * is comparing down them. Configurable rows — avatars, pickers, per-row
+ * toggles — are neither, and a real <table> is the wrong shape for them.
+ *
+ * Real <table> semantics throughout. The div-grid variant this replaced reads
+ * to a screen reader as a stack of unrelated cells, with no row/column
+ * association and no header relationship — the one difference between the
+ * three hand-rolls that was a defect rather than a preference.
+ *
+ * What is shared here is exactly the chrome; nothing about the data model. */
+
+.ds-table {
+  border-collapse: collapse;
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-table:not(.ds-table--fixed) {
+  width: 100%;
+}
+
+/* Fixed takes column widths from a <colgroup> instead of auto-sizing to
+ * content. Set it when several tables must share one set of tracks — that is
+ * what keeps a stack of them reading as one grid. */
+.ds-table--fixed {
+  table-layout: fixed;
+}
+
+/* Header cells are sticky by default. Every one of these tables sits in a
+ * scrollport, and a header that scrolls away turns the numbers beneath it
+ * into unlabelled figures.
+ *
+ * The ground is not decoration: without it, rows show through the header as
+ * they pass under it. z.sticky is the ramp's own tier for pinned in-flow
+ * chrome — a header held above its own rows, not an overlay layer. */
+.ds-table-head {
+  position: sticky;
+  top: 0;
+  z-index: var(--sem-z-sticky);
+  padding: var(--sem-space-xs) var(--sem-space-sm);
+  border-bottom: 1px solid var(--sem-color-border-default);
+  background: var(--sem-color-bg-surface);
+  font-weight: var(--sem-font-weight-medium);
+  color: var(--sem-color-text-muted);
+  text-align: left;
+}
+
+/* For a table short enough that it never scrolls. It drops the ground with
+ * the pinning: a painted header on a table that cannot scroll is a band of
+ * colour doing no work. */
+.ds-table-head--static {
+  position: static;
+  background: transparent;
+}
+
+.ds-table-cell {
+  padding: var(--sem-space-2xs) var(--sem-space-sm);
+  color: var(--sem-color-text-default);
+  text-align: left;
+}
+
+/* Numeric columns right-align and take tabular figures, so digits line up
+ * down the column and a changing value does not reflow the row.
+ *
+ * Tabular figures in the UI face, not the mono family: the UI face already
+ * has them, and switching family mid-row is a louder change than the
+ * alignment it buys, in a row whose labels are UI-face. */
+.ds-table-head--numeric {
+  text-align: right;
+}
+
+.ds-table-cell--numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Body rows are hairline-separated in the one divider token — the quieter of
+ * the two, so the header's rule stays the strongest horizontal line and the
+ * body reads as a field rather than a grid of boxes. */
+.ds-table-row {
+  border-bottom: 1px solid var(--sem-color-border-subtle);
+}

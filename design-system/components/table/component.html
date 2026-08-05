@@ -3,23 +3,200 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>table (planned)</title>
+<title>Table</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
 <link rel="stylesheet" href="component.css" />
+<link rel="stylesheet" href="../status-dot/component.css" />
 <style>
   body {
     margin: 0;
     font-family: var(--sem-font-family-ui);
-    background: var(--sem-color-bg-app);
-    color: var(--sem-color-text-muted);
   }
-  .planned-note {
+  .demo-stage {
     padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-pane {
+    max-width: 520px;
+    margin-bottom: var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  /* The scrollport the sticky header exists for: scroll the body and the
+     header stays, on its own ground, with the rows passing under it. */
+  .demo-scrollport {
+    max-height: 180px;
+    overflow-y: auto;
+  }
+  .demo-name {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
   }
 </style>
 </head>
 <body>
-<p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a scrolling table. The header is pinned and paints its own ground; the numeric column is right-aligned with tabular figures.</p>
+  <div class="demo-pane">
+    <div class="demo-scrollport">
+      <table class="ds-table" aria-label="Runs by agent">
+        <thead>
+          <tr>
+            <th class="ds-table-head" scope="col">Agent</th>
+            <th class="ds-table-head" scope="col">Model</th>
+            <th class="ds-table-head ds-table-head--numeric" scope="col">Tokens</th>
+            <th class="ds-table-head ds-table-head--numeric" scope="col">Tasks</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">
+              <span class="demo-name">
+                <span class="ds-status-dot ds-status-dot--accent ds-status-dot--pulse" aria-hidden="true"></span>
+                Planner
+              </span>
+            </td>
+            <td class="ds-table-cell">Opus</td>
+            <td class="ds-table-cell ds-table-cell--numeric">184,220</td>
+            <td class="ds-table-cell ds-table-cell--numeric">7</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">
+              <span class="demo-name">
+                <span class="ds-status-dot ds-status-dot--warn" aria-hidden="true"></span>
+                Implementer
+              </span>
+            </td>
+            <td class="ds-table-cell">Sonnet</td>
+            <td class="ds-table-cell ds-table-cell--numeric">1,209,004</td>
+            <td class="ds-table-cell ds-table-cell--numeric">31</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Reviewer</td>
+            <td class="ds-table-cell">Opus</td>
+            <td class="ds-table-cell ds-table-cell--numeric">96,510</td>
+            <td class="ds-table-cell ds-table-cell--numeric">12</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Test author</td>
+            <td class="ds-table-cell">Sonnet</td>
+            <td class="ds-table-cell ds-table-cell--numeric">42,880</td>
+            <td class="ds-table-cell ds-table-cell--numeric">9</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Doc writer</td>
+            <td class="ds-table-cell">Haiku</td>
+            <td class="ds-table-cell ds-table-cell--numeric">8,140</td>
+            <td class="ds-table-cell ds-table-cell--numeric">3</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Triage</td>
+            <td class="ds-table-cell">Haiku</td>
+            <td class="ds-table-cell ds-table-cell--numeric">2,015</td>
+            <td class="ds-table-cell ds-table-cell--numeric">1</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="demo-label">Fixed tracks — widths come from the colgroup rather than the content, which is what lets a stack of tables share one grid. The header is static here: the table is short enough that it never scrolls.</p>
+  <div class="demo-pane">
+    <table class="ds-table ds-table--fixed" aria-label="Gate results" style="width: 100%">
+      <colgroup>
+        <col style="width: 55%" />
+        <col style="width: 22%" />
+        <col style="width: 23%" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th class="ds-table-head ds-table-head--static" scope="col">Gate</th>
+          <th class="ds-table-head ds-table-head--static" scope="col">Result</th>
+          <th class="ds-table-head ds-table-head--static ds-table-head--numeric" scope="col">Duration</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="ds-table-row">
+          <td class="ds-table-cell">Typecheck</td>
+          <td class="ds-table-cell">Passed</td>
+          <td class="ds-table-cell ds-table-cell--numeric">12s</td>
+        </tr>
+        <tr class="ds-table-row">
+          <td class="ds-table-cell">Lint</td>
+          <td class="ds-table-cell">Passed</td>
+          <td class="ds-table-cell ds-table-cell--numeric">4s</td>
+        </tr>
+        <tr class="ds-table-row">
+          <td class="ds-table-cell">Renderer tests</td>
+          <td class="ds-table-cell">2 failing</td>
+          <td class="ds-table-cell ds-table-cell--numeric">108s</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same chrome. The header's rule stays the strongest horizontal line; the row hairlines are the quieter divider.</p>
+  <div class="demo-pane">
+    <div class="demo-scrollport">
+      <table class="ds-table" aria-label="Runs by agent">
+        <thead>
+          <tr>
+            <th class="ds-table-head" scope="col">Agent</th>
+            <th class="ds-table-head" scope="col">Model</th>
+            <th class="ds-table-head ds-table-head--numeric" scope="col">Tokens</th>
+            <th class="ds-table-head ds-table-head--numeric" scope="col">Tasks</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">
+              <span class="demo-name">
+                <span class="ds-status-dot ds-status-dot--accent ds-status-dot--pulse" aria-hidden="true"></span>
+                Planner
+              </span>
+            </td>
+            <td class="ds-table-cell">Opus</td>
+            <td class="ds-table-cell ds-table-cell--numeric">184,220</td>
+            <td class="ds-table-cell ds-table-cell--numeric">7</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Implementer</td>
+            <td class="ds-table-cell">Sonnet</td>
+            <td class="ds-table-cell ds-table-cell--numeric">1,209,004</td>
+            <td class="ds-table-cell ds-table-cell--numeric">31</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Reviewer</td>
+            <td class="ds-table-cell">Opus</td>
+            <td class="ds-table-cell ds-table-cell--numeric">96,510</td>
+            <td class="ds-table-cell ds-table-cell--numeric">12</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Test author</td>
+            <td class="ds-table-cell">Sonnet</td>
+            <td class="ds-table-cell ds-table-cell--numeric">42,880</td>
+            <td class="ds-table-cell ds-table-cell--numeric">9</td>
+          </tr>
+          <tr class="ds-table-row">
+            <td class="ds-table-cell">Doc writer</td>
+            <td class="ds-table-cell">Haiku</td>
+            <td class="ds-table-cell ds-table-cell--numeric">8,140</td>
+            <td class="ds-table-cell ds-table-cell--numeric">3</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 </body>
 </html>

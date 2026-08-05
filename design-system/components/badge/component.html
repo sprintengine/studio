@@ -3,23 +3,207 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>badge (planned)</title>
+<title>Badge</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
 <link rel="stylesheet" href="component.css" />
 <style>
   body {
     margin: 0;
     font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
     background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-pane {
+    max-width: 380px;
+    margin-bottom: var(--sem-space-lg);
+    padding: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  /* Rows a label badge actually lives on: the word sits after the item it
+     classifies, never as the row's own headline. */
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-xs) var(--sem-space-md);
+    border-radius: var(--sem-radius-control);
+    font-size: var(--sem-font-size-body);
+  }
+  .demo-row-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .demo-row-spacer {
+    margin-left: auto;
+  }
+  /* The corner count needs a positioned host — this is the trigger it docks
+     to, standing in for the notification bell and the git change count. */
+  .demo-trigger {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--sem-size-control-sm);
+    height: var(--sem-size-control-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface-raised);
     color: var(--sem-color-text-muted);
   }
-  .planned-note {
-    padding: var(--sem-space-3xl);
-    font-size: var(--sem-font-size-body);
+  .demo-triggers {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-xl);
+    padding: var(--sem-space-sm) var(--sem-space-md);
+  }
+  .demo-inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-sm) var(--sem-space-md);
   }
 </style>
 </head>
 <body>
-<p class="planned-note">Planned component — not yet shipped. Its intended role and the hand-rolls it replaces are recorded in component.md; it is built by backlog item MC-2117.</p>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — labels: the tone classifies the row, the ink stays readable. One badge per row.</p>
+  <div class="demo-pane">
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2117 · Component kit</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--good">Merged</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2138 · Canon survivors</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--accent">In review</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2139 · Renderer tests</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--warn">Blocked</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2140 · Tracker write-back</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--danger">Failing</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2141 · Overlay geometry</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label">Draft</span>
+    </div>
+  </div>
+
+  <p class="demo-label">Counts — one digit is a circle, two grow it into a pill, and the figures are tabular so 9 → 10 does not shift the row.</p>
+  <div class="demo-pane">
+    <div class="demo-inline">
+      <span class="ds-badge-count" role="status" aria-label="3 unread">3</span>
+      <span class="ds-badge-count" role="status" aria-label="12 unread">12</span>
+      <span class="ds-badge-count" role="status" aria-label="More than 99 unread">99+</span>
+      <span class="ds-badge-count ds-badge-count--accent" role="status" aria-label="4 running">4</span>
+      <span class="ds-badge-count ds-badge-count--warn" role="status" aria-label="2 degraded">2</span>
+      <span class="ds-badge-count ds-badge-count--danger" role="status" aria-label="1 failing">1</span>
+    </div>
+  </div>
+
+  <p class="demo-label">Corner — docked to a trigger, with a hairline in the ground behind it so the count reads as sitting on the control.</p>
+  <div class="demo-pane">
+    <div class="demo-triggers">
+      <span class="demo-trigger">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <path d="M4 6.5a4 4 0 0 1 8 0c0 3 1 4 1 4H3s1-1 1-4Z" stroke-linejoin="round" />
+          <path d="M6.5 13a1.6 1.6 0 0 0 3 0" stroke-linecap="round" />
+        </svg>
+        <span class="ds-badge-count ds-badge-count--corner ds-badge-count--accent" role="status" aria-label="5 notifications">5</span>
+      </span>
+      <span class="demo-trigger">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <circle cx="4.5" cy="4" r="1.8" />
+          <circle cx="4.5" cy="12" r="1.8" />
+          <circle cx="11.5" cy="8" r="1.8" />
+          <path d="M4.5 5.8v4.4M6.3 4h2.4a1.6 1.6 0 0 1 1.6 1.6v.8" stroke-linecap="round" />
+        </svg>
+        <span class="ds-badge-count ds-badge-count--corner ds-badge-count--warn" role="status" aria-label="12 uncommitted changes">12</span>
+      </span>
+      <span class="demo-trigger">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <rect x="2.5" y="3.5" width="11" height="9" rx="1.5" />
+          <path d="M2.5 6h11" />
+        </svg>
+        <!-- Repeats the adjacent count in the row's own text, so it is hidden
+             from assistive tech rather than read twice. -->
+        <span class="ds-badge-count ds-badge-count--corner" aria-hidden="true">7</span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same two species, retuned by the tokens. The soft fills carry the tone; the ink does not change.</p>
+  <div class="demo-pane">
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2117 · Component kit</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--good">Merged</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2138 · Canon survivors</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--accent">In review</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2139 · Renderer tests</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label ds-badge-label--warn">Blocked</span>
+    </div>
+    <div class="demo-row">
+      <span class="demo-row-title">MC-2141 · Overlay geometry</span>
+      <span class="demo-row-spacer"></span>
+      <span class="ds-badge-label">Draft</span>
+    </div>
+  </div>
+
+  <div class="demo-pane">
+    <div class="demo-inline">
+      <span class="ds-badge-count" role="status" aria-label="3 unread">3</span>
+      <span class="ds-badge-count ds-badge-count--accent" role="status" aria-label="4 running">4</span>
+      <span class="ds-badge-count ds-badge-count--good" role="status" aria-label="8 passing">8</span>
+      <span class="ds-badge-count ds-badge-count--danger" role="status" aria-label="More than 99 failing">99+</span>
+    </div>
+  </div>
+
+  <div class="demo-pane">
+    <div class="demo-triggers">
+      <span class="demo-trigger">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <path d="M4 6.5a4 4 0 0 1 8 0c0 3 1 4 1 4H3s1-1 1-4Z" stroke-linejoin="round" />
+          <path d="M6.5 13a1.6 1.6 0 0 0 3 0" stroke-linecap="round" />
+        </svg>
+        <span class="ds-badge-count ds-badge-count--corner ds-badge-count--accent" role="status" aria-label="5 notifications">5</span>
+      </span>
+      <span class="demo-trigger">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <rect x="2.5" y="3.5" width="11" height="9" rx="1.5" />
+          <path d="M2.5 6h11" />
+        </svg>
+        <span class="ds-badge-count ds-badge-count--corner ds-badge-count--warn" role="status" aria-label="12 pending">12</span>
+      </span>
+    </div>
+  </div>
+</div>
 </body>
 </html>
