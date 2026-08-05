@@ -74,6 +74,7 @@ async function testBundledManifestsLoad(): Promise<void> {
     'grok',
     'kimi-claude',
     'kimi-code',
+    'muse',
     'opencode',
     'zai',
   ])
@@ -184,6 +185,11 @@ async function testResumeCapabilitiesProjectedAndConsistent(): Promise<void> {
     'kimi-code': { resumeSession: false, sessionIdFromCaller: false },
     cursor: { resumeSession: false, sessionIdFromCaller: false },
     'generic-shell': { resumeSession: false, sessionIdFromCaller: false },
+    // Muse Code's restart-safety is an in-process guarantee of its local event
+    // log, not a caller-driven resume: no --resume/--session-id flag is
+    // documented, so it neither resumes nor takes our session id. Both flip
+    // together, config-only, once a real install is probed.
+    muse: { resumeSession: false, sessionIdFromCaller: false },
   }
 
   for (const entry of registry.list()) {

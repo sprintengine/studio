@@ -8,6 +8,7 @@ export type CliIconKind =
   | 'grok'
   | 'kimi'
   | 'cursor'
+  | 'muse'
   | 'terminal'
 
 export function resolveCliIconKind(cli: AgentCli): CliIconKind {
@@ -20,6 +21,7 @@ export function resolveCliIconKind(cli: AgentCli): CliIconKind {
   // redirect) share the Kimi mark so they read as one provider in pickers.
   if (cli === 'kimi-code' || cli === 'kimi-claude') return 'kimi'
   if (cli === 'cursor') return 'cursor'
+  if (cli === 'muse') return 'muse'
   return 'terminal'
 }
 
@@ -151,6 +153,30 @@ export default function CliIcon({ cli, className }: { cli: AgentCli; className?:
           d="M9.25 7.75L15.5 12.1L12.4 13L11.2 16.25L9.25 7.75Z"
           stroke="currentColor"
           strokeWidth="1.7"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+
+  if (iconKind === 'muse') {
+    // A simple, original peak tile mark (theme-adaptive via currentColor) that
+    // reads as the Muse Code runtime. Deliberately not Meta's own mark — swap
+    // this branch's contents for the official brand SVG if/when one is bundled.
+    return (
+      <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.7" />
+        <path
+          d="M8 16.25V7.75L12 12L16 7.75V16.25"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
           strokeLinejoin="round"
         />
       </svg>

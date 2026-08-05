@@ -12,5 +12,6 @@ assert.equal(resolveCliIconKind('grok'), 'grok')
 assert.equal(resolveCliIconKind('kimi-code'), 'kimi')
 assert.equal(resolveCliIconKind('kimi-claude'), 'kimi')
 assert.equal(resolveCliIconKind('cursor'), 'cursor')
+assert.equal(resolveCliIconKind('muse'), 'muse')
 
 console.log('CliIcon.test.ts: ok')

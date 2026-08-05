@@ -1,0 +1,76 @@
+{
+  "id": "muse",
+  "displayName": "Muse Code",
+  "publisher": "meta",
+  "version": 1,
+  "summary": "Meta's Muse Code terminal coding agent, powered by Muse Spark 1.2.",
+  "category": "Agent CLI",
+  "icon": "icon.svg",
+  "binary": "muse",
+  "$comment": "Muse Code shipped 2026-08-05 as a macOS/Linux beta (Meta Superintelligence Labs). Everything declared below comes from Meta's launch materials: the binary is `muse`, `muse --version` confirms an install, `muse exec \"<prompt>\"` is a headless one-shot, the default model is muse-spark-1.2, and /plan, /grill and /goal ship as built-in skills. Four blocks are deliberately NOT declared because no public reference documents them and no Muse install was reachable from this machine to probe: modelSelection (the model flag's spelling is unknown), mcpConfig (path and format unknown), skillIntegration (Muse has native slash commands, but the directory a user skill installs into is undocumented), and a resume argv (the runtime keeps a replay-exact local event log and restarts after a crash, but no `--resume`/`--session-id` flag is documented). Each is a config-only flip — run `muse --help` against a real install and fill the block in; no code change is needed, because bundled plugins are directory-scanned and AgentCli is an open string.",
+  "permissionPresets": {
+    "default": {
+      "$comment": "Only `default` is declared. Muse's approval-bypass flag (if it has one) is undocumented, and resolvePermissionPreset in src/main/plugin-render.ts degrades an undeclared bypass_all DOWN this ladder to `default` rather than passing an unknown flag through — which that code notes is fatal to the CLI. Guessing a flag name here would be the one failure mode the ladder exists to prevent. Add bypass_all once `muse --help` names the real flag.",
+      "label": "Default (Muse prompts for approvals)",
+      "args": []
+    }
+  },
+  "launch": {
+    "argv": ["{{binary}}", { "spreadIf": "permissionArgs" }]
+  },
+  "resume": {
+    "supported": false
+  },
+  "promptInjection": {
+    "$comment": "Same reasoning as the grok manifest, and for the same reason: Muse's interactive TUI documents no positional prompt argument (`muse exec` is a one-shot, not a session), and its real input-ready marker is unknown. The pattern (?!) never matches by design — any guessable marker would match the startup banner before the TUI accepts input, swallowing the keystrokes and cancelling the timeout fallback, while a late post-timeout match would inject a second copy. Never-match makes delivery deterministic: exactly one injection, via the runtime's timeout fallback, once the TUI has had timeoutMs to become ready. If a real install confirms `muse \"prompt\"` works interactively, flip mode to positional-arg.",
+    "mode": "send-after-ready",
+    "readiness": {
+      "type": "output-match",
+      "pattern": "(?!)",
+      "timeoutMs": 8000
+    }
+  },
+  "completion": {
+    "mode": "process-exit"
+  },
+  "detect": {
+    "versionArgs": ["--version"]
+  },
+  "install": {
+    "darwin": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "curl -fsSL https://dev.meta.ai/install.sh | bash",
+        "recommended": true,
+        "requires": "curl"
+      }
+    ],
+    "linux": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "curl -fsSL https://dev.meta.ai/install.sh | bash",
+        "recommended": true,
+        "requires": "curl"
+      }
+    ],
+    "wsl": [
+      {
+        "$comment": "Inferred, not documented: Meta ships Muse Code for macOS and Linux only, and WSL is Linux, so the Linux installer is offered there. No win32 block exists on purpose — there is no native Windows build to install, and an entry that cannot succeed is worse than none.",
+        "id": "official",
+        "label": "Official installer in WSL (recommended)",
+        "shell": "curl -fsSL https://dev.meta.ai/install.sh | bash",
+        "recommended": true,
+        "requires": "curl"
+      }
+    ]
+  },
+  "capabilities": {
+    "$comment": "toolUse is true — Muse Code plans, edits, runs tools and coordinates background agents, which is the whole product. resumeSession is false because no resume flag is documented; its event-log restart-safety is an in-process guarantee, not a caller-driven resume, and MC-1464/MC-1465 discipline says an unverified resume path must not risk a lost conversation. sessionIdFromCaller is false because launch mints no session id. mcpServers is false because no MCP support is documented — false means the app never offers an attach that would silently do nothing.",
+    "resumeSession": false,
+    "sessionIdFromCaller": false,
+    "toolUse": true,
+    "mcpServers": false
+  }
+}

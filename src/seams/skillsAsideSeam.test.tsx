@@ -184,10 +184,10 @@ async function main(): Promise<void> {
   const lookupManifest = (pluginId: string): PluginManifest | undefined =>
     registry.get(pluginId)?.manifest
 
-  // Every directory under `resources/plugins`, which is what "the twelve bundled
+  // Every directory under `resources/plugins`, which is what "the thirteen bundled
   // CLIs" names. Read off disk rather than from the registry on purpose: three
-  // of the twelve declare `kind: "provider"` and so never enter the CLI plugin
-  // list at all, and that difference is one of the twelve answers this suite has
+  // of the thirteen declare `kind: "provider"` and so never enter the CLI plugin
+  // list at all, and that difference is one of the thirteen answers this suite has
   // to prove is truthful rather than accidental.
   const BUNDLED_ROOT = join(process.cwd(), 'resources', 'plugins')
   // Entries carrying a manifest, not every directory entry: a `.DS_Store` that
@@ -455,8 +455,8 @@ async function main(): Promise<void> {
   // Crosses T1 (harness map + skill read) and T2 (MCP read), over the real
   // manifests, and renders each answer through T8.
 
-  await check('twelve bundled plugins ship, nine of them agent CLIs', () => {
-    assert.equal(BUNDLED_IDS.length, 12)
+  await check('thirteen bundled plugins ship, ten of them agent CLIs', () => {
+    assert.equal(BUNDLED_IDS.length, 13)
     const declared = BUNDLED_IDS.map(declaredFor)
     // The three conversation providers are bundled plugins but not CLIs: no
     // binary, no harness, no config file. They are covered below anyway — the
@@ -471,11 +471,15 @@ async function main(): Promise<void> {
     )
   })
 
-  await check('all three skill-support shapes are represented in the twelve', () => {
+  await check('all three skill-support shapes are represented in the thirteen', () => {
     const declared = BUNDLED_IDS.map(declaredFor)
     assert.equal(declared.filter((entry) => entry.support === 'native').length, 6)
     assert.equal(declared.filter((entry) => entry.support === 'unsupported').length, 1)
-    assert.equal(declared.filter((entry) => entry.support === null).length, 5)
+    // Six declare no `skillIntegration` block at all: the three conversation
+    // providers, generic-shell, cursor (which declares only `mcpConfig`), and
+    // muse — Muse Code ships native slash-command skills, but the directory a
+    // user skill installs into is undocumented, so no target is declared yet.
+    assert.equal(declared.filter((entry) => entry.support === null).length, 6)
     assert.equal(declared.filter((entry) => entry.mcpWorkspacePath !== null).length, 7)
   })
 
@@ -589,7 +593,7 @@ async function main(): Promise<void> {
     for (const title of rowTitles) assert.ok(resolved.has(title), `the pane invented a row: ${title}`)
   })
 
-  // ── 2. a thirteenth CLI, from a manifest alone ─────────────────────────────
+  // ── 2. a fourteenth CLI, from a manifest alone ─────────────────────────────
   //
   // The services above were built before this plugin existed and are not
   // rebuilt: the only new input is the manifest, which is the epic's acceptance
@@ -599,7 +603,7 @@ async function main(): Promise<void> {
   const ATLAS_SKILLS_DIR = '.atlas/skills'
   const ATLAS_MCP = '.atlas/mcp.json'
 
-  await check('a thirteenth CLI appears in the pane from its manifest alone', async () => {
+  await check('a fourteenth CLI appears in the pane from its manifest alone', async () => {
     writeFileDeep(join(userPluginRoot, 'atlas', 'plugin.json'), JSON.stringify({
       id: 'atlas',
       displayName: 'Atlas',
@@ -637,7 +641,7 @@ async function main(): Promise<void> {
     assert.equal(
       report.rejected.filter((entry) => entry.manifestPath.includes('atlas')).length,
       0,
-      'the thirteenth manifest must be accepted as written',
+      'the fourteenth manifest must be accepted as written',
     )
 
     const result = await resolveThroughIpc('atlas')
@@ -653,12 +657,12 @@ async function main(): Promise<void> {
     assert.match(markup, /Only Atlas reads this\./)
     assert.doesNotMatch(markup, /No skills or MCP servers for this agent\./)
 
-    // And the invocation is rendered from the thirteenth manifest's own
+    // And the invocation is rendered from the fourteenth manifest's own
     // template — the only place a CLI's form is allowed to come from.
     assert.equal(result.skills[0].invocation, '/atlas-skill')
   })
 
-  await check('the twelve keep their own answers once a thirteenth is loaded', async () => {
+  await check('the thirteen keep their own answers once a fourteenth is loaded', async () => {
     const claude = await resolveThroughIpc('claude-code')
     assert.ok(claude.ok)
     assert.deepEqual(
@@ -938,7 +942,7 @@ async function main(): Promise<void> {
   // Crosses T4 (the write), T3 (the invalidation it raises) and T8.
 
   await check('attach writes every declared harness directory and the pane reflects it', async () => {
-    // The four the twelve bundled CLIs declare between them, from six native
+    // The four the thirteen bundled CLIs declare between them, from six native
     // CLIs — three of which share `.claude/skills`.
     const bundledDirs = [...new Set(
       BUNDLED_IDS.map(declaredFor)
@@ -947,7 +951,7 @@ async function main(): Promise<void> {
     )]
     assert.equal(bundledDirs.length, 4, 'six native CLIs declare four distinct directories')
     // What the installer must actually fan out to is every native harness in the
-    // registry AS IT STANDS — which now includes the thirteenth CLI's, loaded
+    // registry AS IT STANDS — which now includes the fourteenth CLI's, loaded
     // from a manifest alone. Derived here rather than listed, so the fan-out is
     // asserted against the map instead of against a copy of it.
     const nativeHarnesses = [...buildHarnessMap(listPlugins()).byHarness.values()]
@@ -955,7 +959,7 @@ async function main(): Promise<void> {
       .map((binding) => binding.skillsDir as string)
     assert.ok(
       nativeHarnesses.includes(ATLAS_SKILLS_DIR),
-      'the thirteenth CLI must be a fan-out target too, or decision 2 stops at the read path',
+      'the fourteenth CLI must be a fan-out target too, or decision 2 stops at the read path',
     )
     for (const dir of bundledDirs) assert.ok(nativeHarnesses.includes(dir))
 
@@ -1196,7 +1200,7 @@ async function main(): Promise<void> {
     assert.equal(writes[0].data, bracketed(`Use the ${harnessSkillId('claude')} skill.`))
   })
 
-  await check('the thirteenth CLI gets its own declared form on a drag, not the fallback', async () => {
+  await check('the fourteenth CLI gets its own declared form on a drag, not the fallback', async () => {
     // Decision 2 does not stop at the resolver: a CLI added by manifest alone
     // must be able to USE what the pane says it can reach. Atlas declares
     // `/{{skillId}}` and holds `atlas-skill` in its own harness directory.
