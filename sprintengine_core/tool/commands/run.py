@@ -422,7 +422,18 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                     "--task-worktrees only applies when the sprint uses worktrees. "
                     "Add --use-worktrees true, or drop --task-worktrees."
                 )
-            vcs["taskIsolation"] = bool(args.task_worktrees)
+            # Only the FIRST init decides, like the intake and the repo set. A
+            # second init flipping this would change where live tasks' commits are
+            # read from and strand the trees already provisioned around the old
+            # answer; a re-declaration of the same value is an idempotent no-op.
+            if "taskIsolation" not in vcs:
+                vcs["taskIsolation"] = bool(args.task_worktrees)
+            elif bool(vcs["taskIsolation"]) != bool(args.task_worktrees):
+                raise SystemExit(
+                    "This sprint's task isolation is fixed at creation "
+                    f"(currently {'on' if vcs['taskIsolation'] else 'off'}). "
+                    "Re-run without --task-worktrees, or create a new sprint."
+                )
         elif declared_repos and get_run_vcs(state):
             # A second init cannot grow the run's project set: repos are fixed at
             # creation and the worktrees, locks, and branches are already built
@@ -1118,10 +1129,10 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
         )
         if orphaned:
             base_message += (
-                f" WARNING: {len(orphaned)} changed path(s) fall outside every task's owned paths and were NOT committed: "
-                f"{', '.join(orphaned)}. If they belong to this task, add them to the task's ownedPaths "
-                f"(`sprintengine plan update-task`) or pass `--path <file>`, then commit again — otherwise a clean "
-                f"checkout will be missing these files."
+                f" WARNING: {len(orphaned)} changed path(s) are claimed by no task and were NOT committed: "
+                f"{', '.join(orphaned)}. This commit takes every dirty path no OTHER active task claims, so "
+                f"anything still here belongs to a live sibling — or a commit path failed. Check before "
+                f"finishing: a clean checkout would be missing these files."
             )
         return {
             "ok": True,

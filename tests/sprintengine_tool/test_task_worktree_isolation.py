@@ -281,6 +281,23 @@ def test_canceling_the_run_sweeps_every_task_worktree_it_still_holds(tmp_path) -
     assert not (_run_worktree(fixture) / "src" / "alpha.ts").exists()
 
 
+def test_isolation_cannot_be_flipped_by_a_second_init(tmp_path) -> None:
+    """Fixed at creation, like the worktree toggle and the repo set.
+
+    Flipping it mid-run would change which tree live tasks' commits are read
+    from, and strand the trees already provisioned around the old answer.
+    """
+    fixture = _isolated_run(tmp_path, "iso-fixed")
+    # Re-declaring the same value is an idempotent no-op.
+    fixture.cli.run("init", "--goal", "Run iso-fixed", "--use-worktrees", "true", "--task-worktrees", "true")
+
+    refused = fixture.cli.run_failure(
+        "init", "--goal", "Run iso-fixed", "--use-worktrees", "true", "--task-worktrees", "false",
+    )
+    assert "fixed at creation" in refused.stderr
+    assert read_state(fixture.state_path)["sprintengine"]["vcs"]["taskIsolation"] is True
+
+
 def test_run_level_operations_still_read_the_run_branch(tmp_path) -> None:
     """Isolation is invisible above the task: the run's tree and branch are its own."""
     fixture = _isolated_run(tmp_path, "iso-runlevel")

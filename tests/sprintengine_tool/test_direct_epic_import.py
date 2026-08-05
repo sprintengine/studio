@@ -310,6 +310,87 @@ def test_an_intake_cannot_be_flipped_by_a_second_init(tmp_path) -> None:
     assert state["artifacts"] == []
 
 
+def test_the_skip_rule_matches_the_renderers_copy_of_it() -> None:
+    """The dialog counts what goes in; the engine decides what goes in.
+
+    With no plan gate there is no later stop where a disagreement would surface —
+    the source row's arithmetic IS the verification — so the two copies of the
+    rule are pinned to each other, the way the phase vocabulary is.
+    """
+    import re
+    from pathlib import Path as _Path
+
+    from sprintengine_core.tool.plans import CLOSED_CHILD_STATUSES
+
+    repo_root = _Path(__file__).resolve().parents[2]
+    source = (repo_root / "src/renderer/src/utils/backlogEpics.ts").read_text(encoding="utf-8")
+    match = re.search(
+        r"CLOSED_EPIC_CHILD_STATUSES: ReadonlySet<BacklogItemStatus> = new Set<BacklogItemStatus>\(\[([^\]]*)\]",
+        source,
+    )
+    assert match, "CLOSED_EPIC_CHILD_STATUSES not found in src/renderer/src/utils/backlogEpics.ts"
+    renderer = {value.strip().strip("'\"") for value in match.group(1).split(",") if value.strip()}
+    assert renderer == CLOSED_CHILD_STATUSES
+
+
+def test_a_direct_import_works_under_per_task_worktree_isolation(tmp_path) -> None:
+    """The two modes this epic added, together (MC-2128 + MC-2130).
+
+    A directly-imported task declares no modules by design, and an isolated task
+    commits its whole tree — the combination the epic's endgame assumes, and the
+    one no single item's tests exercise.
+    """
+    import subprocess
+
+    root = tmp_path / "project"
+    root.mkdir(parents=True, exist_ok=True)
+    for args in (
+        ["init", "-q"], ["config", "user.email", "t@e.com"], ["config", "user.name", "T"],
+        ["config", "commit.gpgsign", "false"], ["checkout", "-q", "-b", "main"],
+    ):
+        subprocess.run(["git", *args], cwd=str(root), check=True, capture_output=True)
+    (root / "README.md").write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=str(root), check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "seed"], cwd=str(root), check=True, capture_output=True)
+
+    children = [_child(root, "login-form", "Login form")]
+    _write(root / EPIC, "---\ntype: epic\n---\n\n# Auth revamp\n")
+    state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
+    cli = SwarmCli(state_path, cwd=root)
+    cli.run(
+        "init",
+        "--name", "auth-revamp",
+        "--goal", "Revamp authentication",
+        "--use-worktrees", "true",
+        "--task-worktrees", "true",
+        "--agent", "developer:developer-1",
+        "--source-json", json.dumps({
+            "kind": "markdown", "origin": "reference", "path": EPIC, "planKind": "epic",
+        }),
+        "--source-bundle-json", json.dumps([
+            {"kind": "generic_context", "origin": "reference", "path": children[0], "epicChild": True},
+        ]),
+    )
+
+    task_id = _tasks(state_path)[0]["id"]
+    assert _tasks(state_path)[0].get("ownedPaths") == []
+    claimed = cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    assert claimed["claimed"] is True
+
+    team_dir = state_path.parent
+    task_tree = team_dir / "task-worktrees" / task_id / "primary"
+    assert task_tree.exists(), "a directly-imported task gets its own tree like any other"
+    (task_tree / "src").mkdir(parents=True, exist_ok=True)
+    (task_tree / "src" / "login.ts").write_text("export const l = 1\n", encoding="utf-8")
+
+    published = cli.run(
+        "task", "publish", "--task-id", task_id, "--id", "developer-1", "--summary", "Login form.",
+    )
+    assert published["ok"] is True
+    # Declaring nothing and committing everything: the two halves of the endgame.
+    assert (team_dir / "worktree" / "src" / "login.ts").exists()
+
+
 def test_a_child_with_no_h1_still_yields_a_recognisable_task(tmp_path) -> None:
     root = tmp_path / "project"
     _write(root / "backlog" / "headless.md", "---\ntype: feature\nstatus: ready\nepic: auth-revamp\n---\n\nNo heading.\n")

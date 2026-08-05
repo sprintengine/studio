@@ -766,8 +766,8 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         # Owner guard first, before ANY side effect (MC-2072). `publish_task` guards
         # too, but by then this handler has already refreshed diff evidence and run
-        # the backstop commit — a refused publish must leave no trace, same reasoning
-        # as the orphan guard below.
+        # the backstop commit — a refused publish must leave no trace, the same
+        # reasoning the test-wiring guard below is placed on.
         assert_task_owner(task, str(actor), verb="publish", rule="Only a task's owner publishes it.")
         summary_data = parse_json_object_arg(getattr(args, "summary_data_json", None), "--summary-data-json")
         # The self-report is the agent's own list of what it changed, so it feeds
@@ -775,11 +775,12 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         # its paths would publish with an empty diff.
         self_reported = [str(path) for path in (getattr(args, "changed_path", None) or [])]
         refresh_task_diff_evidence(state, args.state, task, str(actor), [*(args.path or []), *self_reported])
-        # Guard BEFORE the backstop commit, same window and same reasoning as the
-        # orphan guard below: a refused publish must commit nothing, because a
-        # raised SystemExit discards the state write in with_locked_state while a
-        # commit made here would already be in git and go unrecorded in the run
-        # store. A test nothing runs is not coverage — 3 of 3 sprints shipped one.
+        # Guard BEFORE the backstop commit: a refused publish must commit nothing,
+        # because a raised SystemExit discards the state write in with_locked_state
+        # while a commit made here would already be in git and go unrecorded in the
+        # run store. (The orphan guard that used to share this window is gone —
+        # MC-2127 turned it into a question.) A test nothing runs is not coverage —
+        # 3 of 3 sprints shipped one.
         from sprintengine_core.tool.test_wiring import unwired_test_publish_error
         wiring_error = unwired_test_publish_error(task, _task_checkout_roots(state, args.state, task))
         if wiring_error:
