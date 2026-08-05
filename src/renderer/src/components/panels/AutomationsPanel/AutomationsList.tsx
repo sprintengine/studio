@@ -139,7 +139,16 @@ function DefinitionRow({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <TruncatedText as="span" text={def.name} className="text-meta font-medium text-[color:var(--text-strong)]" />
+            {/* The ink lift is selection's second channel, so the title has to
+                sit below the lifted one at rest — pinned at `--text-strong` it
+                had nowhere to go (ui/InboxRow carries the same pair). */}
+            <TruncatedText
+              as="span"
+              text={def.name}
+              className={`text-meta font-medium ${
+                selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
+              }`}
+            />
             {def.ownerModuleId ? <ModuleAttribution moduleId={def.ownerModuleId} className="text-micro" /> : null}
             {showStatusText ? (
               <span

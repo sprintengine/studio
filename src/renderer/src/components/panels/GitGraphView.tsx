@@ -351,7 +351,7 @@ function GitGraphCommitRow({
   localBranches,
   isOnCurrentBranch,
   highlight,
-  active,
+  selected,
   actions,
   onHover,
   onSelect,
@@ -367,7 +367,9 @@ function GitGraphCommitRow({
   localBranches: string[]
   isOnCurrentBranch: boolean
   highlight: Set<string>
-  active: boolean
+  /** The picked commit — the one the detail pane below is showing. Named for
+   *  what it is: it takes the selection fill, not the hover one. */
+  selected: boolean
   actions: GitCommitActions
   onHover: (hash: string | null) => void
   onSelect: (hash: string) => void
@@ -379,14 +381,19 @@ function GitGraphCommitRow({
     <div
       draggable
       onDragStart={(event) => setCommitDropData(event.dataTransfer, commit.hash)}
+      // Selection is the neutral selection fill plus the subject's ink lift, and
+      // hover is skipped on the picked row — `--bg-hover` sits below
+      // `--bg-selected`, so letting it win would dim the row the pointer is over
+      // and make "picked" and "pointed at" the same picture
+      // (design-system/patterns/selection.html).
       className={`group flex items-stretch transition-colors ${
-        active ? 'bg-[color:var(--bg-hover)]' : 'hover:bg-[color:var(--bg-hover)]'
+        selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
       }`}
       style={{ height: ROW_HEIGHT }}
     >
       <button
         type="button"
-        aria-pressed={active}
+        aria-pressed={selected}
         aria-label={`Commit ${commit.shortHash}: ${commit.subject}${
           refs.length > 0 ? ` (${refs.map((ref) => ref.label).join(', ')})` : ''
         }`}
@@ -428,7 +435,11 @@ function GitGraphCommitRow({
             <TruncatedText
               as="span"
               text={commit.subject}
-              className="min-w-0 text-[color:var(--text-default)] group-hover:text-[color:var(--text-strong)]"
+              className={`min-w-0 ${
+                selected
+                  ? 'text-[color:var(--text-strong)]'
+                  : 'text-[color:var(--text-default)] group-hover:text-[color:var(--text-strong)]'
+              }`}
             />
           </span>
           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-micro tabular-nums text-[color:var(--text-disabled)]">
@@ -613,7 +624,7 @@ export function GitGraphView({
                 .slice(0, 4)}
               isOnCurrentBranch={headAncestry.has(row.hash)}
               highlight={highlight}
-              active={selectedHash === row.hash}
+              selected={selectedHash === row.hash}
               actions={actions}
               onHover={setHoveredHash}
               onSelect={(hash) => setSelectedHash((prev) => (prev === hash ? null : hash))}

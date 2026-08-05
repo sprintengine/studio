@@ -126,6 +126,8 @@ const html = renderToStaticMarkup(
     effectiveModelForAgent={(agentId) => agents[agentId]?.cliModel}
     onSelectAgentCli={() => {}}
     onSelectAgentModel={() => {}}
+    selectedAgentId={null}
+    onSelectAgent={() => {}}
     onOpenAgent={() => {}}
     onSpawnAgent={() => {}}
     onRestartAgent={() => {}}
@@ -243,6 +245,8 @@ const configuredHtml = renderToStaticMarkup(
     effectiveModelForAgent={() => undefined}
     onSelectAgentCli={() => {}}
     onSelectAgentModel={() => {}}
+    selectedAgentId={null}
+    onSelectAgent={() => {}}
     onOpenAgent={() => {}}
     onSpawnAgent={() => {}}
     onRestartAgent={() => {}}
@@ -290,6 +294,8 @@ const doorHtml = renderToStaticMarkup(
     effectiveModelForAgent={(agentId) => agents[agentId]?.cliModel}
     onSelectAgentCli={() => {}}
     onSelectAgentModel={() => {}}
+    selectedAgentId={null}
+    onSelectAgent={() => {}}
     onOpenAgent={() => {}}
     onSpawnAgent={() => {}}
     onRestartAgent={() => {}}
@@ -350,6 +356,8 @@ const legacyDoorHtml = renderToStaticMarkup(
     effectiveModelForAgent={() => undefined}
     onSelectAgentCli={() => {}}
     onSelectAgentModel={() => {}}
+    selectedAgentId={null}
+    onSelectAgent={() => {}}
     onOpenAgent={() => {}}
     onSpawnAgent={() => {}}
     onRestartAgent={() => {}}
@@ -409,6 +417,8 @@ const rolelessHtml = renderToStaticMarkup(
     effectiveModelForAgent={() => undefined}
     onSelectAgentCli={() => {}}
     onSelectAgentModel={() => {}}
+    selectedAgentId={null}
+    onSelectAgent={() => {}}
     onOpenAgent={() => {}}
     onSpawnAgent={() => {}}
     onRestartAgent={() => {}}
@@ -455,6 +465,8 @@ const rolelessEmptyHtml = renderToStaticMarkup(
     effectiveModelForAgent={() => undefined}
     onSelectAgentCli={() => {}}
     onSelectAgentModel={() => {}}
+    selectedAgentId={null}
+    onSelectAgent={() => {}}
     onOpenAgent={() => {}}
     onSpawnAgent={() => {}}
     onRestartAgent={() => {}}

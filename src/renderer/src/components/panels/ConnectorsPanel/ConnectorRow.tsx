@@ -80,8 +80,12 @@ export function ConnectorRow({
     return (
       <div
         title={summary}
-        className={`group relative flex min-w-0 items-center gap-2.5 rounded-md px-3 py-1.5 transition-colors hover:bg-[color:var(--bg-hover)] ${
-          selected ? 'bg-[color:var(--bg-selected)]' : ''
+        // Hover is skipped on the selected row rather than layered under it:
+        // `hover:` wins on specificity, so a selected row the pointer sat over
+        // dropped to `--bg-hover` and read as merely pointed-at. Same rule the
+        // card variant below and `ui/InboxRow` follow.
+        className={`group relative flex min-w-0 items-center gap-2.5 rounded-md px-3 py-1.5 transition-colors ${
+          selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
         }`}
       >
         {icon}

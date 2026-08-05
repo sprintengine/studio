@@ -2178,13 +2178,19 @@ function ExplorerTree({
                 focusTree()
               }}
               onContextMenu={(event) => openContextMenu(event, entry)}
+              // A multi-selection has one cursor row and the rest: the cursor
+              // takes the full-strength fill, its companions the resting tier —
+              // the same two tokens a resting PANE uses, because the question is
+              // the same one ("which of these is the keyboard on?"). They used
+              // to take `--bg-hover`, which made a selected row and a pointed-at
+              // row the same picture (design-system/patterns/selection.html).
               className={`group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-meta transition-colors ${
                 isDropTarget
                   ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ring-1 ring-[color:var(--accent-primary)]'
                   : isSelected
                   ? isFocused
                     ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                    : 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+                    : 'bg-[color:var(--bg-selected-resting)] text-[color:var(--text-strong)]'
                   : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
               }`}
               style={{ paddingLeft: `${8 + depth * 14}px` }}

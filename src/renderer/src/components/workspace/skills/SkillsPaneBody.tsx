@@ -122,8 +122,12 @@ function SectionHead({ label, count }: { label: string; count: number }) {
 // every other pane keeps its choice visible without competing for the eye. The
 // tier is pure CSS off the scroll container's focus, so nothing has to track
 // which pane "has the drive" in state.
+// The resting tier is `--bg-selected-resting`, the token that exists for it, not
+// the `--bg-active` press fill it used to borrow (MC-2108): a selection at rest
+// is still a selection, and spending the pressed-control token on it left the
+// two states saying the same thing in different words.
 const SELECTED_TIERS =
-  'bg-[color:var(--bg-active)] group-focus-within/pane:bg-[color:var(--bg-selected)]'
+  'bg-[color:var(--bg-selected-resting)] group-focus-within/pane:bg-[color:var(--bg-selected)]'
 
 function Row({
   title,

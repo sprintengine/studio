@@ -827,6 +827,246 @@ async function main(): Promise<void> {
     assert.deepEqual(offenders, [], 'overlay z literals must name a tier: z-[var(--z-modal)] and friends')
   })
 
+  // --- MC-2108: selection never borrows the hover fill ---------------------
+  // Read from source for the same reason as the z rule above: the surfaces this
+  // polices are whole app screens (the file tree, the git graph, the sprint
+  // board's pickers) that cannot be mounted here, and the rule is about the
+  // literal a developer types.
+  //
+  // Selection answers "what did I pick?" and hover answers "what is the pointer
+  // over?" (design-system/patterns/selection.html). Six surfaces painted the
+  // first with the second's token, so a selected row was pixel-identical to a
+  // hovered one and the surface stopped answering "what am I acting on?".
+  //
+  // Scope is a class token in selection company: a whole `bg-[color:var(--bg-hover)]`
+  // or `bg-[color:var(--bg-active)]` — never the `hover:`/`group-hover:` variants
+  // of the same token, which ARE the hover state — written within a few lines of
+  // a selection state's name. `active` is not one of those names on purpose: in
+  // a menu or a listbox it names the keyboard cursor, whose canon IS the hover
+  // fill (ui/menuClasses, ui/Select), and one idea deserves one token.
+  await run('MC-2108 no selected-state class paints the hover or active fill', () => {
+    const rendererRoot = join(process.cwd(), 'src/renderer/src')
+    const sources: string[] = []
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) sources.push(full)
+      }
+    }
+    walk(rendererRoot)
+
+    const BORROWED = new Set(['bg-[color:var(--bg-hover)]', 'bg-[color:var(--bg-active)]'])
+    // Matched against CODE with its string literals blanked out, so the token
+    // name `--bg-selected` inside a class string can never pose as the state:
+    // a toolbar button whose open state borders itself in `--bg-selected` is
+    // not a selected row, and this rule has nothing to say about it.
+    // Unanchored on purpose: the state travels under many names — `selected`,
+    // `isSelected`, `selectedKey`, `aria-selected` — and blanking the strings is
+    // what makes an unanchored match safe.
+    const SELECTION_STATE = /selected|aria-current|\bisCurrent\b/i
+    const QUOTED = /"[^"\n]*"|'[^'\n]*'/g
+    // How far a fill can sit from the state it paints and still be the same
+    // decision: the ternary's own branches, or the line that returns them.
+    const NEARBY_LINES = 3
+
+    // A file with its class strings blanked but its code intact, so a state name
+    // is read from the code that names it. Quoted strings go first; a template
+    // literal keeps its `${...}` holes, because that is where the ternary — and
+    // so the state — lives, and loses only its literal text.
+    const codeWithoutClassStrings = (source: string): string => {
+      const chars = source.replace(QUOTED, (literal) => literal.replace(/[^\n]/g, ' ')).split('')
+      let index = 0
+      while (index < chars.length) {
+        if (chars[index] !== '`') {
+          index += 1
+          continue
+        }
+        index += 1
+        let depth = 0
+        while (index < chars.length) {
+          const char = chars[index]
+          if (depth === 0 && char === '`') {
+            index += 1
+            break
+          }
+          if (depth === 0 && char === '$' && chars[index + 1] === '{') {
+            depth = 1
+            index += 2
+            continue
+          }
+          if (depth > 0) {
+            if (char === '{') depth += 1
+            else if (char === '}') depth -= 1
+            index += 1
+            continue
+          }
+          if (char !== '\n') chars[index] = ' '
+          index += 1
+        }
+      }
+      return chars.join('')
+    }
+
+    const offenders: string[] = []
+    for (const path of sources) {
+      // Comments first: this file's own prose names both tokens, and so does
+      // the note above `backlogRowPaintClass`. Prose is not a class string.
+      const code = readFileSync(path, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
+        .replace(/(^|[^:])\/\/.*$/gm, '$1')
+      const lines = code.split('\n')
+      const codeOnly = codeWithoutClassStrings(code).split('\n')
+      lines.forEach((line, index) => {
+        // Class names are whole tokens wherever they are written — a quoted
+        // branch, a template's text, an array entry — so the line is read as
+        // tokens rather than as string literals.
+        const borrowed = new Set<string>()
+        for (const token of line.split(/[\s'"`]+/)) {
+          if (BORROWED.has(token)) borrowed.add(token)
+        }
+        if (borrowed.size === 0) return
+        const window = codeOnly
+          .slice(Math.max(0, index - NEARBY_LINES), index + NEARBY_LINES + 1)
+          .join('\n')
+        if (!SELECTION_STATE.test(window)) return
+        offenders.push(`${relative(process.cwd(), path)}:${index + 1}: ${[...borrowed].join(' ')}`)
+      })
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'a selected row takes --bg-selected (and --bg-selected-resting when its pane rests), never the hover fill',
+    )
+  })
+
+  // --- MC-2110: one geometry scale for every floating surface --------------
+  // Source-read for the same reason the z rule is: the shells are whole app
+  // screens, and the rule is about the literal a developer types.
+  const rendererSources = (): string[] => {
+    const rendererRoot = join(process.cwd(), 'src/renderer/src')
+    const found: string[] = []
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) found.push(full)
+      }
+    }
+    walk(rendererRoot)
+    return found
+  }
+
+  const STRING_LITERALS = /"([^"\n]*)"|'([^'\n]*)'|`([^`]*)`/g
+  const withoutComments = (path: string): string =>
+    readFileSync(path, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1')
+
+  // Scope for the radius rule: a class string that CARRIES AN OVERLAY ELEVATION
+  // — `--shadow-popover`, `--shadow-modal` or `--shadow-drawer`. That is the
+  // honest definition of a floating surface here: nothing in the document flow
+  // takes a shadow in this system (a card or a row takes a hairline), so a
+  // string spending one is a surface floating above the page, whatever file it
+  // lives in. In-flow chrome is left alone, and so are the ~460 radius
+  // off-ramps the `designSystemAxes` ratchet is draining — this is not that
+  // sweep.
+  await run('MC-2110 a floating surface takes its radius from the shape ramp', () => {
+    // The ramp is 3 / 5 / 7 / 9 — chip, control, overlay, shell — reachable as
+    // `--radius-xs/sm/md/lg` or as the px value each carries. What this rejects
+    // is the band BETWEEN the steps, which is where every overlay in the product
+    // had landed: `rounded-[8px]` (Modal, the new-workspace hub), `rounded-lg`
+    // (the New sprint dialog, the roster manager), `rounded-xl` (the palette,
+    // the diagnostics overlay), `rounded-[14px]` (the canvas conversation
+    // card). `rounded-full` is absent on purpose: a pill is its own idiom.
+    const OVERLAY_ELEVATION = /shadow-\[var\(--shadow-(?:popover|modal|drawer)\)\]/
+    const RADIUS = /(?:^|\s)(-?rounded(?:-(?:[tblr]|[tb][lr]))?(?:-\S+)?)(?=\s|$)/g
+    const ON_RAMP =
+      /^-?rounded(?:-(?:[tblr]|[tb][lr]))?(?:-(?:full|\[var\(--radius-(?:xs|sm|md|lg)\)\]|\[(?:3|5|7|9)px\]))?$/
+
+    const offenders: string[] = []
+    for (const path of rendererSources()) {
+      for (const match of withoutComments(path).matchAll(STRING_LITERALS)) {
+        const text = match[1] ?? match[2] ?? match[3] ?? ''
+        if (!OVERLAY_ELEVATION.test(text)) continue
+        for (const radius of text.matchAll(RADIUS)) {
+          if (ON_RAMP.test(radius[1])) continue
+          offenders.push(`${relative(process.cwd(), path)}: ${radius[1]}`)
+        }
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'a surface that casts an overlay shadow is a floating surface: its radius is --radius-md (7px, the ' +
+        'popover family) or --radius-lg (9px, a dialog-scale shell), never a value between the two',
+    )
+  })
+
+  await run('MC-2110 no overlay spells its own shadow', () => {
+    // A shadow with a TUNED colour in it rather than a token. The five that
+    // shipped were all the same string — `0 8px 24px -12px rgba(0,0,0,0.6)`,
+    // which is literally what `--sem-shadow-drawer` resolves to in DARK mode —
+    // so every light-theme popover cast a shadow tuned for a dark one, and
+    // `--sem-shadow-popover` went unconsumed entirely. The last holdout was the
+    // agent composer's nested engine flyout at `0 18px 50px rgba(0,0,0,0.55)`,
+    // behind an allow-comment claiming parity with a shadow it did not match.
+    //
+    // Scope: the kit, plus any class string that positions itself as an overlay
+    // — the same `fixed` / `.overlay-scrim` shape the z rule polices. An inset
+    // hairline on in-flow chrome is not elevation and is not this.
+    const KIT = join(process.cwd(), 'src/renderer/src/components/ui')
+    const TUNED_SHADOW = /shadow-\[[^\]]*(?:rgba?\(|#[0-9a-fA-F]{3,8})[^\]]*\]/g
+    const OVERLAY_SHELL_STRING = /(?:^|\s)(?:fixed|overlay-scrim)(?=\s|$)/
+
+    const offenders: string[] = []
+    for (const path of rendererSources()) {
+      const inKit = path.startsWith(KIT)
+      for (const match of withoutComments(path).matchAll(STRING_LITERALS)) {
+        const text = match[1] ?? match[2] ?? match[3] ?? ''
+        if (!inKit && !OVERLAY_SHELL_STRING.test(text)) continue
+        for (const shadow of text.matchAll(TUNED_SHADOW)) {
+          offenders.push(`${relative(process.cwd(), path)}: ${shadow[0]}`)
+        }
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'overlay elevation comes from --shadow-popover / --shadow-modal / --shadow-drawer, which are defined ' +
+        'per theme; a literal freezes one theme’s tuning into all nineteen',
+    )
+  })
+
+  await run('MC-2110 every dialog shell draws the same chrome, off the same width scale', () => {
+    // The shells the item names, each asserted to consume the canon rather than
+    // a copy of it. Named files, because the point is that these specifically
+    // had five widths, four radii and three shadow decisions between them; a
+    // rule phrased over "every file" would pass the day one grew a sixth.
+    const shells: Record<string, RegExp> = {
+      'components/ui/Modal.tsx': /OVERLAY_SHELL_CLASS/,
+      'components/ui/CommandPalette.tsx': /OVERLAY_SHELL_CLASS/,
+      // Migrated onto Modal outright — no shell of their own left to check.
+      'components/workspace/newSprint/NewSprintDialog.tsx': /<Modal\b/,
+      'components/backlog/RosterManagerModal.tsx': /<Modal\b/,
+      'components/diagnostics/DiagnosticsOverlay.tsx': /<Modal\b/,
+      // Not a Modal — it floats on the creation backdrop rather than a scrim —
+      // but a workbench-width floating surface, so it takes the same chrome.
+      'components/workspace/NewWorkspacePanel.tsx': /OVERLAY_SHELL_CLASS/,
+    }
+    for (const [file, pattern] of Object.entries(shells)) {
+      const source = readFileSync(join(process.cwd(), 'src/renderer/src', file), 'utf8')
+      assert.match(source, pattern, `${file} draws the shared shell chrome rather than a copy of it`)
+    }
+
+    // And nobody re-opens the width scale with a private measure. `Modal` takes
+    // a `size` step, not a pixel count: a `width` prop is a TypeScript error
+    // today, and a silent off-scale dialog the moment someone adds it back for
+    // one caller.
+    const modal = readFileSync(join(process.cwd(), 'src/renderer/src/components/ui/Modal.tsx'), 'utf8')
+    assert.ok(!/\bwidth\?:/.test(modal), 'Modal takes a step on the width scale (`size`), never a raw width')
+  })
+
   if (failures > 0) {
     console.error(`designSystemConformance.test.tsx: ${failures} failing`)
     process.exit(1)

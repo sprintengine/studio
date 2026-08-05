@@ -3,6 +3,7 @@ import {
   CliModelPickerButton,
   CliModelPopoverSurface,
   ContextMenu,
+  FOCUS_RING_INSET_CLASS,
   GhostButton,
   LifecycleGlyph,
   MenuDivider,
@@ -165,6 +166,8 @@ export function SprintEngineRosterView({
   onSpawnAgent,
   onRestartAgent,
   onKillAgent,
+  selectedAgentId,
+  onSelectAgent,
   terminalActionsUnavailable,
   roleConfigUnavailable,
 }: {
@@ -198,6 +201,12 @@ export function SprintEngineRosterView({
   onSpawnAgent: (agentId: string) => void
   onRestartAgent: (agentId: string) => void
   onKillAgent: (agentId: string) => void
+  // The seat whose detail the inspector beside this list is showing. A roster
+  // row is a list row like any other: picking one is what fills the inspector,
+  // and the picked row says so with the selection fill (it used to say nothing
+  // at all, so the pane on the right had no visible antecedent).
+  selectedAgentId: string | null
+  onSelectAgent: (agentId: string) => void
   // Set when this run has no resident workspace (the Sprints door on a run whose
   // workspace was removed, MC-1800): its terminals live in that workspace, so
   // opening, starting, restarting, killing and per-agent runtime edits cannot
@@ -627,9 +636,11 @@ export function SprintEngineRosterView({
     } = descriptor
     const hasLiveTerminal = descriptor.hasLiveTerminal
     const lifecycle = rosterLifecycle(statusKey, spawnPending)
+    const selected = selectedAgentId === agent.id
     return (
       <li key={agent.id}>
         <div
+          aria-current={selected ? 'true' : undefined}
           onContextMenu={(event) => {
             // The right-click fast path edits this agent's runtime on the
             // workspace record; with no workspace there is nothing to write, so
@@ -638,51 +649,72 @@ export function SprintEngineRosterView({
             event.preventDefault()
             setMenu({ kind: 'picker', agentId: agent.id, x: event.clientX, y: event.clientY })
           }}
-          className="group flex min-h-[34px] w-full min-w-0 items-center gap-2.5 px-4 transition-colors hover:bg-[color:var(--bg-hover)]"
+          // Selection fill, and hover skipped on the picked row: `--bg-hover`
+          // sits below `--bg-selected`, so letting it win would dim the row the
+          // pointer is over (design-system/patterns/selection.html).
+          className={`group flex min-h-[34px] w-full min-w-0 items-center gap-2.5 px-4 transition-colors ${
+            selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
+          }`}
         >
-          <span className="flex w-3 shrink-0 items-center justify-center">
-            {lifecycle ? (
-              lifecycle.kind === 'dot' ? (
-                // Decorative: the visually-hidden status text below is the
-                // single spoken source for the state.
-                <StatusDot tone={lifecycle.tone} pulse={lifecycle.pulse} />
+          {/* The seat itself — status, name, activity — is the control that
+              picks it; the trailing actions stay siblings so no button nests
+              inside another. */}
+          <button
+            type="button"
+            onClick={() => onSelectAgent(agent.id)}
+            className={`flex min-w-0 flex-1 items-center gap-2.5 text-left ${FOCUS_RING_INSET_CLASS}`}
+          >
+            <span className="flex w-3 shrink-0 items-center justify-center">
+              {lifecycle ? (
+                lifecycle.kind === 'dot' ? (
+                  // Decorative: the visually-hidden status text below is the
+                  // single spoken source for the state.
+                  <StatusDot tone={lifecycle.tone} pulse={lifecycle.pulse} />
+                ) : (
+                  <Tooltip
+                    content={rosterStatusTooltip(statusKey, statusLabel)}
+                    wrapperClassName="inline-flex"
+                  >
+                    <LifecycleGlyph state={lifecycle.state} live={lifecycle.live} />
+                  </Tooltip>
+                )
               ) : (
-                <Tooltip
-                  content={rosterStatusTooltip(statusKey, statusLabel)}
-                  wrapperClassName="inline-flex"
-                >
-                  <LifecycleGlyph state={lifecycle.state} live={lifecycle.live} />
-                </Tooltip>
-              )
-            ) : (
-              <span
-                aria-hidden="true"
-                className="h-[7px] w-[7px] rounded-full border border-[color:var(--text-subtle)]"
-              />
-            )}
-          </span>
-          <span className="flex w-[148px] shrink-0 items-center gap-1.5 truncate text-body font-medium text-[color:var(--text-default)]">
-            <span className="truncate">{displayName}</span>
-            {/* Which agent holds the plan — the same mark its coordination task
-                wears on the board. */}
-            {isCoordinatorRow(agent.id) ? (
-              <Tooltip content="Coordinates this run — plans it and adjudicates the plan.">
                 <span
-                  className="text-[color:var(--text-muted)]"
-                  aria-label="Coordinates this run"
-                  role="img"
-                >
-                  <SprintEngineCoordinationIcon className="icon-sm" />
-                </span>
-              </Tooltip>
-            ) : null}
-          </span>
-          <span className="sr-only">{statusLabel}</span>
-          <TruncatedText
-            as="span"
-            text={activity}
-            className="min-w-0 flex-1 text-meta text-[color:var(--text-subtle)]"
-          />
+                  aria-hidden="true"
+                  className="h-[7px] w-[7px] rounded-full border border-[color:var(--text-subtle)]"
+                />
+              )}
+            </span>
+            {/* Selection's second channel: the name lifts to `--text-strong` on
+                the picked seat and rests a rung below otherwise, the same ramp
+                every other list row in the product makes. */}
+            <span
+              className={`flex w-[148px] shrink-0 items-center gap-1.5 truncate text-body font-medium ${
+                selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
+              }`}
+            >
+              <span className="truncate">{displayName}</span>
+              {/* Which agent holds the plan — the same mark its coordination task
+                  wears on the board. */}
+              {isCoordinatorRow(agent.id) ? (
+                <Tooltip content="Coordinates this run — plans it and adjudicates the plan.">
+                  <span
+                    className="text-[color:var(--text-muted)]"
+                    aria-label="Coordinates this run"
+                    role="img"
+                  >
+                    <SprintEngineCoordinationIcon className="icon-sm" />
+                  </span>
+                </Tooltip>
+              ) : null}
+            </span>
+            <span className="sr-only">{statusLabel}</span>
+            <TruncatedText
+              as="span"
+              text={activity}
+              className="min-w-0 flex-1 text-meta text-[color:var(--text-subtle)]"
+            />
+          </button>
           <span className="flex shrink-0 items-center gap-2">
             {divergedFrom ? (
               <span

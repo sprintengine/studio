@@ -91,9 +91,15 @@ function ConnectorRow({
       data-connector-row={server.id}
       onClick={() => onPick(server)}
       onMouseMove={onHover}
+      // `active` is the keyboard cursor of a MENU, not a selection: nothing here
+      // persists past the pick, and the pointer moves the cursor as it travels.
+      // So it is the menu system's one highlight — `--bg-hover`, the same fill
+      // hovering paints (ui/menuClasses, ui/Select) — rather than the third
+      // token `--bg-active` it used to spend, which matched neither the hover
+      // state beside it nor the selection fill every persistent list uses.
       className={`flex w-full items-start gap-2 rounded px-2.5 py-1.5 text-left transition-colors ${
         active
-          ? 'bg-[color:var(--bg-active)] text-[color:var(--text-strong)]'
+          ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
       }`}
     >
