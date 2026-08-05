@@ -71,11 +71,11 @@ export function Badge({
           'text-micro font-bold leading-none tabular-nums text-[color:var(--text-on-accent)]',
           corner
             ? // A border in the app ground, so the badge reads as sitting ON the
-              // trigger rather than inside it. An inset ring would hold the box
-              // at exactly 16px, but `lint-design-tokens`' `no-glow-shadow` rule
-              // forbids that spelling outright — and every shipped counter this
-              // replaces already used a border, so this is their behaviour
-              // rather than a compromise introduced here.
+              // trigger rather than inside it. A `shadow-[0_0_0_2px_…]` ring
+              // would hold the box at exactly 16px, but `lint-design-tokens`'
+              // `no-glow-shadow` rule forbids that spelling outright — and every
+              // shipped counter this replaces already used a border, so this is
+              // their behaviour rather than a compromise introduced here.
               'absolute -right-1 -top-1 border border-[color:var(--bg-app)]'
             : '',
           className ?? '',

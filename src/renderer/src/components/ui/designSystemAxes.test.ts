@@ -140,15 +140,8 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     utils: 6,
     'components/diagnostics': 2,
   },
-  // Seam with MC-2098, recorded rather than silently carried: `components/
-  // workspace` includes `DesignRail`'s `size-3` identity chip, which is a RULED
-  // 12px (a deliberate identity square, explicitly not the 6px status circle).
-  // The icon ramp's smallest step is `xs` = 13px, so that chip cannot be
-  // expressed on the ramp at all — this axis therefore cannot reach zero until
-  // either the ramp gains a 12px step or the chip gets an explicit allowlist
-  // entry. It is a decision on the record, not an off-ramp waiting to drain.
   icon: {
-    'components/workspace': 44,
+    'components/workspace': 43,
     'components/panels': 31,
     'components/ui': 22,
     'components/backlog': 8,
@@ -156,6 +149,31 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     'components/brand': 1,
     'components/settings': 1,
     review: 1,
+  },
+}
+
+/**
+ * Sanctioned exceptions, subtracted from a file's count before it is compared.
+ *
+ * A ratchet whose exit is "every baseline at zero" needs somewhere to put the
+ * cases that are RULED rather than owed — otherwise the exit is unreachable and
+ * the baseline quietly becomes a permanent floor nobody remembers the reason
+ * for. Each entry is a decision on the record, exactly as the colour axis
+ * already does for brand marks.
+ *
+ * Keep these rare. An exception that is really "we have not got to it yet"
+ * belongs in BASELINE, where it stays visible as debt.
+ */
+const ALLOWED: Partial<Record<Axis, Record<string, { count: number; why: string }>>> = {
+  icon: {
+    'components/workspace/globalSurface/design/DesignRail.tsx': {
+      count: 1,
+      why:
+        "the Design door's identity chip is a ruled 12px square (MC-2098) — deliberately " +
+        'NOT the 6px status circle, and not an icon at all. The icon ramp starts at ' +
+        '`xs` = 13px, so it cannot be expressed on the ramp; adding a 12px icon step for ' +
+        'a non-icon would be the wrong fix.',
+    },
   },
 }
 
@@ -188,7 +206,12 @@ function countsFor(files: string[], axis: Axis): Map<string, number> {
   for (const file of files) {
     const found = code(file).match(AXES[axis])
     if (!found) continue
-    byArea.set(area(file), (byArea.get(area(file)) ?? 0) + found.length)
+    const allowed = ALLOWED[axis]?.[relative(RENDERER, file)]?.count ?? 0
+    // `max(0, …)` so a shrinking file cannot drive a directory negative and
+    // read as a phantom improvement.
+    const counted = Math.max(0, found.length - allowed)
+    if (counted === 0) continue
+    byArea.set(area(file), (byArea.get(area(file)) ?? 0) + counted)
   }
   return byArea
 }
@@ -315,6 +338,27 @@ for (const axis of Object.keys(AXES) as Axis[]) {
     )
   })
 }
+
+run('no sanctioned exception has gone stale', () => {
+  // An allowlist entry that no longer matches anything is a decision still on
+  // the record for code that has moved on — and the next person reads it as
+  // describing the file in front of them. Same discipline as the ratchet: an
+  // exception has to be spent when it stops being true.
+  for (const [axis, entries] of Object.entries(ALLOWED) as Array<[Axis, Record<string, { count: number; why: string }>]>) {
+    for (const [file, entry] of Object.entries(entries)) {
+      const full = join(RENDERER, file)
+      assert.ok(
+        rendererFiles.includes(full),
+        `${axis} allows ${entry.count} in ${file}, but that file no longer exists — drop the entry`,
+      )
+      const found = code(full).match(AXES[axis])?.length ?? 0
+      assert.ok(
+        found >= entry.count,
+        `${axis} allows ${entry.count} in ${file} but only ${found} remain — lower or drop the entry (${entry.why})`,
+      )
+    }
+  }
+})
 
 run('every policed axis has a baseline, and the exit is all of them at zero', () => {
   for (const axis of Object.keys(AXES) as Axis[]) {

@@ -245,6 +245,71 @@ function walkComponents(absoluteRoot, repoRoot) {
   return out
 }
 
+/**
+ * Blank out comment bodies, preserving every offset and newline.
+ *
+ * The rule regexes used to run over the raw line, so a comment DESCRIBING a
+ * forbidden pattern counted as one — writing "we avoid shadow-[0_0_0_…] here"
+ * failed the gate, which meant documenting a rule made the rule look broken and
+ * deleting the documentation "fixed" it. Comments are prose about the code, not
+ * the code.
+ *
+ * Replacement is space-for-character rather than deletion so `line` and
+ * `column` in every finding still point at the real source, and so the
+ * `design-tokens-allow:` marker scan — which reads the RAW lines, because the
+ * markers live in comments — keeps lining up with it.
+ *
+ * String literals are tracked so a `//` inside `'https://…'` is not mistaken
+ * for a comment. Template literals may contain `${}` with nested quotes; the
+ * cost of getting that wrong is only that a comment goes unmasked (a false
+ * positive that was the status quo), never that real code is blanked.
+ */
+function maskComments(source) {
+  const out = source.split('')
+  let i = 0
+  let quote = null
+  while (i < source.length) {
+    const ch = source[i]
+    const next = source[i + 1]
+    if (quote) {
+      if (ch === '\\') {
+        i += 2
+        continue
+      }
+      if (ch === quote) quote = null
+      i += 1
+      continue
+    }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      quote = ch
+      i += 1
+      continue
+    }
+    if (ch === '/' && next === '/') {
+      while (i < source.length && source[i] !== '\n') {
+        out[i] = ' '
+        i += 1
+      }
+      continue
+    }
+    if (ch === '/' && next === '*') {
+      while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) {
+        if (source[i] !== '\n') out[i] = ' '
+        i += 1
+      }
+      // The closing `*/` itself.
+      if (i < source.length) {
+        out[i] = ' '
+        out[i + 1] = ' '
+        i += 2
+      }
+      continue
+    }
+    i += 1
+  }
+  return out.join('')
+}
+
 const repoRoot = process.cwd()
 const scanRootAbs = resolve(repoRoot, SCAN_ROOT)
 const TARGET_FILES = walkComponents(scanRootAbs, repoRoot).sort()
@@ -256,6 +321,10 @@ for (const relativePath of TARGET_FILES) {
   const fullPath = resolve(repoRoot, relativePath)
   const source = readFileSync(fullPath, 'utf8')
   const lines = source.split('\n')
+  // Same offsets, comment bodies blanked. `lines` stays raw for the
+  // allow-marker scan (markers live in comments); the RULES regexes run over
+  // this so prose about a pattern is not counted as the pattern.
+  const codeLines = maskComments(source).split('\n')
   const fileExemptRules = exemptionByPath.get(relativePath) ?? new Set()
   const counts = {
     hex: 0,
@@ -408,7 +477,7 @@ for (const relativePath of TARGET_FILES) {
       if (fileExemptRules.has(rule.name)) continue
       rule.regex.lastIndex = 0
       let match
-      while ((match = rule.regex.exec(line))) {
+      while ((match = rule.regex.exec(codeLines[index] ?? ''))) {
         counts[key] += 1
         findings.push({
           rule: rule.name,
