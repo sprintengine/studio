@@ -1799,6 +1799,9 @@ async function testSprintCreateWarnsOnAnUnmarkedEpic(): Promise<void> {
     'backlog/epics/unmarked.md': { isEpic: true },
     'backlog/epics/marked.md': { isEpic: true, dependenciesPlanned: true },
     'backlog/plain-item.md': { isEpic: false },
+    // `type: epic` outside backlog/epics/: a real epic to the panel, but not an
+    // epic LAUNCH — the run plans regardless, so there is nothing to warn about.
+    'backlog/stray-epic.md': { isEpic: true },
   }
   const tools = createAutomationTools({
     ...backendsOf(),
@@ -1838,6 +1841,11 @@ async function testSprintCreateWarnsOnAnUnmarkedEpic(): Promise<void> {
     [],
   )
   assert.deepEqual(await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/plain-item.md' }), [])
+  assert.deepEqual(
+    await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/stray-epic.md', intake: 'direct' }),
+    [],
+    'a file outside backlog/epics/ never launches as an epic source, marked or not',
+  )
   assert.deepEqual(
     await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/gone.md' }),
     [],

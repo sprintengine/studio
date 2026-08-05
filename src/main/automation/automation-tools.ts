@@ -1635,6 +1635,12 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     intake: 'direct' | 'planned' | undefined,
   ): Promise<string[]> {
     if (intake === 'planned') return []
+    // Only a ref that will actually LAUNCH as an epic source can be affected:
+    // the launch path requires `backlog/epics/…` (isBacklogEpicPath) on top of
+    // the item being an epic. A `type: epic` file outside that directory is not
+    // an epic intake at all — the run plans whatever the caller asked for, and
+    // saying otherwise here would be a confident, wrong warning.
+    if (!sourceRef.replace(/\\/g, '/').toLowerCase().startsWith('backlog/epics/')) return []
     const read = await backends.readBacklogItem(folderPath, sourceRef).catch(() => null)
     if (!read?.ok || !read.item.isEpic || read.item.dependenciesPlanned === true) return []
     const mark =
