@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import { CliModelPickerButton, DefinitionList, Field, FOCUS_RING_CLASS, GhostButton, InlineNotice, Popover, PrimaryButton, Select, type SelectItem, Switch } from '../../ui'
+import { CliModelPickerButton, DefinitionList, Field, GhostButton, INLINE_TITLE_EDIT_CLASS, InlineNotice, Input, Popover, PrimaryButton, Select, type SelectItem, Switch, Textarea } from '../../ui'
 import { SkillPickerPopover } from '../../ui/SkillPickerPopover'
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -111,25 +111,23 @@ const PERMISSION_PRESET_ITEMS: SelectItem<SprintEngineCliPermissionPreset>[] = [
 // Stable empty fallback so the saved-teams selector doesn't churn refs per render.
 const EMPTY_SAVED_TEAMS: SprintEngineRoster[] = []
 
-// One control box vocabulary shared by every text input and the Select trigger
-// (h-7, 5px radius, --border-default on --bg-surface-raised) so inputs and
-// dropdowns read as one family instead of two. See TriggerFields.INPUT_CLASS,
-// kept in sync.
-const CONTROL_BASE =
-  'w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-meta ' +
-  `text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}`
-const CONTROL_INPUT = `${CONTROL_BASE} h-7 px-2.5`
-// The name, edited in place as the page's own title (mockup §.head). Quiet until
-// hover or focus reveals the control chrome — the same in-place-editing idiom
-// `CliModelPickerButton`'s `quiet` trigger uses — so the head reads as a heading
-// rather than as a form field wearing one, and the name is still one click away.
-const NAME_INPUT =
-  '-mx-1.5 w-full rounded-[5px] border border-transparent bg-transparent px-1.5 py-0.5 text-title font-semibold tracking-tight ' +
-  `text-[color:var(--text-strong)] transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-surface-raised)] ${FOCUS_RING_CLASS}`
+// The control box is `ui/Input`, not a constant here. This file used to declare
+// `CONTROL_BASE` and `TriggerFields.tsx` declared a literal duplicate of it,
+// under comments in both files admitting the two were kept in sync by hand —
+// which is the mechanism, not the exception (MC-2114). Its `h-7` was 28px, off
+// the 26/30/34 ramp entirely; the kit's `sm` step is 30px.
+// The name, edited in place as the page's own title (mockup §.head). The chrome
+// is the kit's `INLINE_TITLE_EDIT_CLASS` — the New sprint dialog's run-name field
+// is the same idiom and used to spell its own copy (MC-2114); what stays here is
+// the type step, which is this surface's own decision.
+const NAME_INPUT = `${INLINE_TITLE_EDIT_CLASS} text-title font-semibold tracking-tight text-[color:var(--text-strong)]`
 // Auto-grows with its content (field-sizing: content) from the rows={4} floor up
 // to a cap, then scrolls internally — no native drag handle. The `rows` attribute
 // sets the minimum height; max-h caps the growth so the form stays usable.
-const CONTROL_TEXTAREA = `${CONTROL_BASE} max-h-[280px] resize-none overflow-y-auto field-sizing-content px-2.5 py-1.5 leading-5`
+// The prompt field grows with its content (field-sizing: content) from the
+// rows={9} floor to a cap, then scrolls internally — no native drag handle,
+// which is why it opts out of the kit's default `resize-y`.
+const PROMPT_TEXTAREA = 'max-h-[280px] overflow-y-auto field-sizing-content'
 
 // Stable empty fallbacks so the roster store selectors don't churn refs per render.
 const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
@@ -888,21 +886,20 @@ export function AutomationEditor({
                 return (
                   <Field key={key} label={label} htmlFor={id} required={required}>
                     {key === 'prompt' ? (
-                      <textarea
+                      <Textarea
                         id={id}
                         rows={9}
                         value={form.config[key] ?? ''}
                         onChange={(e) => update('config', { ...form.config, [key]: e.target.value })}
                         placeholder="Review the changes on this repo and summarise risks."
-                        className={CONTROL_TEXTAREA}
+                        resize="none"
+                        className={PROMPT_TEXTAREA}
                       />
                     ) : (
-                      <input
+                      <Input
                         id={id}
-                        type="text"
                         value={form.config[key] ?? ''}
                         onChange={(e) => update('config', { ...form.config, [key]: e.target.value })}
-                        className={CONTROL_INPUT}
                       />
                     )}
                   </Field>

@@ -2084,6 +2084,12 @@ function ExplorerTree({
             cancelRename()
           }
         }}
+        // ANNOTATED OFF-RAMP (MC-2114). `h-5` is 20px, below the 26/30/34 control
+        // ramp's first step, and deliberately so: this field replaces the NAME
+        // INSIDE a file-tree row, and a tree row is 22px tall. A ramp-height
+        // field would push every sibling row down while one is being renamed,
+        // which is the one thing an in-place edit must not do. Everything else
+        // — the border token, the ground, the focus ring — is the kit's.
         className={`h-5 min-w-0 flex-1 rounded-[4px] border border-[color:var(--border-strong)] bg-[color:var(--bg-app)] px-1.5 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS} ${className}`}
       />
     )

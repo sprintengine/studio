@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useId, useState } from 'react'
-import { FOCUS_RING_CLASS, OutlineButton, PrimaryButton, StatusDot, type Tone } from '../ui'
+import { FOCUS_RING_CLASS, Input, OutlineButton, PrimaryButton, StatusDot, type Tone } from '../ui'
 import { MetaCell, SettingsRow, SettingsSectionTitle, SettingToggle, formatNullableDate } from './SettingsAtoms'
 
 type MobileControlCommandType =
@@ -341,7 +341,7 @@ export default function MobileSettingsTab() {
           help="The relay your phone is configured to reach. The connection stays open while the companion is enabled."
           htmlFor={relayUrlId}
         >
-          <input
+          <Input
             id={relayUrlId}
             value={relayUrlDraft}
             onChange={(event) => setRelayUrlDraft(event.target.value)}
@@ -354,7 +354,10 @@ export default function MobileSettingsTab() {
             placeholder="https://relay.example.com"
             autoComplete="off"
             spellCheck={false}
-            className={`h-control-md w-60 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`}
+            size="md"
+            variant="well"
+            fullWidth={false}
+            className="w-60 max-w-full font-mono"
           />
           <PrimaryButton size="md" onClick={() => void saveRelayUrl()} disabled={busy || !relayUrlDirty}>
             Save

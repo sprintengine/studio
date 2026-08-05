@@ -23,13 +23,17 @@ import {
 } from '../../utils/sprintengine'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
 import {
+  type ActionResult,
+  ActionResultMessage,
   CliProviderStateLine,
   CloseIconButton,
+  EmptyState,
   Field,
   FOCUS_RING_CLASS,
   GhostButton,
   IconButton,
   InlineNotice,
+  Input,
   OutlineButton,
   PrimaryButton,
   ProviderRow,
@@ -39,6 +43,7 @@ import {
   Spinner,
   StatusDot,
   Switch,
+  Textarea,
   type Tone,
   Tooltip,
 } from '../ui'
@@ -237,68 +242,37 @@ function resolveInitialSettingsTab(initialTab: string | null | undefined): strin
   return initialTab ?? null
 }
 
-const INPUT_CLASS =
-  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body ' +
-  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
-
-/**
- * Compact control for `SettingsRow`: callers add a width (`w-60` for the
- * standard 240 px row control) so inputs stay sized to their expected content,
- * never stretched to the panel. Recessed to `--bg-app` so it reads as a well
- * inside the `--bg-surface` body. Mono because row inputs hold identifiers
- * (commands, model ids, tokens), not prose.
- */
-const ROW_INPUT_CLASS =
-  'h-control-md max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-body ' +
-  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
-
-const TEXTAREA_BASE_CLASS =
-  'w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-body leading-5 ' +
-  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
+// This module used to declare `INPUT_CLASS` and `ROW_INPUT_CLASS` — and so did
+// `ProviderSettingsTab` (a copy of the first) and `ProjectKnowledgeList` (a
+// DIFFERENT field under the second's name: `--bg-surface` and full-width against
+// this one's `--bg-app` and content-sized). All four are `ui/Input` now: the
+// well recipe is the kit's `variant="well"`, and the settings inset is its `md`
+// step (MC-2114).
+//
+// What stays here is per-field CONTENT, not chrome. `font-mono` because a row
+// input holds an identifier (a command, a model id, a token) rather than prose,
+// and the two textarea shapes below, which differ by what the author is writing.
+const MONO_FIELD = 'font-mono'
+// Row controls are sized to their expected content, never stretched to the panel
+// — 240px is the standard row measure. Passed with `fullWidth={false}` because
+// Tailwind resolves two width utilities by stylesheet order, not string order.
+const ROW_FIELD = 'w-60 max-w-full font-mono'
 // Instructions editor: the SKILL.md document the runtime parses, so it reads as a
 // structured document (mono) rather than prose. Tall by default since the author
 // is filling in a multi-section scaffold.
-const TEXTAREA_CLASS = `min-h-[260px] font-mono ${TEXTAREA_BASE_CLASS}`
-// Prose textareas (a few sentences, read by people and agents): same field, sized
-// to its content instead of a document editor.
-const PROSE_TEXTAREA_CLASS = `font-sans ${TEXTAREA_BASE_CLASS}`
+const DOCUMENT_TEXTAREA = 'min-h-[260px] font-mono'
 
-type MessageTone = 'neutral' | 'accent' | 'warn' | 'error'
 type RoleRegistryStatus = 'idle' | 'loading' | 'ready' | 'unavailable'
-type RoleInstallMessage = { tone: MessageTone; text: string } | null
+// Was a local `MessageBlock` with its own four-tone `border-l-2` bar — the
+// reject-on-sight pattern, two tabs away from the `InlineNotice` this file
+// already imported (MC-2115). The kit's `ActionResultMessage` carries the
+// ruling now: a failure or a degraded state is a notice, everything else is
+// copy. `accent` and `neutral` folded into `info` on the way — there is no
+// success notice in this system.
+type RoleInstallMessage = ActionResult | null
 type SprintEngineRoleInstallTarget = {
   sourcePath: string
   destinationKind: 'roles' | 'skills'
-}
-
-const MESSAGE_BORDER: Record<MessageTone, string> = {
-  neutral: 'border-[color:var(--border-strong)]',
-  accent: 'border-[color:var(--accent-primary)]',
-  warn: 'border-[color:var(--tone-warn)]',
-  error: 'border-[color:var(--tone-error)]',
-}
-
-const MESSAGE_TEXT: Record<MessageTone, string> = {
-  neutral: 'text-[color:var(--text-muted)]',
-  accent: 'text-[color:var(--accent-primary)]',
-  warn: 'text-[color:var(--tone-warn)]',
-  error: 'text-[color:var(--tone-error)]',
-}
-
-function MessageBlock({
-  tone,
-  children,
-}: {
-  tone: MessageTone
-  children: React.ReactNode
-}) {
-  return (
-    <div
-      className={`border-l-2 pl-3 text-body leading-5 ${MESSAGE_BORDER[tone]} ${MESSAGE_TEXT[tone]}`}
-    >
-      {children}
-    </div>
-  )
 }
 
 function StatusTag({
@@ -394,10 +368,18 @@ function CliCredentialRow({
       <div className="mt-2 space-y-1.5">
         {configured ? (
           <div className="flex items-center gap-2">
-            <div className={`${ROW_INPUT_CLASS} flex flex-1 items-center tracking-[0.3em] text-[color:var(--text-muted)]`}>
-              <span className="sr-only">{displayName} API key is saved</span>
-              <span aria-hidden="true">••••••••••••</span>
-            </div>
+            {/* The saved key is shown as the field it will be edited in, read-only
+                — not as a div wearing a copy of the field's chrome. The value IS
+                the mask, so the accessible name says what the dots mean. */}
+            <Input
+              readOnly
+              value="••••••••••••"
+              aria-label={`${displayName} API key is saved`}
+              size="md"
+              variant="well"
+              fullWidth={false}
+              className="min-w-0 flex-1 tracking-[0.3em] text-[color:var(--text-muted)]"
+            />
             {canClear ? (
               <GhostButton size="md" onClick={() => void clear()} disabled={busy} className="shrink-0">
                 {busy ? 'Removing…' : 'Remove'}
@@ -409,7 +391,7 @@ function CliCredentialRow({
             <label htmlFor={inputId} className="sr-only">
               {displayName} API key
             </label>
-            <input
+            <Input
               id={inputId}
               type="password"
               value={draft}
@@ -423,7 +405,10 @@ function CliCredentialRow({
               placeholder="Paste API key"
               autoComplete="off"
               disabled={busy}
-              className={`${ROW_INPUT_CLASS} min-w-0 flex-1`}
+              size="md"
+              variant="well"
+              fullWidth={false}
+              className={`min-w-0 flex-1 ${MONO_FIELD}`}
             />
             <PrimaryButton size="md" onClick={() => void save()} disabled={busy || !draft.trim()} className="shrink-0">
               {busy ? 'Saving…' : 'Save'}
@@ -482,8 +467,7 @@ function PluginModelSettings({
             </button>
           </div>
         ))}
-        <input
-          type="text"
+        <Input
           value={draftModel}
           aria-label={`Add a model id for ${displayName}`}
           placeholder="Add model id and press Enter"
@@ -494,7 +478,9 @@ function PluginModelSettings({
               addDraftModel()
             }
           }}
-          className={`${ROW_INPUT_CLASS} w-full`}
+          size="md"
+          variant="well"
+          className={MONO_FIELD}
         />
       </div>
     </div>
@@ -653,7 +639,7 @@ function CommittedNumberField({
   }
   return (
     <Field label={descriptor.label} htmlFor={descriptor.id} help={descriptor.help}>
-      <input
+      <Input
         id={descriptor.id}
         type="number"
         inputMode="numeric"
@@ -666,7 +652,8 @@ function CommittedNumberField({
         onKeyDown={(event) => {
           if (event.key === 'Enter') event.currentTarget.blur()
         }}
-        className={INPUT_CLASS}
+        size="md"
+        className={MONO_FIELD}
       />
     </Field>
   )
@@ -1004,7 +991,7 @@ function UserRoleAuthoringForm({
           error={errors.id}
           help={editing ? 'Locked; the id is the role’s durable identity.' : 'Lowercase snake_case. Cannot change after creation.'}
         >
-          <input
+          <Input
             value={draft.id}
             onChange={(event) => onChange({ id: event.target.value })}
             disabled={editing || busy}
@@ -1012,16 +999,17 @@ function UserRoleAuthoringForm({
             spellCheck={false}
             autoCapitalize="none"
             autoCorrect="off"
-            className={INPUT_CLASS}
+            size="md"
+            className={MONO_FIELD}
           />
         </Field>
         <Field label="Display name" htmlFor="user-role-label" required error={errors.label}>
-          <input
+          <Input
             value={draft.label}
             onChange={(event) => onChange({ label: event.target.value })}
             disabled={busy}
             placeholder="Code auditor"
-            className={`${INPUT_CLASS} font-sans`}
+            size="md"
           />
         </Field>
       </div>
@@ -1033,13 +1021,13 @@ function UserRoleAuthoringForm({
         error={errors.description}
         help="What this role does and when a sprint should staff it. The architect reads it when planning."
       >
-        <textarea
+        <Textarea
           value={draft.description}
           onChange={(event) => onChange({ description: event.target.value })}
           disabled={busy}
           rows={3}
           placeholder="Audits diffs for regressions before release. Staff this role when the run touches release-critical paths."
-          className={PROSE_TEXTAREA_CLASS}
+          size="md"
         />
       </Field>
 
@@ -1050,16 +1038,17 @@ function UserRoleAuthoringForm({
         error={errors.body}
         help="The role’s instructions, written as a skill document. Replace the seeded scaffold."
       >
-        <textarea
+        <Textarea
           value={draft.body}
           onChange={(event) => onChange({ body: event.target.value })}
           disabled={busy}
           spellCheck={false}
-          className={TEXTAREA_CLASS}
+          size="md"
+          className={DOCUMENT_TEXTAREA}
         />
       </Field>
 
-      {errors.form ? <MessageBlock tone="error">{errors.form}</MessageBlock> : null}
+      {errors.form ? <InlineNotice tone="error">{errors.form}</InlineNotice> : null}
 
       <div className="flex items-center justify-end gap-2">
         <GhostButton size="md" onClick={onCancel} disabled={busy}>
@@ -1560,7 +1549,7 @@ export default function SettingsPanel({
         await window.api.copyPathInto(target.sourcePath, destinationDir, { overwrite: true })
       }
       setRoleInstallMessage({
-        tone: 'accent',
+        tone: 'info',
         text: 'Role registry files installed into .sprintengine/roles and .sprintengine/skills with matching names. Reloaded registry from the workspace source.',
       })
       await loadSprintEngineRoles()
@@ -1596,7 +1585,7 @@ export default function SettingsPanel({
         return
       }
       setCliInstallMessage({
-        tone: 'accent',
+        tone: 'info',
         text: `Installed "${result.displayName}". It's available to assign to agents now.`,
       })
       await refreshPluginCatalog()
@@ -1647,7 +1636,7 @@ export default function SettingsPanel({
         }
         if (rejected > 0) parts.push(`${rejected} rejected`)
         setGlobalInstallMessage({
-          tone: rejected > 0 ? 'warn' : 'accent',
+          tone: rejected > 0 ? 'warn' : 'info',
           text: `${parts.join(', ')}. Reload to pick up new roles in open workspaces.`,
         })
       }
@@ -1741,7 +1730,7 @@ export default function SettingsPanel({
       await Promise.all([loadUserRoles(), loadSprintEngineRoles()])
       setRoleAuthoring(null)
       setUserRoleMessage({
-        tone: 'accent',
+        tone: 'info',
         text: roleAuthoring.mode.kind === 'edit' ? `Saved changes to "${savedId}".` : `Created "${savedId}". Reload open workspaces to use it in a run.`,
       })
     } catch (error) {
@@ -1770,7 +1759,7 @@ export default function SettingsPanel({
       if (result.ok) {
         if (roleAuthoring?.mode.kind === 'edit' && roleAuthoring.mode.id === id) closeRoleAuthoring()
         await Promise.all([loadUserRoles(), loadSprintEngineRoles()])
-        setUserRoleMessage({ tone: 'neutral', text: `Deleted "${label}".` })
+        setUserRoleMessage({ tone: 'info', text: `Deleted "${label}".` })
       } else {
         setUserRoleMessage({ tone: 'error', text: `Could not delete "${label}".` })
       }
@@ -2084,14 +2073,17 @@ export default function SettingsPanel({
                 >
                   {githubTokenInputVisible ? (
                     <>
-                      <input
+                      <Input
                         id="github-token-input"
                         type="password"
                         value={githubTokenDraft}
                         onChange={(event) => setGithubTokenDraft(event.target.value)}
                         placeholder="Fine-grained GitHub token"
                         autoComplete="off"
-                        className={`${ROW_INPUT_CLASS} w-60`}
+                        size="md"
+                        variant="well"
+                        fullWidth={false}
+                        className={ROW_FIELD}
                       />
                       {/* Cancel before Save — the shared order every other
                           dialog and editor in the app uses (the role editor
@@ -2169,9 +2161,7 @@ export default function SettingsPanel({
             onAdd={() => void installCliFromFolder()}
             onRecheck={() => void refreshCliAvailability({ force: true, cliRuntimes })}
           />
-          {cliInstallMessage ? (
-            <MessageBlock tone={cliInstallMessage.tone}>{cliInstallMessage.text}</MessageBlock>
-          ) : null}
+          <ActionResultMessage message={cliInstallMessage} />
           {/* First-run agent-config adoption. It runs silently at the first
               workspace creation — the user is never asked — so this line is the
               only place it is ever reported. Renders nothing unless an adoption
@@ -2181,27 +2171,34 @@ export default function SettingsPanel({
               plugin registry failure, and until now it was surfaced nowhere at
               all: every row simply read "Not found". */}
           {cliAvailabilityStatus === 'error' && cliAvailabilityError ? (
-            <MessageBlock tone="warn">{`Agent CLIs could not be checked: ${cliAvailabilityError}`}</MessageBlock>
+            <InlineNotice tone="warn">{`Agent CLIs could not be checked: ${cliAvailabilityError}`}</InlineNotice>
           ) : null}
 
           {pluginCatalogStatus === 'loading' && installedPluginRows.length === 0 ? (
-            <MessageBlock tone="neutral">Loading installed agent plugins…</MessageBlock>
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">Loading installed agent plugins…</p>
           ) : pluginCatalogStatus === 'error' ? (
-            <div className="space-y-2">
-              <MessageBlock tone="warn">
-                {pluginCatalogError ?? 'The plugin registry could not be loaded.'}
-              </MessageBlock>
-              <OutlineButton size="md" onClick={() => void refreshPluginCatalog()}>
-                Retry
-              </OutlineButton>
-            </div>
+            // The failure carries its own recovery, per the notice contract —
+            // a Retry parked below the message is a dead end with a button.
+            <InlineNotice
+              tone="error"
+              title="The plugin registry could not be loaded."
+              hint={pluginCatalogError ?? undefined}
+              action={
+                <OutlineButton size="md" onClick={() => void refreshPluginCatalog()}>
+                  Retry
+                </OutlineButton>
+              }
+            />
           ) : installedPluginRows.length === 0 ? (
-            <div className="space-y-2">
-              <MessageBlock tone="neutral">No agent plugins are installed.</MessageBlock>
-              <OutlineButton size="md" onClick={() => void refreshPluginCatalog()}>
-                Refresh
-              </OutlineButton>
-            </div>
+            <EmptyState
+              density="list"
+              title="No agent plugins are installed."
+              action={
+                <OutlineButton size="md" onClick={() => void refreshPluginCatalog()}>
+                  Refresh
+                </OutlineButton>
+              }
+            />
           ) : (
             <div>
               {installedPluginRows.map((plugin) => {
@@ -2309,7 +2306,7 @@ export default function SettingsPanel({
                         }
                         htmlFor={`cli-command-${plugin.id}`}
                       >
-                        <input
+                        <Input
                           id={`cli-command-${plugin.id}`}
                           // Per-plugin accessible name so screen readers don't announce an
                           // identical "Command override" for every CLI.
@@ -2317,7 +2314,10 @@ export default function SettingsPanel({
                           value={override.command}
                           onChange={(event) => setCliRuntime(plugin.id, { command: event.target.value, useWsl: override.useWsl })}
                           placeholder={plugin.binary}
-                          className={`${ROW_INPUT_CLASS} w-60`}
+                          size="md"
+                          variant="well"
+                          fullWidth={false}
+                          className={ROW_FIELD}
                         />
                       </SettingsRow>
 
@@ -2398,21 +2398,22 @@ export default function SettingsPanel({
           </div>
 
           {roleRegistryStatus === 'loading' ? (
-            <MessageBlock tone="neutral">
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">
               Loading Sprint Engine roles from the workspace registry.
-            </MessageBlock>
+            </p>
           ) : null}
 
           {roleRegistryStatus === 'unavailable' ? (
-            <MessageBlock tone="warn">
+            <InlineNotice tone="warn">
               {roleRegistryMessage ?? 'Sprint Engine role registry is unavailable for this workspace.'}
-            </MessageBlock>
+            </InlineNotice>
           ) : null}
 
           {roleRegistryStatus === 'ready' && registryRoles.length === 0 ? (
-            <MessageBlock tone="neutral">
-              No Sprint Engine roles were found in the registry for this workspace.
-            </MessageBlock>
+            <EmptyState
+              density="list"
+              title="No Sprint Engine roles were found in the registry for this workspace."
+            />
           ) : null}
 
           {roleRegistryStatus === 'ready' && registryRoles.length > 0 ? (
@@ -2486,23 +2487,16 @@ export default function SettingsPanel({
           ) : null}
 
           {roleRegistry?.warnings.length ? (
-            <div className="space-y-1 border-l-2 border-[color:var(--tone-warn)] pl-3">
-              {roleRegistry.warnings.map((warning) => (
-                <p
-                  key={`${warning.code}:${warning.message}`}
-                  className="text-body leading-5 text-[color:var(--tone-warn)]"
-                >
-                  Registry warning: {warning.message}
-                </p>
-              ))}
-            </div>
+            <InlineNotice tone="warn">
+              <div className="space-y-1">
+                {roleRegistry.warnings.map((warning) => (
+                  <p key={`${warning.code}:${warning.message}`}>Registry warning: {warning.message}</p>
+                ))}
+              </div>
+            </InlineNotice>
           ) : null}
 
-          {roleInstallMessage ? (
-            <MessageBlock tone={roleInstallMessage.tone}>
-              {roleInstallMessage.text}
-            </MessageBlock>
-          ) : null}
+          <ActionResultMessage message={roleInstallMessage} />
 
           <div className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
             <div className="space-y-1">
@@ -2544,13 +2538,9 @@ export default function SettingsPanel({
               />
             ) : null}
 
-            {globalInstallMessage ? (
-              <MessageBlock tone={globalInstallMessage.tone}>{globalInstallMessage.text}</MessageBlock>
-            ) : null}
+            <ActionResultMessage message={globalInstallMessage} />
 
-            {userRoleMessage ? (
-              <MessageBlock tone={userRoleMessage.tone}>{userRoleMessage.text}</MessageBlock>
-            ) : null}
+            <ActionResultMessage message={userRoleMessage} />
 
             {userRoles.length === 0 ? (
               <p className="text-body leading-5 text-[color:var(--text-muted)]">
@@ -2644,7 +2634,7 @@ export default function SettingsPanel({
             />
             {activityMessage ? (
               <div className="mt-2">
-                <MessageBlock tone="warn">{activityMessage}</MessageBlock>
+                <InlineNotice tone="warn">{activityMessage}</InlineNotice>
               </div>
             ) : null}
           </div>

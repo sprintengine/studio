@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { Field, FOCUS_RING_CLASS, GhostButton, InlineNotice, Select, type SelectItem, Switch } from '../../ui'
+import { Field, GhostButton, InlineNotice, Input, Select, type SelectItem, Switch } from '../../ui'
 import type { AutomationsProviders, TriggerKind } from '../../../../../shared/automations/contracts'
 import {
   REPO_EVENT_TRIGGER_KIND,
@@ -41,14 +41,19 @@ function familyLabel(kind: TriggerKind): string {
   return TRIGGER_FAMILY_LABEL[kind] ?? kind
 }
 
-// One control box vocabulary, shared with AutomationEditor.CONTROL_INPUT
-// (h-7, 5px radius, --border-default on --bg-surface-raised) so every input and
-// Select trigger in the editor reads as one family.
-const CONTROL_BASE =
-  'h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta ' +
-  `text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}`
-const INPUT_CLASS = `w-full ${CONTROL_BASE}`
-const NARROW_CONTROL = `w-32 tabular-nums ${CONTROL_BASE}`
+// The control box is `ui/Input`. This file used to declare its own copy of
+// `AutomationEditor.CONTROL_BASE` — the same string, in two files, under
+// comments in both saying they were hand-synced (MC-2114).
+//
+// What remains here is WIDTH, which is a per-field measure rather than a
+// vocabulary: a HH:MM control and a full date-and-time control hold different
+// content and cannot be the same width. Each passes `fullWidth={false}` with its
+// own measure, because Tailwind resolves two width utilities by stylesheet order
+// rather than by the order they appear in a class string.
+const NARROW_CONTROL = 'w-32 tabular-nums'
+// Wider than the HH:MM control: a datetime-local renders full date + time
+// segments plus the picker glyph.
+const DATETIME_CONTROL = 'w-52 tabular-nums'
 
 // Composes ScheduleCadenceForm so a new cadence field has exactly one
 // authoritative declaration (automationsFormat.ts) instead of parallel copies.
@@ -231,12 +236,13 @@ function ScheduleFields({
       </Field>
       {value.cadenceType === 'interval' ? (
         <Field label="Run every (minutes)" htmlFor="automation-interval" help="Minimum 5 minutes.">
-          <input
+          <Input
             id="automation-interval"
             type="number"
             min={5}
             value={value.everyMinutes}
             onChange={(e) => onChange({ everyMinutes: Number(e.target.value) || 0 })}
+            fullWidth={false}
             className={NARROW_CONTROL}
           />
         </Field>
@@ -246,23 +252,23 @@ function ScheduleFields({
           htmlFor="automation-at-datetime"
           help="Runs once, then stays listed with no upcoming run."
         >
-          <input
+          <Input
             id="automation-at-datetime"
             type="datetime-local"
             value={value.atDatetime}
             onChange={(e) => onChange({ atDatetime: e.target.value })}
-            // Wider than the HH:MM control: a datetime-local renders full
-            // date + time segments plus the picker glyph.
-            className={`w-52 tabular-nums ${CONTROL_BASE} time-control`}
+            fullWidth={false}
+            className={`${DATETIME_CONTROL} time-control`}
           />
         </Field>
       ) : (
         <Field label="Time" htmlFor="automation-time" help="Local time, 24-hour (HH:MM).">
-          <input
+          <Input
             id="automation-time"
             type="time"
             value={value.timeLocal}
             onChange={(e) => onChange({ timeLocal: e.target.value })}
+            fullWidth={false}
             className={`${NARROW_CONTROL} time-control`}
           />
         </Field>
@@ -342,21 +348,17 @@ function RepoEventFields({
         </div>
       </Field>
       <Field label="External key" htmlFor="automation-repo-key" help="Optional. Match a specific issue or PR key, e.g. PROJ-12.">
-        <input
+        <Input
           id="automation-repo-key"
-          type="text"
           value={value.externalKey}
           onChange={(e) => onChange({ ...value, externalKey: e.target.value })}
-          className={INPUT_CLASS}
         />
       </Field>
       <Field label="Label" htmlFor="automation-repo-label" help="Optional. A human label for this event source.">
-        <input
+        <Input
           id="automation-repo-label"
-          type="text"
           value={value.label}
           onChange={(e) => onChange({ ...value, label: e.target.value })}
-          className={INPUT_CLASS}
         />
       </Field>
     </>
@@ -399,24 +401,23 @@ function WebhookFields({
         <span className="text-micro text-[color:var(--text-subtle)]">{value.enabled ? '(receiver active)' : '(paused)'}</span>
       </label>
       <Field label="Port" htmlFor="automation-webhook-port" help="Local port the receiver listens on.">
-        <input
+        <Input
           id="automation-webhook-port"
           type="number"
           min={0}
           max={65535}
           value={value.port}
           onChange={(e) => onChange({ ...value, port: e.target.value })}
+          fullWidth={false}
           className={NARROW_CONTROL}
         />
       </Field>
       <Field label="Path" htmlFor="automation-webhook-path" help="Path segment after the delivery prefix.">
-        <input
+        <Input
           id="automation-webhook-path"
-          type="text"
           value={value.path}
           onChange={(e) => onChange({ ...value, path: e.target.value })}
           placeholder="deploy"
-          className={INPUT_CLASS}
         />
       </Field>
       <div className="text-micro text-[color:var(--text-subtle)]">
@@ -428,12 +429,11 @@ function WebhookFields({
         {value.secret ? (
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5">
-              <input
+              <Input
                 id="automation-webhook-secret"
-                type="text"
                 readOnly
                 value={value.secret}
-                className={`${INPUT_CLASS} font-mono`}
+                className="font-mono"
               />
               <GhostButton type="button" onClick={() => void copySecret()} className="h-7 shrink-0 px-2 text-micro">
                 {copied ? 'Copied' : 'Copy'}

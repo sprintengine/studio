@@ -8,7 +8,7 @@ import {
 } from '../../content/learning/types'
 import { searchLearningItems } from '../../content/learning/selectors'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
-import { FOCUS_RING_CLASS, GhostButton, Switch, Tabs, type TabItem } from '../ui'
+import { GhostButton, InboxSearchInput, Switch, Tabs, type TabItem } from '../ui'
 
 type LearnCenterProps = {
   onSettingsTab?: (tabId: string) => void
@@ -50,7 +50,6 @@ export default function LearnCenter({ onSettingsTab }: LearnCenterProps) {
 
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<CategoryFilter>('all')
-  const searchInputId = useId()
   const startupSwitchId = useId()
 
   const context = useMemo(
@@ -91,14 +90,18 @@ export default function LearnCenter({ onSettingsTab }: LearnCenterProps) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <input
-          id={searchInputId}
-          aria-label="Search tips"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search tips"
-          className={`h-8 w-64 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
-        />
+        {/* The kit's list-search field, as every sibling settings tab uses. This
+            hand-rolled an `h-8` box (28px — not a step on the 26/30/34 ramp) on
+            the settings well ground, next to tabs drawing the real one
+            (MC-2114). The wrapper caps the measure the retired `w-64` set. */}
+        <div className="flex w-64 max-w-full">
+          <InboxSearchInput
+            value={query}
+            onChange={setQuery}
+            ariaLabel="Search tips"
+            placeholder="Search tips"
+          />
+        </div>
         <div className="flex shrink-0 items-center gap-3">
           <div className="flex items-center gap-2">
             <Switch

@@ -80,12 +80,14 @@ import {
   GhostButton,
   IconButton,
   InboxRow,
+  InlineNotice,
   LIFECYCLE_LABEL,
   LifecycleGlyph,
   PanelHeader,
   PrimaryButton,
   RoleAvatar,
   Spinner,
+  Textarea,
   Tooltip,
   TruncatedText,
   type DefinitionItem,
@@ -641,9 +643,8 @@ function ArtifactBlockerList({
 }) {
   if (blockers.length === 0) return null
   return (
-    <div className="border-l border-[color:var(--tone-warn-soft)] pl-3 text-sm text-[color:var(--tone-warn)]">
-      <div className="text-micro font-semibold text-[color:var(--tone-warn)]">Blocked by review</div>
-      <div className="mt-2 space-y-2 text-meta leading-5 text-[color:var(--tone-warn)]">
+    <InlineNotice tone="warn" title="Blocked by review">
+      <div className="space-y-2 text-meta leading-5">
         {blockers.map((blocker) => (
           <div key={blocker.taskId} className="space-y-1">
             <div>
@@ -659,7 +660,7 @@ function ArtifactBlockerList({
           </div>
         ))}
       </div>
-    </div>
+    </InlineNotice>
   )
 }
 
@@ -805,29 +806,6 @@ function TaskImplementerTimeline({
   )
 }
 
-function TaskCallout({
-  tone,
-  label,
-  children,
-}: {
-  tone: 'warn' | 'error'
-  label: string
-  children: React.ReactNode
-}) {
-  const toneColor = tone === 'error' ? 'var(--tone-error)' : 'var(--tone-warn)'
-  return (
-    <div
-      className="border-l pl-3 text-meta leading-5"
-      style={{ borderColor: toneColor, color: toneColor }}
-    >
-      <div className="text-micro font-semibold" style={{ color: toneColor }}>
-        {label}
-      </div>
-      <div className="mt-1 text-[color:var(--text-default)]">{children}</div>
-    </div>
-  )
-}
-
 const needsInputKindLabels: Record<string, string> = {
   architect: 'Architect',
   user: 'User',
@@ -894,13 +872,34 @@ function TaskReviewPrompt({
       ? formatRelativeTime(artifact.createdAt)
       : null
 
+  // The kit's notice, not a warn left-bar (MC-2115): the `needs_input` glyph it
+  // used to draw itself is the one InlineNotice draws for the warn tone, so the
+  // card keeps its shape and loses the stripe.
   return (
-    <div className="border-l border-[color:var(--tone-warn)] pl-3.5">
-      <div className="flex items-center gap-1.5 text-micro font-semibold text-[color:var(--tone-warn)]">
-        <LifecycleGlyph state="needs_input" className="-translate-y-px" />
-        {readyForReview ? 'Ready for your review' : 'Awaiting review'}
-      </div>
-      <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-body text-[color:var(--text-strong)]">
+    <InlineNotice
+      tone="warn"
+      title={readyForReview ? 'Ready for your review' : 'Awaiting review'}
+      action={
+        <>
+          {readyForReview ? (
+            <PrimaryButton onClick={() => onApproveArtifact(artifact)} disabled={pending}>
+              {pending && action?.kind === 'approve' ? 'Approving…' : 'Approve'}
+            </PrimaryButton>
+          ) : null}
+          {canOpenArtifact ? (
+            <GhostButton onClick={() => onOpenArtifact(artifact)} disabled={pending}>
+              {pending && action?.kind === 'open' ? 'Opening…' : 'Open plan'}
+            </GhostButton>
+          ) : null}
+          {readyForReview ? (
+            <GhostButton onClick={() => onRequestArtifactChanges(artifact)} disabled={pending}>
+              {pending && action?.kind === 'requestChanges' ? 'Requesting changes…' : 'Request changes'}
+            </GhostButton>
+          ) : null}
+        </>
+      }
+    >
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-body text-[color:var(--text-strong)]">
         <span className="font-mono tabular-nums text-micro text-[color:var(--text-muted)]">{artifact.id}</span>
         <span>{kindLabel}</span>
         {canOpenArtifact ? (
@@ -915,23 +914,6 @@ function TaskReviewPrompt({
           {relative ? <span> · {relative}</span> : null}
         </div>
       ) : null}
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {readyForReview ? (
-          <PrimaryButton onClick={() => onApproveArtifact(artifact)} disabled={pending}>
-            {pending && action?.kind === 'approve' ? 'Approving…' : 'Approve'}
-          </PrimaryButton>
-        ) : null}
-        {canOpenArtifact ? (
-          <GhostButton onClick={() => onOpenArtifact(artifact)} disabled={pending}>
-            {pending && action?.kind === 'open' ? 'Opening…' : 'Open plan'}
-          </GhostButton>
-        ) : null}
-        {readyForReview ? (
-          <GhostButton onClick={() => onRequestArtifactChanges(artifact)} disabled={pending}>
-            {pending && action?.kind === 'requestChanges' ? 'Requesting changes…' : 'Request changes'}
-          </GhostButton>
-        ) : null}
-      </div>
       {action && action.status !== 'pending' ? (
         <div
           className={`mt-2 text-meta leading-5 ${
@@ -941,7 +923,7 @@ function TaskReviewPrompt({
           {action.message}
         </div>
       ) : null}
-    </div>
+    </InlineNotice>
   )
 }
 
@@ -1002,15 +984,18 @@ function TaskInputResponsePrompt({
         : 'text-[color:var(--text-muted)]'
 
   return (
-    <div className="border-l border-[color:var(--tone-warn)] pl-3.5">
-      <div className="flex items-center gap-1.5 text-micro font-semibold text-[color:var(--tone-warn)]">
-        <LifecycleGlyph state="needs_input" className="-translate-y-px" />
-        {headline}
-        {reasonLabel ? (
-          <span className="font-normal text-[color:var(--text-muted)]">· {reasonLabel}</span>
-        ) : null}
-      </div>
-      <div className="mt-1.5 whitespace-pre-line text-body leading-6 text-[color:var(--text-default)] [overflow-wrap:anywhere]">
+    <InlineNotice
+      tone="warn"
+      title={
+        <>
+          {headline}
+          {reasonLabel ? (
+            <span className="font-normal text-[color:var(--text-muted)]"> · {reasonLabel}</span>
+          ) : null}
+        </>
+      }
+    >
+      <div className="whitespace-pre-line text-body leading-6 text-[color:var(--text-default)] [overflow-wrap:anywhere]">
         {question || fallback}
       </div>
       {reportedBy ? (
@@ -1024,7 +1009,7 @@ function TaskInputResponsePrompt({
         <label htmlFor={replyFieldId} className="sr-only">
           Reply to the agent
         </label>
-        <textarea
+        <Textarea
           id={replyFieldId}
           value={reply}
           onChange={(event) => setReply(event.target.value)}
@@ -1032,7 +1017,7 @@ function TaskInputResponsePrompt({
           disabled={pending}
           rows={3}
           placeholder="Reply to the agent… (Enter to send, Shift+Enter for a new line)"
-          className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-body leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+          size="md"
         />
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1046,7 +1031,7 @@ function TaskInputResponsePrompt({
       {action ? (
         <div className={`mt-2 text-meta leading-5 ${messageToneClass}`}>{action.message}</div>
       ) : null}
-    </div>
+    </InlineNotice>
   )
 }
 
@@ -1104,10 +1089,11 @@ function TaskNeedsInputCallout({
   // rather than render dead buttons or pretend it's a free-text question.
   if (isArtifactReview) {
     return (
-      <TaskCallout tone="warn" label="Needs input — Artifact review">
-        An artifact is awaiting review but isn’t attached to this task yet. Check the activity feed
-        below for the latest submission.
-      </TaskCallout>
+      <InlineNotice
+        tone="warn"
+        title="Needs input — Artifact review"
+        hint="An artifact is awaiting review but isn’t attached to this task yet. Check the activity feed below for the latest submission."
+      />
     )
   }
 
@@ -1868,7 +1854,7 @@ function TaskCommentComposer({
         Add a comment for the agent
       </label>
       <div className="flex items-start gap-2">
-        <textarea
+        <Textarea
           id={fieldId}
           value={body}
           onChange={(event) => setBody(event.target.value)}
@@ -1876,7 +1862,8 @@ function TaskCommentComposer({
           disabled={pending}
           rows={dirty ? 3 : 1}
           placeholder="Add a comment"
-          className="block min-w-0 flex-1 resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-1.5 text-meta leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+          fullWidth={false}
+          className="min-w-0 flex-1"
         />
         <span
           aria-hidden="true"
@@ -3102,12 +3089,7 @@ function SprintEngineTaskBody({
           />
 
           {selectedTask.triage ? (
-            <div className="border-l border-[color:var(--tone-warn-soft)] pl-3 text-meta leading-5 text-[color:var(--text-default)]">
-              <div className="text-micro font-semibold text-[color:var(--tone-warn)]">
-                Architect triage
-              </div>
-              <div className="mt-1">{selectedTask.triage.summary}</div>
-            </div>
+            <InlineNotice tone="warn" title="Architect triage" hint={selectedTask.triage.summary} />
           ) : null}
 
           <SectionList

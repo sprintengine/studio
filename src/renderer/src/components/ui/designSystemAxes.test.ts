@@ -113,10 +113,18 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // `rounded-md` (and, in the Git rows, its own `h-6 w-6`) for a kit primitive
   // that spells neither. `ModalButton` accounts for the kit's one: it is a name
   // for the footer's three roles now, not a fourth button with a radius.
+  // The 2026-08-05 field drop — settings 36 → 30, workspace 186 → 184, panels
+  // 150 → 148, learn 2 → 1, modules 2 → 1 — is the input consolidation
+  // (MC-2114). Every hand-rolled field in the settings tabs, the connectors
+  // form, the creation wizard's knowledge step, the Learn centre's search and
+  // the voice-dictation section gave up its own `rounded-md` for `ui/Input`,
+  // which spells the control radius once; the New sprint dialog's run-name
+  // field gave up a bare `rounded` (Tailwind's 4px default, off the ramp
+  // entirely) for the kit's in-place title edit.
   radius: {
-    'components/workspace': 186,
-    'components/panels': 150,
-    'components/settings': 36,
+    'components/workspace': 183,
+    'components/panels': 146,
+    'components/settings': 30,
     'components/backlog': 20,
     // 15 → 17 when CommandPalette MOVED into the kit (MC-2117) carrying its own
     // two radii — nothing regressed, the debt changed address — then 17 → 14
@@ -132,8 +140,8 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     utils: 4,
     'components/automations': 2,
     'components/auxWindows': 2,
-    'components/learn': 2,
-    modules: 2,
+    'components/learn': 1,
+    modules: 1,
     review: 2,
   },
   // `utils/highlight.ts` is 14 of the 17: per-language terminal highlight rings,
@@ -155,14 +163,14 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // inside a pane, not overlay layering.
   z: {
     'components/workspace': 16,
-    'components/panels': 14,
+    'components/panels': 13,
     'components/ui': 3,
     'components/memory': 2,
     'components/auxWindows': 1,
     'components/onboarding': 1,
   },
   type: {
-    'components/panels': 23,
+    'components/panels': 18,
     utils: 6,
     'components/diagnostics': 2,
   },
@@ -518,6 +526,120 @@ run('no sanctioned exception has gone stale', () => {
         `${axis} allows ${entry.count} in ${file} but only ${found} remain — lower or drop the entry (${entry.why})`,
       )
     }
+  }
+})
+
+// ── notices and empty states come from the kit (MC-2115) ─────────────────────
+//
+// Two rules, because the consolidation had two halves and each has a distinct
+// failure mode a ratchet would not catch.
+//
+// The LEFT TONE-BAR is on `foundations/principles.md`'s reject-on-sight list and
+// is re-stated in `components/inline-notice/component.md` and in
+// `InlineNotice.tsx`'s own header — and it was rebuilt by hand about twenty
+// times ANYWAY, four of them in Settings, one of them (`ChatNotice`) three
+// scrolls from an unused `InlineNotice` import. A rule that is written in three
+// places and enforced in none is not a rule. It is enforced here.
+//
+// The EMPTY STATE half is a different shape: nobody rebuilds it by copying a
+// banned pattern, they rebuild it by writing a centred div — so what is policed
+// is the NAME. A component that calls itself an empty state must be the kit's
+// one, wrapped; if the name is right and the kit is absent, it is a sixth
+// dialect starting.
+
+/**
+ * A COLOURED left bar: a left-border utility carrying a tone/accent hue, in
+ * either order within one class string, plus the two indirect spellings (an
+ * inline `borderColor`, and a hex literal painted onto the left edge).
+ *
+ * A NEUTRAL left bar is deliberately not matched. `border-l-2
+ * border-[color:var(--border-strong)]` is the quote/aside idiom — what
+ * `utils/markdown.tsx` renders a blockquote as — and it carries no tone, so it
+ * is not the thing the system rejects.
+ */
+const LEFT_TONE_BAR =
+  /border-l(?:-(?:2|4|\[\d+(?:\.\d+)?px\]))?[^"'`\n]{0,160}?border-(?:l-)?\[color:var\(--(?:tone|accent)-|border-(?:l-)?\[color:var\(--(?:tone|accent)-[^"'`\n]{0,160}?border-l(?:-(?:2|4|\[\d+(?:\.\d+)?px\]))?(?=[\s"'`])|border-l-\[#[0-9a-fA-F]{3,8}\]|border-l(?:-(?:2|4|\[\d+(?:\.\d+)?px\]))?[^"'`\n]{0,80}?borderColor/g
+
+/** Ruled exceptions to the left-bar rule. Each one is a decision on the record. */
+const LEFT_BAR_RULED: Record<string, { count: number; why: string }> = {
+  'utils/highlight.ts': {
+    count: 7,
+    why:
+      'RULED 2026-08-05 — the seven Backlog identity swatches. This bar is a row’s EPIC ' +
+      'IDENTITY (a hue the user picked), never a notice: no tone vocabulary, no severity, ' +
+      'nothing to recover from, and never the only carrier (the epic chip names it in words). ' +
+      'The reasoning is in components/backlog/backlogRowPaint.ts, which this marker points at.',
+  },
+}
+
+run('no tone-coloured left bar survives, outside its ruling', () => {
+  const offenders: string[] = []
+  for (const file of rendererFiles) {
+    const found = code(file).match(LEFT_TONE_BAR)
+    if (!found) continue
+    const ruled = LEFT_BAR_RULED[relative(RENDERER, file)]?.count ?? 0
+    if (found.length > ruled) {
+      offenders.push(`${relative(RENDERER, file)} → ${found.slice(0, 3).join(', ')}`)
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'a tone-coloured left bar is the rejected-on-sight notice. Use `ui/InlineNotice` (scoped) or ' +
+      '`ui/Banner` (panel-spanning); if the bar is genuinely not a notice, rule on it in LEFT_BAR_RULED',
+  )
+})
+
+/** A component whose NAME claims the empty-state job. */
+const EMPTY_STATE_COMPONENT = /(?:function|const)\s+(?:[A-Z]\w*)?(?:Empty\w*|Centered(?:Message|State|Error)\w*)\s*[({=]/g
+
+/** Named like an empty state, ruled to be something else. */
+const EMPTY_STATE_RULED: Record<string, string> = {
+  'components/panels/AgentChatView.tsx':
+    'RULED 2026-08-05 — `EmptyChatState` is a first-run CANVAS (glyph, heading, and three ' +
+    'suggestion buttons that send a turn), the class MC-2117 explicitly kept out of the quiet ' +
+    'primitive when it declined to generalize `SurfaceCanvasState` into it.',
+  'components/workspace/globalSurface/design/NewDesignSystemScreen.tsx':
+    'RULED 2026-08-05 — `EmptySystemStage` is a card’s dashed PREVIEW placeholder at a fixed ' +
+    'preview height, inside a card that is not empty. Not a surface with nothing to show.',
+}
+
+run('an empty state is the kit’s, or it is ruled not to be one', () => {
+  const offenders: string[] = []
+  for (const file of rendererFiles) {
+    const relativePath = relative(RENDERER, file)
+    if (relativePath.startsWith('components/ui/')) continue
+    const source = code(file)
+    if (!EMPTY_STATE_COMPONENT.test(source)) continue
+    EMPTY_STATE_COMPONENT.lastIndex = 0
+    if (/\bEmptyState\b/.test(source)) continue
+    if (relativePath in EMPTY_STATE_RULED) continue
+    offenders.push(relativePath)
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'a component named for the empty-state job that does not consume `ui/EmptyState` is the ' +
+      'next dialect. Wrap the primitive, or rule on it in EMPTY_STATE_RULED',
+  )
+})
+
+run('no notice or empty-state ruling has gone stale', () => {
+  for (const [file, entry] of Object.entries(LEFT_BAR_RULED)) {
+    const full = join(RENDERER, file)
+    assert.ok(rendererFiles.includes(full), `${file} is ruled on but no longer exists — drop the entry`)
+    const found = code(full).match(LEFT_TONE_BAR)?.length ?? 0
+    assert.equal(found, entry.count, `${file} is ruled for ${entry.count} left bars but has ${found} — re-count or re-rule`)
+  }
+  for (const file of Object.keys(EMPTY_STATE_RULED)) {
+    const full = join(RENDERER, file)
+    assert.ok(rendererFiles.includes(full), `${file} is ruled on but no longer exists — drop the entry`)
+    EMPTY_STATE_COMPONENT.lastIndex = 0
+    assert.ok(
+      EMPTY_STATE_COMPONENT.test(code(full)),
+      `${file} is ruled as a non-empty-state but no longer declares one — drop the entry`,
+    )
+    EMPTY_STATE_COMPONENT.lastIndex = 0
   }
 })
 

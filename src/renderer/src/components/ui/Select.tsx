@@ -43,6 +43,16 @@ type SelectProps<V extends string = string> = {
    *  layouts (e.g. a grid column that can drop below 140px) so the trigger
    *  truncates inside its track instead of overflowing under a neighbor. */
   triggerMinWidthClassName?: string
+  /** The four attributes `ui/Field` clones onto the control it labels. A Select
+   *  wrapped in a Field used to drop all of them on the floor — it took no `id`,
+   *  so the Field's `<label htmlFor>` pointed at nothing and the visible label
+   *  was not the control's accessible name at all. Accepted here so a Select is
+   *  as labellable as an Input; `ariaLabel` stays required and stays the name a
+   *  bare Select carries on its own. */
+  id?: string
+  'aria-describedby'?: string
+  'aria-invalid'?: boolean
+  'aria-required'?: boolean
 }
 
 const TYPEAHEAD_RESET_MS = 500
@@ -56,6 +66,10 @@ export function Select<V extends string = string>({
   placeholder = 'Select…',
   className,
   triggerMinWidthClassName = 'min-w-[140px]',
+  id,
+  'aria-describedby': ariaDescribedBy,
+  'aria-invalid': ariaInvalid,
+  'aria-required': ariaRequired,
 }: SelectProps<V>) {
   const [open, setOpen] = useState(false)
   const initialActive = useMemo(() => {
@@ -222,6 +236,7 @@ export function Select<V extends string = string>({
             triggerRef.current = node
             ref.current = node
           }}
+          id={id}
           type="button"
           role="combobox"
           aria-haspopup="listbox"
@@ -229,6 +244,9 @@ export function Select<V extends string = string>({
           aria-controls={triggerProps['aria-controls']}
           aria-activedescendant={activeOptionId}
           aria-label={ariaLabel}
+          aria-describedby={ariaDescribedBy}
+          aria-invalid={ariaInvalid}
+          aria-required={ariaRequired}
           disabled={disabled}
           onClick={() => (open ? close(false) : openMenu())}
           onKeyDown={onKey}

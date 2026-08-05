@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { FOCUS_RING_CLASS, GhostButton, InlineNotice, StatusDot } from '../ui'
+import { GhostButton, InlineNotice, Input, StatusDot } from '../ui'
 import type { Tone } from '../ui'
 import {
   listOpenProjectKnowledge,
@@ -8,10 +8,6 @@ import {
   type ProjectKnowledgeEntry,
 } from '../../utils/projectKnowledge'
 import { isAbsolutePath } from '../../store/slices/memorySlice'
-
-const ROW_INPUT_CLASS =
-  'h-control-md w-full min-w-0 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body ' +
-  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
 
 type RowStatus = MemoryRootStatus | null
 
@@ -325,7 +321,12 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
                   </div>
                 </div>
                 <div className="flex w-[320px] shrink-0 items-center gap-2">
-                  <input
+                  {/* A path is an identifier, so the field is mono. Its chrome is
+                      the kit's: this module used to declare a SECOND, different
+                      `ROW_INPUT_CLASS` — same name as SettingsPanel's, different
+                      ground and width — so "the" row input was a coin flip
+                      (MC-2114). */}
+                  <Input
                     value={drafts[entry.key] ?? ''}
                     aria-label={`Knowledge folder for ${entry.name}`}
                     onChange={(event) =>
@@ -336,7 +337,9 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
                       if (event.key === 'Enter') event.currentTarget.blur()
                     }}
                     placeholder="../ecosystem-knowledge"
-                    className={ROW_INPUT_CLASS}
+                    size="md"
+                    fullWidth={false}
+                    className="min-w-0 flex-1 font-mono"
                   />
                   <GhostButton
                     size="md"

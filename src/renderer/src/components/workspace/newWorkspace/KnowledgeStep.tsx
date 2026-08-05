@@ -1,14 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 
-import { FOCUS_RING_CLASS, GhostButton, InlineNotice, StatusDot } from '../../ui'
+import { GhostButton, InlineNotice, Input, StatusDot } from '../../ui'
 import type { Tone } from '../../ui'
 import { isAbsolutePath } from '../../../store/slices/memorySlice'
 import { relativePathBetween } from '../../../utils/projectKnowledge'
 import { knowledgeCandidatePaths } from './knowledgeFolders'
-
-const INPUT_CLASS =
-  'h-10 w-full min-w-0 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body ' +
-  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`
 
 type Status = MemoryRootStatus | null
 
@@ -166,7 +162,9 @@ export function KnowledgeStep({ projectRoot, committedRelativeRoot, onCommit, au
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-3">
         <StatusDot tone={dotTone(status, checking, Boolean(draft.trim()))} label="Knowledge folder status" />
-        <input
+        {/* `h-10` (40px) was not a step on the 26/30/34 ramp — this one wizard
+            flow ran h-8 / h-10 / h-11 across three of its steps (MC-2114). */}
+        <Input
           value={draft}
           aria-label="Knowledge folder, relative to the project folder"
           onChange={(event) => setDraft(event.target.value)}
@@ -175,12 +173,14 @@ export function KnowledgeStep({ projectRoot, committedRelativeRoot, onCommit, au
             if (event.key === 'Enter') event.currentTarget.blur()
           }}
           placeholder="knowledge"
-          className={INPUT_CLASS}
+          size="md"
+          fullWidth={false}
+          className="min-w-0 flex-1 font-mono"
         />
         <GhostButton
           size="md"
           onClick={() => void chooseFolder()}
-          className="h-10 shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          className="shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
         >
           Choose…
         </GhostButton>

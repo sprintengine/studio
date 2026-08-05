@@ -193,23 +193,15 @@ export function ModalFooter({ children }: { children: React.ReactNode }) {
   )
 }
 
-type FieldProps = {
-  label: string
-  hint?: string
-  children: React.ReactNode
-}
-
-export function Field({ label, hint, children }: FieldProps) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-micro font-medium text-[color:var(--text-default)]">
-        {label}
-      </span>
-      {children}
-      {hint ? <span className="mt-1.5 block text-micro leading-4 text-[color:var(--text-disabled)]">{hint}</span> : null}
-    </label>
-  )
-}
+// A second `Field` used to live here: a `text-micro` label wrapped around its
+// child, with no `htmlFor`, no `id`, and no ARIA wiring of any kind. It arrived
+// through the same `../ui` barrel as `ui/Field`, so whoever imported "the" Field
+// got a coin flip on both the label type scale and whether the control had an
+// accessible name — and the dialogs that happened to import this one (Watchtower's
+// two, the backlog create dialog, the Switchboard task form) were the ones with
+// no name at all. Removed in MC-2114; those four now take `ui/Field`, which
+// clones `id` and the describedby/invalid/required wiring onto the control it
+// labels. Import it from `../ui`, not from here.
 
 type ButtonVariant = 'primary' | 'ghost' | 'danger'
 

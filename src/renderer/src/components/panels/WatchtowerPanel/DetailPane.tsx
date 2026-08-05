@@ -1,5 +1,5 @@
 import { ActionStatusChip, type ActionStatus } from '../../ui/ActionFeedback'
-import { DefinitionList, FOCUS_RING_CLASS, GhostButton, OverflowMenu, PanelHeader, PrimaryButton, Select, StatusDot, type Tone } from '../../ui'
+import { DefinitionList, GhostButton, Input, OverflowMenu, PanelHeader, PrimaryButton, Select, StatusDot, Textarea, type Tone } from '../../ui'
 import { CommentIcon, PriorityIcon, SpecialistActionIcon } from '../../AppIcons'
 import type { SwitchboardTaskRecord } from '../../../../../shared/switchboard'
 import { confidenceLabel, confidenceToneClass, formatRelativeTime, priorityLabel, shortIdentifier, sourceLabel } from '../../../utils/switchboardBoard'
@@ -160,11 +160,11 @@ export function DetailPane({
               ? [{
                   term: 'Title',
                   description: (
-                    <input
+                    <Input
                       value={editForm.title}
                       onChange={(event) => onEditFormChange({ ...editForm, title: event.target.value })}
                       aria-label="Task title"
-                      className={`block w-full max-w-md rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+                      className="max-w-md"
                     />
                   ),
                 }]
@@ -172,10 +172,12 @@ export function DetailPane({
             {
               term: 'Identifier',
               description: editing ? (
-                <input
+                <Input
                   value={editForm.identifier}
                   onChange={(event) => onEditFormChange({ ...editForm, identifier: event.target.value })}
-                  className="block w-48 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1 font-mono tabular-nums text-meta text-[color:var(--text-strong)]"
+                  aria-label="Task identifier"
+                  fullWidth={false}
+                  className="w-48 font-mono tabular-nums"
                 />
               ) : (
                 <span className="font-mono tabular-nums">{task.identifier}</span>
@@ -206,11 +208,12 @@ export function DetailPane({
             {
               term: 'Labels',
               description: editing ? (
-                <input
+                <Input
                   value={editForm.labels}
                   onChange={(event) => onEditFormChange({ ...editForm, labels: event.target.value })}
                   placeholder="bug, auth"
-                  className="block w-full max-w-md rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 py-1 text-meta text-[color:var(--text-strong)]"
+                  aria-label="Task labels"
+                  className="max-w-md"
                 />
               ) : task.labels.length > 0 ? (
                 <span className="flex flex-wrap gap-1.5">{task.labels.join(' · ')}</span>
@@ -262,10 +265,11 @@ export function DetailPane({
         <div className="mt-4 border-t border-[color:var(--border-default)] pt-4">
           <div className="mb-2 text-meta font-semibold text-[color:var(--text-strong)]">Description</div>
           {editing ? (
-            <textarea
+            <Textarea
               value={editForm.description}
               onChange={(event) => onEditFormChange({ ...editForm, description: event.target.value })}
-              className={`min-h-[140px] w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-body leading-6 text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+              aria-label="Task description"
+              className="min-h-[140px]"
             />
           ) : task.description.trim() ? (
             <div className="whitespace-pre-wrap text-body leading-6 text-[color:var(--text-default)]">
@@ -305,18 +309,20 @@ export function DetailPane({
           ) : null}
         </div>
         <div className="mt-2 flex gap-2">
-          <textarea
+          <Textarea
             id="watchtower-comment-input"
             value={commentBody}
             onChange={(event) => onCommentChange(event.target.value)}
             placeholder="Note for triage, link a finding, or capture context..."
             rows={2}
-            className={`min-h-[44px] flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-body leading-6 text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            fullWidth={false}
+            className="min-h-[44px] flex-1"
           />
           <PrimaryButton
+            size="md"
             onClick={onAddComment}
             disabled={isCommenting || !commentBody.trim()}
-            className="self-end !h-8"
+            className="self-end"
           >
             {isCommenting ? 'Sending…' : 'Comment'}
           </PrimaryButton>

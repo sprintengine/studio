@@ -1322,6 +1322,242 @@ async function main(): Promise<void> {
     )
   })
 
+  // --- MC-2114: one input vocabulary, one Field, one control ramp -----------
+  // The product carried EIGHT hand-rolled field vocabularies plus a ninth found
+  // during the sweep, and two different components both exported as `Field`
+  // through the same barrel — one of them with no `htmlFor` and no ARIA at all,
+  // which is the one Watchtower's dialogs happened to import. Heights landed on
+  // 32 / 34 / h-7 / h-8 / h-9 / h-10 / h-11, mostly off the 26/30/34 ramp.
+  //
+  // Three of the four rules below are source-read, for the reason the z and
+  // geometry rules above are: the surfaces are whole app screens that cannot be
+  // mounted here, and each rule is about the literal a developer types. The
+  // fourth is mounted, because label association is behaviour, not markup.
+
+  // The files this item swept. Named rather than phrased over the renderer for
+  // the reason the Git-surfaces rule names its three: the vocabularies were
+  // THESE files', and a tree-wide rule would be a repo-wide field sweep wearing
+  // this item's name — asserting a convergence that did not happen.
+  const SWEPT_FIELD_SURFACES = [
+    'components/learn/LearnCenter.tsx',
+    'components/panels/AutomationsPanel/AutomationEditor.tsx',
+    'components/panels/AutomationsPanel/TriggerFields.tsx',
+    'components/panels/BacklogCreateDialog.tsx',
+    'components/panels/ConnectorsPanel/ConnectorsManage.tsx',
+    'components/panels/ContentSearchPanel.tsx',
+    'components/panels/FileExplorer.tsx',
+    'components/panels/SprintEngineInspectorPanel.tsx',
+    'components/panels/SwitchboardBoardPanel.tsx',
+    'components/panels/WatchtowerPanel/CreateInboxDialog.tsx',
+    'components/panels/WatchtowerPanel/DetailPane.tsx',
+    'components/settings/MobileSettingsTab.tsx',
+    'components/settings/ProjectKnowledgeList.tsx',
+    'components/settings/ProviderSettingsTab.tsx',
+    'components/settings/SettingsPanel.tsx',
+    'components/workspace/newSprint/NewSprintDialog.tsx',
+    'components/workspace/newWorkspace/KnowledgeStep.tsx',
+    'components/workspace/newWorkspace/SprintEngineRosterPanel.tsx',
+    'modules/voice-dictation/VoiceDictationSettingsSection.tsx',
+    'review/door/ReviewChangeForm.tsx',
+  ]
+
+  /**
+   * Rulings, not debt: a swept field that stays off the kit WITH its reason on
+   * the record. Keep this list short — an entry that is really "we did not get
+   * to it" belongs in the sweep, not here.
+   */
+  const FIELD_RULINGS: Record<string, string> = {
+    'components/panels/FileExplorer.tsx':
+      'the tree rename field is `h-5` (20px), below the ramp on purpose: it replaces the name ' +
+      'INSIDE a 22px file-tree row, and a ramp-height field would push every sibling row down ' +
+      'while one is being renamed. Annotated at the call site.',
+  }
+
+  // A JSX field tag and everything it declares, up to its self-closing bracket.
+  // `/>` is the terminator rather than `>` because an arrow function in a prop
+  // (`onChange={(e) => …}`) contains `>` and would cut the tag in half.
+  const FIELD_TAG = /<(input|textarea)\b[\s\S]*?\/>/g
+  // A FIELD BOX: a border and a ground, both from the token layer. That pairing
+  // is the honest definition of "this element draws its own field" — and it is
+  // what all nine vocabularies had. It deliberately does NOT catch a transparent
+  // in-place editor (`border-transparent bg-transparent`, the run-name and
+  // automation-name idiom), which draws no box at rest and is the kit's
+  // `INLINE_TITLE_EDIT_CLASS`.
+  // Boundaries are quote-or-space, not `\s` alone: a class string that OPENS
+  // with the token (`className="h-8 w-full …"`) has a quote in front of it, and
+  // a whitespace-only boundary would read that as no match at all — which is
+  // exactly the shape a freshly hand-rolled field takes.
+  const OWN_BORDER = /(?:^|["'`\s])border-\[(?:color:)?var\(--border-[a-z]+\)\]/
+  const OWN_GROUND = /(?:^|["'`\s])bg-\[(?:color:)?var\(--bg-[a-z-]+\)\]/
+
+  await run('MC-2114 no swept surface hand-rolls a field box — the box is ui/Input', () => {
+    const offenders: string[] = []
+    for (const file of SWEPT_FIELD_SURFACES) {
+      if (FIELD_RULINGS[file]) continue
+      const source = withoutComments(join(process.cwd(), 'src/renderer/src', file))
+      for (const tag of source.matchAll(FIELD_TAG)) {
+        if (!OWN_BORDER.test(tag[0]) || !OWN_GROUND.test(tag[0])) continue
+        offenders.push(`${file}: <${tag[1]} …> draws its own border and ground`)
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'a text field is `ui/Input` (or `ui/Textarea`): the eight vocabularies this item retired were each ' +
+        'one file deciding its own radius, ground, inset and focus treatment, and two of them were literal ' +
+        'copies of each other kept in sync by hand',
+    )
+  })
+
+  await run('MC-2114 every swept field sits on the 26/30/34 control ramp', () => {
+    // A height spelled as a Tailwind step or a pixel count is by definition not
+    // a step on the ramp — the ramp is reachable only as `h-control-xs/sm/md`,
+    // which is what makes moving it a one-line edit. `min-h-`/`max-h-` are left
+    // alone: a textarea's floor and cap are a content measure, not a ramp step,
+    // which is why `ui/Textarea` takes no height of its own.
+    const OFF_RAMP_HEIGHT = /(?:^|["'`\s])h-(?:\d+(?:\.\d+)?|\[\d+(?:\.\d+)?(?:px|rem)\])(?=["'`\s]|$)/
+    const offenders: string[] = []
+    for (const file of SWEPT_FIELD_SURFACES) {
+      if (FIELD_RULINGS[file]) continue
+      const source = withoutComments(join(process.cwd(), 'src/renderer/src', file))
+      for (const tag of source.matchAll(FIELD_TAG)) {
+        const height = tag[0].match(OFF_RAMP_HEIGHT)
+        if (!height) continue
+        offenders.push(`${file}: <${tag[1]} … ${height[0].trim()}>`)
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'heights come from h-control-xs/sm/md (26/30/34) — pass `size` to ui/Input rather than typing one; ' +
+        'a deliberate exception takes a ruling in FIELD_RULINGS, not a silent arbitrary',
+    )
+  })
+
+  await run('MC-2114 exactly one Field is exported from the kit, and nobody imports a second', () => {
+    const barrel = readFileSync(
+      join(process.cwd(), 'src/renderer/src/components/ui/index.ts'),
+      'utf8',
+    )
+    const exportsField = barrel
+      .split('\n')
+      .filter((line) => /^export\b/.test(line) && /(?:^|[{,\s])Field(?=[},\s])/.test(line))
+    assert.equal(
+      exportsField.length,
+      1,
+      `the barrel exports Field exactly once; found: ${exportsField.join(' | ') || 'none'}`,
+    )
+    assert.match(exportsField[0], /from '\.\/Field'/, 'and it is ui/Field, the one with the ARIA wiring')
+
+    // `ui/Modal` exported the second one. A re-export from anywhere else is the
+    // same failure wearing a different address, so the rule reads every kit file
+    // rather than just that one.
+    const kitDir = join(process.cwd(), 'src/renderer/src/components/ui')
+    const declaresField: string[] = []
+    for (const name of readdirSync(kitDir)) {
+      if (!/\.tsx?$/.test(name) || /\.test\./.test(name)) continue
+      if (name === 'Field.tsx' || name === 'index.ts') continue
+      const source = withoutComments(join(kitDir, name))
+      if (/export\s+(?:function|const)\s+Field\b/.test(source)) declaresField.push(name)
+    }
+    assert.deepEqual(
+      declaresField,
+      [],
+      'a second component named Field means whoever imports "the" Field gets a coin flip — and the one ' +
+        'that shipped without htmlFor or ARIA is the one four dialogs happened to draw',
+    )
+
+    // And no consumer still reaches for it by its old address.
+    const importers = rendererSources()
+      .filter((path) => /import\s*\{[^}]*\bField\b[^}]*\}\s*from\s*'[^']*ui\/Modal'/.test(withoutComments(path)))
+      .map((path) => relative(process.cwd(), path))
+    assert.deepEqual(importers, [], 'Field comes from `../ui`, never from `../ui/Modal`')
+  })
+
+  // Mounted, not read: a label that points at nothing renders identically to one
+  // that works. Before this item a `Field` wrapping a `Select` produced exactly
+  // that — the Select took no `id`, so the `<label htmlFor>` addressed an element
+  // that did not exist and the visible label named nothing.
+  const fieldContainer = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(fieldContainer)
+  const fieldRoot = createRoot(fieldContainer)
+  const { Field } = await import('./Field')
+  const { Input, Textarea } = await import('./Input')
+  const { Select } = await import('./Select')
+  act(() => {
+    fieldRoot.render(
+      React.createElement(
+        'div',
+        null,
+        React.createElement(
+          Field,
+          { key: 'text', label: 'Server id', htmlFor: 'seam-field-input', help: 'Lowercase.' },
+          React.createElement(Input, { value: '', onChange: () => {} }),
+        ),
+        React.createElement(
+          Field,
+          { key: 'multiline', label: 'Description', htmlFor: 'seam-field-textarea' },
+          React.createElement(Textarea, { value: '', onChange: () => {}, rows: 3 }),
+        ),
+        React.createElement(
+          Field,
+          { key: 'choice', label: 'Transport', htmlFor: 'seam-field-select' },
+          React.createElement(Select, {
+            ariaLabel: 'Transport',
+            items: [{ value: 'stdio', label: 'stdio' }],
+            value: 'stdio',
+            onChange: () => {},
+          }),
+        ),
+      ),
+    )
+  })
+
+  await run('MC-2114 a Field labels a real control — an input, a textarea, and a Select alike', () => {
+    for (const id of ['seam-field-input', 'seam-field-textarea', 'seam-field-select']) {
+      const label = fieldContainer.querySelector(`label[for="${id}"]`)
+      assert.ok(label, `the Field renders a <label for="${id}">`)
+      const control = fieldContainer.querySelector(`#${id}`)
+      assert.ok(control, `and an element actually carries that id — a label pointing at nothing is not a name`)
+    }
+    // The Select's tab stop IS the labelled element, not a wrapper beside it.
+    const selectControl = fieldContainer.querySelector('#seam-field-select')
+    assert.equal(selectControl?.getAttribute('role'), 'combobox', 'the id lands on the Select trigger')
+    // Help text is wired, not merely rendered.
+    const input = fieldContainer.querySelector('#seam-field-input')
+    assert.equal(
+      input?.getAttribute('aria-describedby'),
+      'seam-field-input-help',
+      'help text is referenced by the control it supports',
+    )
+  })
+
+  await run('MC-2114 the kit field draws one ramp height and one focus treatment', () => {
+    const input = fieldContainer.querySelector('#seam-field-input') as Element
+    const classes = classesOf(input)
+    assert.ok(
+      classes.includes('h-control-sm'),
+      'the default step is `sm` (30px) — a ramp token, not a typed pixel count',
+    )
+    assert.ok(
+      classes.includes('focus-visible:focus-ring'),
+      'and focus is the shared ring utility, written as one literal Tailwind can see',
+    )
+    for (const element of [input, fieldContainer.querySelector('#seam-field-textarea') as Element]) {
+      for (const token of classesOf(element)) {
+        assert.ok(
+          !/^(?:group-|peer-)?focus(?:-within|-visible)?:border-/.test(token),
+          `a field wears the ring, never a border swap — found \`${token}\``,
+        )
+      }
+    }
+  })
+
+  act(() => {
+    fieldRoot.unmount()
+  })
+  fieldContainer.remove()
+
   if (failures > 0) {
     console.error(`designSystemConformance.test.tsx: ${failures} failing`)
     process.exit(1)

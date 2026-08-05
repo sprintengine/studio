@@ -15,7 +15,7 @@ import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/m
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type { McpSettings } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { Field, FOCUS_RING_CLASS, GhostButton, OutlineButton, PrimaryButton, Select, type SelectItem } from '../../ui'
+import { Field, GhostButton, Input, OutlineButton, PrimaryButton, Select, type SelectItem } from '../../ui'
 import { InstalledExtensionsInventory } from './InstalledExtensionsInventory'
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
@@ -25,26 +25,11 @@ const MCP_TRANSPORT_ITEMS: SelectItem<'stdio' | 'http'>[] = [
   { value: 'http', label: 'http' },
 ]
 
-const INPUT_CLASS =
-  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body ' +
-  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
-
-type NoteTone = 'neutral' | 'accent' | 'warn'
-const NOTE_BORDER: Record<NoteTone, string> = {
-  neutral: 'border-[color:var(--border-strong)]',
-  accent: 'border-[color:var(--accent-primary)]',
-  warn: 'border-[color:var(--tone-warn)]',
-}
-const NOTE_TEXT: Record<NoteTone, string> = {
-  neutral: 'text-[color:var(--text-muted)]',
-  accent: 'text-[color:var(--accent-primary)]',
-  warn: 'text-[color:var(--tone-warn)]',
-}
-
-function ManageNote({ tone, children }: { tone: NoteTone; children: ReactNode }) {
-  return (
-    <div className={`border-l-2 pl-3 text-body leading-5 ${NOTE_BORDER[tone]} ${NOTE_TEXT[tone]}`}>{children}</div>
-  )
+// `ManageNote` was this view's copy of the left tone-bar (MC-2115). Both things
+// it carried are informational — what a change did, and what syncing means —
+// and information is content, not a notice: they are plain copy now.
+function ManageLine({ children }: { children: ReactNode }) {
+  return <p className="text-body leading-5 text-[color:var(--text-muted)]">{children}</p>
 }
 
 export function ConnectorsManage({
@@ -183,7 +168,7 @@ export function ConnectorsManage({
           onRemoveSkill={(dirName) => void removeSkill(dirName)}
           onUseSkillInNewAgent={onUseSkillInNewAgent}
         />
-        {skillMessage ? <ManageNote tone="accent">{skillMessage}</ManageNote> : null}
+        {skillMessage ? <ManageLine>{skillMessage}</ManageLine> : null}
       </section>
 
       <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
@@ -195,19 +180,20 @@ export function ConnectorsManage({
           <>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Server id" htmlFor="custom-mcp-id">
-              <input
+              <Input
                 value={customMcpId}
                 onChange={(event) => setCustomMcpId(event.target.value)}
                 placeholder="server-id"
-                className={INPUT_CLASS}
+                size="md"
+                className="font-mono"
               />
             </Field>
             <Field label="Display name" htmlFor="custom-mcp-name">
-              <input
+              <Input
                 value={customMcpName}
                 onChange={(event) => setCustomMcpName(event.target.value)}
                 placeholder="Display name"
-                className={`${INPUT_CLASS} font-sans`}
+                size="md"
               />
             </Field>
             <Field label="Transport" htmlFor="custom-mcp-transport">
@@ -221,38 +207,42 @@ export function ConnectorsManage({
             </Field>
             <Field label={customMcpTransport === 'stdio' ? 'Command' : 'URL'} htmlFor="custom-mcp-endpoint">
               {customMcpTransport === 'stdio' ? (
-                <input
+                <Input
                   value={customMcpCommand}
                   onChange={(event) => setCustomMcpCommand(event.target.value)}
                   placeholder="e.g. npx"
-                  className={INPUT_CLASS}
+                  size="md"
+                  className="font-mono"
                 />
               ) : (
-                <input
+                <Input
                   value={customMcpUrl}
                   onChange={(event) => setCustomMcpUrl(event.target.value)}
                   placeholder="https://example.com/mcp"
-                  className={INPUT_CLASS}
+                  size="md"
+                  className="font-mono"
                 />
               )}
             </Field>
             <div className="sm:col-span-2">
               <Field label="Args (space separated)" htmlFor="custom-mcp-args">
-                <input
+                <Input
                   value={customMcpArgs}
                   onChange={(event) => setCustomMcpArgs(event.target.value)}
                   placeholder="e.g. -y @vendor/server"
-                  className={INPUT_CLASS}
+                  size="md"
+                  className="font-mono"
                 />
               </Field>
             </div>
             <div className="sm:col-span-2">
               <Field label="Required env vars (comma separated)" htmlFor="custom-mcp-env">
-                <input
+                <Input
                   value={customMcpEnv}
                   onChange={(event) => setCustomMcpEnv(event.target.value)}
                   placeholder="API_KEY, ANOTHER_VAR"
-                  className={INPUT_CLASS}
+                  size="md"
+                  className="font-mono"
                 />
               </Field>
             </div>
@@ -274,11 +264,11 @@ export function ConnectorsManage({
           </>
         )}
 
-        <ManageNote tone={mcpMessage ? 'accent' : 'neutral'}>
+        <ManageLine>
           {mcpMessage || (activeWorkspaceRoot
             ? 'Changes apply automatically across Claude Code, Codex, and other terminal agents. Existing terminals keep their current config until relaunched.'
             : 'Open a workspace folder to sync MCPs to terminal agents.')}
-        </ManageNote>
+        </ManageLine>
       </section>
     </div>
   )

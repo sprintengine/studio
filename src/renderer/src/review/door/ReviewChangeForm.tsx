@@ -6,7 +6,7 @@ import type {
   ReviewSourceInput,
   ReviewSourceProbe,
 } from '../../../../shared/electron-api'
-import { FOCUS_RING_CLASS, InlineNotice, Select } from '../../components/ui'
+import { Field, InlineNotice, Input, Select, Textarea } from '../../components/ui'
 import { PrimaryButton, GhostButton } from '../../components/ui/Buttons'
 import { SegmentedControl } from '../../components/ui/SegmentedControl'
 import { StatusDot } from '../../components/ui/StatusDot'
@@ -27,11 +27,14 @@ const SOURCE_SEGMENTS: { value: ReviewSourceInput['kind']; label: string }[] = [
   { value: 'patch', label: 'Pasted patch' },
 ]
 
-const LABEL = 'mb-1 block text-meta font-medium text-[color:var(--text-default)]'
-const HELP = 'mt-1 text-micro leading-4 text-[color:var(--text-subtle)]'
-const INPUT =
-  'w-full rounded-[6px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-body ' +
-  `text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`
+// Labels, help lines and fields are `ui/Field` + `ui/Input` now. This form ran
+// its own three-constant vocabulary — a label scale, a help scale, and a field
+// box at `rounded-[6px]`, which is between the 5px control step and the 7px
+// overlay step and lands on neither — and its labels were `<span>`s inside a
+// wrapping `<label>`, so nothing carried an `htmlFor` (MC-2114).
+//
+// `Field.Label` is the standalone label, for the one row whose control is a
+// SegmentedControl — a radio group rather than a single labellable field.
 
 type ProbeState =
   | { status: 'idle' }
@@ -226,11 +229,13 @@ export function ReviewChangeForm({ projectRoots, onCreated, onCancel }: ReviewCh
             inferred from the URL below, never picked up front. */}
         {sourceKind !== 'pull-request' ? (
           projectItems.length > 0 ? (
-            <div>
-              <span className={LABEL}>Project</span>
+            <Field
+              label="Project"
+              htmlFor="review-change-project"
+              help="Where the change lives. Branch reads run against this repository."
+            >
               <Select ariaLabel="Project to review in" items={projectItems} value={projectRoot} onChange={setProjectRoot} />
-              <p className={HELP}>Where the change lives. Branch reads run against this repository.</p>
-            </div>
+            </Field>
           ) : (
             <InlineNotice tone="warn" className="max-w-xl">
               Open a project first — a review reads a change from one of your projects.
@@ -238,54 +243,60 @@ export function ReviewChangeForm({ projectRoots, onCreated, onCancel }: ReviewCh
           )
         ) : null}
 
-        <div>
-          <span className={LABEL}>What are you reviewing?</span>
+        {/* A segmented control is a radio group, not one focusable field, so it
+            takes the standalone label rather than a wrapping Field — its own
+            `ariaLabel` is what names it to assistive tech. */}
+        <div className="flex flex-col gap-1.5">
+          <Field.Label>What are you reviewing?</Field.Label>
           <SegmentedControl ariaLabel="What are you reviewing" items={SOURCE_SEGMENTS} value={sourceKind} onChange={setSourceKind} />
         </div>
 
         {sourceKind === 'pull-request' ? (
           <>
-            <label className="block">
-              <span className={LABEL}>Pull request URL</span>
-              <input
-                type="text"
+            <Field
+              label="Pull request URL"
+              htmlFor="review-change-pr-url"
+              help="A github.com or GitHub Enterprise pull request. Private hosts use your saved token."
+            >
+              <Input
                 value={prUrl}
                 onChange={(event) => setPrUrl(event.target.value)}
                 placeholder="https://github.com/owner/repo/pull/123"
-                className={INPUT}
+                size="md"
               />
-              <span className={HELP}>A github.com or GitHub Enterprise pull request. Private hosts use your saved token.</span>
-            </label>
+            </Field>
             <PrProjectField control={prControl} selectedRoot={prRoot} onSelect={setPrPickedRoot} />
           </>
         ) : null}
 
         {sourceKind === 'branch' ? (
           <>
-            <label className="block">
-              <span className={LABEL}>Compare against</span>
-              <input
-                type="text"
+            <Field
+              label="Compare against"
+              htmlFor="review-change-base"
+              help="Base the walkthrough against this branch."
+            >
+              <Input
                 value={brBase}
                 onChange={(event) => setBrBase(event.target.value)}
                 placeholder="main"
                 list="review-change-branches"
-                className={INPUT}
+                size="md"
               />
-              <span className={HELP}>Base the walkthrough against this branch.</span>
-            </label>
-            <label className="block">
-              <span className={LABEL}>Branch to review</span>
-              <input
-                type="text"
+            </Field>
+            <Field
+              label="Branch to review"
+              htmlFor="review-change-head"
+              help="Agent worktree branches appear here too — review your agents’ work before it merges."
+            >
+              <Input
                 value={brHead}
                 onChange={(event) => setBrHead(event.target.value)}
                 placeholder="feature/…"
                 list="review-change-branches"
-                className={INPUT}
+                size="md"
               />
-              <span className={HELP}>Agent worktree branches appear here too — review your agents’ work before it merges.</span>
-            </label>
+            </Field>
             <datalist id="review-change-branches">
               {branchNames.map((name) => (
                 <option key={name} value={name} />
@@ -296,26 +307,27 @@ export function ReviewChangeForm({ projectRoots, onCreated, onCancel }: ReviewCh
 
         {sourceKind === 'patch' ? (
           <>
-            <label className="block">
-              <span className={LABEL}>Patch text</span>
-              <textarea
+            <Field
+              label="Patch text"
+              htmlFor="review-change-patch"
+              help="Paste unified diff or `git format-patch` output. Nothing leaves this machine."
+            >
+              <Textarea
                 value={patchText}
                 onChange={(event) => setPatchText(event.target.value)}
                 placeholder="diff --git a/… b/…"
-                className={`${INPUT} min-h-[120px] font-mono`}
+                size="md"
+                className="min-h-[120px] font-mono"
               />
-              <span className={HELP}>Paste unified diff or `git format-patch` output. Nothing leaves this machine.</span>
-            </label>
-            <label className="block">
-              <span className={LABEL}>Label (optional)</span>
-              <input
-                type="text"
+            </Field>
+            <Field label="Label (optional)" htmlFor="review-change-patch-label">
+              <Input
                 value={patchLabel}
                 onChange={(event) => setPatchLabel(event.target.value)}
                 placeholder="What this patch is"
-                className={INPUT}
+                size="md"
               />
-            </label>
+            </Field>
           </>
         ) : null}
 
@@ -383,11 +395,13 @@ function PrProjectField({
   }
   const items = control.roots.map((root) => ({ value: root, label: projectLabel(root) }))
   return (
-    <div>
-      <span className={LABEL}>Store the review in</span>
+    <Field
+      label="Store the review in"
+      htmlFor="review-change-storage-project"
+      help={CHOOSE_HELP[control.reason]}
+    >
       <Select ariaLabel="Project to store the review in" items={items} value={selectedRoot} onChange={onSelect} />
-      <p className={HELP}>{CHOOSE_HELP[control.reason]}</p>
-    </div>
+    </Field>
   )
 }
 
@@ -412,10 +426,9 @@ function ProbeCard({ probe, sourceKind }: { probe: ProbeState; sourceKind: Revie
   }
   if (probe.status === 'error') {
     return (
-      <div className="flex items-start gap-2 rounded-[6px] border border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] px-3 py-2">
-        <StatusDot tone="error" label="Could not read this source" className="mt-1.5" />
-        <p className="text-meta leading-5 text-[color:var(--tone-error)]">{probe.message}</p>
-      </div>
+      // Three lines from the real InlineNotice this same file uses at three other
+      // call sites (MC-2115): same failure, same scope, so it is the same card.
+      <InlineNotice tone="error">{probe.message}</InlineNotice>
     )
   }
   const { title, stats } = probe.probe

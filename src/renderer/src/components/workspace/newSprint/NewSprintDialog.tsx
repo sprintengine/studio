@@ -66,6 +66,8 @@ import {
   GhostButton,
   IconButton,
   InboxSearchInput,
+  INLINE_TITLE_EDIT_CLASS,
+  InlineNotice,
   OverflowMenu,
   PanelHeader,
   Popover,
@@ -1041,7 +1043,11 @@ export default function NewSprintDialog({
                         setNameOverride(event.currentTarget.value)
                         setRenaming(false)
                       }}
-                      className="min-w-0 flex-1 rounded border border-[color:var(--border-default)] bg-transparent px-1.5 py-0.5 font-mono text-heading font-medium text-[color:var(--text-strong)] outline-none focus-visible:focus-ring"
+                      // The kit's in-place title edit. This spelled its own box
+                      // at Tailwind's default 4px radius, off the 3/5/7/9 ramp,
+                      // and drew a resting border where the automation editor's
+                      // identical idiom draws none (MC-2114).
+                      className={`${INLINE_TITLE_EDIT_CLASS} min-w-0 flex-1 font-mono text-heading font-medium text-[color:var(--text-strong)]`}
                     />
                   ) : runName ? (
                     <>
@@ -1206,9 +1212,7 @@ export default function NewSprintDialog({
                 )}
 
                 {createError ? (
-                  <p className="border-l-2 border-[color:var(--tone-error)] pl-2.5 text-meta leading-5 text-[color:var(--tone-error)]">
-                    {createError}
-                  </p>
+                  <InlineNotice tone="error">{createError}</InlineNotice>
                 ) : null}
               </div>
           </div>

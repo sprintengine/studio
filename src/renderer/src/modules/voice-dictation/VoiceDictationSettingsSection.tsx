@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { Field, FOCUS_RING_CLASS, Select, type SelectItem } from '../../components/ui'
+import { Field, Input, Select, type SelectItem } from '../../components/ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { VoiceDictationModel } from '../../types/workspace'
 
@@ -10,10 +10,6 @@ import type { VoiceDictationModel } from '../../types/workspace'
 // transcription IPC contract (`window.api.voiceTranscribe`) already reads —
 // rather than the host's per-module namespace, so the persisted shape and
 // behavior are unchanged; only the mount moved.
-
-const INPUT_CLASS =
-  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body ' +
-  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
 
 const VOICE_MODEL_ITEMS: SelectItem<VoiceDictationModel>[] = [
   { value: 'tiny', label: 'Whisper tiny — fastest, least accurate' },
@@ -51,12 +47,13 @@ export function VoiceDictationSettingsSection() {
       </p>
 
       <Field label="Server URL" htmlFor="voice-server-url" help="Base URL of the Multivoice transcription host.">
-        <input
+        <Input
           id="voice-server-url"
           value={voiceDictation.serverUrl}
           onChange={(event) => setVoiceDictationSettings({ serverUrl: event.target.value })}
           placeholder="http://127.0.0.1:48173"
-          className={INPUT_CLASS}
+          size="md"
+          className="font-mono"
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
@@ -68,13 +65,14 @@ export function VoiceDictationSettingsSection() {
         htmlFor="voice-auth-token"
         help="Optional. Sent as an Authorization: Bearer header when set."
       >
-        <input
+        <Input
           id="voice-auth-token"
           type="password"
           value={voiceDictation.authToken}
           onChange={(event) => setVoiceDictationSettings({ authToken: event.target.value })}
           placeholder="(none)"
-          className={INPUT_CLASS}
+          size="md"
+          className="font-mono"
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"

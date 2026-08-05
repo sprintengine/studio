@@ -12,10 +12,10 @@ import {
   DefinitionList,
   Drawer,
   Field,
-  FOCUS_RING_CLASS,
   GhostButton,
   IconButton,
   InboxRow,
+  Input,
   KbdChord,
   OverflowMenu,
   PanelHeader,
@@ -28,6 +28,7 @@ import {
   Switch,
   Tabs,
   TabPanel,
+  Textarea,
   Toast,
   Tooltip,
   type Tone,
@@ -262,25 +263,22 @@ export function PrimitivePreview() {
 
       <Section title="Field">
         <div className="flex flex-col gap-4">
+          {/* The preview used to hand-roll its own `h-7` field three times —
+              the kit demonstrating the exact drift it exists to prevent. */}
           <Field label="Workspace name" htmlFor="preview-field-name" required>
-            <input
-              type="text"
-              value={workspaceName}
-              onChange={(event) => setWorkspaceName(event.target.value)}
-              className={`h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-            />
+            <Input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} />
           </Field>
           <Field
             label="Webhook endpoint"
             htmlFor="preview-field-endpoint"
             help="Optional — leave blank to disable outbound notifications."
           >
-            <input
+            <Input
               type="url"
               value={endpoint}
               onChange={(event) => setEndpoint(event.target.value)}
               placeholder="https://"
-              className={`h-7 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+              size="md"
             />
           </Field>
           <Field
@@ -289,11 +287,13 @@ export function PrimitivePreview() {
             error="Required when the webhook endpoint is set."
             required
           >
-            <input
-              type="text"
-              defaultValue=""
-              className="h-7 rounded-[5px] border border-[color:var(--tone-error)] bg-[color:var(--bg-surface)] px-2 text-meta text-[color:var(--text-strong)] outline-none"
-            />
+            <Input defaultValue="" className="border-[color:var(--tone-error)]" />
+          </Field>
+          <Field label="Command override" htmlFor="preview-field-well" help="The recessed step, for a control sitting in a settings row.">
+            <Input defaultValue="" variant="well" size="md" className="font-mono" />
+          </Field>
+          <Field label="Release note" htmlFor="preview-field-notes" help="The multiline member of the same vocabulary.">
+            <Textarea defaultValue="" rows={3} placeholder="What changed, and why it matters." />
           </Field>
         </div>
       </Section>

@@ -1,8 +1,7 @@
 import { useState } from 'react'
 
-import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
-import { Select, type SelectItem } from '../ui'
-import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
+import { Field, Input, Select, Textarea, type SelectItem } from '../ui'
 import type { BacklogCriticality, BacklogDifficulty } from '../../utils/backlog'
 
 // The structured capture dialog for a new backlog item. A backlog item is
@@ -16,13 +15,6 @@ export type BacklogDraft = {
   difficulty: BacklogDifficulty | 'unset'
   criticality: BacklogCriticality | 'unset'
 }
-
-const INPUT_CLASS = [
-  'block w-full rounded-[5px] border border-[color:var(--border-default)]',
-  'bg-[color:var(--bg-surface-raised)] px-3 py-2 text-body text-[color:var(--text-strong)]',
-  'placeholder:text-[color:var(--text-disabled)] transition-colors',
-  FOCUS_RING_CLASS,
-].join(' ')
 
 export function BacklogCreateDialog({
   difficultyItems,
@@ -70,26 +62,30 @@ export function BacklogCreateDialog({
       >
         <ModalHeader title="New backlog item" titleId={titleId} onClose={busy ? undefined : onClose} />
         <ModalBody className="space-y-3">
-          <Field label="Title">
-            <input
+          <Field label="Title" htmlFor="backlog-create-item-title">
+            <Input
               value={draft.title}
               autoFocus
               placeholder="e.g. Realtime presence indicators"
               onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-              className={INPUT_CLASS}
+              size="md"
             />
           </Field>
-          <Field label="Description" hint="Capture the intent — the what and why. Leave implementation to the plan.">
-            <textarea
+          <Field
+            label="Description"
+            htmlFor="backlog-create-item-description"
+            help="Capture the intent — the what and why. Leave implementation to the plan."
+          >
+            <Textarea
               value={draft.description}
               rows={4}
               placeholder="What outcome does this enable, or what is broken?"
               onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
-              className={`${INPUT_CLASS} resize-y leading-6`}
+              size="md"
             />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Size">
+            <Field label="Size" htmlFor="backlog-create-item-size">
               <Select
                 ariaLabel="Item size"
                 items={difficultyItems}
@@ -97,7 +93,7 @@ export function BacklogCreateDialog({
                 onChange={(value) => setDraft((current) => ({ ...current, difficulty: value }))}
               />
             </Field>
-            <Field label="Priority">
+            <Field label="Priority" htmlFor="backlog-create-item-priority">
               <Select
                 ariaLabel="Item priority"
                 items={criticalityItems}

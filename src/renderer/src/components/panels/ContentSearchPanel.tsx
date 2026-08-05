@@ -3,7 +3,7 @@ import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { FOCUS_RING_CLASS, InboxRow, PanelHeader, Skeleton } from '../ui'
+import { InboxRow, Input, PanelHeader, Skeleton } from '../ui'
 
 // The panel names itself the same way in every state, including the one where
 // the folder is still being verified and there is nothing to count yet.
@@ -178,12 +178,15 @@ export default function ContentSearchPanel({ workspaceId }: Props) {
         divider={false}
       />
       <div className="border-b border-[color:var(--border-default)] px-3 py-2">
-        <input
+        {/* The kit field. This was an `h-8` box (28px, off the 26/30/34 ramp)
+            edged with `--bg-selected` — a SELECTION fill used as a border —
+            rather than the border ramp (MC-2114). */}
+        <Input
           ref={inputRef}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search file contents..."
-          className={`h-8 w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-app)] px-3 text-meta text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+          aria-label="Search file contents"
         />
         {statusText && (
           <div className={`mt-2 text-micro ${error ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-disabled)]'}`}>

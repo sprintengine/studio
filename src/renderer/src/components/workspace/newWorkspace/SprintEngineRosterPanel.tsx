@@ -24,7 +24,7 @@ import {
   listSprintEngineWizardRoles,
 } from '../../../utils/sprintengineRoleOptions'
 import { CheckIcon, ChevronDownIcon } from '../../AppIcons'
-import { CliModelPickerButton, FOCUS_RING_CLASS, Popover, PrimaryButton, RoleAvatar, Switch } from '../../ui'
+import { CliModelPickerButton, Input, Popover, PrimaryButton, RoleAvatar, Switch } from '../../ui'
 import { type SprintEngineCliOption } from './SprintEngineRosterTable'
 import {
   NO_ROLES_ROSTER_ID,
@@ -370,9 +370,8 @@ export function SavedRostersMenu({
     >
       {editing !== 'idle' ? (
         <div className="flex flex-col gap-1 p-1">
-          <input
+          <Input
             autoFocus
-            type="text"
             value={name}
             placeholder="Roster name"
             aria-label={editing === 'renaming' ? 'Rename roster' : 'New roster name'}
@@ -387,11 +386,12 @@ export function SavedRostersMenu({
                 close()
               }
             }}
-            className={`h-7 w-full rounded-[5px] border bg-[color:var(--bg-surface-raised)] px-2 text-meta text-[color:var(--text-default)] ${FOCUS_RING_CLASS} ${
-              collides
-                ? 'border-[color:var(--tone-error)]'
-                : 'border-[color:var(--border-default)]'
-            }`}
+            // The error edge is the only thing left of this field's own box: the
+            // chrome (and the ramp height — it ran `h-7`, 28px, off 26/30/34) is
+            // the kit's now. A resting-border recolour on an INVALID field is a
+            // validity signal, not a focus one, so it does not collide with the
+            // ring (MC-2114).
+            className={collides ? 'border-[color:var(--tone-error)]' : ''}
           />
           {collides ? (
             <span className="px-0.5 text-micro text-[color:var(--tone-error)]">

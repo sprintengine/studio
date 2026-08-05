@@ -8,7 +8,7 @@ import {
 } from '../../utils/sprintengine'
 import { describeExecutionTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { isEditableTarget } from '../../utils/keyboard'
-import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
+import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import {
   ActionStatusChip,
   useActionFeedback,
@@ -20,12 +20,13 @@ import {
   Banner,
   BoardLane,
   BoardLaneDropIndicator,
-  FOCUS_RING_CLASS,
   CloseIconButton,
   DefinitionList,
   Drawer,
+  Field,
   FOCUS_RING_INSET_CLASS,
   GhostButton,
+  Input,
   OverflowMenu,
   PanelHeader,
   PrimaryButton,
@@ -37,6 +38,7 @@ import {
   Skeleton,
   StatusDot,
   TaskCard,
+  Textarea,
   Tooltip,
   TruncatedText,
   type DefinitionItem,
@@ -1471,13 +1473,14 @@ function BoardDetailPane({
           />
         </div>
         <div className="mt-2 flex gap-2">
-          <textarea
+          <Textarea
             id="switchboard-comment-input"
             value={commentBody}
             onChange={(event) => onCommentChange(event.target.value)}
             placeholder="Plan, ask, or note an enrichment for the next claimer..."
             rows={2}
-            className={`min-h-[44px] flex-1 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 text-body leading-6 text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            fullWidth={false}
+            className="min-h-[44px] flex-1"
           />
           <PrimaryButton
             size="md"
@@ -1533,33 +1536,30 @@ function CreateTaskDialog({
   onSubmit: () => void
   busy: boolean
 }) {
-  const inputClass =
-    'block w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-body ' +
-  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`
   return (
     <Modal open onClose={onClose} contained labelledBy="switchboard-create-title" size="standard">
       <ModalHeader title="New Switchboard task" titleId="switchboard-create-title" onClose={onClose} />
       <ModalBody className="space-y-3">
-        <Field label="Title">
-          <input
+        <Field label="Title" htmlFor="switchboard-create-title-field">
+          <Input
             value={draft.title}
             onChange={(event) => onChange({ ...draft, title: event.target.value })}
             placeholder="What needs to happen?"
-            className={inputClass}
+            size="md"
             autoFocus
           />
         </Field>
-        <Field label="Description">
-          <textarea
+        <Field label="Description" htmlFor="switchboard-create-description">
+          <Textarea
             value={draft.description}
             onChange={(event) => onChange({ ...draft, description: event.target.value })}
             rows={4}
             placeholder="Context, intent, links, and acceptance criteria."
-            className={`${inputClass} resize-y leading-6`}
+            size="md"
           />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Priority">
+          <Field label="Priority" htmlFor="switchboard-create-priority">
             <Select<string>
               ariaLabel="Task priority"
               items={[
@@ -1573,21 +1573,21 @@ function CreateTaskDialog({
               onChange={(value) => onChange({ ...draft, priority: value === '' ? null : Number(value) })}
             />
           </Field>
-          <Field label="Identifier">
-            <input
+          <Field label="Identifier" htmlFor="switchboard-create-identifier">
+            <Input
               value={draft.identifier}
               onChange={(event) => onChange({ ...draft, identifier: event.target.value })}
               placeholder="ENG-123"
-              className={`${inputClass} h-9 py-0`}
+              size="md"
             />
           </Field>
         </div>
-        <Field label="Labels (comma separated)">
-          <input
+        <Field label="Labels (comma separated)" htmlFor="switchboard-create-labels">
+          <Input
             value={draft.labels}
             onChange={(event) => onChange({ ...draft, labels: event.target.value })}
             placeholder="frontend, design"
-            className={`${inputClass} h-9 py-0`}
+            size="md"
           />
         </Field>
       </ModalBody>
@@ -1841,8 +1841,6 @@ function RunnerSettingsFields({
   onChange: (next: RunnerSettings) => void
   canEdit: boolean
 }) {
-  const selectClass =
-    'h-7 w-full rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-1.5 text-meta text-[color:var(--text-strong)] disabled:opacity-50'
   return (
     <div className="space-y-3">
       <div>
@@ -1874,10 +1872,13 @@ function RunnerSettingsFields({
           })}
         </div>
       </div>
+      {/* These three rows ran a NINTH field vocabulary — an `h-7` box (28px, off
+          the 26/30/34 ramp) that also declared no focus indicator at all, so the
+          concurrency field lit up for nobody — under labels that were `<span>`s
+          inside a wrapping `<label>` with no `htmlFor` (MC-2114). */}
       <div className="grid grid-cols-2 gap-2">
-        <label className="block">
-          <span className="text-micro text-[color:var(--text-muted)]">Concurrency</span>
-          <input
+        <Field label="Concurrency" htmlFor="switchboard-runner-concurrency">
+          <Input
             type="number"
             min={1}
             max={16}
@@ -1888,37 +1889,30 @@ function RunnerSettingsFields({
               if (!Number.isFinite(parsed) || parsed < 1) return
               onChange({ ...draft, maxConcurrency: Math.min(parsed, 16) })
             }}
-            className={`mt-1 ${selectClass}`}
           />
-        </label>
-        <label className="block">
-          <span className="text-micro text-[color:var(--text-muted)]">CLI</span>
-          <div className="mt-1">
-            <Select<'codex' | 'claude-code'>
-              ariaLabel="Runner CLI"
-              items={[
-                { value: 'codex', label: 'Codex' },
-                { value: 'claude-code', label: 'Claude Code' },
-              ]}
-              value={draft.cli}
-              disabled={!canEdit}
-              onChange={(value) => onChange({ ...draft, cli: value })}
-            />
-          </div>
-        </label>
-      </div>
-      <label className="block">
-        <span className="text-micro text-[color:var(--text-muted)]">Provider</span>
-        <div className="mt-1">
-          <Select<SwitchboardExecutionProviderKind>
-            ariaLabel="Execution provider"
-            items={RUNNER_PROVIDERS.map((provider) => ({ value: provider, label: providerLabel(provider) }))}
-            value={draft.provider}
+        </Field>
+        <Field label="CLI" htmlFor="switchboard-runner-cli">
+          <Select<'codex' | 'claude-code'>
+            ariaLabel="Runner CLI"
+            items={[
+              { value: 'codex', label: 'Codex' },
+              { value: 'claude-code', label: 'Claude Code' },
+            ]}
+            value={draft.cli}
             disabled={!canEdit}
-            onChange={(value) => onChange({ ...draft, provider: value })}
+            onChange={(value) => onChange({ ...draft, cli: value })}
           />
-        </div>
-      </label>
+        </Field>
+      </div>
+      <Field label="Provider" htmlFor="switchboard-runner-provider">
+        <Select<SwitchboardExecutionProviderKind>
+          ariaLabel="Execution provider"
+          items={RUNNER_PROVIDERS.map((provider) => ({ value: provider, label: providerLabel(provider) }))}
+          value={draft.provider}
+          disabled={!canEdit}
+          onChange={(value) => onChange({ ...draft, provider: value })}
+        />
+      </Field>
     </div>
   )
 }

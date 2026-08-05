@@ -14,7 +14,15 @@ import type {
   ConversationProviderListResult,
   ConversationSecretStatusResult,
 } from '../../../../shared/electron-api'
-import { FOCUS_RING_CLASS, OutlineButton, PrimaryButton } from '../ui'
+import {
+  type ActionResult,
+  ActionResultMessage,
+  EmptyState,
+  InlineNotice,
+  Input,
+  OutlineButton,
+  PrimaryButton,
+} from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { SettingsSectionTitle } from './SettingsAtoms'
 import {
@@ -25,35 +33,15 @@ import {
   deriveProviderTabState,
 } from './providerSettings'
 
-const INPUT_CLASS =
-  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body ' +
-  `text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] disabled:opacity-45 ${FOCUS_RING_CLASS}`
+// The field is `ui/Input`; this module used to carry a copy of SettingsPanel's
+// `INPUT_CLASS` under the same name (MC-2114). `font-mono` stays because an API
+// key is an identifier, not prose.
+const MONO_FIELD = 'font-mono'
 
-type NoteTone = 'neutral' | 'accent' | 'warn' | 'error'
-
-const NOTE_BORDER: Record<NoteTone, string> = {
-  neutral: 'border-[color:var(--border-strong)]',
-  accent: 'border-[color:var(--accent-primary)]',
-  warn: 'border-[color:var(--tone-warn)]',
-  error: 'border-[color:var(--tone-error)]',
-}
-
-const NOTE_TEXT: Record<NoteTone, string> = {
-  neutral: 'text-[color:var(--text-muted)]',
-  accent: 'text-[color:var(--accent-primary)]',
-  warn: 'text-[color:var(--tone-warn)]',
-  error: 'text-[color:var(--tone-error)]',
-}
-
-function Note({ tone, children }: { tone: NoteTone; children: React.ReactNode }) {
-  return (
-    <div className={`border-l-2 pl-3 text-body leading-5 ${NOTE_BORDER[tone]} ${NOTE_TEXT[tone]}`}>
-      {children}
-    </div>
-  )
-}
-
-type ProviderMessage = { tone: NoteTone; text: string } | undefined
+// The local `Note` this file used to declare was the forbidden left tone-bar in
+// four tones (MC-2115). Failures and degraded states are the kit's notice;
+// everything else here is a plain line of copy.
+type ProviderMessage = ActionResult | undefined
 type PendingKind = 'saving' | 'clearing'
 
 function errText(err: unknown, fallback: string): string {
@@ -127,7 +115,7 @@ export function ProviderSettingsTab() {
         if (result.ok) {
           applyStatusResult(provider.id, result)
           setDrafts((current) => ({ ...current, [provider.id]: '' }))
-          setMessage(provider.id, { tone: 'accent', text: 'API key saved.' })
+          setMessage(provider.id, { tone: 'info', text: 'API key saved.' })
         } else {
           setMessage(provider.id, { tone: 'error', text: result.message })
         }
@@ -154,7 +142,7 @@ export function ProviderSettingsTab() {
         const result = await window.api.conversationSecretClear({ providerId: provider.id })
         if (result.ok) {
           applyStatusResult(provider.id, result)
-          setMessage(provider.id, { tone: 'neutral', text: 'API key removed.' })
+          setMessage(provider.id, { tone: 'info', text: 'API key removed.' })
         } else {
           setMessage(provider.id, { tone: 'error', text: result.message })
         }
@@ -179,24 +167,33 @@ export function ProviderSettingsTab() {
         device and never shown again after saving.
       </p>
 
-      {tabState.kind === 'unavailable' ? <Note tone="neutral">{tabState.message}</Note> : null}
+      {tabState.kind === 'unavailable' ? (
+        <p className="text-body leading-5 text-[color:var(--text-muted)]">{tabState.message}</p>
+      ) : null}
 
-      {tabState.kind === 'loading' ? <Note tone="neutral">Loading conversation providers…</Note> : null}
+      {tabState.kind === 'loading' ? (
+        <p className="text-body leading-5 text-[color:var(--text-muted)]">Loading conversation providers…</p>
+      ) : null}
 
       {tabState.kind === 'error' ? (
-        <div className="space-y-2">
-          <Note tone="warn">{tabState.message}</Note>
-          <OutlineButton size="md" onClick={() => void loadProviders()}>
-            Retry
-          </OutlineButton>
-        </div>
+        <InlineNotice
+          tone="error"
+          title="Could not load the conversation providers."
+          hint={tabState.message}
+          action={
+            <OutlineButton size="md" onClick={() => void loadProviders()}>
+              Retry
+            </OutlineButton>
+          }
+        />
       ) : null}
 
       {tabState.kind === 'empty' ? (
-        <Note tone="neutral">
-          No conversation providers are installed. Provider plugins are added through the provider
-          install flow, not this tab.
-        </Note>
+        <EmptyState
+          density="list"
+          title="No conversation providers are installed."
+          body="Provider plugins are added through the provider install flow, not this tab."
+        />
       ) : null}
 
       {tabState.kind === 'ready'
@@ -253,16 +250,24 @@ function ProviderRow({
       <SettingsSectionTitle id={headingId}>{provider.displayName}</SettingsSectionTitle>
 
       {secretView?.kind === 'error' ? (
-        <Note tone="error">{secretView.message}</Note>
+        <InlineNotice tone="error">{secretView.message}</InlineNotice>
       ) : secretView?.kind === 'none-required' ? (
-        <Note tone="neutral">This provider authenticates without a stored API key.</Note>
+        <p className="text-body leading-5 text-[color:var(--text-muted)]">
+          This provider authenticates without a stored API key.
+        </p>
       ) : configured ? (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <div className={`${INPUT_CLASS} flex items-center tracking-[0.3em] text-[color:var(--text-muted)]`}>
-              <span className="sr-only">{provider.displayName} API key is saved</span>
-              <span aria-hidden="true">••••••••••••</span>
-            </div>
+            {/* The saved key is shown as the field it will be edited in,
+                read-only — not as a div wearing a copy of the field's chrome.
+                The value IS the mask, so the accessible name says so. */}
+            <Input
+              readOnly
+              value="••••••••••••"
+              aria-label={`${provider.displayName} API key is saved`}
+              size="md"
+              className="tracking-[0.3em] text-[color:var(--text-muted)]"
+            />
             {canClear ? (
               <OutlineButton
                 size="md"
@@ -290,7 +295,7 @@ function ProviderRow({
             {provider.displayName} API key
           </label>
           <div className="flex items-center gap-2">
-            <input
+            <Input
               id={inputId}
               type="password"
               value={draft}
@@ -301,7 +306,9 @@ function ProviderRow({
               placeholder="Paste API key"
               autoComplete="off"
               disabled={busy}
-              className={`${INPUT_CLASS} min-w-0 flex-1`}
+              size="md"
+              fullWidth={false}
+              className={`min-w-0 flex-1 ${MONO_FIELD}`}
             />
             <PrimaryButton
               size="md"
@@ -316,7 +323,7 @@ function ProviderRow({
       )}
 
       <div aria-live="polite" className="empty:hidden">
-        {message ? <Note tone={message.tone}>{message.text}</Note> : null}
+        <ActionResultMessage message={message} />
       </div>
     </section>
   )

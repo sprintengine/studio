@@ -1,5 +1,5 @@
-import { Field, Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../../ui/Modal'
-import { Select, TruncatedText } from '../../ui'
+import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../../ui/Modal'
+import { Field, Select, TruncatedText } from '../../ui'
 import { WATCHTOWER_REVIEW_PRESETS, getWatchtowerReviewSector, type WatchtowerReviewPresetId } from '../../../utils/watchtowerReview'
 import { getSpecialistAction } from '../../../specialists/specialistActions'
 import type { SpecialistActionId } from '../../../types/workspace'
@@ -26,7 +26,7 @@ export function ReviewPresetChooser({
     <Modal open onClose={onClose} contained labelledBy="watchtower-review-title" size="standard">
       <ModalHeader title="Run a review" titleId="watchtower-review-title" onClose={onClose} />
       <ModalBody className="space-y-3">
-        <Field label="Preset">
+        <Field label="Preset" htmlFor="watchtower-review-preset">
           <Select<WatchtowerReviewPresetId>
             ariaLabel="Review preset"
             items={WATCHTOWER_REVIEW_PRESETS.filter((item) => item.id !== 'custom').map((item) => ({
