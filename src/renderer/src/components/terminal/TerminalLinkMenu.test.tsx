@@ -237,7 +237,15 @@ async function main(): Promise<void> {
     )
     const before = closed
     act(() => {
-      dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      // On `document`, not `window`. ContextMenu moved its Escape listener to
+      // document so it runs before a host Modal's window listener and only the
+      // topmost surface closes; an event dispatched ON window is already at the
+      // top of the propagation path and never reaches a document listener, so
+      // the old window dispatch tested nothing. A real keypress targets the
+      // focused element and bubbles up through document, which this matches.
+      dom.window.document.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
     })
     assert.equal(closed, before + 1, 'Escape closes')
     view.unmount()
