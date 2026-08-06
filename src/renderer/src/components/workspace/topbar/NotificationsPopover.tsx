@@ -6,7 +6,7 @@
 
 import React, { useMemo, useState } from 'react'
 import type { AppNotification, DiagnosticLevel } from '../../../types/workspace'
-import { LifecycleGlyph, TruncatedText, type LifecycleState } from '../../ui'
+import { GhostButton, LifecycleGlyph, PanelHeader, TruncatedText, type LifecycleState } from '../../ui'
 
 type RuntimeClipboardApi = {
   clipboardWriteText?: (text: string) => Promise<void>
@@ -173,70 +173,69 @@ export function NotificationsPopover({
 
   return (
     <div className="w-[480px] overflow-hidden">
-      <div className="flex h-10 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-3">
-        <span className="shrink-0 text-meta font-semibold text-[color:var(--text-strong)]">Notifications</span>
-        <div className="flex shrink-0 items-center gap-1">
-          {notifications.length > 0 ? (
-            <>
-              {LEVEL_FILTERS.map(({ level, label }) => {
-                const active = activeLevels.includes(level)
-                const glyph = LEVEL_GLYPH[level]
-                return (
-                  <button
-                    key={level}
-                    type="button"
-                    aria-pressed={active}
-                    aria-label={active ? `Showing only ${LEVEL_NOUN[level]} notifications` : `Show only ${LEVEL_NOUN[level]} notifications`}
-                    onClick={() => toggleLevel(level)}
-                    className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-micro font-semibold transition-colors ${
-                      active
-                        ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                        : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                    }`}
-                  >
-                    {glyph ? <LifecycleGlyph state={glyph} live={false} /> : null}
-                    {label}
-                  </button>
-                )
-              })}
-              <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[color:var(--border-default)]" />
-            </>
-          ) : null}
-          <button
-            type="button"
-            onClick={onOpenLogs}
-            className="rounded px-2 py-1 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-          >
-            Logs
-          </button>
-          {notifications.length > 0 ? (
-            <>
-              <button
-                type="button"
-                onClick={onMarkAllRead}
-                className="rounded px-2 py-1 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              >
-                Mark read
-              </button>
-              <button
-                type="button"
-                onClick={onClear}
-                className="rounded px-2 py-1 text-micro font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              >
-                Clear
-              </button>
-            </>
-          ) : null}
-        </div>
-      </div>
+      {/* The panel identity row (2112). It was an `h-10` band with its own type
+          step, sitting beside AttentionQueuePopover — the popover directly next
+          to it in the same control group — which already named itself through
+          the primitive. Every control here is secondary to the name, so the
+          whole cluster rides `overflow`; `primaryAction` is one action. */}
+      <PanelHeader
+        title="Notifications"
+        count={visibleNotifications.length > 0 ? visibleNotifications.length : undefined}
+        overflow={
+          <>
+            {notifications.length > 0 ? (
+              <>
+                {LEVEL_FILTERS.map(({ level, label }) => {
+                  const active = activeLevels.includes(level)
+                  const glyph = LEVEL_GLYPH[level]
+                  return (
+                    <button
+                      key={level}
+                      type="button"
+                      aria-pressed={active}
+                      aria-label={active ? `Showing only ${LEVEL_NOUN[level]} notifications` : `Show only ${LEVEL_NOUN[level]} notifications`}
+                      onClick={() => toggleLevel(level)}
+                      className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-micro font-semibold transition-colors ${
+                        active
+                          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                      }`}
+                    >
+                      {glyph ? <LifecycleGlyph state={glyph} live={false} /> : null}
+                      {label}
+                    </button>
+                  )
+                })}
+                <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[color:var(--border-default)]" />
+              </>
+            ) : null}
+            <GhostButton size="xs" onClick={onOpenLogs}>
+              Logs
+            </GhostButton>
+            {notifications.length > 0 ? (
+              <>
+                <GhostButton size="xs" onClick={onMarkAllRead}>
+                  Mark read
+                </GhostButton>
+                <GhostButton size="xs" onClick={onClear}>
+                  Clear
+                </GhostButton>
+              </>
+            ) : null}
+          </>
+        }
+      />
 
       {visibleNotifications.length === 0 ? (
         <div className="px-3 py-4 text-body text-[color:var(--text-disabled)]">{emptyMessage}</div>
       ) : (
         <div className="max-h-[440px] overflow-y-auto p-1">
           {groups.map((group) => (
-            // role="group" (not a <section> landmark) so the recency buckets are
-            // valid children of the popover's role="menu" surface.
+            // A recency bucket, named for assistive tech. The surface is a
+            // `dialog` popover, not a menu: a notification carries its own
+            // Copy / Open logs buttons, so it was never activatable as one row
+            // and `role="menuitem"` on it announced a control that does not
+            // exist (ripple review, 2026-08-05).
             <div key={group.bucket} role="group" aria-label={DAY_BUCKET_LABEL[group.bucket]}>
               <div
                 aria-hidden="true"
@@ -249,7 +248,6 @@ export function NotificationsPopover({
                 return (
                 <div
                   key={notification.id}
-                  role="menuitem"
                   className={`rounded px-2.5 py-2.5 ${
                     notification.read
                       ? 'text-[color:var(--text-muted)]'

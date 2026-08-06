@@ -1,5 +1,9 @@
 import type { BacklogHighlightColorPayload, FileSystemStat } from '../../../shared/electron-api'
-import { parseBacklogCsvList, parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
+import {
+  parseBacklogCsvList,
+  parseBacklogDependenciesPlanned,
+  parseBacklogFrontmatter,
+} from '../../../shared/backlog/frontmatter'
 import { deriveDefaultBacklogKey, isValidBacklogKey, parseBacklogNumericId } from '../../../shared/backlog/item-id'
 // Canonical object-store id, re-exported so existing importers of this module
 // keep working. See src/shared/backlog/object-id.ts for the FNV-1a contract.
@@ -146,6 +150,12 @@ export type BacklogItem = {
   // dependent; reverse "blocks" edges and the waiting signal are derived (T2),
   // never persisted to items.json (mirrors the epic axis).
   dependsOn?: string[]
+  // The epic's `dependenciesPlanned:` mark (MC-2137): its author declaring the
+  // ordering pass over its children finished — edges authored, or deliberately
+  // none. Only meaningful on an epic row; absent means false, and nothing ever
+  // derives or unsets it (see the shared parser for why it is an assertion, not
+  // a computed property).
+  dependenciesPlanned?: boolean
   // Attached mockup files from the frontmatter `mockups:` comma-separated scalar
   // — project-relative paths, cleaned (normalized slashes, absolute/`..` dropped)
   // by parseBacklogMockups. `undefined` when the field is absent or names nothing
@@ -349,6 +359,7 @@ export function createBacklogItem(input: {
   const frontmatterRisk = parseBacklogRisk(frontmatterValue(fields, 'risk'))
   const epic = frontmatterValue(fields, 'epic')
   const dependsOn = parseBacklogDependsOn(frontmatterValue(fields, 'dependsOn'), backlogItemSlugFromPath(relativePath))
+  const dependenciesPlanned = parseBacklogDependenciesPlanned(frontmatterValue(fields, 'dependenciesPlanned'))
   const mockupsList = parseBacklogMockups(frontmatterValue(fields, 'mockups'))
   const title = inferBacklogTitle(relativePath, body)
   // Lifecycle/triage and epic are frontmatter-sourced (frontmatter is the source
@@ -373,6 +384,9 @@ export function createBacklogItem(input: {
     epic,
     isEpic: type === 'epic',
     dependsOn,
+    // Present only when set, so an unflagged epic's item reads exactly as it did
+    // before the field existed.
+    ...(dependenciesPlanned ? { dependenciesPlanned } : {}),
     mockups: mockupsList.length > 0 ? mockupsList : undefined,
     highlight: input.object?.highlight,
     metadata: input.object?.metadata ?? {},

@@ -825,11 +825,7 @@ export default function WatchtowerPanel({ workspaceId }: { workspaceId: string }
         {selected ? (
           fileView ? (
             <FilePreviewPane
-              title={
-                <span className="font-mono text-body tabular-nums text-[color:var(--text-strong)]">
-                  {fileView.name}
-                </span>
-              }
+              title={fileView.name}
               path={fileView.path}
               content={fileView.content}
               onBack={handleCloseFile}

@@ -36,7 +36,10 @@ function testPlanFileHandoffIsMcpNative(): void {
   assert.ok(!prompt.includes('{statePath, role, agentId}'), 'handoff prompt does not document the stale path-bearing directive payload')
   assert.ok(prompt.includes('registered run context'), 'handoff prompt explains managed run-context routing')
   assert.ok(prompt.includes('`sprintengine-studio`'), 'handoff prompt names the public Studio MCP gateway')
-  assert.ok(prompt.includes('Multicode app owns runner policy'), 'auto-run flow defers runner mode to the app supervisor instead of a CLI command')
+  // The shipped sentence, verbatim. `5912ed928` (2026-07-29) shortened "The
+  // Multicode app owns runner policy" to "The app owns runner policy" and left
+  // this expectation on the old wording, so the suite has been red since.
+  assert.ok(prompt.includes('The app owns runner policy'), 'auto-run flow defers runner mode to the app supervisor instead of a CLI command')
   assert.ok(
     !CLI_INSTRUCTION_PATTERN.test(prompt),
     'plan-file handoff does not instruct the agent to run any sprintengine CLI command'
@@ -90,7 +93,7 @@ function testBacklogHandoffUsesBacklogPathsAndKeepsManagedMcpInvariants(): void 
   assert.ok(!prompt.includes('statePath'), 'backlog handoff does not expose statePath')
   assert.ok(!prompt.includes('workspaceRoot'), 'backlog handoff does not expose workspaceRoot')
   assert.ok(!CLI_INSTRUCTION_PATTERN.test(prompt), 'backlog handoff does not instruct the agent to run sprintengine CLI commands')
-  assert.ok(prompt.includes('Multicode app owns runner policy'), 'runner policy remains app-owned')
+  assert.ok(prompt.includes('The app owns runner policy'), 'runner policy remains app-owned')
 }
 
 function testBacklogBundleUsesRelativeBundlePaths(): void {

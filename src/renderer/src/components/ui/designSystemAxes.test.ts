@@ -121,11 +121,21 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // which spells the control radius once; the New sprint dialog's run-name
   // field gave up a bare `rounded` (Tailwind's 4px default, off the ramp
   // entirely) for the kit's in-place title edit.
+  // The 2026-08-05 menu/header drop — radius workspace 183 → 174, panels
+  // 146 → 145, backlog 20 → 19, ui 12 → 9; type panels 18 → 17; icon ui
+  // 22 → 21 — is the long tail outside the guards' directory scope (MC-2138).
+  // Every menu row that had hand-rolled its own `rounded` fill (the roster
+  // popover, both menubar fallbacks, the account menu, the reasoning selector,
+  // the skills and connector pickers) takes `MENU_ITEM_CLASS`, which spells no
+  // radius at all; and four header bands that drew themselves at their own
+  // height — the kit's `WorkspacePanel` and `FilePreviewPane`, the
+  // knowledge-graph drawer, both guided-brief bands — gave up their local
+  // buttons for `ui/PanelHeader` and the kit primitives inside it.
   radius: {
-    'components/workspace': 183,
-    'components/panels': 146,
+    'components/workspace': 174,
+    'components/panels': 145,
     'components/settings': 30,
-    'components/backlog': 20,
+    'components/backlog': 19,
     // 15 → 17 when CommandPalette MOVED into the kit (MC-2117) carrying its own
     // two radii — nothing regressed, the debt changed address — then 17 → 14
     // when the menu unification dropped ContextMenu's surface `rounded-md` and
@@ -134,7 +144,7 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // that item paid for are in workspace (197 → 193), panels (173 → 171),
     // backlog (21 → 20) and diagnostics (7 → 6): every dialog-scale shell in
     // the product now draws `OVERLAY_SHELL_CLASS` instead of its own radius.
-    'components/ui': 12,
+    'components/ui': 9,
     'components/worktree': 9,
     'components/diagnostics': 6,
     utils: 4,
@@ -170,14 +180,14 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     'components/onboarding': 1,
   },
   type: {
-    'components/panels': 18,
+    'components/panels': 17,
     utils: 6,
     'components/diagnostics': 2,
   },
   icon: {
     'components/workspace': 43,
     'components/panels': 29,
-    'components/ui': 22,
+    'components/ui': 21,
     'components/backlog': 8,
     'components/auxWindows': 1,
     'components/brand': 1,

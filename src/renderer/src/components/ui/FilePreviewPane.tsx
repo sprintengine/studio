@@ -1,6 +1,7 @@
 import React from 'react'
 import { Tooltip } from './Tooltip'
-import { CloseIconButton } from './Buttons'
+import { CloseIconButton, GhostButton, IconButton } from './Buttons'
+import { PanelHeader } from './PanelHeader'
 import { renderMarkdown } from '../../utils/markdown'
 
 // FilePreviewPane — canonical inline file/artifact preview surface.
@@ -13,18 +14,21 @@ import { renderMarkdown } from '../../utils/markdown'
 // (header pixel-for-pixel identical; only the title typography differed
 // per caller).
 //
-// API note: caller controls title typography directly via `title` so the
-// primitive doesn't have to enumerate every styling permutation. Use
-// `<span className="font-mono tabular-nums">` for raw paths; use plain
-// text for human-readable artifact names. The `path` prop is used for the
-// hover tooltip on the title and for markdown extension detection.
+// The header is `ui/PanelHeader` (2112). It used to be a hand-rolled band at
+// `px-5 py-3` with its own Back button, and `title` took a NODE so each of the
+// four callers could pick its own type step — which is how one primitive's
+// identity row shipped in three sizes. The title is a string now and the row
+// owns its type; Back rides the `leading` slot, which exists for exactly this.
+// The path is the row's `subtitle` — the scope beside the name, which shrinks
+// before the name does and keeps its own hover reveal, so nothing the old
+// title-attribute tooltip carried is lost.
 
 type FilePreviewPaneProps = {
-  /** Visible title. Caller controls typography (mono for paths, plain for
-   *  artifact names). */
-  title: React.ReactNode
-  /** Full path. Used as the title's hover tooltip and to detect whether
-   *  the body is markdown (`.md` extension). */
+  /** Visible title — the file or artifact name. Typography is the header
+   *  row's, not the caller's. */
+  title: string
+  /** Full path. Rendered as the header's scope line, and used to detect
+   *  whether the body is markdown (`.md` extension). */
   path: string
   /** File contents. Rendered through the markdown pipeline when the path
    *  ends in `.md`; otherwise rendered as preformatted text. */
@@ -58,15 +62,12 @@ export function FilePreviewPane({
   const renderAsMarkdown = isMarkdown && content.length <= MARKDOWN_PREVIEW_MAX_CHARS
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[color:var(--border-default)] px-5 py-3">
-        <div className="flex min-w-0 items-center gap-2">
+      <PanelHeader
+        title={title}
+        subtitle={path}
+        leading={
           <Tooltip content="Back">
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              aria-label="Back"
-            >
+            <IconButton onClick={onBack} aria-label="Back">
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
                 <path
                   d="M10 4L6 8L10 12"
@@ -76,21 +77,13 @@ export function FilePreviewPane({
                   strokeLinejoin="round"
                 />
               </svg>
-            </button>
+            </IconButton>
           </Tooltip>
-          <span className="min-w-0 truncate" title={path}>
-            {title}
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {onPopOut ? (
+        }
+        primaryAction={
+          onPopOut ? (
             <Tooltip content="Open in editor tab">
-              <button
-                type="button"
-                onClick={onPopOut}
-                className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-micro font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-                aria-label="Open in editor tab"
-              >
+              <GhostButton size="xs" onClick={onPopOut} aria-label="Open in editor tab">
                 <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
                   <path
                     d="M9 3H13V7M13 3L7.5 8.5M6 4H4C3.45 4 3 4.45 3 5V12C3 12.55 3.45 13 4 13H11C11.55 13 12 12.55 12 12V10"
@@ -101,12 +94,15 @@ export function FilePreviewPane({
                   />
                 </svg>
                 Open in editor
-              </button>
+              </GhostButton>
             </Tooltip>
-          ) : null}
-          {onClose ? <CloseIconButton aria-label="Close preview" onClick={onClose} /> : null}
-        </div>
-      </header>
+          ) : undefined
+        }
+        // Close is the SECOND control in the cluster — `primaryAction` is one
+        // action, and jumping the file out to a real tab is the one this row
+        // offers. Dismissal follows it.
+        overflow={onClose ? <CloseIconButton aria-label="Close preview" onClick={onClose} /> : undefined}
+      />
       {body ? (
         <div className="flex min-h-0 flex-1 flex-col p-3">{body}</div>
       ) : (

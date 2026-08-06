@@ -2,9 +2,11 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 import type {
   BacklogItemLinkPayload,
   BacklogMutationResult,
+  BacklogObjectRecordPayload,
   BacklogReadResult,
   SprintEngineProjectionReadResult,
 } from '../../../shared/electron-api'
+import { DEFAULT_SPRINTENGINE_TASK_REPO } from '../../../shared/sprintengine/run-types'
 import type { BacklogItemStatus } from './backlog'
 import type { DiagnosticLogInput } from '../types/workspace'
 import type { SprintEngineState, Workspace, WorkspaceId } from '../types/workspace'
@@ -16,9 +18,11 @@ import { isBacklogEpicPath } from './backlogEpics'
 import { isCanceledSprintEngineRun, isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
 import {
   buildSprintEnginePullRequestLink,
+  buildSprintEngineRunLink,
   isLandedSprintEngineRun,
   isSprintEngineChildRunLink,
   resolveSprintEngineChildRunLink,
+  runRelativePathForStatePath,
   sprintEnginePullRequestLinksOf,
   sprintEngineRepoDisplayName,
   sprintEngineStatePathForBacklogLink,
@@ -190,8 +194,21 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
       // their sprint merged. Scoped to a WORKTREE run that has landed: a run with
       // no branch to merge has no post-completion transition to catch, so its
       // links are settled by the completing tick and it stays display-only.
+      //
+      // A run that DELIVERS BACKLOG ITEMS is the third (MC-2140), and it is not
+      // a post-completion transition at all — it is the completing tick itself
+      // arriving late. The auto-run supervisor flips the lifecycle to `complete`
+      // milliseconds BEFORE the engine writes the final projection (see the
+      // header of `canStopPollingCompletedSprintEngineProjection`), so the read
+      // that first sees the last task `done` is very often already dormant. With
+      // only the two arms above, that read went display-only and the run's whole
+      // write-back was dropped — the item left `in_progress` with its code
+      // merged, which is exactly the failure MC-2140 was written for. Gated on
+      // the run naming backlog work at all, and the refresh self-skips once
+      // every link already matches, so a settled run costs one store read.
       const merged = parsedState.vcs?.mode === 'run_worktree' && isLandedSprintEngineRun(parsedState)
-      if (isCanceledSprintEngineRun(parsedState) || merged) {
+      const deliversBacklogItems = parsedState.tasks.some((task) => task.backlogRef)
+      if (isCanceledSprintEngineRun(parsedState) || merged || deliversBacklogItems) {
         await refreshBacklogSprintEngineRunLinks({
           workspace,
           state: parsedState,
@@ -455,13 +472,13 @@ async function refreshBacklogSprintEngineRunLinks(input: {
   // the Backlog item stays whatever the user left it (they may re-plan).
   const canceled = isCanceledSprintEngineRun(state)
   const completed = !canceled && isCompletedSprintEngineRun(state)
-  // Epic-child links are per-TASK, so they reconcile on every tick of a
-  // backlog-sourced run, not only at the run's terminals — that is what makes a
-  // child move on its own task's claim (MC-2017). Gated on the run actually
+  // Item links are per-TASK, so they reconcile on every tick of a
+  // backlog-sourced run, not only at the run's terminals — that is what makes an
+  // item move on its own task's claim (MC-2017). Gated on the run actually
   // having planned backlog work so an ordinary run still reads the Backlog store
   // only at its terminals.
-  const hasChildWork = state.tasks.some((task) => task.backlogRef)
-  if (!canceled && !completed && !hasChildWork) return
+  const hasBacklogWork = state.tasks.some((task) => task.backlogRef)
+  if (!canceled && !completed && !hasBacklogWork) return
   const runLinkStatus = canceled ? 'canceled' : 'completed'
   if (!workspace.folderPath || !workspace.sprintEngineContext?.statePath) return
   if (!ports.readBacklogObjectStore || !ports.addOrUpdateBacklogLink) return
@@ -481,6 +498,11 @@ async function refreshBacklogSprintEngineRunLinks(input: {
 
   const targetStatePathKey = normalizedPathKey(workspace.sprintEngineContext.statePath)
   const pullRequests = sprintEnginePullRequestsOf(state, workspace.folderPath)
+  // Which items this run's STORED links already speak for. Everything else its
+  // tasks name is swept by `propagateBacklogRefTaskItems` below (MC-2140), so an
+  // item is reconciled exactly once per tick and the launching item's run-level
+  // link is never re-read as a per-task one.
+  const linkedItemPathKeys = new Set<string>()
   for (const record of storeResult.store.items) {
     // An epic carries the run's execution link too, but its lifecycle derives UP
     // from its children (see nextBacklogItemStatusFromLinks) — a finished run must
@@ -495,6 +517,7 @@ async function refreshBacklogSprintEngineRunLinks(input: {
       if (link.type !== 'execution') continue
       const linkStatePath = sprintEngineStatePathForBacklogLink(workspace.folderPath, link)
       if (!linkStatePath || normalizedPathKey(linkStatePath) !== targetStatePathKey) continue
+      linkedItemPathKeys.add(normalizedPathKey(record.source.relativePath))
 
       // An epic child follows its own task, on every tick. Its whole lifecycle —
       // claim, landing, and the restore that undoes an abandoned sprint — lives in
@@ -586,6 +609,133 @@ async function refreshBacklogSprintEngineRunLinks(input: {
       }
     }
   }
+
+  await propagateBacklogRefTaskItems({
+    workspace,
+    state,
+    records: storeResult.store.items,
+    linkedItemPathKeys,
+    ports,
+  })
+}
+
+/**
+ * Write back to every item this run's tasks deliver, including the ones no link
+ * points at (MC-2140).
+ *
+ * The reconcile above is LINK-driven: it walks the store and acts on items that
+ * already carry an execution link for this run. Only two flows write those — an
+ * epic launch (a `pending` child link per child) and the item that launched the
+ * run — so a sprint planned from selected items, or one whose tasks a planner
+ * minted itself, left every item it delivered unlinked and therefore unwritten.
+ * Completion had nobody whose job the write-back was, and it fell to whoever
+ * remembered: across the three sprints of 2026-08-05, eleven items worked and
+ * two left lying with their code merged.
+ *
+ * `backlogRef` is the seam that IS always there — the planner puts it on every
+ * minted task and the engine enforces one task per item — so it names the file
+ * to write. The link this synthesizes is the same child link an epic launch
+ * would have written, run through the same reconcile, so an item discovered here
+ * follows exactly the rules an epic child follows: it moves on its OWN task, it
+ * completes only once the sprint has LANDED, and a task sitting `canceled`,
+ * `needs_input` or `todo` moves nothing. Nothing is written for work that has
+ * not started, so an item gains its Sprint chip only when its task is real.
+ */
+async function propagateBacklogRefTaskItems(input: {
+  workspace: Workspace
+  state: SprintEngineState
+  records: readonly BacklogObjectRecordPayload[]
+  linkedItemPathKeys: ReadonlySet<string>
+  ports: SprintEngineProjectionRefreshPorts
+}): Promise<void> {
+  const { workspace, state, ports } = input
+  const workspaceRoot = workspace.folderPath
+  const context = workspace.sprintEngineContext
+  const addOrUpdateBacklogLink = ports.addOrUpdateBacklogLink
+  if (!workspaceRoot || !context || !addOrUpdateBacklogLink) return
+
+  // The items this run's tasks deliver from THIS project. A sibling project's ref
+  // is relative to ITS root while this store is the workspace's own, and the two
+  // can spell the same `backlog/x.md`; that project's items are written from its
+  // own workspace, never from here.
+  const delivered = state.tasks.flatMap((task) => {
+    const itemPath = task.backlogRef?.projectRelativePath
+    return itemPath && task.repo === DEFAULT_SPRINTENGINE_TASK_REPO ? [{ task, itemPath }] : []
+  })
+  if (!delivered.length) return
+
+  // The link target must be the project-relative run.yaml — `addOrUpdateBacklogLink`
+  // rejects anything else, so a run store the workspace does not contain writes no
+  // link a reader could resolve. Said out loud rather than skipped quietly: this
+  // run names items it would then never write, and silence would read as "nothing
+  // to propagate".
+  const runRelativePath = runRelativePathForStatePath(workspaceRoot, context.statePath)
+  if (!runRelativePath) {
+    // Once per run store, not once per tick. Where a run lives cannot change
+    // under an open run, so this is a standing condition, and the projection
+    // poll re-enters here every four seconds — reporting it each time would bury
+    // the notification centre under one permanent warning repeated all day.
+    const strandedKey = `${workspaceRoot}::${normalizedPathKey(context.statePath)}`
+    if (!strandedRunStores.has(strandedKey)) {
+      strandedRunStores.add(strandedKey)
+      await ports.publishDiagnostic?.({
+        level: 'warning',
+        source: 'sprintengine',
+        title: 'Backlog write-back skipped',
+        message:
+          `This sprint delivers ${delivered.length} Backlog item(s), but its run store is not inside the project, `
+          + 'so their status cannot be written back.',
+        details: context.statePath,
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+      })
+    }
+    return
+  }
+
+  const recordsByPathKey = new Map(
+    input.records.map((record) => [normalizedPathKey(record.source.relativePath), record]),
+  )
+  for (const { task, itemPath } of delivered) {
+    const pathKey = normalizedPathKey(itemPath)
+    if (input.linkedItemPathKeys.has(pathKey)) continue
+    // No record means no such item in this workspace's backlog — a ref into
+    // another tree, or an item deleted since planning. Never materialize one.
+    const record = recordsByPathKey.get(pathKey)
+    if (!record) continue
+
+    const failure = await reconcileBacklogChildLink({
+      workspaceRoot,
+      record,
+      link: buildSprintEngineRunLink({
+        teamSlug: context.teamSlug,
+        runRelativePath,
+        // Born `pending`, like an epic child's, so the reconcile writes only
+        // once the task has actually moved the item somewhere.
+        status: 'pending',
+        // items.json carries links, never lifecycle — status lives in the item's
+        // frontmatter — so an item discovered here usually has no recorded
+        // pre-sprint status. Without one a cancel leaves it alone instead of
+        // restoring it, which is the honest outcome: inventing a restore target
+        // would put the item back to a status it never held.
+        ...(record.status ? { priorStatus: record.status } : {}),
+        taskId: task.id,
+      }),
+      state,
+      isEpic: isBacklogEpicPath(record.source.relativePath),
+      addOrUpdateBacklogLink,
+    })
+    if (failure) {
+      await ports.publishDiagnostic?.({
+        level: 'warning',
+        source: 'sprintengine',
+        title: 'Backlog link refresh failed',
+        message: failure,
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+      })
+    }
+  }
 }
 
 /**
@@ -600,7 +750,8 @@ async function refreshBacklogSprintEngineRunLinks(input: {
  * `priorStatus` since it was created; leaving it stranded `in_progress` is worse
  * than never having moved it.
  *
- * Returns a message when the write failed, so the caller can surface it.
+ * Returns a message when the write failed and that failure is new, so the caller
+ * can surface it once rather than on every tick of a retry that keeps failing.
  */
 async function reconcileBacklogChildLink(input: {
   workspaceRoot: string
@@ -635,11 +786,28 @@ async function reconcileBacklogChildLink(input: {
     // write is the part to drop, not the link refresh.
     isEpic: input.isEpic,
   })
+  // The stored link is the LEDGER of what this run already propagated, and an
+  // unchanged one means nothing has moved since that write — so there is nothing
+  // to do, whatever `nextStatus` computes. It has to be read that way because
+  // items.json deliberately carries no lifecycle (MC-1617: status lives in the
+  // item's frontmatter), so `record.status` is normally undefined here and the
+  // "already at that status" test inside `nextBacklogChildStatus` can never fire
+  // on a real store. Comparing against the item's status instead would rewrite
+  // the same value — and re-stamp items.json — on every tick of the run, and on
+  // a run delivering a dozen items that is a dozen writes per projection change.
+  //
+  // A FAILED write is the one case the ledger lies about: the mutation writes the
+  // link and then the item's frontmatter, so a status write that fails leaves the
+  // link claiming a propagation that never landed, and every later tick would read
+  // it as settled. The failure marker is the correction — one entry per item that
+  // failed, forcing the next tick to try again and clearing itself on success.
+  const failureKey = `${input.workspaceRoot}::${normalizedPathKey(record.source.relativePath)}`
+  const retrying = backlogWriteFailures.has(failureKey)
   const linkUnchanged =
     link.status === nextLink.status
     && link.target.taskId === nextLink.target.taskId
     && link.priorStatus === nextLink.priorStatus
-  if (linkUnchanged && nextStatus === undefined) return null
+  if (linkUnchanged && !retrying) return null
 
   const result = await input.addOrUpdateBacklogLink({
     workspaceRoot: input.workspaceRoot,
@@ -647,8 +815,29 @@ async function reconcileBacklogChildLink(input: {
     link: nextLink,
     ...(nextStatus ? { status: nextStatus } : {}),
   })
-  return result.ok ? null : result.message
+  if (result.ok) {
+    backlogWriteFailures.delete(failureKey)
+    return null
+  }
+  backlogWriteFailures.add(failureKey)
+  // Report the FIRST failure of a streak only. The retry above re-runs on every
+  // projection tick (4s while the workspace is active), so an item the app
+  // genuinely cannot write would otherwise raise the identical warning every four
+  // seconds for the life of the run. The user has been told; a later success
+  // clears the marker and re-arms the report.
+  return retrying ? null : result.message
 }
+
+// Items whose last propagation write failed, keyed by workspace root + item path.
+// Session-scoped on purpose: it exists only to un-stick the tick after a transient
+// failure, and a failure that outlives the session is a file the app cannot write
+// at all — which the diagnostic said out loud when it happened.
+const backlogWriteFailures = new Set<string>()
+
+// Run stores whose stranded-write-back warning has already been raised, keyed by
+// workspace root + state path. Same session scope, for the same reason: the
+// condition never clears under an open run, so it is reported once, not per tick.
+const strandedRunStores = new Set<string>()
 
 // The status a child should be written to for a resolved child-link status, or
 // undefined to leave it alone. Pure so the propagation rules read as one table.

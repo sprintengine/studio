@@ -14,6 +14,7 @@
 
 import React from 'react'
 import { Popover, Tooltip } from '../ui'
+import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
 import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
 import { PanelSwitches } from './PanelSwitches'
 import { WindowControls } from './WindowControls'
@@ -180,6 +181,7 @@ function WindowsMenuBar<MenuItem extends string>({
           ariaLabel="Application menu"
           popupRole="menu"
           placement="bottom-start"
+          surfaceClassName={`w-44 ${MENU_LIST_CLASS}`}
           renderTrigger={({ ref, triggerProps, togglePopover }) => (
             <Tooltip content="Menu" placement="bottom">
               <button
@@ -197,22 +199,23 @@ function WindowsMenuBar<MenuItem extends string>({
             </Tooltip>
           )}
         >
-          <div className="w-44 p-1">
-            {menuItems.map((label) => (
-              <button
-                key={label}
-                type="button"
-                role="menuitem"
-                onClick={(event) => {
-                  setMenuOpen(false)
-                  onShowMenu(event, label)
-                }}
-                className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          {menuItems.map((label) => (
+            <button
+              key={label}
+              type="button"
+              role="menuitem"
+              onClick={(event) => {
+                setMenuOpen(false)
+                onShowMenu(event, label)
+              }}
+              // The in-app menubar fallback opens the SAME menus the native menu
+              // bar does, so its rows are the shared menu row (MC-2103) rather
+              // than a `text-body` lookalike with an inset fill.
+              className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
+            >
+              {label}
+            </button>
+          ))}
         </Popover>
       </div>
     </>

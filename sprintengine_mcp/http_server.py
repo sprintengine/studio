@@ -76,6 +76,12 @@ class HttpMcpRunRegistry:
         # Absent (single-repo runs, older callers, operator surface) leaves the
         # session unbound, which is exactly the pre-multi-repo behavior.
         agent_repo = str(payload.get("repo") or "").strip()
+        # The one task this session may work (MC-2136), derived by the launcher
+        # from the task worktree it spawned the session into. Binds the claim
+        # queue to that task the same way `repo` binds it to a tree: a session
+        # sitting in T4's worktree must not end up owning T7, whose work would
+        # then be committed from a tree that never saw it.
+        agent_task = str(payload.get("taskId") or "").strip()
         # Compose-time gate for the workspace_knowledge layer skill. Tri-state:
         # key absent (older caller) -> None -> the server falls back to its env;
         # key present -> truthiness of the workspace's configured knowledge root.
@@ -93,6 +99,7 @@ class HttpMcpRunRegistry:
             agent_id=agent_id,
             role=agent_role,
             repo=agent_repo,
+            task_id=agent_task,
             knowledge_root_configured=knowledge_root_configured,
         )
         token = secrets.token_urlsafe(32)

@@ -40,6 +40,8 @@ function createFakePorts(overrides: Overrides = {}): FakePorts {
   }
   const fallback = <T>(value: T): (() => Promise<T>) => async () => value
   const ports: SprintEngineAutoRunExecutorPorts = {
+    ensureSprintEngineTaskWorktree:
+      overrides.ensureSprintEngineTaskWorktree ?? fallback({ ok: true, isolated: false, worktreePath: null }),
     terminalList: overrides.terminalList ?? fallback([]),
     terminalWrite: overrides.terminalWrite
       ?? (async (sessionId, data) => { record('terminalWrite', [sessionId, data]) }),

@@ -175,6 +175,90 @@ function testResolveSessionCwdSkipsSiblingMissingItsWorktree(): void {
   assert.equal(resolveSprintEngineSessionCwd(state, null).worktreeRelativePath, '.multi-code/wt/run')
 }
 
+// --- MC-2136: under per-task isolation the session opens in ITS TASK'S tree ---
+
+function testResolveSessionCwdUsesTheTasksOwnWorktreeUnderIsolation(): void {
+  const isolated = {
+    mode: 'run_worktree',
+    taskIsolation: true,
+    worktreePath: '.multi-code/wt/run',
+    branchName: 'run/main',
+    repos: [{ id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' }],
+  } as SprintEngineState['vcs']
+  const state = stateFixture({
+    vcs: isolated,
+    tasks: [
+      task({ id: 'T1', repo: 'primary', worktreePath: '.multi-code/wt/task-worktrees/T1/primary' }),
+      task({ id: 'T2', repo: 'primary' }),
+    ],
+  })
+  assert.equal(
+    resolveSprintEngineSessionCwd(state, 'T1').worktreeRelativePath,
+    '.multi-code/wt/task-worktrees/T1/primary',
+    'the agent works in the tree the engine commits its task from',
+  )
+  // No tree recorded yet = there is none. Falling back to the run worktree is
+  // what the engine's own worktree_for_task does, and inventing a path here
+  // would cwd a session into a directory that does not exist.
+  assert.equal(
+    resolveSprintEngineSessionCwd(state, 'T2').worktreeRelativePath,
+    '.multi-code/wt/run',
+    'a task with no provisioned tree falls back to the run worktree',
+  )
+  // The spawn path provisions before the projection refreshes, so the fresh
+  // path wins over the state in hand — same field, one refresh newer.
+  assert.equal(
+    resolveSprintEngineSessionCwd(state, 'T2', {
+      provisionedTaskWorktreePath: '.multi-code/wt/task-worktrees/T2/primary',
+    }).worktreeRelativePath,
+    '.multi-code/wt/task-worktrees/T2/primary',
+    'a just-provisioned tree is where the spawn goes',
+  )
+  // Same run WITHOUT the flag: a recorded task path is ignored, because the
+  // engine commits that run's work from the shared tree.
+  const shared = stateFixture({
+    vcs: {
+      mode: 'run_worktree',
+      worktreePath: '.multi-code/wt/run',
+      branchName: 'run/main',
+      repos: [{ id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' }],
+    },
+    tasks: [task({ id: 'T1', repo: 'primary', worktreePath: '.multi-code/wt/task-worktrees/T1/primary' })],
+  })
+  assert.equal(
+    resolveSprintEngineSessionCwd(shared, 'T1').worktreeRelativePath,
+    '.multi-code/wt/run',
+    'without the run-level flag the shared tree stays the session cwd',
+  )
+}
+
+function testSessionRepoIdRecognisesATaskWorktree(): void {
+  // Under isolation a bound session sits in its TASK's tree, which is no repo's
+  // tree: matching repos alone would read it as "no repo evidence" and key its
+  // demand group to the primary, double-covering one group and starving another.
+  const state = stateFixture({
+    vcs: {
+      mode: 'run_worktree',
+      taskIsolation: true,
+      worktreePath: '.multi-code/wt/run',
+      branchName: 'run/main',
+      repos: [
+        { id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' },
+        { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/run-mobile', branchName: 'run/main' },
+      ],
+    } as SprintEngineState['vcs'],
+    tasks: [task({ id: 'M1', repo: 'mobile', worktreePath: '.multi-code/wt/task-worktrees/M1/mobile' })],
+  })
+  assert.equal(
+    sprintEngineRepoIdForSessionCwd(state, '/ws', '/ws/.multi-code/wt/task-worktrees/M1/mobile'),
+    'mobile',
+    'the task is the authority on the project its tree belongs to',
+  )
+  // A repo's own tree still resolves, and an unrelated cwd is still no evidence.
+  assert.equal(sprintEngineRepoIdForSessionCwd(state, '/ws', '/ws/.multi-code/wt/run-mobile'), 'mobile')
+  assert.equal(sprintEngineRepoIdForSessionCwd(state, '/ws', '/ws/src'), null)
+}
+
 function testWorkerRepoIdPrefersSessionCwdOverPrimary(): void {
   // Backlog 1722: a lease-less worker with no owned task can still have a session
   // spawned into a repo's worktree; prefer that session's repo over the primary
@@ -983,6 +1067,8 @@ function main(): void {
   testResolveSessionCwdCurrentWorkspaceWhenNoWorktree()
   testResolveSessionCwdSelectsTheTasksRepoWorktree()
   testResolveSessionCwdSkipsSiblingMissingItsWorktree()
+  testResolveSessionCwdUsesTheTasksOwnWorktreeUnderIsolation()
+  testSessionRepoIdRecognisesATaskWorktree()
   testWorkerRepoIdPrefersSessionCwdOverPrimary()
   testResolveSessionRepoIdFromSessionCwd()
   testDemandKeyIsRoleAndRepo()

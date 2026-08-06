@@ -13,6 +13,7 @@ import { useState } from 'react'
 
 import { CheckIcon } from '../AppIcons'
 import { Popover } from '../ui'
+import { MENU_DIVIDER_CLASS, MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
 import type { SprintEngineRoster } from '../../types/workspace'
 import { NO_ROLES_ROSTER_NAME, isNoRolesRosterRef } from '../workspace/newWorkspace/savedRosters'
 
@@ -71,8 +72,10 @@ export function RosterMenu({
     : inherit?.selected
       ? 'inherited'
       : 'override'
-  const itemClass =
-    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+  // The shared menu row (MC-2103). It used to be a local re-type at `rounded
+  // px-2` with no disabled state and an inset fill — the shape the menu spec
+  // rules out, and a copy that could not follow the canon when it moved.
+  const itemClass = `${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`
 
   const pick = (name: string | undefined): void => {
     onSelect(name)
@@ -86,7 +89,7 @@ export function RosterMenu({
       ariaLabel={ariaLabel}
       popupRole="menu"
       placement="bottom-start"
-      surfaceClassName="w-[260px] p-1"
+      surfaceClassName={`w-[260px] ${MENU_LIST_CLASS}`}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <button
           ref={ref}
@@ -140,7 +143,7 @@ export function RosterMenu({
               {inherit.resolvedLabel}
             </span>
           </button>
-          <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+          <div role="separator" className={MENU_DIVIDER_CLASS} />
         </>
       ) : null}
       {/* A missing roster leads, so the problem is the first thing read. */}
@@ -151,7 +154,7 @@ export function RosterMenu({
               {selectedName} (not found)
             </span>
           </button>
-          <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+          <div role="separator" className={MENU_DIVIDER_CLASS} />
         </>
       ) : null}
       {/* "No roles" is the absence of a roster, so it is pinned first,
@@ -167,7 +170,7 @@ export function RosterMenu({
         {noRolesSelected ? <CheckIcon className="icon-xs shrink-0" /> : null}
         <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">default</span>
       </button>
-      <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+      <div role="separator" className={MENU_DIVIDER_CLASS} />
       {rosters.map((roster) => {
         const staffed = Object.values(roster.roleCounts).filter((count) => (count ?? 0) > 0).length
         const checked = !noRolesSelected
@@ -193,7 +196,7 @@ export function RosterMenu({
           </button>
         )
       })}
-      <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+      <div role="separator" className={MENU_DIVIDER_CLASS} />
       <button
         type="button"
         role="menuitem"

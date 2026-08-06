@@ -268,6 +268,7 @@ function createHarness(options: {
       },
     },
     artifacts: {
+      ensureTaskWorktree: async () => ({ ok: true, isolated: false, worktreePath: null }),
       readProjection: async ({ statePath, knownToken }) => {
         projectionReads.push(statePath)
         if (knownToken === 'token-1') return { ok: true, data: null, token: 'token-1', unchanged: true }

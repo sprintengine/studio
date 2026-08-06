@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import { type Dirent, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  backlogDependenciesPlannedFromFields,
   formatBacklogCsvList,
   isValidBacklogSlug,
   parseBacklogCsvList,
+  parseBacklogDependenciesPlanned,
   parseBacklogFrontmatter,
   serializeBacklogFrontmatterFields,
 } from './frontmatter'
@@ -146,6 +148,35 @@ run('parse returns the whole content as body when there is no frontmatter', () =
 run('set appends a new key at the end of the frontmatter block, body untouched', () => {
   const out = serializeBacklogFrontmatterFields('---\ntype: feature\n---\n# Title\nBody.', { epic: 'auth-revamp' })
   assert.equal(out, '---\ntype: feature\nepic: auth-revamp\n---\n# Title\nBody.')
+})
+
+run('an appended key keeps the caller\'s spelling; an existing line keeps the file\'s', () => {
+  // The parser lowercases keys for MATCHING, which used to flatten the written
+  // line too — a camelCase field landed as `dependson:` / `dependenciesplanned:`,
+  // unlike every hand-authored file and the schema doc.
+  const appended = serializeBacklogFrontmatterFields(
+    '---\ntype: epic\n---\n# Title',
+    { dependenciesPlanned: 'true' },
+  )
+  assert.equal(appended, '---\ntype: epic\ndependenciesPlanned: true\n---\n# Title')
+  // An existing line is rewritten in place, so the file's own spelling wins.
+  const replaced = serializeBacklogFrontmatterFields(
+    '---\ndependenciesplanned: true\n---\n# Title',
+    { dependenciesPlanned: 'false' },
+  )
+  assert.equal(replaced, '---\ndependenciesplanned: false\n---\n# Title')
+})
+
+run('parseBacklogDependenciesPlanned: only a literal true, case-insensitive', () => {
+  assert.equal(parseBacklogDependenciesPlanned('true'), true)
+  assert.equal(parseBacklogDependenciesPlanned(' TRUE '), true)
+  for (const value of ['false', 'yes', '1', 'maybe', '', undefined, null]) {
+    assert.equal(parseBacklogDependenciesPlanned(value), false, `"${String(value)}" is not the mark`)
+  }
+  // Readers go through the fields helper, which knows keys are lowercased.
+  const { fields } = parseBacklogFrontmatter('---\ntype: epic\ndependenciesPlanned: true\n---\nbody')
+  assert.equal(backlogDependenciesPlannedFromFields(fields), true)
+  assert.equal(backlogDependenciesPlannedFromFields({}), false)
 })
 
 run('set replaces an existing value in place, preserving other lines and order', () => {

@@ -320,6 +320,10 @@ export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: 
         <Tooltip content="Clear color">
           <button
             type="button"
+            // The strip is a HORIZONTAL radio group of 20px circles. `menuitemradio` is what ARIA
+            // requires of any child of a menu, and the shared row's full-bleed geometry would draw
+            // seven stacked rows where the control is one line of dots.
+            // design-tokens-allow: 2026-08-05 (MC-2138) — a swatch, not a menu row.
             role="menuitemradio"
             aria-checked={value === null}
             data-menu-item="true"
@@ -343,6 +347,8 @@ export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: 
             <Tooltip key={color} content={swatch.label}>
               <button
                 type="button"
+                // design-tokens-allow: 2026-08-05 (MC-2138) — a swatch, not a menu row; see the
+                // clear control above. The colour IS the control here.
                 role="menuitemradio"
                 aria-checked={selected}
                 data-menu-item="true"

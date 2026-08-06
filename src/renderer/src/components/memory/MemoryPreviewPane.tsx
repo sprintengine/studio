@@ -4,7 +4,7 @@ import { focusOrAddFileTab } from '../../utils/modelRegistry'
 import { renderMarkdown } from '../../utils/markdown'
 import { TYPE_COLORS, bucketForNode } from './MemoryGraphCanvas'
 import { Tooltip } from '../ui/Tooltip'
-import { CloseIconButton, InlineNotice, TruncatedText } from '../ui'
+import { CloseIconButton, GhostButton, InlineNotice, PanelHeader } from '../ui'
 
 type Props = {
   workspaceId: string
@@ -99,53 +99,55 @@ export default function MemoryPreviewPane({
       aria-label="Knowledge node preview"
       className="absolute inset-y-0 right-0 z-20 flex w-[min(560px,90%)] flex-col border-l border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-strong)] shadow-[var(--shadow-drawer)]"
     >
-      <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[color:var(--border-default)] px-5 py-4">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span
-              className="inline-flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 text-micro font-medium"
-              style={{
-                borderColor: hexWithAlpha(color, 0.35),
-                background: hexWithAlpha(color, 0.10),
-                color,
-              }}
-            >
-              <span
-                className="h-[6px] w-[6px] rounded-full"
-                style={{ background: color }}
-                aria-hidden
-              />
-              {bucket}
-            </span>
-            {node.tags?.slice(0, 4).map((tag) => (
-              <span
-                key={tag}
-                className="rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-muted)]"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-          <TruncatedText as="h2" text={title} className="mt-2 text-title font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]" />
-          <TruncatedText as="div" text={path} className="mt-0.5 font-mono text-micro tabular-nums text-[color:var(--text-disabled)]" />
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {canOpen ? (
-            <button
-              type="button"
-              onClick={onOpenInEditor}
-              className="h-8 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 text-meta font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-            >
+      {/* The identity row is `ui/PanelHeader` (2112). It was a three-line band
+          at `px-5 py-4` with a `text-title` heading, so a drawer over the graph
+          started its content lower than every panel beside it. What the band
+          carried BESIDE the name — the bucket chip and the node's tags — is
+          metadata about the node rather than chrome naming the pane, so it
+          leads the body instead of stacking a second row into the header. */}
+      <PanelHeader
+        title={title}
+        subtitle={path}
+        primaryAction={
+          canOpen ? (
+            <GhostButton size="xs" onClick={onOpenInEditor}>
               Open in editor
-            </button>
-          ) : null}
+            </GhostButton>
+          ) : undefined
+        }
+        overflow={
           <Tooltip content="Close">
             <CloseIconButton size="md" aria-label="Close preview" onClick={onClose} />
           </Tooltip>
-        </div>
-      </header>
+        }
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+        <div className="mb-4 flex flex-wrap items-center gap-1.5">
+          <span
+            className="inline-flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 text-micro font-medium"
+            style={{
+              borderColor: hexWithAlpha(color, 0.35),
+              background: hexWithAlpha(color, 0.10),
+              color,
+            }}
+          >
+            <span
+              className="h-[6px] w-[6px] rounded-full"
+              style={{ background: color }}
+              aria-hidden
+            />
+            {bucket}
+          </span>
+          {node.tags?.slice(0, 4).map((tag) => (
+            <span
+              key={tag}
+              className="rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-muted)]"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
         {!preview ? (
           <PaneNotice message="Loading preview…" />
         ) : !preview.ok ? (

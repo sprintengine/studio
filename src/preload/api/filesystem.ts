@@ -15,6 +15,7 @@ import type {
   MemoryRootStatus,
   OpenDialogOptions,
   ProcessMetricsSnapshot,
+  ProjectLogo,
   SaveDialogOptions,
   VersionControlProviderProbe,
   WorkspaceFolderCheckResult,
@@ -41,6 +42,8 @@ export const filesystemApi = {
   },
   checkWorkspaceFolder: (path: string): Promise<WorkspaceFolderCheckResult> =>
     ipcRenderer.invoke('fs:check-workspace-folder', path),
+  detectProjectLogo: (folderPath: string): Promise<ProjectLogo | null> =>
+    ipcRenderer.invoke('fs:detect-project-logo', folderPath),
   memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }): Promise<MemoryRootStatus> =>
     ipcRenderer.invoke('memory:resolve-root', input),
   memoryIndex: (input: { workspaceRoot: string | null; relativeRoot: string | null }): Promise<MemoryGraphIndexResult> =>
@@ -110,6 +113,7 @@ export const filesystemApi = {
   | 'statPath'
   | 'getPathForFile'
   | 'checkWorkspaceFolder'
+  | 'detectProjectLogo'
   | 'memoryResolveRoot'
   | 'memoryIndex'
   | 'memoryReadPreview'

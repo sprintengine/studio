@@ -20,6 +20,8 @@ import type {
   SprintEngineTaskResolveInput,
   SprintEngineTaskStatusSetInput,
   SprintEngineTaskUpdateInput,
+  SprintEngineTaskWorktreeInput,
+  SprintEngineTaskWorktreeResult,
 } from '../shared/electron-api'
 import type {
   SprintEngineArtifactOpenPayload,
@@ -126,6 +128,8 @@ type SerializableSprintEngineStatePayload = {
   events: unknown[]
   artifacts: unknown[]
   useWorktrees: boolean
+  /** Per-task worktrees (MC-2130/2136). Only meaningful with `useWorktrees`. */
+  taskIsolation: boolean
   /** The other projects this run also changes; empty for a single-project run. */
   repos: Array<{ id: string; root: string }>
   /**
@@ -416,6 +420,12 @@ function parseSprintEngineCliJsonOutput(stdout: string): unknown {
 }
 
 function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitializeInput): SerializableSprintEngineStatePayload {
+  // Per-task worktrees are layered on run worktrees; the engine refuses the pair
+  // otherwise. Refuse it HERE too rather than dropping the isolation request and
+  // creating a run quietly weaker than the one that was asked for.
+  if (payload?.taskIsolation === true && payload?.useWorktrees !== true) {
+    throw new Error('Per-task worktrees require worktree mode; pass useWorktrees with taskIsolation.')
+  }
   return {
     name: resolveRequiredString(payload?.name, 'sprint name'),
     goal: resolveOptionalString(payload?.goal, 'sprint goal') ?? '',
@@ -424,6 +434,7 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     events: resolveArray(payload?.events, 'sprint events'),
     artifacts: resolveArray(payload?.artifacts, 'sprint artifacts'),
     useWorktrees: payload?.useWorktrees === true,
+    taskIsolation: payload?.taskIsolation === true,
     repos: resolveInitRepos(payload?.repos),
     baseStartPoint: resolveOptionalString(payload?.baseStartPoint, 'sprint base start point') ?? null,
     roleRuntimes: resolveRoleRuntimes(payload?.roleRuntimes),
@@ -593,6 +604,12 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   if (payload.useWorktrees) {
     args.push('--use-worktrees', 'true')
   }
+  // Per-task isolation rides ON run worktrees (MC-2136) — the contradiction is
+  // refused when the payload is resolved, so reaching here means worktrees are on.
+  // Sent only when chosen, so a per-sprint run's init argv is byte-identical to before.
+  if (payload.taskIsolation) {
+    args.push('--task-worktrees', 'true')
+  }
   // Chained sprints: the worktree start point (never the stored PR base).
   if (payload.baseStartPoint && payload.useWorktrees) {
     args.push('--base-start-point', payload.baseStartPoint)
@@ -746,54 +763,83 @@ export function sprintEngineDeclaredSiblingRepoRoots(statePath: string): string[
 }
 
 /**
- * The declared repo a session launching in `launchCwd` works in (MC-1610), or
- * null when that cwd is not a declared repo's run worktree (a non-worktree run,
- * a terminal in the main checkout, an unreadable projection).
+ * What a session launching in `launchCwd` is bound to: the declared repo whose
+ * tree it sits in (MC-1610), and — under per-task isolation — the one task whose
+ * own worktree that is (MC-2136).
  *
- * This is what binds a session's MCP token to one repo, so its `task.next` only
- * offers work that lives in the tree it is actually sitting in. Derived from the
- * launch cwd rather than passed down from the scheduler: the cwd is the thing
- * that makes the binding true, and reading it here keeps the one authority in
- * the same place the allowed roots are derived from. A single-repo run's
- * worktree matches its primary entry, so its sessions bind to `primary` and see
- * every task — the pre-multi-repo behavior.
+ * This is what binds a session's MCP token, so its `task.next` only offers work
+ * that lives in the tree it is actually sitting in. Derived from the launch cwd
+ * rather than passed down from the scheduler: the cwd is the thing that makes
+ * the binding true, and reading it here keeps the one authority in the same
+ * place the allowed roots are derived from. A single-repo run's worktree matches
+ * its primary entry, so its sessions bind to `primary` and see every task — the
+ * pre-multi-repo behavior.
+ *
+ * Task trees are checked FIRST: a task worktree is not a repo worktree, so a
+ * session in one would otherwise read as bound to nothing at all. Its repo comes
+ * from the task, which is the authority on the project that task works in.
  */
-export function sprintEngineRepoIdForLaunchCwd(statePath: string, launchCwd: string): string | null {
+export function sprintEngineSessionBindingForLaunchCwd(
+  statePath: string,
+  launchCwd: string
+): { repo: string | null; taskId: string | null } {
+  const unbound = { repo: null, taskId: null }
   let state: ValidSprintEngineStatePath
   try {
     state = validateSprintEngineStatePath(statePath)
   } catch {
-    return null
+    return unbound
   }
   let repos: unknown
+  let tasks: unknown
   let workspaceRoot: string
   let cwd: string
   try {
     const projection = JSON.parse(readFileSync(join(state.teamDirectory, 'projection.json'), 'utf8'))
     repos = (projection as { run?: { vcs?: { repos?: unknown } } })?.run?.vcs?.repos
+    tasks = (projection as { tasks?: unknown })?.tasks
     workspaceRoot = realpathSync(state.workspaceRoot)
     cwd = realpathSync(launchCwd)
   } catch {
-    return null
+    return unbound
   }
-  if (!Array.isArray(repos)) return null
-  for (const entry of repos) {
-    if (!entry || typeof entry !== 'object') continue
-    const { id, worktreePath } = entry as { id?: unknown; worktreePath?: unknown }
-    if (typeof id !== 'string' || typeof worktreePath !== 'string' || !worktreePath.trim()) continue
-    // Resolve links on both sides before comparing: the worktree lives under the
-    // run dir, which a symlinked project root would spell differently than the
-    // realpath'd launch cwd, and a missed match would silently unbind the
-    // session rather than misbind it.
-    let resolved: string
+  // Resolve links on both sides before comparing: a worktree lives under the run
+  // dir, which a symlinked project root would spell differently than the
+  // realpath'd launch cwd, and a missed match would silently unbind the session
+  // rather than misbind it.
+  const matchesCwd = (worktreePath: unknown): boolean => {
+    if (typeof worktreePath !== 'string' || !worktreePath.trim()) return false
     try {
-      resolved = realpathSync(resolve(workspaceRoot, worktreePath.trim()))
+      return realpathSync(resolve(workspaceRoot, worktreePath.trim())) === cwd
     } catch {
-      continue
+      return false
     }
-    if (resolved === cwd) return id
   }
-  return null
+  if (Array.isArray(tasks)) {
+    for (const entry of tasks) {
+      if (!entry || typeof entry !== 'object') continue
+      const { id, repo, worktreePath } = entry as { id?: unknown; repo?: unknown; worktreePath?: unknown }
+      if (typeof id !== 'string' || !id.trim() || !matchesCwd(worktreePath)) continue
+      return {
+        repo: typeof repo === 'string' && repo.trim() ? repo.trim() : null,
+        taskId: id.trim(),
+      }
+    }
+  }
+  if (Array.isArray(repos)) {
+    for (const entry of repos) {
+      if (!entry || typeof entry !== 'object') continue
+      const { id, worktreePath } = entry as { id?: unknown; worktreePath?: unknown }
+      if (typeof id !== 'string' || !matchesCwd(worktreePath)) continue
+      return { repo: id, taskId: null }
+    }
+  }
+  return unbound
+}
+
+/** The repo half of {@link sprintEngineSessionBindingForLaunchCwd}. */
+export function sprintEngineRepoIdForLaunchCwd(statePath: string, launchCwd: string): string | null {
+  return sprintEngineSessionBindingForLaunchCwd(statePath, launchCwd).repo
 }
 
 function runSprintEngineMcpToolProcess(
@@ -1132,6 +1178,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   mergePullRequest(payload: SprintEngineVcsMergePayload): Promise<SprintEngineArtifactCommandResult>
   refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
+  ensureTaskWorktree(payload: SprintEngineTaskWorktreeInput): Promise<SprintEngineTaskWorktreeResult>
   setRoleRuntime(payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult>
   enableRole(payload: SprintEngineRosterEnableInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
@@ -1579,6 +1626,59 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    // Provision one task's own worktree ahead of its claim (MC-2136). The spawn
+    // path calls this on a per-task-isolation run and cwds the agent's terminal
+    // into what comes back — a terminal cannot be moved into a tree afterwards,
+    // and the engine commits that task's work from that tree, so an agent left in
+    // the run tree would have its changes committed by nobody.
+    //
+    // Never throws at the caller: a spawn must not be lost to a provisioning
+    // failure, so every error is reported as `ok: false` with the engine's reason
+    // and the caller falls back to the run worktree it already resolved.
+    async ensureTaskWorktree(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const taskId = typeof payload?.taskId === 'string' ? payload.taskId.trim() : ''
+        if (!taskId) return { ok: false, isolated: false, worktreePath: null, message: 'Task id is required.' }
+        const toolResult = await runSprintEngineCli(state, [
+          '--state',
+          state.statePath,
+          'vcs',
+          'task-worktree',
+          '--task-id',
+          taskId,
+        ])
+        const parsed = parseSprintEngineCliJsonOutput(toolResult.stdout)
+        const record = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {}
+        if (toolResult.exitCode !== 0) {
+          return {
+            ok: false,
+            isolated: record.isolated === true,
+            worktreePath: null,
+            message: typeof record.error === 'string' && record.error.trim()
+              ? record.error
+              : toolResult.stderr.trim() || toolResult.stdout.trim() || 'Provisioning the task worktree failed.',
+          }
+        }
+        const worktreePath = typeof record.worktreePath === 'string' && record.worktreePath.trim()
+          ? record.worktreePath.trim()
+          : null
+        return {
+          ok: record.ok !== false,
+          isolated: record.isolated === true,
+          worktreePath,
+          ...(typeof record.error === 'string' && record.error.trim() ? { message: record.error } : {}),
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          isolated: false,
+          worktreePath: null,
+          message: error instanceof Error ? error.message : String(error),
+        }
       }
     },
 

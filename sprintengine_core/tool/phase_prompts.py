@@ -65,13 +65,29 @@ def _declared_project_labels(vcs: Dict[str, Any]) -> str:
 
 
 def worker_execution_workspace_block(state: Dict[str, Any], state_path: Path) -> str:
+    # Imported here, not at module scope: `shell` imports this module's siblings,
+    # and a top-level import would close the cycle.
+    from sprintengine_core.tool.shell import task_isolation_enabled
+
     vcs = get_run_vcs(state)
     if not vcs:
         return worker_plan_worktree_block()
     run_file = project_relative_path(workspace_root_for_state_path(state_path), state_path)
+    # Under per-task isolation the listed project paths are the run's SHARED
+    # trees, which the agent must not work in — its own tree is the one its
+    # terminal started in. Without this line the list reads as an invitation to
+    # cd into a tree whose changes nothing would ever commit (MC-2136).
+    isolation_lines = (
+        [
+            "- This run gives EVERY TASK its own worktree. Yours is the tree your terminal started in — NOT the project path listed above, which is the run's shared tree. Work committed for your task comes from your tree only.",
+        ]
+        if task_isolation_enabled(state)
+        else []
+    )
     return _execution_workspace_discipline_block(
         location_lines=[
             f"- Every task names ONE project in its `repo` field. This run's projects are: {_declared_project_labels(vcs)}.",
+            *isolation_lines,
             "- Work ONLY inside your task's project worktree. Your terminal already starts there; do not `cd` elsewhere and do not create another worktree.",
             "- Your task's paths — evidence, commits, any declared modules — are relative to THAT project's root. Another project is reachable only as its own task, never as a path that walks out of your tree.",
             f"- Shared Sprint Engine run file is `{run_file}`; mutate the run store only through the Sprint Engine tool.",

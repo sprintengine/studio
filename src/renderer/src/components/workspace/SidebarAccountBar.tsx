@@ -1,5 +1,6 @@
 import React from 'react'
 import { FOCUS_RING_CLASS, Popover, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
+import { MENU_ITEM_CLASS } from '../ui/menuClasses'
 import type { SessionUser } from '../../../../shared/electron-api'
 import { hasActiveProPlan } from './workspaceManagerHelpers'
 
@@ -103,7 +104,9 @@ function AccountMenuItem({ onSelect, children }: { onSelect: () => void; childre
       data-account-item="true"
       onClick={onSelect}
       onKeyDown={onKeyDown}
-      className={`flex w-full items-center px-3 py-1.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+      // The shared menu row (MC-2103). It was a `px-3` row at `text-body` with
+      // the OUTSET ring, which a full-bleed row's own surface border clips.
+      className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
     >
       {children}
     </button>
@@ -136,7 +139,7 @@ function AccountPopover({
 
   return (
     <div data-account-menu="true" className="w-64 overflow-hidden">
-      <div className="px-3 pb-2.5 pt-3">
+      <div className="px-2.5 pb-2.5 pt-3">
         <TruncatedText
           as="div"
           text={primaryLine}
@@ -159,7 +162,7 @@ function AccountPopover({
       </div>
 
       {message || authState.entitlementStatus === 'offline_grace' ? (
-        <div className="border-t border-[color:var(--border-subtle)] px-3 py-2 text-body leading-5 text-[color:var(--tone-warn)]">
+        <div className="border-t border-[color:var(--border-subtle)] px-2.5 py-2 text-body leading-5 text-[color:var(--tone-warn)]">
           {message ?? `Offline access expires ${formatShortDate(authState.graceExpiresAt)}.`}
         </div>
       ) : null}

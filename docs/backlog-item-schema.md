@@ -155,11 +155,33 @@ An **epic** is itself a concept file at `backlog/epics/<slug>.md` with
 ```yaml
 ---
 type: epic
-status: ready        # optional
-color: blue          # optional; one of the 7 highlight colors, for the group stripe
-order: 1             # optional; sort order among epic groups
+status: ready              # optional
+color: blue                # optional; one of the 7 highlight colors, for the group stripe
+order: 1                   # optional; sort order among epic groups
+dependenciesPlanned: true  # optional; the ordering pass over the children is finished
 ---
 ```
+
+- **dependenciesPlanned** (epics only): the author declaring the ordering pass
+  over this epic's children **finished** — their `dependsOn` edges are authored,
+  and **no edges at all counts**: it means deliberately parallel. It exists to
+  disambiguate the two meanings of "no `dependsOn` edges":
+
+  | State | Meaning | A sprint started from it |
+  | --- | --- | --- |
+  | mark set, children carry edges | ordered; the import honors them | imports the epic as its task graph |
+  | mark set, no edges | deliberately parallel | imports it; every task ready at once |
+  | mark absent | ordering never finished | plans first (a planning agent orders the work) |
+
+  Absent means false, and only the literal `true` sets it. It is an **assertion
+  of intent, not a computed property**: nothing derives or unsets it, so editing
+  an epic's membership is the author's cue to re-check it. Nothing polices how it
+  got set — a hand edit, a planning agent finishing its pass, or `backlog.update`
+  with `{ dependenciesPlanned: true }` are the same assertion. The gate never
+  blocks: an explicit request to run unplanned still starts, and says so (the New
+  sprint dialog states the consequence on the epic's source row; `sprint.create`
+  returns a warning; the run records an `intake_epic_unplanned` event). The
+  Backlog panel marks an unset epic row "Order not planned".
 
 Grouping is **derived down, stored up**. The only stored relationship is each
 child's `epic:` field. An epic's children are the live query

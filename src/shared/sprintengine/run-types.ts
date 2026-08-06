@@ -789,6 +789,17 @@ export type SprintEngineTask = {
    * {@link DEFAULT_SPRINTENGINE_TASK_REPO} on every task.
    */
   repo: string
+  /**
+   * Project-root-relative path to THIS task's own worktree, recorded by the
+   * engine when it provisions one under per-task isolation (`vcs.taskIsolation`,
+   * MC-2130/2136) and cleared when that tree is removed. Absent on every task of
+   * a normal run, where the tree is the repo's shared run worktree.
+   *
+   * It is the projection half of the terminal-cwd contract: an agent working
+   * this task must cwd HERE, or it would edit the run tree while the engine
+   * commits from this one. `resolveSprintEngineSessionCwd` is the one reader.
+   */
+  worktreePath?: string
   status: SprintEngineTaskStatus
   /**
    * Charter marker, not machinery. `review` names a planned review of other
@@ -985,6 +996,17 @@ export type SprintEngineVcsRepo = {
 
 export type SprintEngineVcs = {
   mode: 'run_worktree'
+  /**
+   * Per-task isolation (MC-2130), chosen at run creation and immutable after
+   * (MC-2136): every task gets its OWN worktree branched off the run branch,
+   * merged back at publish, instead of sharing this run worktree. Absent/false
+   * is the normal mode — one shared checkout per repo for the whole run.
+   *
+   * Where a task's agent terminal actually cwds is `task.worktreePath`, which
+   * the engine records when it provisions that tree; this flag only says the
+   * run works that way.
+   */
+  taskIsolation?: boolean
   /** Project-root-relative path to the shared run worktree directory. */
   worktreePath: string
   branchName: string

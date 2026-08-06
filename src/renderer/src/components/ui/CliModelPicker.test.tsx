@@ -322,18 +322,34 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
-  await run('arrows traverse rows and the rail is a single tab stop', async () => {
+  // ---- The keyboard model (MC-2134's ruling) -------------------------------
+  //
+  // This list used to move real DOM focus onto the row, so the first arrow took
+  // focus off the search field and everything typed after it went nowhere. The
+  // ruling is `aria-activedescendant`: the field is the combobox and keeps
+  // focus, the highlight is named rather than focused.
+
+  await run('arrows move the highlight and leave focus in the search field', async () => {
     const view = mountSurface({})
+    const search = view.search()
     const rows = view.rows()
-    // The selected row owns the list's tab stop so Tab lands on the current choice.
+    assert.equal(search.getAttribute('role'), 'combobox', 'the field is the combobox, not the list')
+    assert.equal(search.getAttribute('aria-expanded'), 'true', 'and its list is rendered for as long as it is')
     assert.deepEqual(
       rows.map((row) => row.getAttribute('tabindex')),
-      ['-1', '0', '-1', '-1'],
+      [null, null, null, null],
+      'no row is a tab stop any more — focus never leaves the field',
     )
-    await view.key(rows[1], 'ArrowDown')
-    assert.equal(dom.window.document.activeElement, rows[2], 'arrows move between rows')
-    await view.key(rows[2], 'ArrowUp')
-    assert.equal(dom.window.document.activeElement, rows[1])
+    assert.equal(
+      search.getAttribute('aria-activedescendant'),
+      rows[1]!.id,
+      'the highlight opens on the current runtime rather than at the top of the list',
+    )
+    await view.key(search, 'ArrowDown')
+    assert.equal(search.getAttribute('aria-activedescendant'), rows[2]!.id, 'arrows move the highlight')
+    assert.equal(dom.window.document.activeElement, search, 'and the field still holds focus')
+    await view.key(search, 'ArrowUp')
+    assert.equal(search.getAttribute('aria-activedescendant'), rows[1]!.id)
 
     const tabs = view.tabs()
     assert.deepEqual(
@@ -346,12 +362,76 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  await run('a key the field consumes never reaches the host around it', async () => {
+    // Two hosts of this surface are MENUS (the roster's right-click picker and
+    // its MenuFlyoutItem), and a menu answers ArrowUp/Down/Home/End by moving
+    // real focus onto one of ITS OWN items. A bubbling arrow would take focus
+    // off the field on the first press — the exact failure the ruling ends.
+    const view = mountSurface({})
+    const escaped: string[] = []
+    // On `body`, not on the mount container: React attaches its own delegated
+    // listener to the root container, and `stopPropagation` there does not stop
+    // a sibling listener on that same node. The host that matters sits ABOVE it.
+    const listener = (event: Event): void => {
+      escaped.push((event as KeyboardEvent).key)
+    }
+    dom.window.document.body.addEventListener('keydown', listener)
+    const search = view.search()
+    for (const key of ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter']) await view.key(search, key)
+    assert.deepEqual(escaped, [], 'every key the combobox handled stopped at the field')
+    await view.key(search, 'Escape')
+    assert.deepEqual(escaped, ['Escape'], 'Escape still travels — the surface closes from anywhere inside it')
+    dom.window.document.body.removeEventListener('keydown', listener)
+    view.unmount()
+  })
+
+  await run('narrowing and walking happen in one motion, which is what the ruling buys', async () => {
+    const picked: Array<[string, string | null]> = []
+    const view = mountSurface({ onSelectModel: (cli, model) => picked.push([cli, model]) })
+    const search = view.search()
+    await view.type('gpt')
+    await view.key(search, 'ArrowDown')
+    assert.equal(
+      search.getAttribute('aria-activedescendant'),
+      view.rows()[1]!.id,
+      'the arrow walked the results the query just produced',
+    )
+    assert.equal(dom.window.document.activeElement, search, 'without the query field losing focus')
+    await view.key(search, 'Enter')
+    assert.deepEqual(picked, [['codex', 'gpt-5.5']], 'and Enter took the highlighted row')
+    view.unmount()
+  })
+
+  await run('Home and End belong to the caret while a query is live', async () => {
+    const view = mountSurface({})
+    const search = view.search()
+    await view.key(search, 'End')
+    assert.equal(
+      search.getAttribute('aria-activedescendant'),
+      view.rows()[3]!.id,
+      'with nothing typed there is no caret to serve, so End jumps the list',
+    )
+    await view.type('opus')
+    const highlighted = search.getAttribute('aria-activedescendant')
+    await view.key(search, 'End')
+    assert.equal(
+      search.getAttribute('aria-activedescendant'),
+      highlighted,
+      'but with text in the field they move the caret — a filter you cannot reach the end of is worse',
+    )
+    view.unmount()
+  })
+
   await run('ArrowRight reaches the star, so the hover-revealed mark has a keyboard path', async () => {
     const view = mountSurface({})
+    const search = view.search()
     const row = view.rows()[1]!
-    await view.key(row, 'ArrowRight')
+    assert.equal(row.getAttribute('data-active'), 'true', 'the highlighted row is the one ArrowRight acts on')
+    await view.key(search, 'ArrowRight')
     const star = row.querySelector<HTMLButtonElement>('[data-model-star="true"]')
-    assert.equal(dom.window.document.activeElement, star, 'focus landed on the row’s star')
+    assert.equal(dom.window.document.activeElement, star, 'focus landed on the highlighted row’s star')
+    await view.key(star, 'ArrowLeft')
+    assert.equal(dom.window.document.activeElement, search, 'and ArrowLeft hands focus back to the field')
     view.unmount()
   })
 

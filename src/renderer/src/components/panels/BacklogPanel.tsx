@@ -2440,7 +2440,7 @@ export function BacklogDetail({
     const isHtmlPreview = /\.html?$/i.test(previewedMockup.relativePath)
     return (
       <FilePreviewPane
-        title={<span className="font-mono tabular-nums">{basename(previewedMockup.relativePath)}</span>}
+        title={basename(previewedMockup.relativePath)}
         path={previewedMockup.absolutePath}
         content={previewedMockup.content}
         onBack={onCloseMockupPreview}

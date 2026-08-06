@@ -960,7 +960,12 @@ def test_mcp_epic_reference_handover_and_init_over_mcp_route(tmp_path) -> None:
     # references (no copies), and init must mint the review-in-place plan task.
     workspace = tmp_path / "workspace"
     (workspace / "backlog" / "epics").mkdir(parents=True, exist_ok=True)
-    (workspace / "backlog" / "epics" / "auth-revamp.md").write_text("# Auth revamp\n", encoding="utf-8")
+    # Marked as ordering-planned (MC-2137) so this stays a DIRECT-intake fixture:
+    # an unmarked epic now plans first, which is a different route than the one
+    # this test exists to walk.
+    (workspace / "backlog" / "epics" / "auth-revamp.md").write_text(
+        "---\ntype: epic\ndependenciesPlanned: true\n---\n\n# Auth revamp\n", encoding="utf-8"
+    )
     (workspace / "backlog" / "login-form.md").write_text("---\nepic: auth-revamp\n---\n# Login\n", encoding="utf-8")
     (workspace / "backlog" / "session-store.md").write_text("---\nepic: auth-revamp\n---\n# Session\n", encoding="utf-8")
     state_path = workspace / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"

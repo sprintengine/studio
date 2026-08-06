@@ -45,7 +45,10 @@ class NoopResizeObserver {
 }
 anyGlobal.ResizeObserver = NoopResizeObserver
 dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
-domWindow.api = { platform: 'darwin' }
+// `detectProjectLogo` is the project-logo bridge the row's identity slot
+// asks for on mount (MC-2135); a repo with no logo answers null and the row
+// keeps its workspace-type glyph.
+domWindow.api = { platform: 'darwin', detectProjectLogo: async () => null }
 
 // A drag payload's DataTransfer, in the two shapes the handlers read it: `types`
 // during dragover (getData is blocked mid-drag by the real API, which is why

@@ -14,6 +14,8 @@ import type {
   SprintEngineTaskResolveInput,
   SprintEngineTaskStatusSetInput,
   SprintEngineTaskUpdateInput,
+  SprintEngineTaskWorktreeInput,
+  SprintEngineTaskWorktreeResult,
 } from '../../shared/electron-api'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
 import type { SprintRunSummary } from '../../shared/sprintengine/runSummary'
@@ -76,6 +78,7 @@ type SprintEngineIpcDependencies = {
   createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   mergePullRequest(payload: SprintEngineVcsMergePayload): Promise<SprintEngineArtifactCommandResult>
   refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
+  ensureTaskWorktree(payload: SprintEngineTaskWorktreeInput): Promise<SprintEngineTaskWorktreeResult>
   setRoleRuntime(payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult>
   enableRole(payload: SprintEngineRosterEnableInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
@@ -150,6 +153,13 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
   // out-of-order merge. Nothing here decides WHEN to merge.
   ipcMain.handle('sprintengine:vcs:pr-merge', async (_, payload: SprintEngineVcsMergePayload): Promise<SprintEngineArtifactCommandResult> => {
     return deps.mergePullRequest(payload)
+  })
+
+  // Per-task isolation (MC-2136): provision one task's worktree BEFORE its agent
+  // spawns, because a terminal cannot be moved into it afterwards. A no-op with
+  // `isolated: false` on every run that shares one worktree.
+  ipcMain.handle('sprintengine:vcs:task-worktree', async (_, payload: SprintEngineTaskWorktreeInput): Promise<SprintEngineTaskWorktreeResult> => {
+    return deps.ensureTaskWorktree(payload)
   })
 
   ipcMain.handle('sprintengine:roster:runtime', async (_, payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult> => {

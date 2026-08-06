@@ -59,7 +59,7 @@ export function serializeBacklogFrontmatterFields(
   content: string,
   updates: BacklogFrontmatterUpdates,
 ): string {
-  const { sets, clears } = normalizeUpdates(updates)
+  const { sets, clears, spellings } = normalizeUpdates(updates)
   if (sets.size === 0 && clears.size === 0) return content
 
   const eol = content.includes('\r\n') ? '\r\n' : '\n'
@@ -69,7 +69,7 @@ export function serializeBacklogFrontmatterFields(
     // No frontmatter block: clears are no-ops, and with nothing to set the file
     // is returned untouched so a clear-only call never injects an empty block.
     if (sets.size === 0) return content
-    const lines = Array.from(sets, ([key, value]) => `${key}: ${formatScalar(value)}`)
+    const lines = Array.from(sets, ([key, value]) => `${spellings.get(key) ?? key}: ${formatScalar(value)}`)
     return `---${eol}${lines.join(eol)}${eol}---${eol}${content}`
   }
 
@@ -98,7 +98,11 @@ export function serializeBacklogFrontmatterFields(
 
   for (const [key, value] of sets) {
     if (handled.has(key)) continue
-    resultLines.push(`${key}: ${formatScalar(value)}`)
+    // A key already in the file keeps its own spelling (the loop above rewrites
+    // the value in place); a NEW line is written the way the caller spelled it,
+    // so `dependsOn` lands as `dependsOn:` rather than flattened to lowercase.
+    // Matching stays case-insensitive either way — the parser lowercases keys.
+    resultLines.push(`${spellings.get(key) ?? key}: ${formatScalar(value)}`)
   }
 
   const body = content.slice(match[0].length)
@@ -119,6 +123,30 @@ const BACKLOG_SLUG_RE = /^[A-Za-z0-9._-]+$/
 
 export function isValidBacklogSlug(value: unknown): value is string {
   return typeof value === 'string' && BACKLOG_SLUG_RE.test(value) && value !== '.' && value !== '..'
+}
+
+// An epic's `dependenciesPlanned:` mark (MC-2137): the author asserting that the
+// ordering pass over this epic's children is finished, whoever ran it — a hand
+// edit, a planning agent, `/backlog` closing an ordering session. It is what
+// disambiguates the two meanings of "no `dependsOn` edges": deliberately
+// parallel (flag set) versus never ordered (flag absent).
+//
+// An assertion of intent, never a computed property: nothing recomputes or
+// unsets it, so editing an epic's membership is the author's cue to re-check it.
+// Absent means false, and only the literal `true` sets it — a value the writer
+// never emits ("maybe", "1") must not read as a planning pass that never
+// happened, so it reads false rather than being guessed either way.
+export const BACKLOG_DEPENDENCIES_PLANNED_KEY = 'dependenciesPlanned'
+
+export function parseBacklogDependenciesPlanned(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.trim().toLowerCase() === 'true'
+}
+
+// The same answer from a parsed frontmatter block. Parsed keys are lowercased,
+// so every reader must look the camelCase field up at its lowercased spelling —
+// this is the one place that knows it.
+export function backlogDependenciesPlannedFromFields(fields: Record<string, string>): boolean {
+  return parseBacklogDependenciesPlanned(fields[BACKLOG_DEPENDENCIES_PLANNED_KEY.toLowerCase()])
 }
 
 // Parse a flat comma-separated scalar — the frontmatter format has no array
@@ -177,12 +205,17 @@ export function backlogTitleFromPath(relativePath: string): string {
 function normalizeUpdates(updates: BacklogFrontmatterUpdates): {
   sets: Map<string, string>
   clears: Set<string>
+  // Lowercased key -> the spelling the caller used, for lines this write appends.
+  spellings: Map<string, string>
 } {
   const sets = new Map<string, string>()
   const clears = new Set<string>()
+  const spellings = new Map<string, string>()
   for (const [rawKey, value] of Object.entries(updates)) {
-    const key = rawKey.trim().toLowerCase()
+    const trimmed = rawKey.trim()
+    const key = trimmed.toLowerCase()
     if (!key) continue
+    spellings.set(key, trimmed)
     if (value === null || value === undefined) {
       clears.add(key)
       sets.delete(key)
@@ -191,7 +224,7 @@ function normalizeUpdates(updates: BacklogFrontmatterUpdates): {
       clears.delete(key)
     }
   }
-  return { sets, clears }
+  return { sets, clears, spellings }
 }
 
 // Emit a bare scalar matching the existing `key: value` style. Embedded CR/LF are

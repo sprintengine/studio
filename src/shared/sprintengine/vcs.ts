@@ -159,6 +159,10 @@ export function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | unde
   const repos = normalizeSprintEngineVcsRepos(record, primary)
   return {
     mode: 'run_worktree',
+    // Only when on: an absent flag and `false` mean the same normal mode, and
+    // omitting it keeps a per-sprint run's projection byte-identical to before
+    // per-task isolation existed (MC-2136).
+    ...(record.taskIsolation === true ? { taskIsolation: true } : {}),
     worktreePath: primary.worktreePath,
     branchName: primary.branchName,
     ...(primary.baseRef ? { baseRef: primary.baseRef } : {}),

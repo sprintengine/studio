@@ -24,6 +24,7 @@ import {
   buildGuidedBriefSprintEngineSourceBundle,
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
+import { GhostButton, PanelHeader } from '../../ui'
 import { GuidedBriefFlow, type GuidedBriefRunOptions } from './GuidedBriefFlow'
 import { selectAgentCliCatalog } from '../newWorkspace/cliRuntimeOptions'
 import { guidedBriefBuildHandoffRelativePath, guidedBriefSprintEngineGoal } from './handoff'
@@ -164,22 +165,22 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
   if (viewingIdea) {
     return (
       <div className="flex h-full flex-col bg-[color:var(--bg-app)]">
-        <header className="flex shrink-0 items-center gap-3 border-b border-[color:var(--bg-surface-raised)] px-5 py-3">
-          <button
-            type="button"
-            onClick={() => setViewingIdea(false)}
-            className="
-              inline-flex h-8 items-center rounded-md px-2 text-meta font-medium text-[color:var(--text-muted)]
-              transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
-              focus-visible:focus-ring
-            "
-          >
-            Back to brief
-          </button>
-        </header>
+        {/* The identity row is `ui/PanelHeader` (2112). The band was `px-5 py-3`
+            with `--bg-surface-raised` — a SURFACE token — as its border colour,
+            and it named nothing: the drill-in's name sat in an `<h2>` ten lines
+            below, so the row a person reads first was blank. Back rides
+            `leading`, which is the slot for getting out of the surface named
+            beside it. */}
+        <PanelHeader
+          title="Idea seed"
+          leading={
+            <GhostButton size="xs" onClick={() => setViewingIdea(false)}>
+              Back to brief
+            </GhostButton>
+          }
+        />
         <main className="flex min-h-0 flex-1 justify-center overflow-auto px-6 py-10">
           <div className="flex w-full max-w-[560px] flex-col gap-4">
-            <h2 className="text-title font-semibold text-[color:var(--text-strong)]">Idea seed</h2>
             <div className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-4">
               <p className="whitespace-pre-wrap text-body leading-6 text-[color:var(--text-default)]">
                 {runtimeState.idea}

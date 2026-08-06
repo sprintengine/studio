@@ -39,6 +39,8 @@ class ResizeObserverStub {
 }
 anyGlobal.ResizeObserver = ResizeObserverStub
 ;(dom.window as unknown as Record<string, unknown>).ResizeObserver = ResizeObserverStub
+// `ui/Select` keeps its active option in view; JSDOM implements no scrolling.
+dom.window.HTMLElement.prototype.scrollIntoView = function scrollIntoView(): void {}
 dom.window.matchMedia = ((query: string) => ({
   matches: false,
   media: query,
@@ -52,10 +54,31 @@ const FILES: Record<string, string> = {
   '/proj/backlog/epics/demo-epic.md': [
     '---',
     'type: epic',
+    // Ordering declared finished (MC-2137), which is what makes this epic's
+    // Planning-agent default None. Its unmarked twin below is the other half.
+    'dependenciesPlanned: true',
     'id: 900',
     '---',
     '',
     '# Demo epic title',
+  ].join('\n'),
+  '/proj/backlog/epics/unplanned-epic.md': [
+    '---',
+    'type: epic',
+    'id: 903',
+    '---',
+    '',
+    '# Unplanned epic title',
+  ].join('\n'),
+  '/proj/backlog/unplanned-child.md': [
+    '---',
+    'type: feature',
+    'status: ready',
+    'epic: unplanned-epic',
+    'id: 904',
+    '---',
+    '',
+    '# Unplanned child title',
   ].join('\n'),
   '/proj/backlog/child-item.md': [
     '---',
@@ -82,8 +105,12 @@ const DIRS: Record<string, Array<{ name: string; isDir: boolean }>> = {
     { name: 'epics', isDir: true },
     { name: 'child-item.md', isDir: false },
     { name: 'loose-item.md', isDir: false },
+    { name: 'unplanned-child.md', isDir: false },
   ],
-  '/proj/backlog/epics': [{ name: 'demo-epic.md', isDir: false }],
+  '/proj/backlog/epics': [
+    { name: 'demo-epic.md', isDir: false },
+    { name: 'unplanned-epic.md', isDir: false },
+  ],
 }
 
 ;(dom.window as unknown as { api: Record<string, unknown> }).api = {
@@ -182,7 +209,9 @@ async function main(): Promise<void> {
     statPath: (path) => api.statPath(path),
   })
   assert.equal(scanned.state, 'ready', 'the fake project scans cleanly')
-  const epic = scanned.items.find((item) => item.isEpic)
+  const epic = scanned.items.find(
+    (item) => item.relativePath === 'backlog/epics/demo-epic.md',
+  )
   const loose = scanned.items.find((item) => item.relativePath === 'backlog/loose-item.md')
   assert.ok(epic && loose, 'the fake project has an epic and a loose item')
   const preloadedSource = buildBacklogSelectionSourcePlan({
@@ -202,6 +231,21 @@ async function main(): Promise<void> {
   })
   assert.ok(epicOnlySource, 'the single-epic pick builds one source plan')
   assert.equal(epicOnlySource!.sourcePlanKind, 'epic')
+
+  // The same shape from an epic that never declared its ordering finished
+  // (MC-2137): direct is still reachable, but it is no longer the default.
+  const unplannedEpic = scanned.items.find(
+    (item) => item.relativePath === 'backlog/epics/unplanned-epic.md',
+  )
+  assert.ok(unplannedEpic, 'the fake project has an unmarked epic too')
+  assert.equal(unplannedEpic!.dependenciesPlanned, undefined, 'the unmarked epic carries no mark')
+  assert.equal(epic!.dependenciesPlanned, true, 'the marked epic carries the mark')
+  const unplannedEpicSource = buildBacklogSelectionSourcePlan({
+    workspaceRoot: ROOT,
+    items: [unplannedEpic!],
+    projectItems: scanned.items,
+  })
+  assert.ok(unplannedEpicSource, 'the unmarked-epic pick builds one source plan')
 
   async function mountDialog(
     initialSource: typeof preloadedSource,
@@ -505,6 +549,30 @@ async function main(): Promise<void> {
 
       await pressEscape(search!)
       assert.equal(closes, 1, 'Escape on the empty search closes the dialog')
+    } finally {
+      unmount()
+    }
+  })
+
+  // MC-2134 measured this list against the combobox ruling and struck it off:
+  // rows toggle rather than commit, the list is multi-selectable and permanently
+  // rendered, and Space — the toggle here — cannot coexist with a field that
+  // owns focus. What it owed was the link that fits the shape it actually has.
+  await check('the backlog search names the list it filters, without claiming to be a combobox', async () => {
+    const { container, unmount } = await mountDialog(preloadedSource, () => {})
+    try {
+      const search = container.querySelector('input[aria-label="Search backlog items"]')
+      const list = container.querySelector('[role="listbox"][aria-label="Backlog items"]')
+      assert.ok(search && list, 'the search field and the backlog list both render')
+      assert.ok(list!.id, 'the list has an id to be named by')
+      assert.equal(search!.getAttribute('aria-controls'), list!.id, 'and the field names it')
+      assert.equal(search!.getAttribute('role'), null, 'the field is not dressed as a combobox')
+      assert.equal(list!.getAttribute('aria-multiselectable'), 'true', 'because the list is multi-selectable')
+      assert.equal(
+        list!.getAttribute('tabindex'),
+        '0',
+        'and runs its own cursor as its own tab stop, which a combobox popup never does',
+      )
     } finally {
       unmount()
     }
@@ -919,6 +987,125 @@ async function main(): Promise<void> {
     }
   })
 
+  await check('going BACK to None sends the direct intake, not the stale planned one', async () => {
+    // The return leg the suite never walked. Picking a runtime also moves the
+    // roster's cli defaults, so `start` was rebuilt and happened to see the
+    // fresh intake; picking None moves nothing but `planningNoneOverride`, so
+    // with `intake` absent from `start`'s deps the launch kept sending
+    // `planned` — the mode the user had just left.
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<{ intake?: string }> = []
+    apiRecord.initializeSprintEngineState = async (input: (typeof initCalls)[number]) => {
+      initCalls.push({ intake: input.intake })
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(epicOnlySource)
+    try {
+      const openPicker = async (): Promise<Element[]> => {
+        await clickAndSettle(container.querySelector('button[aria-label^="Planning agent"]'))
+        return Array.from(
+          dom.window.document.body.querySelectorAll(
+            '[role="listbox"][aria-label="Planning agent options"] [role="option"]',
+          ),
+        ) as Element[]
+      }
+      const runtimeRow = (await openPicker()).find((row) => !row.textContent?.includes('None'))
+      await clickAndSettle(runtimeRow)
+      assert.match(container.textContent ?? '', /planned first/, 'the runtime took')
+
+      const noneRow = (await openPicker()).find((row) => row.textContent?.includes('None'))
+      await clickAndSettle(noneRow)
+      assert.match(container.textContent ?? '', /from your epic/, 'the footer went back')
+
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(initCalls[0]?.intake, 'direct', 'what the row shows is what init gets')
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  // ── the epic ordering gate (MC-2137) ──────────────────────────────────────
+
+  await check('an epic that never declared its ordering done defaults to a planning agent', async () => {
+    const { container, unmount } = await mountDialog(unplannedEpicSource)
+    try {
+      const picker = container.querySelector('button[aria-label^="Planning agent"]')
+      assert.ok(picker, 'the row renders a picker')
+      assert.notEqual(
+        picker?.getAttribute('aria-label'),
+        'Planning agent: None',
+        'an unmarked epic does not default to None',
+      )
+      const text = container.textContent ?? ''
+      assert.match(text, /planned first/, 'the footer states the run will plan first')
+      // A default flip, never a wall: None is still on offer, and until it is
+      // chosen there is no consequence line to show.
+      assert.doesNotMatch(text, /Ordering not marked done/, 'the consequence rides the None choice')
+    } finally {
+      unmount()
+    }
+  })
+
+  await check('choosing None on an unmarked epic starts direct and states the consequence', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<{ intake?: string }> = []
+    apiRecord.initializeSprintEngineState = async (input: (typeof initCalls)[number]) => {
+      initCalls.push({ intake: input.intake })
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(unplannedEpicSource)
+    try {
+      await clickAndSettle(container.querySelector('button[aria-label^="Planning agent"]'))
+      const noneRow = (
+        Array.from(
+          dom.window.document.body.querySelectorAll(
+            '[role="listbox"][aria-label="Planning agent options"] [role="option"]',
+          ),
+        ) as Element[]
+      ).find((row) => row.textContent?.includes('None'))
+      await clickAndSettle(noneRow)
+
+      assert.match(
+        container.textContent ?? '',
+        /Ordering not marked done — items run in parallel/,
+        'the epic source row states what running it unordered means',
+      )
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(initCalls[0]?.intake, 'direct', 'the gate informs, it never blocks the start')
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  await check('a marked epic picking None shows no consequence line', async () => {
+    const { container, unmount } = await mountDialog(epicOnlySource)
+    try {
+      assert.doesNotMatch(
+        container.textContent ?? '',
+        /Ordering not marked done/,
+        'a marked epic running direct is exactly what the mark asked for',
+      )
+    } finally {
+      unmount()
+    }
+  })
+
   await check('a non-epic source shows the row with an agent and no None', async () => {
     const { container, unmount } = await mountDialog(preloadedSource)
     try {
@@ -941,6 +1128,215 @@ async function main(): Promise<void> {
         'no None row is pinned for a non-epic source',
       )
     } finally {
+      unmount()
+    }
+  })
+
+  // ── the "Runs in" row (MC-2123) ───────────────────────────────────────────
+  //
+  // The dialog used to hand engine init a hardcoded `useWorktrees: false`, so
+  // isolation was unreachable from the only path a person can use. These pin
+  // the two halves the acceptance names: the choice exists and defaults to one
+  // worktree per sprint, and BOTH of its values reach init — which is also what
+  // makes the absence of the literal observable rather than a source read.
+
+  const isolationTrigger = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector('button[role="combobox"][aria-label="Runs in"]')
+
+  const { NO_ROLES_ROSTER_ID } = await import('../newWorkspace/savedRosters')
+  const selectRoster = async (id: string | null): Promise<void> => {
+    await act(async () => {
+      useWorkspaceStore.getState().setSprintEngineLastSelectedRoster(id)
+    })
+  }
+
+  await selectRoster(NO_ROLES_ROSTER_ID)
+
+  await check('the team card offers where the sprint runs, defaulting to one worktree', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<{ useWorktrees?: boolean }> = []
+    apiRecord.initializeSprintEngineState = async (input: (typeof initCalls)[number]) => {
+      initCalls.push({ useWorktrees: input.useWorktrees })
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      const trigger = isolationTrigger(container)
+      assert.ok(trigger, 'the team card carries the Runs in row')
+      assert.match(
+        trigger!.textContent ?? '',
+        /One worktree/,
+        'a sprint runs in its own worktree unless the operator says otherwise (owner ruling 2026-08-05)',
+      )
+      // The row's VALUE is the control, exactly like Planning agent above it.
+      assert.doesNotMatch(
+        container.textContent ?? '',
+        /isolated git worktree/i,
+        'no sub-copy under the row — the explanation is the label tooltip',
+      )
+
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(initCalls.length, 1, 'Start initializes exactly one run')
+      assert.equal(
+        initCalls[0]?.useWorktrees,
+        true,
+        'the default reaches engine init, which is what mints the run worktree',
+      )
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  await check('choosing the project folder starts the run in the checkout, as before', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<{ useWorktrees?: boolean }> = []
+    apiRecord.initializeSprintEngineState = async (input: (typeof initCalls)[number]) => {
+      initCalls.push({ useWorktrees: input.useWorktrees })
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      await clickAndSettle(isolationTrigger(container))
+      const options = Array.from(
+        dom.window.document.body.querySelectorAll(
+          '[role="listbox"][aria-label="Runs in"] [role="option"]',
+        ),
+      ) as Element[]
+      assert.deepEqual(
+        options.map((option) => option.textContent?.trim()),
+        ['One worktree', 'A worktree per task', 'The project folder'],
+        'the whole isolation ladder, best-first (MC-2136 added the per-task rung)',
+      )
+      await clickAndSettle(options.find((option) => option.textContent?.includes('project folder')))
+      assert.match(
+        isolationTrigger(container)?.textContent ?? '',
+        /The project folder/,
+        'the picked value is what the row shows',
+      )
+
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(
+        initCalls[0]?.useWorktrees,
+        false,
+        'the off rung is byte-for-byte the run the dialog made before this row existed',
+      )
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  // MC-2136: the per-task rung. The dialog's job is to turn the picked rung into
+  // the engine's two flags — worktrees on, isolation on — and nothing else; what
+  // those flags then do to the run belongs to the engine's own tests.
+  await check('picking a worktree per task asks the engine for per-task isolation', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<{ useWorktrees?: boolean; taskIsolation?: boolean }> = []
+    apiRecord.initializeSprintEngineState = async (input: (typeof initCalls)[number]) => {
+      initCalls.push({ useWorktrees: input.useWorktrees, taskIsolation: input.taskIsolation })
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      await clickAndSettle(isolationTrigger(container))
+      const options = Array.from(
+        dom.window.document.body.querySelectorAll(
+          '[role="listbox"][aria-label="Runs in"] [role="option"]',
+        ),
+      ) as Element[]
+      await clickAndSettle(options.find((option) => option.textContent?.includes('per task')))
+      assert.match(
+        isolationTrigger(container)?.textContent ?? '',
+        /A worktree per task/,
+        'the picked value is what the row shows',
+      )
+
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.deepEqual(
+        initCalls[0],
+        { useWorktrees: true, taskIsolation: true },
+        'per-task isolation is layered ON run worktrees, never sent alone',
+      )
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  // The default rung must stay the run it always made: one shared worktree, and
+  // no isolation field at all in the payload (MC-2136 ruling — per-task is a
+  // choice, never a silent default).
+  await check('the default rung still creates a plain one-worktree run', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const initCalls: Array<Record<string, unknown>> = []
+    apiRecord.initializeSprintEngineState = async (input: Record<string, unknown>) => {
+      initCalls.push(input)
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(initCalls[0]?.useWorktrees, true, 'one worktree per sprint is the default')
+      assert.equal(
+        'taskIsolation' in (initCalls[0] ?? {}),
+        false,
+        'the default payload carries no isolation field at all',
+      )
+    } finally {
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+    }
+  })
+
+  await check('a staffed roster carries the same Runs in row — never one world only', async () => {
+    let rosterId: string | null = null
+    await act(async () => {
+      rosterId = useWorkspaceStore.getState().saveSprintEngineRoster({
+        name: 'Isolation crew',
+        roleCounts: { developer: 1 },
+        roleCliDefaults: {},
+        roleModelOverrides: {},
+      })
+    })
+    assert.ok(rosterId, 'the fixture roster saves')
+    await selectRoster(rosterId)
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      assert.match(container.textContent ?? '', /Isolation crew/, 'the staffed card is showing')
+      const trigger = isolationTrigger(container)
+      assert.ok(trigger, 'the staffed roster card carries the row too')
+      assert.match(trigger!.textContent ?? '', /One worktree/, 'with the same default')
+    } finally {
+      await selectRoster(NO_ROLES_ROSTER_ID)
       unmount()
     }
   })
