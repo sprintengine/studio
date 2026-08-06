@@ -171,6 +171,22 @@ async function main(): Promise<void> {
   }
 
   {
+    // A resizer that cannot decode the bytes is not a reason to drop the logo:
+    // the 1 MB guard already bounds what we serve, so it falls back to the
+    // candidate's own bytes rather than all the way to the glyph.
+    const { io } = createIo({ '/repo/favicon.ico': { bytes: Buffer.from('ico-bytes') } })
+    const failing: ProjectLogoIo = {
+      ...io,
+      async downscaleRaster() {
+        throw new Error('nativeImage unavailable')
+      },
+    }
+    const logo = await detectProjectLogo('/repo', failing)
+    assert.equal(logo?.path, '/repo/favicon.ico', 'a failing downscale still yields the logo')
+    assert.equal(decode(logo?.dataUrl ?? ''), 'ico-bytes', 'the original bytes are served when the resize fails')
+  }
+
+  {
     // A directory named `logo.svg` is not a logo. The real io filters directories
     // out of readdir too; this pins the second guard.
     const { io } = createIo({ '/repo/logo.svg': { bytes: Buffer.from(''), isFile: false } })

@@ -153,40 +153,71 @@ export async function detectProjectLogo(folderPath: string, io: ProjectLogoIo): 
 
   for (const name of rankProjectLogoCandidates(entries)) {
     const filePath = io.join(folderPath, name)
-    try {
-      const stats = await io.stat(filePath)
-      if (!stats.isFile) continue
-      if (stats.size > PROJECT_LOGO_MAX_BYTES) continue
 
-      // The app's one extension→image-mime answer, shared with image preview.
-      const mimeType = imageMimeType(name)
-      if (!mimeType) continue
+    // Only the io calls are caught. A candidate a user's disk will not give us
+    // is an ordinary miss and falls through to the next-ranked one; a throw out
+    // of the ranking, the sanitizer, or the encoding below is a bug in this
+    // module and must surface rather than quietly degrade to the glyph.
+    const read = await readCandidate(filePath, io)
+    if (!read) continue
 
-      const raw = await io.readFile(filePath)
+    const { stats, raw, mimeType } = read
 
-      if (mimeType === SVG_MIME_TYPE) {
-        const sanitized = sanitizeProjectLogoSvg(raw.toString('utf-8'))
-        if (sanitized === null) continue
-        return {
-          path: filePath,
-          mtimeMs: stats.mtimeMs,
-          dataUrl: toDataUrl(Buffer.from(sanitized, 'utf-8'), mimeType),
-        }
-      }
-
-      const downscaled = await io.downscaleRaster(raw, mimeType, PROJECT_LOGO_RASTER_MAX_PX)
+    if (mimeType === SVG_MIME_TYPE) {
+      const sanitized = sanitizeProjectLogoSvg(raw.toString('utf-8'))
+      if (sanitized === null) continue
       return {
         path: filePath,
         mtimeMs: stats.mtimeMs,
-        dataUrl: toDataUrl(downscaled.bytes, downscaled.mimeType),
+        dataUrl: toDataUrl(Buffer.from(sanitized, 'utf-8'), mimeType),
       }
-    } catch {
-      // Unreadable candidate: fall through to the next-ranked one.
-      continue
+    }
+
+    const downscaled = await downscaleCandidate(raw, mimeType, io)
+    return {
+      path: filePath,
+      mtimeMs: stats.mtimeMs,
+      dataUrl: toDataUrl(downscaled.bytes, downscaled.mimeType),
     }
   }
 
   return null
+}
+
+type ReadCandidate = { stats: ProjectLogoStat; raw: Buffer; mimeType: string }
+
+// Stat + read one candidate, applying the guards. Null means "not a usable
+// candidate" for every reason a disk can produce: gone, not a file, oversized,
+// or an extension we do not serve.
+async function readCandidate(filePath: string, io: ProjectLogoIo): Promise<ReadCandidate | null> {
+  try {
+    const stats = await io.stat(filePath)
+    if (!stats.isFile) return null
+    if (stats.size > PROJECT_LOGO_MAX_BYTES) return null
+
+    // The app's one extension→image-mime answer, shared with image preview.
+    const mimeType = imageMimeType(filePath)
+    if (!mimeType) return null
+
+    return { stats, raw: await io.readFile(filePath), mimeType }
+  } catch {
+    return null
+  }
+}
+
+// A downscale that cannot run is not a reason to drop the logo — the 1 MB guard
+// already bounds what we would serve — so a failing resizer falls back to the
+// candidate's own bytes rather than to the glyph.
+async function downscaleCandidate(
+  raw: Buffer,
+  mimeType: string,
+  io: ProjectLogoIo,
+): Promise<{ bytes: Buffer; mimeType: string }> {
+  try {
+    return await io.downscaleRaster(raw, mimeType, PROJECT_LOGO_RASTER_MAX_PX)
+  } catch {
+    return { bytes: raw, mimeType }
+  }
 }
 
 export type ProjectLogoResolver = {
