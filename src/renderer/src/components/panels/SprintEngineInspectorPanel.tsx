@@ -2663,11 +2663,7 @@ export function SprintEngineInspectorPanel({
       sprintEngineSeedPreviewKind(selection.artifact.relativePath) === 'html'
     return (
       <FilePreviewPane
-        title={
-          <span className="text-body font-semibold text-[color:var(--text-strong)]">
-            {selection.artifact.name}
-          </span>
-        }
+        title={selection.artifact.name}
         path={selection.artifact.path}
         content={selection.artifact.content}
         onBack={onBackFromArtifact}

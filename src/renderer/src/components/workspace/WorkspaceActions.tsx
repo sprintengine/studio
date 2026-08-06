@@ -720,7 +720,10 @@ export function WorkspaceActions({
               }
             }}
             ariaLabel="Notifications"
-            popupRole="menu"
+            // A list of reports, each with its own buttons — not a menu. It
+            // carried `role="menu"` with `role="menuitem"` on the report blocks,
+            // which announced rows that could not be activated (MC-2138).
+            popupRole="dialog"
             placement="bottom-end"
             renderTrigger={({ ref, triggerProps, togglePopover }) => (
               <Tooltip content="Notifications" placement="bottom">

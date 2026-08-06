@@ -30,6 +30,7 @@
 import React from 'react'
 import SprintEngineWordmark from '../brand/SprintEngineWordmark'
 import { Popover, Tooltip } from '../ui'
+import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { TRAFFIC_LIGHT_INSET } from './AppTitleBar'
 
@@ -166,6 +167,7 @@ export function AppMenuButton<MenuItem extends string>({
       ariaLabel="Application menu"
       popupRole="menu"
       placement="bottom-start"
+      surfaceClassName={`w-44 ${MENU_LIST_CLASS}`}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <Tooltip content="Menu" placement="bottom">
           <button
@@ -183,22 +185,23 @@ export function AppMenuButton<MenuItem extends string>({
         </Tooltip>
       )}
     >
-      <div className="w-44 p-1">
-        {menuItems.map((label) => (
-          <button
-            key={label}
-            type="button"
-            role="menuitem"
-            onClick={(event) => {
-              setMenuOpen(false)
-              onShowMenu(event, label)
-            }}
-            className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-heading text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {menuItems.map((label) => (
+        <button
+          key={label}
+          type="button"
+          role="menuitem"
+          onClick={(event) => {
+            setMenuOpen(false)
+            onShowMenu(event, label)
+          }}
+          // The same rows AppTitleBar's fallback draws, and they were the same
+          // hand-roll — at `text-heading` here and `text-body` there, which is
+          // how one menu came in two sizes (MC-2103).
+          className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
+        >
+          {label}
+        </button>
+      ))}
     </Popover>
   )
 }

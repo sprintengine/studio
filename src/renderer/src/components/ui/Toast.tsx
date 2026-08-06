@@ -90,8 +90,13 @@ export function Toast({
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss"
+          // The floor is the token, not a typed box: the target used to be
+          // `h-5 w-5` — 20px, under `--sem-size-hit-target-min` (24px), which
+          // the component spec names as one of the two things that must survive
+          // a rebuild. The negative margin keeps the flow advance the 20px
+          // target had, so widening the target moves nothing beside it.
           className={[
-            'interactive -m-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px]',
+            'interactive -m-1 inline-flex min-h-[var(--hit-target-min)] min-w-[var(--hit-target-min)] shrink-0 items-center justify-center rounded-[3px]',
             'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
             'focus-visible:focus-ring',
           ].join(' ')}

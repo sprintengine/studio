@@ -19,6 +19,7 @@ import {
  LifecycleGlyph,
  FOCUS_RING_CLASS,
   FOCUS_RING_INSET_CLASS,
+ Input,
  Popover,
  SidePane,
  Spinner,
@@ -3362,12 +3363,13 @@ export function SprintRunBoard({
  <span className="mb-2 block text-micro font-bold text-[color:var(--text-disabled)]">
  Name (optional)
  </span>
- <input
- type="text"
+ {/* The kit field (MC-2114). It was a raw `h-10` box — 40px, off the
+     26/30/34 ramp — drawing its own ground and no border at all. */}
+ <Input
+ size="md"
  value={addMemberName}
  onChange={(event) => setAddMemberName(event.target.value)}
  placeholder={getSprintEngineRoleLabel(addMemberRole)}
- className="h-10 w-full rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-sm text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
  />
  </label>
  ) : null}

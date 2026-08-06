@@ -3,7 +3,7 @@ import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { launchableConnectors } from '../../panels/ConnectorsPanel/connectorsFacets'
 import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
-import { FOCUS_RING_CLASS, Popover, Spinner, TruncatedText, type PopoverPlacement, type PopoverProps } from '../../ui'
+import { FOCUS_RING_CLASS, MENU_ITEM_STACKED_CLASS, Popover, Spinner, TruncatedText, type PopoverPlacement, type PopoverProps } from '../../ui'
 
 // The composer's "+ Connector" picker: the same launchable population as the
 // Connectors surface's Ready-to-launch rail (skill-paired catalog entries plus
@@ -97,10 +97,10 @@ function ConnectorRow({
       // hovering paints (ui/menuClasses, ui/Select) — rather than the third
       // token `--bg-active` it used to spend, which matched neither the hover
       // state beside it nor the selection fill every persistent list uses.
-      className={`flex w-full items-start gap-2 rounded px-2.5 py-1.5 text-left transition-colors ${
+      className={`${MENU_ITEM_STACKED_CLASS} ${
         active
           ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+          : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]'
       }`}
     >
       <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={22} />

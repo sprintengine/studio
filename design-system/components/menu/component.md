@@ -134,6 +134,24 @@ nobody can adopt cheaply.
 type size on the surface — including the surface of a submenu it opens — is
 rebuilding the drift this spec closed.
 
+### The stacked item
+
+There is **one** second row shape, and it exists for a picker whose entries
+carry a supporting line under the name — a skill and its description, a
+connector and what it does. It shares the item's inset, gap, highlight, disabled
+state and focus ring, and differs in exactly two ways:
+
+| Property | Stacked item | Why |
+|---|---|---|
+| Cross-axis alignment | `start`, not `center` | a glyph and a trailing mark belong on the FIRST line; centred, they float against the gap between two |
+| Type | none of its own | each line names its own step — `body` for the name, `meta` for the support |
+
+It is a *shape*, not a host's preference, and it is the only one: a menu that
+wants a third is a menu asking for a list. Nothing else about it is negotiable,
+and no host may reach for `start` alignment itself — an alignment written beside
+the item's own is resolved by stylesheet order rather than by the order the
+class names appear, so the two shapes have to be two named things.
+
 ## Divider
 
 `border.subtle`, 1px, with `space.2xs` (4px) of air above and below. A group
@@ -311,3 +329,21 @@ Held by `ui/designSystemAxes.test.ts`, whose menu checks take **this document �
 which compares the three components against each other rather than each against
 itself: the divergence only ever existed *between* components, so a
 per-component test could not have caught it.
+
+**Reconciled 2026-08-05, again (MC-2138).** The class pair above had converged
+the five components the kit owns; every menu row *outside* them was still
+hand-rolled — the horizon's roster popover, both in-app menubar fallbacks, the
+account menu, the reasoning selector — each with its own inset, its own type
+step and no disabled state. Two of them were the same menu drawn at two sizes.
+They consume `MENU_ITEM_CLASS` now, their surfaces consume `MENU_LIST_CLASS`
+(and so gave up the horizontal padding this spec rules out), and the two picker
+popovers that had shipped as byte-identical copies of one hand-rolled row became
+the stacked item above. `role="menuitem"` also stopped appearing on things that
+are not rows: the notifications popover put it on a report block carrying its own
+buttons, and is a `dialog` popover now.
+
+Held additionally by the `MC-2138` rules in
+`src/renderer/src/components/ui/designSystemConformance.test.tsx`, which read
+the literals a developer types across a directory list that grows as each
+surface converges — the earlier sweeps' scoped guards plus an unscoped
+"complete" claim are precisely how this tail survived three of them.
