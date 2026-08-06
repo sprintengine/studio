@@ -51,7 +51,12 @@ export function ensureProjectLogo(
   if (entries.has(folderPath)) return
 
   entries.set(folderPath, { status: 'loading', dataUrl: null })
-  void detect(folderPath)
+  // `Promise.resolve().then(...)` rather than calling `detect` directly, so a
+  // detector that throws SYNCHRONOUSLY lands in the same catch as one that
+  // rejects. Both are a failed detection, and a failed detection keeps the
+  // glyph — the sidebar must never fail to mount over decoration.
+  void Promise.resolve()
+    .then(() => detect(folderPath))
     .then((logo) => {
       entries.set(folderPath, { status: 'ready', dataUrl: logo?.dataUrl ?? null })
       emit()

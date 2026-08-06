@@ -48,7 +48,10 @@ anyGlobal.ResizeObserver = NoopResizeObserver
 dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 // Handlers touch window.api only on interaction we do not exercise here; a stub
 // keeps any incidental reads from throwing at mount.
-domWindow.api = { platform: 'darwin' }
+// `detectProjectLogo` is the project-logo bridge the row's identity slot
+// asks for on mount (MC-2135); a repo with no logo answers null and the row
+// keeps its workspace-type glyph.
+domWindow.api = { platform: 'darwin', detectProjectLogo: async () => null }
 
 async function main(): Promise<void> {
   const React = await import('react')

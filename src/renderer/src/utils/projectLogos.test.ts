@@ -14,6 +14,13 @@ import {
 
 const LOGO: ProjectLogo = { path: '/repo/logo.svg', mtimeMs: 1, dataUrl: 'data:image/svg+xml;base64,PHN2Zy8+' }
 
+// Detection settles over several microtasks (`ensureProjectLogo` defers the
+// call so a synchronous throw is caught like a rejection), so drain rather than
+// counting ticks.
+async function flush(): Promise<void> {
+  for (let i = 0; i < 8; i += 1) await Promise.resolve()
+}
+
 function deferred() {
   let resolve!: (value: ProjectLogo | null) => void
   let reject!: (error: unknown) => void
@@ -46,8 +53,7 @@ async function main(): Promise<void> {
     assert.equal(notified, 0, 'starting a detection does not churn subscribers')
 
     pending.resolve(LOGO)
-    await pending.promise
-    await Promise.resolve()
+    await flush()
     assert.equal(getProjectLogoDataUrl('/repo'), LOGO.dataUrl, 'the resolved logo lands on the folder')
     assert.equal(notified, 1, 'subscribers are told once when it lands')
     unsubscribe()
@@ -62,11 +68,12 @@ async function main(): Promise<void> {
     }
     ensureProjectLogo('/repo', detect)
     ensureProjectLogo('/repo', detect)
-    await Promise.resolve()
+    await flush()
     ensureProjectLogo('/repo', detect)
     assert.equal(calls, 1, 'every surface asking for the same project shares one detection')
 
     ensureProjectLogo('/other', detect)
+    await flush()
     assert.equal(calls, 2, 'a different project gets its own detection')
   }
 
@@ -80,8 +87,7 @@ async function main(): Promise<void> {
       throw new Error('EACCES')
     }
     ensureProjectLogo('/repo', failing)
-    await Promise.resolve()
-    await Promise.resolve()
+    await flush()
     assert.equal(getProjectLogoDataUrl('/repo'), null, 'a failed detection keeps the glyph')
 
     ensureProjectLogo('/repo', failing)
@@ -89,10 +95,24 @@ async function main(): Promise<void> {
   }
 
   {
+    // A detector that throws synchronously (a preload bridge without the
+    // method, as a partially-stubbed test harness has) is a failed detection,
+    // not a mount crash — the sidebar must never fail to render over
+    // decoration.
+    resetProjectLogos()
+    assert.doesNotThrow(() => {
+      ensureProjectLogo('/repo', () => {
+        throw new TypeError('window.api.detectProjectLogo is not a function')
+      })
+    }, 'a synchronously throwing detector does not escape ensureProjectLogo')
+    await flush()
+    assert.equal(getProjectLogoDataUrl('/repo'), null, 'it settles as no logo, keeping the glyph')
+  }
+
+  {
     resetProjectLogos()
     ensureProjectLogo('/repo', async () => null)
-    await Promise.resolve()
-    await Promise.resolve()
+    await flush()
     assert.equal(getProjectLogoDataUrl('/repo'), null, 'a repo with no logo reads as no logo')
   }
 }
