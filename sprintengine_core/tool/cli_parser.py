@@ -744,6 +744,16 @@ def build_parser() -> argparse.ArgumentParser:
     p = vcs_sub.add_parser("status", help="Report the run worktree branch, path, and dirty state.")
     p.set_defaults(handler=run_commands.vcs_status)
 
+    p = vcs_sub.add_parser(
+        "task-worktree",
+        help=(
+            "Provision one task's own worktree ahead of its claim and report its path "
+            "(per-task isolation only; reports isolated:false when the run shares one worktree)."
+        ),
+    )
+    p.add_argument("--task-id", required=True, help="Task whose worktree should exist.")
+    p.set_defaults(handler=run_commands.vcs_task_worktree)
+
     p = vcs_sub.add_parser("commit", help="Commit your task's changes in its project's run worktree (serialized by that project's commit lock).")
     p.add_argument("--task-id", required=True, help="Task whose changes you are committing.")
     p.add_argument("--id", required=True, help="Your agent id.")

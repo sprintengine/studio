@@ -30,6 +30,10 @@ import {
 } from './sprintengine'
 import type { SprintEngineIntake } from '../../../shared/sprintengine/run-types'
 import { sourcePlanKindSupportsDirectIntake } from '../../../shared/sprintengine/run-types'
+import {
+  backlogDependenciesPlannedFromFields,
+  parseBacklogFrontmatter,
+} from '../../../shared/backlog/frontmatter'
 import { buildPlanFileSprintEngineHandoffPrompt } from './sprintengineHandoff'
 import { buildRunWorkspaceContext } from './runWorkspaceCreation'
 import { deriveSprintEngineAutomationDesiredMode } from './sprintengineAutomationLifecycle'
@@ -56,6 +60,10 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   workspaceWindowId?: WorkspaceWindowId | null
   useWorktrees?: boolean
+  // Per-task worktrees (MC-2136): every task gets its own checkout branched off
+  // the run branch and merged back at publish, instead of the whole run sharing
+  // one. Layered on useWorktrees — never sent without it.
+  taskIsolation?: boolean
   // The other projects this run also changes (MC-1613). Forwarded verbatim to
   // init as `--repo <id>=<root>`; only meaningful alongside useWorktrees.
   repos?: Array<{ id: string; root: string }>
@@ -207,6 +215,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   sprintEngineAutoState,
   workspaceWindowId,
   useWorktrees,
+  taskIsolation,
   repos,
   baseStartPoint,
   sourceReference,
@@ -269,7 +278,19 @@ export async function createPlanSourcedSprintEngineWorkspace({
   // source to planned (warn-not-block), so a requested-but-unsupported direct
   // must still get the coordinator handoff prompt here or the plan gate the
   // engine mints would sit with nobody prompted to fill it.
-  const runsDirect = sourcePlanKindSupportsDirectIntake(sourcePlanKind) && intake !== 'planned'
+  //
+  // With no intake stated, the engine's DEFAULT for an epic now follows the
+  // epic's own `dependenciesPlanned:` mark (MC-2137) — an epic whose ordering
+  // was never declared finished plans first. Callers that omit `intake`
+  // (Horizon, automations) must resolve it the same way here, or a planned run
+  // would open its plan gate with nobody prompted to fill it.
+  const supportsDirect = sourcePlanKindSupportsDirectIntake(sourcePlanKind)
+  const resolvedIntake: SprintEngineIntake =
+    intake
+    ?? (supportsDirect && backlogDependenciesPlannedFromFields(parseBacklogFrontmatter(sourceContent).fields)
+      ? 'direct'
+      : 'planned')
+  const runsDirect = supportsDirect && resolvedIntake === 'direct'
 
   if (initializeSprintEngineState) {
     const initResult = await initializeSprintEngineState({
@@ -281,6 +302,9 @@ export async function createPlanSourcedSprintEngineWorkspace({
       events: sprintEngineState.events,
       artifacts: sprintEngineState.artifacts,
       useWorktrees: useWorktrees === true,
+      // Only when chosen: an absent field keeps a per-sprint run's init payload
+      // exactly what it was before per-task isolation was reachable.
+      ...(useWorktrees === true && taskIsolation === true ? { taskIsolation: true } : {}),
       ...(repos && repos.length > 0 ? { repos } : {}),
       ...(useWorktrees === true && baseStartPoint?.trim() ? { baseStartPoint: baseStartPoint.trim() } : {}),
       roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults, roleReasoningOverrides),

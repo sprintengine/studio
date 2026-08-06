@@ -143,6 +143,7 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
       updateType: unexpectedCall('updateType'),
       updateTriage: unexpectedCall('updateTriage'),
       updateEpic: unexpectedCall('updateEpic'),
+      updateDependenciesPlanned: unexpectedCall('updateDependenciesPlanned'),
       addOrUpdateLink: unexpectedCall('addOrUpdateLink'),
       repairIntegrity: unexpectedCall('repairIntegrity'),
       ...overrides.backlogWrite,
@@ -1090,6 +1091,44 @@ async function testBacklogUpdateAppliesInOrderAndStopsOnFailure(): Promise<void>
   assert.equal((nullStatus.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
 }
 
+// The epic ordering mark (MC-2137) is the one field an agent sets to say "the
+// planning phase for this epic is over", so backlog.update has to carry it.
+async function testBacklogUpdateCarriesTheEpicOrderingMark(): Promise<void> {
+  const marks: boolean[] = []
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      backlogWrite: {
+        updateDependenciesPlanned: async (input) => {
+          marks.push(input.dependenciesPlanned)
+          return { ok: true, store: { schemaVersion: 1, items: [] } }
+        },
+      },
+    })
+  )
+  const update = tool(tools, 'backlog.update')
+
+  const marked = await update.handler(
+    { path: 'backlog/epics/auth.md', dependenciesPlanned: true },
+    agentContext('ws-1')
+  )
+  assert.equal(marked.isError, undefined)
+  const cleared = await update.handler(
+    { path: 'backlog/epics/auth.md', dependenciesPlanned: false },
+    agentContext('ws-1')
+  )
+  assert.equal(cleared.isError, undefined)
+  assert.deepEqual(marks, [true, false], 'the mark is written exactly as asserted, both ways')
+
+  // It is an assertion, not a string: a stringy "true" is refused before any write.
+  const stringy = await update.handler(
+    { path: 'backlog/epics/auth.md', dependenciesPlanned: 'true' },
+    agentContext('ws-1')
+  )
+  assert.equal((stringy.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  assert.equal(marks.length, 2, 'an invalid mark never reaches the writer')
+}
+
 async function testBacklogAssignBuildsTheCanonicalLink(): Promise<void> {
   const linked: Array<Record<string, unknown>> = []
   const workspace = testWorkspace('ws-1', {
@@ -1628,7 +1667,11 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
       name: undefined,
       startRunner: true,
       autoApproveArtifacts: false,
-      useWorktrees: false,
+      // MC-2136 flipped this default from false: a sprint runs in one worktree
+      // per sprint unless asked otherwise, on every creation surface. A caller
+      // that wants the main working tree says so (`useWorktrees: false` /
+      // `isolation: "none"`), which is checked below.
+      useWorktrees: true,
     },
   ])
 
@@ -1687,6 +1730,57 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
     assert.equal((bad.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
   }
 
+  // MC-2136 — the isolation ladder. `isolation` is the whole thing; the older
+  // `useWorktrees` boolean stays accepted and means its first two rungs, so a
+  // caller written before this creates the byte-identical run it always did.
+  requests.length = 0
+  const perTask = await tool(tools, 'sprint.create').handler({
+    folderPath: '/tmp/project-a',
+    goal: 'Ship checkout',
+    isolation: 'task',
+  })
+  assert.equal(perTask.isError, undefined, JSON.stringify(perTask.structuredContent))
+  assert.equal((requests[0] as { useWorktrees?: boolean }).useWorktrees, true, 'per-task rides on run worktrees')
+  assert.equal((requests[0] as { taskIsolation?: boolean }).taskIsolation, true)
+
+  requests.length = 0
+  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', isolation: 'sprint' })
+  assert.equal((requests[0] as { useWorktrees?: boolean }).useWorktrees, true)
+  assert.equal(
+    'taskIsolation' in (requests[0] as object),
+    false,
+    'the per-sprint rung sends no isolation field at all — the pre-2136 payload',
+  )
+
+  requests.length = 0
+  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', useWorktrees: false })
+  assert.equal(
+    (requests[0] as { useWorktrees?: boolean }).useWorktrees,
+    false,
+    'an explicit false still means the project folder — only OMITTING both takes the new default',
+  )
+
+  requests.length = 0
+  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', isolation: 'none' })
+  assert.equal((requests[0] as { useWorktrees?: boolean }).useWorktrees, false)
+
+  requests.length = 0
+  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', useWorktrees: true })
+  assert.equal((requests[0] as { useWorktrees?: boolean }).useWorktrees, true, 'the old spelling still means one worktree')
+  assert.equal('taskIsolation' in (requests[0] as object), false)
+
+  // Two spellings that disagree are refused rather than silently resolved either
+  // way — an unreadable request must not quietly create the weaker run.
+  for (const args of [
+    { folderPath: '/tmp/project-a', goal: 'g', isolation: 'task', useWorktrees: false },
+    { folderPath: '/tmp/project-a', goal: 'g', isolation: 'none', useWorktrees: true },
+    { folderPath: '/tmp/project-a', goal: 'g', isolation: 'per-task' },
+  ]) {
+    const bad = await tool(tools, 'sprint.create').handler(args as never)
+    assert.equal(bad.isError, true, JSON.stringify(args))
+    assert.equal((bad.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  }
+
   // Delegate failures pass through verbatim (no window, controller errors).
   const failing = createAutomationTools({
     ...backendsOf(),
@@ -1694,6 +1788,69 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
   })
   const failed = await tool(failing, 'sprint.create').handler({ folderPath: '/tmp/p', goal: 'g' })
   assert.equal((failed.structuredContent as { error: { code: string } }).error.code, 'sprint_team_exists')
+}
+
+// MC-2137 — starting a sprint from an epic whose ordering was never declared
+// finished. The gate INFORMS: the run is always created, and the response says
+// what happened to the intake.
+async function testSprintCreateWarnsOnAnUnmarkedEpic(): Promise<void> {
+  const workspace = testWorkspace('ws-sprint', { folderPath: '/tmp/project-a', mode: 'sprintengine' as never })
+  const epics: Record<string, { isEpic: boolean; dependenciesPlanned?: boolean }> = {
+    'backlog/epics/unmarked.md': { isEpic: true },
+    'backlog/epics/marked.md': { isEpic: true, dependenciesPlanned: true },
+    'backlog/plain-item.md': { isEpic: false },
+    // `type: epic` outside backlog/epics/: a real epic to the panel, but not an
+    // epic LAUNCH — the run plans regardless, so there is nothing to warn about.
+    'backlog/stray-epic.md': { isEpic: true },
+  }
+  const tools = createAutomationTools({
+    ...backendsOf(),
+    getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
+    delegateToRenderer: async () => ({ ok: true, workspaceId: 'ws-sprint' }),
+    readBacklogItem: async (_root, relativePath) => {
+      const item = epics[relativePath]
+      return item
+        ? { ok: true, item: { relativePath, title: 'x', status: 'ready', ...item }, body: '' }
+        : { ok: false, message: `no item ${relativePath}` }
+    },
+  })
+  const warningsOf = async (args: Record<string, unknown>): Promise<string[]> => {
+    const result = await tool(tools, 'sprint.create').handler(args as never)
+    assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent))
+    return ((result.structuredContent as { warnings?: string[] }).warnings ?? [])
+  }
+
+  const explicitDirect = await warningsOf({
+    folderPath: '/tmp/project-a',
+    sourceRef: 'backlog/epics/unmarked.md',
+    intake: 'direct',
+  })
+  assert.equal(explicitDirect.length, 1, 'an explicit direct over an unmarked epic is warned about, not refused')
+  assert.match(explicitDirect[0], /dependenciesPlanned/)
+  assert.match(explicitDirect[0], /unordered/)
+
+  const omitted = await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/epics/unmarked.md' })
+  assert.equal(omitted.length, 1, 'omitting intake on an unmarked epic no longer takes the epic default silently')
+  assert.match(omitted[0], /"planned"/)
+
+  // The states with nothing to say: a marked epic, an explicit planned request,
+  // a non-epic source, and a source that cannot be read at all.
+  assert.deepEqual(await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/epics/marked.md' }), [])
+  assert.deepEqual(
+    await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/epics/unmarked.md', intake: 'planned' }),
+    [],
+  )
+  assert.deepEqual(await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/plain-item.md' }), [])
+  assert.deepEqual(
+    await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/stray-epic.md', intake: 'direct' }),
+    [],
+    'a file outside backlog/epics/ never launches as an epic source, marked or not',
+  )
+  assert.deepEqual(
+    await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/gone.md' }),
+    [],
+    'an unreadable source costs the warning, never the run',
+  )
 }
 
 async function testSprintLifecycleToolsMutateViaMainServices(): Promise<void> {
@@ -2874,6 +3031,7 @@ const tests = [
   testReadToolsPassServiceFailuresThrough,
   testBacklogRepairRoutesOnlyValidatedIntegrityOperations,
   testBacklogUpdateAppliesInOrderAndStopsOnFailure,
+  testBacklogUpdateCarriesTheEpicOrderingMark,
   testBacklogAssignBuildsTheCanonicalLink,
   testBacklogWorkHandsItemToAgent,
   testBacklogWorkFallsBackAndRefusesFinishedItems,
@@ -2885,6 +3043,7 @@ const tests = [
   testAutomationMutationToolsPassPipelineFailuresThrough,
   testSprintReadToolsAnswerFromDisk,
   testSprintCreateDelegatesAndConfirms,
+  testSprintCreateWarnsOnAnUnmarkedEpic,
   testSprintLifecycleToolsMutateViaMainServices,
   testSprintSteeringToolsMutateViaMainServices,
   testSprintVcsAndUsageToolsReadViaMainServices,

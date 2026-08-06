@@ -35,8 +35,11 @@ export { meaningfulModelId } from './cliRuntimeCatalog'
 // name. Hosts get the same picker with the same axes in the same place, whether
 // they open it from a composer row, a wizard step, a roster band, or a door bar.
 
-const MODEL_ROW_SELECTOR = '[data-model-row="true"]'
 const QUICK_SELECT_LIMIT = 9
+
+// The key the pinned "no runtime" row navigates under. Sentinel-shaped for the
+// same reason FAVOURITES_FILTER is: it shares an index space with model keys.
+const NONE_ROW_KEY = '__none__'
 
 // The starred rail entry. Sentinel-shaped so it cannot collide with a plugin id.
 const FAVOURITES_FILTER = '__starred__'
@@ -183,7 +186,6 @@ export function CliModelPopoverSurface({
   const [filter, setFilter] = React.useState<RailFilter>(() =>
     options.some((option) => option.value === currentCli) ? currentCli : options[0]?.value ?? currentCli,
   )
-  const listRef = React.useRef<HTMLDivElement | null>(null)
   const railRef = React.useRef<HTMLDivElement | null>(null)
   const searchRef = React.useRef<HTMLInputElement | null>(null)
   const listId = React.useId()
@@ -233,6 +235,49 @@ export function CliModelPopoverSurface({
   }
   const selectedRowIndex = visible.findIndex(isSelected)
 
+  // ── the keyboard model (MC-2134) ─────────────────────────────────────────
+  //
+  // The search field is the combobox and keeps focus for the whole life of this
+  // surface; the highlighted row is named by `aria-activedescendant` and is
+  // never focused. This list used to move real DOM focus onto the row, which
+  // meant the first arrow took focus off the field and every keystroke after it
+  // went to the row instead of the query — you could narrow, or walk, but not
+  // both. The ruling and its two clauses are in
+  // `design-system/components/combobox/component.md`.
+  //
+  // The highlight is tracked by row KEY, not index: narrowing the list leaves it
+  // on the same model when that model survives the query, and falls back to the
+  // selected row (then the first) when it does not. An index would point at a
+  // different model in the window between a rebuild and the effect re-anchoring
+  // it.
+  const [activeKey, setActiveKey] = React.useState<string | null>(null)
+  const activeRowRef = React.useRef<HTMLDivElement | null>(null)
+  const showNoneRow = Boolean(noneRow) && !searching
+  const navRows: Array<{ key: string; row: ModelRow | null }> = [
+    ...(showNoneRow ? [{ key: NONE_ROW_KEY, row: null }] : []),
+    ...visible.map((row) => ({ key: row.key, row })),
+  ]
+  const navSelectedIndex = showNoneRow
+    ? noneRow?.selected
+      ? 0
+      : selectedRowIndex < 0
+        ? -1
+        : selectedRowIndex + 1
+    : selectedRowIndex
+  const activeIndex = ((): number => {
+    const held = activeKey ? navRows.findIndex((entry) => entry.key === activeKey) : -1
+    if (held >= 0) return held
+    if (navSelectedIndex >= 0 && navSelectedIndex < navRows.length) return navSelectedIndex
+    return navRows.length > 0 ? 0 : -1
+  })()
+  const optionId = (index: number): string => `${listId}-option-${index}`
+
+  // `scrollIntoView` is optional-called: jsdom does not implement it, and the
+  // node tests drive this surface for real rather than through a shim.
+  React.useEffect(() => {
+    activeRowRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [activeIndex])
+
   const choose = (row: ModelRow): void => {
     if (row.model === null) {
       const option = options.find((entry) => entry.value === row.cli)
@@ -260,28 +305,69 @@ export function CliModelPopoverSurface({
     choose(row)
   }
 
-  const onListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'ArrowRight') return
-    const nodes = Array.from(listRef.current?.querySelectorAll<HTMLElement>(MODEL_ROW_SELECTOR) ?? [])
-    if (nodes.length === 0) return
-    const current = (event.target as HTMLElement | null)?.closest<HTMLElement>(MODEL_ROW_SELECTOR)
-    if (event.key === 'ArrowRight') {
-      // The star is revealed on hover, so keyboard needs its own way in.
-      const star = current?.querySelector<HTMLButtonElement>('[data-model-star="true"]')
-      if (!star) return
-      event.preventDefault()
-      star.focus()
-      return
-    }
+  const chooseNav = (index: number): void => {
+    const entry = navRows[index]
+    if (!entry) return
+    if (entry.row) choose(entry.row)
+    else noneRow?.onSelect()
+  }
+
+  // True when the caret has nothing left to its right, so a horizontal key is
+  // free for the list. An empty field is trivially at its end.
+  const caretAtEnd = (): boolean => {
+    const input = searchRef.current
+    if (!input) return true
+    const start = input.selectionStart ?? input.value.length
+    const end = input.selectionEnd ?? start
+    return start === end && start === input.value.length
+  }
+
+  // A key this field consumes stops here. Two of this surface's hosts are MENUS
+  // — the roster's right-click picker and its `MenuFlyoutItem` — and a menu
+  // surface runs `roveMenuFocus` on its own keydown, which answers
+  // ArrowUp/Down/Home/End by moving real focus onto one of ITS items. Left to
+  // bubble, the host would take focus off the field on the first arrow, which is
+  // the exact failure the ruling exists to end. Escape is not consumed here, so
+  // the surface still closes from anywhere inside it.
+  const consume = (event: React.KeyboardEvent): void => {
     event.preventDefault()
-    if (!current) {
-      // Arrowing out of the search field enters the list at its selected row.
-      nodes[event.key === 'ArrowDown' ? Math.max(selectedRowIndex, 0) : nodes.length - 1]?.focus()
+    event.stopPropagation()
+  }
+
+  const onQueryKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      consume(event)
+      if (navRows.length === 0) return
+      const next = (activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + navRows.length) % navRows.length
+      setActiveKey(navRows[next]?.key ?? null)
       return
     }
-    const index = nodes.indexOf(current)
-    if (index < 0) return
-    nodes[(index + (event.key === 'ArrowDown' ? 1 : -1) + nodes.length) % nodes.length]?.focus()
+    if (event.key === 'Enter') {
+      if (activeIndex < 0) return
+      consume(event)
+      chooseNav(activeIndex)
+      return
+    }
+    // Home/End belong to the caret whenever the field has text: this is a field
+    // you type into, and stealing them leaves no way to reach the ends of the
+    // query. With nothing typed there is no caret to serve, so they jump the
+    // list.
+    if ((event.key === 'Home' || event.key === 'End') && query.length === 0) {
+      if (navRows.length === 0) return
+      consume(event)
+      setActiveKey(navRows[event.key === 'Home' ? 0 : navRows.length - 1]?.key ?? null)
+      return
+    }
+    // The row's own control, reached without a pointer. The star is revealed on
+    // hover, so with focus pinned to the field it would otherwise have no
+    // keyboard path at all — this is the escape hatch the ruling requires of any
+    // picker whose rows carry a control. ArrowLeft on the star comes back.
+    if (event.key === 'ArrowRight' && caretAtEnd()) {
+      const star = activeRowRef.current?.querySelector<HTMLButtonElement>('[data-model-star="true"]')
+      if (!star) return
+      consume(event)
+      star.focus()
+    }
   }
 
   // The rail is one tab stop with arrows moving inside it, as a tablist is.
@@ -369,28 +455,40 @@ export function CliModelPopoverSurface({
             ref={searchRef}
             type="search"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={onListKeyDown}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setActiveKey(null)
+            }}
+            onKeyDown={onQueryKeyDown}
             aria-label={`Search ${ariaLabel}`}
+            // This field IS the combobox: it owns the query, keeps focus while
+            // the arrows move the highlight, and names the highlighted row
+            // through `aria-activedescendant`. The list below is rendered for as
+            // long as this surface is, hence the constant `aria-expanded`.
+            role="combobox"
+            aria-expanded
             aria-controls={listId}
+            aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
             placeholder="Search models…"
             className="min-w-0 flex-1 bg-transparent text-meta text-[color:var(--text-default)] outline-none placeholder:text-[color:var(--text-subtle)] [&::-webkit-search-cancel-button]:hidden"
           />
         </div>
 
         <div
-          ref={listRef}
           id={listId}
           role="listbox"
           aria-label={ariaLabel}
-          onKeyDown={onListKeyDown}
           className="max-h-[300px] min-h-0 flex-1 overflow-y-auto p-1"
         >
-          {noneRow && !searching ? (
+          {showNoneRow && noneRow ? (
             <NoneRowView
+              id={optionId(0)}
+              rowRef={activeIndex === 0 ? activeRowRef : undefined}
               label={noneRow.label}
               description={noneRow.description}
               selected={noneRow.selected}
+              active={activeIndex === 0}
+              onHighlight={() => setActiveKey(NONE_ROW_KEY)}
               onSelect={noneRow.onSelect}
             />
           ) : null}
@@ -401,20 +499,27 @@ export function CliModelPopoverSurface({
               </p>
             )
           ) : (
-            visible.map((row, index) => (
-              <ModelRowView
-                key={row.key}
-                row={row}
-                selected={isSelected(row)}
-                tabbable={index === (selectedRowIndex < 0 ? 0 : selectedRowIndex)}
-                chord={index < QUICK_SELECT_LIMIT ? index + 1 : undefined}
-                chordModifier={chordModifier}
-                showProvider={searching || activeFilter === FAVOURITES_FILTER}
-                starred={favouriteSet.has(row.key)}
-                onToggleStar={() => toggleModelFavourite(row.key)}
-                onSelect={() => choose(row)}
-              />
-            ))
+            visible.map((row, index) => {
+              const navIndex = showNoneRow ? index + 1 : index
+              return (
+                <ModelRowView
+                  key={row.key}
+                  id={optionId(navIndex)}
+                  rowRef={activeIndex === navIndex ? activeRowRef : undefined}
+                  row={row}
+                  selected={isSelected(row)}
+                  active={activeIndex === navIndex}
+                  chord={index < QUICK_SELECT_LIMIT ? index + 1 : undefined}
+                  chordModifier={chordModifier}
+                  showProvider={searching || activeFilter === FAVOURITES_FILTER}
+                  starred={favouriteSet.has(row.key)}
+                  onHighlight={() => setActiveKey(row.key)}
+                  onToggleStar={() => toggleModelFavourite(row.key)}
+                  onLeaveStar={() => searchRef.current?.focus()}
+                  onSelect={() => choose(row)}
+                />
+              )
+            })
           )}
         </div>
 
@@ -479,9 +584,12 @@ function RailButton({
 
 // One model. The row is a `div[role=option]` rather than a `<button>` because it
 // hosts the star's own button, and a button inside a button is invalid.
-// Selection keeps full keyboard operation: the row is a tab stop with
-// Enter/Space selecting, arrows roving between rows, ArrowRight reaching the
-// star.
+//
+// A row is never focused (MC-2134): the search field keeps focus and names the
+// highlighted row through `aria-activedescendant`, so a row carries no tab stop
+// and no key handler of its own. `aria-selected` still marks the CURRENT
+// runtime, which is a different fact from the highlight and outlives it —
+// `data-active` carries the highlight for the tests that assert on it.
 /**
  * The pinned "no runtime" row (MC-2129). Same row geometry and selection
  * treatment as a model row, so the list reads as one list; it carries no CLI
@@ -489,34 +597,47 @@ function RailButton({
  * nothing to favourite.
  */
 function NoneRowView({
+  id,
+  rowRef,
   label,
   description,
   selected,
+  active,
+  onHighlight,
   onSelect,
 }: {
+  id: string
+  rowRef?: React.Ref<HTMLDivElement>
   label: string
   description?: string
   selected: boolean
+  active: boolean
+  onHighlight: () => void
   onSelect: () => void
 }): JSX.Element {
   return (
     <div
+      id={id}
+      ref={rowRef}
       role="option"
       aria-selected={selected}
       data-model-row="true"
-      tabIndex={selected ? 0 : -1}
+      data-active={active ? 'true' : undefined}
       onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return
-        event.preventDefault()
-        onSelect()
-      }}
+      onPointerEnter={onHighlight}
       className={[
         'interactive flex w-full cursor-pointer items-center gap-2 rounded-[5px] py-1.5 pl-2 pr-1.5 text-left',
+        // The highlight is `--bg-hover`, the same treatment `Select` gives its
+        // own active option — not a second idiom, and not the focus ring, which
+        // belongs to the field that actually holds focus. A row that is both
+        // current and highlighted keeps the stronger `--bg-selected` fill;
+        // nothing is lost, because the row Enter would take is the one already
+        // marked as current.
         selected
           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-        FOCUS_RING_CLASS,
+          : active
+            ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+            : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
       ].join(' ')}
     >
       <span className="size-icon-sm shrink-0" aria-hidden="true" />
@@ -531,25 +652,36 @@ function NoneRowView({
 }
 
 function ModelRowView({
+  id,
+  rowRef,
   row,
   selected,
-  tabbable,
+  active,
   chord,
   chordModifier,
   showProvider,
   starred,
+  onHighlight,
   onToggleStar,
+  onLeaveStar,
   onSelect,
 }: {
+  id: string
+  rowRef?: React.Ref<HTMLDivElement>
   row: ModelRow
+  /** The CURRENT runtime — a persistent fact, not the keyboard highlight. */
   selected: boolean
-  tabbable: boolean
+  /** The keyboard highlight: this row is the search field's `aria-activedescendant`. */
+  active: boolean
   chord?: number
   chordModifier: string
   /** True while the list spans more than one provider (searching, or the starred filter). */
   showProvider: boolean
   starred: boolean
+  onHighlight: () => void
   onToggleStar: () => void
+  /** ArrowLeft on the star hands focus back to the field that owns it. */
+  onLeaveStar: () => void
   onSelect: () => void
 }): JSX.Element {
   const detail = [showProvider && row.model !== null ? row.provider : null, row.monoId]
@@ -557,22 +689,21 @@ function ModelRowView({
     .join(' · ')
   return (
     <div
+      id={id}
+      ref={rowRef}
       role="option"
       aria-selected={selected}
       data-model-row="true"
-      tabIndex={tabbable ? 0 : -1}
+      data-active={active ? 'true' : undefined}
       onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return
-        event.preventDefault()
-        onSelect()
-      }}
+      onPointerEnter={onHighlight}
       className={[
         'interactive group/row flex w-full cursor-pointer items-center gap-2 rounded-[5px] py-1.5 pl-2 pr-1.5 text-left',
         selected
           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-        FOCUS_RING_CLASS,
+          : active
+            ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+            : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
       ].join(' ')}
     >
       <CliIcon cli={row.cli} className="size-icon-sm shrink-0 text-[color:var(--text-muted)]" />
@@ -610,15 +741,36 @@ function ModelRowView({
           event.stopPropagation()
           onToggleStar()
         }}
-        onKeyDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          event.stopPropagation()
+          // The way back to the field. Escape is deliberately NOT bound here:
+          // Escape closes the surface from anywhere inside it, and a key that
+          // means two things depending on where focus sits is worse than a
+          // second one that always means the same thing.
+          if (event.key !== 'ArrowLeft') return
+          event.preventDefault()
+          onLeaveStar()
+        }}
         className={[
           'interactive grid size-5 shrink-0 place-items-center rounded-[3px]',
           'text-[color:var(--text-disabled)] hover:text-[color:var(--text-default)]',
-          // Revealed on hover AND on keyboard focus — hover-only is a bug. A
-          // starred row keeps its mark at rest, which is the whole point of it.
+          // Revealed on hover, on the keyboard HIGHLIGHT, and on its own focus —
+          // hover-only is a bug. The highlight earns a reveal because ArrowRight
+          // from the field is the star's only keyboard path, and an affordance
+          // that appears solely under a pointer cannot advertise it. A starred
+          // row keeps its mark at rest, which is the whole point of it.
+          //
+          // The highlight is branched in JS rather than written as a
+          // `group-data-[active=true]/row:` variant: that variant appears
+          // nowhere else in the app, and tokens.ts documents at length what a
+          // variant Tailwind never emits costs — an affordance that silently
+          // renders inert. `opacity-100` is a utility the stylesheet certainly
+          // has.
           starred
             ? 'text-[color:var(--text-muted)]'
-            : 'opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 focus-visible:opacity-100',
+            : active
+              ? 'opacity-100'
+              : 'opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 focus-visible:opacity-100',
           FOCUS_RING_CLASS,
         ].join(' ')}
       >

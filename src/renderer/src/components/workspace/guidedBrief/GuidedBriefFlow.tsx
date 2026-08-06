@@ -15,7 +15,7 @@ import {
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
-import { CloseIconButton, LifecycleGlyph, OutlineButton, PrimaryButton, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
+import { CloseIconButton, GhostButton, LifecycleGlyph, OutlineButton, PanelHeader, PrimaryButton, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
 import { parentPath } from '../../../utils/paths'
 import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
 import { ConversationPane } from './ConversationPane'
@@ -719,39 +719,37 @@ export function GuidedBriefFlow({
       aria-labelledby="guided-brief-title"
       className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)]"
     >
-      <header className="flex shrink-0 items-center gap-3 border-b border-[color:var(--bg-surface-raised)] px-5 py-3">
-        <div className="flex min-w-0 shrink-0 items-center gap-2">
-          <h2
-            id="guided-brief-title"
-            className="truncate text-body font-semibold text-[color:var(--text-strong)]"
-          >
-            {workspaceName}
-          </h2>
-          <span className="text-meta text-[color:var(--text-muted)]">
-            · {isDesignSystemPreset
-              ? 'Design system'
-              : isDesignPreset
-                ? 'Design only'
-                : `Plan & design${hasUi === 'no' ? ' · no UI' : ''}`}
-          </span>
-        </div>
-        <StepRail
-          steps={steps}
-          canReview={canReviewStep}
-          reviewingStage={reviewingStage}
-          onReview={(stepStage) =>
-            setReviewingStage((current) => (current === stepStage ? null : stepStage))
-          }
-        />
-        {onClose ? (
-          <CloseIconButton
-            size="md"
-            aria-label="Close"
-            onClick={onClose}
-            className="ml-2"
-          />
-        ) : null}
-      </header>
+      {/* The identity row is `ui/PanelHeader` (2112). The band was `px-5 py-3`
+          — its own height — and drew its rule in `--bg-surface-raised`, a
+          SURFACE token spent as a border colour. The preset line is the
+          `subtitle` it always was, `·` separator and all, and the step rail is
+          a secondary control on the row rather than its one action. */}
+      <PanelHeader
+        title={workspaceName}
+        titleId="guided-brief-title"
+        subtitle={
+          isDesignSystemPreset
+            ? 'Design system'
+            : isDesignPreset
+              ? 'Design only'
+              : `Plan & design${hasUi === 'no' ? ' · no UI' : ''}`
+        }
+        overflow={
+          <>
+            <StepRail
+              steps={steps}
+              canReview={canReviewStep}
+              reviewingStage={reviewingStage}
+              onReview={(stepStage) =>
+                setReviewingStage((current) => (current === stepStage ? null : stepStage))
+              }
+            />
+            {onClose ? (
+              <CloseIconButton size="md" aria-label="Close" onClick={onClose} className="ml-2" />
+            ) : null}
+          </>
+        }
+      />
 
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {reviewing && reviewingStage ? (
@@ -847,17 +845,9 @@ export function GuidedBriefFlow({
                 <TruncatedText as="span" text={skipError} className="text-meta text-[color:var(--tone-error)]" />
               ) : null}
             </span>
-            <button
-              type="button"
-              onClick={onBackToIdea}
-              className="
-                inline-flex h-9 items-center rounded-md px-3 text-meta font-medium text-[color:var(--text-default)]
-                transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
-                focus-visible:focus-ring
-              "
-            >
+            <GhostButton size="md" onClick={onBackToIdea}>
               Back
-            </button>
+            </GhostButton>
             {stage !== 'handoff' && !isDesignSystemPreset ? (
               <OutlineButton size="md" onClick={() => void skipToRoster()} disabled={skippingPlanning}>
                 {skippingPlanning ? 'Skipping…' : 'Skip to roster'}
@@ -1095,18 +1085,11 @@ function renderPrimaryAction({
         : 'The agent is still working.'
   return (
     <Tooltip content={waitingReason}>
-      <button
-        type="button"
-        disabled
-        aria-disabled
-        aria-label={waitingReason}
-        className="
-          inline-flex h-9 cursor-not-allowed items-center rounded-md bg-[color:var(--bg-surface-raised)] px-4
-          text-body font-semibold text-[color:var(--text-disabled)]
-        "
-      >
+      {/* The SAME control as the live Continue below, disabled — it was an
+          `h-9` lookalike, so the button changed size as it became pressable. */}
+      <PrimaryButton size="md" disabled aria-label={waitingReason}>
         Continue
-      </button>
+      </PrimaryButton>
     </Tooltip>
   )
 }

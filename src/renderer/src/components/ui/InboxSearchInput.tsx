@@ -14,6 +14,17 @@ type InboxSearchInputProps = {
   placeholder?: string
   clearAriaLabel?: string
   autoFocus?: boolean
+  /**
+   * The id of the list this field filters. A filter and its results are two
+   * separate stops for a screen reader, and without the link the field is just a
+   * text box that happens to sit above something (MC-2134).
+   *
+   * This is NOT the combobox contract: a combobox owns the list it opens and
+   * names the highlighted row through `aria-activedescendant`. Pass this where
+   * the list is a peer — permanently rendered, its own tab stop, running its own
+   * cursor — and reach for `ui/Combobox` where it is not.
+   */
+  controlsId?: string
 }
 
 export function InboxSearchInput({
@@ -23,6 +34,7 @@ export function InboxSearchInput({
   placeholder,
   clearAriaLabel = 'Clear search',
   autoFocus = false,
+  controlsId,
 }: InboxSearchInputProps) {
   return (
     <div
@@ -48,6 +60,7 @@ export function InboxSearchInput({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         aria-label={ariaLabel}
+        aria-controls={controlsId}
         placeholder={placeholder}
         autoFocus={autoFocus}
         // Escape with text clears it and consumes the event, so an ancestor

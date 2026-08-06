@@ -43,7 +43,7 @@ import {
   type DetectAgentCliAvailabilityDeps,
 } from './cli-availability'
 import { defaultUserRoleRegistryRoot } from './sprintengine-role-registry'
-import { sprintEngineDeclaredSiblingRepoRoots, sprintEngineRepoIdForLaunchCwd } from './sprintengine-artifacts'
+import { sprintEngineDeclaredSiblingRepoRoots, sprintEngineSessionBindingForLaunchCwd } from './sprintengine-artifacts'
 import {
   appendTerminalOutput,
   clearAgentStallTimer,
@@ -106,6 +106,9 @@ type TerminalRuntimeOptions = {
       agentId?: string
       role?: string
       repo?: string
+      /** The one task this session may work, when its cwd is that task's own
+       *  worktree (MC-2136). Absent on shared-worktree runs. */
+      taskId?: string
       cli?: AgentCli
       knowledgeRoot?: string
       http?: {
@@ -348,6 +351,7 @@ export function buildManagedSprintEngineSyncInputForLaunch(
   }
 ): NonNullable<Parameters<NonNullable<TerminalRuntimeOptions['syncMcpConfig']>>[0]['managedSprintEngine']> {
   const registrationRoot = deriveSprintEngineRegistrationRoot(statePath, launchCwd)
+  const sessionBinding = sprintEngineSessionBindingForLaunchCwd(statePath, launchCwd)
   return {
     statePath,
     workspaceRoot: registrationRoot,
@@ -362,10 +366,13 @@ export function buildManagedSprintEngineSyncInputForLaunch(
     workspaceId: launch?.workspaceId,
     agentId: launch?.agentId,
     role: launch?.role,
-    // The repo this session works in, from the worktree it launches into
-    // (MC-1610): binds its claim queue to that tree. Null for a launch outside
-    // any declared worktree, which leaves the session unbound as before.
-    repo: sprintEngineRepoIdForLaunchCwd(statePath, launchCwd) ?? undefined,
+    // What this session is bound to, from the worktree it launches into: the
+    // repo (MC-1610) and, under per-task isolation, the one task whose own tree
+    // this is (MC-2136) — a session in a task's tree may only work that task,
+    // because that is the tree the engine commits it from. Null for a launch
+    // outside any declared worktree, which leaves the session unbound as before.
+    repo: sessionBinding.repo ?? undefined,
+    taskId: sessionBinding.taskId ?? undefined,
     cli: launch?.cli,
     knowledgeRoot: launch?.knowledgeRoot ?? '',
   }

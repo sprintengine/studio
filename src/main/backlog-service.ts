@@ -2,6 +2,8 @@ import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/pro
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import {
+  BACKLOG_DEPENDENCIES_PLANNED_KEY,
+  backlogDependenciesPlannedFromFields,
   extractBacklogTitle,
   formatBacklogCsvList,
   isValidBacklogSlug,
@@ -28,6 +30,7 @@ import type {
   BacklogEnsureIdsResult,
   BacklogEpicColorInput,
   BacklogDependenciesInput,
+  BacklogDependenciesPlannedInput,
   BacklogEpicInput,
   BacklogHighlightColorPayload,
   BacklogHighlightInput,
@@ -347,12 +350,22 @@ export type BacklogFrontmatterFields = {
   // the dependency axis the panel read model derives in the renderer; empty when
   // the line is absent.
   dependsOn?: string[]
+  // The epic's `dependenciesPlanned:` mark (MC-2137). Only meaningful on an epic
+  // — a leaf item carrying it means nothing — but parsed for any file, since the
+  // reader does not know which one it holds. Absent means false.
+  dependenciesPlanned?: boolean
 }
 
 export function readBacklogFrontmatterFields(content: string): BacklogFrontmatterFields {
   const { fields } = parseBacklogFrontmatter(content)
-  const dependsOn = parseBacklogCsvList(fields.dependsOn).filter(isValidBacklogSlug)
+  // The parser lowercases every key, so a camelCase field is read at its
+  // lowercased spelling. Reading `fields.dependsOn` matched nothing and silently
+  // dropped every prerequisite edge this reader exists to expose — the roadmap
+  // orchestrator's whole dependency axis (MC-1619) was empty here.
+  const dependsOn = parseBacklogCsvList(fields.dependson).filter(isValidBacklogSlug)
+  const dependenciesPlanned = backlogDependenciesPlannedFromFields(fields)
   return {
+    ...(dependenciesPlanned ? { dependenciesPlanned } : {}),
     status: isBacklogStatus(fields.status) ? fields.status : undefined,
     type: isBacklogType(fields.type) ? fields.type : undefined,
     difficulty: isBacklogDifficulty(fields.difficulty) ? fields.difficulty : undefined,
@@ -387,6 +400,9 @@ export type BacklogListedItem = {
   // Prerequisite slugs (`dependsOn:`), for the roadmap orchestrator's
   // eligibility (MC-1619). Present only when the item declares dependencies.
   dependsOn?: string[]
+  // The epic's "ordering is done" mark (MC-2137). Present only when set, so an
+  // unflagged epic reads exactly as it did before the field existed.
+  dependenciesPlanned?: boolean
 }
 
 export type BacklogListItemsResult =
@@ -428,6 +444,7 @@ export async function listBacklogItems(workspaceRoot: string): Promise<BacklogLi
         ...(fields.risk ? { risk: fields.risk } : {}),
         ...(fields.epic ? { epic: fields.epic } : {}),
         ...(fields.dependsOn ? { dependsOn: fields.dependsOn } : {}),
+        ...(fields.dependenciesPlanned ? { dependenciesPlanned: true } : {}),
       })
     }
     items.sort((left, right) => left.relativePath.localeCompare(right.relativePath))
@@ -471,6 +488,7 @@ export async function readBacklogItem(workspaceRoot: string, relativePath: strin
         ...(fields.criticality ? { criticality: fields.criticality } : {}),
         ...(fields.risk ? { risk: fields.risk } : {}),
         ...(fields.epic ? { epic: fields.epic } : {}),
+        ...(fields.dependenciesPlanned ? { dependenciesPlanned: true } : {}),
       },
       body,
     }
@@ -1037,6 +1055,24 @@ export async function updateBacklogDependencies(input: BacklogDependenciesInput)
   }
   const dependsOn = cleaned.length > 0 ? formatBacklogCsvList(cleaned) : null
   return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { dependsOn })
+}
+
+// The epic-side ordering mark (MC-2137): "the planning phase for this epic is
+// over". Setting it writes the literal `dependenciesPlanned: true`; clearing it
+// removes the line rather than writing `false`, because absent IS false and a
+// flag file should not accumulate a negative assertion. Nothing polices HOW it
+// got set — a hand edit, a planning agent, `/backlog` closing an ordering
+// session are all the same assertion — so this validates nothing beyond the
+// boolean, and never recomputes the value from the children's edges.
+export async function updateBacklogDependenciesPlanned(
+  input: BacklogDependenciesPlannedInput,
+): Promise<BacklogMutationResult> {
+  if (typeof input.dependenciesPlanned !== 'boolean') {
+    return { ok: false, message: 'Enter true or false for the epic ordering mark.' }
+  }
+  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, {
+    [BACKLOG_DEPENDENCIES_PLANNED_KEY]: input.dependenciesPlanned ? 'true' : null,
+  })
 }
 
 // Mockup attachments are the item-side write: serialize the item's mockup paths

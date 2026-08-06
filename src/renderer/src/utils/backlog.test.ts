@@ -306,6 +306,38 @@ run('dependsOn is undefined when the field is absent or names only self', () => 
   assert.equal(selfOnly.dependsOn, undefined)
 })
 
+run('dependenciesPlanned reads the epic ordering mark, and only a literal true sets it', () => {
+  const marked = createBacklogItem({
+    path: '/repo/backlog/epics/auth.md',
+    relativePath: 'backlog/epics/auth.md',
+    sourceContent: '---\ntype: epic\ndependenciesPlanned: true\n---\n# Auth',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(marked.dependenciesPlanned, true)
+
+  // Absent is the default and stays absent on the item, so an unmarked epic
+  // reads exactly as it did before the field existed.
+  const absent = createBacklogItem({
+    path: '/repo/backlog/epics/auth.md',
+    relativePath: 'backlog/epics/auth.md',
+    sourceContent: '---\ntype: epic\n---\n# Auth',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(absent.dependenciesPlanned, undefined)
+  assert.equal('dependenciesPlanned' in absent, false)
+
+  // An assertion of intent: anything that is not `true` is not one.
+  for (const value of ['false', 'maybe', '1', 'yes']) {
+    const other = createBacklogItem({
+      path: '/repo/backlog/epics/auth.md',
+      relativePath: 'backlog/epics/auth.md',
+      sourceContent: `---\ntype: epic\ndependenciesPlanned: ${value}\n---\n# Auth`,
+      stats: { modifiedAtMs: 20, sizeBytes: 64 },
+    })
+    assert.equal(other.dependenciesPlanned, undefined, `"${value}" must not read as the mark`)
+  }
+})
+
 run('mockups parses the CSV frontmatter scalar into a project-relative list', () => {
   const item = createBacklogItem({
     path: '/repo/backlog/design.md',

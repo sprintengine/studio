@@ -45,7 +45,10 @@ function assertOversizedPayloadIsStillThrottled(): void {
   const writes: string[] = []
   const queue = createXtermOutputQueue(createTerminal(writes), { recordWrite: () => {} })
   const payload = 'x'.repeat(TERMINAL_RECENT_REPLAY_BYTES + 1024)
-  const output = '\r\n[Multicode: renderer terminal output throttled to keep the UI responsive]\r\n'
+  // The shipped banner, verbatim. It was shortened in `5912ed928` (2026-07-29)
+  // and this expectation was left on the old wording, so the suite has been red
+  // since — the notice is user-visible copy, and the test is what pins it.
+  const output = '\r\n[Terminal output throttled to keep the UI responsive]\r\n'
 
   queue.enqueue(payload)
 

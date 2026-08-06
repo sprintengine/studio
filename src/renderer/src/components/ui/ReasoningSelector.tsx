@@ -2,6 +2,12 @@ import React from 'react'
 
 import { ChevronDownIcon } from '../AppIcons'
 import { Popover } from './Popover'
+import {
+  MENU_DIVIDER_CLASS,
+  MENU_GROUP_LABEL_CLASS,
+  MENU_ITEM_CLASS,
+  MENU_LIST_CLASS,
+} from './menuClasses'
 import { FOCUS_RING_CLASS } from './tokens'
 import type { CliModelFamily } from './cliRuntimeCatalog'
 import type { PluginReasoningCatalog, PluginReasoningOption } from '../../../../shared/plugin-manifest'
@@ -179,7 +185,7 @@ export function ReasoningSelector({
       popupRole="menu"
       placement="bottom-start"
       className="shrink-0"
-      surfaceClassName="w-[220px] p-1"
+      surfaceClassName={`w-[220px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusChecked}
       renderTrigger={({ ref, togglePopover, triggerProps }) => (
         <button
@@ -237,7 +243,7 @@ export function ReasoningSelector({
           ))}
         </ReasoningGroup>
       ) : null}
-      {grouped ? <div aria-hidden="true" className="mx-1.5 my-1 h-px bg-[color:var(--border-subtle)]" /> : null}
+      {grouped ? <div role="separator" className={MENU_DIVIDER_CLASS} /> : null}
       {variants.length > 0 ? (
         <ReasoningGroup heading={grouped ? 'Context window' : undefined}>
           {variants.map((variant) => (
@@ -267,7 +273,7 @@ function ReasoningGroup({
   return (
     <div role="group" aria-label={heading}>
       {heading ? (
-        <div className="px-2 pb-0.5 pt-1.5 text-micro text-[color:var(--text-subtle)]">{heading}</div>
+        <div className={`${MENU_GROUP_LABEL_CLASS} pb-0.5 pt-1.5`}>{heading}</div>
       ) : null}
       {children}
     </div>
@@ -303,14 +309,16 @@ function ReasoningMenuItem({
         event.stopPropagation()
         onSelect()
       }}
+      // The shared menu row (MC-2103). It was a bespoke `rounded-[5px] px-2 py-1`
+      // row inside a `p-1` surface — the inset-fill-in-a-padded-surface shape
+      // the menu spec rules out, at an inset no other menu in the app used.
       className={[
-        'flex w-full items-center gap-2 rounded-[5px] px-2 py-1 text-left text-meta',
+        MENU_ITEM_CLASS,
         checked
           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
           : warn
-            ? 'text-[color:var(--tone-warn-on-tint)] hover:bg-[color:var(--bg-hover)]'
-            : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-        FOCUS_RING_CLASS,
+            ? 'text-[color:var(--tone-warn-on-tint)]'
+            : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]',
       ].join(' ')}
     >
       <span className="min-w-0 flex-1 truncate">{children}</span>

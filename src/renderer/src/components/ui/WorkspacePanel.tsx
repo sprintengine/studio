@@ -1,6 +1,14 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { CloseIconButton } from './Buttons'
-import { TruncatedText } from './TruncatedText'
+import { PanelHeader } from './PanelHeader'
+
+// A full-height workspace surface: an identity row, an optional category rail,
+// and a scrolling body. It drew its OWN title band at `px-4 py-3` with a
+// `text-title` heading — a second header anatomy inside the kit that declares
+// the first one, so the panel it wraps started its content at a different
+// height from every panel that names itself through `ui/PanelHeader` (2112).
+// It now composes that primitive, which is what makes "one header" true of the
+// kit rather than only of the kit's consumers.
 
 export type WorkspacePanelHandle = {
   focus: () => void
@@ -13,7 +21,6 @@ type Props = {
   onClose?: () => void
   closeLabel?: string
   sidebar?: React.ReactNode
-  toolbar?: React.ReactNode
   children: React.ReactNode
   bodyClassName?: string
   contentClassName?: string
@@ -28,7 +35,6 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, Props>(function W
     onClose,
     closeLabel = 'Close',
     sidebar,
-    toolbar,
     children,
     bodyClassName,
     contentClassName,
@@ -56,26 +62,14 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, Props>(function W
       tabIndex={-1}
       className="flex h-full min-h-0 flex-col bg-[color:var(--bg-app)] outline-none"
     >
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-4 py-3">
-        <div className="min-w-0">
-          <h2 id={headingId} className="truncate text-title font-semibold tracking-tight text-[color:var(--text-strong)]">
-            {title}
-          </h2>
-          {subtitle ? (
-            <TruncatedText
-              as="p"
-              text={subtitle}
-              className="mt-0.5 text-meta leading-5 text-[color:var(--text-muted)]"
-            />
-          ) : null}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {toolbar}
-          {onClose ? (
-            <CloseIconButton size="md" aria-label={closeLabel} onClick={onClose} />
-          ) : null}
-        </div>
-      </div>
+      <PanelHeader
+        title={title}
+        subtitle={subtitle}
+        titleId={headingId}
+        primaryAction={
+          onClose ? <CloseIconButton size="md" aria-label={closeLabel} onClick={onClose} /> : undefined
+        }
+      />
 
       <div className={`flex min-h-0 flex-1 ${sidebar ? 'flex-col md:flex-row' : 'flex-col'}`}>
         {sidebar ? (

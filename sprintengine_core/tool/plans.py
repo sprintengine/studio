@@ -164,15 +164,44 @@ def run_intake(state: Dict[str, Any]) -> str:
     return value if value in VALID_RUN_INTAKES else ""
 
 
-def resolve_run_intake(state: Dict[str, Any], requested: Optional[str], has_epic_source: bool) -> str:
-    """Settle and persist the run's intake (MC-2128).
+def epic_source_dependencies_planned(state: Dict[str, Any], state_path: Path) -> bool:
+    """Has this run's epic source declared its child ordering finished (MC-2137)?
+
+    The epic's own `dependenciesPlanned: true` frontmatter, and nothing else. It
+    is what separates the two meanings of "no `dependsOn` edges": deliberately
+    parallel (marked) from never ordered (unmarked). An assertion of intent — the
+    engine reads it, never derives or writes it.
+    """
+    if source_plan_kind(state) != "epic":
+        return False
+    frontmatter = backlog_item_frontmatter(source_path_for_kind(state, state_path, "epic"))
+    for key, value in frontmatter.items():
+        if key.lower() == "dependenciesplanned":
+            return str(value).strip().strip("'\"").lower() == "true"
+    return False
+
+
+def resolve_run_intake(
+    state: Dict[str, Any],
+    requested: Optional[str],
+    has_epic_source: bool,
+    epic_dependencies_planned: bool = False,
+) -> str:
+    """Settle and persist the run's intake (MC-2128, gated by MC-2137).
 
     Fixed at run creation, like the worktree toggle and the repo set, and for the
     same reason: by the second init the task graph already exists, and flipping a
     directly-imported run to `planned` would both misdescribe how its graph was
     built and open a plan gate over a graph that needs no approval. So what the
     run already recorded wins; then what the caller asked for; then the default —
-    `direct` for an epic source, `planned` for everything else.
+    `direct` for an epic source **whose ordering is marked done**, `planned` for
+    everything else.
+
+    The mark (MC-2137) moves planning out of the engine: an epic is ordered on the
+    backlog, by a human or an agent they chose, and `dependenciesPlanned: true` is
+    the handshake saying that pass is over. Without it, "no edges" might mean
+    "never ordered", so the run plans first. The gate INFORMS, never blocks — an
+    explicit `--intake direct` on an unmarked epic still runs direct, and says so.
 
     Recording it makes the choice readable by the board and by later inits rather
     than re-derived from the source shape every time.
@@ -182,7 +211,29 @@ def resolve_run_intake(state: Dict[str, Any], requested: Optional[str], has_epic
         raise SystemExit(
             f"--intake must be one of: {', '.join(sorted(VALID_RUN_INTAKES))}."
         )
-    intake = run_intake(state) or requested_value or ("direct" if has_epic_source else "planned")
+    recorded = run_intake(state)
+    default_intake = "direct" if (has_epic_source and epic_dependencies_planned) else "planned"
+    intake = recorded or requested_value or default_intake
+    # An explicit `direct` over an epic that never declared its ordering done is
+    # honoured (warn-not-block, owner 2026-08-05) and recorded as an event, so the
+    # board and the run log say the items ran unordered on purpose. Only on the
+    # FIRST init: a re-init of a settled run is not a fresh choice to warn about.
+    if (
+        intake == "direct"
+        and has_epic_source
+        and not epic_dependencies_planned
+        and not recorded
+    ):
+        append_event(
+            state,
+            "intake_epic_unplanned",
+            "sprintengine",
+            "Direct intake over an epic that is not marked `dependenciesPlanned: true` — "
+            "its ordering was never declared finished, so the imported items run "
+            "unordered, all claimable at once. Mark the epic once its children's "
+            "`dependsOn` order is authored (no edges at all is a valid answer: it "
+            "means deliberately parallel).",
+        )
     # Direct intake only exists for an epic source — with no epic there is no
     # authored order to import, so a requested `direct` DOWNGRADES to planned
     # (warn-not-block, owner 2026-08-05) instead of falling through to a plan

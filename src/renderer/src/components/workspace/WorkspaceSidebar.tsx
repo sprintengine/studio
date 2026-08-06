@@ -4,6 +4,7 @@ import {
   SprintEngineMarkIcon,
   resolveEnabledWorkspaceType,
 } from '../AppIcons'
+import { WorkspaceIdentityIcon } from './WorkspaceIdentityIcon'
 import { buildModeModels } from './newWorkspace/modeModels'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
@@ -277,6 +278,21 @@ export function rowAccent(workspace: Workspace, moduleOverrides: ModuleEnablemen
 function highlightRailClass(workspace: Workspace): string {
   if (!hasHighlightOverride(workspace.highlight)) return ''
   return `border-l-[4px] ${getHighlightSwatch(workspace.highlight!.color!).border}`
+}
+
+// Ink for the row's identity glyph (MC-2135). Deliberately the MODE accent even
+// on a highlighted row, unlike the rest of `rowAccent`: that function's
+// highlight branch builds `text-[${hex}]` at runtime, and Tailwind only emits
+// utilities it can see in source, so the class would resolve to nothing and the
+// glyph would render colourless. The branch was harmless while the row rendered
+// no glyph at all; it is not once the slot is back. Highlight identity is
+// already carried by the 4px rail and the full-width tint, so the glyph keeps
+// saying which MODE the workspace is — which is what the shape says too.
+function rowGlyphClass(workspace: Workspace, moduleOverrides: ModuleEnablementOverrides): string {
+  const effectiveMode: Workspace['mode'] = resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)
+    ? workspace.mode
+    : 'standard'
+  return modeAccents[effectiveMode]?.glyph ?? modeAccents.standard.glyph
 }
 
 // The selected row is its fill and its ink lift — no left bar of its own. The
@@ -1277,11 +1293,27 @@ export default function WorkspaceSidebar({
           />
         ) : null}
 
-        {/* The title starts flush with the row's content edge — the
-            workspace-type icon chip is dropped so the name gets the width. Mode
-            identity survives in the colored left rail / accent (active +
-            highlighted rows), the trailing run glyph, and the inline sprint
-            mark below. */}
+        {/* The row's identity slot. Owner ruling 2026-08-06 (MC-2135, option C
+            of `backlog/2026-08-05-project-logo-in-sidebar.md`): every project
+            row carries an icon again — the project's own logo when its repo has
+            one at its top level, the workspace-type glyph when it does not.
+            This deliberately reverses e92db65a6 (2026-07-22), which dropped the
+            chip so the name got the width; the owner took the width cost to get
+            a list of projects that reads as a list of products, and ruled
+            against the logo-only variant precisely so the left edge stays even.
+            The slot sits ON the 36px content grid and the title moves in behind
+            it — see the alignment-grid comment on the tree below, which this
+            change re-measured. `rowAccent().glyph` colours the fallback glyph
+            (its consumer was orphaned by the 2026-07-22 removal and is restored
+            here — see `rowGlyphClass` for why the glyph keeps the MODE ink
+            even on a highlighted row); a logo is never recoloured. Mode
+            identity also still shows in the accent, the trailing run glyph,
+            and the inline sprint mark. */}
+        <WorkspaceIdentityIcon
+          workspace={workspace}
+          moduleOverrides={moduleOverrides}
+          className={`icon-sm shrink-0 ${rowGlyphClass(workspace, moduleOverrides)}`}
+        />
         {renamingId === workspace.id ? (
           <input
             ref={renameInputRef}
@@ -1662,7 +1694,17 @@ export default function WorkspaceSidebar({
           column without moving its text edge. The 38/40px families are recorded
           drift, not a second grid to build to; closing them is its own change.
           Keep these in step when touching any one, and re-measure rather than
-          trusting the arithmetic above — that is exactly how it went stale. */}
+          trusting the arithmetic above — that is exactly how it went stale.
+
+          Re-measured 2026-08-06 (MC-2135, owner ruling C). The workspace row
+          now opens with a 16px identity slot, so what sits on the 36px grid is
+          its ICON and the row's TITLE starts at 36 + 16 + gap-2 = 60px. The
+          grid itself is unmoved and the icon families still meet at it — the
+          workspace row simply joined the section-header/top-nav shape of
+          "icon on the grid, label behind it". The owner took that title inset
+          knowingly: it is the cost the ruling weighed against an uneven left
+          edge. Row text no longer aligns with the fold-row chevron's 36px;
+          the icon does. */}
       <nav
         ref={treeRef}
         className={`flex-1 overflow-y-auto pb-2 ${contextRailActive ? 'hidden' : ''}`}

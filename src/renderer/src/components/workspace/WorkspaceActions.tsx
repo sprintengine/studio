@@ -11,7 +11,8 @@
 // inventory in lockstep.
 
 import React from 'react'
-import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import { SpecialistActionIcon, SprintEngineRoleIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import { WorkspaceIdentityIcon } from './WorkspaceIdentityIcon'
 import { Badge, ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, Tooltip, TruncatedText } from '../ui'
 import {
   groupSessionItems,
@@ -242,7 +243,7 @@ function SessionsPopover({
                   style={{ color: headerColor }}
                 >
                   {workspace ? (
-                    <WorkspaceTypeIcon mode={workspace.mode} className="h-3.5 w-3.5 shrink-0" />
+                    <WorkspaceIdentityIcon workspace={workspace} className="h-3.5 w-3.5 shrink-0" />
                   ) : null}
                   <TruncatedText as="span" text={group.group.label} className="min-w-0" />
                   {starred ? (
@@ -720,7 +721,10 @@ export function WorkspaceActions({
               }
             }}
             ariaLabel="Notifications"
-            popupRole="menu"
+            // A list of reports, each with its own buttons — not a menu. It
+            // carried `role="menu"` with `role="menuitem"` on the report blocks,
+            // which announced rows that could not be activated (MC-2138).
+            popupRole="dialog"
             placement="bottom-end"
             renderTrigger={({ ref, triggerProps, togglePopover }) => (
               <Tooltip content="Notifications" placement="bottom">

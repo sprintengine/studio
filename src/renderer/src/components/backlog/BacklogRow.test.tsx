@@ -80,6 +80,39 @@ run('the shared row interior keeps its columns with the star present (panel + so
   assert.ok(!markup.includes('Rework the payment step.'), 'no excerpt on the row anymore')
 })
 
+// The epic ordering mark (MC-2137). The row is where an epic whose ordering was
+// never declared finished becomes visible, before any sprint dialog is opened.
+function orderingEpicItem(frontmatter: string[], status = 'ready'): BacklogItem {
+  return createBacklogItem({
+    path: '/repo/backlog/epics/auth.md',
+    relativePath: 'backlog/epics/auth.md',
+    sourceContent: `---\ntype: epic\nstatus: ${status}\n${frontmatter.join('\n')}\n---\n# Auth revamp`,
+    stats: { modifiedAtMs: 1_000, sizeBytes: 64 },
+  })
+}
+
+run('an epic that never declared its ordering done carries the small unordered mark', () => {
+  const markup = renderToStaticMarkup(<BacklogRowContent item={orderingEpicItem([])} now={NOW} />)
+  assert.match(markup, /Order not planned/, 'the words carry the meaning, never colour alone')
+  assert.match(markup, /a sprint from this epic plans first/, 'the mark says what it changes')
+  assert.match(markup, /--text-muted/, 'muted metadata, deliberately not a status tone')
+})
+
+run('a marked epic, a leaf item, and a finished epic carry no mark', () => {
+  const marked = renderToStaticMarkup(
+    <BacklogRowContent item={orderingEpicItem(['dependenciesPlanned: true'])} now={NOW} />,
+  )
+  assert.ok(!marked.includes('Order not planned'), 'the marked epic is simply ready')
+
+  const leaf = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} />)
+  assert.ok(!leaf.includes('Order not planned'), 'ordering is an epic question only')
+
+  for (const status of ['completed', 'archived']) {
+    const done = renderToStaticMarkup(<BacklogRowContent item={orderingEpicItem([], status)} now={NOW} />)
+    assert.ok(!done.includes('Order not planned'), `a ${status} epic has no ordering left to plan`)
+  }
+})
+
 run('star and color never affect list order — comparator ignores highlight for every sort', () => {
   const plainA = itemWith(undefined, 'backlog/a.md')
   const plainB = itemWith(undefined, 'backlog/b.md')

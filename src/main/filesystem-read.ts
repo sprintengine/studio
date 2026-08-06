@@ -9,6 +9,8 @@ import {
   MAX_TEXT_FILE_READ_BYTES,
 } from './filesystem-read-limits'
 import { checkWorkspaceFolder, pathExists } from './filesystem-workspace'
+import { createProjectLogoResolver } from './project-logo'
+import { createProjectLogoIo } from './project-logo-io'
 
 const BINARY_SNIFF_BYTES = 4096
 const MAX_CONTROL_CHARACTER_RATIO = 0.05
@@ -19,7 +21,14 @@ export {
 }
 
 export function createFilesystemReadHandlers() {
+  // One resolver per handler set, so the hit cache outlives a single project
+  // open and a re-open costs a stat instead of a directory scan.
+  const projectLogos = createProjectLogoResolver(createProjectLogoIo())
+
   return {
+    detectProjectLogo(folderPath: string) {
+      return projectLogos.resolve(folderPath)
+    },
     async readDirectory(dirPath: string) {
       const entries = await readdir(dirPath, { withFileTypes: true })
       return entries.map((entry) => ({ name: entry.name, isDir: entry.isDirectory() }))

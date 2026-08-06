@@ -17,6 +17,7 @@
 import React, {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -120,6 +121,7 @@ import type {
 } from '../../../types/workspace'
 import {
   buildNewSprintSource,
+  DEFAULT_SPRINT_ISOLATION,
   deriveRunName,
   directSprintFootSummary,
   epicPickKey,
@@ -128,7 +130,12 @@ import {
   isFileSource,
   plannedSprintFootSummary,
   seedPickedKeysFromSource,
+  sprintIsolationUsesWorktrees,
+  sprintIsolationUsesTaskWorktrees,
+  UNPLANNED_EPIC_CONSEQUENCE,
+  type SprintIsolation,
 } from './newSprintModel'
+import { SprintIsolationRowView } from './SprintIsolationRow'
 import type { SprintEngineIntake } from '../../../../../shared/sprintengine/run-types'
 import { sourcePlanKindSupportsDirectIntake } from '../../../../../shared/sprintengine/run-types'
 
@@ -230,6 +237,10 @@ export default function NewSprintDialog({
   // exists. Storing the OVERRIDE rather than the value is what lets the default
   // follow the picks as they change.
   const [planningNoneOverride, setPlanningNoneOverride] = useState<boolean | null>(null)
+  // Where the run works (MC-2123). A sprint gets its own worktree unless the
+  // operator says otherwise — the mode is fixed once the run exists, so this
+  // dialog is the only place it can be chosen.
+  const [isolation, setIsolation] = useState<SprintIsolation>(DEFAULT_SPRINT_ISOLATION)
   const [renaming, setRenaming] = useState(false)
 
   const [screen, setScreen] = useState<'sprint' | 'roster'>('sprint')
@@ -394,6 +405,15 @@ export default function NewSprintDialog({
   // (epic headers included) via aria-activedescendant, Space/Enter toggles the
   // pick, and shift+arrow extends a range across item rows — the same contract
   // the pointer has.
+  //
+  // Deliberately NOT a combobox (MC-2134). It looks like one — a search field
+  // over a filtered list — but it is a multi-selectable listbox with an external
+  // filter: rows TOGGLE rather than commit a value, `aria-multiselectable` is not
+  // a property a combobox may carry, the list is permanently rendered rather than
+  // a popup something expands, and Space (the toggle here) cannot coexist with a
+  // text field that owns focus. What it was missing is the one link that IS right
+  // for that shape: the field naming the list it filters.
+  const backlogListId = useId()
   const [cursorKey, setCursorKey] = useState<string | null>(null)
   const keyboardOrder = useMemo(() => {
     if (!epicGroups) {
@@ -501,7 +521,15 @@ export default function NewSprintDialog({
     [pickedEpics, items],
   )
   const canPlanNone = sourcePlanKindSupportsDirectIntake(source?.sourcePlanKind)
-  const planningIsNone = canPlanNone && (planningNoneOverride ?? true)
+  // The epic ordering gate (MC-2137). A row untouched by the user shows the
+  // epic's own answer: None when the epic says its children are ordered
+  // (`dependenciesPlanned: true` — no edges at all counts, it means deliberately
+  // parallel), a planning agent when it never said so. A default flip, never a
+  // wall: None stays reachable, and picking it shows the consequence on the
+  // source row instead of blocking the start.
+  const epicOrderingPlanned = pickedEpics.length > 0
+    && pickedEpics.every((epic) => epic.dependenciesPlanned === true)
+  const planningIsNone = canPlanNone && (planningNoneOverride ?? epicOrderingPlanned)
   const intake: SprintEngineIntake = planningIsNone ? 'direct' : 'planned'
   // What the sprint will actually contain: an epic contributes its open children
   // (one task each), every other pick contributes itself.
@@ -728,7 +756,8 @@ export default function NewSprintDialog({
           initialSpawnRoles,
           startRunner: true,
           autoApproveArtifacts: true,
-          useWorktrees: false,
+          useWorktrees: sprintIsolationUsesWorktrees(isolation),
+          taskIsolation: sprintIsolationUsesTaskWorktrees(isolation),
           sourceReference: true,
           intake,
           epicChildRelativePaths:
@@ -803,6 +832,8 @@ export default function NewSprintDialog({
     editor.roleCliDefaults,
     editor.roleModelOverrides,
     editor.roleReasoningOverrides,
+    intake,
+    isolation,
     items,
     lastSpawnPermissionPreset,
     workspaceWindowId,
@@ -923,6 +954,7 @@ export default function NewSprintDialog({
                     onChange={setQuery}
                     ariaLabel="Search backlog items"
                     placeholder="Search items…"
+                    controlsId={backlogListId}
                   />
                   <BacklogFilterMenu
                     view={view}
@@ -942,6 +974,7 @@ export default function NewSprintDialog({
                   Click to pick · shift for a range · an epic brings its open items
                 </p>
                 <div
+                  id={backlogListId}
                   role="listbox"
                   aria-multiselectable="true"
                   aria-label="Backlog items"
@@ -1093,6 +1126,14 @@ export default function NewSprintDialog({
                             title={epic.title}
                             tail={epicSourceTail(epicImportCounts([...items], slug))}
                             color={epic.highlight?.color ?? null}
+                            // The consequence of running an unordered epic with no
+                            // planner, stated where the epic is (MC-2137) — shown
+                            // only when that is what is about to happen.
+                            note={
+                              planningIsNone && epic.dependenciesPlanned !== true
+                                ? UNPLANNED_EPIC_CONSEQUENCE
+                                : undefined
+                            }
                             onRemove={() => togglePick(epicPickKey(slug))}
                           />
                         )
@@ -1157,6 +1198,7 @@ export default function NewSprintDialog({
                       editor.onSetRoleReasoning(SPRINT_ENGINE_ROLELESS_KEY, reasoning)
                     }
                     planningAgent={planningAgentRow}
+                    isolation={{ value: isolation, onChange: setIsolation }}
                   />
                 ) : (
                   <div className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
@@ -1205,9 +1247,10 @@ export default function NewSprintDialog({
                         ))
                       )}
                     </div>
-                    {/* The same row a roleless team card carries: one control in
+                    {/* The same rows a roleless team card carries: one control in
                         both worlds, never present here and absent there. */}
                     <PlanningAgentRowView row={planningAgentRow} cliOptions={cliOptions} />
+                    <SprintIsolationRowView row={{ value: isolation, onChange: setIsolation }} />
                   </div>
                 )}
 
@@ -1516,32 +1559,39 @@ function SourceChip({
   title,
   tail,
   color,
+  note,
   onRemove,
 }: {
   id?: string
   title: string
   tail?: string
   color?: Parameters<typeof EpicColorDot>[0]['color']
+  /** One line under the chip stating a consequence of the current choice (the
+   *  unordered-epic case, MC-2137). Earned: passed only when it applies. */
+  note?: string
   onRemove: () => void
 }): JSX.Element {
   return (
-    <div className="flex items-center gap-2 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 py-1 text-meta">
-      {color !== undefined ? <EpicColorDot color={color} /> : null}
-      {id ? (
-        <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">{id}</span>
-      ) : null}
-      <span className="min-w-0 flex-1 truncate text-[color:var(--text-default)]">{title}</span>
-      {tail ? <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">{tail}</span> : null}
-      <button
-        type="button"
-        aria-label={`Remove ${title}`}
-        onClick={onRemove}
-        className="shrink-0 rounded p-0.5 text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
-      >
-        <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-          <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
-      </button>
+    <div className="flex flex-col rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 py-1 text-meta">
+      <div className="flex items-center gap-2">
+        {color !== undefined ? <EpicColorDot color={color} /> : null}
+        {id ? (
+          <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">{id}</span>
+        ) : null}
+        <span className="min-w-0 flex-1 truncate text-[color:var(--text-default)]">{title}</span>
+        {tail ? <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">{tail}</span> : null}
+        <button
+          type="button"
+          aria-label={`Remove ${title}`}
+          onClick={onRemove}
+          className="shrink-0 rounded p-0.5 text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+        >
+          <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+      {note ? <span className="pb-0.5 text-micro text-[color:var(--text-muted)]">{note}</span> : null}
     </div>
   )
 }

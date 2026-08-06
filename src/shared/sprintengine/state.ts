@@ -2514,6 +2514,11 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       description: task.description ?? '',
       ...(taskRole ? { role: taskRole } : {}),
       repo: optionalTrimmedString(task.repo) ?? DEFAULT_SPRINTENGINE_TASK_REPO,
+      // This task's own worktree under per-task isolation (MC-2136). Present
+      // only once the engine has provisioned that tree, which is what makes it
+      // safe for the spawn path to cwd into: an absent value means there is no
+      // such tree yet, never "compute one".
+      ...(optionalTrimmedString(task.worktreePath) ? { worktreePath: optionalTrimmedString(task.worktreePath) } : {}),
       status,
       // Both charter markers survive projection. Whitelisting only
       // `integration_review` would silently drop `review` on the way to the

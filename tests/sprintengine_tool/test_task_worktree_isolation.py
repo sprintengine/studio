@@ -19,6 +19,7 @@ import subprocess
 from pathlib import Path
 
 from helpers import SwarmCli, SwarmTeamFixture, base_state, get_task, read_state, write_state
+from sprintengine_mcp import ActorContext, McpRequestContext, SprintEngineMcpServer
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -346,3 +347,133 @@ def test_a_pre_change_per_run_worktree_store_still_works(tmp_path) -> None:
     assert not any(
         event["type"] == "task_work_integrated" for event in read_state(fixture.state_path)["events"]
     )
+
+
+# --- the terminal-cwd half (MC-2136) ------------------------------------------
+#
+# Isolation only holds end-to-end if the AGENT works in its task's tree. The app
+# cannot move a terminal after it starts, so it provisions the tree at dispatch
+# and reads where it is from the run store — these pin both halves of that
+# contract, plus the claim guard that keeps a session in one tree from owning
+# another task.
+
+
+def test_a_provisioned_task_worktree_is_recorded_on_the_task(tmp_path) -> None:
+    """The projection carries the path; the app never recomputes it."""
+    fixture = _isolated_run(tmp_path, "iso-record")
+    fixture.cli.run("plan", "add-task", "--title", "Alpha", "--role", "developer", "--task-id", "T1")
+    _close_plan_gate(fixture)
+
+    assert "worktreePath" not in get_task(read_state(fixture.state_path), "T1"), "nothing recorded before a tree exists"
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+
+    recorded = get_task(read_state(fixture.state_path), "T1")["worktreePath"]
+    assert recorded == ".multi-code/sprintengine/iso-record/task-worktrees/T1/primary"
+    # Project-root-relative, exactly like the run worktree, so every reader joins
+    # it onto the workspace root the same way.
+    assert (fixture.state_path.parents[3] / recorded).exists()
+
+
+def test_the_dispatch_command_provisions_ahead_of_the_claim(tmp_path) -> None:
+    """Claim is too late for a terminal: its cwd is fixed before it can claim."""
+    fixture = _isolated_run(tmp_path, "iso-dispatch")
+    fixture.cli.run("plan", "add-task", "--title", "Alpha", "--role", "developer", "--task-id", "T1")
+    _close_plan_gate(fixture)
+
+    result = fixture.cli.run("vcs", "task-worktree", "--task-id", "T1")
+
+    assert result["isolated"] is True
+    assert result["worktreePath"] == ".multi-code/sprintengine/iso-dispatch/task-worktrees/T1/primary"
+    assert _task_worktree(fixture, "T1").exists(), "the tree stands up before anyone claims"
+    # Re-entrant: the claim that follows adopts the same tree rather than failing
+    # or losing what the agent already wrote into it.
+    _write(_task_worktree(fixture, "T1"), "src/alpha.ts", "export const a = 1\n")
+    fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    assert (_task_worktree(fixture, "T1") / "src" / "alpha.ts").exists()
+
+
+def test_the_dispatch_command_is_a_no_op_without_isolation(tmp_path) -> None:
+    """A shared-worktree run answers "no tree", not an error and not a path."""
+    fixture = _isolated_run(tmp_path, "iso-dispatch-off", isolation=False)
+    fixture.cli.run("plan", "add-task", "--title", "Alpha", "--role", "developer", "--task-id", "T1")
+    _close_plan_gate(fixture)
+
+    result = fixture.cli.run("vcs", "task-worktree", "--task-id", "T1")
+
+    assert result["isolated"] is False
+    assert result["worktreePath"] is None
+    assert not (fixture.team_dir / "task-worktrees").exists()
+
+
+def test_a_task_bound_session_can_claim_only_its_own_task(tmp_path) -> None:
+    """The guard behind the cwd: a session in T2's tree must not own T1.
+
+    The MCP server binds this from the worktree the session was spawned into, so
+    an agent that ignores its brief and asks the queue for anything still gets
+    only the task whose tree it is sitting in — and a payload-supplied task is
+    dropped, never honoured as a self-selected filter.
+    """
+    fixture = _isolated_run(tmp_path, "iso-bound")
+    fixture.cli.run("plan", "add-task", "--title", "Alpha", "--role", "developer", "--task-id", "T1")
+    fixture.cli.run("plan", "add-task", "--title", "Beta", "--role", "developer", "--task-id", "T2")
+    _close_plan_gate(fixture)
+
+    workspace_root = fixture.state_path.parents[3]
+    actor = {"id": "operator", "role": "user", "mcpAuthorized": True}
+    server = SprintEngineMcpServer(allowed_roots=[workspace_root])
+
+    def claim(agent_id: str, bound_task: str) -> dict:
+        context = McpRequestContext(
+            actor=ActorContext.from_value(actor),
+            state_path=fixture.state_path,
+            workspace_root=workspace_root,
+            allowed_roots=(workspace_root,),
+            agent_id=agent_id,
+            role="developer",
+            task_id=bound_task,
+        )
+        response = server.call_tool(
+            "sprintengine.task.next",
+            {"role": "developer", "id": agent_id},
+            actor,
+            context=context,
+        )
+        assert response["ok"] is True, response.get("error")
+        return response["result"]
+
+    # T1 is first in the ready queue, so an unbound claim would take it: this
+    # session gets T2 only because it is bound to T2's tree.
+    claimed = claim("developer-1", "T2")
+    assert claimed["claimed"] is True
+    assert claimed["task"]["id"] == "T2"
+
+    # With its own task no longer claimable, a bound session gets a refusal that
+    # names why — never a sibling's ready work, and never a bare "idle queue".
+    blocked = claim("developer-2", "T2")
+    assert blocked["claimed"] is False
+    assert blocked["reason"] == "bound_task_not_claimable"
+    assert "T2" in blocked["message"]
+    assert get_task(read_state(fixture.state_path), "T1")["status"] != "in_progress", (
+        "the ready sibling stays untouched by a session bound elsewhere"
+    )
+
+    # The direct-claim door is shut too: `task.next` is stamped, so claiming BY ID
+    # would otherwise be the one way left to end up owning a task whose tree this
+    # session is not in.
+    refused = server.call_tool(
+        "sprintengine.task.claim",
+        {"taskId": "T1", "id": "developer-3"},
+        actor,
+        context=McpRequestContext(
+            actor=ActorContext.from_value(actor),
+            state_path=fixture.state_path,
+            workspace_root=workspace_root,
+            allowed_roots=(workspace_root,),
+            agent_id="developer-3",
+            role="developer",
+            task_id="T2",
+        ),
+    )
+    assert refused["ok"] is False
+    assert refused["error"]["code"] == "tool_not_permitted_for_task"
+    assert get_task(read_state(fixture.state_path), "T1")["status"] != "in_progress"

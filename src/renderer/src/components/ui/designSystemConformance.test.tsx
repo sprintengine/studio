@@ -950,6 +950,18 @@ async function main(): Promise<void> {
           .slice(Math.max(0, index - NEARBY_LINES), index + NEARBY_LINES + 1)
           .join('\n')
         if (!SELECTION_STATE.test(window)) return
+        // The keyboard cursor's own branch, which the scope note above already
+        // exempts in principle: `active` names the cursor, and the hover fill IS
+        // its canon. What the window cannot see is a picker carrying BOTH marks —
+        // `CliModelPicker` highlights with `--bg-hover` and keeps `--bg-selected`
+        // for the runtime in force (MC-2134) — where the two branches are
+        // necessarily one ternary, and so inside each other's window no matter
+        // how the file is written. Narrow on purpose: the fill's OWN branch must
+        // be the one `active` governs, on its line or the one above it, and the
+        // press token is never exempt.
+        const governing = `${codeOnly[index - 1] ?? ''}\n${codeOnly[index] ?? ''}`
+        const cursorBranch = /\bactive\s*$/m.test(governing)
+        if (cursorBranch && !borrowed.has('bg-[color:var(--bg-active)]')) return
         offenders.push(`${relative(process.cwd(), path)}:${index + 1}: ${[...borrowed].join(' ')}`)
       })
     }
@@ -1235,14 +1247,26 @@ async function main(): Promise<void> {
   // rule reads the element's own tag and text rather than the class string
   // alone.
   await run('2112 no panel hand-rolls a header band at its own height', () => {
-    // The directories this item swept. A rule phrased over the whole renderer
+    // The directories this rule covers. A rule phrased over the whole renderer
     // would fire on chrome that is legitimately not a panel identity row (the
     // window frame, the tab strips), and a rule phrased over one file would
     // pass the day someone adds a twelfth dialect next door.
+    //
+    // The list GROWS as surfaces converge, and that is the point: a directory
+    // scope plus an unscoped acceptance claim ("the sweep is complete") is how
+    // four bands survived three sweeps — each was outside the four directories
+    // below and so read as done without being done (MC-2138). The four added
+    // here are that item's: the kit's own `FilePreviewPane` and the
+    // `WorkspacePanel` shell, the knowledge-graph preview drawer, and the two
+    // guided-brief bands, which drew their rule in a SURFACE token.
     const SWEPT = [
       'components/panels',
+      'components/memory',
+      'components/ui',
       'components/workspace/agentComposer',
+      'components/workspace/guidedBrief',
       'components/workspace/newSprint',
+      'components/workspace/topbar',
       'review/canvas',
     ]
     // `<header>` is the tag every one of the eleven dialects reached for, and it
@@ -1313,6 +1337,197 @@ async function main(): Promise<void> {
       header,
       /border-b border-\[color:var\(--border-default\)\]/,
       'and the rule it draws is the default border, not the subtle one',
+    )
+  })
+
+  // --- MC-2138: the menu row canon, outside the kit that declares it --------
+  // Source-read for the reason the header-band rule above is: the surfaces are
+  // whole app screens, and the rule is about the literal a developer types.
+  //
+  // MC-2103 put the menu's material in `ui/menuClasses` and converged the five
+  // kit hosts onto it. What survived was every menu row the kit does not own:
+  // the horizon's roster popover, both in-app menubar fallbacks, the account
+  // menu, the reasoning selector. Each was the same hand-roll — `rounded px-2`
+  // or `px-3`, its own type step, no disabled state, an OUTSET focus ring — and
+  // each was internally consistent, so nothing read as wrong until two of them
+  // were opened side by side. The menubar pair is the clearest case: the same
+  // menu, drawn at `text-body` in one file and `text-heading` in the other.
+  //
+  // Scope is the same growing prefix list the band rule keeps, for the same
+  // reason: a rule over the whole renderer would assert a convergence that has
+  // not happened (the composer, the roster panel and the sprint dialog still
+  // hand-roll rows). Four entries name a FILE rather than a directory, and that
+  // is a statement about their neighbourhood, not a dodge — `components/
+  // workspace` and `.../agentComposer` still hold unconverged rows, so the ones
+  // that converged are named until their neighbours follow and the entry
+  // becomes the directory. Every converged surface is in here: a row that moved
+  // onto the canon and then sat outside the guard is the exact shape this item
+  // was called in to end.
+  const MENU_SWEPT = [
+    'components/backlog',
+    'components/panels/WatchtowerPanel',
+    'components/ui',
+    'components/workspace/AppTitleBar.tsx',
+    'components/workspace/SidebarAccountBar.tsx',
+    'components/workspace/SidebarChrome.tsx',
+    'components/workspace/agentComposer/ConnectorPickerPopover.tsx',
+    'components/workspace/topbar',
+  ]
+
+  // A JSX opening tag, sliced exactly: from its `<` to the `>` that closes it,
+  // skipping `{…}` nesting and quoted text so an arrow function in a prop
+  // (`onClick={() => …}`) cannot cut the tag in half — which is what a
+  // `[^<>]*` reach does, and it fails OPEN, reading a hand-rolled row as
+  // converged because it never saw the row's className at all.
+  const openingTagAt = (source: string, index: number): { tag: string; name: string } | null => {
+    const start = source.lastIndexOf('<', index)
+    if (start < 0) return null
+    const name = /^<([A-Za-z][\w.]*)/.exec(source.slice(start, index))?.[1]
+    if (!name) return null
+    let cursor = start + 1
+    let depth = 0
+    while (cursor < source.length) {
+      const char = source[cursor]
+      if (char === '"' || char === "'" || char === '`') {
+        const quote = char
+        cursor += 1
+        while (cursor < source.length && source[cursor] !== quote) cursor += 1
+      } else if (char === '{') depth += 1
+      else if (char === '}') depth -= 1
+      else if (depth === 0 && char === '>') return { tag: source.slice(start, cursor + 1), name }
+      cursor += 1
+    }
+    return null
+  }
+
+  // The role that makes an element a menu row, in all three of its forms.
+  const MENU_ROW_ROLE = /\brole="(menuitem(?:checkbox|radio)?)"/g
+  // The same per-line exemption the lint scripts honour: a marker on the role's
+  // own line or one of the two above it, WITH a reason. Read off the raw source,
+  // because the scan the rule runs has already stripped comments.
+  const ALLOW_MARKER = /design-tokens-allow:\s*\S/
+
+  // The canon reaches a row either by name or through a local alias the file
+  // declares from it — `RosterMenu`'s `itemClass`, which is one const shared by
+  // five rows. A rule that only accepted the bare identifier would push files
+  // into re-typing it per row, which is the failure it exists to prevent.
+  const canonAliases = (source: string): RegExp => {
+    const names = ['MENU_ITEM_CLASS', 'MENU_ITEM_STACKED_CLASS', 'MENU_ROW_CLASS']
+    for (const declaration of source.matchAll(
+      /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*(?::[^=\n]*)?=\s*([^\n]*(?:\n[^\n]*){0,4})/g,
+    )) {
+      if (!new RegExp(`\\b(?:${names.join('|')})\\b`).test(declaration[2])) continue
+      names.push(declaration[1])
+    }
+    return new RegExp(`\\b(?:${names.join('|')})\\b`)
+  }
+
+  // Comments blanked in place rather than removed, so a line number computed
+  // from this string still addresses the same line of the file — which is what
+  // the marker scan below reads.
+  const withoutCommentsKeepingLines = (path: string): string =>
+    readFileSync(path, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
+      .replace(/(^|[^:])\/\/.*$/gm, '$1')
+
+  const menuRows = (
+    path: string,
+  ): Array<{ line: number; tag: string; name: string; allowed: boolean; canon: boolean }> => {
+    const raw = readFileSync(path, 'utf8').split('\n')
+    const source = withoutCommentsKeepingLines(path)
+    const canon = canonAliases(source)
+    const found: Array<{ line: number; tag: string; name: string; allowed: boolean; canon: boolean }> = []
+    for (const match of source.matchAll(MENU_ROW_ROLE)) {
+      const sliced = openingTagAt(source, match.index as number)
+      const line = source.slice(0, match.index).split('\n').length
+      if (!sliced) {
+        // Fail LOUD, never open: a role the slicer cannot resolve to a tag is a
+        // row this rule did not read, and a guard that silently skips what it
+        // cannot parse is the shape of a green suite over an unswept file.
+        found.push({ line, tag: '', name: 'unresolved', allowed: false, canon: false })
+        continue
+      }
+      const allowed = raw
+        .slice(Math.max(0, line - 3), line)
+        .some((text) => ALLOW_MARKER.test(text))
+      found.push({ line, tag: sliced.tag, name: sliced.name, allowed, canon: canon.test(sliced.tag) })
+    }
+    return found
+  }
+
+  await run('MC-2138 every swept menu row is the shared row, not a copy of it', () => {
+    const offenders: string[] = []
+    for (const path of rendererSources()) {
+      const relative_ = relative(join(process.cwd(), 'src/renderer/src'), path)
+      if (!MENU_SWEPT.some((dir) => relative_.startsWith(dir))) continue
+      for (const row of menuRows(path)) {
+        if (row.allowed || row.canon) continue
+        offenders.push(`${relative(process.cwd(), path)}:${row.line}: <${row.name} role="menuitem…">`)
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'a menu row is `MENU_ITEM_CLASS` from ui/menuClasses (or `MENU_ITEM_STACKED_CLASS`, the one ruled ' +
+        'second shape); a row that is deliberately neither takes a dated `design-tokens-allow:` marker ' +
+        'naming why, on its own line or one of the two above it',
+    )
+  })
+
+  await run('MC-2138 no swept menu surface pads itself horizontally', () => {
+    // `MENU_LIST_CLASS` is vertical padding ONLY: horizontal surface padding is
+    // what forces the inset rounded fill the menu spec rules out, and it is the
+    // shape every one of these surfaces had (`p-1`, and `w-44 p-1` twice over).
+    // Scope is a surface a host declares a MENU — the same file spelling
+    // `popupRole="menu"` — so a listbox or a dialog popover is left alone.
+    const SURFACE_CLASS = /surfaceClassName=(?:\{`([^`]*)`\}|"([^"\n]*)"|\{"([^"\n]*)"\})/g
+    const HORIZONTAL_INSET = /(?:^|\s)(-?p[xlr]?-\S+)(?=\s|$)/
+
+    const offenders: string[] = []
+    for (const path of rendererSources()) {
+      const relative_ = relative(join(process.cwd(), 'src/renderer/src'), path)
+      if (!MENU_SWEPT.some((dir) => relative_.startsWith(dir))) continue
+      const source = withoutCommentsKeepingLines(path)
+      if (!/popupRole="menu"/.test(source)) continue
+      for (const match of source.matchAll(SURFACE_CLASS)) {
+        const text = match[1] ?? match[2] ?? match[3] ?? ''
+        const inset = text.match(HORIZONTAL_INSET)
+        if (!inset) continue
+        const line = source.slice(0, match.index).split('\n').length
+        offenders.push(`${relative(process.cwd(), path)}:${line}: ${inset[0].trim()}`)
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'a menu surface takes `MENU_LIST_CLASS` and a width; the inset belongs to the row, which fills to ' +
+        'both edges',
+    )
+  })
+
+  await run('MC-2138 a menu row is a control, never a div wearing the role', () => {
+    // Renderer-wide, unlike the two above: this is not a convergence claim but
+    // an accessibility one, and it holds everywhere already. `role="menuitem"`
+    // announces something a person can activate. The notifications popover put
+    // it on the `<div>` wrapping each report — a block that carries its own Copy
+    // and Open logs buttons INSIDE it, so it was never one activatable thing.
+    // A screen-reader user heard a menu of rows that do nothing.
+    const CONTROL = new Set(['button', 'a'])
+    const offenders: string[] = []
+    for (const path of rendererSources()) {
+      for (const row of menuRows(path)) {
+        // A capitalised tag is a component, which forwards the role to whatever
+        // control it renders; that is the composition, not the defect.
+        if (row.name[0] === row.name[0].toUpperCase()) continue
+        if (CONTROL.has(row.name)) continue
+        offenders.push(`${relative(process.cwd(), path)}:${row.line}: <${row.name} role="menuitem…">`)
+      }
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'a menu row is a <button> (or an <a> that navigates): the role promises an activation, and a div ' +
+        'has none to give',
     )
   })
 

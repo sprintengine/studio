@@ -133,6 +133,25 @@ CALLER_REPO_PAYLOAD_TOOLS: frozenset[str] = frozenset({
     "sprintengine.task.next",
 })
 
+# Tools whose payload carries the caller's BOUND TASK (MC-2136). Under per-task
+# isolation a session is spawned into one task's own worktree, and that tree is
+# the only place its work can be committed from — so claim selection is stamped
+# with that task and cannot wander onto another. Same shape as the repo binding
+# above, one rung finer; empty binding (the normal shared-worktree run) leaves
+# selection exactly as it was.
+CALLER_TASK_PAYLOAD_TOOLS: frozenset[str] = frozenset({
+    "sprintengine.task.next",
+})
+
+# Tools a task-bound session may only call FOR ITS OWN TASK. `task.next` is
+# stamped (above); `task.claim` names a task outright, so it is refused instead —
+# otherwise the direct claim is a door around the stamped queue, and the agent
+# ends up owning a task whose tree it is not in. Nothing else needs listing:
+# publish/advance/log are already owner-only, and ownership starts at a claim.
+CALLER_TASK_REFUSAL_TOOLS: frozenset[str] = frozenset({
+    "sprintengine.task.claim",
+})
+
 # Suggested alternatives surfaced in tool_not_permitted_for_role errors for
 # the calls agents most plausibly reach for.
 PERMITTED_ALTERNATIVES: dict[str, str] = {

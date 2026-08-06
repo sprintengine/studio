@@ -46,6 +46,20 @@ export const MENU_LIST_CLASS = 'py-1 text-meta text-[color:var(--text-default)]'
 export const MENU_SURFACE_CLASS = `${OVERLAY_SURFACE_CLASS} ${MENU_LIST_CLASS}`
 
 /**
+ * Everything a row is made of EXCEPT its cross-axis alignment: the inset, the
+ * gap, the direction its text reads, and the one highlight state.
+ *
+ * Split out because cross-axis alignment is the single thing the two row shapes
+ * below disagree about, and it cannot be overridden by a caller: two
+ * `items-*` utilities on one element are resolved by stylesheet ORDER, not by
+ * the order they appear in a class string, so `${MENU_ITEM_CLASS} items-start`
+ * would be a coin flip that reads as working. Stating the alignment once, per
+ * shape, is what makes the second shape possible at all.
+ */
+const MENU_ROW_GEOMETRY =
+  'flex w-full gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)] aria-disabled:hover:bg-transparent'
+
+/**
  * Row geometry and the one highlight state, without the type size or the
  * keyboard affordances.
  *
@@ -61,8 +75,15 @@ export const MENU_SURFACE_CLASS = `${OVERLAY_SURFACE_CLASS} ${MENU_LIST_CLASS}`
  * keys as often as with the pointer, and "the row about to be activated" is one
  * idea.
  */
-export const MENU_ROW_CLASS =
-  'flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)] aria-disabled:hover:bg-transparent'
+export const MENU_ROW_CLASS = `items-center ${MENU_ROW_GEOMETRY}`
+
+/**
+ * What a row owes the keyboard and the pointer once it is a CONTROL: the
+ * disabled state and the inset focus ring. Shared by both shapes below, so a
+ * second shape cannot quietly ship without them — which is exactly what the two
+ * hand-rolled picker rows had done.
+ */
+const MENU_ITEM_KEYBOARD_CLASS = `disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent ${FOCUS_RING_INSET_CLASS}`
 
 /**
  * The menu item. Full-bleed with no radius of its own: an inset rounded fill
@@ -84,7 +105,24 @@ export const MENU_ROW_CLASS =
  * selector on top of the hover rule, so they win on specificity rather than on
  * stylesheet order.
  */
-export const MENU_ITEM_CLASS = `${MENU_ROW_CLASS} text-meta disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent ${FOCUS_RING_INSET_CLASS}`
+export const MENU_ITEM_CLASS = `${MENU_ROW_CLASS} text-meta ${MENU_ITEM_KEYBOARD_CLASS}`
+
+/**
+ * The one sanctioned SECOND row shape: a picker entry that stacks a name over a
+ * supporting line — the skills popover and the connector popover, which shipped
+ * as byte-for-byte copies of each other (`items-start … rounded px-2.5 py-1.5`,
+ * inset fill and all) with a comment in each pointing at the other.
+ *
+ * It is a shape, not a host's preference. A row whose content is two lines has
+ * to align its glyph and its trailing mark to the FIRST line, or a two-line
+ * entry centres its icon against the gap between them; that is the whole
+ * difference, and it is why the alignment is stated per shape above.
+ *
+ * It spells no type size: a stacked row's own lines each name theirs (`body` for
+ * the name, `meta` for the supporting line), and a size here would be a third
+ * font-size utility on the ancestor for Tailwind to resolve by stylesheet order.
+ */
+export const MENU_ITEM_STACKED_CLASS = `items-start ${MENU_ROW_GEOMETRY} ${MENU_ITEM_KEYBOARD_CLASS}`
 
 /**
  * The separator. `border-subtle`: inside an already-bordered surface a divider

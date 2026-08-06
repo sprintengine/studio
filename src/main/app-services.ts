@@ -17,6 +17,7 @@ import {
   listBacklogItems,
   readBacklogItem,
   repairBacklogIntegrity,
+  updateBacklogDependenciesPlanned,
   updateBacklogEpic,
   updateBacklogStatus,
   updateBacklogTriage,
@@ -386,6 +387,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       readProjection: (input) => sprintEngineArtifacts.readProjection(input),
       autoApproveArtifact: ({ statePath, artifactId }) =>
         sprintEngineArtifacts.reviewArtifact({ statePath, artifactId }, 'approve', 'auto-run'),
+      ensureTaskWorktree: (input) => sprintEngineArtifacts.ensureTaskWorktree(input),
     },
     pathExists: async (path) => {
       try {
@@ -528,6 +530,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           updateType: updateBacklogType,
           updateTriage: updateBacklogTriage,
           updateEpic: updateBacklogEpic,
+          updateDependenciesPlanned: updateBacklogDependenciesPlanned,
           addOrUpdateLink: addOrUpdateBacklogLink,
           repairIntegrity: repairBacklogIntegrity,
         },

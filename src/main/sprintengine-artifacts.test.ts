@@ -1042,6 +1042,7 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
   registerSprintEngineIpc(ipcMain as never, {
     openArtifact: async () => ({ ok: true, data: {} }),
     reviewArtifact: async () => ({ ok: true, data: {} }),
+    ensureTaskWorktree: async () => ({ ok: true, isolated: false, worktreePath: null }),
     initializeSprintEngineState: async () => ({ ok: true, data: {} }),
     updateTask: async () => ({ ok: true, data: {} }),
     createTask: async () => ({ ok: true, data: {} }),

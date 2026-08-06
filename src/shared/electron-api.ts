@@ -893,6 +893,12 @@ export type McpSyncInput = {
     // cwd. Binds the session's claim queue to that repo's tree; absent for
     // single-repo runs and launches outside a declared worktree.
     repo?: string
+    // The one task this session may work (MC-2136), set when its launch cwd IS
+    // that task's own worktree under per-task isolation. Binds the claim queue
+    // to that task alone: the engine commits the task's work from this tree, so
+    // a session here working anything else would have its changes committed by
+    // nobody. Absent on every run that shares one worktree.
+    taskId?: string
     cli?: McpClientTarget
     // Workspace Knowledge Graph root ('' when unset); lets the MCP server gate
     // the workspace_knowledge prompt layer at compose time.
@@ -1718,6 +1724,16 @@ export type WorkspaceFolderCheckResult =
       code?: string
     }
 
+// A logo found at the top level of a project's repo (MC-2135). `dataUrl` is the
+// sanitized, downscaled image ready to render in an icon slot; `path` and
+// `mtimeMs` are what the main process re-checks on the next open so a changed
+// or deleted file is picked up without a watcher.
+export type ProjectLogo = {
+  path: string
+  mtimeMs: number
+  dataUrl: string
+}
+
 export type WindowState = {
   isMaximized: boolean
   isFullScreen: boolean
@@ -2022,6 +2038,12 @@ export type SprintEngineStateInitializeInput = {
   // When true, Sprint Engine creates one shared git worktree + branch for the
   // whole team before any task runs, and all agents work and commit there.
   useWorktrees?: boolean
+  // When true, every TASK also gets its own worktree branched off the run branch
+  // and merged back at publish (MC-2130), instead of the whole run sharing one
+  // checkout per project. Layered on `useWorktrees` — the engine rejects it
+  // without run worktrees — and fixed at creation like every other vcs choice.
+  // Omitted/false is the normal mode: one worktree per sprint (MC-2136).
+  taskIsolation?: boolean
   // The OTHER projects this run also changes (MC-1613), beyond the workspace's own.
   // Each entry becomes one `--repo <id>=<root>` at init: its own worktree, branch,
   // commit lock, and pull request. `root` is relative to the workspace folder and
@@ -2056,6 +2078,20 @@ export type SprintEngineStateInitializeInput = {
   // guarantee. `undefined` leaves the key absent and the engine default
   // (`['review']`) applies; `[]` is a meaningful, recorded value.
   defaultPhases?: string[]
+}
+
+export type SprintEngineTaskWorktreeInput = {
+  statePath: string
+  taskId: string
+}
+
+export type SprintEngineTaskWorktreeResult = {
+  ok: boolean
+  /** Whether this run gives every task its own worktree at all. */
+  isolated: boolean
+  /** Project-root-relative path to the task's tree; null when there is none. */
+  worktreePath: string | null
+  message?: string
 }
 
 export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'
@@ -2805,6 +2841,16 @@ export type BacklogDependenciesInput = {
   dependsOn: string[] | null
 }
 
+// The epic-side ordering mark (MC-2137): the author asserting that this epic's
+// children are ordered — deliberately parallel counts — so a sprint may start
+// from it with no planning agent. `true` writes `dependenciesPlanned: true`;
+// `false` removes the line, since absent is the same assertion as false.
+export type BacklogDependenciesPlannedInput = {
+  workspaceRoot: string
+  relativePath: string
+  dependenciesPlanned: boolean
+}
+
 // Mockup attachments are the item-side write: `mockups` is the list of
 // project-relative mockup paths, serialized to the single comma-separated
 // `mockups:` frontmatter line (mirrors `dependsOn`). An empty list or null clears
@@ -2927,6 +2973,7 @@ export type ElectronApi = {
   statPath: (path: string) => Promise<FileSystemStat>
   getPathForFile: (file: unknown) => string
   checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>
+  detectProjectLogo: (folderPath: string) => Promise<ProjectLogo | null>
   memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryRootStatus>
   memoryIndex: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryGraphIndexResult>
   memoryReadPreview: (
@@ -3194,6 +3241,18 @@ export type ElectronApi = {
    * not merged yet. Merging is always the user's call — nothing merges on its own.
    */
   mergeSprintEnginePullRequest: (statePath: string, repo?: string) => Promise<SprintEngineArtifactCommandResult>
+  /**
+   * Provision one task's own worktree ahead of its claim and report where it is
+   * (MC-2136). The spawn path calls this on a per-task-isolation run so the
+   * agent's terminal can be born INSIDE its task's tree — a cwd cannot be moved
+   * later, and the engine commits that task's work from that tree.
+   *
+   * `isolated: false` is the ordinary answer on every other run: nothing was
+   * provisioned and the caller keeps the run worktree it already resolves.
+   */
+  ensureSprintEngineTaskWorktree: (
+    input: SprintEngineTaskWorktreeInput
+  ) => Promise<SprintEngineTaskWorktreeResult>
   /** Read the single instance roadmap's per-lane steering state for the board (MC-1688). */
   readRoadmapStates: () => Promise<RoadmapStatesReadResult>
   /** Approve the next start for a lane awaiting the human (advance: approve). */

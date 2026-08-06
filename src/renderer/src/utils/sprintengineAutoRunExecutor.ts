@@ -66,6 +66,7 @@ export function createDefaultSprintEngineAutoRunExecutorPorts(): SprintEngineAut
     autoApproveSprintEngineArtifact: (statePath, artifactId) =>
       window.api.autoApproveSprintEngineArtifact(statePath, artifactId),
     memoryResolveRoot: (input) => window.api.memoryResolveRoot(input),
+    ensureSprintEngineTaskWorktree: (input) => window.api.ensureSprintEngineTaskWorktree(input),
     publishDiagnostic: (input) => publishDiagnostic(input),
     applyTerminalRevealPolicy: applyAgentTerminalRevealPolicy,
     getWorkspace: (workspaceId) =>

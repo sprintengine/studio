@@ -102,6 +102,14 @@ export type AutomationRendererRequest =
       autoApproveArtifacts?: boolean
       useWorktrees?: boolean
       /**
+       * Per-task worktrees (MC-2136): every task gets its own checkout branched
+       * off the run branch and merged back at publish, instead of the whole run
+       * sharing one. Only ever set alongside `useWorktrees` — the tool that
+       * fills this in turns worktrees on with it, and the engine refuses the
+       * pair otherwise. Absent is the normal mode: one worktree per sprint.
+       */
+      taskIsolation?: boolean
+      /**
        * Plan-sourced launch (sprint chaining, MC-1438): start the sprint from
        * this project-relative backlog item through the shared plan-sourced
        * creation path instead of the goal-sourced new-team path. `goal` may be

@@ -13,6 +13,7 @@ import {
   PLANNING_AGENT_ROW_LABEL,
   PLANNING_AGENT_TOOLTIP,
 } from '../newSprint/newSprintModel'
+import { SprintIsolationRowView, type SprintIsolationRow } from '../newSprint/SprintIsolationRow'
 import { AgentCliPicker, type SprintEngineCliOption } from './SprintEngineRosterTable'
 
 /**
@@ -49,6 +50,7 @@ export function PlainAgentsPanel({
   onSetModel,
   onSetReasoning,
   planningAgent,
+  isolation,
 }: {
   agentCount: number
   onChangeAgentCount?: (value: number) => void
@@ -61,6 +63,10 @@ export function PlainAgentsPanel({
   onSetModel?: (model: string | null) => void
   onSetReasoning?: (reasoning: string | null) => void
   planningAgent?: PlanningAgentRow
+  /** The "Runs in" row (MC-2123). Opt-in for the same reason the planning row
+   *  is: only the create surface chooses a run's isolation, and it is fixed
+   *  once the team exists. */
+  isolation?: SprintIsolationRow
 }) {
   const clamp = (value: number) => Math.max(1, Math.min(10, Math.floor(value)))
   const setCount = (value: number) => {
@@ -125,6 +131,7 @@ export function PlainAgentsPanel({
         {planningAgent ? (
           <PlanningAgentRowView row={planningAgent} cliOptions={cliOptions} />
         ) : null}
+        {isolation ? <SprintIsolationRowView row={isolation} /> : null}
       </div>
     </div>
   )

@@ -13,9 +13,11 @@ import {
   readBacklogItem,
   repairBacklogIntegrity,
   planBacklogStoreMigration,
+  readBacklogFrontmatterFields,
   readBacklogObjectStore,
   removeBacklogLink,
   updateBacklogDependencies,
+  updateBacklogDependenciesPlanned,
   updateBacklogMockups,
   updateBacklogEpic,
   updateBacklogEpicColor,
@@ -301,7 +303,71 @@ async function main(): Promise<void> {
     assert.equal('dependson' in (await readDeps()).fields, false)
     assert.equal((await readDeps()).body, depsBody)
 
+    // The written line keeps the field's documented spelling, and the main-side
+    // reader (the roadmap orchestrator's dependency axis) actually sees it —
+    // reading `fields.dependsOn` against a lowercasing parser silently returned
+    // nothing for every item.
+    await updateBacklogDependencies({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/deps.md',
+      dependsOn: ['alpha', 'beta'],
+    })
+    assert.match(await readFile(depsPath, 'utf-8'), /^dependsOn: alpha, beta$/m)
+    assert.deepEqual(
+      readBacklogFrontmatterFields(await readFile(depsPath, 'utf-8')).dependsOn,
+      ['alpha', 'beta'],
+      'the frontmatter reader must expose the prerequisites it parsed',
+    )
+
     await rm(depsPath)
+
+    // The epic ordering mark (MC-2137): true writes the line, false removes it
+    // (absent IS false), body and unrelated keys preserved. Nothing validates
+    // WHERE it is set — it is an assertion of intent, not a computed property.
+    const epicOrderPath = join(tempRoot, 'backlog', 'epics', 'ordering.md')
+    const epicOrderBody = '# Ordering\n\nEpic body stays put.\n'
+    await mkdir(join(tempRoot, 'backlog', 'epics'), { recursive: true })
+    await writeFile(epicOrderPath, `---\ntype: epic\ncustom: keep-me\n---\n${epicOrderBody}`, 'utf-8')
+    const readEpicOrder = async (): Promise<ReturnType<typeof parseBacklogFrontmatter>> =>
+      parseBacklogFrontmatter(await readFile(epicOrderPath, 'utf-8'))
+
+    const marked = await updateBacklogDependenciesPlanned({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/epics/ordering.md',
+      dependenciesPlanned: true,
+    })
+    assert.equal(marked.ok, true)
+    assert.match(await readFile(epicOrderPath, 'utf-8'), /^dependenciesPlanned: true$/m)
+    assert.equal((await readEpicOrder()).fields.custom, 'keep-me')
+    assert.equal((await readEpicOrder()).body, epicOrderBody, 'the mark must preserve the body byte-for-byte')
+    assert.equal(
+      readBacklogFrontmatterFields(await readFile(epicOrderPath, 'utf-8')).dependenciesPlanned,
+      true,
+    )
+
+    const unmarked = await updateBacklogDependenciesPlanned({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/epics/ordering.md',
+      dependenciesPlanned: false,
+    })
+    assert.equal(unmarked.ok, true)
+    assert.equal(
+      'dependenciesplanned' in (await readEpicOrder()).fields,
+      false,
+      'clearing the mark removes the line rather than writing a negative assertion',
+    )
+    assert.equal(
+      readBacklogFrontmatterFields(await readFile(epicOrderPath, 'utf-8')).dependenciesPlanned,
+      undefined,
+    )
+
+    const rejectedMark = await updateBacklogDependenciesPlanned({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/epics/ordering.md',
+      dependenciesPlanned: 'true' as unknown as boolean,
+    })
+    assert.equal(rejectedMark.ok, false, 'a stringy "true" is not the assertion')
+    await rm(epicOrderPath)
 
     // Mockup attachments are the item-side write: the single comma-separated
     // `mockups:` frontmatter line, set/cleared via the shared CSV formatter, body
