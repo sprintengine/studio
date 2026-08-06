@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import { getRendererHost, selectModuleEnabled } from '../modules'
 import type { SpecialistIcon } from '../specialists/specialistActions'
@@ -39,18 +40,45 @@ export function resolveEnabledWorkspaceType(
 // overrides as a prop rather than reading the workspace store, so this
 // universally-imported leaf icon module never pulls the store (and flexlayout-react)
 // into utility/test bundles.
+//
+// `logoSrc` (MC-2135) is the project's own logo, detected off the top level of
+// its repo. When present it takes the slot the glyph would have had — same
+// className, so every call site keeps its geometry — and every path back out of
+// it lands on today's exact glyph: no logo, an empty string, or an image that
+// fails to decode. A broken data URI must never leave an empty box behind.
 export function WorkspaceTypeIcon({
   mode,
   className,
   moduleOverrides,
+  logoSrc,
 }: IconProps & {
   mode: Workspace['mode']
   moduleOverrides?: ModuleEnablementOverrides
+  logoSrc?: string | null
 }) {
+  const [brokenLogoSrc, setBrokenLogoSrc] = useState<string | null>(null)
   const definition = moduleOverrides
     ? resolveEnabledWorkspaceType(mode, moduleOverrides)
     : getRendererHost().getWorkspaceType(mode)
   const Icon = definition?.icon ?? StandardWorkspaceTypeIcon
+
+  if (logoSrc && logoSrc !== brokenLogoSrc) {
+    return (
+      <img
+        src={logoSrc}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        // The image is shown as authored in both themes — no recolor, no
+        // invert. The chip radius keeps a square favicon from reading as a
+        // sticker, and object-contain keeps a wide wordmark from being
+        // squashed into the square slot.
+        className={`${className ?? ''} rounded-[var(--radius-xs)] object-contain`}
+        onError={() => setBrokenLogoSrc(logoSrc)}
+      />
+    )
+  }
+
   return <Icon className={className} />
 }
 

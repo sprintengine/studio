@@ -1724,6 +1724,16 @@ export type WorkspaceFolderCheckResult =
       code?: string
     }
 
+// A logo found at the top level of a project's repo (MC-2135). `dataUrl` is the
+// sanitized, downscaled image ready to render in an icon slot; `path` and
+// `mtimeMs` are what the main process re-checks on the next open so a changed
+// or deleted file is picked up without a watcher.
+export type ProjectLogo = {
+  path: string
+  mtimeMs: number
+  dataUrl: string
+}
+
 export type WindowState = {
   isMaximized: boolean
   isFullScreen: boolean
@@ -2963,6 +2973,7 @@ export type ElectronApi = {
   statPath: (path: string) => Promise<FileSystemStat>
   getPathForFile: (file: unknown) => string
   checkWorkspaceFolder: (path: string) => Promise<WorkspaceFolderCheckResult>
+  detectProjectLogo: (folderPath: string) => Promise<ProjectLogo | null>
   memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryRootStatus>
   memoryIndex: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryGraphIndexResult>
   memoryReadPreview: (

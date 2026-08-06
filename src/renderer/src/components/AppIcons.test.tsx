@@ -69,4 +69,75 @@ assert.equal(
 assert.equal(resolveEnabledWorkspaceType('sprintengine', allEnabled)?.topBarViews, undefined, 'sprintengine has no top-bar views')
 assert.equal(resolveEnabledWorkspaceType('switchboard', allEnabled)?.topBarViews, undefined, 'switchboard has no top-bar views')
 
-console.log('workspace type icon tests passed')
+// MC-2135: the icon slot carries the project's own logo when the repo has one,
+// and every way out of that lands back on today's exact glyph.
+const LOGO_SRC = 'data:image/svg+xml;base64,PHN2Zy8+'
+const withLogo = renderToStaticMarkup(
+  <WorkspaceTypeIcon mode="standard" className="icon-sm" logoSrc={LOGO_SRC} />,
+)
+assert.ok(withLogo.includes(`src="${LOGO_SRC}"`), 'a detected logo renders in the icon slot')
+assert.ok(withLogo.includes('icon-sm'), 'the logo keeps the slot geometry the glyph would have had')
+assert.ok(withLogo.includes('rounded-[var(--radius-xs)]'), 'the logo carries the chip radius')
+assert.ok(withLogo.includes('aria-hidden="true"'), 'the logo is decorative, like the glyph it replaces')
+assert.ok(!withLogo.includes(EXPECTED_ICON_PATH.standard), 'the glyph steps aside for the logo')
+assert.ok(
+  renderToStaticMarkup(<WorkspaceTypeIcon mode="standard" className="icon-sm" logoSrc={null} />)
+    .includes(EXPECTED_ICON_PATH.standard),
+  'no logo renders exactly the glyph',
+)
+assert.ok(
+  renderToStaticMarkup(<WorkspaceTypeIcon mode="sprintengine" className="icon-sm" logoSrc={LOGO_SRC} />)
+    .includes(`src="${LOGO_SRC}"`),
+  'the logo replaces a type glyph too, not just the generic one',
+)
+
+// The load-failure fallback is behaviour, not markup: a data URI that will not
+// decode must degrade to the glyph rather than leave a broken-image box. That
+// needs a real DOM to fire the img error event, so this one test stands one up.
+async function main(): Promise<void> {
+  const { JSDOM } = await import('jsdom')
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    url: 'http://localhost',
+    pretendToBeVisual: true,
+  })
+  const anyGlobal = globalThis as unknown as Record<string, unknown>
+  anyGlobal.window = dom.window
+  anyGlobal.document = dom.window.document
+  anyGlobal.navigator = dom.window.navigator
+  anyGlobal.HTMLElement = dom.window.HTMLElement
+  anyGlobal.Node = dom.window.Node
+  anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
+
+  const React = await import('react')
+  const { act } = React
+  const { createRoot } = await import('react-dom/client')
+
+  const container = dom.window.document.getElementById('root')!
+  const root = createRoot(container)
+  await act(async () => {
+    root.render(<WorkspaceTypeIcon mode="standard" className="icon-sm" logoSrc="data:image/png;base64,not-an-image" />)
+  })
+
+  const image = container.querySelector('img')
+  assert.ok(image, 'the logo is attempted first')
+  await act(async () => {
+    image!.dispatchEvent(new dom.window.Event('error'))
+  })
+
+  assert.equal(container.querySelector('img'), null, 'a logo that fails to load leaves no broken-image box')
+  assert.ok(
+    container.innerHTML.includes(EXPECTED_ICON_PATH.standard),
+    'a logo that fails to load degrades to today exact glyph',
+  )
+
+  await act(async () => {
+    root.unmount()
+  })
+}
+
+main()
+  .then(() => console.log('workspace type icon tests passed'))
+  .catch((error) => {
+    console.error(error)
+    process.exitCode = 1
+  })
