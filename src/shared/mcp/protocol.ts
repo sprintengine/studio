@@ -14,7 +14,14 @@
 // client both need it.
 
 /** Newest-first. The head is what we answer when the client's ask is not on the list. */
-export const SUPPORTED_MCP_PROTOCOL_VERSIONS: readonly string[] = ['2025-06-18', '2025-03-26', '2024-11-05']
+export const SUPPORTED_MCP_PROTOCOL_VERSIONS: readonly string[] = [
+  // Earned by the socket gateway (item 2141): handshake-optional framing, the
+  // per-request `_meta.protocolVersion` declaration, and `ttlMs` on tools/list.
+  '2026-07-28',
+  '2025-06-18',
+  '2025-03-26',
+  '2024-11-05',
+]
 
 export const DEFAULT_MCP_PROTOCOL_VERSION: string = SUPPORTED_MCP_PROTOCOL_VERSIONS[0]
 

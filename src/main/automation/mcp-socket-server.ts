@@ -1,7 +1,11 @@
 import { createServer, type Server, type Socket } from 'net'
 import { chmodSync, existsSync, unlinkSync } from 'fs'
 
-import { negotiateMcpProtocolVersion } from '../../shared/mcp/protocol'
+import {
+  isSupportedMcpProtocolVersion,
+  negotiateMcpProtocolVersion,
+  SUPPORTED_MCP_PROTOCOL_VERSIONS,
+} from '../../shared/mcp/protocol'
 import type {
   McpConnectionContext,
   McpConnectionMetadata,
@@ -26,6 +30,14 @@ const JSONRPC_INTERNAL_ERROR = -32603
 // One inbound frame may not exceed this; a client that streams an unbounded
 // line gets an explicit error and a closed connection, never silent buffering.
 const MAX_LINE_BYTES = 1024 * 1024
+
+// How long a client may reuse a tools/list answer (2026-07-28's `ttlMs`, SEP-2549).
+// Five minutes rather than a session, because module enable/disable rewrites this
+// surface live (MC-1855); a client on this transport also gets
+// notifications/tools/list_changed the moment it does, so the TTL is the floor for
+// a client that ignores notifications, not the mechanism. `cacheScope` is
+// deliberately absent — see knowledge/multicode/studio-mcp-gateway.md.
+const TOOLS_LIST_TTL_MS = 300_000
 
 // Canonical MCP tool/connection shapes moved to src/shared/modules/mcp-tools
 // (MC-1855) so the module host and SDK can share them; re-exported here for
@@ -163,6 +175,24 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
     const isNotification = id === null && !('id' in parsed)
     const params = isRecord(parsed.params) ? parsed.params : {}
 
+    // 2026-07-28 lets a client declare its protocol version per request instead of
+    // once in a handshake. This transport carries no headers, so `params._meta`
+    // is the whole of that channel. A declaration is a commitment, not a proposal:
+    // `initialize` downgrades an unsupported ask (the client still gets to decide),
+    // but a frame that says "I am 2099-01-01" has already decided, so the honest
+    // answer is an error rather than serving it under semantics it did not ask for.
+    // The accepted value is validated and discarded: no behaviour here varies by
+    // version, so remembering it per connection would be state nobody reads.
+    const declared = declaredProtocolVersion(params)
+    if (declared.kind === 'unsupported') {
+      const detail = `Unsupported MCP protocol version ${quoteDeclared(declared.value)}. This server supports: ${SUPPORTED_MCP_PROTOCOL_VERSIONS.join(', ')}.`
+      // A notification cannot be answered; dropping it unlogged would be the silent
+      // fallback the norms forbid, so the refusal goes to the log instead.
+      if (isNotification) options.log?.(`automation socket refused ${parsed.method}: ${detail}`)
+      else respond(socket, errorResponse(id, JSONRPC_INVALID_PARAMS, detail))
+      return
+    }
+
     try {
       const context = connectionContexts.get(socket) ?? { metadata: { kind: 'external-local' as const } }
       const result = await dispatch(parsed.method, params, context)
@@ -202,6 +232,9 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
       case 'initialize': {
         // Negotiate, never echo: a client asking for a version we do not
         // implement is answered with the newest one we do (shared/mcp/protocol).
+        // Optional since 2026-07-28 removed the handshake, and it always was here:
+        // this switch gates nothing on it, so tools/list and tools/call answer a
+        // connection that never sent one. Nothing to un-gate; there is no gate.
         return {
           kind: 'result',
           value: {
@@ -220,6 +253,7 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
           kind: 'result',
           value: {
             tools: options.resolveTools().map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
+            ttlMs: TOOLS_LIST_TTL_MS,
           },
         }
       case 'tools/call': {
@@ -272,6 +306,35 @@ function connectionMetadata(params: Record<string, unknown>): McpConnectionMetad
     cliId: text('cliId'),
     sprintRunId: text('sprintRunId'),
   }
+}
+
+type DeclaredProtocolVersion = { kind: 'absent' | 'supported' } | { kind: 'unsupported'; value: unknown }
+
+/**
+ * Read the per-request version declaration out of `params._meta.protocolVersion`.
+ *
+ * Absent (no `_meta`, or no `protocolVersion` in it) means the client made no
+ * claim and gets the default behaviour. Anything present that is not one of our
+ * supported strings — a stale date, a number, `null` — is a claim we cannot
+ * honour, and is reported as one rather than quietly read as absent.
+ */
+function declaredProtocolVersion(params: Record<string, unknown>): DeclaredProtocolVersion {
+  const meta = isRecord(params._meta) ? params._meta : undefined
+  if (!meta || !('protocolVersion' in meta) || meta.protocolVersion === undefined) return { kind: 'absent' }
+  const value = meta.protocolVersion
+  return isSupportedMcpProtocolVersion(value) ? { kind: 'supported' } : { kind: 'unsupported', value }
+}
+
+/**
+ * Render a rejected declaration for the error message.
+ *
+ * Bounded on purpose: the value is caller-controlled and a frame may be a
+ * megabyte, so quoting it whole would let a client choose the size of our own
+ * error response.
+ */
+function quoteDeclared(value: unknown): string {
+  const rendered = JSON.stringify(value) ?? String(value)
+  return rendered.length > 64 ? `${rendered.slice(0, 64)}…` : rendered
 }
 
 type JsonRpcId = string | number | null

@@ -808,7 +808,9 @@ async function testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt(): P
   )
   // The Python engine pins the same literal (tests/sprintengine_tool/test_mcp_server.py);
   // that pair is what keeps the two servers' declared maximum from drifting apart again.
-  assert.equal(DEFAULT_MCP_PROTOCOL_VERSION, '2025-06-18', 'both servers must answer the same default/maximum')
+  // The maximum rose to 2026-07-28 in the commit that earned it: handshake-optional
+  // framing, per-request `_meta.protocolVersion`, and `ttlMs` (the two tests below).
+  assert.equal(DEFAULT_MCP_PROTOCOL_VERSION, '2026-07-28', 'both servers must answer the same default/maximum')
 
   const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-negotiate-'))
   const socketPath = join(dir, 'automation.sock')
@@ -863,6 +865,140 @@ async function testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt(): P
   } finally {
     await server.stop()
     rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * A started socket server plus one connected client that collects newline-delimited
+ * JSON-RPC responses. Deliberately sends no `initialize`: every test below it is
+ * about a connection that never handshakes.
+ *
+ * Keep `prefix` short — a Unix socket path is capped near 104 bytes, and the temp
+ * dir eats half of that, so a descriptive prefix fails `listen` with EINVAL.
+ */
+async function handshakelessClient(prefix: string): Promise<{
+  send: (frame: Record<string, unknown>) => void
+  responses: Array<Record<string, unknown>>
+  close: () => Promise<void>
+}> {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  const socketPath = join(dir, 'automation.sock')
+  const server = createMcpSocketServer({
+    socketPath,
+    serverName: 'multicode-automation',
+    serverVersion: '0.0.0-test',
+    resolveTools: () => [
+      {
+        name: 'workspace.list',
+        description: 'test tool',
+        inputSchema: { type: 'object', properties: {} },
+        handler: async () => ({ content: [{ type: 'text', text: '{}' }], structuredContent: { workspaces: [] } }),
+      },
+    ],
+  })
+  await server.start()
+  const socket = connect(socketPath)
+  socket.setEncoding('utf8')
+  await new Promise<void>((resolve, reject) => {
+    socket.once('connect', () => resolve())
+    socket.once('error', reject)
+  })
+  const responses: Array<Record<string, unknown>> = []
+  let buffer = ''
+  socket.on('data', (chunk: string) => {
+    buffer += chunk
+    let newline = buffer.indexOf('\n')
+    while (newline !== -1) {
+      const line = buffer.slice(0, newline).trim()
+      buffer = buffer.slice(newline + 1)
+      if (line) responses.push(JSON.parse(line))
+      newline = buffer.indexOf('\n')
+    }
+  })
+  return {
+    send: (frame) => socket.write(`${JSON.stringify(frame)}\n`),
+    responses,
+    close: async () => {
+      socket.destroy()
+      await server.stop()
+      rmSync(dir, { recursive: true, force: true })
+    },
+  }
+}
+
+async function testToolsAnswerAConnectionThatNeverInitialized(): Promise<void> {
+  // 2026-07-28 removes the initialize/initialized handshake, so a spec-tracking
+  // client opens the socket and calls straight away. That already worked here (the
+  // dispatch has no handshake gate), which is exactly why it needs pinning: nothing
+  // in the code says "do not add a gate", so only this test stops one being added.
+  const client = await handshakelessClient('multicode-mcp-nohandshake-')
+  try {
+    client.send({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+    client.send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'workspace.list', arguments: {} } })
+    await waitUntil('two responses on a connection that never initialized', () => client.responses.length >= 2)
+
+    const byId = new Map(client.responses.map((response) => [response.id, response]))
+    const list = byId.get(1) as { error?: unknown; result: { tools: Array<{ name: string }>; ttlMs: number } }
+    assert.equal(list.error, undefined, 'tools/list is not gated on a handshake')
+    assert.deepEqual(list.result.tools.map((entry) => entry.name), ['workspace.list'])
+    // ttlMs (SEP-2549): five minutes, because module enable/disable rewrites this
+    // surface live and notifications/tools/list_changed rides the same socket.
+    assert.equal(list.result.ttlMs, 300_000, 'tools/list carries a cache hint')
+    assert.ok(!('cacheScope' in list.result), 'no cacheScope value is invented')
+
+    const call = byId.get(2) as { error?: unknown; result: { structuredContent: { workspaces: unknown[] } } }
+    assert.equal(call.error, undefined, 'tools/call is not gated on a handshake')
+    assert.deepEqual(call.result.structuredContent.workspaces, [])
+  } finally {
+    await client.close()
+  }
+}
+
+async function testPerRequestProtocolVersionDeclarationIsValidated(): Promise<void> {
+  // With the handshake optional and no headers on this transport, `params._meta.
+  // protocolVersion` is the only place a client can state which spec its frame
+  // speaks. A declaration is a commitment: unlike initialize (which downgrades),
+  // an unsupported one is refused rather than served under semantics nobody agreed to.
+  const unsupported = '2099-01-01'
+  assert.ok(!SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(unsupported), 'this test needs a version we do NOT serve')
+
+  const client = await handshakelessClient('multicode-mcp-declared-')
+  try {
+    const meta = (protocolVersion: unknown): Record<string, unknown> => ({ _meta: { protocolVersion } })
+    client.send({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: meta(DEFAULT_MCP_PROTOCOL_VERSION) })
+    client.send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: meta(unsupported) })
+    client.send({ jsonrpc: '2.0', id: 3, method: 'tools/list' })
+    client.send({ jsonrpc: '2.0', id: 4, method: 'tools/list', params: meta(20260728) })
+    client.send({
+      jsonrpc: '2.0',
+      id: 5,
+      method: 'tools/call',
+      params: { name: 'workspace.list', arguments: {}, ...meta(unsupported) },
+    })
+    await waitUntil('five responses', () => client.responses.length >= 5)
+
+    const byId = new Map(client.responses.map((response) => [response.id, response]))
+    const served = (id: number, why: string): void => {
+      const response = byId.get(id) as { error?: { message: string }; result?: unknown }
+      assert.equal(response.error, undefined, why)
+      assert.ok(response.result, why)
+    }
+    const refused = (id: number, why: string): void => {
+      const response = byId.get(id) as { error: { code: number; message: string }; result?: unknown }
+      assert.equal(response.error.code, -32602, why)
+      assert.match(response.error.message, /Unsupported MCP protocol version/, why)
+      for (const version of SUPPORTED_MCP_PROTOCOL_VERSIONS) {
+        assert.ok(response.error.message.includes(version), `the refusal names ${version}`)
+      }
+      assert.equal(response.result, undefined, 'a refused request is never also served')
+    }
+    served(1, 'a supported declared version is served normally')
+    refused(2, 'an unsupported declared version is refused')
+    served(3, 'no declaration at all is served normally')
+    refused(4, 'a non-string declaration is a claim we cannot honour, not an absent one')
+    refused(5, 'the check covers tools/call, not just tools/list')
+  } finally {
+    await client.close()
   }
 }
 
@@ -3881,6 +4017,8 @@ const tests = [
   testDelegatePreservesWorkspaceModeOnSuccess,
   testSocketServerSpeaksMcpAndOnlyWhenStarted,
   testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt,
+  testToolsAnswerAConnectionThatNeverInitialized,
+  testPerRequestProtocolVersionDeclarationIsValidated,
   testStaleSocketFileIsReplacedOnStart,
   testBridgePipesStdioToSocketAndExitsOnServerStop,
   testConcurrentBridgesKeepResponsesAndAttributionIsolated,
