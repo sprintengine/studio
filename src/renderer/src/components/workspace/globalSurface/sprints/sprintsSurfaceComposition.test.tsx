@@ -1384,11 +1384,46 @@ async function main(): Promise<void> {
   await settle(2)
   console.log('ok - a roleless run reads as roster-configured on its own workspace')
 
+  // ── A store this build is too old to read fails permanently (MC-2063) ─────
+  // The rail keeps listing it ("details unavailable"); selecting it is where the
+  // reason is spelled out — once, with the remedy. What it must NOT say is that
+  // the failure is temporary, or offer a "Try again" that can only fail again.
+  await act(async () => {
+    root6.unmount()
+  })
+  listed = [
+    summary({
+      teamSlug: 'ancient-run',
+      runtimeState: 'unknown',
+      unknownReason: 'This sprint was created by an older version of Multicode (run store v2, this build reads v5) and cannot be opened.',
+      unknownKind: 'unsupported_store',
+    }),
+  ]
+  // No projection for it: the read fails, exactly as a rejected store's does.
+  useWorkspaceStore.setState({
+    workspaces: [
+      { id: 'w1', name: 'multicode', mode: 'standard', folderPath: projectRoot, agents: {}, openFiles: [], createdAt: 1 },
+    ],
+    activeWorkspaceId: 'w1',
+    activeGlobalSurface: 'sprints',
+  } as never)
+  const root7 = createRoot(container)
+  await act(async () => {
+    root7.render(surface())
+  })
+  await settle()
+  await selectRailRun('ancient-run')
+  const tooOldCanvas = container.textContent ?? ''
+  assert.ok(tooOldCanvas.includes('can’t be opened by this version'), 'the canvas names it as unopenable, not unread')
+  assert.ok(!tooOldCanvas.includes('usually temporary'), 'a permanent rejection is never called temporary')
+  assert.ok(!tooOldCanvas.includes('Try again'), 'and is not offered a retry that can only fail')
+  console.log('ok - a run store too old to read fails permanently, with its remedy')
+
   assert.ok(listCalls >= 1, 'the index was actually read over IPC')
   // Tear the surface down so the door's projection-refresh driver (and its
   // interval) is disposed — a leaked driver would keep this process alive.
   await act(async () => {
-    root6.unmount()
+    root7.unmount()
   })
   console.log('all Sprints surface composition tests passed')
 }
