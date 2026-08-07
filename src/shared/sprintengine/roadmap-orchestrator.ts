@@ -116,6 +116,12 @@ export type RoadmapLaneRuntime = {
   //
   // RUN identity is `activeTeamSlug`; this is AGENT CONFIGURATION. Do not merge.
   activeRoster?: string
+  // Consecutive reconciles in which `activeItemRef` was set but absent from
+  // `observations`. A transient absence — a projection not loaded yet, a
+  // workspace not yet restored after an app restart — is indistinguishable from
+  // a deleted run at a single tick, so the handle survives until the absence
+  // repeats. Reset to undefined the moment the run is observed again.
+  activeMissingTicks?: number
   // Set while parked. Cleared only by a human resume (a driver command).
   parked?: { reason: RoadmapParkReason; itemRef: string; at: string; detail?: string }
   // The eligible ref a "start next?" approval is outstanding for (advance:
@@ -309,6 +315,12 @@ type LaneReconcileArgs = {
 
 type LaneDecision = { action: RoadmapOrchestratorAction | null; runtime: RoadmapLaneRuntime }
 
+// How many CONSECUTIVE reconciles may miss the active run before its handle is
+// released. Two is the smallest value that distinguishes a one-tick blip from a
+// real disappearance; the cost of waiting one extra tick is nil, while the cost
+// of guessing wrong is a duplicate sprint (MC-2178).
+const ACTIVE_MISSING_TICKS_BEFORE_CLEAR = 2
+
 function reconcileLane(args: LaneReconcileArgs): LaneDecision {
   const { lane, runtime } = args
 
@@ -325,12 +337,26 @@ function reconcileLane(args: LaneReconcileArgs): LaneDecision {
   if (runtime.activeItemRef) {
     const observation = args.observations.get(runtime.activeItemRef)
     if (observation) {
-      return decideForActiveRun({ ...args, observation })
+      return decideForActiveRun({ ...args, observation: observation, runtime: seenActive(runtime) })
     }
-    // The active run vanished from observations (deleted, or its store is gone).
-    // Drop the handle and let the next reconcile re-derive from eligibility
-    // rather than parking — a missing run is recoverable, a wrong conclusion is
-    // not. Idempotent start will re-adopt or re-create as eligibility dictates.
+    // The active run is not in observations. That MIGHT mean it was deleted —
+    // or merely that the driver could not see it this tick.
+    //
+    // Clearing on the first miss is what produced duplicate sprints on
+    // 2026-08-06: the handle was dropped while the run was alive and executing,
+    // the next reconcile found an eligible frontier with nothing active, and it
+    // started a second sprint beside the first. Both then committed different
+    // work on different branches (MC-2178). The old comment claimed an
+    // "idempotent start will re-adopt" — there is no such re-adoption; start
+    // creates a new run.
+    //
+    // So require the absence to PERSIST. A live run is observed again on the
+    // next tick and the counter resets; a genuinely deleted one keeps missing
+    // and the handle is released, which still recovers without a human.
+    const missed = (runtime.activeMissingTicks ?? 0) + 1
+    if (missed < ACTIVE_MISSING_TICKS_BEFORE_CLEAR) {
+      return { action: null, runtime: { ...runtime, activeMissingTicks: missed } }
+    }
     return { action: { kind: 'clear_active', lane }, runtime: clearedActive(runtime) }
   }
 
@@ -505,8 +531,24 @@ function delivered(lane: string, observation: RoadmapRunObservation): RoadmapOrc
 function clearedActive(runtime: RoadmapLaneRuntime): RoadmapLaneRuntime {
   // `activeRoster` is part of the ACTIVE handle and must clear with it — a lane
   // that has released its run would otherwise keep reporting the staffing of a
-  // step that is no longer running.
-  const { activeItemRef, activeStatePath, activeTeamSlug, activeRepoId, activeRoster, ...rest } = runtime
+  // step that is no longer running. `activeMissingTicks` counts absences of that
+  // same handle, so it is meaningless once the handle is gone.
+  const {
+    activeItemRef,
+    activeStatePath,
+    activeTeamSlug,
+    activeRepoId,
+    activeRoster,
+    activeMissingTicks,
+    ...rest
+  } = runtime
+  return { ...rest }
+}
+
+/** The active run was observed: forget any run of missed ticks. */
+function seenActive(runtime: RoadmapLaneRuntime): RoadmapLaneRuntime {
+  if (runtime.activeMissingTicks === undefined) return runtime
+  const { activeMissingTicks, ...rest } = runtime
   return { ...rest }
 }
 

@@ -991,6 +991,15 @@ test('a run that VANISHES marks nothing completed', async () => {
   h.runs.delete(statePath)
   h.links.delete(linkKey(ROOT, 'backlog/a.md'))
 
+  // One missed tick is NOT proof of deletion — a live run can be invisible for a
+  // tick (projection not loaded, workspace not restored). Releasing the handle
+  // here is what started a second sprint beside a live one (MC-2178), so the
+  // lane holds on and starts nothing.
+  await orchestrator.reconcile()
+  assert.notEqual(lane(h)?.activeItemRef, undefined, 'handle survives a single miss')
+  assert.deepEqual(h.starts, ['backlog/a.md'], 'and above all: no SECOND run is started')
+
+  // Still gone on the next tick — now it is real, and the lane recovers.
   await orchestrator.reconcile()
 
   assert.equal(lane(h)?.activeItemRef, undefined)

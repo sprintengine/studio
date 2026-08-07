@@ -239,12 +239,38 @@ test('parked lane stays parked (never auto-unparks)', () => {
   assert.equal(result.laneRuntimes.get('Backend')?.parked?.reason, 'run_failed')
 })
 
-test('active run vanished from observations → clear_active (recover, not park)', () => {
+test('active run missing for ONE tick → handle survives, no second sprint (MC-2178)', () => {
   const result = reconcileRoadmap(baseInput({ laneRuntimes: activeRuntime(), observations: new Map() }))
+  // The run may simply not be visible yet (projection not loaded, workspace not
+  // restored). Dropping the handle here is what let a second sprint start beside
+  // a live one on 2026-08-06.
+  assert.equal(result.actions.length, 0, 'a single missed observation must produce no action at all')
+  assert.equal(result.laneRuntimes.get('Backend')?.activeItemRef, qref('backlog/a.md'), 'handle is kept')
+  assert.equal(result.laneRuntimes.get('Backend')?.activeMissingTicks, 1)
+})
+
+test('active run vanished for consecutive ticks → clear_active (recover, not park)', () => {
+  const once = reconcileRoadmap(baseInput({ laneRuntimes: activeRuntime(), observations: new Map() }))
+  const twice = reconcileRoadmap(baseInput({ laneRuntimes: once.laneRuntimes, observations: new Map() }))
   // Deliberately BARE: nothing shipped, so the driver has no run to credit and no
   // item to mark completed (MC-1904's "leave it alone when in doubt").
-  assert.deepEqual(result.actions[0], { kind: 'clear_active', lane: 'Backend' })
-  assert.equal(result.laneRuntimes.get('Backend')?.activeItemRef, undefined)
+  assert.deepEqual(twice.actions[0], { kind: 'clear_active', lane: 'Backend' })
+  assert.equal(twice.laneRuntimes.get('Backend')?.activeItemRef, undefined)
+  assert.equal(twice.laneRuntimes.get('Backend')?.activeMissingTicks, undefined, 'counter clears with the handle')
+})
+
+test('a missed tick followed by an observation resets the counter', () => {
+  const missed = reconcileRoadmap(baseInput({ laneRuntimes: activeRuntime(), observations: new Map() }))
+  assert.equal(missed.laneRuntimes.get('Backend')?.activeMissingTicks, 1)
+  // The run reappears — an executing run means watch and do nothing.
+  const live = new Map([[qref('backlog/a.md'), observation({ lifecycle: 'executing' })]])
+  const seen = reconcileRoadmap(baseInput({ laneRuntimes: missed.laneRuntimes, observations: live }))
+  assert.equal(seen.actions.length, 0)
+  assert.equal(seen.laneRuntimes.get('Backend')?.activeItemRef, qref('backlog/a.md'))
+  assert.equal(seen.laneRuntimes.get('Backend')?.activeMissingTicks, undefined, 'a blip must not accumulate')
+  // ...so a LATER single miss still gets its own full grace period.
+  const later = reconcileRoadmap(baseInput({ laneRuntimes: seen.laneRuntimes, observations: new Map() }))
+  assert.equal(later.actions.length, 0, 'the counter restarts rather than resuming where it left off')
 })
 
 test('dangling frontier → park eligibility_contradiction', () => {
