@@ -40,6 +40,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { PANE_MEASURE, stampTheme } from './backlogDetailPaneMeasure.mjs'
 
 const require = createRequire(import.meta.url)
 const root = resolve(new URL('../..', import.meta.url).pathname)
@@ -523,6 +524,53 @@ async function main() {
       JSON.stringify(m.saveLiveRegion),
     )
     check('“Make active” is still reachable on the door bar', m.makeActive)
+
+    /* ---- MC-2047 on the Horizon door ---------------------------------- */
+    // The detail pane MC-2047 re-skins is mounted by three surfaces, and
+    // `sprintengine-epic-tab-pass.mjs` measures two of them — the Epic tab and
+    // the Backlog door. This is the third. It is measured rather than argued
+    // from "same component" because the Horizon door mounts the pane with
+    // different chrome around it (this door bar, this rail), and a hairline or
+    // a heading that outranks the title is a painted fact of the composed
+    // surface, not of the component in isolation.
+    //
+    // Both polarities are stamped rather than read as found: this profile boots
+    // in one of them, and reading it twice is measuring one polarity twice.
+    await stampTheme(page, 'dark', 'dark')
+    transcript.paneDark = await page.evaluate(PANE_MEASURE)
+    await page.screenshot({ path: join(outDir, 'horizon-pane-dark.png') })
+    await stampTheme(page, 'light', 'light')
+    transcript.paneLight = await page.evaluate(PANE_MEASURE)
+    await page.screenshot({ path: join(outDir, 'horizon-pane-light.png') })
+    await stampTheme(page, 'dark', 'dark')
+
+    for (const [mode, pane] of [
+      ['dark', transcript.paneDark],
+      ['light', transcript.paneLight],
+    ]) {
+      check(`the Horizon door mounts the shared detail pane (${mode})`, pane?.present === true)
+      if (!pane?.present) continue
+      check(
+        `the pane carries the polarity it was measured in (${mode})`,
+        pane.mode === mode,
+        `data-mode=${pane.mode} data-theme=${pane.theme}`,
+      )
+      check(
+        `no hairline inside the pane on the Horizon door (${mode})`,
+        pane.rules.length === 0,
+        JSON.stringify(pane.rules),
+      )
+      check(
+        `no body heading outranks the pane’s own title on the Horizon door (${mode})`,
+        pane.headings.every((h) => h.size <= pane.titleSize),
+        `title=${pane.titleSize}px headings=${JSON.stringify(pane.headings.map((h) => [h.tag, h.size]))}`,
+      )
+      check(
+        `no copy explaining a control on the Horizon door (${mode})`,
+        !pane.copy.mockups && !pane.copy.prerequisites && !pane.copy.epicChildren,
+        JSON.stringify(pane.copy),
+      )
+    }
 
     /* ---- the SHARED pane, on the other door it re-skins ---------------- */
     // The header this condenses is `BacklogDetail`, which the Backlog door
