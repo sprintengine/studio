@@ -343,6 +343,7 @@ async function testToolListNamesTheToolSurface(): Promise<void> {
       'backlog.repair',
       'backlog.update',
       'backlog.work',
+      'cli.runtime.list',
       'horizon.add_step',
       'horizon.approve',
       'horizon.configure',
@@ -1817,6 +1818,149 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
   assert.equal((failed.structuredContent as { error: { code: string } }).error.code, 'sprint_team_exists')
 }
 
+// MC-2120 — the execution runtime the wizard has and the gateway did not: the
+// pool/run-level `runtime`, the per-role model/effort maps, and the run's agent
+// ceiling. Each one reaches the renderer verbatim, and a malformed one is
+// refused at the boundary rather than forwarded for the renderer to interpret.
+async function testSprintCreateCarriesTheRunRuntime(): Promise<void> {
+  const requests: AutomationRendererRequest[] = []
+  const workspace = testWorkspace('ws-sprint', { folderPath: '/tmp/project-a', mode: 'sprintengine' as never })
+  const tools = createAutomationTools({
+    ...backendsOf(),
+    getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
+    delegateToRenderer: async (request) => {
+      requests.push(request)
+      return { ok: true, workspaceId: 'ws-sprint' }
+    },
+  })
+
+  // The roleless shape (the default sprint kind): one `runtime` block, no roles.
+  const roleless = await tool(tools, 'sprint.create').handler({
+    folderPath: '/tmp/project-a',
+    goal: 'Ship checkout',
+    runtime: { cli: 'claude-code', model: 'claude-opus-5', effort: 'high' },
+    maxConcurrentAgents: 6,
+  })
+  assert.equal(roleless.isError, undefined, JSON.stringify(roleless.structuredContent))
+  assert.deepEqual((requests[0] as { runtime?: unknown }).runtime, {
+    cli: 'claude-code',
+    model: 'claude-opus-5',
+    effort: 'high',
+  })
+  assert.equal((requests[0] as { maxConcurrentAgents?: number }).maxConcurrentAgents, 6)
+
+  // The role-based shape: per-role maps, `null` preserved as the explicit
+  // "this role takes its CLI default" it is.
+  requests.length = 0
+  const roles = await tool(tools, 'sprint.create').handler({
+    folderPath: '/tmp/project-a',
+    goal: 'Ship checkout',
+    roster: { architect: 1, developer: 1 },
+    roleClis: { developer: 'codex' },
+    roleModels: { architect: 'claude-opus-5', developer: null },
+    roleEfforts: { architect: 'high' },
+  })
+  assert.equal(roles.isError, undefined, JSON.stringify(roles.structuredContent))
+  assert.deepEqual((requests[0] as { roleClis?: unknown }).roleClis, { developer: 'codex' })
+  assert.deepEqual((requests[0] as { roleModels?: unknown }).roleModels, {
+    architect: 'claude-opus-5',
+    developer: null,
+  })
+  assert.deepEqual((requests[0] as { roleEfforts?: unknown }).roleEfforts, { architect: 'high' })
+
+  // Every field is omitted when unset, so a caller written before MC-2120
+  // produces the byte-identical payload it always did.
+  requests.length = 0
+  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g' })
+  for (const key of ['runtime', 'roleClis', 'roleModels', 'roleEfforts', 'maxConcurrentAgents']) {
+    assert.equal(key in (requests[0] as object), false, `${key} is absent when unset`)
+  }
+
+  for (const args of [
+    { folderPath: '/tmp/project-a', goal: 'g', runtime: 'claude-code' },
+    { folderPath: '/tmp/project-a', goal: 'g', runtime: { cli: '' } },
+    { folderPath: '/tmp/project-a', goal: 'g', runtime: { reasoning: 'high' } },
+    { folderPath: '/tmp/project-a', goal: 'g', roleModels: ['architect'] },
+    { folderPath: '/tmp/project-a', goal: 'g', roleClis: { architect: 7 } },
+    { folderPath: '/tmp/project-a', goal: 'g', roleModels: { architect: 42 } },
+    { folderPath: '/tmp/project-a', goal: 'g', roleEfforts: { architect: '' } },
+    { folderPath: '/tmp/project-a', goal: 'g', maxConcurrentAgents: 0 },
+    { folderPath: '/tmp/project-a', goal: 'g', maxConcurrentAgents: 11 },
+    { folderPath: '/tmp/project-a', goal: 'g', maxConcurrentAgents: 2.5 },
+  ]) {
+    const bad = await tool(tools, 'sprint.create').handler(args as never)
+    assert.equal(bad.isError, true, JSON.stringify(args))
+    assert.equal((bad.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  }
+}
+
+// MC-2120 — `cli`, `cliModel`, and the sprint runtime fields were blind strings
+// until an agent could enumerate them over MCP alone.
+async function testCliRuntimeListReportsTheRegistry(): Promise<void> {
+  const plugin = (id: string, overrides: Partial<LoadedPlugin['manifest']> = {}): LoadedPlugin => ({
+    manifest: {
+      id,
+      displayName: id === 'claude-code' ? 'Claude Code' : id,
+      version: 1,
+      binary: id === 'claude-code' ? 'claude' : id,
+      permissionPresets: { default: {}, bypass_all: {} },
+      launch: { args: [] },
+      promptInjection: { mode: 'argv' },
+      completion: { mode: 'exit' },
+      capabilities: { resumeSession: true, sessionIdFromCaller: false, toolUse: true, mcpServers: true },
+      ...overrides,
+    } as unknown as LoadedPlugin['manifest'],
+    source: 'bundled',
+    manifestPath: `/plugins/${id}/manifest.json`,
+    pluginRoot: `/plugins/${id}`,
+  })
+  const tools = createAutomationTools({
+    ...backendsOf(),
+    listPlugins: () => [
+      plugin('claude-code', {
+        modelSelection: {
+          args: ['--model', '{{model}}'],
+          options: [{ id: 'claude-opus-5', label: 'Opus 5' }, { id: 'claude-sonnet-5' }],
+          allowCustomId: true,
+        },
+        reasoningSelection: {
+          args: ['--effort', '{{reasoning}}'],
+          levels: [{ id: 'medium' }, { id: 'high', label: 'High' }],
+          default: 'medium',
+        },
+      } as never),
+      // A CLI that declares neither: it must still be listed, with the honest
+      // empty answer — "no model may be passed" is not the same as "unlisted".
+      plugin('plain-cli'),
+    ],
+  })
+
+  const listed = await tool(tools, 'cli.runtime.list').handler({})
+  const clis = (listed.structuredContent as { clis: Array<Record<string, unknown>> }).clis
+  assert.deepEqual(clis.map((entry) => entry.id), ['claude-code', 'plain-cli'])
+  assert.deepEqual(clis[0].models, [{ id: 'claude-opus-5', label: 'Opus 5' }, { id: 'claude-sonnet-5' }])
+  assert.equal(clis[0].allowCustomModelId, true)
+  assert.deepEqual(clis[0].reasoningLevels, [{ id: 'medium' }, { id: 'high', label: 'High' }])
+  assert.equal(clis[0].defaultReasoningLevel, 'medium')
+  assert.deepEqual(clis[0].permissionPresets, ['default', 'bypass_all'])
+  assert.equal(clis[1].supportsModelSelection, false)
+  assert.deepEqual(clis[1].models, [])
+  assert.equal(clis[1].allowCustomModelId, false)
+  assert.equal(clis[1].defaultReasoningLevel, null)
+
+  const one = await tool(tools, 'cli.runtime.list').handler({ cli: 'plain-cli' })
+  assert.deepEqual(
+    (one.structuredContent as { clis: Array<{ id: string }> }).clis.map((entry) => entry.id),
+    ['plain-cli']
+  )
+
+  // An unknown id fails rather than answering an empty list a caller would read
+  // as "this CLI exists and declares nothing".
+  const unknown = await tool(tools, 'cli.runtime.list').handler({ cli: 'no-such-cli' })
+  assert.equal(unknown.isError, true)
+  assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_cli')
+}
+
 // MC-2137 — starting a sprint from an epic whose ordering was never declared
 // finished. The gate INFORMS: the run is always created, and the response says
 // what happened to the intake.
@@ -2662,6 +2806,120 @@ async function testModuleMcpToolContributionOwnershipAndCollisions(): Promise<vo
   assert.match(shadowWarnings[0] ?? '', /collides with a core gateway tool/)
 }
 
+// MC-1855 end-to-end (MC-2120 item 4): the plumbing is unit-tested at the
+// kernel and the gateway merge, but nothing proved the last hop — that a real
+// connected MCP session LISTS a module's tool and can CALL it. This drives the
+// whole path a connected agent drives: module kernel → gateway resolver →
+// socket server → JSON-RPC tools/list + tools/call.
+async function testModuleContributedToolIsLiveOnAConnectedSession(): Promise<void> {
+  const socketPath = join(mkdtempSync(join(tmpdir(), 'multicode-module-tool-')), 'automation.sock')
+  const forecastTool: McpToolRegistration = {
+    name: 'weather_deck_forecast',
+    description: 'Forecast from the fixture module.',
+    inputSchema: { type: 'object', properties: { city: { type: 'string' } } },
+    handler: async (args) => ({
+      content: [{ type: 'text', text: 'ok' }],
+      structuredContent: { city: args.city, sky: 'clear' },
+    }),
+  }
+  const fixtureModule: CapabilityModule = {
+    manifest: {
+      id: 'weather-deck',
+      displayName: 'Weather Deck',
+      version: 1,
+      publisher: 'example-author',
+      summary: 'fixture module',
+      defaultEnabled: true,
+      source: 'third-party',
+    },
+    registerMain: (host) => host.registerMcpTools([forecastTool]),
+  }
+  const { kernel, report } = loadMainModules({ ipcMain: createFakeIpcMain().ipcMain, modules: [fixtureModule] })
+  assert.deepEqual(report.loaded, ['weather-deck'])
+
+  let moduleEnabled = true
+  const resolveGatewayTools = createStudioGatewayTools({
+    appTools: createAutomationTools(backendsOf()),
+    sprintEngineMcpHub: { callRunTool: async () => ({}) },
+    resolveModuleTools: () => kernel.mcpToolRegistrations(),
+    isModuleEnabled: () => moduleEnabled,
+  })
+  const server = createMcpSocketServer({
+    socketPath,
+    serverName: 'multicode-automation',
+    serverVersion: '0.0.0-test',
+    resolveTools: resolveGatewayTools,
+  })
+  await server.start()
+  try {
+    const socket = connect(socketPath)
+    socket.setEncoding('utf8')
+    await new Promise<void>((resolve, reject) => {
+      socket.once('connect', () => resolve())
+      socket.once('error', reject)
+    })
+    const responses = new Map<unknown, Record<string, unknown>>()
+    let buffer = ''
+    socket.on('data', (chunk: string) => {
+      buffer += chunk
+      let newline = buffer.indexOf('\n')
+      while (newline !== -1) {
+        const line = buffer.slice(0, newline).trim()
+        buffer = buffer.slice(newline + 1)
+        if (line) {
+          const parsed = JSON.parse(line) as Record<string, unknown>
+          responses.set(parsed.id, parsed)
+        }
+        newline = buffer.indexOf('\n')
+      }
+    })
+    const call = async (id: number, method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      socket.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, ...(params ? { params } : {}) })}\n`)
+      const deadline = Date.now() + 5_000
+      while (!responses.has(id)) {
+        if (Date.now() > deadline) throw new Error(`timed out waiting for ${method}`)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      return responses.get(id) as Record<string, unknown>
+    }
+
+    // A Studio-launched agent's bridge announces itself, then lists.
+    socket.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'sprintengine.studio/connect', params: { agentId: 'agent-a', workspaceId: 'ws-1' } })}\n`)
+    const listed = await call(1, 'tools/list')
+    const names = (listed.result as { tools: Array<{ name: string; description: string }> }).tools
+    const contributed = names.find((entry) => entry.name === 'weather_deck_forecast')
+    assert.ok(contributed, 'the module tool is listed to a live session alongside the core tools')
+    assert.equal(contributed.description, 'Forecast from the fixture module.')
+    assert.ok(names.some((entry) => entry.name === 'workspace.list'), 'core tools are still served')
+
+    const answered = await call(2, 'tools/call', { name: 'weather_deck_forecast', arguments: { city: 'Dublin' } })
+    assert.deepEqual(
+      (answered.result as { structuredContent: Record<string, unknown> }).structuredContent,
+      { city: 'Dublin', sky: 'clear' },
+      'the module handler runs for the connected session'
+    )
+
+    // Disabling the owner mid-session keeps the tool ADVERTISED and answers an
+    // actionable error instead of running it (MC-1805), live on the same
+    // connection — the enablement gate is resolved per call, not captured.
+    moduleEnabled = false
+    const relisted = await call(3, 'tools/list')
+    assert.ok(
+      (relisted.result as { tools: Array<{ name: string }> }).tools.some((entry) => entry.name === 'weather_deck_forecast'),
+      'a disabled module keeps advertising its capability'
+    )
+    const refused = await call(4, 'tools/call', { name: 'weather_deck_forecast', arguments: {} })
+    const refusal = refused.result as { isError?: boolean; structuredContent: { error: { code: string; message: string } } }
+    assert.equal(refusal.isError, true)
+    assert.equal(refusal.structuredContent.error.code, 'weather-deck_module_disabled')
+    assert.match(refusal.structuredContent.error.message, /Weather Deck module is disabled/)
+
+    socket.destroy()
+  } finally {
+    await server.stop()
+  }
+}
+
 async function testStudioGatewayAuditIsRedactedAndRotated(): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'multicode-studio-mcp-audit-'))
   try {
@@ -3400,6 +3658,9 @@ const tests = [
   testBridgeReportsStaleDiscoveryFile,
   testStudioGatewayMergesCanonicalRunToolsAndRoutesContext,
   testModuleMcpToolContributionOwnershipAndCollisions,
+  testModuleContributedToolIsLiveOnAConnectedSession,
+  testSprintCreateCarriesTheRunRuntime,
+  testCliRuntimeListReportsTheRegistry,
   testStudioGatewayAuditIsRedactedAndRotated,
   testReviewSubmitBriefHappyPathWritesAtomicallyAndEmits,
   testReviewSubmitBriefInvalidReturnsEveryErrorAndWritesNothing,

@@ -623,10 +623,21 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       type: 'object',
       properties: {
         workspaceId: { type: 'string', description: 'Target workspace id.' },
-        cli: { type: 'string', description: 'Agent CLI plugin id (for example "claude-code" or "codex"); defaults to the last selected CLI.' },
+        cli: {
+          type: 'string',
+          description:
+            'Agent CLI plugin id; defaults to the last selected CLI. cli.runtime.list enumerates the ids this '
+            + 'app actually holds — do not guess one.',
+        },
         name: { type: 'string', description: 'Agent display name.' },
         prompt: { type: 'string', description: 'Startup prompt sent to the CLI after launch.' },
-        cliModel: { type: 'string', description: 'Model id for CLIs that support model selection; forwarded verbatim.' },
+        cliModel: {
+          type: 'string',
+          description:
+            'Model id for CLIs that support model selection; forwarded verbatim (the app does not validate it '
+            + 'against the CLI). cli.runtime.list reports each CLI\'s declared model ids and whether it accepts '
+            + 'ids outside that list.',
+        },
         permissionPreset: {
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
@@ -679,6 +690,48 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         agent: agentProjection(launched.workspace, launched.agentId),
         ...(launched.worktreePath ? { worktreePath: launched.worktreePath } : {}),
       })
+    },
+  }
+
+  // The answer to "what may I pass as a cli / model / effort?" (MC-2120).
+  // Before this, `agent.launch.cliModel` and the sprint runtime fields were
+  // blind strings an agent could only guess at from a tool description's
+  // example. Reports the CLI plugin registry as the app itself resolves it —
+  // declared, not probed: it says what the registry HOLDS, never whether the
+  // binary is installed on this machine (that probe spawns a login shell per
+  // CLI and belongs to the app's own availability refresh).
+  const cliRuntimeList: McpToolRegistration = {
+    name: 'cli.runtime.list',
+    description:
+      'List the agent CLIs this app can launch, with the model ids and reasoning-effort levels each one '
+      + 'declares. Read it before passing `cli`/`cliModel` to agent.launch, or `runtime`/`roleModels`/'
+      + '`roleEfforts` to sprint.create — those are otherwise blind strings. A CLI whose `allowCustomModelId` '
+      + 'is true accepts model ids outside its listed options (the list is a seed, not a closed set); a level '
+      + 'outside `reasoningLevels` is refused by the CLI itself. This reports what the registry HOLDS, not '
+      + 'what is installed on this machine — it never probes for binaries.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cli: { type: 'string', description: 'Report only this CLI plugin id. Unknown ids fail rather than returning an empty list.' },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const invalid = firstInvalidOptionalString(args, ['cli'])
+      if (invalid) return invalid
+      const wanted = optionalString(args.cli)
+      const plugins = backends.listPlugins()
+      if (wanted && !plugins.some((plugin) => plugin.manifest.id === wanted)) {
+        return failure(
+          'unknown_cli',
+          `No agent CLI "${wanted}" is registered in this app. Call cli.runtime.list with no arguments for the ids it holds.`
+        )
+      }
+      const clis = plugins
+        .filter((plugin) => !wanted || plugin.manifest.id === wanted)
+        .map((plugin) => cliRuntimeProjection(plugin))
+      return success({ clis })
     },
   }
 
@@ -1235,9 +1288,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       properties: {
         path: { type: 'string', description: 'Item path relative to the project root, e.g. "backlog/example.md".' },
         projectRoot: PROJECT_ROOT_PROPERTY,
-        cli: { type: 'string', description: 'Agent CLI plugin id (for example "claude-code" or "codex"); defaults to the last selected CLI.' },
+        cli: { type: 'string', description: 'Agent CLI plugin id; defaults to the last selected CLI. cli.runtime.list enumerates the registered ids.' },
         name: { type: 'string', description: 'Agent display name.' },
-        cliModel: { type: 'string', description: 'Model id for CLIs that support model selection; forwarded verbatim.' },
+        cliModel: { type: 'string', description: 'Model id for CLIs that support model selection; forwarded verbatim. cli.runtime.list reports each CLI\'s ids.' },
         permissionPreset: {
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
@@ -1649,14 +1702,21 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const sprintCreate: McpToolRegistration = {
     name: 'sprint.create',
     description:
-      'Create a Sprint Engine run in a new workspace, through the same creation path the app wizard uses '
-      + '(CLI permissions stay at "default"). Roster precedence: an explicit `roster` map, else a named saved '
+      'Create a Sprint Engine run in a new workspace, through the same creation path the app wizard uses. '
+      + 'Roster precedence: an explicit `roster` map, else a named saved '
       + 'roster (`rosterName`), else the last saved roster, else the built-in roster. Pass `sourceRef` to plan the run FROM a '
-      + 'backlog item or epic — the architect then plans against the item and its children, and the Backlog '
-      + 'execution link is written; `goal` may be empty because it derives from the item heading. '
+      + 'backlog item or epic (or any project-relative plan file or HTML mockup) — the architect then plans '
+      + 'against the item and its children, and for a backlog source the execution link is written; '
+      + '`goal` may be empty because it derives from the item heading. '
+      + 'CLI PERMISSIONS are not selectable here and differ by path: a goal-only run is pinned to "default" '
+      + '(an external caller with no human-authored source never self-escalates), while a source-launched run '
+      + 'spawns its agents in bypass — the unwatched plan-sourced contract horizons and automations already '
+      + 'run under. A person can create the run in the app if that is not what you want. '
       + 'With startRunner the architect is launched and success is confirmed by its live terminal session; '
-      + 'without it the run is created in manual mode and sits idle until a person opens it. Requires an open '
-      + 'primary app window.',
+      + 'without it the run is created in manual mode and sits idle until a person opens it. '
+      + 'Execution runtime: `runtime` pins the CLI/model/effort for a roleless run (no `roster` — the default '
+      + 'kind) and backs any unnamed role, `roleClis`/`roleModels`/`roleEfforts` pin individual roles, and '
+      + '`maxConcurrentAgents` sets how many agents work at once. Requires an open primary app window.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1667,7 +1727,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           description:
             'Project-relative backlog item or epic to plan the run from, e.g. "backlog/epics/foo.md". '
-            + 'Uses the shared plan-sourced creation path (epic children included), not the goal-only path.',
+            + 'Uses the shared plan-sourced creation path (epic children included), not the goal-only path. '
+            + 'Any project-relative plan file or HTML mockup also works — the dialog\'s "choose a source file" — '
+            + 'but only a backlog/ source gets the Backlog execution link and item lifecycle.',
         },
         sourceRefs: {
           type: 'array',
@@ -1713,6 +1775,56 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             + 'agent\'s terminal opens in its own task\'s tree. Omit BOTH this and `useWorktrees` and the '
             + 'run takes the default: "sprint", one worktree for the whole run. An explicit `useWorktrees` '
             + 'still decides on its own ("sprint" when true, "none" when false). Fixed at run creation.',
+        },
+        runtime: {
+          type: 'object',
+          description:
+            'The run-level execution runtime — the same picker the New Sprint dialog shows above the roster '
+            + '(MC-2120). It is the CLI, model, and reasoning effort the ROLELESS seat launches on, and the '
+            + 'fallback for any staffed role the per-role maps below do not name — including one whose saved '
+            + 'roster stored a pick, since an explicit field here is the more specific intent. A roleless run (no `roster`, '
+            + 'the default sprint kind) has no role ids, so this is the ONLY way to pin its model. Omitted '
+            + 'members keep the CLI\'s own defaults: no model flag, no effort flag. Use cli.runtime.list to see '
+            + 'which CLIs, models, and effort levels are launchable.',
+          properties: {
+            cli: { type: 'string', description: 'Agent CLI plugin id, e.g. "claude-code" (cli.runtime.list enumerates them).' },
+            model: { type: 'string', description: 'Model id for that CLI; omitted means the CLI\'s own default.' },
+            effort: { type: 'string', description: 'Reasoning-effort level the CLI declares, e.g. "high".' },
+          },
+          additionalProperties: false,
+        },
+        roleClis: {
+          type: 'object',
+          description:
+            'Per-role agent CLI, role id -> CLI plugin id, e.g. {"architect":"claude-code","developer":"codex"} '
+            + '— the roster editor\'s per-role CLI column. null means that role takes the run-level `runtime.cli`, '
+            + 'else its stock default. Same unknown-role rule as `roleModels`.',
+          additionalProperties: { type: ['string', 'null'] },
+        },
+        roleModels: {
+          type: 'object',
+          description:
+            'Per-role launch model, role id -> model id, e.g. {"architect":"claude-opus-5","developer":"claude-sonnet-5"}. '
+            + 'null means that role takes its CLI default. A role that the run does not staff fails loudly '
+            + '(the `rosterName` precedent) rather than silently doing nothing. Roleless runs have no role ids — '
+            + 'use `runtime` instead.',
+          additionalProperties: { type: ['string', 'null'] },
+        },
+        roleEfforts: {
+          type: 'object',
+          description:
+            'Per-role reasoning-effort level, role id -> level id, e.g. {"architect":"high"}. Same rules as '
+            + '`roleModels`; each level must be one the role\'s CLI declares (cli.runtime.list reports them).',
+          additionalProperties: { type: ['string', 'null'] },
+        },
+        maxConcurrentAgents: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 10,
+          description:
+            'The run\'s ceiling on agents working at once (the dialog\'s "Max concurrent agents"). Default 3. '
+            + 'On a roleless run this is also the effective agent count — agents are minted per task up to it — '
+            + 'so it, not `roster`, is how a roleless run is made wider or narrower.',
         },
         intake: {
           type: 'string',
@@ -1806,6 +1918,55 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           return failure('invalid_arguments', '"roster" must name at least one role.')
         }
       }
+      // The runtime block (MC-2120). Validated here so the renderer only ever
+      // sees trimmed strings; WHICH roles may be named is checked in the
+      // renderer, where the roster is actually resolved.
+      let runtime: { cli?: string; model?: string; effort?: string } | undefined
+      if (args.runtime !== undefined) {
+        if (typeof args.runtime !== 'object' || args.runtime === null || Array.isArray(args.runtime)) {
+          return failure('invalid_arguments', '"runtime" must be an object with optional "cli", "model", and "effort".')
+        }
+        const raw = args.runtime as Record<string, unknown>
+        for (const key of Object.keys(raw)) {
+          if (!['cli', 'model', 'effort'].includes(key)) {
+            return failure('invalid_arguments', `"runtime.${key}" is not a runtime field; use "cli", "model", or "effort".`)
+          }
+          if (raw[key] !== undefined && (typeof raw[key] !== 'string' || !(raw[key] as string).trim())) {
+            return failure('invalid_arguments', `"runtime.${key}" must be a non-empty string when provided.`)
+          }
+        }
+        const entries = {
+          ...(optionalString(raw.cli) ? { cli: (raw.cli as string).trim() } : {}),
+          ...(optionalString(raw.model) ? { model: (raw.model as string).trim() } : {}),
+          ...(optionalString(raw.effort) ? { effort: (raw.effort as string).trim() } : {}),
+        }
+        if (Object.keys(entries).length > 0) runtime = entries
+      }
+      // Role-keyed model/effort maps. `null` is meaningful — it is an explicit
+      // "this role takes its CLI default" — so it is kept, not dropped.
+      const roleOverrides: Partial<Record<'roleClis' | 'roleModels' | 'roleEfforts', Record<string, string | null>>> = {}
+      for (const key of ['roleClis', 'roleModels', 'roleEfforts'] as const) {
+        if (args[key] === undefined) continue
+        const value = args[key]
+        if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+          return failure('invalid_arguments', `"${key}" must be an object of role id to value.`)
+        }
+        const map: Record<string, string | null> = {}
+        for (const [role, entry] of Object.entries(value as Record<string, unknown>)) {
+          if (!role.trim()) return failure('invalid_arguments', `"${key}" role ids must be non-empty.`)
+          if (entry !== null && (typeof entry !== 'string' || !entry.trim())) {
+            return failure('invalid_arguments', `"${key}.${role}" must be a non-empty string or null.`)
+          }
+          map[role.trim()] = entry === null ? null : (entry as string).trim()
+        }
+        if (Object.keys(map).length > 0) roleOverrides[key] = map
+      }
+      if (args.maxConcurrentAgents !== undefined) {
+        const value = args.maxConcurrentAgents
+        if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 10) {
+          return failure('invalid_arguments', '"maxConcurrentAgents" must be an integer between 1 and 10.')
+        }
+      }
       if (args.intake !== undefined && args.intake !== 'direct' && args.intake !== 'planned') {
         return failure('invalid_arguments', '"intake" must be "direct" or "planned" when provided.')
       }
@@ -1828,6 +1989,15 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         ...(sourceRefs ? { sourceRelativePaths: sourceRefs } : {}),
         ...(optionalString(args.rosterName) ? { rosterName: optionalString(args.rosterName) } : {}),
         ...(roster ? { roster } : {}),
+        // The runtime the wizard's pickers write (MC-2120). Each is omitted
+        // when unset so a caller written before this creates the same run.
+        ...(runtime ? { runtime } : {}),
+        ...(roleOverrides.roleClis ? { roleClis: roleOverrides.roleClis } : {}),
+        ...(roleOverrides.roleModels ? { roleModels: roleOverrides.roleModels } : {}),
+        ...(roleOverrides.roleEfforts ? { roleEfforts: roleOverrides.roleEfforts } : {}),
+        ...(args.maxConcurrentAgents !== undefined
+          ? { maxConcurrentAgents: args.maxConcurrentAgents as number }
+          : {}),
         startRunner,
         autoApproveArtifacts: args.autoApproveArtifacts === true,
         useWorktrees: isolation !== 'none',
@@ -2688,6 +2858,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     workspaceStatus,
     agentLaunch,
     agentStatus,
+    cliRuntimeList,
     backlogList,
     backlogRead,
     backlogUpdate,
@@ -2718,6 +2889,32 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     sprintPrStatus,
     sprintTokenUsage,
   ]
+}
+
+// One agent CLI as cli.runtime.list reports it (MC-2120). Everything here is
+// manifest-declared, so the projection is honest about its own limits: an empty
+// `models` means the CLI declares no seed list, which — with
+// `allowCustomModelId` — is different from "no model may be passed".
+function cliRuntimeProjection(plugin: LoadedPlugin): Record<string, unknown> {
+  const { manifest } = plugin
+  return {
+    id: manifest.id,
+    displayName: manifest.displayName,
+    source: plugin.source,
+    binary: manifest.binary,
+    supportsModelSelection: Boolean(manifest.modelSelection),
+    models: (manifest.modelSelection?.options ?? []).map((option) => ({
+      id: option.id,
+      ...(option.label ? { label: option.label } : {}),
+    })),
+    allowCustomModelId: manifest.modelSelection?.allowCustomId === true,
+    reasoningLevels: (manifest.reasoningSelection?.levels ?? []).map((level) => ({
+      id: level.id,
+      ...(level.label ? { label: level.label } : {}),
+    })),
+    defaultReasoningLevel: manifest.reasoningSelection?.default ?? null,
+    permissionPresets: Object.keys(manifest.permissionPresets ?? {}),
+  }
 }
 
 // One module as the module.* tools report it. `entry` is the renderer registry
