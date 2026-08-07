@@ -43,6 +43,11 @@ function check(name, ok, detail = '') {
 }
 
 const EPIC_SLUG = 'checkout-hardening'
+// The child the pass selects (index 1) carries a prerequisite AND an attached
+// mockup, so the pane is measured with Mockups and Dependencies POPULATED, not
+// only in their empty state — a hairline under a section with content is the
+// same defect, and the empty-state fix must not have hidden the populated path.
+const SEEDED_MOCKUP = 'backlog/mockups/seeded-pane.html'
 const CHILDREN = [
   ['2026-07-01-idempotency-keys', 'Idempotency keys on the refund endpoint', 'completed'],
   ['2026-07-02-webhook-retries', 'Retry failed webhook deliveries with backoff', 'in_progress'],
@@ -180,14 +185,26 @@ async function seed() {
     join(workspaceDir, `backlog/epics/${EPIC_SLUG}.md`),
     '---\ntype: epic\nstatus: in_progress\nid: 1841\n---\n\n# Checkout hardening\n\nHarden the checkout path end to end.\n',
   )
+  await mkdir(join(workspaceDir, 'backlog/mockups'), { recursive: true })
+  await writeFile(
+    join(workspaceDir, SEEDED_MOCKUP),
+    '<!doctype html><title>Seeded mockup</title><body><h1>Seeded mockup</h1></body>\n',
+  )
   let id = 1842
   for (const [slug, title, status] of CHILDREN) {
+    // The selected child (index 1) is the populated one: a resolved prerequisite
+    // and an attached, on-disk mockup, so its Mockups and Dependencies sections
+    // render ROWS when the pane is measured.
+    const populated = slug === CHILDREN[1][0]
+    const extraFields = populated
+      ? `mockups: ${SEEDED_MOCKUP}\ndependsOn: ${CHILDREN[0][0]}\n`
+      : ''
     await writeFile(
       join(workspaceDir, `backlog/${slug}.md`),
       // The trailing `# Body heading` is deliberate: the pane strips only the
       // LEADING title h1, so a second one exercises the top of the markdown
       // ramp against the pane's own title (MC-2047's heading-scale defect).
-      `---\ntype: feature\nstatus: ${status}\nepic: ${EPIC_SLUG}\ndifficulty: m\ncriticality: high\nid: ${id}\n---\n\n# ${title}\n\n## Intent\n\nSeeded intent for ${title}.\n\n## Acceptance\n\n- The seeded criterion renders in the detail pane.\n\n# Body heading\n\nProse under a body h1.\n`,
+      `---\ntype: feature\nstatus: ${status}\nepic: ${EPIC_SLUG}\ndifficulty: m\ncriticality: high\n${extraFields}id: ${id}\n---\n\n# ${title}\n\n## Intent\n\nSeeded intent for ${title}.\n\n## Acceptance\n\n- The seeded criterion renders in the detail pane.\n\n# Body heading\n\nProse under a body h1.\n`,
     )
     id += 1
   }
@@ -383,6 +400,26 @@ const PANE_MEASURE = `(() => {
   if (!pane) return { present: false }
   const paneBox = pane.getBoundingClientRect()
   const title = pane.querySelector('header h3')
+  // True of an element sitting inside a fully-bordered box (a card): that box
+  // already draws its own four edges, so a hairline within it is the card's own
+  // internal edge — HtmlPreviewCard's preview/caption split, for instance — not
+  // a divider between the PANE's sections. MC-2047 enumerates the rules it
+  // removes and no card border is among them; cards keep their box.
+  // (No backticks in this comment: it lives inside a template literal.)
+  const insideBorderedBox = (el) => {
+    for (let node = el.parentElement; node && node !== pane; node = node.parentElement) {
+      const s = getComputedStyle(node)
+      if (
+        px(s.borderTopWidth) > 0
+        && px(s.borderBottomWidth) > 0
+        && px(s.borderLeftWidth) > 0
+        && px(s.borderRightWidth) > 0
+      ) {
+        return true
+      }
+    }
+    return false
+  }
   const rules = []
   for (const el of Array.from(pane.querySelectorAll('*'))) {
     if (el.closest('.markdown-body')) continue
@@ -391,6 +428,7 @@ const PANE_MEASURE = `(() => {
     const bottom = px(s.borderBottomWidth)
     if (top === 0 && bottom === 0) continue
     if (px(s.borderLeftWidth) > 0 || px(s.borderRightWidth) > 0) continue
+    if (insideBorderedBox(el)) continue
     const b = el.getBoundingClientRect()
     if (b.width < paneBox.width * 0.5) continue
     rules.push({
@@ -407,12 +445,15 @@ const PANE_MEASURE = `(() => {
     size: px(getComputedStyle(h).fontSize),
     text: (h.textContent || '').trim().slice(0, 40),
   }))
+  const sectionNamed = (name) => {
+    const heading = Array.from(pane.querySelectorAll('h4')).find(
+      (h) => (h.textContent || '').trim() === name,
+    )
+    return heading ? heading.closest('section') : null
+  }
   // The Epic section: its heading names the field, so nothing inside it may
   // restate that name beside the one control it holds.
-  const epicHeading = Array.from(pane.querySelectorAll('h4')).find(
-    (h) => (h.textContent || '').trim() === 'Epic',
-  )
-  const epicSection = epicHeading ? epicHeading.closest('section') : null
+  const epicSection = sectionNamed('Epic')
   const epicLabels = epicSection
     ? Array.from(epicSection.querySelectorAll('*')).filter(
         (el) => el.children.length === 0 && (el.textContent || '').trim() === 'Epic',
@@ -429,6 +470,14 @@ const PANE_MEASURE = `(() => {
     headings,
     epicSectionPresent: Boolean(epicSection),
     epicLabels,
+    // Coverage guard: the no-hairline claim must be read off sections that have
+    // CONTENT, not only off their empty state.
+    rows: {
+      mockups: sectionNamed('Mockups') ? sectionNamed('Mockups').querySelectorAll('li').length : 0,
+      dependencies: sectionNamed('Dependencies')
+        ? sectionNamed('Dependencies').querySelectorAll('li').length
+        : 0,
+    },
     copy: {
       mockups: /No mockups attached/.test(text),
       prerequisites: /No prerequisites/.test(text),
@@ -788,6 +837,16 @@ async function main() {
       `section=${pane.epicSectionPresent} labels=${pane.epicLabels}`,
     )
   }
+
+  // The Epic tab selects the seeded child that HAS a mockup and a prerequisite,
+  // so its two readings above were taken over populated sections. Without this
+  // the whole no-hairline claim could quietly narrow to the empty state.
+  const populated = transcript.pane.epicDark
+  check(
+    'the measured pane had populated Mockups and Dependencies sections',
+    Boolean(populated) && populated.rows?.mockups > 0 && populated.rows?.dependencies > 0,
+    JSON.stringify(populated?.rows),
+  )
 
   const goal = transcript.goal
   if (goal) {
