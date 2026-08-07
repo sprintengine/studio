@@ -10,6 +10,7 @@ import {
   CompanionAgentsModuleServiceToken,
   GitHubTokenStoreToken,
   ModuleStorageToken,
+  EntitlementServiceToken,
   MulticodeAuthToken,
   SprintEngineArtifactsToken,
   SprintEngineAutomationServiceToken,
@@ -81,6 +82,7 @@ export function createAgentRuntimeModule(
       host.provideService(SprintRuntimeToken, () => services.sprintRuntime)
       host.provideService(SprintPullRequestMergePollerToken, () => services.sprintPullRequestMergePoller)
       host.provideService(MulticodeAuthToken, () => services.multicodeAuth)
+      host.provideService(EntitlementServiceToken, () => services.entitlements)
       host.provideService(SprintEngineMcpHubToken, () => services.sprintEngineMcpHub)
       host.provideService(SprintCreateServiceToken, () => services.sprintCreateService)
       host.provideService(WorkspaceSyncServiceToken, () => services.workspaceSyncService)

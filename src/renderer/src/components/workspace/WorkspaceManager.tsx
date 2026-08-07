@@ -3402,7 +3402,10 @@ export default function WorkspaceManager() {
         source: 'auth',
         title: 'Sign-in did not open',
         message,
-        details: 'Check that the Multiauth server is running and reachable from this desktop process.',
+        // Provider-agnostic on purpose (MC-2169): the message the adapter threw
+        // already names the service and its URL, so repeating the provider here
+        // only creates a renderer string the next auth migration has to chase.
+        details: 'Check that the sign-in service is running and reachable from this desktop process.',
       })
       setNotificationsOpen(true)
     }

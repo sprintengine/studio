@@ -85,7 +85,7 @@ export function registerCoreIpc(
   // here so `voice:transcribe` is genuinely absent in a packaged build, not just
   // orphaned behind a hidden renderer surface.
   if (options.includeDevModules ?? true) registerVoiceIpc(ipcMain)
-  registerAuthIpc(ipcMain, services.multicodeAuth)
+  registerAuthIpc(ipcMain, services.multicodeAuth, services.entitlements)
   registerBuiltinSkillsIpc(ipcMain, services.builtinSkillManager)
   registerMcpIpc(ipcMain, services.mcpConfigService)
   registerAgentConfigImportIpc(ipcMain, services.agentConfigImportService)

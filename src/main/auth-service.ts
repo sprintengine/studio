@@ -5,14 +5,21 @@ import { createServer, type Server } from 'http'
 import { dirname, join } from 'path'
 import type {
   EntitlementSnapshot,
-  FeatureValue,
   MulticodeAuthState,
-  PremiumAccessDecision,
-  PremiumAccessRequest,
   SessionSnapshot,
   UsageRequest,
   UsageResult,
 } from '../shared/electron-api'
+import {
+  DESKTOP_GRACE_FEATURE_KEYS,
+  ENTITLEMENT_GRACE_MS,
+  EntitlementService,
+  entitlementCacheStatus,
+  entitlementGraceExpiresAt,
+  isEntitlementSnapshot,
+  isEntitlementSnapshotFresh,
+  type CachedEntitlementSnapshot,
+} from './entitlement-service'
 import { getErrorMessage } from './error-message'
 
 const DEFAULT_MULTIAUTH_BASE_URL = 'https://multiauth-production.up.railway.app'
@@ -30,7 +37,6 @@ const MULTICODE_AUTH_REDIRECT_MODE = process.env['MULTICODE_AUTH_REDIRECT_MODE']
 const MULTICODE_REDIRECT_URI: typeof MULTICODE_CUSTOM_REDIRECT_URI | typeof MULTICODE_LOOPBACK_REDIRECT_URI =
   MULTICODE_AUTH_REDIRECT_MODE === 'loopback' ? MULTICODE_LOOPBACK_REDIRECT_URI : MULTICODE_CUSTOM_REDIRECT_URI
 const MULTICODE_PRODUCT = 'multicode' as const
-const ENTITLEMENT_GRACE_MS = 72 * 60 * 60 * 1000
 const AUTH_PREFLIGHT_TIMEOUT_MS = 3000
 
 type ElectronRendererAuthState = Pick<
@@ -56,11 +62,6 @@ type SecureRefreshTokenStore = {
   readRefreshToken(): Promise<string | null>
   writeRefreshToken(refreshToken: string): Promise<void>
   clearRefreshToken(): Promise<void>
-}
-
-type CachedEntitlements = {
-  snapshot: EntitlementSnapshot
-  lastRefreshAt: string
 }
 
 type PendingDesktopLogin = {
@@ -139,7 +140,7 @@ class MulticodeMultiauthClient {
   }
 
   async getEntitlements(options: { forceRefresh?: boolean } = {}): Promise<EntitlementSnapshot> {
-    if (!options.forceRefresh && this.entitlementCache && isSnapshotFresh(this.entitlementCache)) {
+    if (!options.forceRefresh && this.entitlementCache && isEntitlementSnapshotFresh(this.entitlementCache)) {
       return this.entitlementCache
     }
 
@@ -259,7 +260,30 @@ export class MulticodeAuthBridge {
   private state: MulticodeAuthState = signedOutAuthState('Checking account.')
   private pendingLogin: PendingDesktopLogin | null = null
   private callbackServer: DesktopCallbackServer | null = null
-  private cachedEntitlements: CachedEntitlements | null = null
+  private cachedEntitlements: CachedEntitlementSnapshot | null = null
+
+  // This bridge is the Multiauth ADAPTER behind the entitlement seam. It answers
+  // the two questions `EntitlementProvider` asks and knows nothing about how a
+  // decision is reached; every gate in the app goes through `entitlements`, so
+  // replacing Multiauth means replacing this class, not its callers.
+  readonly entitlements = new EntitlementService(
+    {
+      read: () => ({
+        authenticated: this.state.authenticated,
+        snapshot: this.state.entitlements,
+        cache: this.cachedEntitlements,
+        lastRefreshAt: this.state.lastRefreshAt,
+      }),
+      refresh: async () => {
+        await this.refreshEntitlements({ forceRefresh: true })
+      },
+    },
+    {
+      product: MULTICODE_PRODUCT,
+      graceMs: ENTITLEMENT_GRACE_MS,
+      graceFeatureKeys: DESKTOP_GRACE_FEATURE_KEYS,
+    }
+  )
 
   async initialize(): Promise<MulticodeAuthState> {
     this.setState({ ...this.state, status: 'checking', message: 'Checking account.' })
@@ -271,7 +295,7 @@ export class MulticodeAuthBridge {
       const cache = this.cachedEntitlements ?? await this.readCachedEntitlements()
       this.cachedEntitlements = cache
       if (cache) {
-        const entitlementStatus = getEntitlementCacheStatus(cache)
+        const entitlementStatus = entitlementCacheStatus(cache)
         this.setState({
           ...this.state,
           status: 'signed_in',
@@ -282,7 +306,7 @@ export class MulticodeAuthBridge {
             ? 'Using cached Multicode access while offline.'
             : 'Sign in again to refresh Multicode access.',
           lastRefreshAt: cache.lastRefreshAt,
-          graceExpiresAt: getGraceExpiresAt(cache),
+          graceExpiresAt: entitlementGraceExpiresAt(cache),
         })
         return this.state
       }
@@ -426,16 +450,16 @@ export class MulticodeAuthBridge {
         selectedOrganization: session.selectedOrganization,
         entitlements,
         status: 'signed_in',
-        entitlementStatus: isSnapshotFresh(entitlements) ? 'fresh' : 'expired',
+        entitlementStatus: isEntitlementSnapshotFresh(entitlements) ? 'fresh' : 'expired',
         message: null,
         lastRefreshAt: cache.lastRefreshAt,
-        graceExpiresAt: getGraceExpiresAt(cache),
+        graceExpiresAt: entitlementGraceExpiresAt(cache),
       })
     } catch (error) {
       const cache = this.cachedEntitlements ?? await this.readCachedEntitlements()
       this.cachedEntitlements = cache
       if (cache) {
-        const entitlementStatus = getEntitlementCacheStatus(cache)
+        const entitlementStatus = entitlementCacheStatus(cache)
         this.setState({
           ...this.state,
           authenticated: true,
@@ -446,7 +470,7 @@ export class MulticodeAuthBridge {
             ? 'Using cached Multicode access while offline.'
             : getErrorMessage(error),
           lastRefreshAt: cache.lastRefreshAt,
-          graceExpiresAt: getGraceExpiresAt(cache),
+          graceExpiresAt: entitlementGraceExpiresAt(cache),
         })
         return this.state
       }
@@ -482,86 +506,6 @@ export class MulticodeAuthBridge {
     } catch {
       return null
     }
-  }
-
-  async getEntitlements(options?: { forceRefresh?: boolean }): Promise<EntitlementSnapshot> {
-    if (options?.forceRefresh) {
-      await this.refreshEntitlements({ forceRefresh: true })
-    }
-
-    if (!this.state.entitlements) {
-      throw new Error('No Multicode entitlement snapshot is available.')
-    }
-
-    return this.state.entitlements
-  }
-
-  async requireEntitlement(input: PremiumAccessRequest | string): Promise<FeatureValue> {
-    const decision = await this.checkPremiumAccess(
-      typeof input === 'string' ? { featureKey: input } : input
-    )
-
-    if (!decision.allowed) {
-      throw new Error(decision.message)
-    }
-
-    return decision.value ?? true
-  }
-
-  async checkPremiumAccess(input: PremiumAccessRequest): Promise<PremiumAccessDecision> {
-    if (!this.state.authenticated) {
-      return denied(input.featureKey, undefined, 'signed_out', 'Sign in to unlock this Multicode feature.')
-    }
-
-    const entitlements = this.state.entitlements
-    if (!entitlements || entitlements.schemaVersion !== 1 || entitlements.product !== MULTICODE_PRODUCT) {
-      return denied(input.featureKey, undefined, 'missing', 'Multicode access could not be verified.')
-    }
-
-    const cache = this.cachedEntitlements ?? {
-      snapshot: entitlements,
-      lastRefreshAt: this.state.lastRefreshAt ?? new Date(0).toISOString(),
-    }
-    const cacheStatus = getEntitlementCacheStatus(cache)
-    const value = entitlementValue(entitlements, input.featureKey)
-    const limit = typeof value === 'number' ? value : undefined
-
-    if (cacheStatus === 'expired') {
-      return denied(input.featureKey, value, 'expired', 'Multicode premium access needs a fresh entitlement check.', limit)
-    }
-
-    if (cacheStatus === 'offline_grace') {
-      if (input.hostedCost || !isAllowedDuringDesktopGrace(input.featureKey)) {
-        return denied(
-          input.featureKey,
-          value,
-          'offline_grace',
-          'This premium action needs online entitlement verification.',
-          limit,
-          getGraceExpiresAt(cache)
-        )
-      }
-    }
-
-    if (typeof value === 'boolean' && value) {
-      return allowed(input.featureKey, value, cacheStatus, getGraceExpiresAt(cache))
-    }
-
-    if (typeof value === 'number' && value > 0 && (input.amount === undefined || input.amount <= value)) {
-      return allowed(input.featureKey, value, cacheStatus, getGraceExpiresAt(cache), value)
-    }
-
-    if (typeof value === 'string' && value.trim()) {
-      return allowed(input.featureKey, value, cacheStatus, getGraceExpiresAt(cache))
-    }
-
-    return denied(
-      input.featureKey,
-      value,
-      'missing',
-      'Upgrade this organization or switch to one with Multicode premium access.',
-      limit
-    )
   }
 
   async checkUsage(input: UsageRequest): Promise<UsageResult> {
@@ -652,11 +596,11 @@ export class MulticodeAuthBridge {
     return join(app.getPath('userData'), 'multiauth-entitlements-cache.json')
   }
 
-  private async readCachedEntitlements(): Promise<CachedEntitlements | null> {
+  private async readCachedEntitlements(): Promise<CachedEntitlementSnapshot | null> {
     try {
-      const payload = JSON.parse(await readFile(this.cachePath, 'utf8')) as Partial<CachedEntitlements>
+      const payload = JSON.parse(await readFile(this.cachePath, 'utf8')) as Partial<CachedEntitlementSnapshot>
       if (!payload.snapshot || typeof payload.lastRefreshAt !== 'string') return null
-      if (!isValidEntitlementSnapshot(payload.snapshot)) return null
+      if (!isEntitlementSnapshot(payload.snapshot, MULTICODE_PRODUCT)) return null
       return {
         snapshot: payload.snapshot,
         lastRefreshAt: payload.lastRefreshAt,
@@ -666,7 +610,7 @@ export class MulticodeAuthBridge {
     }
   }
 
-  private async writeCachedEntitlements(cache: CachedEntitlements): Promise<void> {
+  private async writeCachedEntitlements(cache: CachedEntitlementSnapshot): Promise<void> {
     await mkdir(dirname(this.cachePath), { recursive: true })
     await writeFile(this.cachePath, `${JSON.stringify(cache, null, 2)}\n`, 'utf8')
   }
@@ -775,96 +719,6 @@ function randomBase64Url(byteLength: number): string {
 
 function pkceChallenge(codeVerifier: string): string {
   return createHash('sha256').update(codeVerifier).digest('base64url')
-}
-
-function isValidEntitlementSnapshot(input: unknown): input is EntitlementSnapshot {
-  if (!input || typeof input !== 'object') return false
-  const snapshot = input as Partial<EntitlementSnapshot>
-  return snapshot.product === MULTICODE_PRODUCT
-    && snapshot.schemaVersion === 1
-    && typeof snapshot.userId === 'string'
-    && typeof snapshot.organizationId === 'string'
-    && typeof snapshot.features === 'object'
-    && typeof snapshot.limits === 'object'
-    && typeof snapshot.issuedAt === 'string'
-    && typeof snapshot.expiresAt === 'string'
-}
-
-function isSnapshotFresh(snapshot: EntitlementSnapshot): boolean {
-  const expiresAt = Date.parse(snapshot.expiresAt)
-  return Number.isFinite(expiresAt) && expiresAt > Date.now()
-}
-
-function getGraceExpiresAt(cache: CachedEntitlements): string | null {
-  const snapshotExpiresAt = Date.parse(cache.snapshot.expiresAt)
-  const lastRefreshAt = Date.parse(cache.lastRefreshAt)
-  if (!Number.isFinite(snapshotExpiresAt) || !Number.isFinite(lastRefreshAt)) return null
-
-  const graceExpiresAt = Math.min(
-    snapshotExpiresAt + ENTITLEMENT_GRACE_MS,
-    lastRefreshAt + ENTITLEMENT_GRACE_MS
-  )
-  return new Date(graceExpiresAt).toISOString()
-}
-
-function getEntitlementCacheStatus(cache: CachedEntitlements): 'fresh' | 'offline_grace' | 'expired' {
-  if (isSnapshotFresh(cache.snapshot)) return 'fresh'
-
-  const graceExpiresAt = getGraceExpiresAt(cache)
-  if (graceExpiresAt && Date.parse(graceExpiresAt) > Date.now()) {
-    return 'offline_grace'
-  }
-
-  return 'expired'
-}
-
-function entitlementValue(snapshot: EntitlementSnapshot, featureKey: string): FeatureValue | undefined {
-  if (featureKey in snapshot.features) return snapshot.features[featureKey]
-  if (featureKey in snapshot.limits) return snapshot.limits[featureKey]
-  return undefined
-}
-
-function isAllowedDuringDesktopGrace(featureKey: string): boolean {
-  return featureKey === 'multicode.sprintengine'
-}
-
-function allowed(
-  featureKey: string,
-  value: FeatureValue,
-  status: 'fresh' | 'offline_grace',
-  graceExpiresAt: string | null,
-  limit?: number
-): PremiumAccessDecision {
-  return {
-    allowed: true,
-    featureKey,
-    value,
-    status,
-    message: status === 'offline_grace'
-      ? 'Using cached Multicode access while offline.'
-      : 'Access granted.',
-    ...(limit !== undefined ? { limit } : {}),
-    ...(graceExpiresAt ? { graceExpiresAt } : {}),
-  }
-}
-
-function denied(
-  featureKey: string,
-  value: FeatureValue | undefined,
-  status: PremiumAccessDecision['status'],
-  message: string,
-  limit?: number,
-  graceExpiresAt?: string | null
-): PremiumAccessDecision {
-  return {
-    allowed: false,
-    featureKey,
-    value,
-    status,
-    message,
-    ...(limit !== undefined ? { limit } : {}),
-    ...(graceExpiresAt ? { graceExpiresAt } : {}),
-  }
 }
 
 function readMultiauthErrorMessage(payload: unknown): string {
