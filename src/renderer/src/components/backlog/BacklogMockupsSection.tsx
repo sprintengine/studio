@@ -100,31 +100,31 @@ export function BacklogMockupsSection({
       title="Mockups"
       level={4}
       inset
-      className="shrink-0 border-b border-[color:var(--border-subtle)] pb-2"
+      // No hairline: padding and the heading separate this section from the next
+      // (MC-2047 — "space groups, rules do not").
+      className="shrink-0 pb-2"
       action={
         <AttachMockupEditor folderPath={folderPath} attached={attached} onAttach={attachPath} />
       }
     >
-      <div className="flex flex-col gap-2 px-3">
-        {entries.length === 0 ? (
-          <p className="py-0.5 text-meta text-[color:var(--text-disabled)]">
-            No mockups attached. Use “Attach mockup…” to add one.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {entries.map((entry) => (
-              <MockupRow
-                key={`${entry.source}:${entry.path}`}
-                entry={entry}
-                folderPath={folderPath}
-                resolution={resolved.get(entry.path)}
-                onOpen={onOpenMockup}
-                onRemove={entry.source === 'attached' ? () => removeAttached(entry.path) : undefined}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
+      {/* An empty section is the heading and its "Attach mockup…" action, and
+          nothing else. The sentence that used to sit here named that control and
+          explained it — the standing ruling is that a control needing a sentence
+          is the wrong control, so the control stands alone (MC-2047). */}
+      {entries.length > 0 ? (
+        <ul className="flex flex-col gap-2 px-3">
+          {entries.map((entry) => (
+            <MockupRow
+              key={`${entry.source}:${entry.path}`}
+              entry={entry}
+              folderPath={folderPath}
+              resolution={resolved.get(entry.path)}
+              onOpen={onOpenMockup}
+              onRemove={entry.source === 'attached' ? () => removeAttached(entry.path) : undefined}
+            />
+          ))}
+        </ul>
+      ) : null}
     </Section>
   )
 }

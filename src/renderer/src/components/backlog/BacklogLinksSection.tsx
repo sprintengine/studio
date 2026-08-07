@@ -134,7 +134,9 @@ export function BacklogLinksSection({
   if (secondaryLinks.length === 0 && !linkError) return null
 
   return (
-    <Section title="Links" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-2">
+    // No hairline: padding and the heading separate this section from the next
+    // (MC-2047 — "space groups, rules do not").
+    <Section title="Links" level={4} inset className="shrink-0 pb-2">
       {linkError ? (
         <div className="px-3 pb-1.5">
           <InlineNotice tone="warn">{linkError}</InlineNotice>

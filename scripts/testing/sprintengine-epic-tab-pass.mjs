@@ -6,6 +6,14 @@
 // heading and its rows, rows that carry no border, exactly one chrome row above
 // the canvas, and exactly one full-strength selection while a child is picked.
 //
+// It also carries MC-2047's acceptance for the pane this tab REUSES: no
+// hairline inside the detail pane, no body heading outranking the pane's own
+// title, no copy explaining a control, and an Epic section that names itself
+// once. Same requirement, same reason — those are painted facts, and the four
+// defects survived a review that read them off the source. They are measured
+// here in both polarities and again on the Backlog door, which mounts the same
+// component with different chrome around it.
+//
 // It drives the built app (out/main/index.js) with an isolated profile, seeds a
 // scratch project holding a backlog epic + children and TWO sprint runs — one
 // seeded from that epic, one seeded from a goal — and opens each through the
@@ -176,7 +184,10 @@ async function seed() {
   for (const [slug, title, status] of CHILDREN) {
     await writeFile(
       join(workspaceDir, `backlog/${slug}.md`),
-      `---\ntype: feature\nstatus: ${status}\nepic: ${EPIC_SLUG}\ndifficulty: m\ncriticality: high\nid: ${id}\n---\n\n# ${title}\n\n## Intent\n\nSeeded intent for ${title}.\n\n## Acceptance\n\n- The seeded criterion renders in the detail pane.\n`,
+      // The trailing `# Body heading` is deliberate: the pane strips only the
+      // LEADING title h1, so a second one exercises the top of the markdown
+      // ramp against the pane's own title (MC-2047's heading-scale defect).
+      `---\ntype: feature\nstatus: ${status}\nepic: ${EPIC_SLUG}\ndifficulty: m\ncriticality: high\nid: ${id}\n---\n\n# ${title}\n\n## Intent\n\nSeeded intent for ${title}.\n\n## Acceptance\n\n- The seeded criterion renders in the detail pane.\n\n# Body heading\n\nProse under a body h1.\n`,
     )
     id += 1
   }
@@ -353,6 +364,94 @@ const MEASURE = `(() => {
   }
 })()`
 
+// The detail pane's OWN anatomy (MC-2047), read off computed style. The pane is
+// one component (`BacklogDetail`, via `BacklogItemDetailPane`) mounted by three
+// surfaces — this tab, the Backlog door, the Horizon door — and `[data-backlog-
+// detail]` resolves on all three, so what this measures here holds on all three.
+//
+// Two rules, both geometric rather than textual:
+//   • "Space groups, rules do not" — no hairline inside the pane. A RULE is a
+//     top/bottom border with no side borders, spanning most of the pane's width;
+//     a bordered control carries all four and is a box, not a divider. The
+//     item's own prose is excluded: an `hr` an author typed into their markdown
+//     is content, not pane chrome.
+//   • No heading in the rendered body outranks the pane's own title. Read as
+//     font-size off the painted h1–h6, against the painted title.
+const PANE_MEASURE = `(() => {
+  const px = (v) => Number.parseFloat(v || '0') || 0
+  const pane = document.querySelector('[data-backlog-detail]')
+  if (!pane) return { present: false }
+  const paneBox = pane.getBoundingClientRect()
+  const title = pane.querySelector('header h3')
+  const rules = []
+  for (const el of Array.from(pane.querySelectorAll('*'))) {
+    if (el.closest('.markdown-body')) continue
+    const s = getComputedStyle(el)
+    const top = px(s.borderTopWidth)
+    const bottom = px(s.borderBottomWidth)
+    if (top === 0 && bottom === 0) continue
+    if (px(s.borderLeftWidth) > 0 || px(s.borderRightWidth) > 0) continue
+    const b = el.getBoundingClientRect()
+    if (b.width < paneBox.width * 0.5) continue
+    rules.push({
+      tag: el.tagName,
+      cls: String(el.className || '').slice(0, 70),
+      top,
+      bottom,
+      width: Math.round(b.width),
+      text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 40),
+    })
+  }
+  const headings = Array.from(pane.querySelectorAll('.markdown-body :is(h1,h2,h3,h4,h5,h6)')).map((h) => ({
+    tag: h.tagName,
+    size: px(getComputedStyle(h).fontSize),
+    text: (h.textContent || '').trim().slice(0, 40),
+  }))
+  // The Epic section: its heading names the field, so nothing inside it may
+  // restate that name beside the one control it holds.
+  const epicHeading = Array.from(pane.querySelectorAll('h4')).find(
+    (h) => (h.textContent || '').trim() === 'Epic',
+  )
+  const epicSection = epicHeading ? epicHeading.closest('section') : null
+  const epicLabels = epicSection
+    ? Array.from(epicSection.querySelectorAll('*')).filter(
+        (el) => el.children.length === 0 && (el.textContent || '').trim() === 'Epic',
+      ).length
+    : null
+  const text = (pane.textContent || '').replace(/\\s+/g, ' ')
+  return {
+    present: true,
+    theme: document.documentElement.getAttribute('data-theme'),
+    mode: document.documentElement.getAttribute('data-mode'),
+    titleSize: title ? px(getComputedStyle(title).fontSize) : 0,
+    titleText: title ? (title.textContent || '').trim().slice(0, 60) : null,
+    rules,
+    headings,
+    epicSectionPresent: Boolean(epicSection),
+    epicLabels,
+    copy: {
+      mockups: /No mockups attached/.test(text),
+      prerequisites: /No prerequisites/.test(text),
+      epicChildren: /No items in this epic yet/.test(text),
+    },
+  }
+})()`
+
+// The app's own appearance switch is the (data-theme, data-mode) pair on <html>
+// — written together, because the bundle's polarity is the inverse of the app's
+// (src/renderer/src/hooks/useAppTheme.ts). Stamping the pair is what selects the
+// CSS tier, which is exactly what a computed border/size read resolves against.
+async function stampTheme(page, theme, mode) {
+  await page.evaluate(
+    ({ theme, mode }) => {
+      document.documentElement.setAttribute('data-theme', theme)
+      document.documentElement.setAttribute('data-mode', mode)
+    },
+    { theme, mode },
+  )
+  await page.waitForTimeout(400)
+}
+
 async function click(page, locator) {
   if ((await locator.count()) === 0) return false
   await locator.first().evaluate((el) => {
@@ -410,7 +509,11 @@ async function main() {
     },
   })
 
-  const transcript = { epic: null, goal: null }
+  const transcript = {
+    epic: null,
+    goal: null,
+    pane: { epicDark: null, epicLight: null, doorDark: null, doorLight: null },
+  }
   try {
     const page = await app.firstWindow()
     page.on('console', (m) => {
@@ -534,6 +637,17 @@ async function main() {
           return rows.length
         })
         await page.waitForTimeout(1200)
+        // The pane's own anatomy, in both polarities. BOTH are stamped: this
+        // profile boots light, so reading "dark" as-found measured light twice
+        // and called it two polarities. Each reading carries the polarity it was
+        // taken in, and the assertions below check it.
+        await stampTheme(page, 'dark', 'dark')
+        transcript.pane.epicDark = await page.evaluate(PANE_MEASURE)
+        await page.screenshot({ path: join(outDir, '02c-pane-dark.png') })
+        await stampTheme(page, 'light', 'light')
+        transcript.pane.epicLight = await page.evaluate(PANE_MEASURE)
+        await page.screenshot({ path: join(outDir, '02d-pane-light.png') })
+        await stampTheme(page, 'dark', 'dark')
       }
       const measured = await page.evaluate(MEASURE)
       transcript[label] = measured
@@ -544,6 +658,33 @@ async function main() {
         // is one click away — the rail's Back row would leave the door entirely.
       }
     }
+
+    // Same pane, second surface. MC-2047's fixes live in the shared component,
+    // so the Backlog door has to read the same way — and unlike the Epic tab it
+    // mounts the pane with no back affordance and no host band, which is where
+    // a header change would show up differently if it were surface-local.
+    console.log('\n=== Backlog door ===')
+    await page.evaluate(() => {
+      const button = Array.from(document.querySelectorAll('button')).find(
+        (b) => (b.textContent || '').trim() === 'Backlog' || b.getAttribute('aria-label') === 'Backlog',
+      )
+      button?.focus()
+      button?.click()
+    })
+    await page.waitForTimeout(2500)
+    await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('[role="option"], [role="row"]')).filter(
+        (el) => el.getBoundingClientRect().width > 120,
+      )
+      rows[0]?.click()
+    })
+    await page.waitForTimeout(1500)
+    await stampTheme(page, 'dark', 'dark')
+    transcript.pane.doorDark = await page.evaluate(PANE_MEASURE)
+    await page.screenshot({ path: join(outDir, '04-backlog-door-dark.png') })
+    await stampTheme(page, 'light', 'light')
+    transcript.pane.doorLight = await page.evaluate(PANE_MEASURE)
+    await page.screenshot({ path: join(outDir, '05-backlog-door-light.png') })
   } finally {
     await writeFile(join(outDir, 'transcript.json'), `${JSON.stringify(transcript, null, 2)}\n`, 'utf8')
     await app.close()
@@ -603,6 +744,48 @@ async function main() {
       'the selected child’s intent and acceptance render in the shared detail pane',
       /Seeded intent/.test(m.detailText) && /criterion renders/.test(m.detailText),
       m.detailText.slice(0, 200),
+    )
+  }
+
+  /* ---- the detail pane's own anatomy (MC-2047) ------------------------- */
+  for (const [surface, mode, pane] of [
+    ['Epic tab, dark', 'dark', transcript.pane.epicDark],
+    ['Epic tab, light', 'light', transcript.pane.epicLight],
+    ['Backlog door, dark', 'dark', transcript.pane.doorDark],
+    ['Backlog door, light', 'light', transcript.pane.doorLight],
+  ]) {
+    if (!pane || !pane.present) {
+      check(`the detail pane rendered on the ${surface}`, false, JSON.stringify(pane).slice(0, 300))
+      continue
+    }
+    // Guards the reading itself: a pass that measured one polarity twice and
+    // reported two is worse than no polarity coverage at all.
+    check(
+      `the ${surface} reading was taken in that polarity`,
+      pane.mode === mode,
+      `theme=${pane.theme} mode=${pane.mode}`,
+    )
+    check(
+      `no hairline rules inside the detail pane — ${surface}`,
+      pane.rules.length === 0,
+      JSON.stringify(pane.rules),
+    )
+    check(
+      `no body heading outranks the pane title — ${surface}`,
+      pane.titleSize > 0
+        && pane.headings.length > 0
+        && pane.headings.every((h) => h.size <= pane.titleSize),
+      `title=${pane.titleSize} headings=${JSON.stringify(pane.headings)}`,
+    )
+    check(
+      `no copy explains a control in the detail pane — ${surface}`,
+      !pane.copy.mockups && !pane.copy.prerequisites && !pane.copy.epicChildren,
+      JSON.stringify(pane.copy),
+    )
+    check(
+      `the Epic section states its name once — ${surface}`,
+      pane.epicSectionPresent && pane.epicLabels === 1,
+      `section=${pane.epicSectionPresent} labels=${pane.epicLabels}`,
     )
   }
 

@@ -2501,7 +2501,12 @@ export function BacklogDetail({
     // without it the header row and the markdown body hold their min-content
     // width instead of shrinking — at 1024px the right edge is clipped away
     // with no scrollbar to say so.
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
+    // `data-backlog-detail` is the rendered-pass handle for this pane, the same
+    // kind of hook as `[data-context-rail]`. Three surfaces mount this one
+    // component and only one of them wraps it in a labelled landmark, so a pass
+    // that measures the pane's own anatomy (MC-2047) needs a selector that
+    // resolves on all three.
+    <div data-backlog-detail className="flex h-full min-h-0 min-w-0 flex-col">
       {/* `px-3 py-2` — `ui/PanelHeader`'s inset, so this pane starts where every
           other header does; it sat at `px-4 py-3` (2112).
 
@@ -2518,7 +2523,10 @@ export function BacklogDetail({
           metadata, so it rides the title's own line, right-aligned, with the
           menu it belongs to; the title still wraps to two lines because it is
           `flex-1` beside them, not because it has a band to itself. */}
-      <header className="shrink-0 border-b border-[color:var(--border-default)] px-3 py-2">
+      {/* No hairline under the header either (MC-2047). Inside this pane the
+          only rules are its own edges and the list-side chrome row; the header
+          separates from the body on padding, like every section below it. */}
+      <header className="shrink-0 px-3 py-2">
         <div className="flex min-w-0 items-start gap-2">
           {showBack ? (
             <button
@@ -2992,13 +3000,14 @@ function BacklogEpicChildren({
           </span>
         ) : undefined
       }
-      className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3"
+      // No hairline: padding and the heading separate this section from the next
+      // (MC-2047 — "space groups, rules do not").
+      className="shrink-0 pb-3"
     >
-      {total === 0 ? (
-        <p className="px-3 text-meta text-[color:var(--text-disabled)]">
-          No items in this epic yet. Assign items from their “Move to epic” menu.
-        </p>
-      ) : (
+      {/* An epic with no members is its heading and nothing else. The sentence
+          that used to sit here explained a control on ANOTHER surface — the row
+          menu — which is copy the pane must not carry (MC-2047). */}
+      {total === 0 ? null : (
         <div className="px-3">
           <ul className="flex flex-col">
             {members.map((child) => {
@@ -3080,9 +3089,11 @@ function BacklogTriage({
   // renders nothing at all.
   if (item.isEpic) return null
   return (
-    <Section title="Epic" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3">
-      <div className="grid grid-cols-[3.5rem_minmax(0,16rem)] items-center gap-x-3 gap-y-2 px-3">
-        <span className="text-micro text-[color:var(--text-muted)]">Epic</span>
+    // No hairline (MC-2047), and no label column: the section heading already
+    // says "Epic", so a second "Epic" beside the one control it holds restated
+    // the heading in a 3.5rem gutter. The control is now the section's body.
+    <Section title="Epic" level={4} inset className="shrink-0 pb-3">
+      <div className="max-w-[16rem] px-3">
         <BacklogEpicSearchEditor item={item} actions={actions} epicChoices={epicChoices} />
       </div>
     </Section>
@@ -3188,7 +3199,21 @@ function BacklogPreviewBody({ item }: { item: BacklogItem }): JSX.Element {
     if (!body) {
       return <p className="text-meta text-[color:var(--text-disabled)]">No description beyond the title yet.</p>
     }
-    return <div className="markdown-body">{renderMarkdown(body)}</div>
+    // `compact` is the dense-surface ramp (the skill reader's), not the document
+    // one: at `document` the body's own h2 renders at 24px inside a pane whose
+    // title is 14px and whose section titles are 12px, making the item's prose
+    // the largest type on screen (MC-2047).
+    //
+    // Compact still tops out at `text-title` (16px) for h1, which outranks this
+    // pane's 14px title, so h1 is capped here to the pane's own title size. The
+    // cap is a descendant selector, so it outweighs the ramp's own `text-title`
+    // whatever the class order. h1 and h2 stay a step apart — 14px vs 13px plus
+    // the ramp's own spacing — so the ladder survives the cap.
+    return (
+      <div className="markdown-body [&_h1]:text-heading">
+        {renderMarkdown(body, { density: 'compact' })}
+      </div>
+    )
   }
   if (isHtml) {
     // Mockups render through the shared sandboxed frame (scripts off by default,
