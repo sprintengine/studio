@@ -36,8 +36,107 @@ jobs:
       - name: Typecheck
         run: npm run typecheck:all
 
+      # The only test script this job still runs, and only on Windows: it is the
+      # sole check ever measured on that platform. The Linux JS suite moved to
+      # the js-tests job below, so a broken test no longer hides a broken build.
       - name: Test mobile sprintengine command
+        if: runner.os == 'Windows'
         run: npm run test:main:mobile-sprintengine-command
 
       - name: Build
         run: npm run build
+
+  # What the JS gate covers, and why: `verify:app` — the repo's OWN full-app
+  # verification chain, 422 &&-joined steps (lint plus every main/renderer/
+  # preload/shared/seam/sdk script package.json defines, ~4 min). Until MC-2070
+  # CI ran exactly one hand-picked script out of those 422, gating one file by
+  # accident rather than by decision. The chain is deliberately named whole
+  # rather than curated: a hand-maintained subset is how the gate got to one
+  # script in the first place.
+  #
+  # HONEST STATE, measured 2026-08-06 at a80493711: this job is RED on arrival.
+  # Six scripts fail on untouched HEAD — test:renderer:global-doors-integration
+  # and the seams roster-effort, model-catalog-effort, skill-sources,
+  # premium-feel and combobox-keyboard. Steps 1-405 pass. Those six are real
+  # breakage in this repo's own code, not gate artifacts, and they are exactly
+  # what having no gate allowed to accumulate; they are tracked in
+  # backlog/2026-08-06-verify-app-is-red-in-six-places.md. Do not narrow this
+  # step to make the badge green.
+  #
+  # Linux only: `verify:app` has never been measured on Windows, and an
+  # unmeasured 422-step chain would fail that leg for reasons unrelated to the
+  # change being merged.
+  js-tests:
+    name: JS tests (ubuntu-latest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Not incidental: `test:main:sprintengine-artifacts` refuses to mock the
+      # Sprint Engine store and spawns real Python against `sprintengine_core`,
+      # which exits with "PyYAML is required" without it. It prefers the
+      # repo-local `.venv` and falls back to system `python3` — and a runner's
+      # system python3 has no PyYAML, so the chain needs this venv to pass.
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Create repo-local venv
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt
+
+      - name: Verify app (lint + JS test suite)
+        run: npm run verify:app
+
+  # The Python suite runs in its own job rather than inside the matrix above: it
+  # needs no Node toolchain, so it starts without waiting on `npm ci`, and it
+  # runs on Linux only — the suite has only ever been measured on POSIX, and
+  # ptyprocess (a Switchboard runtime dependency) is not installed on Windows at
+  # all. Its own checkout also keeps pytest's bytecode caches away from the
+  # marketplace payloads the JS job digest-verifies.
+  python-tests:
+    name: Python tests (ubuntu-latest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          # Matches the CPython the app bundles (PYTHON_VERSION in
+          # scripts/fetch-runtimes.mjs), so CI exercises the interpreter users
+          # actually get.
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Create repo-local venv
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      # Scoped to tests/ deliberately — see pytest.ini for why a bare `pytest`
+      # at the repo root cannot be used here.
+      - name: Pytest
+        run: .venv/bin/python -m pytest tests/

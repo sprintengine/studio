@@ -222,6 +222,10 @@ async function assertUnsupportedSchemaRejected(): Promise<void> {
     assert.equal(summary.runtimeState, 'unknown')
     assert.match(summary.unknownReason ?? '', /older version of Multicode \(run store v3/)
     assert.match(summary.unknownReason ?? '', new RegExp(`reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}`))
+    // Permanent, and marked as such: the canvas must not offer it as a retry.
+    assert.equal(summary.unknownKind, 'unsupported_store')
+    // One sentence and a remedy, not a recital of the schema history (MC-2063).
+    assert.ok(!/leases|quality gates/i.test(summary.unknownReason ?? ''), 'no schema history in the message')
   })
 }
 

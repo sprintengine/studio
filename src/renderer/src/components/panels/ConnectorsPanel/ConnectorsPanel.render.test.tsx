@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { renderToStaticMarkup } from 'react-dom/server'
 
@@ -8,7 +9,8 @@ import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
 import { ConnectorsBody, FacetTabs, ReadyConnectorsRail } from './ConnectorsBrowseCanvas'
-import { ExtensionKindCanvas, automationShelfRowState } from './ExtensionKindCanvas'
+import { automationDetailFacts, automationShelfRowState } from './AutomationShelf'
+import { ExtensionKindCanvas } from './ExtensionKindCanvas'
 import { deriveConnectorsView, registryEntriesForKinds, type ConnectorFacet, type SourceLoad } from './connectorsFacets'
 import type { ConnectorSources } from './useConnectorSources'
 
@@ -302,14 +304,14 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
     plugins: MarketplacePluginEntry[]
   }
   const seedClis = seed.plugins.filter((plugin) => plugin.provides.includes('cli'))
-  assert.equal(seedClis.length, 12, 'the packaged seed carries the twelve bundled agent CLIs')
+  assert.equal(seedClis.length, 13, 'the packaged seed carries the thirteen bundled agent CLIs')
 
   const catalogEntry = (id: string, binary: string) =>
     ({ id, displayName: id, source: 'bundled', version: 1, binary, resumeSession: false, sessionIdFromCaller: false }) as never
-  // The nine runtime-installable CLI plugins; the provider trio (claude-agent,
+  // The ten runtime-installable CLI plugins; the provider trio (claude-agent,
   // openrouter, xai) is deliberately absent — no binary, nothing to install.
   const runtimeCatalog = [
-    'claude-code', 'codex', 'cursor', 'generic-shell', 'grok', 'kimi-claude', 'kimi-code', 'opencode', 'zai',
+    'claude-code', 'codex', 'cursor', 'generic-shell', 'grok', 'kimi-claude', 'kimi-code', 'muse', 'opencode', 'zai',
   ].map((id) => catalogEntry(id, id === 'claude-code' ? 'claude' : id === 'cursor' ? 'cursor-agent' : id))
 
   const runtime = {
@@ -339,9 +341,10 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
     />,
   )
 
-  // All twelve bundled entries render as rows — each disclosable row carries
-  // exactly one "<name> details" chevron button.
-  assert.equal((markup.match(/ details"/g) ?? []).length, 12, 'all 12 bundled CLI entries render')
+  // Every bundled entry renders as a row — each disclosable row carries exactly
+  // one "<name> details" chevron button. Counted off the seed, not a literal, so
+  // adding a plugin cannot leave this assertion quietly stale.
+  assert.equal((markup.match(/ details"/g) ?? []).length, seedClis.length, 'all bundled CLI entries render')
 
   // Installed: probe version in the mono slot, the shared Ready vocabulary,
   // and the resolved binary path as the state line's identifier.
@@ -376,7 +379,7 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
     />,
   )
   assert.match(probeDown, /Agent CLIs could not be checked: no shell/)
-  assert.equal((probeDown.match(/ details"/g) ?? []).length, 12, 'rows still render under a failed probe')
+  assert.equal((probeDown.match(/ details"/g) ?? []).length, seedClis.length, 'rows still render under a failed probe')
   assert.doesNotMatch(probeDown, />Install</)
 }
 
@@ -461,11 +464,15 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
   assert.equal(notAdded.health, 'neutral')
   assert.equal(notAdded.action, 'get')
 
+  // The install resolves a catalogue schedule into the zone of the machine that
+  // adds it (item 2039), so the record this shelf reads back is in the reader's
+  // own zone — which is why the row's 02:00 needs no qualifier.
+  const hostZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const definition = {
     id: 'auto-1',
     name: 'Dead code sweep',
     status: 'enabled',
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '02:00' }, timezone: 'UTC' } },
+    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '02:00' }, timezone: hostZone } },
     action: { kind: 'spawn-agent', config: { prompt: 'Find code nothing reaches.' } },
     sourceCatalogueId: 'multicode.dead-code-sweep',
     nextRunAt: null,
@@ -480,11 +487,64 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
   assert.equal(added.health, 'good', 'the dot follows the state, and is not a trust tier')
   assert.equal(added.action, 'open', 'an automation already in this project cannot be got again')
 
+  // A record added before that rule still sits in stores, written in a zone that
+  // is not the reader's. The row names that zone rather than showing a 02:00 the
+  // reader would take for theirs.
+  const foreign = automationShelfRowState(
+    entry,
+    { ...definition, trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '02:00' }, timezone: hostZone === 'UTC' ? 'Asia/Kolkata' : 'UTC' } } } as AutomationDefinition,
+    true,
+  )
+  assert.match(foreign.stateLine, /^Added — Daily at 02:00 \S+/, 'a cadence written elsewhere is qualified with its zone')
+
   // A paused one is still added — the state line says which, rather than
   // reading as if it were still on the shelf.
   const paused = automationShelfRowState(entry, { ...definition, status: 'paused' }, true)
   assert.equal(paused.stateLine, 'Added, paused — Daily at 02:00')
   assert.equal(paused.action, 'open')
+
+  // The aside's facts, over the same fact. The permission an agent-backed
+  // automation runs with is stated BEFORE Get, not only after: an unattended
+  // agent with permissions bypassed is the most consequential thing about
+  // adding one, so the pre-add aside cannot be the one place it is missing.
+  const preAdd = automationDetailFacts(null, '/repo')
+  const preAddPermission = preAdd.find((fact) => fact.term === 'Permission')
+  assert.ok(preAddPermission, 'the not-yet-added aside states the permission it will run with')
+  assert.equal(preAdd.at(-1)?.term, 'Permission', 'and states it last, next to the Get it qualifies')
+  assert.deepEqual(
+    preAdd.map((fact) => fact.term),
+    ['Runs in', 'Starts', 'Adds to', 'Permission'],
+    'beside the other facts adding it is guaranteed to produce',
+  )
+  assert.equal(preAdd[2].description, 'repo', 'the project the add writes to is named')
+
+  // The two asides agree on that fact: both read the resolved default the spawn
+  // applies, so neither can drift into its own wording of the same answer.
+  const postAdd = automationDetailFacts(definition, '/repo')
+  assert.equal(
+    postAdd.find((fact) => fact.term === 'Permission')?.description,
+    preAddPermission.description,
+    'the pre-add and post-add asides say the same thing about the permission',
+  )
+  assert.match(preAddPermission.description, /unattended/, 'and say plainly that it runs unattended')
+
+  // A definition naming its own preset still reports its own, never the default.
+  const asked = automationDetailFacts(
+    { ...definition, action: { kind: 'spawn-agent', config: { permissionPreset: 'default' } } } as AutomationDefinition,
+    '/repo',
+  )
+  assert.equal(asked.find((fact) => fact.term === 'Permission')?.description, 'Default — asks before acting')
+
+  // A non-agent action launches no agent, so it gets no permission row rather
+  // than a default that would not be true of it.
+  const nonAgent = automationDetailFacts(
+    { ...definition, action: { kind: 'sprint-engine-start', config: {} } } as AutomationDefinition,
+    '/repo',
+  )
+  assert.ok(
+    !nonAgent.some((fact) => fact.term === 'Permission' || fact.term === 'Agent'),
+    'an action that launches no agent carries neither row',
+  )
 }
 
 // --- data-URI icons from the generated catalogue render through PluginIcon --
@@ -501,6 +561,38 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
   )
   const markup = renderToStaticMarkup(<PluginIcon iconUrl={dataUri} name="Stripe" size={32} />)
   assert.match(markup, /src="data:image\/svg\+xml;base64,PHN2Zy8\+"/)
+}
+
+// --- one canvas, kind-specific weight in a kind-specific file (item 2042) ----
+
+// Source-read, because it is about where code LIVES: a mounted canvas renders
+// identically whether the automation half sits in it or beside it, which is
+// exactly why the split needs a guard that a render cannot give. The three kinds
+// share the canvas; the automation machinery is the shelf's.
+{
+  const canvasSource = readFileSync(
+    join(process.cwd(), 'src/renderer/src/components/panels/ConnectorsPanel/ExtensionKindCanvas.tsx'),
+    'utf8',
+  )
+  const shelfSource = readFileSync(
+    join(process.cwd(), 'src/renderer/src/components/panels/ConnectorsPanel/AutomationShelf.tsx'),
+    'utf8',
+  )
+  // The machinery only automations have: the project read that answers
+  // added-or-not, the install a Get performs, and the cadence the row states.
+  for (const machinery of [
+    /listInstanceAutomations/,
+    /installMarketplacePluginFromRegistry/,
+    /installMarketplacePluginFolder/,
+    /cadenceSummary/,
+  ] as const) {
+    assert.match(shelfSource, machinery, `the shelf owns ${machinery}`)
+    assert.doesNotMatch(canvasSource, machinery, `the shared canvas does not reach for ${machinery}`)
+  }
+  // And it is still ONE canvas: the shelf is entered through the canvas, not
+  // routed to as a second canvas of its own.
+  assert.match(canvasSource, /useAutomationShelf\(/, 'the canvas enters the shelf through one hook call')
+  assert.doesNotMatch(shelfSource, /InboxSearchInput/, 'search stays shared, not duplicated per kind')
 }
 
 console.log('connectors-panel render guard passed')

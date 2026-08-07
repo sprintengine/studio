@@ -6,6 +6,14 @@
 // heading and its rows, rows that carry no border, exactly one chrome row above
 // the canvas, and exactly one full-strength selection while a child is picked.
 //
+// It also carries MC-2047's acceptance for the pane this tab REUSES: no
+// hairline inside the detail pane, no body heading outranking the pane's own
+// title, no copy explaining a control, and an Epic section that names itself
+// once. Same requirement, same reason — those are painted facts, and the four
+// defects survived a review that read them off the source. They are measured
+// here in both polarities and again on the Backlog door, which mounts the same
+// component with different chrome around it.
+//
 // It drives the built app (out/main/index.js) with an isolated profile, seeds a
 // scratch project holding a backlog epic + children and TWO sprint runs — one
 // seeded from that epic, one seeded from a goal — and opens each through the
@@ -17,6 +25,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { PANE_MEASURE, stampTheme } from './backlogDetailPaneMeasure.mjs'
 
 const require = createRequire('/tmp/multicode-playwright/x.js')
 const root = resolve(new URL('../..', import.meta.url).pathname)
@@ -35,6 +44,11 @@ function check(name, ok, detail = '') {
 }
 
 const EPIC_SLUG = 'checkout-hardening'
+// The child the pass selects (index 1) carries a prerequisite AND an attached
+// mockup, so the pane is measured with Mockups and Dependencies POPULATED, not
+// only in their empty state — a hairline under a section with content is the
+// same defect, and the empty-state fix must not have hidden the populated path.
+const SEEDED_MOCKUP = 'backlog/mockups/seeded-pane.html'
 const CHILDREN = [
   ['2026-07-01-idempotency-keys', 'Idempotency keys on the refund endpoint', 'completed'],
   ['2026-07-02-webhook-retries', 'Retry failed webhook deliveries with backoff', 'in_progress'],
@@ -172,11 +186,26 @@ async function seed() {
     join(workspaceDir, `backlog/epics/${EPIC_SLUG}.md`),
     '---\ntype: epic\nstatus: in_progress\nid: 1841\n---\n\n# Checkout hardening\n\nHarden the checkout path end to end.\n',
   )
+  await mkdir(join(workspaceDir, 'backlog/mockups'), { recursive: true })
+  await writeFile(
+    join(workspaceDir, SEEDED_MOCKUP),
+    '<!doctype html><title>Seeded mockup</title><body><h1>Seeded mockup</h1></body>\n',
+  )
   let id = 1842
   for (const [slug, title, status] of CHILDREN) {
+    // The selected child (index 1) is the populated one: a resolved prerequisite
+    // and an attached, on-disk mockup, so its Mockups and Dependencies sections
+    // render ROWS when the pane is measured.
+    const populated = slug === CHILDREN[1][0]
+    const extraFields = populated
+      ? `mockups: ${SEEDED_MOCKUP}\ndependsOn: ${CHILDREN[0][0]}\n`
+      : ''
     await writeFile(
       join(workspaceDir, `backlog/${slug}.md`),
-      `---\ntype: feature\nstatus: ${status}\nepic: ${EPIC_SLUG}\ndifficulty: m\ncriticality: high\nid: ${id}\n---\n\n# ${title}\n\n## Intent\n\nSeeded intent for ${title}.\n\n## Acceptance\n\n- The seeded criterion renders in the detail pane.\n`,
+      // The trailing `# Body heading` is deliberate: the pane strips only the
+      // LEADING title h1, so a second one exercises the top of the markdown
+      // ramp against the pane's own title (MC-2047's heading-scale defect).
+      `---\ntype: feature\nstatus: ${status}\nepic: ${EPIC_SLUG}\ndifficulty: m\ncriticality: high\n${extraFields}id: ${id}\n---\n\n# ${title}\n\n## Intent\n\nSeeded intent for ${title}.\n\n## Acceptance\n\n- The seeded criterion renders in the detail pane.\n\n# Body heading\n\nProse under a body h1.\n`,
     )
     id += 1
   }
@@ -353,6 +382,10 @@ const MEASURE = `(() => {
   }
 })()`
 
+// The pane's own anatomy (MC-2047) and the polarity stamp are the shared probe:
+// the same measurement runs on the Horizon door from `horizon-chrome-rows-pass.mjs`,
+// and one component measured two ways is how two surfaces disagree.
+
 async function click(page, locator) {
   if ((await locator.count()) === 0) return false
   await locator.first().evaluate((el) => {
@@ -410,7 +443,11 @@ async function main() {
     },
   })
 
-  const transcript = { epic: null, goal: null }
+  const transcript = {
+    epic: null,
+    goal: null,
+    pane: { epicDark: null, epicLight: null, doorDark: null, doorLight: null },
+  }
   try {
     const page = await app.firstWindow()
     page.on('console', (m) => {
@@ -534,6 +571,17 @@ async function main() {
           return rows.length
         })
         await page.waitForTimeout(1200)
+        // The pane's own anatomy, in both polarities. BOTH are stamped: this
+        // profile boots light, so reading "dark" as-found measured light twice
+        // and called it two polarities. Each reading carries the polarity it was
+        // taken in, and the assertions below check it.
+        await stampTheme(page, 'dark', 'dark')
+        transcript.pane.epicDark = await page.evaluate(PANE_MEASURE)
+        await page.screenshot({ path: join(outDir, '02c-pane-dark.png') })
+        await stampTheme(page, 'light', 'light')
+        transcript.pane.epicLight = await page.evaluate(PANE_MEASURE)
+        await page.screenshot({ path: join(outDir, '02d-pane-light.png') })
+        await stampTheme(page, 'dark', 'dark')
       }
       const measured = await page.evaluate(MEASURE)
       transcript[label] = measured
@@ -544,6 +592,33 @@ async function main() {
         // is one click away — the rail's Back row would leave the door entirely.
       }
     }
+
+    // Same pane, second surface. MC-2047's fixes live in the shared component,
+    // so the Backlog door has to read the same way — and unlike the Epic tab it
+    // mounts the pane with no back affordance and no host band, which is where
+    // a header change would show up differently if it were surface-local.
+    console.log('\n=== Backlog door ===')
+    await page.evaluate(() => {
+      const button = Array.from(document.querySelectorAll('button')).find(
+        (b) => (b.textContent || '').trim() === 'Backlog' || b.getAttribute('aria-label') === 'Backlog',
+      )
+      button?.focus()
+      button?.click()
+    })
+    await page.waitForTimeout(2500)
+    await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('[role="option"], [role="row"]')).filter(
+        (el) => el.getBoundingClientRect().width > 120,
+      )
+      rows[0]?.click()
+    })
+    await page.waitForTimeout(1500)
+    await stampTheme(page, 'dark', 'dark')
+    transcript.pane.doorDark = await page.evaluate(PANE_MEASURE)
+    await page.screenshot({ path: join(outDir, '04-backlog-door-dark.png') })
+    await stampTheme(page, 'light', 'light')
+    transcript.pane.doorLight = await page.evaluate(PANE_MEASURE)
+    await page.screenshot({ path: join(outDir, '05-backlog-door-light.png') })
   } finally {
     await writeFile(join(outDir, 'transcript.json'), `${JSON.stringify(transcript, null, 2)}\n`, 'utf8')
     await app.close()
@@ -605,6 +680,58 @@ async function main() {
       m.detailText.slice(0, 200),
     )
   }
+
+  /* ---- the detail pane's own anatomy (MC-2047) ------------------------- */
+  for (const [surface, mode, pane] of [
+    ['Epic tab, dark', 'dark', transcript.pane.epicDark],
+    ['Epic tab, light', 'light', transcript.pane.epicLight],
+    ['Backlog door, dark', 'dark', transcript.pane.doorDark],
+    ['Backlog door, light', 'light', transcript.pane.doorLight],
+  ]) {
+    if (!pane || !pane.present) {
+      check(`the detail pane rendered on the ${surface}`, false, JSON.stringify(pane).slice(0, 300))
+      continue
+    }
+    // Guards the reading itself: a pass that measured one polarity twice and
+    // reported two is worse than no polarity coverage at all.
+    check(
+      `the ${surface} reading was taken in that polarity`,
+      pane.mode === mode,
+      `theme=${pane.theme} mode=${pane.mode}`,
+    )
+    check(
+      `no hairline rules inside the detail pane — ${surface}`,
+      pane.rules.length === 0,
+      JSON.stringify(pane.rules),
+    )
+    check(
+      `no body heading outranks the pane title — ${surface}`,
+      pane.titleSize > 0
+        && pane.headings.length > 0
+        && pane.headings.every((h) => h.size <= pane.titleSize),
+      `title=${pane.titleSize} headings=${JSON.stringify(pane.headings)}`,
+    )
+    check(
+      `no copy explains a control in the detail pane — ${surface}`,
+      !pane.copy.mockups && !pane.copy.prerequisites && !pane.copy.epicChildren,
+      JSON.stringify(pane.copy),
+    )
+    check(
+      `the Epic section states its name once — ${surface}`,
+      pane.epicSectionPresent && pane.epicLabels === 1,
+      `section=${pane.epicSectionPresent} labels=${pane.epicLabels}`,
+    )
+  }
+
+  // The Epic tab selects the seeded child that HAS a mockup and a prerequisite,
+  // so its two readings above were taken over populated sections. Without this
+  // the whole no-hairline claim could quietly narrow to the empty state.
+  const populated = transcript.pane.epicDark
+  check(
+    'the measured pane had populated Mockups and Dependencies sections',
+    Boolean(populated) && populated.rows?.mockups > 0 && populated.rows?.dependencies > 0,
+    JSON.stringify(populated?.rows),
+  )
 
   const goal = transcript.goal
   if (goal) {

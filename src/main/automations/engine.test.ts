@@ -392,6 +392,11 @@ async function assertCatalogueInstallIsScheduledByTheLiveEngine(): Promise<void>
     getActionProviderRegistrations: () => registry.listActionProviderRegistrations(),
     checkProviderPermission: allowAutomationProvider,
     now: () => now,
+    // What this test is about is the live engine picking up a mid-session
+    // install, not where the installing user is: the install resolves a
+    // catalogue schedule into the host's zone (item 2039), so the host is
+    // pinned here and the instant below stays exact wherever this runs.
+    hostTimeZone: () => 'UTC',
   })
   const installed = await writeCore.installFromCatalogue(root, {
     payload: {

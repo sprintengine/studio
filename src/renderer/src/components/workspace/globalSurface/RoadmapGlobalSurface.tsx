@@ -62,6 +62,7 @@ import {
   removeLane,
   renameLane,
   roadmapItemStatesMulti,
+  setEntryRoster,
   splitAuthoredRef,
 } from '../../backlog/roadmapAuthoring'
 import { childrenOfEpic } from '../../../utils/backlogEpics'
@@ -76,6 +77,7 @@ import {
   type HorizonStepUnresolved,
 } from '../../panels/roadmapBoard/HorizonDetailPane'
 import { HorizonBacklogSource } from '../../panels/roadmapBoard/HorizonBacklogSource'
+import { HorizonStepTeam } from '../../panels/roadmapBoard/HorizonStepTeam'
 import { deriveBacklogProjectDerived, useAllProjectsBacklog } from '../../../hooks/useAllProjectsBacklog'
 import { refreshSharedBacklogScan } from '../../../hooks/useSharedBacklogScan'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
@@ -688,6 +690,16 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     return rows.find((row) => row.ref === selectedStepRef) ?? null
   }, [horizonPlan, selectedStepRef])
 
+  // Staff one step from the detail pane. `undefined` CLEARS the override, which
+  // is how a step goes back to inheriting: steps inherit by ABSENCE, so this must
+  // never write the resolved name onto a step that never chose one.
+  const setStepRoster = useCallback(
+    (step: HorizonStepRow, roster: string | undefined) => {
+      plan.setLanes(setEntryRoster(plan.draft.lanes, step.laneIndex, step.entryIndex, roster))
+    },
+    [plan],
+  )
+
   const selectedStepProjectRoot = useMemo(() => {
     if (!selectedStep) return null
     return projectByKey(selectedStep.projectKey)?.path ?? null
@@ -1088,6 +1100,28 @@ export default function RoadmapGlobalSurface(): JSX.Element {
                     onApprove={steering.onApprove}
                     onMerge={steering.onMerge}
                     onOpenRun={handleOpenRun}
+                    // The team, on the step (MC-2066). Built here because the
+                    // pick is a write to the plan draft this door owns — the
+                    // same `setEntryRoster` transform the row chip uses, so the
+                    // two controls cannot write different bytes.
+                    //
+                    // DELIVERED work carries none, the same rule the plan
+                    // column's footer applies: staffing a finished step changes
+                    // nothing about the run that delivered it, and the file
+                    // edit would be pure noise on closed work.
+                    team={
+                      selectedStep && selectedStep.state !== 'done' ? (
+                        <HorizonStepTeam
+                          stepTitle={selectedStep.title}
+                          roster={selectedStep.roster}
+                          rosters={savedRosters}
+                          inheritedLabel={plan.draft.policy.roster?.trim() || NO_ROLES_ROSTER_NAME}
+                          onSelect={(name) => setStepRoster(selectedStep, name ?? NO_ROLES_ROSTER_NAME)}
+                          onInherit={() => setStepRoster(selectedStep, undefined)}
+                          onManageRosters={() => setRosterManagerOpen(true)}
+                        />
+                      ) : undefined
+                    }
                     // A draft uses this same screen (MC-1926); what it needs is
                     // one sentence saying nothing runs yet, not a layout of
                     // its own.

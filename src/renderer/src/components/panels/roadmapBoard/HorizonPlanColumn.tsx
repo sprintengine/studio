@@ -729,9 +729,11 @@ function StepRow({
             {row.projectName}
           </span>
         ) : null}
-        {/* Reserve the roster chip's gutter so revealing it never reflows the
-            title mid-hover. */}
-        <span aria-hidden="true" className="w-[4.25rem] shrink-0" />
+        {/* The team chip's gutter. It is reserved rather than filled because the
+            chip is a SIBLING of this button (one click target per row), and it
+            is as wide as the chip's own cap so a team name never runs under the
+            title it sits beside. */}
+        <span aria-hidden="true" className="w-[5.25rem] shrink-0" />
         {/* Fixed width, right-aligned: the roster chip is absolutely positioned
             against this gutter, so a wider count ("12/19") must not grow the
             cell and slide under the chip. */}
@@ -741,14 +743,17 @@ function StepRow({
           </span>
         ) : null}
       </button>
-      {/* A sibling of the row button, never nested — one click target per row
-          stays the rule, and a button inside a button is invalid HTML. */}
+      {/* The step's TEAM, resting on the row (MC-2066) — a sibling of the row
+          button, never nested: one click target per row stays the rule, and a
+          button inside a button is invalid HTML. Picking a team is one click
+          from here; the horizon's default is what an untouched step inherits,
+          not the only comfortable way to set anything. */}
       <span
         className={`absolute top-1/2 -translate-y-1/2 ${row.sizeLabel ? 'right-[2.75rem]' : 'right-2'}`}
       >
         <RosterMenu
           variant="row"
-          ariaLabel={`Roster for ${row.title}`}
+          ariaLabel={`Team for ${row.title}`}
           rosters={rosters}
           selectedName={row.roster.label}
           inherit={{

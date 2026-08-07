@@ -697,12 +697,24 @@ async function main(): Promise<void> {
     assert.ok(row, `a list row for ${needle}`)
     return row as HTMLElement
   }
+  // The roll-up's done fraction is the `EpicProgressMeter` primitive, whose
+  // numbers ARE the signal — the bar beside them is aria-hidden decoration. The
+  // sentence "0 of 1 done" that used to sit on a band of its own said the same
+  // thing a third time and was removed with that band (MC-2067), so this asserts
+  // the readout that ships: the meter's accessible name, plus its painted
+  // fraction. Asserting the fraction rather than the old copy is the same rule
+  // MC-2047 applied to the pane's other stale wording assertions — check the
+  // thing is there, not that it is phrased the way it once was.
+  const epicDoneFraction = (): boolean => {
+    const meter = container.querySelector('[role="img"][aria-label="0 of 1 complete"]')
+    return Boolean(meter) && Boolean(meter?.textContent?.includes('0/1'))
+  }
   await act(async () => {
     rowFor('Door quality epic').click()
   })
   await settle()
   assert.ok(
-    container.textContent?.includes('0 of 1 done'),
+    epicDoneFraction(),
     'the epic detail rolls up its children with the panel’s done fraction',
   )
   const childRollupRow = [...container.querySelectorAll('button')].find(
@@ -719,10 +731,7 @@ async function main(): Promise<void> {
     ;(crumb as HTMLElement).click()
   })
   await settle()
-  assert.ok(
-    container.textContent?.includes('0 of 1 done'),
-    'the crumb navigates back up to the epic detail',
-  )
+  assert.ok(epicDoneFraction(), 'the crumb navigates back up to the epic detail')
   console.log('ok - the door detail is the workspace BacklogDetail: crumb and children link both ways')
 
   // A row you cannot act on is a list, not a backlog. The door handed its row

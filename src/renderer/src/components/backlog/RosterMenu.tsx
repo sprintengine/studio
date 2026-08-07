@@ -5,9 +5,9 @@
 // rows and no separate create row).
 //
 // Two triggers, one menu body. The policy control is a bordered field; a step
-// row is a quiet chip that gains one extra leading option — "Use the horizon's
-// roster", which clears the override and names what the step falls back to, so
-// the choice is never made blind.
+// row is a compact chip — resting, never hover-only (MC-2066) — that gains one
+// extra leading option: "Use the horizon's roster", which clears the override
+// and names what the step falls back to, so the choice is never made blind.
 
 import { useState } from 'react'
 
@@ -21,16 +21,21 @@ export const POLICY_ROSTER_TRIGGER_CLASS =
   'interactive inline-flex h-control-sm items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring'
 
 const ROW_ROSTER_TRIGGER_BASE =
-  'interactive inline-flex max-w-[9rem] shrink-0 items-center gap-1 rounded-sm px-1.5 text-micro leading-[17px] focus-visible:focus-ring'
+  'interactive inline-flex max-w-[5.25rem] shrink-0 items-center gap-1 rounded-sm px-1.5 text-micro leading-[17px] focus-visible:focus-ring'
 
-// How a step row's roster reads at a glance. The common case is every step
-// inheriting, so INHERITED is quiet — it only appears on hover or focus (the
-// density pass, MC-1924). An OVERRIDE and a MISSING roster are always visible,
-// because both are things you would want to see without hovering every row.
+// How a step row's team reads at a glance. It RESTS visible on every row
+// (MC-2066), deliberately reversing MC-1924's density call for this one control:
+// the thing that decides who does the work was the least visible thing on the
+// surface, reachable only by hovering the row it belongs to.
+//
+// The three tiers stay distinguishable without hover. INHERITED is quiet — it is
+// the common case and says the horizon decides — but it is legible at rest. An
+// OVERRIDE is a bordered chip, because a step deciding for itself is the
+// interesting state. A MISSING roster is loud, because that step cannot start.
 export const ROW_ROSTER_TRIGGER_CLASS: Record<'inherited' | 'override' | 'missing', string> = {
-  inherited: `${ROW_ROSTER_TRIGGER_BASE} text-[color:var(--text-subtle)] opacity-0 hover:bg-[color:var(--bg-active)] group-hover/step:opacity-100 group-focus-within/step:opacity-100 focus-visible:opacity-100`,
-  override: `${ROW_ROSTER_TRIGGER_BASE} text-[color:var(--text-muted)] hover:bg-[color:var(--bg-active)]`,
-  missing: `${ROW_ROSTER_TRIGGER_BASE} text-[color:var(--tone-warn)] hover:bg-[color:var(--bg-active)]`,
+  inherited: `${ROW_ROSTER_TRIGGER_BASE} text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-default)]`,
+  override: `${ROW_ROSTER_TRIGGER_BASE} border border-[color:var(--border-subtle)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-active)]`,
+  missing: `${ROW_ROSTER_TRIGGER_BASE} border border-[color:var(--tone-warn)] text-[color:var(--tone-warn)] hover:bg-[color:var(--bg-active)]`,
 }
 
 export function RosterMenu({
@@ -72,6 +77,16 @@ export function RosterMenu({
     : inherit?.selected
       ? 'inherited'
       : 'override'
+  // …and the same source of truth carries the tier to a screen reader, which
+  // cannot see the border that distinguishes the two. Without it "Mobile UI"
+  // reads identically whether the step chose it or the horizon did.
+  const triggerTier = missing
+    ? ' (not found)'
+    : inherit
+      ? inherit.selected
+        ? ' (inherited from this horizon)'
+        : ' (set for this step)'
+      : ''
   // The shared menu row (MC-2103). It used to be a local re-type at `rounded
   // px-2` with no disabled state and an inset fill — the shape the menu spec
   // rules out, and a copy that could not follow the canon when it moved.
@@ -104,10 +119,13 @@ export function RosterMenu({
           // The trigger's own text is only a roster NAME, which does not say what
           // the control does. `ariaLabel` names the popup; the button needs its
           // own accessible name or a screen-reader user hears just "Mobile UI".
-          aria-label={`${ariaLabel}: ${triggerLabel}${missing ? ' (not found)' : ''}`}
+          aria-label={`${ariaLabel}: ${triggerLabel}${triggerTier}`}
           className={variant === 'row' ? ROW_ROSTER_TRIGGER_CLASS[triggerTone] : POLICY_ROSTER_TRIGGER_CLASS}
         >
           <span
+            // A row chip truncates to keep the step's title readable, so the
+            // full team name stays reachable on hover rather than lost.
+            {...(variant === 'row' ? { title: `${triggerLabel}${triggerTier}` } : {})}
             className={
               variant === 'row'
                 ? 'min-w-0 truncate'

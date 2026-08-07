@@ -447,9 +447,19 @@ run('detail Mockups: the section renders its title and the Attach mockup… acti
   assert.match(markup, /Attach mockup…/, 'the attach editor is reachable from the detail pane')
 })
 
-run('detail Mockups: an empty item shows the reachable empty state, not a bare header', () => {
+// MC-2047: the empty state IS the reachable control. The old assertion pinned
+// the sentence "No mockups attached. Use “Attach mockup…” to add one." — copy
+// that named and explained the control sitting on the same row, which the
+// standing ruling forbids (if a control needs a sentence, the control is wrong).
+// Assert the affordance, not the prose, so the test cannot re-encode the ruling
+// this change removed — the trap that bit MC-1816's rail tests.
+run('detail Mockups: an empty item offers the attach control and no explanatory copy', () => {
   const markup = mockupsSection(mockupItem())
-  assert.match(markup, /No mockups attached/, 'the empty state invites the first attach')
+  assert.match(markup, /Attach mockup…/, 'the attach control is reachable with nothing attached')
+  assert.ok(
+    !/No mockups attached/.test(markup),
+    'the empty section explains nothing — the control is the whole empty state',
+  )
 })
 
 run('detail Mockups: a body-prose mockup link lights up as a read-only detected row', () => {

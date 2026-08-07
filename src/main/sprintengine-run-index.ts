@@ -184,7 +184,14 @@ async function deriveSummaryFromDisk(
 
   const rejection = describeUnsupportedSprintEngineStore(projection, identity.teamDirectory)
   if (rejection) {
-    return deriveSprintRunSummary({ ...base, state: null, unknownReason: rejection })
+    // Permanent, not "could not be read just now": the store predates this build
+    // and is never migrated, so the surfaces render the remedy, not a retry.
+    return deriveSprintRunSummary({
+      ...base,
+      state: null,
+      unknownReason: rejection,
+      unknownKind: 'unsupported_store',
+    })
   }
 
   const state = normalizeSprintEngineProjection(projection, identity.teamSlug)

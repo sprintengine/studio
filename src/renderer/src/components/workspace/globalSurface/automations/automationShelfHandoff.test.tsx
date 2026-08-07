@@ -210,6 +210,22 @@ async function main(): Promise<void> {
   run('the shelf offers Get once it knows the project does not have it', () => {
     assert.ok(get, 'a Get button is offered against a known-empty project')
   })
+  // Before the Get: selecting the row opens the aside, and the aside must state
+  // the permission the thing will run with (MC-2041). Read off the real render,
+  // not the fact builder — the point of the item is what a person sees in the
+  // moment before they press Get, and the store is still empty here.
+  const row = findButton(shelfHost, /Dead code sweep/)
+  await act(async () => { row!.click() })
+  const aside = shelfHost.querySelector('aside[aria-label="Dead code sweep details"]')
+  run('the not-yet-added aside states the permission, before Get is pressed', () => {
+    assert.ok(aside, 'selecting a row opens its detail aside')
+    const terms = [...aside!.querySelectorAll('dt')].map((node) => node.textContent)
+    const values = [...aside!.querySelectorAll('dd')].map((node) => node.textContent)
+    assert.deepEqual(terms, ['Runs in', 'Starts', 'Adds to', 'Permission'])
+    assert.equal(values.at(-1), 'Bypass all — runs unattended', 'and says plainly that it runs unattended')
+    assert.ok(findButton(aside!, /^Add to Automations$/), 'and it is the pre-add aside — nothing has been added yet')
+  })
+
   await act(async () => { get!.click() })
   run('Get hands the store-issued id over, not the catalogue id', () => {
     assert.deepEqual(added, [installedDefinition.id])

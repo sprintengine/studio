@@ -11,6 +11,7 @@ import {
 import { buildHorizonPlan, type HorizonRefDisplay } from './horizonPlanModel'
 import { parseRoadmap, type RoadmapLane } from '../../../../../shared/backlog/roadmap'
 import type { RoadmapBoardLane, RoadmapBoardUnit } from '../../../../../shared/sprintengine/roadmap-surface'
+import type { SprintEngineRoster } from '../../../types/workspace'
 
 // What a person actually SEES in the plan column (MC-1924, mockup frame 1). SSR
 // markup: effects and click handlers don't run under renderToStaticMarkup, so
@@ -71,6 +72,9 @@ function render({
   selectedHasRunStrip = false,
   showProjectTag = false,
   steering = STEERING,
+  policyRoster,
+  knownRosterNames = new Set(['no roles']),
+  rosters = [],
 }: {
   lanes: RoadmapLane[]
   boardLanes?: RoadmapBoardLane[]
@@ -79,14 +83,18 @@ function render({
   selectedHasRunStrip?: boolean
   showProjectTag?: boolean
   steering?: HorizonSteering
+  policyRoster?: string
+  knownRosterNames?: Set<string>
+  /** The user's saved rosters — the menu resolves a name against these. */
+  rosters?: SprintEngineRoster[]
 }): string {
   const plan = buildHorizonPlan({
     lanes,
     boardLanes,
     refDisplay: DISPLAY,
     projectNameByKey: new Map([[null, 'multicode'], ['mobile', 'multicode-mobile']]),
-    policyRoster: undefined,
-    knownRosterNames: new Set(['no roles']),
+    policyRoster,
+    knownRosterNames,
     defaultRosterLabel: 'No roles',
     // Live epic membership, as the surface resolves it from the scan (MC-2031).
     epicMembersByRef: new Map([['backlog/epics/ext.md', ['backlog/child-a.md', 'backlog/child-b.md']]]),
@@ -100,8 +108,8 @@ function render({
       selectedHasRunStrip={selectedHasRunStrip}
       onSelect={() => undefined}
       showProjectTag={showProjectTag}
-      rosters={[]}
-      policyRoster={undefined}
+      rosters={rosters}
+      policyRoster={policyRoster}
       onManageRosters={() => undefined}
       onLanes={() => undefined}
       onAddRef={() => undefined}
@@ -153,6 +161,66 @@ run('a row is 26px and says title only — no id, no status word', () => {
   assert.doesNotMatch(markup, /MC-1899/, 'the id belongs to the detail, not every row')
   assert.doesNotMatch(markup, />Up next</, 'the glyph already says the state')
   assert.doesNotMatch(markup, />Queued</)
+})
+
+// MC-2066 — the team is a first-class choice ON the step. This deliberately
+// reverses MC-1924's density call for this ONE control: the thing that decides
+// who does the work used to be `opacity-0` until you hovered the row, so the
+// only comfortable way to staff anything was the horizon's default in the top
+// bar. Reading it must never again require pointing at the row.
+run('the team rests on every step, never hover-revealed', () => {
+  const markup = render({ lanes: SIMPLE })
+  // The chip's OWN class list, not the row's: the drag grip and the delivered
+  // row's PR link are hover-revealed on purpose, so a document-wide search for
+  // `opacity-0` would pass or fail for reasons that have nothing to do with the
+  // team.
+  const chipClass = /aria-label="Team for [^"]*"\s+class="([^"]*)"/.exec(markup)?.[1]
+  assert.ok(chipClass, 'the step carries a team chip at all')
+  assert.doesNotMatch(chipClass, /opacity-0/, 'the inherited chip is no longer hidden until hover')
+  assert.doesNotMatch(chipClass, /group-hover\/step:/, 'and nothing about it waits on a hover')
+  assert.match(
+    markup,
+    /aria-label="Team for Terminal links open a chooser: No roles \(inherited from this horizon\)"/,
+    'and it names both the team and where the choice came from',
+  )
+})
+
+// The trap MC-1881 wrote into RosterMenu and MC-2066 must not undo: the tone is
+// `inherit.selected` — the ABSENCE of a `@roster=` — never the label. A step that
+// deliberately picks the roster the horizon already uses is an OVERRIDE, and it
+// would go quiet the moment either side derived the tier from the name.
+run('a step that picks the horizon’s own roster still reads as its own choice', () => {
+  const known = new Set(['no roles', 'mobile ui'])
+  const saved: SprintEngineRoster[] = [
+    { id: 'r1', name: 'Mobile UI', roleCounts: { frontend: 1 }, roleCliDefaults: {}, createdAt: 0, updatedAt: 0 },
+  ]
+  const inherited = render({
+    lanes: lanesOf('## Delivery\n- backlog/one.md\n'),
+    policyRoster: 'Mobile UI',
+    knownRosterNames: known,
+    rosters: saved,
+  })
+  const overridden = render({
+    lanes: lanesOf('## Delivery\n- backlog/one.md @roster=Mobile UI\n'),
+    policyRoster: 'Mobile UI',
+    knownRosterNames: known,
+    rosters: saved,
+  })
+  assert.match(inherited, /: Mobile UI \(inherited from this horizon\)"/)
+  assert.match(overridden, /: Mobile UI \(set for this step\)"/)
+  // …and the two look different without a screen reader: the override is a
+  // bordered chip, the inherited one plain quiet text.
+  assert.match(overridden, /border border-\[color:var\(--border-subtle\)\][^"]*text-\[color:var\(--text-default\)\]/)
+})
+
+run('a roster that no longer exists stays loud on the row, and is never softened to the default', () => {
+  const markup = render({
+    lanes: lanesOf('## Delivery\n- backlog/one.md @roster=Opus\n'),
+    knownRosterNames: new Set(['no roles']),
+  })
+  assert.match(markup, /Opus/, 'the step keeps the name it was given')
+  assert.match(markup, /\(not found\)/, 'and says it does not resolve')
+  assert.match(markup, /tone-warn/, 'in the warn tone, at rest')
 })
 
 run('a single-project horizon repeats no project tag; a spanning one names the project', () => {

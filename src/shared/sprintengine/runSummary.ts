@@ -73,6 +73,16 @@ export type SprintRunSummary = {
   sourceLabel: string | null
   /** Present only when {@link runtimeState} is `unknown`: why the projection could not be read. */
   unknownReason?: string
+  /**
+   * Present only when {@link runtimeState} is `unknown`: whether the read failure
+   * is PERMANENT. `unsupported_store` = the store predates what this build reads
+   * and is never migrated, so retrying can only fail again and the remedy is to
+   * delete the team directory. Absent means the ordinary case — a projection not
+   * written yet, mid-write, or unreadable just now — which a retry may fix. The
+   * surfaces that render the failure need the distinction to avoid calling a
+   * permanent rejection temporary (MC-2063).
+   */
+  unknownKind?: 'unsupported_store'
 }
 
 // Board columns that mean a task is genuinely in flight, mirroring
@@ -166,6 +176,7 @@ export function deriveSprintRunSummary(input: {
   /** Fallback ISO updatedAt (e.g. the projection file mtime) when the state carries none. */
   updatedAtFallback?: string | null
   unknownReason?: string
+  unknownKind?: 'unsupported_store'
 }): SprintRunSummary {
   const { statePath, teamSlug, projectRoot, projectName, state } = input
 
@@ -184,6 +195,7 @@ export function deriveSprintRunSummary(input: {
       updatedAt: input.updatedAtFallback ?? null,
       sourceLabel: null,
       unknownReason: input.unknownReason ?? 'Run projection could not be read.',
+      ...(input.unknownKind ? { unknownKind: input.unknownKind } : {}),
     }
   }
 

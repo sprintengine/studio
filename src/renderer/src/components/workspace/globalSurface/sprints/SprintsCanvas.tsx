@@ -73,7 +73,7 @@ import {
   useRepoMergeAction,
   type RepoMergeAction,
 } from '../../../panels/sprintEngineBoard/repoMergeSurface'
-import { sprintRunShortDate } from './railState'
+import { sprintRunOpenFailureCopy, sprintRunShortDate } from './railState'
 import { requestCloseSprintWorkspace } from './sprintDoorRequests'
 import { deleteSprintRun } from './sprintRunDeletion'
 import { SprintsRepoStrip } from './SprintsRepoStrip'
@@ -237,13 +237,18 @@ export function SprintsCanvas({ model }: { model: SprintRunCanvasModel }): JSX.E
     return <SurfaceCanvasState kind="loading" label={`Loading ${model.run.teamName}…`} />
   }
   if (model.status === 'error' || !model.handle) {
+    // A store from an older Multicode fails permanently and says so, with its
+    // delete path in the details — the one place that remedy is spelled out
+    // (MC-2063). Everything else keeps the transient-read copy.
+    const copy = sprintRunOpenFailureCopy(model.run)
     return (
       <SurfaceCanvasState
         kind="error"
-        title="Couldn’t open this sprint."
-        hint="Its run store is on disk but could not be read just now — this is usually temporary."
+        title={copy.title}
+        hint={copy.hint}
         detail={model.error ?? undefined}
         onRetry={model.retry}
+        retryLabel={copy.retryLabel}
       />
     )
   }

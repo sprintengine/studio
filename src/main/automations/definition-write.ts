@@ -8,7 +8,7 @@ import type {
   AutomationTriggerProvider,
   AutomationsResult,
 } from '../../shared/automations/contracts'
-import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from '../../shared/automations/contracts'
+import { SCHEDULE_TRIGGER_KIND, SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from '../../shared/automations/contracts'
 import { SPRINT_ENGINE_START_ACTION_KIND } from './actions/sprint-engine'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { projectFoldersFromWorkspaceSyncSnapshot } from './engine'
@@ -17,7 +17,12 @@ import {
   type AutomationProviderPermissionChecker,
   type RegisteredAutomationProvider,
 } from './provider-registry'
-import { computeNextRun, scheduleCadenceCanExhaust, validateScheduleTriggerConfig } from './schedule'
+import {
+  computeNextRun,
+  isValidTimeZone,
+  scheduleCadenceCanExhaust,
+  validateScheduleTriggerConfig,
+} from './schedule'
 import { AutomationsStore, type AutomationStoreProblem } from './store'
 
 // The one write path for automation definitions. Both front doors — the
@@ -61,6 +66,13 @@ export type DefinitionWriteDeps = {
   checkProviderPermission: AutomationProviderPermissionChecker
   now: () => number
   createAutomationId?: (draft: AutomationDefinitionDraft) => string
+  /**
+   * The zone a catalogue schedule is resolved into at install. Defaults to the
+   * host's own IANA zone, which is what the renderer's editor already stamps on
+   * a schedule the user authors — injected only so tests can install as a user
+   * somewhere else.
+   */
+  hostTimeZone?: () => string
   /**
    * Post-write hook (e.g. webhook receiver refresh, renderer notification). A
    * throw never fails the operation — the write already persisted — it is
@@ -172,7 +184,7 @@ export function createDefinitionWriteCore(deps: DefinitionWriteDeps): Definition
       }
       // Parse first: a payload that does not parse writes nothing at all, and
       // this runs before the store is read, let alone written.
-      const draft = parseDefinitionDraft(catalogueDraftInput(input.payload))
+      const draft = parseDefinitionDraft(catalogueDraftInput(input.payload, resolveHostTimeZone(deps.hostTimeZone)))
       if (!draft.ok) return draft
 
       const store = deps.createStore(workspaceRoot)
@@ -407,11 +419,66 @@ async function writeNextRunCache(
  * both have live fallbacks (last-selected CLI,
  * `AUTOMATION_DEFAULT_PERMISSION_PRESET`) that stamping here would freeze into
  * a second source of truth.
+ *
+ * A schedule trigger's `timezone` is resolved to the installing user's own zone
+ * here — see `localiseCatalogueSchedule`.
  */
-function catalogueDraftInput(payload: unknown): unknown {
+function catalogueDraftInput(payload: unknown, hostTimeZone: string): unknown {
   if (!isRecord(payload)) return payload
   const { id, status, runInWorktree, ...rest } = payload
-  return { ...rest, status: 'enabled' }
+  return { ...rest, status: 'enabled', trigger: localiseCatalogueSchedule(rest.trigger, hostTimeZone) }
+}
+
+/**
+ * A catalogue schedule is ALWAYS local: the payload's `timezone` is the
+ * author's editing zone, not an instruction, so the install stamps the
+ * installing user's own zone over it and the authored wall-clock lands at that
+ * time here. "Nightly at 02:00" is 02:00 wherever it is added; before this it
+ * was 02:00 UTC, which is mid-afternoon in Sydney (item 2039).
+ *
+ * One field at one point, deliberately:
+ * - `timezone` is already the sole timezone authority for every wall-clock
+ *   cadence (`ScheduleTriggerConfig`, shared/automations/contracts.ts), so
+ *   `daily`, `weekly` and `at` all move together with nothing cadence-specific
+ *   here. `interval` names no wall-clock and is unaffected in behaviour; its
+ *   zone is rewritten too rather than special-cased, because a rule that
+ *   sometimes leaves the author's zone in place is the thing that drifts.
+ *   (`cron` is declared in the contract but rejected by the engine, so no cron
+ *   payload reaches a store either way.)
+ * - a one-shot `at` is a local wall-clock like the rest, NOT a fixed global
+ *   instant. A catalogue payload is a template every reader installs at a
+ *   different moment; the author cannot mean one particular instant for all of
+ *   them, and the cadence's own contract already says the datetime carries no
+ *   `Z`/offset.
+ * - so there is no way for a catalogue payload to express a fixed global
+ *   instant, by design. A flag for it would be a second timezone authority that
+ *   nobody sets.
+ *
+ * This runs on the install write only. A user's own edit is a normal update
+ * through `update()`, which never touches the zone, and no read path
+ * re-localises — so an edited cadence stays exactly where the user put it.
+ */
+function localiseCatalogueSchedule(trigger: unknown, hostTimeZone: string): unknown {
+  if (!hostTimeZone || !isRecord(trigger) || trigger.kind !== SCHEDULE_TRIGGER_KIND) return trigger
+  if (!isRecord(trigger.config)) return trigger
+  return { ...trigger, config: { ...trigger.config, timezone: hostTimeZone } }
+}
+
+/**
+ * The host's IANA zone, held to the same bar `validateScheduleTriggerConfig`
+ * holds the config field to. Empty when the runtime cannot name a usable one:
+ * the install then leaves the payload's zone in place rather than stamping a
+ * zone the schedule validator would reject, which would refuse an otherwise
+ * good starter over the host's clock configuration.
+ */
+function resolveHostTimeZone(hostTimeZone: DefinitionWriteDeps['hostTimeZone']): string {
+  try {
+    const zone = (hostTimeZone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone))()
+    const trimmed = typeof zone === 'string' ? zone.trim() : ''
+    return trimmed && isValidTimeZone(trimmed) ? trimmed : ''
+  } catch {
+    return ''
+  }
 }
 
 export function parseDefinitionDraft(input: unknown): AutomationsResult<AutomationDefinitionDraft> {

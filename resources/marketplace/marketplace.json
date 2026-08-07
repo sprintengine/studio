@@ -71113,6 +71113,24 @@
       }
     },
     {
+      "id": "muse",
+      "name": "Muse Code",
+      "publisher": {
+        "name": "Multicode Labs",
+        "verified": true
+      },
+      "summary": "Meta's Muse Code terminal coding agent, powered by Muse Spark 1.2.",
+      "category": "Agent CLI",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9Ik11bHRpY29kZSBtYXJrZXRwbGFjZSBzZWVkIGljb24iPgogIDxyZWN0IHdpZHRoPSIxMjgiIGhlaWdodD0iMTI4IiByeD0iMjIiIGZpbGw9IiMwYjE1MjQiLz4KICA8ZyBmaWxsPSJub25lIiBzdHJva2U9IiNlNmU5ZWUiIHN0cm9rZS13aWR0aD0iNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj4KICAgIDxwYXRoIGQ9Ik0zNiA4NlY0NGwyOCAzMCAyOC0zMHY0MiIvPgogIDwvZz4KPC9zdmc+Cg==",
+      "latest": 1,
+      "provides": [
+        "cli"
+      ],
+      "cli": {
+        "pluginId": "muse"
+      }
+    },
+    {
       "id": "opencode",
       "name": "OpenCode",
       "publisher": {

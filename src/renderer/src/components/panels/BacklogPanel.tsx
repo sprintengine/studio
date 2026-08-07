@@ -55,7 +55,6 @@ import {
   type BacklogRisk,
   type BacklogScanResult,
 } from '../../utils/backlog'
-import { getHighlightSwatch } from '../../utils/highlight'
 import { nextBacklogItemStatusFromLinks, providerForBacklogLink } from '../../utils/backlogLinks'
 import {
   matchWorkspaceForBacklogRunLink,
@@ -134,6 +133,7 @@ import {
   CriticalityIndicator,
   DifficultyIndicator,
   EpicColorDot,
+  EpicProgressMeter,
   type BacklogRunGlyph,
 } from '../backlog/BacklogRow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
@@ -2501,31 +2501,39 @@ export function BacklogDetail({
     // without it the header row and the markdown body hold their min-content
     // width instead of shrinking — at 1024px the right edge is clipped away
     // with no scrollbar to say so.
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
+    // `data-backlog-detail` is the rendered-pass handle for this pane, the same
+    // kind of hook as `[data-context-rail]`. Three surfaces mount this one
+    // component and only one of them wraps it in a labelled landmark, so a pass
+    // that measures the pane's own anatomy (MC-2047) needs a selector that
+    // resolves on all three.
+    <div data-backlog-detail className="flex h-full min-h-0 min-w-0 flex-col">
       {/* `px-3 py-2` — `ui/PanelHeader`'s inset, so this pane starts where every
           other header does; it sat at `px-4 py-3` (2112).
 
-          NOT the primitive itself. PanelHeader is a one-line identity row, and
-          this header's shape is a deliberate decision (MC-1923): the crumb takes
-          the first line so the title can own a full one of its own and wrap to
-          two. Rendering it through a row that truncates to one line would undo
-          exactly what that item landed, which a header sweep does not get to
-          decide. The inset is what makes the heights agree, and that is what
-          converges here. */}
-      <header className="shrink-0 border-b border-[color:var(--border-default)] px-3 py-2">
-        {/* Nav + metadata row: the single back affordance leads, then the status
-            glyph, id, status word, time, and file path — all the chrome the title
-            used to share its line, moved up here so the title below can own a full
-            line. The status glyph sits beside the id (its tooltip names the state);
-            the time carries the absolute timestamp; the path truncates with its
-            own tooltip. */}
-        <div className="flex min-w-0 items-center gap-2 text-micro text-[color:var(--text-muted)]">
+          NOT the primitive itself: this header wraps its title to two lines and
+          hosts a host band (`headerExtra`) under it, neither of which the
+          one-line primitive does. The inset is what makes the heights agree, and
+          that is what converges here.
+
+          ONE identity row (MC-2067). MC-1923 gave the crumb a band of its own so
+          the title could own a full line; the overflow menu then took a third
+          band whenever the item had no external action to sit beside. On a door
+          — where the app's top strip is ALREADY the surface bar above this pane
+          — that stacked three chrome rows before any content. The crumb is
+          metadata, so it rides the title's own line, right-aligned, with the
+          menu it belongs to; the title still wraps to two lines because it is
+          `flex-1` beside them, not because it has a band to itself. */}
+      {/* No hairline under the header either (MC-2047). Inside this pane the
+          only rules are its own edges and the list-side chrome row; the header
+          separates from the body on padding, like every section below it. */}
+      <header className="shrink-0 px-3 py-2">
+        <div className="flex min-w-0 items-start gap-2">
           {showBack ? (
             <button
               type="button"
               onClick={onBack}
               aria-label="Back to list"
-              className="interactive -ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              className="interactive -ml-1 mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
             >
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -2538,7 +2546,9 @@ export function BacklogDetail({
               ?? (selectedBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[selected.status])
             }
             placement="top"
-            wrapperClassName="inline-flex shrink-0"
+            // `mt-0.5` optically centres the 16px glyph on the FIRST line of a
+            // title that may wrap to two — `items-start` alone hangs it high.
+            wrapperClassName="mt-0.5 inline-flex shrink-0"
           >
             <LifecycleGlyph
               state={
@@ -2557,37 +2567,211 @@ export function BacklogDetail({
               live={selectedRunGlyph?.live ?? false}
             />
           </Tooltip>
-          {/* An id is the item's identity, so it leads. Not every item HAS one —
-              the scan mints ids best-effort and leaves an item untouched when
-              allocation fails — and the path used to cover that case before it
-              left the crumb, so the file name stands in rather than a header
-              that says only "4m ago". */}
-          <span className="shrink-0 whitespace-nowrap font-mono tabular-nums text-[color:var(--text-subtle)]">
-            {selected.displayId ?? basename(selected.relativePath)}
-          </span>
-          <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
-          {/* The status WORD is gone (MC-1923): the glyph beside it already says
-              the state, and now carries it as an accessible name — so the crumb
-              reads `MC-1824 · 4m ago` and nothing it says twice. The path went
-              with it; it is long, truncated, and not identity. It stays readable
-              from the menu ("Copy path") and from Reveal in Files. */}
-          <Tooltip content={modifiedAbsolute} placement="top" wrapperClassName="inline-flex shrink-0">
-            <span className="whitespace-nowrap tabular-nums">
-              {formatRelativeMsAgo(selected.modifiedAt, now) || 'unknown'}
+          {/* The title is the header's one clear priority: it takes the whole of
+              the row that is left and still wraps to two lines, revealing the
+              full text in a tooltip when clamped. */}
+          <TruncatedText
+            as="h3"
+            multiline
+            text={selected.title}
+            placement="bottom"
+            className="min-w-0 flex-1 line-clamp-2 text-heading font-semibold leading-snug text-[color:var(--text-strong)]"
+          />
+          {/* Identity + time + the menu that acts on them, right-aligned on the
+              title's own line. An id is the item's identity, so it leads the
+              cluster. Not every item HAS one — the scan mints ids best-effort and
+              leaves an item untouched when allocation fails — so the file name
+              stands in rather than a header that says only "4m ago".
+
+              The status WORD stays gone (MC-1923): the glyph at the head of the
+              row already says the state and carries it as an accessible name. The
+              path stays out too — long, truncated, and not identity; it is
+              readable from this menu ("Copy path") and from Reveal in Files. */}
+          <div className="mt-0.5 flex shrink-0 items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
+            <span className="whitespace-nowrap font-mono tabular-nums text-[color:var(--text-subtle)]">
+              {selected.displayId ?? basename(selected.relativePath)}
             </span>
-          </Tooltip>
-          <span className="min-w-0 flex-1" />
+            <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+            <Tooltip content={modifiedAbsolute} placement="top" wrapperClassName="inline-flex">
+              <span className="whitespace-nowrap tabular-nums">
+                {formatRelativeMsAgo(selected.modifiedAt, now) || 'unknown'}
+              </span>
+            </Tooltip>
+            <OverflowMenu
+              ariaLabel="More actions"
+              triggerTooltip="More actions"
+              items={[
+                // The file-navigation actions were on their own buttons; folded in
+                // here they free the row down to the primary action + this menu.
+                { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(selected) },
+                { id: 'reveal-in-files', label: 'Reveal in Files', onSelect: () => actions.revealInFiles(selected) },
+                // Where the path went when it left the crumb (MC-1923). Through
+                // the app's own clipboard bridge: an Electron renderer has no
+                // permission-free `navigator.clipboard`, so that path was a
+                // silent no-op. The ABSOLUTE path, matching the two rows above it
+                // — a relative path is ambiguous across projects on a door.
+                {
+                  id: 'copy-path',
+                  label: 'Copy path',
+                  onSelect: () => {
+                    void window.api?.clipboardWriteText?.(selected.path)
+                  },
+                },
+                // Same Send-to-agent flyout as the row's right-click menu (shared
+                // choice list, liveness refresh on open, shared send path), so an
+                // item can be handed off from inside its detail too.
+                {
+                  kind: 'flyout' as const,
+                  id: 'send-to-agent',
+                  label: 'Send to agent',
+                  ariaLabel: 'Send to agent',
+                  surfaceClassName: 'min-w-[200px]',
+                  onOpenChange: (open: boolean) => {
+                    if (open) onAgentFlyoutOpen()
+                  },
+                  render: (close: () => void) => (
+                    <AgentTargetMenuItems
+                      agentTargets={agentTargets}
+                      agentSessions={agentSessions}
+                      onPick={(sessionId) => {
+                        onSendToAgent(selected, sessionId)
+                        close()
+                      }}
+                    />
+                  ),
+                },
+                { kind: 'separator' as const, id: 'sep-files' },
+                // Triage editors, moved out of the detail body into flyout submenus
+                // so the pane opens straight to content. Same choice lists, checks,
+                // and handlers as the row's right-click menu — each choice applies
+                // then closes the whole menu.
+                {
+                  kind: 'flyout' as const,
+                  id: 'set-status',
+                  label: 'Status',
+                  ariaLabel: 'Set status',
+                  surfaceClassName: 'min-w-[180px]',
+                  render: (close: () => void) =>
+                    STATUS_MENU_CHOICES.map((status) => (
+                      <MenuItem
+                        key={status}
+                        checked={selected.status === status}
+                        icon={<MenuCheckGlyph visible={selected.status === status} />}
+                        onClick={() => {
+                          actions.setStatus(selected, status)
+                          close()
+                        }}
+                      >
+                        {BACKLOG_STATUS_LABEL[status]}
+                      </MenuItem>
+                    )),
+                },
+                {
+                  kind: 'flyout' as const,
+                  id: 'set-priority',
+                  label: 'Priority',
+                  ariaLabel: 'Set priority',
+                  surfaceClassName: 'min-w-[180px]',
+                  render: (close: () => void) =>
+                    CRITICALITY_EDIT_ITEMS.map(({ value, label }) => (
+                      <MenuItem
+                        key={value}
+                        checked={(selected.criticality ?? 'unset') === value}
+                        icon={<MenuCheckGlyph visible={(selected.criticality ?? 'unset') === value} />}
+                        onClick={() => {
+                          actions.setCriticality(selected, value)
+                          close()
+                        }}
+                      >
+                        {label}
+                      </MenuItem>
+                    )),
+                },
+                {
+                  kind: 'flyout' as const,
+                  id: 'set-size',
+                  label: 'Size',
+                  ariaLabel: 'Set size',
+                  surfaceClassName: 'min-w-[180px]',
+                  render: (close: () => void) =>
+                    DIFFICULTY_EDIT_ITEMS.map(({ value, label }) => (
+                      <MenuItem
+                        key={value}
+                        checked={(selected.difficulty ?? 'unset') === value}
+                        icon={<MenuCheckGlyph visible={(selected.difficulty ?? 'unset') === value} />}
+                        onClick={() => {
+                          actions.setDifficulty(selected, value)
+                          close()
+                        }}
+                      >
+                        {label}
+                      </MenuItem>
+                    )),
+                },
+                {
+                  kind: 'flyout' as const,
+                  id: 'set-risk',
+                  label: 'Risk',
+                  ariaLabel: 'Set risk',
+                  surfaceClassName: 'min-w-[180px]',
+                  render: (close: () => void) =>
+                    RISK_EDIT_ITEMS.map(({ value, label }) => (
+                      <MenuItem
+                        key={value}
+                        checked={(selected.risk ?? 'unset') === value}
+                        icon={<MenuCheckGlyph visible={(selected.risk ?? 'unset') === value} />}
+                        onClick={() => {
+                          actions.setRisk(selected, value)
+                          close()
+                        }}
+                      >
+                        {label}
+                      </MenuItem>
+                    )),
+                },
+                { kind: 'separator' as const, id: 'sep-triage' },
+                ...(selected.status !== 'archived' && selected.status !== 'completed'
+                  ? [{ id: 'mark-completed', label: 'Mark completed', onSelect: () => actions.setStatus(selected, 'completed') }]
+                  : []),
+                ...(primaryRunLink
+                  ? [{ id: 'unlink-sprint', label: 'Unlink sprint…', onSelect: () => actions.removeLink(selected, primaryRunLink) }]
+                  : []),
+                {
+                  id: 'star',
+                  label: selected.highlight?.starred ? 'Unstar' : 'Star',
+                  onSelect: () =>
+                    actions.setHighlight(selected, {
+                      starred: !selected.highlight?.starred,
+                      color: selected.highlight?.color ?? null,
+                    }),
+                },
+                // An epic carries an identity colour; it rides here as a swatch row
+                // (same control as the row's Highlight colour) instead of a section
+                // in the body, so the epic detail opens straight to its children.
+                ...(selected.isEpic
+                  ? [
+                      {
+                        kind: 'swatch' as const,
+                        id: 'epic-color',
+                        label: 'Epic color',
+                        value: currentEpicColor,
+                        onPick: (color: BacklogHighlightColor) => actions.setEpicColor(selected, color),
+                        onClear: () => actions.setEpicColor(selected, null),
+                      },
+                    ]
+                  : []),
+                { id: 'rename', label: 'Rename…', onSelect: () => actions.rename(selected) },
+                ...(selected.status === 'archived'
+                  ? []
+                  : selected.isEpic
+                    ? [{ id: 'archive-epic', label: 'Archive epic', onSelect: () => actions.archiveEpic(selected) }]
+                    : [{ id: 'archive', label: 'Archive', onSelect: () => actions.archive(selected) }]),
+                { kind: 'separator' as const, id: 'sep' },
+                { id: 'delete', label: 'Delete…', destructive: true, onSelect: () => actions.remove(selected) },
+              ]}
+            />
+          </div>
         </div>
-        {/* The title is the header's one clear priority: a full-width line of its
-            own (no glyph, no back button) that wraps to two lines and reveals the
-            full text in a tooltip when clamped. */}
-        <TruncatedText
-          as="h3"
-          multiline
-          text={selected.title}
-          placement="bottom"
-          className="mt-1.5 line-clamp-2 text-heading font-semibold leading-snug text-[color:var(--text-strong)]"
-        />
         {/* Child → epic link: a plain link up to the parent epic (no back arrow —
             it navigates sideways to a sibling concept, not "back"). Carries the
             epic's identity colour, and its full name in a tooltip when clipped. */}
@@ -2610,193 +2794,21 @@ export function BacklogDetail({
             panel and the Backlog door render byte-identically without it. */}
         {headerExtra}
 
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          {externalActions.map(({ action, disabled, run }, index) => {
-            const Button = index === 0 ? PrimaryButton : GhostButton
-            return (
-              <Button
-                key={action.id}
-                onClick={run}
-                disabled={disabled}
-              >
-                {action.label}
-              </Button>
-            )
-          })}
-          <OverflowMenu
-            ariaLabel="More actions"
-            triggerTooltip="More actions"
-            items={[
-              // The file-navigation actions were on their own buttons; folded in
-              // here they free the row down to the primary action + this menu.
-              { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(selected) },
-              { id: 'reveal-in-files', label: 'Reveal in Files', onSelect: () => actions.revealInFiles(selected) },
-              // Where the path went when it left the crumb (MC-1923). Through
-              // the app's own clipboard bridge: an Electron renderer has no
-              // permission-free `navigator.clipboard`, so that path was a
-              // silent no-op. The ABSOLUTE path, matching the two rows above it
-              // — a relative path is ambiguous across projects on a door.
-              {
-                id: 'copy-path',
-                label: 'Copy path',
-                onSelect: () => {
-                  void window.api?.clipboardWriteText?.(selected.path)
-                },
-              },
-              // Same Send-to-agent flyout as the row's right-click menu (shared
-              // choice list, liveness refresh on open, shared send path), so an
-              // item can be handed off from inside its detail too.
-              {
-                kind: 'flyout' as const,
-                id: 'send-to-agent',
-                label: 'Send to agent',
-                ariaLabel: 'Send to agent',
-                surfaceClassName: 'min-w-[200px]',
-                onOpenChange: (open: boolean) => {
-                  if (open) onAgentFlyoutOpen()
-                },
-                render: (close: () => void) => (
-                  <AgentTargetMenuItems
-                    agentTargets={agentTargets}
-                    agentSessions={agentSessions}
-                    onPick={(sessionId) => {
-                      onSendToAgent(selected, sessionId)
-                      close()
-                    }}
-                  />
-                ),
-              },
-              { kind: 'separator' as const, id: 'sep-files' },
-              // Triage editors, moved out of the detail body into flyout submenus
-              // so the pane opens straight to content. Same choice lists, checks,
-              // and handlers as the row's right-click menu — each choice applies
-              // then closes the whole menu.
-              {
-                kind: 'flyout' as const,
-                id: 'set-status',
-                label: 'Status',
-                ariaLabel: 'Set status',
-                surfaceClassName: 'min-w-[180px]',
-                render: (close: () => void) =>
-                  STATUS_MENU_CHOICES.map((status) => (
-                    <MenuItem
-                      key={status}
-                      checked={selected.status === status}
-                      icon={<MenuCheckGlyph visible={selected.status === status} />}
-                      onClick={() => {
-                        actions.setStatus(selected, status)
-                        close()
-                      }}
-                    >
-                      {BACKLOG_STATUS_LABEL[status]}
-                    </MenuItem>
-                  )),
-              },
-              {
-                kind: 'flyout' as const,
-                id: 'set-priority',
-                label: 'Priority',
-                ariaLabel: 'Set priority',
-                surfaceClassName: 'min-w-[180px]',
-                render: (close: () => void) =>
-                  CRITICALITY_EDIT_ITEMS.map(({ value, label }) => (
-                    <MenuItem
-                      key={value}
-                      checked={(selected.criticality ?? 'unset') === value}
-                      icon={<MenuCheckGlyph visible={(selected.criticality ?? 'unset') === value} />}
-                      onClick={() => {
-                        actions.setCriticality(selected, value)
-                        close()
-                      }}
-                    >
-                      {label}
-                    </MenuItem>
-                  )),
-              },
-              {
-                kind: 'flyout' as const,
-                id: 'set-size',
-                label: 'Size',
-                ariaLabel: 'Set size',
-                surfaceClassName: 'min-w-[180px]',
-                render: (close: () => void) =>
-                  DIFFICULTY_EDIT_ITEMS.map(({ value, label }) => (
-                    <MenuItem
-                      key={value}
-                      checked={(selected.difficulty ?? 'unset') === value}
-                      icon={<MenuCheckGlyph visible={(selected.difficulty ?? 'unset') === value} />}
-                      onClick={() => {
-                        actions.setDifficulty(selected, value)
-                        close()
-                      }}
-                    >
-                      {label}
-                    </MenuItem>
-                  )),
-              },
-              {
-                kind: 'flyout' as const,
-                id: 'set-risk',
-                label: 'Risk',
-                ariaLabel: 'Set risk',
-                surfaceClassName: 'min-w-[180px]',
-                render: (close: () => void) =>
-                  RISK_EDIT_ITEMS.map(({ value, label }) => (
-                    <MenuItem
-                      key={value}
-                      checked={(selected.risk ?? 'unset') === value}
-                      icon={<MenuCheckGlyph visible={(selected.risk ?? 'unset') === value} />}
-                      onClick={() => {
-                        actions.setRisk(selected, value)
-                        close()
-                      }}
-                    >
-                      {label}
-                    </MenuItem>
-                  )),
-              },
-              { kind: 'separator' as const, id: 'sep-triage' },
-              ...(selected.status !== 'archived' && selected.status !== 'completed'
-                ? [{ id: 'mark-completed', label: 'Mark completed', onSelect: () => actions.setStatus(selected, 'completed') }]
-                : []),
-              ...(primaryRunLink
-                ? [{ id: 'unlink-sprint', label: 'Unlink sprint…', onSelect: () => actions.removeLink(selected, primaryRunLink) }]
-                : []),
-              {
-                id: 'star',
-                label: selected.highlight?.starred ? 'Unstar' : 'Star',
-                onSelect: () =>
-                  actions.setHighlight(selected, {
-                    starred: !selected.highlight?.starred,
-                    color: selected.highlight?.color ?? null,
-                  }),
-              },
-              // An epic carries an identity colour; it rides here as a swatch row
-              // (same control as the row's Highlight colour) instead of a section
-              // in the body, so the epic detail opens straight to its children.
-              ...(selected.isEpic
-                ? [
-                    {
-                      kind: 'swatch' as const,
-                      id: 'epic-color',
-                      label: 'Epic color',
-                      value: currentEpicColor,
-                      onPick: (color: BacklogHighlightColor) => actions.setEpicColor(selected, color),
-                      onClear: () => actions.setEpicColor(selected, null),
-                    },
-                  ]
-                : []),
-              { id: 'rename', label: 'Rename…', onSelect: () => actions.rename(selected) },
-              ...(selected.status === 'archived'
-                ? []
-                : selected.isEpic
-                  ? [{ id: 'archive-epic', label: 'Archive epic', onSelect: () => actions.archiveEpic(selected) }]
-                  : [{ id: 'archive', label: 'Archive', onSelect: () => actions.archive(selected) }]),
-              { kind: 'separator' as const, id: 'sep' },
-              { id: 'delete', label: 'Delete…', destructive: true, onSelect: () => actions.remove(selected) },
-            ]}
-          />
-        </div>
+        {/* Earned, not standing (MC-2067): a host with no external action to
+            offer gets no action band at all, because the overflow menu that used
+            to be stranded on it now sits inline with the title it acts on. */}
+        {externalActions.length > 0 ? (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            {externalActions.map(({ action, disabled, run }, index) => {
+              const Button = index === 0 ? PrimaryButton : GhostButton
+              return (
+                <Button key={action.id} onClick={run} disabled={disabled}>
+                  {action.label}
+                </Button>
+              )
+            })}
+          </div>
+        ) : null}
       </header>
 
       {/* Only the identity header stays pinned. The metadata sections (Links,
@@ -2965,35 +2977,38 @@ function BacklogEpicChildren({
 }): JSX.Element {
   const total = members.length
   const done = members.reduce((count, child) => (child.status === 'completed' ? count + 1 : count), 0)
-  const fillColor = color ? getHighlightSwatch(color).hex : 'var(--accent-primary)'
   return (
     <Section
       title="Children"
       level={4}
       inset
-      count={total > 0 ? total : undefined}
-      className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3"
-    >
-      {total === 0 ? (
-        <p className="px-3 text-meta text-[color:var(--text-disabled)]">
-          No items in this epic yet. Assign items from their “Move to epic” menu.
-        </p>
-      ) : (
-        <div className="px-3">
-          <div className="mb-2 flex items-center justify-between text-micro text-[color:var(--text-muted)]">
-            <span className="tabular-nums">{done} of {total} done</span>
+      // The count, the `N of M done` sentence and a bar of its own said one
+      // thing three ways and cost three stacked rows before the first child
+      // (MC-2067). `EpicProgressMeter` is the shipped primitive that renders
+      // done/total BESIDE its bar in one line — the same readout the epic row
+      // and the grouped epic header already use — so the heading row carries
+      // the whole roll-up and the members follow it directly.
+      action={
+        total > 0 ? (
+          <span className="flex items-baseline gap-2">
             {blockedRollup && blockedRollup.blocked > 0 ? (
-              <span className="tabular-nums">
+              <span className="whitespace-nowrap text-micro tabular-nums text-[color:var(--text-muted)]">
                 {blockedRollup.blocked} of {blockedRollup.remaining} remaining blocked
               </span>
             ) : null}
-          </div>
-          <div className="mb-2.5 h-[3px] overflow-hidden rounded-full bg-[color:var(--bg-active)]" role="presentation">
-            <span
-              className="block h-full rounded-full"
-              style={{ width: `${total > 0 ? Math.round((done / total) * 100) : 0}%`, backgroundColor: fillColor }}
-            />
-          </div>
+            <EpicProgressMeter progress={{ done, total }} color={color} />
+          </span>
+        ) : undefined
+      }
+      // No hairline: padding and the heading separate this section from the next
+      // (MC-2047 — "space groups, rules do not").
+      className="shrink-0 pb-3"
+    >
+      {/* An epic with no members is its heading and nothing else. The sentence
+          that used to sit here explained a control on ANOTHER surface — the row
+          menu — which is copy the pane must not carry (MC-2047). */}
+      {total === 0 ? null : (
+        <div className="px-3">
           <ul className="flex flex-col">
             {members.map((child) => {
               // A member linked to a Sprint Engine run shows the runner's real
@@ -3074,9 +3089,11 @@ function BacklogTriage({
   // renders nothing at all.
   if (item.isEpic) return null
   return (
-    <Section title="Epic" level={4} inset className="shrink-0 border-b border-[color:var(--border-subtle)] pb-3">
-      <div className="grid grid-cols-[3.5rem_minmax(0,16rem)] items-center gap-x-3 gap-y-2 px-3">
-        <span className="text-micro text-[color:var(--text-muted)]">Epic</span>
+    // No hairline (MC-2047), and no label column: the section heading already
+    // says "Epic", so a second "Epic" beside the one control it holds restated
+    // the heading in a 3.5rem gutter. The control is now the section's body.
+    <Section title="Epic" level={4} inset className="shrink-0 pb-3">
+      <div className="max-w-[16rem] px-3">
         <BacklogEpicSearchEditor item={item} actions={actions} epicChoices={epicChoices} />
       </div>
     </Section>
@@ -3182,7 +3199,21 @@ function BacklogPreviewBody({ item }: { item: BacklogItem }): JSX.Element {
     if (!body) {
       return <p className="text-meta text-[color:var(--text-disabled)]">No description beyond the title yet.</p>
     }
-    return <div className="markdown-body">{renderMarkdown(body)}</div>
+    // `compact` is the dense-surface ramp (the skill reader's), not the document
+    // one: at `document` the body's own h2 renders at 24px inside a pane whose
+    // title is 14px and whose section titles are 12px, making the item's prose
+    // the largest type on screen (MC-2047).
+    //
+    // Compact still tops out at `text-title` (16px) for h1, which outranks this
+    // pane's 14px title, so h1 is capped here to the pane's own title size. The
+    // cap is a descendant selector, so it outweighs the ramp's own `text-title`
+    // whatever the class order. h1 and h2 stay a step apart — 14px vs 13px plus
+    // the ramp's own spacing — so the ladder survives the cap.
+    return (
+      <div className="markdown-body [&_h1]:text-heading">
+        {renderMarkdown(body, { density: 'compact' })}
+      </div>
+    )
   }
   if (isHtml) {
     // Mockups render through the shared sandboxed frame (scripts off by default,

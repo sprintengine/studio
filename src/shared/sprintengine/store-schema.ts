@@ -53,11 +53,14 @@ export function describeUnsupportedSprintEngineStore(projection: unknown, teamDi
   const rawVersion = (run as { schemaVersion?: unknown }).schemaVersion
   const version = typeof rawVersion === 'number' && Number.isFinite(rawVersion) ? rawVersion : 1
   if (version >= SPRINT_ENGINE_MIN_READABLE_RUN_SCHEMA_VERSION) return null
+  // One sentence and the remedy. The schema history this used to recite (repos,
+  // leases, single-owner tasks) is developer trivia that turned every rejected
+  // store into a paragraph — and a project carrying twenty of them into a wall
+  // of them (MC-2063). The versions stay: they are what tells a reader this is
+  // age, not corruption.
   return (
     `This sprint was created by an older version of Multicode (run store v${version}, ` +
-    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Sprints can now span more ` +
-    `than one project (and before that, leases replaced the roster and single-owner ` +
-    `tasks replaced quality gates), so the run cannot be opened. Delete ` +
+    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}) and cannot be opened. Delete ` +
     `"${teamDirectory}" and start the sprint again.`
   )
 }
