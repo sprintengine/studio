@@ -5,7 +5,16 @@ type TerminalClipboardHandlersOptions = {
   term: Terminal
   sessionId: string
   focusTerminal: () => void
-  recordKeydown: (event: KeyboardEvent) => void
+  recordKeydown?: (event: KeyboardEvent) => void
+  /**
+   * Where pasted text goes. Defaults to this machine's terminal runtime.
+   *
+   * A REMOTE pane (MC-2167) passes its own writer, because its session id names
+   * a session on another machine: pasting through the local path would either
+   * land nowhere or, worse, in a local session that happens to share the id.
+   * Copy needs no override — the selection is in this xterm either way.
+   */
+  write?: (text: string) => void
 }
 
 type RuntimeClipboardApi = {
@@ -19,6 +28,7 @@ export function bindTerminalClipboardHandlers({
   sessionId,
   focusTerminal,
   recordKeydown,
+  write,
 }: TerminalClipboardHandlersOptions): () => void {
   let lastKnownSelection = term.getSelection()
   let secondaryClickSelection = ''
@@ -66,7 +76,9 @@ export function bindTerminalClipboardHandlers({
 
   const pasteText = async (text: string) => {
     if (!text) return
-    await window.api.terminalWrite(sessionId, text.replace(/\r?\n/g, '\r'))
+    const payload = text.replace(/\r?\n/g, '\r')
+    if (write) write(payload)
+    else await window.api.terminalWrite(sessionId, payload)
     focusTerminal()
   }
 
@@ -87,7 +99,7 @@ export function bindTerminalClipboardHandlers({
   }
 
   const handleKeyDown = (event: KeyboardEvent) => {
-    recordKeydown(event)
+    recordKeydown?.(event)
     pasteOnNextContextMenu = false
     const mod = event.ctrlKey || event.metaKey
     if (!mod) return

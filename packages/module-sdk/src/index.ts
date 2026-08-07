@@ -223,14 +223,25 @@ export type McpToolResult = {
   isError?: boolean
 }
 
-/** Who is calling over the gateway socket, as far as the connection declared. */
+/**
+ * Who is calling over the gateway, as far as the connection declared.
+ *
+ * `studio-agent`/`external-local` arrive on the owner-only local socket and
+ * their identity is advisory. `remote-tailnet` arrives on the opt-in tailnet
+ * listener, where the transport proved which paired device is calling before
+ * dispatch — `deviceId`, `deviceName`, and `peerNode` are set by the app, not
+ * by the caller.
+ */
 export type McpConnectionMetadata = {
-  kind: 'studio-agent' | 'external-local'
+  kind: 'studio-agent' | 'external-local' | 'remote-tailnet'
   workspaceId?: string
   agentId?: string
   agentName?: string
   cliId?: string
   sprintRunId?: string
+  deviceId?: string
+  deviceName?: string
+  peerNode?: string
 }
 
 export type McpConnectionContext = {

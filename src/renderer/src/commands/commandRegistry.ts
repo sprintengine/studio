@@ -264,6 +264,17 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace', 'gitPanelActive'],
     handlerPath: { kind: 'panel-event', eventId: 'git.commit' },
   }),
+  // The Fleet (MC-2167) is core chrome with no rail glyph — the rail is the
+  // navigational core (Files / Git / Backlog) — so this command, in the palette
+  // and bindable in Shortcuts settings, is its entry point. Ships unbound.
+  command({
+    id: 'panel.fleet.toggle',
+    title: 'Toggle Fleet',
+    category: 'panel',
+    scopes: ['workspace'],
+    availability: ['activeWorkspace'],
+    handlerPath: { kind: 'workspace-manager', handler: "focusOrAddComponentTab(windowActiveWorkspaceId, 'fleet', 'Fleet')" },
+  }),
   command({
     id: 'terminal.new',
     title: 'Open Plain Terminal',

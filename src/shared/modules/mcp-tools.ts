@@ -17,12 +17,24 @@ export type McpToolRegistration = {
 }
 
 export type McpConnectionMetadata = {
-  kind: 'studio-agent' | 'external-local'
+  /**
+   * `studio-agent`/`external-local` reach the gateway over the owner-only local
+   * socket and their identity is advisory — anything with filesystem access
+   * could claim it. `remote-tailnet` is the opt-in tailnet listener (MC-2162),
+   * where the transport PROVED which paired device is calling before dispatch.
+   */
+  kind: 'studio-agent' | 'external-local' | 'remote-tailnet'
   workspaceId?: string
   agentId?: string
   agentName?: string
   cliId?: string
   sprintRunId?: string
+  /** Paired tailnet device id; set by the transport, never by the client. */
+  deviceId?: string
+  /** Human name that device was paired under. */
+  deviceName?: string
+  /** Tailscale node name of the calling peer; absent when whois could not resolve it. */
+  peerNode?: string
 }
 
 export type McpConnectionContext = {

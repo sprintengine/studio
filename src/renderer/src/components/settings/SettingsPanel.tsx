@@ -51,6 +51,7 @@ import { useConfirmDialog } from '../ui/ConfirmDialog'
 import LearnCenter from '../learn/LearnCenter'
 import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
 import MobileSettingsTab from './MobileSettingsTab'
+import { RemoteTailnetSettingsTab } from './RemoteTailnetSettingsTab'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
 import { MetaCell, SettingsRow, SettingsSectionTitle, formatNullableDate } from './SettingsAtoms'
@@ -81,6 +82,7 @@ import {
   DesignSystemSettingsIcon,
   ModulesSettingsIcon,
   MobileSettingsIcon,
+  RemoteSettingsIcon,
   LearnSettingsIcon,
   PlusIcon,
 } from '../AppIcons'
@@ -145,6 +147,7 @@ type SettingsTabId =
   | 'design-system'
   | 'learn'
   | 'mobile'
+  | 'remote'
 
 // Line-weight rail glyph. Built-in tabs carry one from AppIcons; module sections
 // reuse their own contributed `moduleSection.icon` (same shape).
@@ -173,6 +176,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'design-system', label: 'Design system', icon: DesignSystemSettingsIcon },
   { id: 'modules', label: 'Modules', icon: ModulesSettingsIcon },
   { id: 'mobile', label: 'Mobile', icon: MobileSettingsIcon },
+  { id: 'remote', label: 'Remote', icon: RemoteSettingsIcon },
   { id: 'learn', label: 'Learn', icon: LearnSettingsIcon },
 ]
 
@@ -183,7 +187,7 @@ const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
   { label: 'agents', ids: ['agents', 'providers', 'roles'] },
   { label: 'workspace', ids: ['github', 'trackers', 'knowledge-graph', 'design-system', 'modules'] },
-  { label: 'companion', ids: ['mobile', 'learn'] },
+  { label: 'companion', ids: ['mobile', 'remote', 'learn'] },
 ]
 
 // A rail entry: a built-in tab, or a module-contributed section rendered after
@@ -223,6 +227,7 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'design-system'
     || value === 'learn'
     || value === 'mobile'
+    || value === 'remote'
   )
 }
 
@@ -2709,6 +2714,8 @@ export default function SettingsPanel({
       {activeSettingsTab === 'modules' ? <ModulesSettingsTab /> : null}
 
       {activeSettingsTab === 'mobile' && mobileRelayEnabled ? <MobileSettingsTab /> : null}
+
+      {activeSettingsTab === 'remote' ? <RemoteTailnetSettingsTab /> : null}
 
       {activeTab.moduleSection ? (
         <div

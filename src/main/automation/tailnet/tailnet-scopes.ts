@@ -1,0 +1,38 @@
+import type { TailnetScope } from '../../../shared/tailnet'
+
+// Mapping the gateway's tool surface onto the shared scope vocabulary
+// (src/shared/tailnet.ts). The vocabulary is shared because Settings shows it;
+// this mapping is not, because it is about gateway tool NAMES, which only the
+// gateway knows.
+
+/**
+ * The scope a tool call requires.
+ *
+ * Family comes from the tool's dot-namespace (the gateway's naming rule, MC-1650
+ * Decision 8); read-vs-operate comes from the gateway's own mutation
+ * classification, so the two lists cannot drift — a tool newly classified as a
+ * mutation immediately needs the operate grant here too.
+ *
+ * `workspace` is the deliberate catch-all for the app-wide families
+ * (`workspace.*`, `agent.*`, `cli.*`, `module.*`, `marketplace.*`,
+ * `automation.*`, `review_*`) and for any tool this mapping has not been taught.
+ * Unknown does not mean unrestricted: an unmapped mutation still requires
+ * `workspace:operate`, so a device without it is refused rather than served.
+ *
+ * `terminal.*` is the one family whose scopes are not named read/operate — the
+ * tier is about watching versus typing, not reading versus mutating — so it is
+ * mapped by name rather than by the suffix rule.
+ */
+export function requiredScopeForTool(toolName: string, isMutation: boolean): TailnetScope {
+  if (toolName.startsWith('terminal.')) return isMutation ? 'terminal:control' : 'terminal:observe'
+  return `${toolFamily(toolName)}:${isMutation ? 'operate' : 'read'}` as TailnetScope
+}
+
+function toolFamily(toolName: string): 'workspace' | 'sprint' | 'backlog' | 'horizon' {
+  if (toolName.startsWith('backlog.')) return 'backlog'
+  if (toolName.startsWith('horizon.')) return 'horizon'
+  // `sprint.*` are the app-side sprint tools; `sprintengine.*` are the canonical
+  // run tools proxied to the Python boundary. Both act on a sprint run.
+  if (toolName.startsWith('sprint.') || toolName.startsWith('sprintengine.')) return 'sprint'
+  return 'workspace'
+}

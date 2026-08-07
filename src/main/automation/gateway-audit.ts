@@ -99,15 +99,27 @@ function collectSafeIdentifiers(
   }
 }
 
+// Identity written into the record. Local-socket fields stay advisory (anything
+// with filesystem access could claim them); the tailnet fields do not — the
+// listener authenticated the device before dispatch, so `deviceId`/`peerNode`
+// answer "which paired machine did this" for a remote mutation (MC-2162).
 function normalizeConnection(connection: McpConnectionMetadata): McpConnectionMetadata {
   const trim = (value: string | undefined): string | undefined => value?.trim().slice(0, 256) || undefined
   return {
-    kind: connection.kind === 'studio-agent' ? 'studio-agent' : 'external-local',
+    kind:
+      connection.kind === 'studio-agent'
+        ? 'studio-agent'
+        : connection.kind === 'remote-tailnet'
+          ? 'remote-tailnet'
+          : 'external-local',
     workspaceId: trim(connection.workspaceId),
     agentId: trim(connection.agentId),
     agentName: trim(connection.agentName),
     cliId: trim(connection.cliId),
     sprintRunId: trim(connection.sprintRunId),
+    deviceId: trim(connection.deviceId),
+    deviceName: trim(connection.deviceName),
+    peerNode: trim(connection.peerNode),
   }
 }
 

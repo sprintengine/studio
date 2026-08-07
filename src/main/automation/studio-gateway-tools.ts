@@ -44,6 +44,12 @@ const APP_MUTATION_TOOLS = new Set([
   'sprint.task.resolve_input',
   'sprint.task.set_status',
   'sprint.task.update',
+  // Opening a terminal on this machine (MC-2166). Classified here and nowhere
+  // else: the tailnet scope mapping reads this same classification, so being a
+  // mutation is what makes `terminal.create` require `terminal:control` rather
+  // than the watch-only `terminal:observe` — and what makes every attempt,
+  // including a refused one, land in the audit with the device that made it.
+  'terminal.create',
   'workspace.create',
   // The one review tool that writes: it persists brief.json. The three review
   // reads (list/get-changeset/get-brief) are not mutations.

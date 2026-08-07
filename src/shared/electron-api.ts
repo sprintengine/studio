@@ -58,6 +58,17 @@ import type {
   SprintRuntimeStopReasonPush,
 } from './sprintengine/runtime-bridge'
 import type { AutomationServerStatus } from './automation'
+import type { TailnetPairingOfferView, TailnetRemoteStatus, TailnetScope } from './tailnet'
+import type { TailnetPeerScan } from './tailnet-peers'
+import type {
+  FleetAttachResult,
+  FleetBrowse,
+  FleetConnection,
+  FleetCreateTerminalResult,
+  FleetPairResult,
+  FleetRun,
+  FleetTerminalEvent,
+} from './tailnet-fleet'
 import type {
   AutomationsCreateInput,
   AutomationsDefinitionInput,
@@ -3000,6 +3011,58 @@ export type ElectronApi = {
   onWorkspaceSyncEvent: (cb: (event: WorkspaceSyncEvent) => void) => () => void
   automationGetStatus: () => Promise<AutomationServerStatus>
   automationSetEnabled: (enabled: boolean) => Promise<AutomationServerStatus>
+  // Tailnet remote control (MC-2162): the opt-in listener that serves the same
+  // gateway surface to paired devices on the Tailscale network. Configuration
+  // only — it never carries a tool call, and no MCP tool can reach it, so an
+  // agent cannot pair a device or widen its own reach.
+  tailnetGetStatus: () => Promise<TailnetRemoteStatus>
+  tailnetSetEnabled: (enabled: boolean) => Promise<TailnetRemoteStatus>
+  /** Mint a one-time pairing code. The token comes back once and is never re-readable. */
+  tailnetOfferPairing: (scopes?: TailnetScope[]) => Promise<TailnetPairingOfferView>
+  tailnetCancelPairing: () => Promise<TailnetRemoteStatus>
+  tailnetRevokeDevice: (deviceId: string) => Promise<TailnetRemoteStatus>
+  /**
+   * Machines on this tailnet, and which of them answer as a Studio (MC-2163).
+   *
+   * A read of the local Tailscale daemon plus a probe of each peer's public
+   * health endpoint. Works with this machine's own listener off: finding
+   * somewhere to connect to is independent of being connectable.
+   */
+  tailnetListPeers: () => Promise<TailnetPeerScan>
+  // The Fleet (MC-2167): the machines this Studio is paired WITH, and the panes
+  // it mounts from them. Main owns the device tokens and every outbound socket —
+  // the listener refuses any request carrying an `Origin`, which a renderer
+  // always sends, so this is the only route a window has.
+  fleetListConnections: () => Promise<FleetConnection[]>
+  /** Redeem a pairing link from another machine's Settings → Remote. */
+  fleetPair: (pairingUrl: string) => Promise<FleetPairResult>
+  /** Drop this machine's credential for a peer. Revoking the device THERE is the other half. */
+  fleetForget: (connectionId: string) => Promise<FleetConnection[]>
+  /** One machine's workspaces and terminals, with anything this pairing may not read named as a gap. */
+  fleetBrowse: (connectionId: string) => Promise<FleetBrowse>
+  fleetListRuns: (
+    connectionId: string,
+    workspaceId: string
+  ) => Promise<{ ok: true; runs: FleetRun[] } | { ok: false; code: string; message: string }>
+  /** Open a terminal on the remote machine and get the session id to attach to. */
+  fleetCreateTerminal: (input: {
+    connectionId: string
+    workspaceId?: string
+    name?: string
+  }) => Promise<FleetCreateTerminalResult>
+  /**
+   * Attach a pane to a remote session. Subscribe with `onFleetTerminalEvent`
+   * on the same `attachId` FIRST — the replay is the first thing that arrives.
+   */
+  fleetAttachTerminal: (input: {
+    attachId: string
+    connectionId: string
+    sessionId: string
+  }) => Promise<FleetAttachResult>
+  fleetDetachTerminal: (attachId: string) => Promise<void>
+  fleetTerminalInput: (attachId: string, data: string) => void
+  fleetTerminalResize: (attachId: string, cols: number, rows: number) => void
+  onFleetTerminalEvent: (attachId: string, cb: (event: FleetTerminalEvent) => void) => () => void
   // Automations platform (per-project scheduled agent automations). The renderer
   // reads/writes only through these channels; the engine owns the on-disk store.
   listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>

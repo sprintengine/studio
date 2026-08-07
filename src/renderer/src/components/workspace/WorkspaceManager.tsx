@@ -68,7 +68,7 @@ import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAuto
 import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
-import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, removeAgentTab, removeNewAgentTab, revealNavRailComponent, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, removeAgentTab, removeNewAgentTab, revealNavRailComponent, toggleComponentTab, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -3021,6 +3021,11 @@ export default function WorkspaceManager() {
       // no-opping (T8 code-review finding A10).
       revealNavRailComponent(windowActiveWorkspaceId, 'git', 'Git')
       return true
+    }
+    if (commandId === 'panel.fleet.toggle' && windowActiveWorkspaceId) {
+      // Toggle, matching the other panel commands: a second invocation closes
+      // the pane it opened rather than re-focusing it forever.
+      return toggleComponentTab(windowActiveWorkspaceId, 'fleet', 'Fleet')
     }
     if (commandId === 'terminal.new') {
       addNewTerminal()

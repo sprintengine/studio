@@ -103,6 +103,8 @@ const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const FileExplorer = React.lazy(() => import('../panels/FileExplorer'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
+const FleetPanel = React.lazy(() => import('../panels/FleetPanel'))
+const FleetTerminalPanel = React.lazy(() => import('../panels/FleetTerminalPanel'))
 // Local lazy const for the defensive fixed-view fallbacks below; the canonical
 // 'sprintengine' board is served through the renderer host (gated). Both resolve
 // to the same chunk, so a disabled Sprint Engine module ships neither.
@@ -506,6 +508,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         role?: string
         title?: string
         sessionId?: string
+        connectionId?: string
+        machineName?: string
+        remoteSessionId?: string
       } | undefined
 
       const wrapWithHighlight = (children: React.ReactNode): React.ReactNode => {
@@ -590,6 +595,26 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
             : DISABLED_SURFACE
         case 'skills':
           return timedPanel('SkillsPanel', <SkillsPanel workspaceId={workspaceId} />)
+        // The Fleet and its terminals are core chrome, not a module: tailnet
+        // remote control is a built-in opt-in feature, and a pane that vanished
+        // with a module toggle would strand a person mid-session on another
+        // machine.
+        case 'fleet':
+          return timedPanel('FleetPanel', <FleetPanel workspaceId={workspaceId} />)
+        case 'fleet-terminal':
+          // A stale tab whose config lost its machine is refused rather than
+          // rendered as an empty terminal: there is no session to attach to, and
+          // a blank xterm would look like one that simply had no output.
+          return config?.connectionId && config.remoteSessionId
+            ? timedPanel('FleetTerminalPanel', (
+              <FleetTerminalPanel
+                attachId={node.getId()}
+                connectionId={config.connectionId}
+                machineName={config.machineName ?? 'Remote machine'}
+                sessionId={config.remoteSessionId}
+              />
+            ))
+            : DISABLED_SURFACE
         case 'guided-brief':
           // The Design Wizard is its own module (MC-1860). Its declared
           // dependsOn ['sprint-engine'] means disabling Sprint Engine cascades

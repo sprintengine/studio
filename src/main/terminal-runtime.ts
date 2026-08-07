@@ -67,13 +67,21 @@ import {
 } from './terminal-session'
 import { buildReplaySnapshot } from './terminal-replay-snapshot'
 import {
+  TERMINAL_REMOTE_PENDING_LIMIT_BYTES,
+  TERMINAL_REMOTE_TRANSPORT_HIGH_WATER_BYTES,
+  type TerminalAttachResult,
+  type TerminalAttachScope,
+  type TerminalAttachTransport,
+  type TerminalRemoteHost,
+} from './terminal-remote-attach'
+import {
   recordSprintSessionForTokenLedger,
   sampleSprintSessionTokenUsage,
 } from './sprintengine-token-sampling'
 import { killCliSessionSurvivors, probeSubtreesForLiveWork, type SubtreeProbeDeps } from './terminal-subtree-probe'
 import type { TerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
-import { createTerminalOutputBuffer } from './terminal-output-buffer'
+import { createTerminalOutputBuffer, type TerminalOutputSink } from './terminal-output-buffer'
 import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
 import type { DesktopMobileSprintEngineSessionAdapters } from './mobile/sprintengine/session'
 import {
@@ -232,6 +240,10 @@ type TerminalRuntime = {
   // prefers the serialized screen snapshot: this is the raw stream, because a
   // caller matching a pattern needs the text the agent printed.
   readTerminalOutput(sessionId: string): string | undefined
+  // Watch-and-type access for remote transports (MC-2165). The tailnet
+  // listener's terminal WebSocket is its only caller today; it is a port, not a
+  // capability grant — the transport still has to prove a scoped device.
+  remoteHost: TerminalRemoteHost
 }
 
 let requireAuthenticatedUser = (_message: string): void => {}
@@ -428,6 +440,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   setSprintEngineAutomationModeAdapter = options.setSprintEngineAutomationMode
   resolveAutomationsFrontDoorAdapter = options.resolveAutomationsFrontDoor
   reapSkipLogState.clear()
+  remoteTerminalViewers.clear()
   sprintEngineMcpRunRefCounts.clear()
   sprintEngineMcpWorkspaceRefCounts.clear()
   pendingSprintEngineMcpRunReleases.clear()
@@ -452,6 +465,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     spawnAgentSession: spawnAgentSessionFromDescriptor,
     ingestAgentStateFrame,
     readTerminalOutput,
+    remoteHost: terminalRemoteHost,
     ipcHandlers: {
       spawnTerminal: spawnTerminalFromIpc,
       writeTerminal: writeTerminalInput,
@@ -590,12 +604,166 @@ function sendTerminalEvent(
   }
 }
 
+// Remote viewers of a session's output (MC-2165), keyed sessionId → viewerId.
+// The renderer's WebContents is still the sender the session itself holds; these
+// are ADDITIONAL senders, each with its own flush gate, its own byte bound, and
+// its own resync state, so one viewer's slowness or hidden-ness never reaches
+// another. Empty for every session nobody remote is attached to, which is the
+// normal case and costs one Map lookup per output batch.
+type RemoteTerminalViewer = {
+  transport: TerminalAttachTransport
+  scope: TerminalAttachScope
+  /** Set when this viewer's bytes were dropped; the next batch repaints it from the replay. */
+  desynced: boolean
+}
+
+const remoteTerminalViewers = new Map<string, Map<string, RemoteTerminalViewer>>()
+
+function remoteTerminalSinks(sessionId: string): TerminalOutputSink[] {
+  const viewers = remoteTerminalViewers.get(sessionId)
+  if (!viewers) return []
+  return [...viewers.values()].map((viewer) => remoteTerminalSink(sessionId, viewer))
+}
+
+function remoteTerminalSink(sessionId: string, viewer: RemoteTerminalViewer): TerminalOutputSink {
+  return {
+    id: viewer.transport.viewerId,
+    // A remote viewer's gate is its OWN socket, never the local pane's
+    // visibility: watching an agent from a laptop must not require the desktop
+    // tab to be on screen, and a closed socket must not keep buffering.
+    shouldForward: () => viewer.transport.isOpen(),
+    forward: (data) => forwardToRemoteViewer(sessionId, viewer, data),
+    pendingLimitBytes: TERMINAL_REMOTE_PENDING_LIMIT_BYTES,
+    // No throttle notice: this viewer recovers by repainting from the retained
+    // replay, so a marker in the stream would be a lie about what it now shows.
+    onDropped: () => {
+      viewer.desynced = true
+    },
+  }
+}
+
+function forwardToRemoteViewer(sessionId: string, viewer: RemoteTerminalViewer, data: string): void {
+  // The pty NEVER waits on a socket. A transport that has stopped draining
+  // loses this batch and is repainted later from the retained scrollback; the
+  // local renderer and the process itself are untouched either way.
+  if (viewer.transport.queuedBytes() > TERMINAL_REMOTE_TRANSPORT_HIGH_WATER_BYTES) {
+    viewer.desynced = true
+    return
+  }
+  if (viewer.desynced) {
+    viewer.desynced = false
+    const session = terminals.get(sessionId)
+    // The replay is materialized now, so it already CONTAINS `data` — sending
+    // both would duplicate the tail.
+    const replay = session ? materializeTerminalReplay(session) : ''
+    viewer.transport.send({ type: 'replay', data: replay, reason: 'resync' })
+    return
+  }
+  viewer.transport.send({ type: 'output', data })
+}
+
+/** Tell every remote viewer of this session that nothing more is coming, and drop them. */
+function endRemoteTerminalViewers(sessionId: string, reason: string): void {
+  const viewers = remoteTerminalViewers.get(sessionId)
+  if (!viewers) return
+  remoteTerminalViewers.delete(sessionId)
+  for (const viewer of viewers.values()) {
+    terminalOutput.discard(sessionId, viewer.transport.viewerId)
+    if (viewer.transport.isOpen()) viewer.transport.send({ type: 'ended', reason })
+  }
+}
+
+function notifyRemoteTerminalExit(sessionId: string, exitCode: number): void {
+  const viewers = remoteTerminalViewers.get(sessionId)
+  if (!viewers) return
+  for (const viewer of viewers.values()) {
+    if (viewer.transport.isOpen()) viewer.transport.send({ type: 'exit', exitCode })
+  }
+}
+
+function attachRemoteTerminalViewer(input: {
+  sessionId: string
+  scope: TerminalAttachScope
+  transport: TerminalAttachTransport
+}): TerminalAttachResult {
+  const session = terminals.get(input.sessionId)
+  if (!session || session.isDisposed) {
+    return {
+      ok: false,
+      code: 'unknown_terminal',
+      message: `No terminal session "${input.sessionId}" is open in this app. Call terminal.list for the sessions it holds.`,
+    }
+  }
+  const viewer: RemoteTerminalViewer = { transport: input.transport, scope: input.scope, desynced: false }
+  const viewers = remoteTerminalViewers.get(input.sessionId) ?? new Map<string, RemoteTerminalViewer>()
+  remoteTerminalViewers.set(input.sessionId, viewers)
+  viewers.set(input.transport.viewerId, viewer)
+
+  // Replay-then-live, registered in the SAME synchronous step as the snapshot
+  // is taken: no output can land in between, so the viewer sees every byte
+  // exactly once. A suspended session prefers its faithful screen snapshot, as
+  // the local reveal path does.
+  const replay = session.replaySnapshot ?? materializeTerminalReplay(session)
+  input.transport.send({ type: 'replay', data: replay, reason: 'attach' })
+
+  const detach = (): void => {
+    const current = remoteTerminalViewers.get(input.sessionId)
+    if (!current) return
+    current.delete(input.transport.viewerId)
+    terminalOutput.discard(input.sessionId, input.transport.viewerId)
+    if (current.size === 0) remoteTerminalViewers.delete(input.sessionId)
+  }
+
+  const requireControl = (verb: string): { ok: false; code: string; message: string } | null =>
+    input.scope === 'control'
+      ? null
+      : {
+          ok: false,
+          code: 'terminal_control_required',
+          message: `This connection is attached to watch only, so it cannot ${verb}. Re-pair the device with the terminal control scope.`,
+        }
+
+  return {
+    ok: true,
+    attachment: {
+      sessionId: input.sessionId,
+      scope: input.scope,
+      session: getTerminalSnapshot(session),
+      write: (data) => {
+        const refused = requireControl('type into this terminal')
+        if (refused) return refused
+        const live = terminals.get(input.sessionId)
+        if (!live || !isTerminalProcessAlive(live)) {
+          return { ok: false, code: 'terminal_not_live', message: 'This terminal has no running process to type into.' }
+        }
+        // The SAME write path local input uses, so remote and local keystrokes
+        // cannot interleave mid-sequence by taking different routes into the pty.
+        writeTerminalInput(input.sessionId, data)
+        return { ok: true }
+      },
+      resize: (cols, rows) => {
+        const refused = requireControl('resize this terminal')
+        if (refused) return refused
+        safeResizeTerminal(input.sessionId, cols, rows)
+        return { ok: true }
+      },
+      detach,
+    },
+  }
+}
+
+const terminalRemoteHost: TerminalRemoteHost = {
+  listSessions: () => [...terminals.values()].filter((session) => !session.isDisposed).map(getTerminalSnapshot),
+  attach: attachRemoteTerminalViewer,
+}
+
 const terminalOutput = createTerminalOutputBuffer({
   getSession: (sessionId) => terminals.get(sessionId),
   sendTerminalEvent,
   recordDataBatch: (session, cause, chunkCount, byteCount) => {
     terminalDiagnostics.recordDataBatch(session, cause, chunkCount, byteCount)
   },
+  resolveExtraSinks: remoteTerminalSinks,
 })
 
 /**
@@ -738,6 +906,10 @@ export function suspendTerminal(sessionId: string): void {
   // Capture any pending output before the process dies, but keep the buffer so
   // the scrollback can be replayed for the painted view.
   terminalOutput.flush(sessionId, 'dispose')
+  // The local view stays painted and resumes on a keystroke; a remote viewer
+  // has no such affordance, so end its stream with the reason instead of
+  // leaving it watching a pty that has been killed.
+  endRemoteTerminalViewers(sessionId, 'This terminal was paused to reclaim memory. Reattach after it resumes.')
   clearTerminalIdleTimer(session)
   // A suspend kills the pty without going through the exited/failed activity
   // transition (the onExit branch returns early), so clear the stall timer here
@@ -914,6 +1086,10 @@ function disposeTerminal(sessionId: string): void {
   void queueSprintEngineTerminalTeardown(session, 'terminal disposed')
   cleanupTerminalStartupScript(session.startupScriptPath)
   terminalOutput.flush(sessionId, 'dispose')
+  // Say so rather than leaving remote viewers on a stream that will never speak
+  // again: dispose means gone, and a resume respawns under this same id, which
+  // a stale attachment would silently start narrating.
+  endRemoteTerminalViewers(sessionId, 'This terminal was closed.')
   terminalDiagnostics.clear(sessionId)
   session.isDisposed = true
   setTerminalActivity(session, { kind: 'exited', at: Date.now(), exitCode: session.exitCode ?? 0 }, { broadcast: false })
@@ -1496,6 +1672,7 @@ async function disposeAllTerminals(): Promise<void> {
     teardownPromises.push(sampleSprintSessionTokenUsage(session, 'teardown'))
     cleanupTerminalStartupScript(session.startupScriptPath)
     terminalOutput.flush(session.sessionId, 'dispose')
+    endRemoteTerminalViewers(session.sessionId, 'SprintEngine Studio is shutting down on this machine.')
     terminalDiagnostics.clear(session.sessionId)
     clearTerminalIdleTimer(session)
     // Durable freeze-the-view, quit path: persist each agent terminal's painted
@@ -2243,6 +2420,9 @@ function attachTerminalSession(
     if (!terminalSession.isDisposed) {
       sendTerminalEvent(terminalSession.sender, `terminal:exit:${sessionId}`, event.exitCode)
     }
+    // Remote viewers stay attached: the session survives a self-exit, painted,
+    // so the stream reports the exit code rather than dropping the socket.
+    notifyRemoteTerminalExit(sessionId, event.exitCode)
   })
 
   if (initialInput) {

@@ -1,0 +1,88 @@
+import { ipcRenderer, type IpcRendererEvent } from 'electron'
+
+import {
+  fleetTerminalEventChannel,
+  FLEET_ATTACH_TERMINAL_CHANNEL,
+  FLEET_BROWSE_CHANNEL,
+  FLEET_CREATE_TERMINAL_CHANNEL,
+  FLEET_DETACH_TERMINAL_CHANNEL,
+  FLEET_FORGET_CHANNEL,
+  FLEET_LIST_CONNECTIONS_CHANNEL,
+  FLEET_LIST_RUNS_CHANNEL,
+  FLEET_PAIR_CHANNEL,
+  FLEET_TERMINAL_INPUT_CHANNEL,
+  FLEET_TERMINAL_RESIZE_CHANNEL,
+  type FleetAttachResult,
+  type FleetBrowse,
+  type FleetConnection,
+  type FleetCreateTerminalResult,
+  type FleetPairResult,
+  type FleetRun,
+  type FleetTerminalEvent,
+} from '../../shared/tailnet-fleet'
+import type { ElectronApi } from '../../shared/electron-api'
+
+// The Fleet's data path (MC-2167): the machines this Studio drives, what they
+// hold, and the terminals it has open on them.
+//
+// Nothing here carries a credential. The device tokens stay in main, which is
+// also the only place that can dial the listener at all — it refuses any
+// request with an `Origin` header, and a renderer always sends one.
+export const fleetApi = {
+  fleetListConnections: (): Promise<FleetConnection[]> =>
+    ipcRenderer.invoke(FLEET_LIST_CONNECTIONS_CHANNEL) as Promise<FleetConnection[]>,
+  fleetPair: (pairingUrl: string): Promise<FleetPairResult> =>
+    ipcRenderer.invoke(FLEET_PAIR_CHANNEL, { pairingUrl }) as Promise<FleetPairResult>,
+  fleetForget: (connectionId: string): Promise<FleetConnection[]> =>
+    ipcRenderer.invoke(FLEET_FORGET_CHANNEL, connectionId) as Promise<FleetConnection[]>,
+  fleetBrowse: (connectionId: string): Promise<FleetBrowse> =>
+    ipcRenderer.invoke(FLEET_BROWSE_CHANNEL, connectionId) as Promise<FleetBrowse>,
+  fleetListRuns: (
+    connectionId: string,
+    workspaceId: string
+  ): Promise<{ ok: true; runs: FleetRun[] } | { ok: false; code: string; message: string }> =>
+    ipcRenderer.invoke(FLEET_LIST_RUNS_CHANNEL, { connectionId, workspaceId }) as Promise<
+      { ok: true; runs: FleetRun[] } | { ok: false; code: string; message: string }
+    >,
+  fleetCreateTerminal: (input: {
+    connectionId: string
+    workspaceId?: string
+    name?: string
+  }): Promise<FleetCreateTerminalResult> =>
+    ipcRenderer.invoke(FLEET_CREATE_TERMINAL_CHANNEL, input) as Promise<FleetCreateTerminalResult>,
+  fleetAttachTerminal: (input: {
+    attachId: string
+    connectionId: string
+    sessionId: string
+  }): Promise<FleetAttachResult> =>
+    ipcRenderer.invoke(FLEET_ATTACH_TERMINAL_CHANNEL, input) as Promise<FleetAttachResult>,
+  fleetDetachTerminal: (attachId: string): Promise<void> =>
+    ipcRenderer.invoke(FLEET_DETACH_TERMINAL_CHANNEL, attachId) as Promise<void>,
+  fleetTerminalInput: (attachId: string, data: string): void => {
+    // Fire-and-forget, like the local terminal's fast write: a keystroke that
+    // waits for a round trip before the next one is read feels laggy.
+    ipcRenderer.send(FLEET_TERMINAL_INPUT_CHANNEL, { attachId, data })
+  },
+  fleetTerminalResize: (attachId: string, cols: number, rows: number): void => {
+    ipcRenderer.send(FLEET_TERMINAL_RESIZE_CHANNEL, { attachId, cols, rows })
+  },
+  onFleetTerminalEvent: (attachId: string, cb: (event: FleetTerminalEvent) => void): (() => void) => {
+    const channel = fleetTerminalEventChannel(attachId)
+    const handler = (_: IpcRendererEvent, event: FleetTerminalEvent) => cb(event)
+    ipcRenderer.on(channel, handler)
+    return () => ipcRenderer.removeListener(channel, handler)
+  },
+} satisfies Pick<
+  ElectronApi,
+  | 'fleetListConnections'
+  | 'fleetPair'
+  | 'fleetForget'
+  | 'fleetBrowse'
+  | 'fleetListRuns'
+  | 'fleetCreateTerminal'
+  | 'fleetAttachTerminal'
+  | 'fleetDetachTerminal'
+  | 'fleetTerminalInput'
+  | 'fleetTerminalResize'
+  | 'onFleetTerminalEvent'
+>

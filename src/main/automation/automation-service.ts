@@ -5,14 +5,25 @@ import { join } from 'path'
 import type { AutomationServerStatus } from '../../shared/automation'
 import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../../shared/product-identity'
+import type { TailnetPairingOfferView, TailnetRemoteStatus } from '../../shared/tailnet'
+import type { TailnetPeerScan } from '../../shared/tailnet-peers'
 import { readAutomationSettings, writeAutomationSettings } from './automation-settings'
-import { createGatewayAuditStore } from './gateway-audit'
+import { createGatewayAuditStore, type GatewayAuditStore } from './gateway-audit'
 import { createMcpSocketServer } from './mcp-socket-server'
 import { isStudioGatewayMutation } from './studio-gateway-tools'
+import { createTailnetFleetService, type TailnetFleetService } from './tailnet/tailnet-fleet-service'
+import { createTailnetRemoteService, type TailnetRemoteService } from './tailnet/tailnet-service'
+import type { TerminalRemoteHost } from '../terminal-remote-attach'
 
 // Owns the always-on Studio MCP gateway lifecycle, local socket endpoint, and
 // discovery files external clients read to find it. The old enabled setting is
 // retained only as a compatibility API; it can no longer stop the gateway.
+//
+// It also owns the OPT-IN tailnet listener (MC-2162), which serves the same
+// tool surface to paired devices on the Tailscale network. The two are
+// deliberately asymmetric: the socket is infrastructure and always on; the
+// tailnet listener is off until a person enables it, and stopping it never
+// touches the socket.
 
 export const AUTOMATION_SERVER_INFO_FILENAME = 'automation-server-info.json'
 export const STUDIO_MCP_SERVER_INFO_FILENAME = 'sprintengine-studio-mcp-info.json'
@@ -32,6 +43,13 @@ type AutomationServiceOptions = {
    * module enablement must be honored live (MC-1855).
    */
   resolveGatewayTools: () => McpToolRegistration[]
+  /**
+   * Watch-and-type access to this machine's terminals, for the tailnet
+   * listener's terminal WebSocket (MC-2165). The LOCAL socket never gets it:
+   * a local client already has the machine, and the terminal stream exists to
+   * cross a network. Absent leaves that route refusing with a stated reason.
+   */
+  resolveTerminalHost?: () => TerminalRemoteHost
   /** Absolute path of the shipped stdio bridge script, when the app knows it. */
   resolveBridgeScriptPath?: () => string | null
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
@@ -45,6 +63,14 @@ export function createAutomationService(options: AutomationServiceOptions) {
   let socketPath: string | null = null
   let enabled = true
   let settingsLoaded = false
+  // Both transports write the SAME audit file, so a mutation is one record
+  // whichever door it came through — the connection identity is what differs.
+  let audit: GatewayAuditStore | null = null
+  let tailnet: TailnetRemoteService | null = null
+  // The outbound half (MC-2167). Independent of the listener above: driving
+  // another machine does not require having opened your own door, and a build
+  // with remote control off can still be a Fleet client.
+  let fleet: TailnetFleetService | null = null
 
   function loadSettings(): void {
     if (settingsLoaded) return
@@ -74,6 +100,9 @@ export function createAutomationService(options: AutomationServiceOptions) {
   async function initialize(): Promise<AutomationServerStatus> {
     loadSettings()
     await startServer()
+    // Opt-in and independent: a tailnet listener that cannot start reports why
+    // in its own status and never blocks the socket gateway the app depends on.
+    await tailnetService().initialize()
     return getStatus()
   }
 
@@ -93,14 +122,45 @@ export function createAutomationService(options: AutomationServiceOptions) {
     return getStatus()
   }
 
+  function auditStore(): GatewayAuditStore {
+    audit ??= createGatewayAuditStore({
+      resolveUserDataDir: options.resolveUserDataDir,
+      log: (text) => warn('Studio MCP audit', text),
+    })
+    return audit
+  }
+
+  function tailnetService(): TailnetRemoteService {
+    tailnet ??= createTailnetRemoteService({
+      resolveUserDataDir: options.resolveUserDataDir,
+      serverName: STUDIO_MCP_SERVER_ID,
+      serverVersion: options.appVersion,
+      resolveTools: options.resolveGatewayTools,
+      isMutation: isStudioGatewayMutation,
+      terminals: options.resolveTerminalHost?.(),
+      onToolCall: ({ context, tool, args, durationMs, result, error }) => {
+        if (!isStudioGatewayMutation(tool)) return
+        auditStore().record({ connection: context.metadata, tool, args, durationMs, result, error })
+      },
+      log: (text) => warn('Tailnet remote control', text),
+    })
+    return tailnet
+  }
+
+  function fleetService(): TailnetFleetService {
+    fleet ??= createTailnetFleetService({
+      resolveUserDataDir: options.resolveUserDataDir,
+      resolvePeerName: (address) => tailnetService().resolvePeerName(address),
+      log: (text) => warn('Tailnet fleet', text),
+    })
+    return fleet
+  }
+
   async function startServer(): Promise<void> {
     if (server?.isRunning()) return
     const userDataDir = options.resolveUserDataDir()
     socketPath = resolveSocketPath(userDataDir)
-    const audit = createGatewayAuditStore({
-      resolveUserDataDir: options.resolveUserDataDir,
-      log: (text) => warn('Studio MCP audit', text),
-    })
+    const audit = auditStore()
     const next = createMcpSocketServer({
       socketPath,
       serverName: STUDIO_MCP_SERVER_ID,
@@ -143,6 +203,11 @@ export function createAutomationService(options: AutomationServiceOptions) {
   }
 
   async function shutdown(): Promise<void> {
+    // Outbound sockets first: they are attachments on OTHER machines' ptys, and
+    // closing them politely is what stops a remote runtime narrating to a
+    // viewer that has quit.
+    fleet?.shutdown()
+    await tailnet?.shutdown()
     await stopServer()
   }
 
@@ -153,9 +218,24 @@ export function createAutomationService(options: AutomationServiceOptions) {
   /** A module enable/disable changed tool availability; tell connected clients. */
   function notifyToolsListChanged(): void {
     server?.notifyToolsListChanged()
+    tailnet?.notifyToolsListChanged()
   }
 
-  return { initialize, getStatus, setEnabled, shutdown, notifyToolsListChanged }
+  return {
+    initialize,
+    getStatus,
+    setEnabled,
+    shutdown,
+    notifyToolsListChanged,
+    getTailnetStatus: (): TailnetRemoteStatus => tailnetService().getStatus(),
+    setTailnetEnabled: (next: boolean): Promise<TailnetRemoteStatus> => tailnetService().setEnabled(next),
+    offerTailnetPairing: (input?: { scopes?: unknown }): TailnetPairingOfferView => tailnetService().offerPairing(input),
+    cancelTailnetPairing: (): TailnetRemoteStatus => tailnetService().cancelPairing(),
+    revokeTailnetDevice: (deviceId: string): TailnetRemoteStatus => tailnetService().revokeDevice(deviceId),
+    listTailnetPeers: (): Promise<TailnetPeerScan> => tailnetService().listPeers(),
+    /** The Fleet client: the machines this Studio drives (MC-2167). */
+    fleet: (): TailnetFleetService => fleetService(),
+  }
 }
 
 export function resolveSocketPath(

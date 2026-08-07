@@ -881,6 +881,18 @@ export function MobileSettingsIcon({ className }: IconProps) {
   )
 }
 
+// Two machines joined by a link: the Remote tab is about this Studio and
+// another one, not about a network in the abstract.
+export function RemoteSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3" y="5" width="8" height="6" rx="1.5" stroke="currentColor" strokeWidth={iconStroke} />
+      <rect x="13" y="13" width="8" height="6" rx="1.5" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M7 11v3.5a1.5 1.5 0 0 0 1.5 1.5H13" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
 export function LearnSettingsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">

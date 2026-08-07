@@ -161,6 +161,7 @@ async function main(): Promise<void> {
     await assertIngestAgentStateFrameUpdatesSession(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
+    await assertRemoteViewersStreamIndependentlyOfTheLocalPane(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
     await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
     await assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule)
@@ -2183,6 +2184,214 @@ async function assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeM
   } finally {
     await runtime.shutdown()
   }
+}
+
+// MC-2165: a remote attach is an ADDITIONAL sender on the same pty, not a
+// second copy of it. What the multi-sender split has to hold:
+//   - replay-then-live, so a viewer joining mid-session sees the screen;
+//   - a second concurrent viewer sees the same stream;
+//   - the local pane's visibility gates only the LOCAL sender — a hidden tab
+//     must not silence a remote watcher, and a remote watcher must not start
+//     pushing bytes into a frozen xterm;
+//   - observe scope cannot inject input, and control routes through the same
+//     write path local input uses;
+//   - a slow consumer is dropped and resynced from the replay rather than
+//     stalling the pty or the local renderer.
+async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(
+  runtimeModule: RuntimeModule
+): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-remote-attach-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  try {
+    const sessionId = 'session_remote_attach'
+    const spawned = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      kind: 'terminal',
+      shellOnly: true,
+      visible: true,
+    })
+    assert.equal(spawned.ok, true, JSON.stringify(spawned))
+    const pty = mockPty.spawnCalls[0]?.process
+    assert.ok(pty, 'the session spawned a pty')
+
+    pty.emitData('before anyone attached\r\n')
+    await delay(30)
+
+    // terminal.list's source: the attachable sessions, with liveness.
+    const listed = runtime.remoteHost.listSessions()
+    assert.ok(
+      listed.some((session) => session.sessionId === sessionId && session.processAlive),
+      'the remote host lists the live session'
+    )
+
+    const watcher = createRecordingViewer('watcher')
+    const attached = runtime.remoteHost.attach({ sessionId, scope: 'control', transport: watcher.transport })
+    assert.equal(attached.ok, true, JSON.stringify(attached))
+    if (!attached.ok) return
+
+    // Replay first, and it carries what the session printed before the attach.
+    assert.deepEqual(watcher.frames, [
+      { type: 'replay', data: 'before anyone attached\r\n', reason: 'attach' },
+    ])
+
+    watcher.frames = []
+    pty.emitData('live line\r\n')
+    await delay(30)
+    assert.deepEqual(watcher.frames, [{ type: 'output', data: 'live line\r\n' }])
+
+    // A second concurrent viewer joins and sees the same stream.
+    const second = createRecordingViewer('second')
+    const secondAttach = runtime.remoteHost.attach({ sessionId, scope: 'observe', transport: second.transport })
+    assert.equal(secondAttach.ok, true, JSON.stringify(secondAttach))
+    if (!secondAttach.ok) return
+    assert.equal(second.frames[0]?.type, 'replay')
+    assert.ok(
+      String((second.frames[0] as { data?: unknown }).data ?? '').includes('live line'),
+      "the late viewer's replay includes everything printed so far"
+    )
+
+    watcher.frames = []
+    second.frames = []
+    mockSender.sent = []
+    pty.emitData('seen by both\r\n')
+    await delay(30)
+    assert.deepEqual(watcher.frames, [{ type: 'output', data: 'seen by both\r\n' }])
+    assert.deepEqual(second.frames, [{ type: 'output', data: 'seen by both\r\n' }])
+    assert.equal(
+      mockSender.sent.some(
+        (event) => event.channel === `terminal:data:${sessionId}` && event.payload === 'seen by both\r\n'
+      ),
+      true,
+      'local window rendering is unaffected by the attached viewers'
+    )
+
+    // Hiding the local pane must gate ONLY the local sender.
+    runtime.ipcHandlers.setTerminalVisible(sessionId, false, mockSender as unknown as WebContents)
+    watcher.frames = []
+    second.frames = []
+    mockSender.sent = []
+    pty.emitData('printed while the tab is hidden\r\n')
+    await delay(30)
+    assert.deepEqual(watcher.frames, [{ type: 'output', data: 'printed while the tab is hidden\r\n' }])
+    assert.deepEqual(second.frames, [{ type: 'output', data: 'printed while the tab is hidden\r\n' }])
+    assert.equal(
+      mockSender.sent.some((event) => event.channel === `terminal:data:${sessionId}`),
+      false,
+      'a hidden local pane still skips live terminal:data, exactly as before'
+    )
+    runtime.ipcHandlers.setTerminalVisible(sessionId, true, mockSender as unknown as WebContents)
+
+    // Scope enforcement: observe is stream-only, and says so rather than
+    // silently dropping the keystroke.
+    const beforeWrites = pty.writes.length
+    const refusedInput = secondAttach.attachment.write('rm -rf /\n')
+    assert.equal(refusedInput.ok, false)
+    assert.equal(refusedInput.ok === false && refusedInput.code, 'terminal_control_required')
+    const refusedResize = secondAttach.attachment.resize(200, 60)
+    assert.equal(refusedResize.ok, false)
+    assert.equal(pty.writes.length, beforeWrites, 'an observe-scoped viewer writes nothing to the pty')
+
+    // Control writes go through the same path local input uses.
+    const accepted = attached.attachment.write('echo hi\n')
+    assert.equal(accepted.ok, true, JSON.stringify(accepted))
+    assert.equal(pty.writes[pty.writes.length - 1], 'echo hi\n')
+
+    // Backpressure: a consumer that stops draining loses bytes and is repainted
+    // from the retained replay. The pty and the local renderer are untouched.
+    watcher.frames = []
+    mockSender.sent = []
+    watcher.queued = 4 * 1024 * 1024
+    pty.emitData('dropped by the slow consumer\r\n')
+    await delay(30)
+    assert.equal(watcher.frames.length, 0, 'a stalled transport is not written to')
+    assert.equal(
+      mockSender.sent.some((event) => event.channel === `terminal:data:${sessionId}`),
+      true,
+      'the local renderer keeps receiving while the remote viewer is behind'
+    )
+
+    watcher.queued = 0
+    pty.emitData('after the drain\r\n')
+    await delay(30)
+    assert.equal(watcher.frames.length, 1)
+    assert.equal(watcher.frames[0]?.type, 'replay')
+    assert.equal((watcher.frames[0] as { reason?: unknown }).reason, 'resync')
+    const resynced = String((watcher.frames[0] as { data?: unknown }).data ?? '')
+    assert.ok(
+      resynced.includes('dropped by the slow consumer') && resynced.includes('after the drain'),
+      'the resync replay carries both the dropped bytes and the batch that triggered it'
+    )
+
+    // Detaching stops delivery without touching the other viewer or the pane.
+    secondAttach.attachment.detach()
+    watcher.frames = []
+    second.frames = []
+    pty.emitData('after the second viewer left\r\n')
+    await delay(30)
+    assert.equal(second.frames.length, 0, 'a detached viewer receives nothing')
+    assert.deepEqual(watcher.frames, [{ type: 'output', data: 'after the second viewer left\r\n' }])
+
+    // A real pty exit is reported; closing the session ends the stream with a reason.
+    watcher.frames = []
+    pty.emitExit({ exitCode: 3 })
+    await delay(30)
+    assert.ok(
+      watcher.frames.some((frame) => frame.type === 'exit' && frame.exitCode === 3),
+      'the viewer is told the process exited, with its code'
+    )
+
+    watcher.frames = []
+    runtime.ipcHandlers.killTerminal(sessionId)
+    await delay(10)
+    assert.equal(watcher.frames.length, 1)
+    assert.equal(watcher.frames[0]?.type, 'ended')
+
+    const missing = runtime.remoteHost.attach({
+      sessionId: 'session_that_does_not_exist',
+      scope: 'observe',
+      transport: createRecordingViewer('ghost').transport,
+    })
+    assert.equal(missing.ok, false)
+    assert.equal(missing.ok === false && missing.code, 'unknown_terminal')
+  } finally {
+    await runtime.shutdown()
+  }
+}
+
+type RecordedFrame = Record<string, unknown> & { type: string; exitCode?: number }
+
+/** A viewer transport whose queue depth the test controls, to drive backpressure. */
+function createRecordingViewer(viewerId: string): {
+  transport: Parameters<TerminalRuntime['remoteHost']['attach']>[0]['transport']
+  frames: RecordedFrame[]
+  queued: number
+  open: boolean
+} {
+  const viewer = {
+    frames: [] as RecordedFrame[],
+    queued: 0,
+    open: true,
+    transport: {
+      viewerId,
+      send: (frame: unknown) => {
+        viewer.frames.push(frame as RecordedFrame)
+      },
+      isOpen: () => viewer.open,
+      queuedBytes: () => viewer.queued,
+    },
+  }
+  return viewer
 }
 
 async function assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtimeModule: RuntimeModule): Promise<void> {

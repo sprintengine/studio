@@ -660,6 +660,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // Dev runs serve the script straight from the repo; packaged builds ship
     // it via the electron-builder extraResources entry (resources/automation).
     resolveBridgeScriptPath: resolveStudioMcpBridgeScriptPath,
+    // Terminal streaming for the tailnet listener (MC-2165): the runtime's own
+    // multi-viewer port, so a paired device watches the same pty the local
+    // window does rather than a second copy of it.
+    resolveTerminalHost: () => terminalRuntime.remoteHost,
     // The gateway's tool set: core app tools + canonical run tools merged once,
     // module-contributed tools (MC-1855) read from the host kernel per request
     // and gated on their owner's live enablement.
@@ -680,6 +684,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
         launchAgent: (request) => agentLaunchService.launch(request),
+        // Read live, never captured: the same store the launch service reads, so
+        // a preset changed in Settings reaches the next terminal.create without
+        // a restart.
+        getAgentSpawnPermissionDefault: () => sprintEngineLaunchSettings.get().lastAgentSpawnPermissionPreset,
         createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
         createSprint: (request) => sprintCreateService.createSprint(request),
         listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),

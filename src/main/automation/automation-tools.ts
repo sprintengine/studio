@@ -112,6 +112,18 @@ export type AutomationBackends = {
   /** Compose and spawn an agent in main (MC-2159). */
   launchAgent(request: AgentLaunchRequest): Promise<AgentLaunchResult>
   /**
+   * This machine's own agent-spawn permission preset, from the main-owned
+   * launch settings store (MC-2154); `null` when the user has never chosen one.
+   *
+   * Read by `terminal.create` so a remotely-opened terminal runs under the
+   * preset the person at this machine chose — and read HERE rather than left to
+   * the launch service, because the surface's `bypass_all` ceiling has to be
+   * applied before the pty exists, not after. The CLI default needs no such
+   * accessor: the launch service resolves it from the same store and says so
+   * when there is none.
+   */
+  getAgentSpawnPermissionDefault(): SprintEngineCliPermissionPreset | null
+  /**
    * Mint a workspace in main's registry (MC-2158). Synchronous and
    * window-independent: `workspace.create` no longer asks a renderer to build
    * the record and then polls the bus to see whether it appeared.
@@ -416,6 +428,31 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     }
   }
 
+  // The `permissionPreset` argument every launching tool accepts, validated
+  // once: `bypass_all` is refused with its own code (epic decision 4) rather
+  // than folded into invalid_arguments, because "you may not ask for that here"
+  // and "that is not a preset" are different answers to the caller. Returns the
+  // named preset, `undefined` when the caller named none, or the failure.
+  function validatePermissionPreset(
+    args: Record<string, unknown>
+  ): SprintEngineCliPermissionPreset | undefined | McpToolResult {
+    if (args.permissionPreset === undefined) return undefined
+    if (typeof args.permissionPreset !== 'string') {
+      return failure('invalid_arguments', '"permissionPreset" must be a string when provided.')
+    }
+    if (args.permissionPreset === 'bypass_all') {
+      return failure(
+        'permission_preset_not_allowed',
+        'Agents launched over the automation surface may not use permissionPreset "bypass_all". '
+          + 'A person can set that preset in the app if it is genuinely needed.'
+      )
+    }
+    if (!LAUNCH_PERMISSION_PRESETS.includes(args.permissionPreset as (typeof LAUNCH_PERMISSION_PRESETS)[number])) {
+      return failure('invalid_arguments', `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`)
+    }
+    return args.permissionPreset as SprintEngineCliPermissionPreset
+  }
+
   // The launch-config fields agent.launch and backlog.work both accept:
   // `permissionPreset` (`bypass_all` refused with its own code, epic decision 4)
   // and `worktree` (an object with an optional name — never a bare cwd). Returns
@@ -423,21 +460,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   function resolveLaunchOptions(
     args: Record<string, unknown>
   ): { permissionPreset?: SprintEngineCliPermissionPreset; worktreeRequested: boolean; worktreeName?: string } | McpToolResult {
-    if (args.permissionPreset !== undefined) {
-      if (typeof args.permissionPreset !== 'string') {
-        return failure('invalid_arguments', '"permissionPreset" must be a string when provided.')
-      }
-      if (args.permissionPreset === 'bypass_all') {
-        return failure(
-          'permission_preset_not_allowed',
-          'Agents launched over the automation surface may not use permissionPreset "bypass_all". '
-            + 'A person can set that preset in the app if it is genuinely needed.'
-        )
-      }
-      if (!LAUNCH_PERMISSION_PRESETS.includes(args.permissionPreset as (typeof LAUNCH_PERMISSION_PRESETS)[number])) {
-        return failure('invalid_arguments', `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`)
-      }
-    }
+    const preset = validatePermissionPreset(args)
+    if (preset !== undefined && typeof preset !== 'string') return preset
     let worktreeRequested = false
     let worktreeName: string | undefined
     if (args.worktree !== undefined) {
@@ -481,7 +505,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     connectorId?: string
     worktreeRequested: boolean
     worktreeName?: string
-  }): Promise<{ workspace: Workspace; agentId: string; worktreePath?: string } | McpToolResult> {
+  }): Promise<
+    | { workspace: Workspace; agentId: string; session: TerminalSessionSnapshot; worktreePath?: string }
+    | McpToolResult
+  > {
     // A connector launch forces a worktree even when none was requested — the
     // connector .mcp.json must never land in the user's checkout. Worktree
     // creation runs in main before delegating, and a failure here is fatal: the
@@ -541,7 +568,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (!workspace) {
       return failure('unknown_workspace', `Workspace "${plan.workspaceId}" is not known to the running app.`)
     }
-    return { workspace, agentId, ...(worktreePath ? { worktreePath } : {}) }
+    // `live` is the session the launch actually minted, carried out so a caller
+    // that needs the session id (terminal.create, whose whole point is the
+    // immediate attach) reads the confirmed one rather than re-searching for it.
+    return { workspace, agentId, session: live, ...(worktreePath ? { worktreePath } : {}) }
   }
 
   const workspaceList: McpToolRegistration = {
@@ -763,6 +793,200 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         return failure('unknown_agent', `Agent "${agentId}" is not known in workspace "${workspaceId}".`)
       }
       return success({ agent: agentProjection(workspace, agentId) })
+    },
+  }
+
+  // The list a remote client reads before attaching to one (MC-2165). Its own
+  // tool family, not part of `agent.*`, because the tailnet scopes gate the
+  // terminal tier separately from the structured-command set: watching an
+  // agent's screen is a different grant from reading its launch state.
+  const terminalList: McpToolRegistration = {
+    name: 'terminal.list',
+    description:
+      'List the terminal sessions open in this app: session id, agent name, CLI, working directory, '
+      + 'workspace, whether the process is live or the session is paused, and the agent phase when the CLI '
+      + "reports one. Use the session id to attach to a session's live output. Reads the terminal runtime; "
+      + 'never writes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Report only sessions in this workspace.' },
+        kind: {
+          type: 'string',
+          enum: ['agent', 'terminal'],
+          description: 'Report only agent sessions, or only plain shells. Omit for both.',
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const invalid = firstInvalidOptionalString(args, ['workspaceId', 'kind'])
+      if (invalid) return invalid
+      const kind = optionalString(args.kind)
+      if (kind !== undefined && kind !== 'agent' && kind !== 'terminal') {
+        return failure('invalid_kind', 'The "kind" filter accepts "agent" or "terminal".')
+      }
+      const workspaceId = optionalString(args.workspaceId)
+      const sessions = backends
+        .listTerminalSessions()
+        .filter((session) => !workspaceId || session.workspaceId === workspaceId)
+        .filter((session) => !kind || session.kind === kind)
+        .map(terminalSessionProjection)
+      return success({ terminals: sessions })
+    },
+  }
+
+  /**
+   * The workspace a `terminal.create` names, by id or by display name.
+   *
+   * Name resolution exists because the terminal tier is a scope tier of its own
+   * (epic decision 4): a device paired for `terminal:control` alone may not call
+   * `workspace.list`, so requiring an opaque id would make the terminal grant
+   * unusable without a structured grant it was deliberately not given. A name
+   * matching more than one workspace is an explicit refusal listing the ids —
+   * picking the first would open a terminal in someone else's project.
+   */
+  function resolveTerminalWorkspace(args: Record<string, unknown>): { workspace: Workspace } | McpToolResult {
+    const workspaceId = optionalString(args.workspaceId)?.trim()
+    const workspaceName = optionalString(args.workspaceName)?.trim()
+    if (workspaceId && workspaceName) {
+      return failure('invalid_arguments', 'Name the workspace once: pass "workspaceId" or "workspaceName", not both.')
+    }
+    if (workspaceId) {
+      const workspace = findWorkspace(workspaceId)
+      return workspace
+        ? { workspace }
+        : failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
+    }
+    if (!workspaceName) {
+      return failure(
+        'invalid_arguments',
+        'Name the workspace to open the terminal in: pass "workspaceId" or "workspaceName".'
+      )
+    }
+    const wanted = workspaceName.toLowerCase()
+    const matches = backends
+      .getWorkspaceSyncSnapshot()
+      .state.workspaces.filter((candidate) => candidate.name.trim().toLowerCase() === wanted)
+    if (matches.length === 0) {
+      return failure('unknown_workspace', `No workspace named "${workspaceName}" is open in the running app.`)
+    }
+    if (matches.length > 1) {
+      return failure(
+        'ambiguous_workspace_name',
+        `${matches.length} workspaces are named "${workspaceName}". Name one by id instead: ${matches
+          .map((candidate) => candidate.id)
+          .join(', ')}.`
+      )
+    }
+    return { workspace: matches[0] }
+  }
+
+  // Open a terminal on THIS machine from wherever the call came from (MC-2166).
+  //
+  // `terminal.*` rather than `agent.launch` because of the scopes: the terminal
+  // tier is granted separately from the structured-command families, and "open
+  // me a terminal I can type into" is that tier's own verb — a device holding
+  // `terminal:control` already has arbitrary shell on this host through the
+  // attach socket, so letting it create the session it will type into adds no
+  // authority. It deliberately does NOT carry `agent.launch`'s connector,
+  // specialist, or worktree options: those create git worktrees and write
+  // connector config into the checkout, which are workspace mutations and stay
+  // behind `workspace:operate`.
+  //
+  // The session id comes back so the caller can attach immediately — that
+  // round trip (create → attach → type) is the whole point, and searching
+  // terminal.list for "the one that just appeared" would be a guess.
+  const terminalCreate: McpToolRegistration = {
+    name: 'terminal.create',
+    description:
+      'Open a new agent terminal on the machine running this app and return its session id, ready to attach. '
+      + 'Works with no window open: the session exists in the main process, and a window opened later shows it as '
+      + 'a pane with its scrollback intact. Name the workspace by "workspaceId" or by "workspaceName". The CLI and '
+      + "permission preset default to this machine's own launch settings unless you name them; `bypass_all` is "
+      + 'refused here as everywhere on this surface. Use cli.runtime.list for the CLI ids this app holds.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Target workspace id, from workspace.list or terminal.list.' },
+        workspaceName: {
+          type: 'string',
+          description:
+            'Target workspace by display name instead of id (case-insensitive). Refused when more than one '
+            + 'workspace carries the name.',
+        },
+        cli: {
+          type: 'string',
+          description:
+            "Agent CLI plugin id; defaults to this machine's last-selected CLI. cli.runtime.list enumerates the "
+            + 'ids this app actually holds — do not guess one.',
+        },
+        name: { type: 'string', description: 'Agent display name; defaults to an unused name from the shared pool.' },
+        prompt: { type: 'string', description: 'Startup prompt sent to the CLI after launch.' },
+        cliModel: {
+          type: 'string',
+          description: 'Model id for CLIs that support model selection; forwarded verbatim to the CLI.',
+        },
+        permissionPreset: {
+          type: 'string',
+          enum: [...LAUNCH_PERMISSION_PRESETS],
+          description:
+            'CLI permission preset. Only "default" or "auto_workspace"; "bypass_all" is refused on this surface. '
+            + "Omit to take this machine's own spawn default.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const invalid = firstInvalidOptionalString(args, [
+        'workspaceId',
+        'workspaceName',
+        'cli',
+        'name',
+        'prompt',
+        'cliModel',
+      ])
+      if (invalid) return invalid
+
+      const resolved = resolveTerminalWorkspace(args)
+      if (!('workspace' in resolved)) return resolved
+
+      const requestedPreset = validatePermissionPreset(args)
+      if (requestedPreset !== undefined && typeof requestedPreset !== 'string') return requestedPreset
+
+      // Resolved here rather than left to the launch service so the preset the
+      // pty will run under is known before it exists. The machine's own default
+      // is honoured — that is what "uses this machine's launch settings" means —
+      // except that `bypass_all` never crosses this surface: a caller that
+      // inherited it would get an unsandboxed agent nobody on either end asked
+      // for. Falling to the most restrictive preset is the surface's ceiling,
+      // and the answer reports which preset actually applied.
+      const machineDefault = backends.getAgentSpawnPermissionDefault()
+      const permissionPreset = requestedPreset
+        ?? (machineDefault && machineDefault !== 'bypass_all' ? machineDefault : LAUNCH_PERMISSION_PRESETS[0])
+
+      const launched = await launchConfiguredAgent({
+        workspaceId: resolved.workspace.id,
+        cli: optionalString(args.cli),
+        name: optionalString(args.name),
+        prompt: optionalString(args.prompt),
+        cliModel: optionalString(args.cliModel),
+        permissionPreset,
+        worktreeRequested: false,
+      })
+      if (!('agentId' in launched)) return launched
+      return success({
+        sessionId: launched.session.sessionId,
+        workspaceId: launched.workspace.id,
+        agentId: launched.agentId,
+        // What the launch RESOLVED, not what was asked for: the CLI came from
+        // this machine's settings when the caller named none, and the preset may
+        // have been clamped by the rule above.
+        permissionPreset,
+        terminal: terminalSessionProjection(launched.session),
+      })
     },
   }
 
@@ -2863,6 +3087,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     agentLaunch,
     agentStatus,
     cliRuntimeList,
+    terminalList,
+    terminalCreate,
     backlogList,
     backlogRead,
     backlogUpdate,
@@ -2893,6 +3119,37 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     sprintPrStatus,
     sprintTokenUsage,
   ]
+}
+
+// One terminal session as terminal.list reports it (MC-2165): enough to choose
+// one and label the stream, and nothing about its contents — the scrollback
+// arrives over the attach socket, behind the same terminal scope, not here.
+//
+// `processAlive` and `suspended` are separate on purpose: a paused agent is not
+// running (its pty was killed to reclaim memory) but is not gone either, and a
+// client that collapsed the two would offer to type into a frozen screen.
+function terminalSessionProjection(session: TerminalSessionSnapshot): Record<string, unknown> {
+  return {
+    sessionId: session.sessionId,
+    kind: session.kind,
+    workspaceId: session.workspaceId ?? null,
+    agentId: session.agentId ?? null,
+    agentName: session.agentName ?? null,
+    cli: session.cli ?? null,
+    cwd: session.cwd ?? null,
+    worktreePath: session.worktreePath ?? null,
+    processAlive: session.processAlive,
+    suspended: session.suspended,
+    startedAt: session.startedAt,
+    lastOutputAt: session.lastOutputAt,
+    activity: session.activity.kind,
+    // The hook-reported phase where the CLI reports one, marked with its
+    // provenance so a caller can tell an authoritative `awaiting_input` from an
+    // output-timing guess. Absent for plain shells.
+    agentState: session.agentState
+      ? { phase: session.agentState.phase, source: session.agentState.source, since: session.agentState.since }
+      : null,
+  }
 }
 
 // One agent CLI as cli.runtime.list reports it (MC-2120). Everything here is

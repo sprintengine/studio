@@ -6,6 +6,7 @@ import { appMenuApi } from './api/app-menu'
 import { appearanceApi } from './api/appearance'
 import { authApi } from './api/auth'
 import { automationApi } from './api/automation'
+import { fleetApi } from './api/fleet'
 import { automationsApi } from './api/automations'
 import { backlogApi } from './api/backlog'
 import { builtinSkillsApi } from './api/builtinSkills'
@@ -54,6 +55,7 @@ const api = {
   ...appearanceApi,
   ...authApi,
   ...automationApi,
+  ...fleetApi,
   ...automationsApi,
   ...backlogApi,
   ...reviewApi,
