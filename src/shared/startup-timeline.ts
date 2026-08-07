@@ -83,9 +83,13 @@ export const STARTUP_SPANS: readonly {
     toId: 'main.app-ready',
   },
   {
-    id: 'window-to-navigation',
-    label: 'main window created → renderer document starts',
-    fromId: 'main.window-created',
+    // Measured from the splash, not from `main.window-created`: the main window
+    // starts loading its document inside `createMainWindow`, so the mark after
+    // that call lands a hair AFTER navigation start and the pair would read as a
+    // negative span.
+    id: 'window-setup',
+    label: 'splash on screen → renderer document starts (main window creation)',
+    fromId: 'main.splash-shown',
     toId: 'renderer.navigation-start',
   },
   {
@@ -113,6 +117,14 @@ export const STARTUP_SPANS: readonly {
     label: 'React root rendered → first paint',
     fromId: 'renderer.root-rendered',
     toId: 'renderer.first-paint',
+  },
+  {
+    // The handshake itself: boot-complete over IPC, splash destroyed, window
+    // shown. Anything large here is the reveal, not the bundle.
+    id: 'reveal',
+    label: 'first paint → app on screen',
+    fromId: 'renderer.first-paint',
+    toId: 'main.reveal',
   },
   {
     // What the user actually waits through: process start to the app on screen.
