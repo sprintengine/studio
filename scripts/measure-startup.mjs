@@ -23,7 +23,7 @@ import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
@@ -101,8 +101,10 @@ async function reportStartup() {
   const summary = summarize(runs, chunk)
   printSummary(summary)
   if (args.json) {
-    writeFileSync(join(ROOT, args.json), `${JSON.stringify({ summary, runs }, null, 2)}\n`)
-    console.log(`[measure-startup] wrote ${args.json}`)
+    // `resolve`, not `join`: an absolute --json path must land where it says.
+    const target = resolve(ROOT, args.json)
+    writeFileSync(target, `${JSON.stringify({ summary, runs }, null, 2)}\n`)
+    console.log(`[measure-startup] wrote ${target}`)
   }
 }
 
@@ -215,6 +217,11 @@ function summarize(runs, chunk) {
   return {
     runs: runs.length,
     profile: args.profile,
+    // Carried into the summary (and the --json file) rather than left on the
+    // per-run lines: a median over runs that never finished a phase must not
+    // read as a clean series to someone skimming the table.
+    incompleteRuns: runs.filter((run) => !run.complete).length,
+    missingMarks: [...new Set(runs.flatMap((run) => run.missing))],
     eagerChunk: { file: chunk.file, kb: Math.round(chunk.size / 1024) },
     marks: rowIds.map((id) => {
       const offsets = pick(id, 'offsetMs', 'rows')
@@ -238,6 +245,12 @@ function printSummary(summary) {
   const spanWidth = width(summary.spans)
   for (const entry of summary.spans) {
     console.log(`  ${`${entry.medianMs}`.padStart(spanWidth)} ms  ${entry.label}  [${entry.minMs}–${entry.maxMs}]`)
+  }
+  if (summary.incompleteRuns > 0) {
+    console.log(
+      `\n  WARNING: ${summary.incompleteRuns} of ${summary.runs} run(s) never reported `
+      + `${summary.missingMarks.join(', ')} — the medians above are over partial data.`
+    )
   }
 }
 

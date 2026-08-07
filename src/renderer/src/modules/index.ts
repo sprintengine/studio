@@ -2,6 +2,7 @@ import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../sha
 import { activeForChannel } from '../../../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 import { toModuleWorkspaceView } from '../../../shared/modules/workspace-view'
+import { markStartup } from '../utils/startupTimeline'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
 import { automationsRendererModule } from './automations-module'
 import { backlogRendererModule } from './backlog-module'
@@ -136,11 +137,59 @@ if (typeof window !== 'undefined') {
     import('./workspace-file-watch'),
     import('./agent-session-watch'),
     import('./agent-spawn'),
+    import('./registry-snapshot'),
   ])
-    .then(([{ useWorkspaceStore }, { moduleSettingsNamespace }, terminalSessions, modelRegistry, cliRuntimeOptions, agentNames, workspaceWorktree, { createWorkspaceFileWatcher }, { createAgentSessionWatcher }, { createModuleAgentSpawner }]) => {
+    .then(([{ useWorkspaceStore }, { moduleSettingsNamespace }, terminalSessions, modelRegistry, cliRuntimeOptions, agentNames, workspaceWorktree, { createWorkspaceFileWatcher }, { createAgentSessionWatcher }, { createModuleAgentSpawner }, { buildModuleRegistrySnapshot, collectModuleSurfaces, startModuleRegistrySnapshotMirror }]) => {
       rendererHost.setModuleEnablementResolver((moduleId) =>
         selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
       )
+      // Mirror the module registry to main (MC-2078), the same way enablement
+      // is already mirrored: this process is the only one that knows the whole
+      // universe (channel-narrowed bundled modules + loaded third-party ones)
+      // and the overrides that resolve it, and main's `module.*` gateway tools
+      // must report what the user sees rather than main's own half. It rides
+      // the deferred batch above rather than a static import, like every other
+      // wiring here — a top-level import would drag it into the eager boot
+      // chunk the bundle-budget ratchet guards. Rebuilt
+      // only when the overrides object changes identity — the store hands out a
+      // new one exactly when enablement changes — and once more when the
+      // third-party modules finish loading, which widens the universe.
+      if (typeof window.api?.setModuleRegistrySnapshot === 'function') {
+        const pushSnapshot = window.api.setModuleRegistrySnapshot
+        startModuleRegistrySnapshotMirror({
+          build: () =>
+            buildModuleRegistrySnapshot({
+              manifests: enablementUniverse(),
+              overrides: useWorkspaceStore.getState().appSettings.modules ?? {},
+              surfaces: collectModuleSurfaces(rendererHost),
+              channel: IS_PRODUCTION_BUILD ? 'production' : 'development',
+              now: Date.now(),
+            }),
+          push: async (snapshot) => {
+            // A refused (malformed) or failed push is reported as undelivered so
+            // the mirror re-sends it rather than treating it as landed; main
+            // keeps whatever snapshot it already had.
+            try {
+              return (await pushSnapshot(snapshot)).ok !== false
+            } catch {
+              return false
+            }
+          },
+          subscribe: (onChange) => {
+            let lastOverrides = useWorkspaceStore.getState().appSettings.modules
+            const stopStore = useWorkspaceStore.subscribe((state) => {
+              if (state.appSettings.modules === lastOverrides) return
+              lastOverrides = state.appSettings.modules
+              onChange()
+            })
+            const stopThirdParty = onThirdPartyRendererModulesLoaded(onChange)
+            return () => {
+              stopStore()
+              stopThirdParty()
+            }
+          },
+        })
+      }
       // Workspace-view source for RendererHost.getWorkspace: a fresh snapshot
       // object per lookup (never a store reference), null for unknown ids —
       // the same shared mapping the main-side WorkspaceContextToken uses.
@@ -306,6 +355,11 @@ if (typeof window !== 'undefined') {
           newSessionId: () => crypto.randomUUID(),
         })
       )
+      // Boot measurement (MC-2075): the deferred batch above is the one part of
+      // boot that was moved OUT of the eager chunk to satisfy the size ceiling,
+      // so how long it takes to settle — and whether it lands before or after
+      // first paint — is the evidence for whether that trade was worth making.
+      markStartup('renderer.module-wiring-settled')
     })
     .catch((error) => {
       // Windowless bundles (unit tests) have no store; the kernel default

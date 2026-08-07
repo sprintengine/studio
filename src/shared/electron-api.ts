@@ -3403,6 +3403,10 @@ export type ElectronApi = {
   terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
   terminalStatus: (sessionId: string) => Promise<{ processAlive: boolean; suspended: boolean }>
   terminalList: () => Promise<TerminalSessionSnapshot[]>
+  // The name of the shell a plain terminal session launches on this machine
+  // ('zsh', 'bash', 'powershell'), resolved by the launcher itself so a surface
+  // that names it cannot advertise one shell and start another.
+  terminalDefaultShellName: () => Promise<string>
   terminalSetVisible: (sessionId: string, visible: boolean) => Promise<void>
   // Freeze-the-view: suspend kills the agent process but keeps the painted,
   // resumable session; resume relaunches it (mirrors terminalSpawn's payload,

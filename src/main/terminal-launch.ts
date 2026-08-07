@@ -623,6 +623,18 @@ function assertExistingDirectory(dirPath: string): void {
   throw new Error(`Terminal working directory does not exist: ${dirPath}`)
 }
 
+/**
+ * What a plain terminal session in this app will actually run, by name:
+ * `zsh`, `bash`, `powershell`. Resolved from the same shell the spawn uses, so
+ * a surface that names the shell (the spawn picker's terminal row, MC-2122)
+ * cannot advertise one and launch another.
+ */
+export function resolveDefaultShellName(): string {
+  if (process.platform === 'win32') return 'powershell'
+  const path = getPosixShellPath()
+  return path.split('/').pop() || path
+}
+
 function getPosixShellPath(): string {
   const configuredShell = process.env.SHELL?.trim()
   if (configuredShell?.startsWith('/') && isExecutableFile(configuredShell)) {
