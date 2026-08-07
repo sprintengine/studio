@@ -710,6 +710,71 @@ async function testRolelessCoordinatorGetsTheAutonomousPlanningOverride(): Promi
   )
 }
 
+/**
+ * MC-2179, end to end: which run-start actually spends a planning session.
+ *
+ * Creation composes a handoff prompt onto the coordinator seat regardless of
+ * whether the run needs planning, so the prompt cannot be the signal. A run
+ * whose graph arrived with it (an epic or selection the engine minted at init)
+ * must spend NOTHING on the seat; a run that still has to be planned reaches
+ * the same seat with the same prompt through its plan-gate task.
+ */
+async function testAPrePlannedRunSpendsNoPlanningSessionButAPlanGateStillReachesTheSeat(): Promise<void> {
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+  const seatAgent = () => ({
+    ...viewAgent('coordinator'),
+    cliSessionId: null,
+    cliStartRequested: false,
+    cliHasLaunched: false,
+    cliStartupPrompt: 'HANDOFF: review the sources and build the task graph.',
+    cliOnboardingPromptSent: false,
+  })
+
+  // Pre-planned: the epic's children are already tasks and no plan gate exists.
+  const preplanned = rolelessState({
+    tasks: [poolTask('T1', { role: undefined }), poolTask('T2', { role: undefined, dependsOn: ['T1'] })],
+  })
+  const preplannedWorkspace = poolWorkspace(preplanned, 'Pre-planned run')
+  ;(preplannedWorkspace as { agents: Record<string, unknown> }).agents = { coordinator: seatAgent() }
+  const preplannedCaptured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  await superviseWorkspace(
+    ...superviseArgs(makePorts(preplannedCaptured, preplannedWorkspace, []), preplannedWorkspace, cliRuntimes),
+  )
+
+  assert.deepEqual(
+    preplannedCaptured.spawns.filter((spawn) => spawn.agentId === 'coordinator'),
+    [],
+    `no planning session is spent on a run that arrived planned; spawns=${JSON.stringify(preplannedCaptured.spawns.map((s) => s.agentId))}`,
+  )
+  assert.ok(
+    preplannedCaptured.spawns.some((spawn) => spawn.agentId !== 'coordinator'),
+    `its ready work still mints a worker; spawns=${JSON.stringify(preplannedCaptured.spawns.map((s) => s.agentId))}`,
+  )
+
+  // Planned: init opened a plan-gate task bound to the run's plan artifact, and
+  // every other task roots on it.
+  const planned = rolelessState({
+    artifacts: [{ id: 'A1', kind: 'architect_plan', title: 'Plan', path: 'plan.md', taskId: 'T0', status: 'ready' }],
+    tasks: [poolTask('T0', { role: undefined }), poolTask('T1', { role: undefined, dependsOn: ['T0'] })],
+  })
+  const plannedWorkspace = poolWorkspace(planned, 'Planned run')
+  ;(plannedWorkspace as { agents: Record<string, unknown> }).agents = { coordinator: seatAgent() }
+  const plannedCaptured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  await superviseWorkspace(
+    ...superviseArgs(makePorts(plannedCaptured, plannedWorkspace, []), plannedWorkspace, cliRuntimes),
+  )
+
+  const gateSpawn = plannedCaptured.spawns.find((spawn) => spawn.agentId === 'coordinator')
+  assert.ok(
+    gateSpawn,
+    `the plan gate reaches the coordinator seat; spawns=${JSON.stringify(plannedCaptured.spawns.map((s) => s.agentId))}`,
+  )
+  assert.ok(
+    gateSpawn?.initialPrompt?.includes('HANDOFF: review the sources'),
+    `and carries the stored handoff prompt; prompt=${JSON.stringify(gateSpawn?.initialPrompt?.slice(0, 200))}`,
+  )
+}
+
 // --- MC-2136: per-task isolation routes the spawn into its task's own tree ---
 
 function isolatedWorkspace(): { state: SprintEngineState; workspace: SprintEngineWorkspaceView } {
@@ -821,6 +886,7 @@ async function main(): Promise<void> {
   await testGhostSessionIsReapedAfterBootAllowance()
   await testRolelessTriageEngagesTheCoordinatorSeat()
   await testRolelessCoordinatorGetsTheAutonomousPlanningOverride()
+  await testAPrePlannedRunSpendsNoPlanningSessionButAPlanGateStillReachesTheSeat()
   await testPerTaskIsolationSpawnsInTheTasksOwnWorktree()
   await testFailedTaskWorktreeStillSpawnsAndWarns()
   await testSharedWorktreeRunNeverAsksForATaskTree()
