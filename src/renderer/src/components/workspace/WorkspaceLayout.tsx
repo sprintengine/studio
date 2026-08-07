@@ -6,7 +6,9 @@ import {
   TabNode,
   TabSetNode,
   type Action,
+  type BorderNode,
   type ITabRenderValues,
+  type ITabSetRenderValues,
   type NodeMouseEvent,
 } from 'flexlayout-react'
 // combined.css carries the structural FlexLayout CSS — its theme color
@@ -37,7 +39,7 @@ import {
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import type { AgentCli, FuturePlanWorkspaceSource, HighlightColor, SprintEngineRuntimeAgentStatus, Workspace } from '../../types/workspace'
-import { captureRailWidthFractions, consumePendingAgentFlash, deleteTabPreservingRails, registerModel, restoreRailWidthFractions, unregisterModel } from '../../utils/modelRegistry'
+import { NEW_AGENT_TAB_COMPONENT, captureRailWidthFractions, consumePendingAgentFlash, deleteTabPreservingRails, registerModel, restoreRailWidthFractions, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
@@ -52,7 +54,7 @@ import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
 import { TabPromptPeek } from './TabPromptPeek'
 import { GitBranchGlyph } from './WorkspaceActions'
-import { ContextMenu, LifecycleGlyph, type LifecycleState, MenuDivider, MenuItem, MenuSwatchRow, StatusDot, type Tone } from '../ui'
+import { ContextMenu, FOCUS_RING_CLASS, LifecycleGlyph, type LifecycleState, MenuDivider, MenuItem, MenuSwatchRow, StatusDot, type Tone, Tooltip } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
 import AgentPanel from '../panels/AgentPanel'
 
@@ -69,6 +71,14 @@ interface Props {
   onStartSprintEngine?: () => void
   onNewWorkspace?: () => void
   onCloseWorkspace?: (workspaceId: string) => void
+  // The tab strip's "+" (MC-2147): opens the tab an agent will run in, holding
+  // the launch surface until something spawns. Absent → no plus, which is how a
+  // Sprint Engine workspace stays free of a hand-spawn affordance its run would
+  // not know about.
+  onNewAgentTab?: () => void
+  // Renders the launch surface inside that tab. `tabId` is the node the spawn
+  // retypes in place, so the terminal appears where the surface was.
+  renderNewAgentPanel?: (tabId: string) => React.ReactNode
 }
 
 // Count the live tabs in a model. A workspace whose last tab was closed leaves
@@ -280,7 +290,7 @@ function renderTerminalRecencyIndicator(
   )
 }
 
-function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAgent, renderSpecialistPicker, onStartSprintEngine, onNewWorkspace, onCloseWorkspace }: Props) {
+function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAgent, renderSpecialistPicker, onStartSprintEngine, onNewWorkspace, onCloseWorkspace, onNewAgentTab, renderNewAgentPanel }: Props) {
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
@@ -554,6 +564,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
               shouldKillOnUnmount={shouldKillTerminalOnUnmount}
             />
           )))
+        // The tab the "+" opened, holding the launch surface until a spawn
+        // retypes this same node into an agent tab. Nothing is created while it
+        // is open, so a host that cannot spawn (no handler) renders nothing.
+        case NEW_AGENT_TAB_COMPONENT:
+          return renderNewAgentPanel ? renderNewAgentPanel(node.getId()) : null
         // Defensive fallbacks for stale layouts that escaped migration — the
         // canonical layout now uses a single 'sprintengine' tab whose internal
         // segmented chrome covers all three views.
@@ -1342,6 +1357,44 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
     openTabContextMenu(event, node)
   }, [openTabContextMenu])
 
+  // The tab strip's "+" (MC-2147). It rides the tabsets that host agents and
+  // terminals — never a rail pane, whose strip is chrome for a panel, and never
+  // an editor-only column, where a new agent has nothing to do with the files
+  // beside it. Sticky, so it stays put when the tabs overflow and scroll.
+  const renderTabSet = useCallback<(tabSetNode: TabSetNode | BorderNode, values: ITabSetRenderValues) => void>(
+    (tabSetNode, values) => {
+      if (!onNewAgentTab) return
+      if (!(tabSetNode instanceof TabSetNode)) return
+      if (tabSetNode.getChildren().length === 0) return
+      const hostsAgents = tabSetNode.getChildren().some((child) => {
+        if (!(child instanceof TabNode)) return false
+        const component = child.getComponent()
+        return component === 'agent' || component === 'terminal' || component === NEW_AGENT_TAB_COMPONENT
+      })
+      if (!hostsAgents) return
+      values.stickyButtons.push(
+        <Tooltip key="new-agent" content="New agent" placement="bottom">
+          <button
+            type="button"
+            aria-label="New agent"
+            onClick={(event) => {
+              // The strip's own click handler would select whatever tab sits
+              // under the button; this is a control, not a tab.
+              event.stopPropagation()
+              onNewAgentTab()
+            }}
+            className={`interactive grid h-7 w-[26px] place-items-center rounded text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="icon-xs">
+              <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+            </svg>
+          </button>
+        </Tooltip>,
+      )
+    },
+    [onNewAgentTab],
+  )
+
   const isEmpty = countOpenTabs(modelRef.current) === 0
 
   // A workspace whose mode has no registered type: the owning module is not
@@ -1375,6 +1428,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         onAuxMouseClick={handleAuxMouseClick}
         onContextMenu={handleContextMenu}
         onRenderTab={renderTab}
+        onRenderTabSet={renderTabSet}
         onModelChange={(model) => {
           updateLayout(workspaceId, model.toJson())
         }}

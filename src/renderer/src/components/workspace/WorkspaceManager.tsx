@@ -68,7 +68,7 @@ import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineS
 import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAutomationModeSync'
 import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
-import { addAgentTabTiled, addTerminalTab, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, revealNavRailComponent, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, removeNewAgentTab, revealNavRailComponent, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -179,6 +179,10 @@ const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
 // until the user starts the chat. Code-split like NewWorkspacePanel; rendered
 // only when showNewChatPanel is true.
 const NewChatPanel = React.lazy(() => import('./agentComposer/NewChatPanel'))
+// Lazy for the same reason NewChatPanel is: it pulls the roster, the model
+// picker and the skill inventory, and nobody pays for that until they press the
+// tab strip's "+".
+const NewAgentPanel = React.lazy(() => import('./agentComposer/NewAgentPanel'))
 // The New sprint dialog (MC-2062): one light dialog, shaped like New chat —
 // sprint creation left the wizard, and every entry point converges here.
 const NewSprintDialog = React.lazy(() => import('./newSprint/NewSprintDialog'))
@@ -223,6 +227,30 @@ const EMPTY_SPECIALIST_MODEL_DEFAULTS: Partial<Record<SpecialistActionId, AgentC
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
 const EMPTY_DISABLED_SPECIALIST_PACKS: string[] = []
+
+// Where a spawn should land, and what it should start with. Present only when
+// the spawn came from the tab strip's "+" (MC-2147): `tabId` names that tab's
+// node and `prompt` is what was typed on the launch surface inside it.
+type AgentSpawnPlacement = { tabId?: string; prompt?: string }
+
+/**
+ * Put a freshly spawned agent in its tab. From a new-agent tab that means
+ * retyping the SAME node — the launch surface becomes the terminal, in place,
+ * with no pane moving under the person who just pressed Start. Everywhere else,
+ * and whenever that tab is gone (closed while the composer was open), it falls
+ * back to the ordinary tiled dock rather than losing the agent.
+ */
+function placeSpawnedAgentTab(
+  workspaceId: string,
+  agentId: string,
+  tabName: string,
+  placement?: AgentSpawnPlacement,
+): void {
+  if (placement?.tabId && convertNewAgentTabToAgent(workspaceId, placement.tabId, agentId, tabName)) {
+    return
+  }
+  addAgentTabTiled(workspaceId, agentId, tabName)
+}
 
 const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
@@ -2263,7 +2291,10 @@ export default function WorkspaceManager() {
     requestedName = '',
     selectedCli?: AgentCli,
     skill?: WorkspaceSkill,
-    worktree?: { name: string }
+    worktree?: { name: string },
+    // MC-2147: when the spawn came from a new-agent tab, that tab becomes the
+    // terminal (same node, same place) and the user's prompt rides along.
+    placement?: AgentSpawnPlacement
   ) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
@@ -2304,7 +2335,14 @@ export default function WorkspaceManager() {
       debugMode: agentSpawnDebugMode,
       kind: 'specialist',
       specialistId: specialist.id,
-      cliStartupPrompt: prependAgentIdentifier(prompt, tabName, specialist.shortLabel),
+      cliStartupPrompt: prependAgentIdentifier(
+        // The soul brief first, then what the user actually asked for — a
+        // specialist that forgets its role because a task arrived is not the
+        // specialist they picked.
+        placement?.prompt ? `${prompt}\n\n${placement.prompt}` : prompt,
+        tabName,
+        specialist.shortLabel,
+      ),
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
       cliResumeAvailable: false,
@@ -2312,11 +2350,16 @@ export default function WorkspaceManager() {
         ? skillSpawnAgentPatch(skill, pluginCatalogEntries.find((entry) => entry.id === cliForSpawn)?.skillIntegration)
         : {}),
     })
-    addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
+    placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
-  const addNewCliAgent = async (cli: AgentCli, skill?: WorkspaceSkill, worktree?: { name: string }) => {
+  const addNewCliAgent = async (
+    cli: AgentCli,
+    skill?: WorkspaceSkill,
+    worktree?: { name: string },
+    placement?: AgentSpawnPlacement,
+  ) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
@@ -2353,7 +2396,7 @@ export default function WorkspaceManager() {
       debugMode: agentSpawnDebugMode,
       kind: 'general',
       specialistId: undefined,
-      cliStartupPrompt: undefined,
+      cliStartupPrompt: placement?.prompt || undefined,
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
       cliResumeAvailable: false,
@@ -2361,7 +2404,7 @@ export default function WorkspaceManager() {
         ? skillSpawnAgentPatch(skill, pluginCatalogEntries.find((entry) => entry.id === spawnCli)?.skillIntegration)
         : {}),
     })
-    addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
+    placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
     setSpecialistMenuOpen(false)
   }
@@ -2371,7 +2414,13 @@ export default function WorkspaceManager() {
   // `conversation`; no CLI session is created. The model is then switchable in
   // the chat composer until the first message, so spawning just needs a default
   // pair. Missing-key/unavailable states are handled downstream by AgentChatView.
-  const addNewConversationAgent = (providerId: string, modelId: string, modelLabel: string, skill?: WorkspaceSkill) => {
+  const addNewConversationAgent = (
+    providerId: string,
+    modelId: string,
+    modelLabel: string,
+    skill?: WorkspaceSkill,
+    placement?: AgentSpawnPlacement,
+  ) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
@@ -2398,27 +2447,39 @@ export default function WorkspaceManager() {
       // lets the user change it mid-conversation.
       cliPermissionPreset: agentSpawnPermissionPreset,
       ...(skill ? { chatComposerPrefill: renderChatSkillPrefill(skill) } : {}),
+      // A conversation has no CLI to hand a startup prompt to, so the launch
+      // surface's prompt lands in its composer, typed and unsent — the same
+      // place a skill invocation lands.
+      ...(placement?.prompt ? { chatComposerPrefill: placement.prompt } : {}),
     })
-    addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
+    placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
     setLastSelectedConversationModel({ providerId, modelId })
     setSpecialistMenuOpen(false)
   }
 
   // Single spawn-menu entry: open a conversation agent with the resolved default
   // model. No-op when no provider/model is available (entry stays hidden).
-  const spawnConversationAgent = (skill?: WorkspaceSkill) => {
+  const spawnConversationAgent = (skill?: WorkspaceSkill, placement?: AgentSpawnPlacement) => {
     if (!conversationDefaultOption) return
     addNewConversationAgent(
       conversationDefaultOption.providerId,
       conversationDefaultOption.modelId,
       conversationDefaultOption.modelLabel,
       skill,
+      placement,
     )
   }
 
-  const addNewTerminal = () => {
+  const addNewTerminal = (placement?: AgentSpawnPlacement) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const newId = `terminal-${nanoid(6)}`
+    // From a new-agent tab, the shell opens in that tab rather than beside it.
+    if (
+      placement?.tabId
+      && convertNewAgentTabToTerminal(windowActiveWorkspaceId, placement.tabId, newId, 'Terminal')
+    ) {
+      return
+    }
     addTerminalTab(windowActiveWorkspaceId, newId, 'Terminal')
   }
 
@@ -3038,11 +3099,12 @@ export default function WorkspaceManager() {
     selectedCli?: AgentCli,
     skill?: WorkspaceSkill,
     worktree?: { name: string },
+    placement?: AgentSpawnPlacement,
   ) => {
     setLastSelectedSpecialist(specialistId)
     setLastSpawnWasGeneral(false)
     setSpecialistMenuOpen(false)
-    void addNewSpecialist(specialistId, '', selectedCli, skill, worktree)
+    void addNewSpecialist(specialistId, '', selectedCli, skill, worktree, placement)
   }
 
   // The agent a picker opens preselected — the remembered specialist (standard
@@ -3055,23 +3117,58 @@ export default function WorkspaceManager() {
   // Map a composer confirm to the real spawn into the active workspace.
   // Shared by every AgentComposerPopover host (top bar, launcher); fresh chats
   // are the New Chat panel's job.
-  const runComposerSpawn = (confirm: AgentComposerConfirm) => {
+  const runComposerSpawn = (confirm: AgentComposerConfirm, placement?: AgentSpawnPlacement) => {
     switch (confirm.kind) {
       case 'terminal':
-        addNewTerminal()
+        addNewTerminal(placement)
         break
       case 'general':
         setLastSpawnWasGeneral(true)
-        void addNewCliAgent(confirm.cli, confirm.skill, confirm.worktree)
+        void addNewCliAgent(confirm.cli, confirm.skill, confirm.worktree, placement)
         break
       case 'conversation':
-        spawnConversationAgent(confirm.skill)
+        spawnConversationAgent(confirm.skill, placement)
         break
       case 'specialist':
-        handleSelectSpecialist(confirm.specialistId, confirm.cli, confirm.skill, confirm.worktree)
+        handleSelectSpecialist(confirm.specialistId, confirm.cli, confirm.skill, confirm.worktree, placement)
         break
     }
   }
+
+  // ── The tab strip's "+" (MC-2147) ──────────────────────────────────────────
+  // Opens the tab the agent will run in. Standard workspaces only: a sprint
+  // staffs its own agents, and a hand-spawned terminal in that strip would read
+  // as a run member without being one.
+  const canOpenNewAgentTab =
+    !showNewWorkspacePanel
+    && Boolean(windowActiveWorkspaceId)
+    && activeWorkspace?.mode === 'standard'
+
+  const openNewAgentTab = () => {
+    if (!canOpenNewAgentTab || !windowActiveWorkspaceId) return
+    addNewAgentTab(windowActiveWorkspaceId)
+  }
+
+  // The launch surface, rendered inside that tab. It creates nothing: a confirm
+  // plus the typed prompt comes back here, and the spawn retypes `tabId` in
+  // place so the terminal lands exactly where the surface was.
+  const renderNewAgentPanel = (tabId: string) => (
+    <React.Suspense fallback={null}>
+      <NewAgentPanel
+        workspaceId={windowActiveWorkspaceId ?? ''}
+        conversationAvailable={conversationSpawnAvailable}
+        initialSelection={composerInitialSelection}
+        permissionPreset={agentSpawnPermissionPreset}
+        onChangePermissionPreset={setAgentSpawnPermissionPreset}
+        debugMode={agentSpawnDebugMode}
+        onChangeDebugMode={setAgentSpawnDebugMode}
+        onLaunch={({ prompt, ...confirm }) => runComposerSpawn(confirm, { tabId, prompt })}
+        onClose={() => {
+          if (windowActiveWorkspaceId) removeNewAgentTab(windowActiveWorkspaceId, tabId)
+        }}
+      />
+    </React.Suspense>
+  )
 
   // The empty-workspace launcher's "Specialist agent" row renders the shared
   // AgentComposerPopover anchored to the row. It spawns into the launcher's own
@@ -3540,6 +3637,12 @@ export default function WorkspaceManager() {
                       onStartSprintEngine={openSprintEngineSetup}
                       onNewWorkspace={openNewWorkspacePanel}
                       onCloseWorkspace={closeWorkspaceById}
+                      // The "+" belongs to the layer the user is actually in:
+                      // every spawn handler acts on the ACTIVE workspace, so
+                      // offering it on a background layer would open a tab in a
+                      // different workspace than the strip it was clicked on.
+                      onNewAgentTab={active && canOpenNewAgentTab ? openNewAgentTab : undefined}
+                      renderNewAgentPanel={active ? renderNewAgentPanel : undefined}
                     />
                   </div>
                 )

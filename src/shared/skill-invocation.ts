@@ -44,3 +44,48 @@ export function resolveSkillInvocation(
   if (!template) return undefined
   return template.replace(/\{\{\s*skillId\s*\}\}/g, skillId)
 }
+
+/**
+ * The character a person types to name a skill mid-prompt on this CLI — `/` on
+ * claude, `$` on codex — or undefined when the CLI has no in-prompt form at all
+ * (opencode's skills are named in a sentence: "Use the X skill."). A surface
+ * offering a type-ahead must treat undefined as "no trigger here" and keep a
+ * picker, never fall back to a borrowed `/`: typing one into codex writes a
+ * character that means nothing to it.
+ *
+ * Read from the manifest, never inferred from `explicitTemplate` — the
+ * character before `{{skillId}}` is `/`, `$`, and `e` for the three CLIs that
+ * ship today, which is right twice and silently wrong once.
+ */
+export function resolveSkillMentionPrefix(
+  integration: { support: PluginSkillSupport; invocation?: PluginSkillInvocation } | undefined,
+): string | undefined {
+  if (!integration || integration.support !== 'native') return undefined
+  const prefix = integration.invocation?.mentionPrefix
+  if (typeof prefix !== 'string') return undefined
+  const trimmed = prefix.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+/**
+ * What picking a skill from the type-ahead inserts at the caret: the CLI's own
+ * mention form (`/design-review`, `$design-review`). Undefined when the CLI
+ * declares no prefix, which is the same signal `resolveSkillMentionPrefix`
+ * gives — a CLI with no mention form has nothing to insert.
+ *
+ * Deliberately NOT `explicitTemplate`: that is the standalone form ("Use
+ * $design-review.") used to seed a whole prompt, and inserting a full sentence
+ * into the middle of one the user is writing would write their sentence for them.
+ */
+export function renderSkillMention(
+  integration: { support: PluginSkillSupport; invocation?: PluginSkillInvocation } | undefined,
+  skillId: string,
+): string | undefined {
+  const prefix = resolveSkillMentionPrefix(integration)
+  if (prefix === undefined) return undefined
+  const template = integration?.invocation?.mentionTemplate
+  if (!template) return `${prefix}${skillId}`
+  return template
+    .replace(/\{\{\s*mentionPrefix\s*\}\}/g, prefix)
+    .replace(/\{\{\s*skillId\s*\}\}/g, skillId)
+}
