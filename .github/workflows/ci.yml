@@ -83,6 +83,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Not incidental: `test:main:sprintengine-artifacts` refuses to mock the
+      # Sprint Engine store and spawns real Python against `sprintengine_core`,
+      # which exits with "PyYAML is required" without it. It prefers the
+      # repo-local `.venv` and falls back to system `python3` — and a runner's
+      # system python3 has no PyYAML, so the chain needs this venv to pass.
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Create repo-local venv
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt
+
       - name: Verify app (lint + JS test suite)
         run: npm run verify:app
 
