@@ -40,9 +40,9 @@ export type AgentComposerSelection =
 
 export type AgentComposerConfirm = (
   | { kind: 'terminal' }
-  | { kind: 'general'; cli: AgentCli }
-  | { kind: 'conversation' }
-  | { kind: 'specialist'; specialistId: SpecialistActionId; cli: AgentCli }
+  | { kind: 'general'; cli: AgentCli; model?: string | null }
+  | { kind: 'conversation'; provider?: { providerId: string; modelId: string; modelLabel: string } }
+  | { kind: 'specialist'; specialistId: SpecialistActionId; cli: AgentCli; model?: string | null }
 ) & {
   // Optional "+ Skill" attachment: the spawn ensure-installs it and prefills
   // the invocation as the agent's first input (never auto-sent). Terminal
@@ -148,6 +148,28 @@ export function engineNames(
   }
 }
 
+/**
+ * The installed, enabled roles in the user's order. One owner for "which roles
+ * exist right now" — the spawn picker's Role control and the Automations
+ * editor's Agent field read the same list, through the same pack enablement and
+ * ordering, so a disabled pack disappears from both at once.
+ */
+export function useSpecialistRoster(): SpecialistAction[] {
+  const specialistOrder = useWorkspaceStore((s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
+  const disabledSpecialistPacks = useWorkspaceStore(
+    (s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_PACKS,
+  )
+  const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
+  return React.useMemo(
+    () =>
+      orderSpecialistActions(
+        specialistOrder,
+        resolveEnabledSpecialists(disabledSpecialistPacks, listSpecialistPacks(sprintEngineRoleRegistry)),
+      ),
+    [specialistOrder, disabledSpecialistPacks, sprintEngineRoleRegistry],
+  )
+}
+
 type UseAgentComposerOptions = {
   // Whether the Terminal quick row is offered (spawn surfaces yes; the
   // Automations select picker no — it chooses a soul, not a runtime session).
@@ -185,11 +207,6 @@ export function useAgentComposer({
   )
   const setSpecialistModelDefault = useWorkspaceStore((s) => s.setSpecialistModelDefault)
   const setSpecialistReasoningDefault = useWorkspaceStore((s) => s.setSpecialistReasoningDefault)
-  const specialistOrder = useWorkspaceStore((s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
-  const disabledSpecialistPacks = useWorkspaceStore(
-    (s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_PACKS,
-  )
-  const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
@@ -197,14 +214,7 @@ export function useAgentComposer({
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
 
-  const specialistActions = React.useMemo(
-    () =>
-      orderSpecialistActions(
-        specialistOrder,
-        resolveEnabledSpecialists(disabledSpecialistPacks, listSpecialistPacks(sprintEngineRoleRegistry)),
-      ),
-    [specialistOrder, disabledSpecialistPacks, sprintEngineRoleRegistry],
-  )
+  const specialistActions = useSpecialistRoster()
   const agentCliOptions = React.useMemo(
     () =>
       selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
@@ -326,8 +336,14 @@ export function useAgentComposer({
     [specialistModelDefaults],
   )
 
+  // `engine` names the runtime the confirm must launch on, for a surface where
+  // the RUNTIME is the thing clicked (the spawn picker, MC-2122). Without it the
+  // confirm resolves the target's remembered engine, which is what every
+  // surface that picks an agent first still wants. It is passed explicitly
+  // rather than persisted-then-read because a spawn that writes its default and
+  // reads it back in the same event would read the value from before the write.
   const buildConfirm = React.useCallback(
-    (target: AgentComposerSelection): AgentComposerConfirm => {
+    (target: AgentComposerSelection, engine?: { cli: AgentCli; model: string | null }): AgentComposerConfirm => {
       const skill = skillAttachment ? { skill: skillAttachment } : {}
       // Worktree execution only applies to CLI agents spawned into the active
       // workspace: terminal/conversation have no agent execution.
@@ -335,12 +351,14 @@ export function useAgentComposer({
       // Connectors ride the CLI spawn's isolated-worktree runtime, so only
       // general/specialist confirms carry the attachment.
       const connector = connectorAttachment ? { connector: connectorAttachment } : {}
+      const model = engine ? { model: engine.model } : {}
       if (target.kind === 'terminal') return { kind: 'terminal' }
       if (target.kind === 'conversation') return { kind: 'conversation', ...skill }
+      const cli = engine?.cli ?? cliForSelection(target)
       if (target.kind === 'specialist') {
-        return { kind: 'specialist', specialistId: target.specialistId, cli: cliForSelection(target), ...skill, ...worktree, ...connector }
+        return { kind: 'specialist', specialistId: target.specialistId, cli, ...model, ...skill, ...worktree, ...connector }
       }
-      return { kind: 'general', cli: cliForSelection(target), ...skill, ...worktree, ...connector }
+      return { kind: 'general', cli, ...model, ...skill, ...worktree, ...connector }
     },
     [cliForSelection, skillAttachment, worktreeName, connectorAttachment],
   )
@@ -418,6 +436,10 @@ export function useAgentComposer({
     setEngineReasoning,
     agentCliOptions,
     generalCliOptions,
+    // The installed, enabled roles in the user's order — the roster the spawn
+    // picker's Role control offers, and the only roles a starred composition
+    // can name.
+    specialistActions,
     // True when this machine has no agent CLI installed: the surfaces render
     // the install route in place of the agent rows the hook withheld.
     noAgentCliInstalled,

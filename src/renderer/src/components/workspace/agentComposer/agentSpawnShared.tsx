@@ -3,9 +3,9 @@
 import { Tooltip } from '../../ui/Tooltip'
 import type { SprintEngineCliPermissionPreset } from '../../../types/workspace'
 
-// Shared, presentation-only pieces of the agent picker surfaces (the compact
-// AgentComposerPopover and the AgentComposer panel). Kept in one hookless module
-// so every surface can import them without pulling in the composer's store hook.
+// Shared, presentation-only pieces of the agent spawn surfaces (the compact
+// SpawnPicker and the AgentComposer panel). Kept in one hookless module so every
+// surface can import them without pulling in the composer's store hook.
 
 // Permission preset chips shown in the picker footer. Exported because the top
 // bar's split-button trigger tooltip names the active preset.

@@ -6,7 +6,12 @@ import { StarGlyph } from './StarGlyph'
 import { Tooltip } from './Tooltip'
 import { FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS } from './tokens'
 import { ReasoningSelector, hasReasoningAxes, reasoningTriggerLabel } from './ReasoningSelector'
-import { modelFavouriteKey, toggleModelFavourite, useModelFavourites } from './modelFavourites'
+import {
+  modelFavouriteKey,
+  parseModelFavouriteKey,
+  toggleModelFavourite,
+  useModelFavourites,
+} from './modelFavourites'
 import {
   buildModelFamilies,
   familyForModel,
@@ -44,7 +49,58 @@ const NONE_ROW_KEY = '__none__'
 // The starred rail entry. Sentinel-shaped so it cannot collide with a plugin id.
 const FAVOURITES_FILTER = '__starred__'
 
-type RailFilter = AgentCli | typeof FAVOURITES_FILTER
+// A host-supplied rail entry that is not a provider (Terminal, Conversation)
+// carries its key under this prefix, so it shares the rail's one-of-N state
+// without its key ever colliding with a plugin id or the starred sentinel.
+const EXTRA_PREFIX = '__extra__:'
+
+type RailFilter = AgentCli | typeof FAVOURITES_FILTER | string
+
+/** One row under a rail extra: a way in that is not a model. */
+export type PickerExtraRow = {
+  key: string
+  /** The row's name — the shell's own name, a conversation provider's label. */
+  name: string
+  /** The qualifying second line, when the name does not say everything. */
+  detail?: string
+  /** Render the name in the mono face — a shell name is one. */
+  mono?: boolean
+  glyph?: React.ReactNode
+  onSelect: () => void
+}
+
+/**
+ * A rail entry that is not a provider. Rendered below a divider, after the
+ * providers: these are ways into the surface that never resolve to a model, so
+ * they share the rail rather than sitting in the model list (MC-2122). While
+ * one is active the surface shows ITS rows, and any host `footer` is withheld —
+ * nothing a spawn footer configures applies to a shell or a conversation.
+ */
+export type PickerRailExtra = {
+  key: string
+  label: string
+  glyph: React.ReactNode
+  rows: PickerExtraRow[]
+  /** Shown in place of an empty list; absent means the generic empty line. */
+  emptyLabel?: string
+}
+
+/** The role a star captures alongside the model, on hosts that compose (MC-2122). */
+export type PickerComposition = {
+  /** The role the host's footer currently sets; null spawns roleless. */
+  role: { id: string; label: string } | null
+  /**
+   * The label for a role id read back out of a stored favourite. Returns null
+   * when that role is no longer installed, and the combo is withheld rather
+   * than rendered as a row whose spawn could not run.
+   */
+  roleLabel: (roleId: string) => string | null
+}
+
+// One rendered list entry: a model row, plus the role this particular entry
+// composes it with. Under a provider filter that role is the footer's; under
+// the ★ filter each entry IS one stored composition and carries its own.
+type VisibleEntry = { row: ModelRow; role: { id: string; label: string } | null; key: string }
 
 type ModelRow = {
   key: string
@@ -146,6 +202,9 @@ export function CliModelPopoverSurface({
   showReasoning = false,
   reasoningAriaLabel,
   noneRow,
+  railExtras,
+  footer,
+  composition,
 }: {
   ariaLabel: string
   options: ReadonlyArray<CliRuntimeOption>
@@ -154,8 +213,14 @@ export function CliModelPopoverSurface({
   /** Opt-in effort support: both accessors must be set for the Reasoning group to appear. */
   effectiveReasoningFor?: (cli: AgentCli) => string | undefined
   onSelectReasoning?: (cli: AgentCli, reasoning: string | null) => void
-  onSelectCli: (cli: AgentCli) => void
-  onSelectModel: (cli: AgentCli, model: string | null) => void
+  /**
+   * `role` is the composition the picked row carries (MC-2122): the role a
+   * spawn host launches this runtime as. It is the footer's role on an ordinary
+   * row and the star's own role on a ★ composition row; hosts that only pick a
+   * runtime ignore it.
+   */
+  onSelectCli: (cli: AgentCli, role?: string | null) => void
+  onSelectModel: (cli: AgentCli, model: string | null, role?: string | null) => void
   /**
    * Render the reasoning selector as a trailing row of this surface. This is
    * where the axes live for every host that opens the picker from a trigger;
@@ -179,6 +244,16 @@ export function CliModelPopoverSurface({
    * row that matches nothing typed is noise in the results.
    */
   noneRow?: { label: string; description?: string; selected: boolean; onSelect: () => void }
+  /** Non-model ways in, on the rail below a divider. See PickerRailExtra. */
+  railExtras?: ReadonlyArray<PickerRailExtra>
+  /**
+   * The host's trailing controls (the spawn footer: role, more, permissions).
+   * Withheld while a rail extra is active, because nothing it configures
+   * applies to a shell or a conversation.
+   */
+  footer?: React.ReactNode
+  /** Opt-in model+role stars. See PickerComposition. */
+  composition?: PickerComposition
 }): JSX.Element {
   const favourites = useModelFavourites()
   const favouriteSet = React.useMemo(() => new Set(favourites), [favourites])
@@ -208,23 +283,64 @@ export function CliModelPopoverSurface({
     () => buildModelRows(options, currentCli, effectiveModelFor),
     [options, currentCli, effectiveModelFor],
   )
-  const hasFavourites = rows.some((row) => favouriteSet.has(row.key))
+  const rowByKey = React.useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows])
+  const footerRole = composition?.role ?? null
+  const roleLabel = composition?.roleLabel
+  // Every stored star that still resolves on this machine, in the order they
+  // were starred. A composition whose role is no longer installed is dropped
+  // rather than rendered: its one click could not spawn what the row names.
+  const starredEntries = React.useMemo<VisibleEntry[]>(() => {
+    const entries: VisibleEntry[] = []
+    for (const key of favourites) {
+      const { baseKey, role } = parseModelFavouriteKey(key)
+      const row = rowByKey.get(baseKey)
+      if (!row) continue
+      if (!role) {
+        entries.push({ row, role: null, key })
+        continue
+      }
+      const label = roleLabel?.(role)
+      if (!label) continue
+      entries.push({ row, role: { id: role, label }, key })
+    }
+    return entries
+  }, [favourites, rowByKey, roleLabel])
+  const hasFavourites = starredEntries.length > 0
+
+  const extras = railExtras ?? []
+  const extraForFilter = extras.find((entry) => `${EXTRA_PREFIX}${entry.key}` === filter) ?? null
   // Unstarring the last favourite retires the starred rail entry underneath the
-  // filter that is pointing at it. Falling back to the current CLI is what stops
-  // that leaving an empty list beside a rail where nothing is selected — and,
-  // because the rail's tab stop follows the active entry, a rail Tab cannot
-  // reach either.
-  const filterIsLive = filter !== FAVOURITES_FILTER || hasFavourites
+  // filter that is pointing at it — and a rail extra can retire the same way
+  // (the conversation providers going away). Falling back to the current CLI is
+  // what stops that leaving an empty list beside a rail where nothing is
+  // selected — and, because the rail's tab stop follows the active entry, a
+  // rail Tab cannot reach either.
+  const filterIsLive =
+    filter === FAVOURITES_FILTER
+      ? hasFavourites
+      : filter.startsWith(EXTRA_PREFIX)
+        ? extraForFilter !== null
+        : true
   const activeFilter: RailFilter = filterIsLive ? filter : currentCli
   // Searching reaches across every provider — a name you can spell is faster
   // than a rail you have to pick first — so a live query suspends the filter
-  // rather than intersecting with it.
+  // rather than intersecting with it. It searches MODELS: the rail extras are
+  // ways in, not names anyone types.
   const searching = query.trim().length > 0
-  const visible = searching
-    ? rows.filter((row) => rowMatchesQuery(row, query))
-    : activeFilter === FAVOURITES_FILTER
-      ? rows.filter((row) => favouriteSet.has(row.key))
-      : rows.filter((row) => row.cli === activeFilter)
+  const activeExtra = !searching && filterIsLive ? extraForFilter : null
+  const composeEntry = (row: ModelRow): VisibleEntry => ({
+    row,
+    role: footerRole,
+    key: modelFavouriteKey(row.cli, row.model, footerRole?.id),
+  })
+  const visible: VisibleEntry[] = activeExtra
+    ? []
+    : searching
+      ? rows.filter((row) => rowMatchesQuery(row, query)).map(composeEntry)
+      : activeFilter === FAVOURITES_FILTER
+        ? starredEntries
+        : rows.filter((row) => row.cli === activeFilter).map(composeEntry)
+  const extraRows = activeExtra?.rows ?? []
 
   const effectiveModel = effectiveModelFor(currentCli)
   const isSelected = (row: ModelRow): boolean => {
@@ -233,7 +349,10 @@ export function CliModelPopoverSurface({
     if (row.family) return row.family.variants.some((variant) => variant.id === effectiveModel)
     return row.model === effectiveModel
   }
-  const selectedRowIndex = visible.findIndex(isSelected)
+  // The CURRENT runtime is a plain model, never a composition: a ★ row that
+  // spawns "Fable 5 as Architect" is a saved way in, not the runtime this
+  // surface is currently set to.
+  const selectedRowIndex = visible.findIndex((entry) => !entry.role && isSelected(entry.row))
 
   // ── the keyboard model (MC-2134) ─────────────────────────────────────────
   //
@@ -253,9 +372,14 @@ export function CliModelPopoverSurface({
   const [activeKey, setActiveKey] = React.useState<string | null>(null)
   const activeRowRef = React.useRef<HTMLDivElement | null>(null)
   const showNoneRow = Boolean(noneRow) && !searching
-  const navRows: Array<{ key: string; row: ModelRow | null }> = [
-    ...(showNoneRow ? [{ key: NONE_ROW_KEY, row: null }] : []),
-    ...visible.map((row) => ({ key: row.key, row })),
+  type NavRow =
+    | { key: string; kind: 'none' }
+    | { key: string; kind: 'model'; entry: VisibleEntry }
+    | { key: string; kind: 'extra'; row: PickerExtraRow }
+  const navRows: NavRow[] = [
+    ...(showNoneRow ? [{ key: NONE_ROW_KEY, kind: 'none' as const }] : []),
+    ...visible.map((entry) => ({ key: entry.key, kind: 'model' as const, entry })),
+    ...extraRows.map((row) => ({ key: row.key, kind: 'extra' as const, row })),
   ]
   const navSelectedIndex = showNoneRow
     ? noneRow?.selected
@@ -278,20 +402,23 @@ export function CliModelPopoverSurface({
     activeRowRef.current?.scrollIntoView?.({ block: 'nearest' })
   }, [activeIndex])
 
-  const choose = (row: ModelRow): void => {
+  // The role a chosen row carries: its own on a ★ composition, the footer's on
+  // every other row, and nothing at all on a host that does not compose.
+  const choose = ({ row, role }: VisibleEntry): void => {
+    const roleId = role?.id ?? null
     if (row.model === null) {
       const option = options.find((entry) => entry.value === row.cli)
-      if (option?.modelSelection) onSelectModel(row.cli, null)
-      else onSelectCli(row.cli)
+      if (option?.modelSelection) onSelectModel(row.cli, null, roleId)
+      else onSelectCli(row.cli, roleId)
       return
     }
     // Re-choosing the family that is already selected must not silently drop
     // the context window the user picked on it.
-    if (isSelected(row) && effectiveModel) {
-      onSelectModel(row.cli, effectiveModel)
+    if (!role && isSelected(row) && effectiveModel) {
+      onSelectModel(row.cli, effectiveModel, roleId)
       return
     }
-    onSelectModel(row.cli, row.model)
+    onSelectModel(row.cli, row.model, roleId)
   }
 
   // ⌘1–⌘9 pin to the first nine rows of the CURRENT filter, so the chord a row
@@ -299,16 +426,22 @@ export function CliModelPopoverSurface({
   // search field owns focus for most of the popover's life.
   const onSurfaceKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (!(event.metaKey || event.ctrlKey) || !/^[1-9]$/.test(event.key)) return
-    const row = visible[Number(event.key) - 1]
-    if (!row) return
+    // One of the two lists is always empty: a rail extra replaces the model
+    // list rather than appending to it.
+    const index = Number(event.key) - 1
+    const entry = visible[index]
+    const extra = extraRows[index]
+    if (!entry && !extra) return
     event.preventDefault()
-    choose(row)
+    if (entry) choose(entry)
+    else extra?.onSelect()
   }
 
   const chooseNav = (index: number): void => {
-    const entry = navRows[index]
-    if (!entry) return
-    if (entry.row) choose(entry.row)
+    const nav = navRows[index]
+    if (!nav) return
+    if (nav.kind === 'model') choose(nav.entry)
+    else if (nav.kind === 'extra') nav.row.onSelect()
     else noneRow?.onSelect()
   }
 
@@ -393,7 +526,13 @@ export function CliModelPopoverSurface({
     reasoningEnabled: reasoningWired,
   }
 
-  const railEntries: Array<{ key: RailFilter; label: string; glyph: React.ReactNode }> = [
+  const railEntries: Array<{
+    key: RailFilter
+    label: string
+    glyph: React.ReactNode
+    /** Opens the group of ways in that are not providers. */
+    dividedAbove?: boolean
+  }> = [
     ...(hasFavourites
       ? [
           {
@@ -407,6 +546,12 @@ export function CliModelPopoverSurface({
       key: option.value as RailFilter,
       label: option.label,
       glyph: <CliIcon cli={option.value} className="size-icon-sm" />,
+    })),
+    ...extras.map((entry, index) => ({
+      key: `${EXTRA_PREFIX}${entry.key}` as RailFilter,
+      label: entry.label,
+      glyph: entry.glyph,
+      dividedAbove: index === 0,
     })),
   ]
   const activeRail = searching ? null : activeFilter
@@ -425,18 +570,22 @@ export function CliModelPopoverSurface({
         className="flex flex-col gap-0.5 border-r border-[color:var(--border-subtle)] p-1.5"
       >
         {railEntries.map((entry, index) => (
-          <RailButton
-            key={String(entry.key)}
-            label={entry.label}
-            controls={listId}
-            selected={activeRail === entry.key}
-            // Roving tab stop: the active filter owns it, and with search
-            // suspending the filter the first entry keeps the rail reachable.
-            tabbable={activeRail === entry.key || (activeRail === null && index === 0)}
-            onSelect={() => setFilter(entry.key)}
-          >
-            {entry.glyph}
-          </RailButton>
+          <React.Fragment key={String(entry.key)}>
+            {entry.dividedAbove ? (
+              <div className="mx-0.5 my-1 h-px bg-[color:var(--border-subtle)]" aria-hidden="true" />
+            ) : null}
+            <RailButton
+              label={entry.label}
+              controls={listId}
+              selected={activeRail === entry.key}
+              // Roving tab stop: the active filter owns it, and with search
+              // suspending the filter the first entry keeps the rail reachable.
+              tabbable={activeRail === entry.key || (activeRail === null && index === 0)}
+              onSelect={() => setFilter(entry.key)}
+            >
+              {entry.glyph}
+            </RailButton>
+          </React.Fragment>
         ))}
       </div>
 
@@ -492,36 +641,68 @@ export function CliModelPopoverSurface({
               onSelect={noneRow.onSelect}
             />
           ) : null}
-          {visible.length === 0 ? (
-            noneRow && !searching ? null : (
-              <p className="px-2 py-3 text-meta text-[color:var(--text-subtle)]">
-                {searching ? 'No models match.' : 'No models here yet.'}
-              </p>
-            )
-          ) : (
-            visible.map((row, index) => {
-              const navIndex = showNoneRow ? index + 1 : index
-              return (
-                <ModelRowView
-                  key={row.key}
-                  id={optionId(navIndex)}
-                  rowRef={activeIndex === navIndex ? activeRowRef : undefined}
-                  row={row}
-                  selected={isSelected(row)}
-                  active={activeIndex === navIndex}
-                  chord={index < QUICK_SELECT_LIMIT ? index + 1 : undefined}
-                  chordModifier={chordModifier}
-                  showProvider={searching || activeFilter === FAVOURITES_FILTER}
-                  starred={favouriteSet.has(row.key)}
-                  onHighlight={() => setActiveKey(row.key)}
-                  onToggleStar={() => toggleModelFavourite(row.key)}
-                  onLeaveStar={() => searchRef.current?.focus()}
-                  onSelect={() => choose(row)}
-                />
-              )
-            })
-          )}
+          {activeExtra
+            ? extraRows.length === 0
+              ? (
+                  <p className="px-2 py-3 text-meta text-[color:var(--text-subtle)]">
+                    {activeExtra.emptyLabel ?? 'Nothing here yet.'}
+                  </p>
+                )
+              : extraRows.map((row, index) => {
+                  const navIndex = showNoneRow ? index + 1 : index
+                  return (
+                    <ExtraRowView
+                      key={row.key}
+                      id={optionId(navIndex)}
+                      rowRef={activeIndex === navIndex ? activeRowRef : undefined}
+                      row={row}
+                      active={activeIndex === navIndex}
+                      chord={index < QUICK_SELECT_LIMIT ? index + 1 : undefined}
+                      chordModifier={chordModifier}
+                      onHighlight={() => setActiveKey(row.key)}
+                      onSelect={row.onSelect}
+                    />
+                  )
+                })
+            : visible.length === 0 ? (
+                noneRow && !searching ? null : (
+                  <p className="px-2 py-3 text-meta text-[color:var(--text-subtle)]">
+                    {searching ? 'No models match.' : 'No models here yet.'}
+                  </p>
+                )
+              ) : (
+                visible.map((entry, index) => {
+                  const navIndex = showNoneRow ? index + 1 : index
+                  return (
+                    <ModelRowView
+                      key={entry.key}
+                      id={optionId(navIndex)}
+                      rowRef={activeIndex === navIndex ? activeRowRef : undefined}
+                      row={entry.row}
+                      roleTag={entry.role?.label}
+                      selected={!entry.role && isSelected(entry.row)}
+                      active={activeIndex === navIndex}
+                      chord={index < QUICK_SELECT_LIMIT ? index + 1 : undefined}
+                      chordModifier={chordModifier}
+                      showProvider={searching || activeFilter === FAVOURITES_FILTER}
+                      starred={favouriteSet.has(entry.key)}
+                      onHighlight={() => setActiveKey(entry.key)}
+                      // The star captures the row AS COMPOSED: with a role set
+                      // in the footer, starring "Fable 5" saves the pair, and
+                      // the plain model keeps its own separate entry.
+                      onToggleStar={() => toggleModelFavourite(entry.key)}
+                      onLeaveStar={() => searchRef.current?.focus()}
+                      onSelect={() => choose(entry)}
+                    />
+                  )
+                })
+              )}
         </div>
+
+        {/* The host's own trailing controls. Withheld under a rail extra:
+            nothing a spawn footer sets applies to a shell or a conversation,
+            and an inert row of controls reads as one that does. */}
+        {footer && !activeExtra ? footer : null}
 
         {showReasoning && hasReasoningAxes(reasoningAxes) ? (
           <div className="flex items-center justify-end border-t border-[color:var(--border-subtle)] px-1.5 py-1">
@@ -651,10 +832,76 @@ function NoneRowView({
   )
 }
 
+/**
+ * One row under a rail extra — a way in that is not a model (the login shell,
+ * a conversation provider). Same geometry as a model row so the list reads as
+ * one list; no star and no selection, because there is no runtime here to be
+ * current or to favourite.
+ */
+function ExtraRowView({
+  id,
+  rowRef,
+  row,
+  active,
+  chord,
+  chordModifier,
+  onHighlight,
+  onSelect,
+}: {
+  id: string
+  rowRef?: React.Ref<HTMLDivElement>
+  row: PickerExtraRow
+  active: boolean
+  chord?: number
+  chordModifier: string
+  onHighlight: () => void
+  onSelect: () => void
+}): JSX.Element {
+  return (
+    <div
+      id={id}
+      ref={rowRef}
+      role="option"
+      aria-selected={false}
+      data-model-row="true"
+      data-active={active ? 'true' : undefined}
+      onClick={onSelect}
+      onPointerEnter={onHighlight}
+      className={[
+        'interactive flex w-full cursor-pointer items-center gap-2 rounded-[5px] py-1.5 pl-2 pr-1.5 text-left',
+        active
+          ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
+      ].join(' ')}
+    >
+      <span className="grid size-icon-sm shrink-0 place-items-center text-[color:var(--text-muted)]">
+        {row.glyph}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={`block truncate text-body ${row.mono ? 'font-mono text-meta' : ''}`} title={row.name}>
+          {row.name}
+        </span>
+        {row.detail ? (
+          <span className="block truncate font-mono text-micro tracking-wide text-[color:var(--text-subtle)]">
+            {row.detail}
+          </span>
+        ) : null}
+      </span>
+      {chord ? (
+        <kbd className="shrink-0 rounded-[3px] bg-[color:var(--bg-active)] px-1 font-mono text-micro tracking-wide text-[color:var(--text-subtle)]">
+          {chordModifier}
+          {chord}
+        </kbd>
+      ) : null}
+    </div>
+  )
+}
+
 function ModelRowView({
   id,
   rowRef,
   row,
+  roleTag,
   selected,
   active,
   chord,
@@ -669,6 +916,8 @@ function ModelRowView({
   id: string
   rowRef?: React.Ref<HTMLDivElement>
   row: ModelRow
+  /** The role this row composes the model with — a ★ composition wears its name. */
+  roleTag?: string
   /** The CURRENT runtime — a persistent fact, not the keyboard highlight. */
   selected: boolean
   /** The keyboard highlight: this row is the search field's `aria-activedescendant`. */
@@ -708,8 +957,18 @@ function ModelRowView({
     >
       <CliIcon cli={row.cli} className="size-icon-sm shrink-0 text-[color:var(--text-muted)]" />
       <span className="min-w-0 flex-1">
-        <span className={`block truncate text-body ${row.mono ? 'font-mono text-meta' : ''}`} title={row.name}>
-          {row.name}
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className={`truncate text-body ${row.mono ? 'font-mono text-meta' : ''}`} title={row.name}>
+            {row.name}
+          </span>
+          {/* The role a starred composition spawns as. A tag, not a second
+              line: the line below already belongs to the runtime, and the role
+              is part of what this row IS. */}
+          {roleTag ? (
+            <span className="shrink-0 whitespace-nowrap rounded-[3px] border border-[color:var(--accent-primary)]/40 bg-[color:var(--accent-primary-soft)] px-1.5 text-micro leading-[1.5] text-[color:var(--accent-primary)]">
+              {roleTag}
+            </span>
+          ) : null}
         </span>
         {/* The second line qualifies the name; it never restates it. The
             provider appears only while the list spans more than one — under a
@@ -735,7 +994,7 @@ function ModelRowView({
         type="button"
         data-model-star="true"
         aria-pressed={starred}
-        aria-label={starred ? `Unstar ${row.name}` : `Star ${row.name}`}
+        aria-label={`${starred ? 'Unstar' : 'Star'} ${row.name}${roleTag ? ` as ${roleTag}` : ''}`}
         tabIndex={-1}
         onClick={(event) => {
           event.stopPropagation()

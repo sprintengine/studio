@@ -496,6 +496,76 @@ async function main(): Promise<void> {
     dom.window.localStorage.clear()
   })
 
+  // ── Spawn-host opt-ins (MC-2122) ────────────────────────────────────────
+  // A rail extra is a way in that is not a model, and a composition is a star
+  // that carries a role. Both are opt-in: a host that passes neither gets the
+  // surface it has always had, which every test above still drives.
+
+  await run('a rail extra replaces the model list and withholds the host footer', async () => {
+    dom.window.localStorage.clear()
+    const picked: string[] = []
+    const view = mountSurface({
+      footer: React.createElement('div', { 'data-footer': 'true' }, 'footer'),
+      railExtras: [
+        {
+          key: 'terminal',
+          label: 'Terminal',
+          glyph: React.createElement('span', null, '>_'),
+          rows: [{ key: 'shell:zsh', name: 'zsh', mono: true, onSelect: () => picked.push('zsh') }],
+        },
+      ],
+    })
+    assert.deepEqual(
+      view.tabs().map((tab) => tab.getAttribute('aria-label')),
+      ['Claude Code', 'Codex', 'Terminal'],
+      'the extra sits after the providers',
+    )
+    assert.ok(view.container.querySelector('[data-footer="true"]'), 'a model filter carries the footer')
+
+    await view.click(view.tabs()[2])
+    assert.equal(view.rows().length, 1, 'the extra owns the list while it is active')
+    assert.match(view.rows()[0]?.textContent ?? '', /zsh/, 'and the row is the one it supplied')
+    assert.equal(
+      view.container.querySelector('[data-footer="true"]'),
+      null,
+      'and the footer goes with it — nothing it configures applies here',
+    )
+    await view.click(view.rows()[0])
+    assert.deepEqual(picked, ['zsh'], 'the row acts for itself')
+    view.unmount()
+    dom.window.localStorage.clear()
+  })
+
+  await run('a star taken with a role set saves the pair, and a retired role withholds it', async () => {
+    dom.window.localStorage.clear()
+    const composition = {
+      role: { id: 'architect', label: 'Architect' },
+      roleLabel: (id: string) => (id === 'architect' ? 'Architect' : null),
+    }
+    const view = mountSurface({ composition })
+    const fableRow = view.rows().find((row) => (row.textContent ?? '').includes('Fable 5'))
+    await view.click(fableRow?.querySelector('[data-model-star="true"]'))
+    assert.equal(
+      dom.window.localStorage.getItem('multicode.model-favourites'),
+      JSON.stringify([modelFavouriteKey('claude-code', 'claude-fable-5', 'architect')]),
+      'the stored key carries the role the footer was set to',
+    )
+    await view.click(view.tabs()[0])
+    assert.match((view.rows()[0]?.textContent ?? ''), /Architect/, 'the ★ row wears the role it composes')
+    view.unmount()
+
+    // The pack is uninstalled: the composition names a role that cannot spawn.
+    __resetModelFavouritesForTest()
+    const orphaned = mountSurface({ composition: { role: null, roleLabel: () => null } })
+    assert.deepEqual(
+      orphaned.tabs().map((tab) => tab.getAttribute('aria-label')),
+      ['Claude Code', 'Codex'],
+      'a star that can no longer spawn what it names does not resurrect the ★ entry',
+    )
+    orphaned.unmount()
+    dom.window.localStorage.clear()
+  })
+
   await run('unstarring the last favourite from the ★ filter does not strand the list', async () => {
     dom.window.localStorage.clear()
     const view = mountSurface({})
