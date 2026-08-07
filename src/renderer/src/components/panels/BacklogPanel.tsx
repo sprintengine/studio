@@ -2590,177 +2590,177 @@ export function BacklogDetail({
               </span>
             </Tooltip>
             <OverflowMenu
-            ariaLabel="More actions"
-            triggerTooltip="More actions"
-            items={[
-              // The file-navigation actions were on their own buttons; folded in
-              // here they free the row down to the primary action + this menu.
-              { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(selected) },
-              { id: 'reveal-in-files', label: 'Reveal in Files', onSelect: () => actions.revealInFiles(selected) },
-              // Where the path went when it left the crumb (MC-1923). Through
-              // the app's own clipboard bridge: an Electron renderer has no
-              // permission-free `navigator.clipboard`, so that path was a
-              // silent no-op. The ABSOLUTE path, matching the two rows above it
-              // — a relative path is ambiguous across projects on a door.
-              {
-                id: 'copy-path',
-                label: 'Copy path',
-                onSelect: () => {
-                  void window.api?.clipboardWriteText?.(selected.path)
+              ariaLabel="More actions"
+              triggerTooltip="More actions"
+              items={[
+                // The file-navigation actions were on their own buttons; folded in
+                // here they free the row down to the primary action + this menu.
+                { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(selected) },
+                { id: 'reveal-in-files', label: 'Reveal in Files', onSelect: () => actions.revealInFiles(selected) },
+                // Where the path went when it left the crumb (MC-1923). Through
+                // the app's own clipboard bridge: an Electron renderer has no
+                // permission-free `navigator.clipboard`, so that path was a
+                // silent no-op. The ABSOLUTE path, matching the two rows above it
+                // — a relative path is ambiguous across projects on a door.
+                {
+                  id: 'copy-path',
+                  label: 'Copy path',
+                  onSelect: () => {
+                    void window.api?.clipboardWriteText?.(selected.path)
+                  },
                 },
-              },
-              // Same Send-to-agent flyout as the row's right-click menu (shared
-              // choice list, liveness refresh on open, shared send path), so an
-              // item can be handed off from inside its detail too.
-              {
-                kind: 'flyout' as const,
-                id: 'send-to-agent',
-                label: 'Send to agent',
-                ariaLabel: 'Send to agent',
-                surfaceClassName: 'min-w-[200px]',
-                onOpenChange: (open: boolean) => {
-                  if (open) onAgentFlyoutOpen()
+                // Same Send-to-agent flyout as the row's right-click menu (shared
+                // choice list, liveness refresh on open, shared send path), so an
+                // item can be handed off from inside its detail too.
+                {
+                  kind: 'flyout' as const,
+                  id: 'send-to-agent',
+                  label: 'Send to agent',
+                  ariaLabel: 'Send to agent',
+                  surfaceClassName: 'min-w-[200px]',
+                  onOpenChange: (open: boolean) => {
+                    if (open) onAgentFlyoutOpen()
+                  },
+                  render: (close: () => void) => (
+                    <AgentTargetMenuItems
+                      agentTargets={agentTargets}
+                      agentSessions={agentSessions}
+                      onPick={(sessionId) => {
+                        onSendToAgent(selected, sessionId)
+                        close()
+                      }}
+                    />
+                  ),
                 },
-                render: (close: () => void) => (
-                  <AgentTargetMenuItems
-                    agentTargets={agentTargets}
-                    agentSessions={agentSessions}
-                    onPick={(sessionId) => {
-                      onSendToAgent(selected, sessionId)
-                      close()
-                    }}
-                  />
-                ),
-              },
-              { kind: 'separator' as const, id: 'sep-files' },
-              // Triage editors, moved out of the detail body into flyout submenus
-              // so the pane opens straight to content. Same choice lists, checks,
-              // and handlers as the row's right-click menu — each choice applies
-              // then closes the whole menu.
-              {
-                kind: 'flyout' as const,
-                id: 'set-status',
-                label: 'Status',
-                ariaLabel: 'Set status',
-                surfaceClassName: 'min-w-[180px]',
-                render: (close: () => void) =>
-                  STATUS_MENU_CHOICES.map((status) => (
-                    <MenuItem
-                      key={status}
-                      checked={selected.status === status}
-                      icon={<MenuCheckGlyph visible={selected.status === status} />}
-                      onClick={() => {
-                        actions.setStatus(selected, status)
-                        close()
-                      }}
-                    >
-                      {BACKLOG_STATUS_LABEL[status]}
-                    </MenuItem>
-                  )),
-              },
-              {
-                kind: 'flyout' as const,
-                id: 'set-priority',
-                label: 'Priority',
-                ariaLabel: 'Set priority',
-                surfaceClassName: 'min-w-[180px]',
-                render: (close: () => void) =>
-                  CRITICALITY_EDIT_ITEMS.map(({ value, label }) => (
-                    <MenuItem
-                      key={value}
-                      checked={(selected.criticality ?? 'unset') === value}
-                      icon={<MenuCheckGlyph visible={(selected.criticality ?? 'unset') === value} />}
-                      onClick={() => {
-                        actions.setCriticality(selected, value)
-                        close()
-                      }}
-                    >
-                      {label}
-                    </MenuItem>
-                  )),
-              },
-              {
-                kind: 'flyout' as const,
-                id: 'set-size',
-                label: 'Size',
-                ariaLabel: 'Set size',
-                surfaceClassName: 'min-w-[180px]',
-                render: (close: () => void) =>
-                  DIFFICULTY_EDIT_ITEMS.map(({ value, label }) => (
-                    <MenuItem
-                      key={value}
-                      checked={(selected.difficulty ?? 'unset') === value}
-                      icon={<MenuCheckGlyph visible={(selected.difficulty ?? 'unset') === value} />}
-                      onClick={() => {
-                        actions.setDifficulty(selected, value)
-                        close()
-                      }}
-                    >
-                      {label}
-                    </MenuItem>
-                  )),
-              },
-              {
-                kind: 'flyout' as const,
-                id: 'set-risk',
-                label: 'Risk',
-                ariaLabel: 'Set risk',
-                surfaceClassName: 'min-w-[180px]',
-                render: (close: () => void) =>
-                  RISK_EDIT_ITEMS.map(({ value, label }) => (
-                    <MenuItem
-                      key={value}
-                      checked={(selected.risk ?? 'unset') === value}
-                      icon={<MenuCheckGlyph visible={(selected.risk ?? 'unset') === value} />}
-                      onClick={() => {
-                        actions.setRisk(selected, value)
-                        close()
-                      }}
-                    >
-                      {label}
-                    </MenuItem>
-                  )),
-              },
-              { kind: 'separator' as const, id: 'sep-triage' },
-              ...(selected.status !== 'archived' && selected.status !== 'completed'
-                ? [{ id: 'mark-completed', label: 'Mark completed', onSelect: () => actions.setStatus(selected, 'completed') }]
-                : []),
-              ...(primaryRunLink
-                ? [{ id: 'unlink-sprint', label: 'Unlink sprint…', onSelect: () => actions.removeLink(selected, primaryRunLink) }]
-                : []),
-              {
-                id: 'star',
-                label: selected.highlight?.starred ? 'Unstar' : 'Star',
-                onSelect: () =>
-                  actions.setHighlight(selected, {
-                    starred: !selected.highlight?.starred,
-                    color: selected.highlight?.color ?? null,
-                  }),
-              },
-              // An epic carries an identity colour; it rides here as a swatch row
-              // (same control as the row's Highlight colour) instead of a section
-              // in the body, so the epic detail opens straight to its children.
-              ...(selected.isEpic
-                ? [
-                    {
-                      kind: 'swatch' as const,
-                      id: 'epic-color',
-                      label: 'Epic color',
-                      value: currentEpicColor,
-                      onPick: (color: BacklogHighlightColor) => actions.setEpicColor(selected, color),
-                      onClear: () => actions.setEpicColor(selected, null),
-                    },
-                  ]
-                : []),
-              { id: 'rename', label: 'Rename…', onSelect: () => actions.rename(selected) },
-              ...(selected.status === 'archived'
-                ? []
-                : selected.isEpic
-                  ? [{ id: 'archive-epic', label: 'Archive epic', onSelect: () => actions.archiveEpic(selected) }]
-                  : [{ id: 'archive', label: 'Archive', onSelect: () => actions.archive(selected) }]),
-              { kind: 'separator' as const, id: 'sep' },
-              { id: 'delete', label: 'Delete…', destructive: true, onSelect: () => actions.remove(selected) },
-            ]}
+                { kind: 'separator' as const, id: 'sep-files' },
+                // Triage editors, moved out of the detail body into flyout submenus
+                // so the pane opens straight to content. Same choice lists, checks,
+                // and handlers as the row's right-click menu — each choice applies
+                // then closes the whole menu.
+                {
+                  kind: 'flyout' as const,
+                  id: 'set-status',
+                  label: 'Status',
+                  ariaLabel: 'Set status',
+                  surfaceClassName: 'min-w-[180px]',
+                  render: (close: () => void) =>
+                    STATUS_MENU_CHOICES.map((status) => (
+                      <MenuItem
+                        key={status}
+                        checked={selected.status === status}
+                        icon={<MenuCheckGlyph visible={selected.status === status} />}
+                        onClick={() => {
+                          actions.setStatus(selected, status)
+                          close()
+                        }}
+                      >
+                        {BACKLOG_STATUS_LABEL[status]}
+                      </MenuItem>
+                    )),
+                },
+                {
+                  kind: 'flyout' as const,
+                  id: 'set-priority',
+                  label: 'Priority',
+                  ariaLabel: 'Set priority',
+                  surfaceClassName: 'min-w-[180px]',
+                  render: (close: () => void) =>
+                    CRITICALITY_EDIT_ITEMS.map(({ value, label }) => (
+                      <MenuItem
+                        key={value}
+                        checked={(selected.criticality ?? 'unset') === value}
+                        icon={<MenuCheckGlyph visible={(selected.criticality ?? 'unset') === value} />}
+                        onClick={() => {
+                          actions.setCriticality(selected, value)
+                          close()
+                        }}
+                      >
+                        {label}
+                      </MenuItem>
+                    )),
+                },
+                {
+                  kind: 'flyout' as const,
+                  id: 'set-size',
+                  label: 'Size',
+                  ariaLabel: 'Set size',
+                  surfaceClassName: 'min-w-[180px]',
+                  render: (close: () => void) =>
+                    DIFFICULTY_EDIT_ITEMS.map(({ value, label }) => (
+                      <MenuItem
+                        key={value}
+                        checked={(selected.difficulty ?? 'unset') === value}
+                        icon={<MenuCheckGlyph visible={(selected.difficulty ?? 'unset') === value} />}
+                        onClick={() => {
+                          actions.setDifficulty(selected, value)
+                          close()
+                        }}
+                      >
+                        {label}
+                      </MenuItem>
+                    )),
+                },
+                {
+                  kind: 'flyout' as const,
+                  id: 'set-risk',
+                  label: 'Risk',
+                  ariaLabel: 'Set risk',
+                  surfaceClassName: 'min-w-[180px]',
+                  render: (close: () => void) =>
+                    RISK_EDIT_ITEMS.map(({ value, label }) => (
+                      <MenuItem
+                        key={value}
+                        checked={(selected.risk ?? 'unset') === value}
+                        icon={<MenuCheckGlyph visible={(selected.risk ?? 'unset') === value} />}
+                        onClick={() => {
+                          actions.setRisk(selected, value)
+                          close()
+                        }}
+                      >
+                        {label}
+                      </MenuItem>
+                    )),
+                },
+                { kind: 'separator' as const, id: 'sep-triage' },
+                ...(selected.status !== 'archived' && selected.status !== 'completed'
+                  ? [{ id: 'mark-completed', label: 'Mark completed', onSelect: () => actions.setStatus(selected, 'completed') }]
+                  : []),
+                ...(primaryRunLink
+                  ? [{ id: 'unlink-sprint', label: 'Unlink sprint…', onSelect: () => actions.removeLink(selected, primaryRunLink) }]
+                  : []),
+                {
+                  id: 'star',
+                  label: selected.highlight?.starred ? 'Unstar' : 'Star',
+                  onSelect: () =>
+                    actions.setHighlight(selected, {
+                      starred: !selected.highlight?.starred,
+                      color: selected.highlight?.color ?? null,
+                    }),
+                },
+                // An epic carries an identity colour; it rides here as a swatch row
+                // (same control as the row's Highlight colour) instead of a section
+                // in the body, so the epic detail opens straight to its children.
+                ...(selected.isEpic
+                  ? [
+                      {
+                        kind: 'swatch' as const,
+                        id: 'epic-color',
+                        label: 'Epic color',
+                        value: currentEpicColor,
+                        onPick: (color: BacklogHighlightColor) => actions.setEpicColor(selected, color),
+                        onClear: () => actions.setEpicColor(selected, null),
+                      },
+                    ]
+                  : []),
+                { id: 'rename', label: 'Rename…', onSelect: () => actions.rename(selected) },
+                ...(selected.status === 'archived'
+                  ? []
+                  : selected.isEpic
+                    ? [{ id: 'archive-epic', label: 'Archive epic', onSelect: () => actions.archiveEpic(selected) }]
+                    : [{ id: 'archive', label: 'Archive', onSelect: () => actions.archive(selected) }]),
+                { kind: 'separator' as const, id: 'sep' },
+                { id: 'delete', label: 'Delete…', destructive: true, onSelect: () => actions.remove(selected) },
+              ]}
             />
           </div>
         </div>
