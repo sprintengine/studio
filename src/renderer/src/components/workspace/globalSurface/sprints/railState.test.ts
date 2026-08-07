@@ -5,6 +5,7 @@ import {
   buildSprintRailRows,
   deriveSprintProjectChips,
   sprintDoorAttention,
+  sprintRunOpenFailureCopy,
   sprintRunShortDate,
   sprintRunStateLine,
   sprintRunStatusLabel,
@@ -288,6 +289,30 @@ run('idle and unreadable runs stay listed with honest plain-language lines', () 
   )
   assert.equal(unreadable, 'multicode · details unavailable')
   assert.ok(!/malformed|Error|null|undefined/u.test(unreadable), 'no raw reason leaks into the rail')
+})
+
+// ── The canvas copy for a run that will not open ─────────────────────────────
+run('a store this build is too old to read fails permanently, never "temporary"', () => {
+  const tooOld = sprintRunOpenFailureCopy(
+    summary({
+      teamSlug: 'ancient',
+      runtimeState: 'unknown',
+      unknownReason: 'This sprint was created by an older version of Multicode…',
+      unknownKind: 'unsupported_store',
+    }),
+  )
+  assert.match(tooOld.title, /can’t be opened/u)
+  assert.ok(!/temporary/u.test(tooOld.hint), 'a permanent rejection is never called temporary')
+  assert.match(tooOld.hint, /[Dd]elete/u, 'the remedy is named once, in the hint')
+  assert.notEqual(tooOld.retryLabel, 'Try again', 'a retry that can only fail is not "Try again"')
+
+  const transient = sprintRunOpenFailureCopy(
+    summary({ teamSlug: 'mid-write', runtimeState: 'unknown', unknownReason: 'Run projection is malformed.' }),
+  )
+  assert.match(transient.hint, /usually temporary/u)
+  assert.equal(transient.retryLabel, 'Try again')
+  // The rail line is unchanged by either: both are still "details unavailable".
+  assert.match(sprintRunStateLine(summary({ teamSlug: 'ancient', runtimeState: 'unknown' })), /details unavailable/u)
 })
 
 // ── Row identity ────────────────────────────────────────────────────────────

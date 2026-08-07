@@ -222,6 +222,34 @@ export function sprintRunStateLine(summary: SprintRunSummary): string {
   return `${sprintRunProjectPhrase(summary)} · ${statePhrase(summary)}`
 }
 
+export type SprintRunOpenFailureCopy = {
+  title: string
+  hint: string
+  retryLabel: string
+}
+
+/**
+ * What the canvas says when the selected run will not open (MC-2063). Two cases,
+ * and telling them apart is the whole point: a store this build is too new to
+ * read is PERMANENT and carries its own remedy (delete the directory, named once
+ * in `detail`), so promising "usually temporary" and offering "Try again" is a
+ * false affordance. Everything else really is usually a mid-write read.
+ */
+export function sprintRunOpenFailureCopy(summary: SprintRunSummary): SprintRunOpenFailureCopy {
+  if (summary.unknownKind === 'unsupported_store') {
+    return {
+      title: 'This sprint can’t be opened by this version of Multicode.',
+      hint: 'Its run store is too old to read, and old stores are never upgraded. Delete the sprint’s folder and start it again — the path is in the details.',
+      retryLabel: 'Check again',
+    }
+  }
+  return {
+    title: 'Couldn’t open this sprint.',
+    hint: 'Its run store is on disk but could not be read just now — this is usually temporary.',
+    retryLabel: 'Try again',
+  }
+}
+
 // Whether a run matches the rail's search query — team name or project name,
 // case-insensitive substring. An empty/whitespace query matches everything.
 export function sprintRunMatchesSearch(summary: SprintRunSummary, query: string): boolean {
