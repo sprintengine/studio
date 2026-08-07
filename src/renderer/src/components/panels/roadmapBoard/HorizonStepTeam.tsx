@@ -35,7 +35,6 @@ import {
   DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
   DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
   NO_ROLES_ROSTER_ID,
-  NO_ROLES_ROSTER_NAME,
   activeSprintEngineRoleIds,
   findSavedSprintEngineRoster,
   isNoRolesRosterRef,
@@ -172,8 +171,9 @@ export function HorizonStepTeam({
 function PlainAgentsSummary({ cliLabel }: { cliLabel: string | null }): JSX.Element {
   return (
     <p className="text-micro leading-4 text-[color:var(--text-muted)]">
-      {NO_ROLES_ROSTER_NAME} — one agent per task, up to {SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS}{' '}
-      at once
+      {/* The picker beside this already names the team, so the line says what
+          the choice MEANS and never repeats "No roles" back. */}
+      One agent per task, up to {SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS} at once
       {/* No runtime resolved is not a runtime we can name: the sentence stops
           rather than inventing one. */}
       {cliLabel ? (
