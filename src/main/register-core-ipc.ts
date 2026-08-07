@@ -70,8 +70,10 @@ export function registerCoreIpc(
     confirmWindowClose: confirmWorkspaceWindowClose,
     openAuxWindow,
   })
-  registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService)
-  registerAutomationIpc(ipcMain, services.automationService, services.automationDelegate)
+  registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService, {
+    registry: services.workspaceRegistry,
+  })
+  registerAutomationIpc(ipcMain, services.automationService)
   registerAppMenuIpc(ipcMain)
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
   registerClipboardIpc(ipcMain)

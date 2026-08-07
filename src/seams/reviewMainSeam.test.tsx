@@ -227,7 +227,7 @@ async function testBriefLandingReleasesTheGuideTerminal(): Promise<void> {
           sessions.push(guideSession(payload.sessionId, payload.agentId ?? ''))
           return { ok: true, sessionId: payload.sessionId }
         },
-        write: () => {},
+        sendPrompt: async () => ({ ok: true }),
         kill: (sessionId: string) => kills.push(sessionId),
         setReapExempt: (sessionId: string, exempt: boolean) => reapExempt.push({ sessionId, exempt }),
         onAgentSessionExit: () => () => {},
@@ -235,7 +235,6 @@ async function testBriefLandingReleasesTheGuideTerminal(): Promise<void> {
       resolveSkillInvocation: () => '/review-guide',
       emit: (event) => guideEvents.push(event),
       guideRuns,
-      delay: async () => {},
     })
 
     // The gateway's brief sink as review-module builds it: record the run

@@ -5,7 +5,7 @@ import {
   worktreeContainerPath,
 } from '../../../shared/worktree-paths'
 import { DEFAULT_SPRINTENGINE_TASK_REPO } from '../../../shared/sprintengine/run-types'
-import type { AgentExecutionMode, McpServerConfig, McpSettings, Workspace } from '../types/workspace'
+import type { AgentExecutionMode, Workspace } from '../types/workspace'
 
 // Pure worktree path/branch derivation now lives in the node-free shared module
 // so the main process can reuse it (agent-at-launch worktrees over the App
@@ -322,10 +322,11 @@ export function connectorWorktreePaths(
  * spawn writes the worktree .mcp.json from it) and exactly that one server — this
  * carries no other MCP, so the spawn's per-worktree config never syncs anything
  * beyond the connector. Never merge this into the global appSettings.mcp.
+ *
+ * Lives in `src/shared/connector-launch.ts` since MC-2159 so the main-process
+ * AgentLaunchService writes the identical isolated config headless.
  */
-export function connectorMcpSettings(server: McpServerConfig): McpSettings {
-  return { syncEnabled: true, servers: { [server.id]: server } }
-}
+export { connectorMcpSettings } from '../../../shared/connector-launch'
 
 /** The seeded first turn: the skill invocation (when available) then the instruction. */
 export function connectorStartupPrompt(invocation: string | undefined, instruction: string): string {

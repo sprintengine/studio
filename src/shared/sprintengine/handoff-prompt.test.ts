@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildPlanFileSprintEngineHandoffPrompt } from './sprintengineHandoff'
+import { buildPlanFileSprintEngineHandoffPrompt } from './handoff-prompt'
 
 const CLI_INSTRUCTION_PATTERN = /sprintengine (join|task|gate|triage|init|handover)/
 
@@ -419,7 +419,7 @@ function main(): void {
   testMockupBundleItemsGetTheMockupDirectiveAndRootStaysListed()
   testSupportOnlyBundleDoesNotReclassifyThePlanSource()
   testRootSourceLineIsNotDuplicatedWhenRootIsABundleItem()
-  console.log('sprintengineHandoff.test.ts: ok')
+  console.log('handoff-prompt.test.ts: ok')
 }
 
 main()

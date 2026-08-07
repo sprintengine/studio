@@ -5,6 +5,7 @@ import type { WorkspaceBackupPayload } from '../../../shared/electron-api'
 import { defaultAuthState } from './slices/authSlice'
 import { defaultAgent } from './slices/agentsSlice'
 import { normalizeWorkspaceForPartialize } from './slices/normalizers'
+import { normalizeWorkspaceForRegistry } from '../../../shared/workspace-registry'
 
 type RegistryRecord = {
   state: {
@@ -132,6 +133,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 })
 
 const {
+  WORKSPACE_STORE_VERSION,
   useWorkspaceStore,
   __workspaceStoreBackupRecoveryPromise,
   __workspaceStoreRunBackupRecoveryForTests,
@@ -158,22 +160,42 @@ assert.equal(coldLoadDiag.storageSource, 'localStorage')
 assert.equal(coldLoadDiag.classification, 'present')
 assert.equal(coldLoadDiag.hydratedWorkspaceCount, 1)
 
-// Trigger a workspace mutation to force the storage adapter to write the
-// v46 registry-only shape into multicode-workspaces.
+// The registry key is FROZEN (MC-2158): main owns the registry, so a workspace
+// mutation no longer rewrites multicode-workspaces. The key keeps its last
+// written value for one release as the rollback artifact, and the release after
+// this deletes it.
+const frozenRegistryRaw = stored['multicode-workspaces']
 useWorkspaceStore.getState().renameWorkspace(persistedWorkspace.id, 'Retained Workspace')
 await new Promise<void>((resolve) => setTimeout(resolve, 50))
-const newRegistry = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
-assert.equal(newRegistry.state.workspaces.length, 1)
-assert.equal((newRegistry.state as unknown as { appSettings?: unknown }).appSettings, undefined,
-  'registry envelope no longer carries appSettings after migration')
+assert.equal(
+  stored['multicode-workspaces'],
+  frozenRegistryRaw,
+  'a workspace rename does not write the legacy registry key: main persists the registry now',
+)
+assert.equal(
+  useWorkspaceStore.getState().workspaces[0]?.name,
+  'Retained Workspace',
+  'the rename still lands in memory and is asked of main through the sync bus',
+)
 
 // ── CASE 2 ──────────────────────────────────────────────────────────────────
-// Non-workspace writes must not touch multicode-workspaces. The construction-
-// time guarantee is enforced by dedup: settings-only changes produce an
-// identical registry payload, so the registry localStorage key is left exactly
-// as it was. Agent resume identity is durable state, so launch reconciliation
-// is tested separately below and is allowed to rewrite the registry.
+// The split still holds, in the direction that is left: the renderer owns the
+// SETTINGS key and still writes it, while the registry key is never written at
+// all. Both halves are asserted, because "nothing is written" would also be
+// satisfied by a persistence layer that had stopped working entirely.
 const settingsRawBefore = stored['multicode-app-settings']
+useWorkspaceStore.getState().setSidebarCollapsed(false)
+await new Promise<void>((resolve) => setTimeout(resolve, 50))
+assert.notEqual(
+  stored['multicode-app-settings'],
+  settingsRawBefore,
+  'a settings change still writes the app-settings key: the renderer owns settings',
+)
+assert.equal(
+  stored['multicode-workspaces'],
+  frozenRegistryRaw,
+  'and it still does not touch the frozen registry key',
+)
 
 // Pre-seed an agent into the live store so reconcileWorkspaceAgentLaunchFlags
 // has something real to mutate. Durable resume fields (cliStartRequested,
@@ -201,15 +223,19 @@ useWorkspaceStore.setState((current) => ({
   }),
 }))
 const registryRawBefore = stored['multicode-workspaces']
-const registryWithResumeState = JSON.parse(registryRawBefore) as RegistryRecord
-const persistedAgentBeforeReconcile = registryWithResumeState.state.workspaces[0]?.agents['agent-1'] as
-  | Partial<AgentState>
-  | undefined
-assert.equal(persistedAgentBeforeReconcile?.cliStartRequested, true)
-assert.equal(persistedAgentBeforeReconcile?.cliHasLaunched, true)
-assert.equal(persistedAgentBeforeReconcile?.cliSessionId, 'session-stale')
-assert.equal(persistedAgentBeforeReconcile?.cliResumeAvailable, true)
-assert.equal(persistedAgentBeforeReconcile?.cliRestartNonce, 0)
+// Durable resume identity is main's to persist now, so it is asserted against
+// the normalized record main receives rather than the frozen localStorage key.
+// The strip rules are unchanged — `normalizeWorkspaceForRegistry` mirrors
+// `normalizeWorkspaceForPartialize` field for field, which is why cliSessionId
+// survives and cliRestartNonce does not.
+const durableAgent = normalizeWorkspaceForRegistry(
+  useWorkspaceStore.getState().workspaces[0]!,
+).agents['agent-1'] as Partial<AgentState> | undefined
+assert.equal(durableAgent?.cliStartRequested, true)
+assert.equal(durableAgent?.cliHasLaunched, true)
+assert.equal(durableAgent?.cliSessionId, 'session-stale')
+assert.equal(durableAgent?.cliResumeAvailable, true)
+assert.equal(durableAgent?.cliRestartNonce, 0)
 
 const startupWriteSurfaces: Array<{ label: string; mutate: () => void }> = [
   {
@@ -254,258 +280,19 @@ assert.equal(liveAgentAfter!.cliHasLaunched, true, 'reconciliation preserved cli
 assert.equal(liveAgentAfter!.cliSessionId, 'session-stale', 'reconciliation preserved cliSessionId in memory')
 assert.equal(liveAgentAfter!.cliResumeAvailable, true, 'reconciliation preserved cliResumeAvailable in memory')
 
-const registryAfterReconcile = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
-const persistedAgentAfterReconcile = registryAfterReconcile.state.workspaces[0]?.agents['agent-1'] as
-  | Partial<AgentState>
-  | undefined
-assert.equal(persistedAgentAfterReconcile?.cliStartRequested, true)
-assert.equal(persistedAgentAfterReconcile?.cliHasLaunched, true)
-assert.equal(persistedAgentAfterReconcile?.cliSessionId, 'session-stale')
-assert.equal(persistedAgentAfterReconcile?.cliResumeAvailable, true)
+const durableAgentAfterReconcile = normalizeWorkspaceForRegistry(
+  useWorkspaceStore.getState().workspaces[0]!,
+).agents['agent-1'] as Partial<AgentState> | undefined
+assert.equal(durableAgentAfterReconcile?.cliStartRequested, true)
+assert.equal(durableAgentAfterReconcile?.cliHasLaunched, true)
+assert.equal(durableAgentAfterReconcile?.cliSessionId, 'session-stale')
+assert.equal(durableAgentAfterReconcile?.cliResumeAvailable, true)
 
-// ── CASE 2b ─────────────────────────────────────────────────────────────────
-// Cross-window storage imports are still the temporary live-sync path during
-// migration. A stale snapshot from another renderer must not erase terminal
-// session identity for workspaces owned by the current window, and a newer
-// foreign active selection must not replace a more recent local window-scoped
-// active selection.
-const locallyOwnedWorkspace = {
-  ...persistedWorkspace,
-  id: 'ws-local-owned',
-  name: 'Local Owned',
-  agents: {
-    'agent-1': {
-      ...(persistedWorkspace.agents['agent-1'] as AgentState),
-      cliSessionId: 'session-local-owned',
-      cliStartRequested: true,
-      cliHasLaunched: true,
-      cliResumeAvailable: true,
-    },
-  },
-} as Workspace
-const sameFolderWorkspace = {
-  ...persistedWorkspace,
-  id: 'ws-same-window',
-  name: 'Same Window',
-  agents: {},
-} as Workspace
-;(globalThis.window as unknown as { location: { href: string } }).location.href =
-  'http://localhost/?windowId=detached-local'
-useWorkspaceStore.setState({
-  workspaces: [locallyOwnedWorkspace, sameFolderWorkspace],
-  activeWorkspaceId: locallyOwnedWorkspace.id,
-  workspaceWindows: [
-    {
-      id: 'primary',
-      kind: 'primary',
-      workspaceIds: [],
-      activeWorkspaceId: null,
-      bounds: null,
-      isMaximized: false,
-      displayId: null,
-      createdAt: 1,
-      lastFocusedAt: 1,
-    },
-    {
-      id: 'detached-local',
-      kind: 'detached',
-      workspaceIds: [locallyOwnedWorkspace.id, sameFolderWorkspace.id],
-      activeWorkspaceId: locallyOwnedWorkspace.id,
-      bounds: null,
-      isMaximized: false,
-      displayId: null,
-      createdAt: 1,
-      lastFocusedAt: 50,
-    },
-  ],
-})
-const staleRegistryImport = JSON.stringify({
-  state: {
-    workspaces: [
-      {
-        ...locallyOwnedWorkspace,
-        agents: {
-          'agent-1': {
-            ...(locallyOwnedWorkspace.agents['agent-1'] as AgentState),
-            cliSessionId: undefined,
-            cliStartRequested: false,
-            cliHasLaunched: false,
-            cliResumeAvailable: false,
-          },
-        },
-      },
-      sameFolderWorkspace,
-    ],
-    activeWorkspaceId: sameFolderWorkspace.id,
-    primaryWorkspaceWindowId: 'primary',
-    workspaceWindows: [
-      {
-        id: 'primary',
-        kind: 'primary',
-        workspaceIds: [],
-        activeWorkspaceId: null,
-        bounds: null,
-        isMaximized: false,
-        displayId: null,
-        createdAt: 1,
-        lastFocusedAt: 1,
-      },
-      {
-        id: 'detached-local',
-        kind: 'detached',
-        workspaceIds: [locallyOwnedWorkspace.id, sameFolderWorkspace.id],
-        activeWorkspaceId: sameFolderWorkspace.id,
-        bounds: null,
-        isMaximized: false,
-        displayId: null,
-        createdAt: 1,
-        lastFocusedAt: 10,
-      },
-    ],
-    workspaceRegistryEmptyState: null,
-  },
-  version: 46,
-} satisfies RegistryRecord)
-for (const listener of storageListeners) {
-  listener({ key: 'multicode-workspaces', newValue: staleRegistryImport })
-}
-const afterStorageImport = useWorkspaceStore.getState()
-const preservedAgent = afterStorageImport.workspaces.find((workspace) => workspace.id === locallyOwnedWorkspace.id)
-  ?.agents['agent-1'] as Partial<AgentState> | undefined
-assert.equal(
-  preservedAgent?.cliSessionId,
-  'session-local-owned',
-  'stale storage snapshot cannot erase cliSessionId for a workspace owned by the current window',
-)
-assert.equal(preservedAgent?.cliStartRequested, true)
-assert.equal(preservedAgent?.cliHasLaunched, true)
-assert.equal(preservedAgent?.cliResumeAvailable, true)
-assert.equal(
-  afterStorageImport.workspaceWindows.find((windowState) => windowState.id === 'detached-local')?.activeWorkspaceId,
-  locallyOwnedWorkspace.id,
-  'current-window active workspace selection stays scoped when the incoming snapshot is older',
-)
-
-const foreignSpecialistWorkspace = {
-  ...persistedWorkspace,
-  id: 'ws-foreign-specialist',
-  name: 'Foreign Specialist Workspace',
-  agents: {
-    'specialist-architect-1': {
-      ...(persistedWorkspace.agents['agent-1'] as AgentState),
-      id: 'specialist-architect-1',
-      name: 'Architect',
-      kind: 'specialist',
-      specialistId: 'architect',
-      cli: 'codex',
-      cliStartupPrompt: 'architect startup prompt',
-      cliStartRequested: false,
-      cliHasLaunched: false,
-      cliSessionId: undefined,
-      cliResumeAvailable: false,
-      cliOnboardingPromptSent: false,
-    },
-  },
-} as Workspace
-const specialistCreationImport = JSON.stringify({
-  state: {
-    workspaces: [
-      {
-        ...locallyOwnedWorkspace,
-        agents: {
-          'agent-1': {
-            ...(locallyOwnedWorkspace.agents['agent-1'] as AgentState),
-            cliSessionId: undefined,
-            cliStartRequested: false,
-            cliHasLaunched: false,
-            cliResumeAvailable: false,
-          },
-        },
-      },
-      sameFolderWorkspace,
-      foreignSpecialistWorkspace,
-    ],
-    activeWorkspaceId: foreignSpecialistWorkspace.id,
-    primaryWorkspaceWindowId: 'primary',
-    workspaceWindows: [
-      {
-        id: 'primary',
-        kind: 'primary',
-        workspaceIds: [foreignSpecialistWorkspace.id],
-        activeWorkspaceId: foreignSpecialistWorkspace.id,
-        bounds: null,
-        isMaximized: false,
-        displayId: null,
-        createdAt: 1,
-        lastFocusedAt: 60,
-      },
-      {
-        id: 'detached-local',
-        kind: 'detached',
-        workspaceIds: [locallyOwnedWorkspace.id, sameFolderWorkspace.id],
-        activeWorkspaceId: sameFolderWorkspace.id,
-        bounds: null,
-        isMaximized: false,
-        displayId: null,
-        createdAt: 1,
-        lastFocusedAt: 10,
-      },
-    ],
-    workspaceRegistryEmptyState: null,
-  },
-  version: 46,
-} satisfies RegistryRecord)
-for (const listener of storageListeners) {
-  listener({ key: 'multicode-workspaces', newValue: specialistCreationImport })
-}
-const afterSpecialistCreationImport = useWorkspaceStore.getState()
-const preservedAgentAfterSpecialistCreation = afterSpecialistCreationImport.workspaces.find((workspace) => workspace.id === locallyOwnedWorkspace.id)
-  ?.agents['agent-1'] as Partial<AgentState> | undefined
-assert.equal(
-  preservedAgentAfterSpecialistCreation?.cliSessionId,
-  'session-local-owned',
-  'foreign specialist creation snapshot cannot erase cliSessionId for the current-window workspace',
-)
-assert.equal(preservedAgentAfterSpecialistCreation?.cliStartRequested, true)
-assert.equal(
-  afterSpecialistCreationImport.workspaces.find((workspace) => workspace.id === foreignSpecialistWorkspace.id)
-    ?.agents['specialist-architect-1']?.kind,
-  'specialist',
-  'foreign-window specialist creation is still imported',
-)
-assert.equal(
-  afterSpecialistCreationImport.workspaceWindows.find((windowState) => windowState.id === 'detached-local')?.activeWorkspaceId,
-  locallyOwnedWorkspace.id,
-  'foreign specialist creation does not replace a newer current-window active selection',
-)
-;(globalThis.window as unknown as { location: { href: string } }).location.href =
-  'http://localhost/?windowId=primary'
-useWorkspaceStore.setState({
-  workspaces: [persistedWorkspace],
-  activeWorkspaceId: persistedWorkspace.id,
-  workspaceWindows: [
-    {
-      id: 'primary',
-      kind: 'primary',
-      workspaceIds: [persistedWorkspace.id],
-      activeWorkspaceId: persistedWorkspace.id,
-      bounds: null,
-      isMaximized: false,
-      displayId: null,
-      createdAt: 1,
-      lastFocusedAt: 1,
-    },
-  ],
-  primaryWorkspaceWindowId: 'primary',
-  workspaceRegistryEmptyState: null,
-})
-
-// Settings-touching surfaces DID rewrite the settings key.
-assert.notEqual(
-  stored['multicode-app-settings'],
-  settingsRawBefore,
-  'a settings-touching surface should rewrite the multicode-app-settings key',
-)
+// ── CASE 2b (retired) ───────────────────────────────────────────────────────
+// The cross-window `storage`-event import this case covered is deleted
+// (MC-2158): it was the rollback path for a localStorage registry that no
+// longer exists. Cross-window reconciliation is now main's, and its cases are
+// asserted end-to-end in `src/main/workspace-registry-reconciliation.test.ts`.
 
 // ── CASE 3 ──────────────────────────────────────────────────────────────────
 // Backup mirror fires for non-empty registry writes only.
@@ -535,22 +322,29 @@ assert.equal(
 
 // ── CASE 4 ──────────────────────────────────────────────────────────────────
 // Explicit clear-all: removeWorkspace on the last workspace sets the
-// workspaceRegistryEmptyState record and persists it. The registry key now
-// contains the empty + intent record; the backup is NOT mirrored (AC4: backup
-// stays out of intent decisions).
+// workspaceRegistryEmptyState record. That record is the ONE signal that tells
+// main's hydration an empty registry is intent rather than a fault — without
+// it, hydration refuses to seed and retries on the next boot. It is asserted in
+// memory now, because the frozen registry key is no longer written.
 const backupCallsBeforeClear = backupWriteCalls.length
+const frozenBeforeClear = stored['multicode-workspaces']
 useWorkspaceStore.getState().removeWorkspace(persistedWorkspace.id)
 await new Promise<void>((resolve) => setTimeout(resolve, 350))
 
-const afterClear = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
-assert.equal(afterClear.state.workspaces.length, 0)
-assert.equal(afterClear.state.activeWorkspaceId, null)
-assert.ok(afterClear.state.workspaceRegistryEmptyState, 'explicit empty intent record was persisted')
-assert.equal(afterClear.state.workspaceRegistryEmptyState!.reason, 'user_removed_all')
+const afterClear = useWorkspaceStore.getState()
+assert.equal(afterClear.workspaces.length, 0)
+assert.equal(afterClear.activeWorkspaceId, null)
+assert.ok(afterClear.workspaceRegistryEmptyState, 'explicit empty intent record was recorded')
+assert.equal(afterClear.workspaceRegistryEmptyState!.reason, 'user_removed_all')
 assert.ok(
-  typeof afterClear.state.workspaceRegistryEmptyState!.updatedAt === 'string'
-    && afterClear.state.workspaceRegistryEmptyState!.updatedAt.length > 0,
+  typeof afterClear.workspaceRegistryEmptyState!.updatedAt === 'string'
+    && afterClear.workspaceRegistryEmptyState!.updatedAt.length > 0,
   'updatedAt timestamp present',
+)
+assert.equal(
+  stored['multicode-workspaces'],
+  frozenBeforeClear,
+  'removing the last workspace does not write the frozen registry key',
 )
 assert.equal(
   backupWriteCalls.length,
@@ -571,13 +365,13 @@ await new Promise<void>((resolve) => setTimeout(resolve, 50))
 useWorkspaceStore.getState().forgetFolder(persistedWorkspace.folderPath!)
 await new Promise<void>((resolve) => setTimeout(resolve, 50))
 
-const afterForget = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
-assert.equal(afterForget.state.workspaces.length, 0)
+const afterForget = useWorkspaceStore.getState()
+assert.equal(afterForget.workspaces.length, 0)
 assert.ok(
-  afterForget.state.workspaceRegistryEmptyState,
-  'forgetFolder on the last workspace persists the intent record',
+  afterForget.workspaceRegistryEmptyState,
+  'forgetFolder on the last workspace records the intent record too',
 )
-assert.equal(afterForget.state.workspaceRegistryEmptyState!.reason, 'user_removed_all')
+assert.equal(afterForget.workspaceRegistryEmptyState!.reason, 'user_removed_all')
 
 // Reload simulation with the forgetFolder intent on disk: the recovery
 // short-circuit must honor it just like the removeWorkspace path.
@@ -600,7 +394,7 @@ backupReadResponse = {
 useWorkspaceStore.setState({
   workspaces: [],
   activeWorkspaceId: null,
-  workspaceRegistryEmptyState: afterForget.state.workspaceRegistryEmptyState,
+  workspaceRegistryEmptyState: afterForget.workspaceRegistryEmptyState,
 })
 await __workspaceStoreRunBackupRecoveryForTests()
 assert.equal(
@@ -905,16 +699,11 @@ assert.equal(
   'multicode-app-settings on disk also carries the four projectKnowledgeRoots after salvage',
 )
 
-const registryAfterSalvage = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
-assert.equal(
-  (registryAfterSalvage.state as unknown as { appSettings?: unknown }).appSettings,
-  undefined,
-  'legacy appSettings salvage does not reintroduce appSettings into the registry key',
-)
-assert.equal(
-  (registryAfterSalvage.state as unknown as { sidebarCollapsed?: unknown }).sidebarCollapsed,
-  undefined,
-  'legacy sidebarCollapsed salvage does not reintroduce sidebarCollapsed into the registry key',
+// The salvage lands in the settings key and in memory; it never writes the
+// frozen registry key, which main owns the successor to (MC-2158).
+assert.ok(
+  (JSON.parse(stored['multicode-app-settings']) as SettingsRecord).state.appSettings,
+  'the salvage is committed to the settings key, which the renderer still owns',
 )
 
 // ── CASE: runtime-kind round-trip through partialize + storage ───────────────
@@ -1014,18 +803,21 @@ assert.equal(
     createdAt,
     agents: {},
   } as unknown as Workspace)
-  const currentVersionEnvelope = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
+  // Stamp the CURRENT store version explicitly. The key is frozen at whatever
+  // shape it last held (MC-2158), so reading its version back would run the
+  // migrate ladder instead — and this case is specifically about the ladder
+  // never looking at the registry again.
   stored['multicode-workspaces'] = JSON.stringify({
     state: {
-      ...currentVersionEnvelope.state,
       workspaces: [
         { ...persistedWorkspace },
         hostWorkspace('ws-host-early', 'Pillars of code reviewer', 100),
         hostWorkspace('ws-host-late', 'fable5 calendar', 200),
       ],
       activeWorkspaceId: 'ws-host-late',
+      workspaceRegistryEmptyState: null,
     },
-    version: currentVersionEnvelope.version,
+    version: WORKSPACE_STORE_VERSION,
   })
   await useWorkspaceStore.persist.rehydrate()
   const rehydrated = useWorkspaceStore.getState()

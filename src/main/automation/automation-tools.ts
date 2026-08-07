@@ -24,7 +24,8 @@ import type {
   SprintEngineArtifactReviewPayload,
   SprintEngineVcsPayload,
 } from '../ipc/sprintengine-ipc'
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
+import type { SprintCreateRequest, SprintCreateResult } from '../../shared/sprint-create'
+import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../shared/automations/contracts'
 import type { Workspace } from '../../renderer/src/types/workspace'
@@ -75,7 +76,8 @@ import type {
 import { buildAgentBacklogLink } from '../../shared/backlog/agent-links'
 import { renderSkillInvocationTemplate } from '../../shared/skill-invocation'
 import type { McpConnectionContext, McpToolRegistration, McpToolResult } from './mcp-socket-server'
-import { createWorkspaceConfirmed } from '../workspace-create'
+import type { WorkspaceCreateRequest, WorkspaceCreateResult } from '../workspace-registry-service'
+import type { WorkspaceMutationActor } from '../workspace-sync-service'
 
 // The automation tool surface. v1: workspace.create / workspace.list /
 // workspace.status / agent.launch / agent.status; the read expansion adds
@@ -84,11 +86,6 @@ import { createWorkspaceConfirmed } from '../workspace-create'
 // Mutations are delegated to the primary renderer (same store actions the UI
 // runs) and are confirmed against the workspace-sync bus before success is
 // reported.
-
-// Workspaces persisted before this app session hydrate into the sync service
-// from the routing snapshot as placeholders (real id + window membership,
-// placeholder name/template). Read projections disclose that honestly.
-const ROUTING_PLACEHOLDER_TEMPLATE_ID = 'workspace-sync-routing-placeholder'
 
 const LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const CONFIRM_POLL_INTERVAL_MS = 150
@@ -112,7 +109,23 @@ const BACKLOG_SKILL_ID = 'backlog'
 export type AutomationBackends = {
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
   listTerminalSessions(): TerminalSessionSnapshot[]
-  delegateToRenderer(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
+  /** Compose and spawn an agent in main (MC-2159). */
+  launchAgent(request: AgentLaunchRequest): Promise<AgentLaunchResult>
+  /**
+   * Mint a workspace in main's registry (MC-2158). Synchronous and
+   * window-independent: `workspace.create` no longer asks a renderer to build
+   * the record and then polls the bus to see whether it appeared.
+   */
+  createWorkspace(
+    input: WorkspaceCreateRequest,
+    actor: WorkspaceMutationActor,
+  ): { ok: true; result: WorkspaceCreateResult } | { ok: false; reason: string; message: string }
+  /**
+   * Create a Sprint Engine run in main (MC-2160). Like `createWorkspace`, this
+   * needs no window: the run is composed, its workspace adopted into the
+   * registry, and the scheduler's run-start bootstrap spawns the coordinator.
+   */
+  createSprint(request: SprintCreateRequest): Promise<SprintCreateResult>
   /** Read-only backlog listing for a workspace root (files + frontmatter, no writes). */
   listBacklogItems(workspaceRoot: string): Promise<BacklogListItemsResult>
   /** Read one backlog item (validated backlog/ relative path). */
@@ -276,12 +289,11 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   }
 
   // Backlog and Automations services speak absolute workspace roots; tools
-  // speak workspace ids. Resolution goes through the sync snapshot, so a tool
-  // can only ever reach app-known folders. A workspace restored from the routing
-  // snapshot is normally read-only until the renderer re-offers its full record.
-  // The exception is a routing placeholder with a live agent terminal: that is
-  // the current Studio-owned session, and rejecting its persisted folder path
-  // would make the gateway unavailable to the very agent it launched.
+  // speak workspace ids. Resolution goes through main's registry, so a tool can
+  // only ever reach app-known folders. A restart survivor resolves like any
+  // other workspace now (MC-2158): main persists the real record, so there is
+  // no longer a half-known placeholder to refuse or to except a live terminal
+  // from.
   function resolveWorkspaceRoot(workspaceId: string): { root: string } | McpToolResult {
     const workspace = findWorkspace(workspaceId)
     if (!workspace) return failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
@@ -291,19 +303,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         `Workspace "${workspaceId}" has no usable folder path in this app session; open it in the app first.`
       )
     }
-    if (workspace.templateId === ROUTING_PLACEHOLDER_TEMPLATE_ID && !hasLiveAgentTerminal(workspaceId)) {
-      return failure(
-        'workspace_without_folder',
-        `Workspace "${workspaceId}" has not been restored into this app session; open it in the app first.`
-      )
-    }
     return { root: workspace.folderPath }
-  }
-
-  function hasLiveAgentTerminal(workspaceId: string): boolean {
-    return backends.listTerminalSessions().some(
-      (session) => session.kind === 'agent' && session.workspaceId === workspaceId && session.processAlive
-    )
   }
 
   // Backlog tools address a project folder, not the workspace registry: the
@@ -389,7 +389,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       mode: workspace.mode,
       folderPath: workspace.folderPath,
       windowId: workspaceWindowId(workspace.id),
-      detail: workspace.templateId === ROUTING_PLACEHOLDER_TEMPLATE_ID ? 'routing-only' : 'full',
+      detail: 'full',
       agentIds: Object.keys(workspace.agents),
     }
   }
@@ -501,8 +501,11 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       worktreePath = created.worktreePath
     }
 
-    const delegated = await backends.delegateToRenderer({
-      kind: 'agent.launch',
+    // Composed and spawned in main (MC-2159). Previously this delegated to the
+    // primary window, which is why `agent.launch` and `backlog.work` failed
+    // outright with no window open — the composition lived in a React hook, not
+    // because anything about the launch needed a UI.
+    const launched = await backends.launchAgent({
       workspaceId: plan.workspaceId,
       cli: plan.cli,
       name: plan.name,
@@ -513,44 +516,45 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       connectorId: plan.connectorId,
       worktreePath,
     })
-    if (!delegated.ok) return failure(delegated.code, delegated.message)
-    const agentId = delegated.agentId
-    if (!agentId) return failure('renderer_protocol_error', 'The renderer accepted the launch but returned no agent id.')
-    const confirmed = await waitFor(LAUNCH_CONFIRM_TIMEOUT_MS, () => {
-      const workspace = findWorkspace(plan.workspaceId)
-      if (!workspace) return null
-      const agent = workspace.agents[agentId]
-      const session = agentTerminalSession(plan.workspaceId, agentId, agent?.cliSessionId)
-      return session?.processAlive ? workspace : null
+    if (!launched.ok) return failure(launched.code, launched.message)
+    const { agentId, sessionId } = launched
+    // Confirmation is still a LIVE terminal session, not the launch call
+    // returning — a spawn can report success and the CLI can die immediately.
+    // It now watches the session main actually minted rather than waiting for a
+    // renderer to write an agent record, so it confirms identically with or
+    // without a window (the 20s window is unchanged).
+    const live = await waitFor(LAUNCH_CONFIRM_TIMEOUT_MS, () => {
+      const session = backends.listTerminalSessions().find((candidate) => candidate.sessionId === sessionId)
+      return session?.processAlive ? session : null
     })
-    if (!confirmed) {
+    if (!live) {
       return failure(
         'launch_confirmation_timeout',
-        `Agent "${agentId}" was added to workspace "${plan.workspaceId}" but no live terminal session registered within ${LAUNCH_CONFIRM_TIMEOUT_MS}ms; treat the launch as unverified. Read agent.status for the current state.`
+        `Agent "${agentId}" was launched in workspace "${plan.workspaceId}" but no live terminal session registered within ${LAUNCH_CONFIRM_TIMEOUT_MS}ms; treat the launch as unverified. Read agent.status for the current state.`
       )
     }
-    return { workspace: confirmed, agentId, ...(worktreePath ? { worktreePath } : {}) }
+    // The workspace record is only the shape callers project; main has held it
+    // since before the launch (the service resolved the launch against this same
+    // snapshot), so it is read once here rather than polled — waiting on it
+    // would report a launch timeout for something that is not a launch problem.
+    const workspace = findWorkspace(plan.workspaceId)
+    if (!workspace) {
+      return failure('unknown_workspace', `Workspace "${plan.workspaceId}" is not known to the running app.`)
+    }
+    return { workspace, agentId, ...(worktreePath ? { worktreePath } : {}) }
   }
 
   const workspaceList: McpToolRegistration = {
     name: 'workspace.list',
     description:
       'List the workspaces visible to the user in the running Multicode instance, with window assignment and agent ids. '
-      + 'A workspace surviving from before this app session appears only while it still has a live agent terminal, '
-      + 'with detail "routing-only" (real id/window, placeholder name).',
+      + 'Workspaces that survived a restart are listed like any other: main owns the registry, so their name, '
+      + 'folder, mode, and agents are real whether or not a window is open.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
       const { state } = backends.getWorkspaceSyncSnapshot()
-      // The sync snapshot restores every workspace it has ever synced as a
-      // routing placeholder, unpruned — hundreds on a long-lived profile, and
-      // every workspace-scoped tool rejects their ids (MC-1903). List only what
-      // the user can see: restored workspaces, plus placeholders whose live
-      // agent terminals make them the current Studio-owned sessions.
-      const visible = state.workspaces.filter(
-        (workspace) => workspace.templateId !== ROUTING_PLACEHOLDER_TEMPLATE_ID || hasLiveAgentTerminal(workspace.id)
-      )
       return success({
-        workspaces: visible.map(workspaceProjection),
+        workspaces: state.workspaces.map(workspaceProjection),
         activeWorkspaceId: state.activeWorkspaceId,
         primaryWindowId: state.primaryWorkspaceWindowId,
       })
@@ -581,8 +585,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const workspaceCreate: McpToolRegistration = {
     name: 'workspace.create',
     description:
-      'Create a workspace through the same renderer creation flow the UI uses. '
-      + 'Success is confirmed by observing the workspace.created event on the workspace-sync bus.',
+      'Create a workspace in the running Multicode instance. The main process owns the registry, so this '
+      + 'succeeds with no window open and the returned workspace is immediately addressable by every other tool.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -595,21 +599,19 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     handler: async (args) => {
       const invalid = firstInvalidOptionalString(args, ['name', 'folderPath', 'templateId'])
       if (invalid) return invalid
-      const outcome = await createWorkspaceConfirmed(
+      // Synchronous authority: the id comes back from the same call that
+      // committed it, which is what retired the delegate-to-renderer round trip
+      // and its 7s bus-confirmation poll.
+      const outcome = backends.createWorkspace(
         {
           name: optionalString(args.name),
           folderPath: optionalString(args.folderPath),
           templateId: optionalString(args.templateId),
         },
-        {
-          delegateToRenderer: (request) => backends.delegateToRenderer(request),
-          getWorkspaceSyncSnapshot: () => backends.getWorkspaceSyncSnapshot(),
-          now,
-          sleep,
-        }
+        'gateway',
       )
-      if (!outcome.ok) return failure(outcome.code, outcome.message)
-      return success({ workspace: workspaceProjection(outcome.workspace) })
+      if (!outcome.ok) return failure(outcome.reason, outcome.message)
+      return success({ workspace: workspaceProjection(outcome.result.workspace) })
     },
   }
 
@@ -1445,8 +1447,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     name: 'automation.run',
     description:
       'Run an existing schedule-triggered Automation now (the same "Run now" the panel offers). The run record '
-      + 'is confirmed in the store before success. Agent-backed actions launch through the primary app window, '
-      + 'so they fail with no_primary_window when no window is open.',
+      + 'is confirmed in the store before success. Agent-backed actions launch in the main process, so the run '
+      + 'works with no app window open.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1712,11 +1714,12 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       + '(an external caller with no human-authored source never self-escalates), while a source-launched run '
       + 'spawns its agents in bypass — the unwatched plan-sourced contract horizons and automations already '
       + 'run under. A person can create the run in the app if that is not what you want. '
-      + 'With startRunner the architect is launched and success is confirmed by its live terminal session; '
-      + 'without it the run is created in manual mode and sits idle until a person opens it. '
+      + 'With startRunner the run is handed to the scheduler, which launches the architect, and success is '
+      + 'confirmed by its live terminal session; without it the run is created in manual mode and sits idle '
+      + 'until a person opens it. '
       + 'Execution runtime: `runtime` pins the CLI/model/effort for a roleless run (no `roster` — the default '
       + 'kind) and backs any unnamed role, `roleClis`/`roleModels`/`roleEfforts` pin individual roles, and '
-      + '`maxConcurrentAgents` sets how many agents work at once. Requires an open primary app window.',
+      + '`maxConcurrentAgents` sets how many agents work at once. Needs no open app window.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1980,8 +1983,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // never the run.
       const warnings = sourceRef ? await epicOrderingWarnings(folderPath, sourceRef, intake) : []
 
-      const delegated = await backends.delegateToRenderer({
-        kind: 'sprint.create',
+      const created = await backends.createSprint({
         folderPath,
         goal,
         name: optionalString(args.name),
@@ -2005,17 +2007,19 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         // Omitted leaves the default with the engine, which knows the source shape.
         ...(intake ? { intake } : {}),
       })
-      if (!delegated.ok) return failure(delegated.code, delegated.message)
-      const workspaceId = delegated.workspaceId
+      if (!created.ok) return failure(created.code, created.message)
+      const workspaceId = created.workspaceId
 
-      // Bus confirmation first (the workspace itself), then — only for a
-      // started run — the architect's live terminal session, the same proof
+      // No bus-confirmation poll: main committed the record before answering,
+      // so the id is readable in this very call (MC-2158/2160). What still needs
+      // waiting for is the coordinator's live terminal session on a started run
+      // — the scheduler spawns it on its next tick — using the same proof
       // agent.launch uses. A manual run has deliberately launched nothing.
-      const workspace = await waitFor(LAUNCH_CONFIRM_TIMEOUT_MS, () => findWorkspace(workspaceId))
+      const workspace = findWorkspace(workspaceId)
       if (!workspace) {
         return failure(
-          'creation_confirmation_timeout',
-          `The renderer created sprint workspace "${workspaceId}" but it did not appear on the workspace-sync bus within ${LAUNCH_CONFIRM_TIMEOUT_MS}ms; treat the creation as unverified and read workspace.status.`
+          'creation_confirmation_failed',
+          `Sprint workspace "${workspaceId}" was created but is not readable from the workspace registry; treat the creation as unverified and read workspace.status.`
         )
       }
       if (startRunner) {

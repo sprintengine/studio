@@ -12,6 +12,7 @@
  */
 import type {
   SprintEngineAutoState,
+  SprintEngineCliPermissionPreset,
   SprintEngineAutomationDesiredMode,
   SprintEngineAutomationEvent,
   SprintEngineAutomationMode,
@@ -258,4 +259,67 @@ export function sprintEngineCliWatchPollingForAutomationMode(
   mode: SprintEngineAutomationMode,
 ): 'enabled' | 'disabled' {
   return mode === 'manual' ? 'disabled' : 'enabled'
+}
+
+/**
+ * The permission preset a spawn actually runs on. Anything unrecognised floors
+ * to `default` (no permission flags) — a preset is never invented from a
+ * malformed value. Relocated with MC-2160 because main normalizes it when it
+ * composes a sprint run; `settingsSlice.ts` re-exports it.
+ */
+export function normalizeCliPermissionPreset(
+  input: SprintEngineCliPermissionPreset | null | undefined,
+): SprintEngineCliPermissionPreset {
+  return input === 'auto_workspace' || input === 'bypass_all' ? input : 'default'
+}
+
+/**
+ * The automation block a workspace record carries, normalized. One copy for
+ * both processes (MC-2160): the renderer store runs it on every projection
+ * write, and main runs it when it composes a sprint run headlessly, so a
+ * main-created run and a window-created one carry the identical block.
+ */
+export function normalizeSprintEngineAutoState(
+  input: (
+    Partial<SprintEngineAutoState> & { deliveredAgentNotificationEventIds?: string[] }
+  ) | null | undefined,
+): SprintEngineAutoState {
+  const deliveredInput = Array.isArray(input?.deliveredAgentNotificationEventKeys)
+    ? input.deliveredAgentNotificationEventKeys
+    : Array.isArray(input?.deliveredAgentNotificationEventIds)
+      ? input.deliveredAgentNotificationEventIds
+      : []
+  const deliveredAgentNotificationEventKeys = deliveredInput.length > 0
+    ? deliveredInput.filter((eventKey): eventKey is string => typeof eventKey === 'string' && eventKey.trim().length > 0)
+    : []
+  const cliPermissionPreset = normalizeCliPermissionPreset(input?.cliPermissionPreset)
+  const maxConcurrentAgents =
+    typeof input?.maxConcurrentAgents === 'number' && Number.isFinite(input.maxConcurrentAgents)
+      ? Math.max(1, Math.min(10, Math.floor(input.maxConcurrentAgents)))
+      : 3
+
+  const desiredMode = deriveSprintEngineAutomationDesiredMode(input)
+  const runtimeState = normalizeSprintEngineAutomationRuntimeState(input?.runtimeState, desiredMode)
+
+  return {
+    desiredMode,
+    runtimeState,
+    reason: normalizeSprintEngineAutomationStopReason(input?.reason),
+    reasonMessage: typeof input?.reasonMessage === 'string' ? input.reasonMessage : undefined,
+    reasonTaskId: typeof input?.reasonTaskId === 'string' ? input.reasonTaskId : undefined,
+    reasonAgentId: typeof input?.reasonAgentId === 'string' ? input.reasonAgentId : undefined,
+    changedAt: typeof input?.changedAt === 'number' && Number.isFinite(input.changedAt)
+      ? input.changedAt
+      : undefined,
+    cliPermissionPreset,
+    maxConcurrentAgents,
+    deliveredAgentNotificationEventKeys,
+    // Preserve the one-shot completion-teardown marker: this normalizer runs on
+    // every projection write, so dropping the field here would re-arm teardown
+    // each poll and resurrect the kill-resumed-panel loop it exists to prevent.
+    completionTeardownAt:
+      typeof input?.completionTeardownAt === 'number' && Number.isFinite(input.completionTeardownAt)
+        ? input.completionTeardownAt
+        : undefined,
+  }
 }

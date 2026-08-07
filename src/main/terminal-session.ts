@@ -11,6 +11,7 @@ import type {
   TerminalPathStyle,
   TerminalSessionSnapshot,
 } from '../shared/electron-api'
+import type { AgentLaunchRecord } from '../shared/agent-launch'
 import {
   getTerminalHistoryTier,
   getTerminalReplayLimitBytes,
@@ -123,6 +124,11 @@ export type TerminalSession = {
   worktreeId?: string
   worktreePath?: string
   agentSession?: AgentSessionIdentity
+  // The launch decisions the main-process AgentLaunchService made for this
+  // session (MC-2159). Retained here so it lives exactly as long as the session
+  // does: the renderer projects a tab from it, and when the pty is gone there is
+  // nothing left to project. Absent for renderer-launched and plain sessions.
+  agentRecord?: AgentLaunchRecord
   visible: boolean
   startedAt: number
   lastOutputAt: number | null
@@ -478,6 +484,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     worktreeId: session.worktreeId,
     worktreePath: session.worktreePath,
     agentSession: session.agentSession,
+    agentRecord: session.agentRecord,
     visible: session.visible,
     suspended: session.suspended ?? false,
     reapExempt: session.reapExempt ?? false,

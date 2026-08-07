@@ -4,12 +4,10 @@ import {
   normalizeSprintEngineState,
 } from '../../utils/sprintengine'
 import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
-import {
-  deriveSprintEngineAutomationDesiredMode,
-  normalizeSprintEngineAutomationRuntimeState,
-  normalizeSprintEngineAutomationStopReason,
-  transitionSprintEngineAutomation,
-} from '../../utils/sprintengineAutomationLifecycle'
+// Relocated to shared with MC-2160 so a main-composed sprint run carries the
+// identical automation block; re-exported below for existing import sites.
+import { normalizeSprintEngineAutoState } from '../../../../shared/sprintengine/automation-lifecycle'
+import { transitionSprintEngineAutomation } from '../../utils/sprintengineAutomationLifecycle'
 import { auditSprintEngineLifecycleTransition } from '../../utils/sprintengineAutomationAudit'
 import {
   pushSprintEngineAutomationModeIntent,
@@ -33,7 +31,6 @@ import {
   sprintEngineRunSettingsKey,
 } from './settingsSlice'
 import type {
-  AgentCli,
   AgentState,
   AgentId,
   AppSettings,
@@ -42,7 +39,6 @@ import type {
   SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
   SprintEngineRoleId,
-  SprintEngineRoleCliDefaults,
   SprintEngineRosterSession,
   SprintEngineRunSettings,
   SprintEngineState,
@@ -65,50 +61,17 @@ export const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
   completionTeardownAt: undefined,
 })
 
-const defaultSprintEngineRoleCliDefaults = (): Required<SprintEngineRoleCliDefaults> => ({
-  architect: 'claude-code',
-  product: 'claude-code',
-  frontend: 'claude-code',
-  ui_ux_reviewer: 'claude-code',
-  developer: 'claude-code',
-  performance: 'claude-code',
-  production_readiness_reviewer: 'claude-code',
-  cross_platform: 'claude-code',
-  tester: 'claude-code',
-  security: 'claude-code',
-})
+// The role -> CLI map moved to shared with MC-2160 (main composes sprint
+// workspaces headlessly and normalizes the same map); re-exported so every
+// existing renderer import site is unchanged.
+import { normalizeSprintEngineRoleCliDefaults } from '../../../../shared/sprintengine/role-cli-defaults'
+// One role -> CLI resolver for the whole app (MC-2160): creation and
+// roster-member addition used to hold near-identical copies that differed on
+// how a roleless seat keys.
+import { resolveSprintEngineRoleCli } from '../../../../shared/sprintengine/workspace-record'
 
-export function normalizeSprintEngineRoleCliDefaults(
-  input: SprintEngineRoleCliDefaults | null | undefined
-): Required<SprintEngineRoleCliDefaults> {
-  const defaults = defaultSprintEngineRoleCliDefaults()
-  const next = { ...defaults }
+export { normalizeSprintEngineRoleCliDefaults }
 
-  const entries = input && typeof input === 'object'
-    ? Object.entries(input)
-    : Object.entries(defaults)
-  for (const [role, value] of entries) {
-    if (typeof value === 'string' && value.trim()) {
-      next[role] = value.trim()
-    }
-  }
-
-  return next
-}
-
-function resolveSprintEngineRoleCli(
-  roleCliDefaults: Required<SprintEngineRoleCliDefaults>,
-  role: SprintEngineRoleId
-): AgentCli {
-  const cli = roleCliDefaults[role]
-  if (typeof cli === 'string' && cli.trim()) return cli.trim()
-  // SprintEngineRoleId is open-ended (custom/user-defined roles), so a role
-  // missing from the defaults map must never throw — that would abort workspace
-  // creation or roster-member addition for an otherwise valid run. Fall back to
-  // the team's architect CLI (always present after normalization), else the
-  // universal default.
-  return roleCliDefaults.architect?.trim() || 'claude-code'
-}
 
 // `resolveSprintEngineRoleRuntime` / `resolveSprintEngineAgentRuntime` moved
 // to the shared Sprint Engine state module (sprint-runtime-ownership Phase 2:
@@ -120,56 +83,7 @@ import {
 } from '../../../../shared/sprintengine/state'
 
 export { resolveSprintEngineAgentRuntime, resolveSprintEngineRoleRuntime }
-
-export function normalizeSprintEngineAutoState(
-  input: (
-    Partial<SprintEngineAutoState> & {
-      deliveredAgentNotificationEventIds?: string[]
-    }
-  ) | null | undefined
-): SprintEngineAutoState {
-  const deliveredAgentNotificationEventKeysInput =
-    Array.isArray(input?.deliveredAgentNotificationEventKeys)
-      ? input.deliveredAgentNotificationEventKeys
-      : Array.isArray(input?.deliveredAgentNotificationEventIds)
-        ? input.deliveredAgentNotificationEventIds
-        : []
-  const deliveredAgentNotificationEventKeys = deliveredAgentNotificationEventKeysInput.length > 0
-    ? deliveredAgentNotificationEventKeysInput
-      .filter((eventKey): eventKey is string => typeof eventKey === 'string' && eventKey.trim().length > 0)
-    : []
-  const cliPermissionPreset = normalizeCliPermissionPreset(input?.cliPermissionPreset)
-  const maxConcurrentAgents =
-    typeof input?.maxConcurrentAgents === 'number' && Number.isFinite(input.maxConcurrentAgents)
-      ? Math.max(1, Math.min(10, Math.floor(input.maxConcurrentAgents)))
-      : 3
-
-  const desiredMode = deriveSprintEngineAutomationDesiredMode(input)
-  const runtimeState = normalizeSprintEngineAutomationRuntimeState(input?.runtimeState, desiredMode)
-
-  return {
-    desiredMode,
-    runtimeState,
-    reason: normalizeSprintEngineAutomationStopReason(input?.reason),
-    reasonMessage: typeof input?.reasonMessage === 'string' ? input.reasonMessage : undefined,
-    reasonTaskId: typeof input?.reasonTaskId === 'string' ? input.reasonTaskId : undefined,
-    reasonAgentId: typeof input?.reasonAgentId === 'string' ? input.reasonAgentId : undefined,
-    changedAt: typeof input?.changedAt === 'number' && Number.isFinite(input.changedAt)
-      ? input.changedAt
-      : undefined,
-    cliPermissionPreset,
-    maxConcurrentAgents,
-    deliveredAgentNotificationEventKeys,
-    // Preserve the one-shot completion-teardown marker: this normalizer runs on
-    // every projection write (`setSprintEngineState`), so dropping the field
-    // here would re-arm teardown each poll and resurrect the kill-resumed-panel
-    // loop it exists to prevent.
-    completionTeardownAt:
-      typeof input?.completionTeardownAt === 'number' && Number.isFinite(input.completionTeardownAt)
-        ? input.completionTeardownAt
-        : undefined,
-  }
-}
+export { normalizeSprintEngineAutoState }
 
 function createSprintEngineWorkspaceContext(
   folderPath: string | null | undefined,

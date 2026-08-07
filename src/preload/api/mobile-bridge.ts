@@ -24,8 +24,6 @@ export const mobileBridgeApi = {
     ipcRenderer.invoke('mobile-bridge:publish-presence', presence),
   mobileBridgeGetDiagnostics: (): Promise<MobileBridgeDiagnosticEntry[]> =>
     ipcRenderer.invoke('mobile-bridge:get-diagnostics'),
-  mobileBridgeUpdateWorkspaceRoots: (roots: string[]): Promise<{ roots: string[] }> =>
-    ipcRenderer.invoke('mobile-bridge:update-workspace-roots', roots),
   onMobileBridgeStateChanged: (cb: (state: MobileBridgeState) => void): (() => void) => {
     const ch = 'mobile-bridge:state-changed'
     const handler = (_: IpcRendererEvent, state: MobileBridgeState) => cb(state)
@@ -41,6 +39,5 @@ export const mobileBridgeApi = {
   | 'mobileBridgeRevokeDevice'
   | 'mobileBridgePublishPresence'
   | 'mobileBridgeGetDiagnostics'
-  | 'mobileBridgeUpdateWorkspaceRoots'
   | 'onMobileBridgeStateChanged'
 >

@@ -22,6 +22,7 @@ import {
   PlanSourcedSprintEngineWorkspaceError,
   createPlanSourcedSprintEngineWorkspace,
 } from '../../../../utils/sprintengineWorkspaceCreation'
+import { rendererSprintEngineWorkspaceCreationPort } from '../../../../utils/sprintengineWorkspaceCreationPorts'
 import { guidedBriefSprintEngineGoal } from '../../guidedBrief/handoff'
 import { basename, toTitleName } from '../helpers'
 import type {
@@ -260,6 +261,7 @@ export async function runGuidedBriefStartBuild(
         maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
       },
       pathExists: ports.pathExists,
+      workspace: rendererSprintEngineWorkspaceCreationPort,
     })
   } catch (error) {
     if (error instanceof PlanSourcedSprintEngineWorkspaceError && error.code === 'team-exists') {

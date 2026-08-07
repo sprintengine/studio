@@ -6,35 +6,14 @@
 
 import React, { useEffect, useState } from 'react'
 import type { BuiltinSkill } from '../../../../shared/electron-api'
-import type { McpCatalogServer, McpServerConfig } from '../../types/workspace'
+import type { McpCatalogServer } from '../../types/workspace'
 import { FOCUS_RING_CLASS, GhostButton, PrimaryButton, TruncatedText } from '../ui'
 import { ExtensionIcon } from '../ui/ExtensionIcon'
 import { mcpMonogram } from '../ui/mcpMonogram'
 
-export function mcpServerFromCatalog(server: McpCatalogServer): McpServerConfig {
-  return {
-    id: server.id,
-    name: server.name,
-    category: server.category,
-    description: server.description,
-    transport: server.transport,
-    command: server.command,
-    args: server.args ?? [],
-    url: server.url,
-    env: server.env,
-    envVarNames: server.envVarNames ?? [],
-    headers: server.headers,
-    enabled: true,
-    required: false,
-    clients: server.defaultClients?.length ? server.defaultClients : server.clients,
-    scope: server.recommendedScope ?? 'workspace',
-    source: 'bundled',
-    riskLevel: server.riskLevel,
-    auth: server.auth,
-    capabilities: server.capabilities,
-    sourceUrl: server.sourceUrl,
-  }
-}
+// Re-exported from `src/shared/connector-launch.ts` (MC-2159): main builds the
+// same config when it resolves a connector for a headless launch.
+export { mcpServerFromCatalog } from '../../../../shared/connector-launch'
 
 // The first sentence of a skill description — the Provides section shows what a
 // skill does at a glance and leaves the full text to the skill's own docs.

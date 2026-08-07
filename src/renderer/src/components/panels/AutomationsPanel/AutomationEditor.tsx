@@ -112,7 +112,7 @@ const EMPTY_DISABLED_PACKS: string[] = []
 /**
  * The runtime an agent-backed run will ACTUALLY launch on, in the launch's own
  * order of preference. An automation whose config names no cli is not
- * unconfigured: `launchAgent` (useAutomationRequests.ts) falls back to the
+ * unconfigured: `launchAgent` (main's agent-launch-service.ts) falls back to the
  * last-selected CLI and fails loudly with `no_cli_selected` when there is none.
  * The editor reads the same order so it can never show a runtime the run would
  * not use — and never an empty picker on an enabled automation.

@@ -10,6 +10,7 @@ import type {
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../../shared/electron-api'
+import type { AgentLaunchRecord } from '../../shared/agent-launch'
 import { resolveDefaultShellName } from '../terminal-launch'
 
 export type TerminalSpawnPayload = {
@@ -60,6 +61,12 @@ export type TerminalSpawnPayload = {
   // Skill-at-spawn for ordinary agents (the composer's "+ Skill" attachment):
   // same ensure-install, none of the connector MCP coupling.
   spawnSkillId?: string
+  // Set only by the main-process AgentLaunchService (MC-2159): the launch
+  // decisions it made, retained on the session and surfaced on its snapshot so
+  // the renderer can project an AgentState for an agent it never composed. Never
+  // set by a renderer spawn — a renderer-launched agent already HAS its record,
+  // and projecting over it would fight the store.
+  agentRecord?: AgentLaunchRecord
   // The payload is flat. Renderer callers hand `metadata` to preload, which
   // spreads it in; in-process callers (the sprint runtime) must flatten it
   // themselves. Typed `never` so handing over a still-nested TerminalSpawnArgs

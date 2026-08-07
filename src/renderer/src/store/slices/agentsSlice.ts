@@ -6,6 +6,17 @@ import {
   setEditorBuffer,
 } from '../../utils/editorBuffers'
 import { pickRandomAgentName } from '../../utils/agentNames'
+// Record construction moved to shared with MC-2160 (main composes sprint
+// workspaces headlessly and mints the same agent records). Re-exported so
+// existing renderer import sites are unchanged.
+import { defaultAgent, defaultAgentExecution } from '../../../../shared/sprintengine/agent-state'
+
+export { defaultAgent, defaultAgentExecution }
+import {
+  projectedLaunchedAgents,
+  projectionKey,
+  type LaunchedAgentProjection,
+} from '../../utils/launchedAgentProjection'
 import { normalizeCliPermissionPreset } from './settingsSlice'
 import type {
   AgentTerminalLaunchStateApply,
@@ -16,7 +27,6 @@ import type {
   AgentConversationRuntime,
   AgentExecution,
   AgentId,
-  AgentKind,
   AgentRuntimeKind,
   AgentState,
   EditorState,
@@ -24,11 +34,6 @@ import type {
   WorkspaceId,
 } from '../../types/workspace'
 
-export const defaultAgentExecution = (): AgentExecution => ({
-  mode: 'current_workspace',
-  worktreeId: null,
-  cwd: null,
-})
 
 export function normalizeAgentExecution(input: Partial<AgentExecution> | null | undefined): AgentExecution {
   const mode = input?.mode === 'worktree' ? 'worktree' : 'current_workspace'
@@ -48,30 +53,6 @@ export function normalizeAgentExecution(input: Partial<AgentExecution> | null | 
   }
 }
 
-export const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'): AgentState => ({
-  id,
-  name,
-  status: 'idle',
-  execution: defaultAgentExecution(),
-  messages: [],
-  streamBuffer: '',
-  runtimeKind: 'terminal',
-  conversation: undefined,
-  cliSessionId: undefined,
-  harnessSessionId: undefined,
-  cliStartRequested: false,
-  cliRestartNonce: 0,
-  cliHasLaunched: false,
-  cliOnboardingPromptSent: false,
-  cliResumeAvailable: false,
-  cli: undefined,
-  cliModel: undefined,
-  cliPermissionPreset: 'default',
-  cliStartupPrompt: undefined,
-  kind,
-  specialistId: undefined,
-  backlogItemRef: undefined,
-})
 
 export const defaultEditorState = (): EditorState => ({
   openFiles: [],
@@ -155,6 +136,13 @@ export interface AgentsSliceActions {
   appendStream: (workspaceId: WorkspaceId, agentId: AgentId, chunk: string) => void
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
+  /**
+   * Mint the agent records for sessions the MAIN process launched (MC-2159) and
+   * report the ones this call actually created, so the caller can reveal their
+   * tabs. Idempotent: an agent already in the store is left untouched, because
+   * the store's copy may carry user edits the launch snapshot never saw.
+   */
+  projectLaunchedAgentSessions: (sessions: TerminalSessionSnapshot[]) => LaunchedAgentProjection[]
   openFile: (workspaceId: WorkspaceId, path: string, name: string, content: string) => void
   closeFile: (workspaceId: WorkspaceId, path: string) => void
   setActiveFile: (workspaceId: WorkspaceId, path: string) => void
@@ -275,6 +263,36 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
           agent.status = 'complete'
         }
       }),
+
+    projectLaunchedAgentSessions: (sessions) => {
+      // Runs on every terminal-session tick, so answer the overwhelmingly common
+      // case — no main-launched agent is live at all — without entering the
+      // store. (Even when one is, the mutator below writes nothing on a tick
+      // with no new agent, and an immer recipe that mutates nothing returns the
+      // same state, which zustand does not broadcast.)
+      if (!sessions.some((session) => session.kind === 'agent' && session.processAlive && session.agentRecord)) {
+        return []
+      }
+      // The mutator runs synchronously, so the projections it computes are
+      // readable straight after — this is how the action reports which tabs are
+      // new without the slice needing a `get`.
+      let created: LaunchedAgentProjection[] = []
+      set((state) => {
+        const existing = new Set<string>()
+        const knownWorkspaceIds = new Set<WorkspaceId>()
+        for (const ws of state.workspaces) {
+          knownWorkspaceIds.add(ws.id)
+          for (const agentId of Object.keys(ws.agents)) existing.add(projectionKey(ws.id, agentId))
+        }
+        created = projectedLaunchedAgents({ sessions, knownWorkspaceIds, existing })
+        for (const projection of created) {
+          const ws = state.workspaces.find((candidate) => candidate.id === projection.workspaceId)
+          if (!ws) continue
+          ws.agents[projection.agentId] = projection.agent
+        }
+      })
+      return created
+    },
 
     reconcileWorkspaceAgentLaunchFlags: (sessions) =>
       set((state) => {

@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import { createReviewGatewayTools } from '../review/gateway-tools'
 import { registerReviewIpc } from '../review/review-ipc'
 import {
+  AgentControlPlaneToken,
   ReviewChangeSetServiceToken,
   ReviewGuideTerminalServiceToken,
   SprintEngineLaunchSettingsToken,
@@ -42,6 +43,7 @@ export const reviewModule: CapabilityModule = {
       createReviewChangeSetService()
     )
     const terminalRuntime = host.requireService(TerminalRuntimeToken)
+    const controlPlane = host.requireService(AgentControlPlaneToken)
     const workspaceSyncService = host.requireService(WorkspaceSyncServiceToken)
     const launchSettings = host.requireService(SprintEngineLaunchSettingsToken)
 
@@ -79,7 +81,10 @@ export const reviewModule: CapabilityModule = {
             }
             return terminalRuntime.ipcHandlers.spawnTerminal(sender, payload)
           },
-          write: (sessionId, data) => terminalRuntime.ipcHandlers.writeTerminal(sessionId, data),
+          sendPrompt: async (sessionId, text) => {
+            const result = await controlPlane.send({ sessionId }, text, { submit: true })
+            return result.ok ? { ok: true } : { ok: false, message: result.message }
+          },
           kill: (sessionId) => terminalRuntime.ipcHandlers.killTerminal(sessionId),
           setReapExempt: (sessionId, exempt) =>
             terminalRuntime.ipcHandlers.setTerminalReapExempt(sessionId, exempt),

@@ -133,6 +133,13 @@ export type SprintRuntimeDeps = {
   terminal: {
     list(): TerminalSessionSnapshot[]
     write(sessionId: string, data: string): void
+    /**
+     * Deliver a dispatch prompt through the agent control plane (MC-102): one
+     * serialized turn per session, so a review-guide prompt or a future
+     * composer send cannot land between this paste and its submit. Optional so
+     * a test harness can drive the raw write seam.
+     */
+    sendPrompt?(sessionId: string, text: string): Promise<{ ok: boolean; message?: string }>
     kill(sessionId: string): void
     status(sessionId: string): Promise<{ processAlive: boolean }>
     /** In-process spawn; fails cleanly when no window can host the terminal view (Phase 2 limit). */
@@ -385,6 +392,9 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       // Terminal runtime, in-process --------------------------------------
       terminalList: async () => deps.terminal.list(),
       terminalWrite: async (sessionId, data) => deps.terminal.write(sessionId, data),
+      ...(deps.terminal.sendPrompt
+        ? { terminalSendPrompt: (sessionId: string, text: string) => deps.terminal.sendPrompt!(sessionId, text) }
+        : {}),
       terminalKill: async (sessionId) => deps.terminal.kill(sessionId),
       terminalStatus: (sessionId) => deps.terminal.status(sessionId),
       terminalSpawn: (args) => deps.terminal.spawn(args),

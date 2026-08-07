@@ -1,22 +1,36 @@
 import {
-  applyWorkspaceSyncEvent,
+  type WorkspaceFieldsPatch,
   type WorkspaceSyncCommand,
   type WorkspaceSyncCommandResult,
   type WorkspaceSyncEvent,
   type WorkspaceSyncEventType,
-  type WorkspaceSyncRoutingSnapshot,
   type WorkspaceSyncSnapshot,
   type WorkspaceSyncState,
 } from '../shared/workspace-sync'
-import type { Workspace, WorkspaceId, WorkspaceWindowState } from '../renderer/src/types/workspace'
+import type {
+  WorkspaceCreateRequest,
+  WorkspaceCreateResult,
+  WorkspaceRegistryService,
+} from './workspace-registry-service'
+import type { WorkspaceRegistryActor } from '../shared/workspace-registry'
+import type { AgentState, Workspace, WorkspaceId } from '../renderer/src/types/workspace'
 
-const DEFAULT_PRIMARY_WINDOW_ID = 'primary'
 const MAX_REPLAY_EVENTS = 500
-// Sentinel templateId for restart-restored routing placeholders (see
-// createRoutingPlaceholderWorkspace). Real workspaces always carry a renderer
-// layout-template id, so this marks records whose domain fields (mode, agents,
-// layout) are unknown to main until the renderer re-offers them.
-const ROUTING_PLACEHOLDER_TEMPLATE_ID = 'workspace-sync-routing-placeholder'
+
+// The sequenced broadcast bus over the main-owned workspace registry (MC-2158).
+//
+// This service used to be a state machine with its own snapshot, explicitly NOT
+// authoritative: restart survivors were rebuilt as routing placeholders whose
+// mode, agents, and layout were unknown until a renderer re-offered them. The
+// registry (`workspace-registry-service.ts`) is authoritative now, so the
+// placeholder model, its `workspaceNames`/`workspaceFolderPaths`/
+// `workspaceModes` side-maps, and the routing snapshot they patched are gone.
+//
+// What is left here is the wire: monotonic sequences, duplicate/stale
+// rejection, a bounded replay log, command validation, and event minting. The
+// direction of authority is what changed — a renderer used to apply locally and
+// then tell main; now a renderer ASKS and main DECIDES, and the accepted event
+// is the authoritative record of what happened.
 
 type DispatchInput = {
   command: unknown
@@ -24,13 +38,9 @@ type DispatchInput = {
 }
 
 type WorkspaceSyncServiceOptions = {
-  initialSnapshot?: WorkspaceSyncSnapshot
-  initialRoutingSnapshot?: WorkspaceSyncRoutingSnapshot
+  registry: WorkspaceRegistryService
   maxReplayEvents?: number
   now?: () => number
-  persistDebounceMs?: number
-  persistRoutingSnapshot?: (snapshot: WorkspaceSyncRoutingSnapshot) => void | Promise<void>
-  logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
   // Resolves a CLI's conversation-resume capabilities from the plugin registry.
   // Injected (app-services wires it to the registry) so this service stays a
   // pure state machine; the resolved caps are stamped onto assign_session so
@@ -40,24 +50,25 @@ type WorkspaceSyncServiceOptions = {
 
 export type WorkspaceSyncService = ReturnType<typeof createWorkspaceSyncService>
 
-export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions = {}) {
+/** Actor names the process boundary a main-originated mutation came through. */
+export type WorkspaceMutationActor = WorkspaceRegistryActor
+
+export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions) {
+  const registry = options.registry
   const maxReplayEvents = Math.max(1, Math.floor(options.maxReplayEvents ?? MAX_REPLAY_EVENTS))
   const now = options.now ?? Date.now
   const resolveResumeCapabilities =
     options.resolveResumeCapabilities ?? (() => ({ resumeSession: false, sessionIdFromCaller: false }))
-  const initialSequence = options.initialSnapshot?.sequence ?? options.initialRoutingSnapshot?.sequence ?? 0
-  let state: WorkspaceSyncState = options.initialSnapshot
-    ? snapshotToState(options.initialSnapshot)
-    : options.initialRoutingSnapshot
-      ? routingSnapshotToState(options.initialRoutingSnapshot)
-    : createEmptyState(initialSequence)
-  let nextSequence = initialSequence + 1
+  let nextSequence = registry.getState().lastAppliedWorkspaceSyncSequence + 1
   const events: WorkspaceSyncEvent[] = []
-  let pendingPersistTimer: ReturnType<typeof setTimeout> | null = null
-  let pendingPersistPromise: Promise<void> = Promise.resolve()
+  const eventListeners = new Set<(event: WorkspaceSyncEvent) => void>()
+
+  function state(): WorkspaceSyncState {
+    return registry.getState()
+  }
 
   function getSnapshot(): WorkspaceSyncSnapshot {
-    return stateToSnapshot(state)
+    return stateToSnapshot(state())
   }
 
   function getEventsAfter(sequence: unknown): WorkspaceSyncEvent[] {
@@ -71,76 +82,258 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions 
       return failure('invalid_source_window', 'Workspace sync dispatch requires a source window id.')
     }
 
-    const validation = validateCommand(input.command, state, sourceWindowId)
+    const validation = validateCommand(input.command, state(), sourceWindowId)
     if (!validation.ok) {
       return failure(validation.reason, validation.message)
     }
 
-    const event: WorkspaceSyncEvent = {
-      id: `workspace-sync-${nextSequence}`,
-      type: eventTypeForCommand(validation.command),
-      sourceWindowId,
-      sequence: nextSequence,
-      createdAt: now(),
-      payload: eventPayloadForCommand(validation.command, state, resolveResumeCapabilities),
-    } as WorkspaceSyncEvent
-
-    const applied = applyWorkspaceSyncEvent(state, event)
-    if (applied.status !== 'applied') {
-      return failure('event_apply_failed', 'Workspace sync command could not be applied to the service snapshot.')
+    // Tombstones and per-field last-write-wins are the registry's call, not the
+    // bus's: a rejection here means the window is behind, and it reverts its
+    // optimistic apply to main's value rather than keeping one main refused.
+    const precheck = registry.precheckCommand(validation.command)
+    if (!precheck.ok) {
+      return { ok: false, reason: precheck.reason, message: precheck.message, snapshot: getSnapshot() }
     }
 
-    nextSequence += 1
-    state = applied.state
-    events.push(event)
-    if (events.length > maxReplayEvents) events.splice(0, events.length - maxReplayEvents)
-    schedulePersist()
-    return { ok: true, event: clone(event) }
+    // A window-composed create is a PROPOSAL, not a write: the record is
+    // normalized to what the registry owns and stamped here before it is
+    // committed. This is how the modes whose creation logic still lives in the
+    // renderer (a Sprint Engine roster, a guided brief) stay compatible with
+    // single-writer authority — the window proposed the payload, main wrote it.
+    const command = validation.command.type === 'workspace.created'
+      ? {
+          ...validation.command,
+          payload: {
+            ...validation.command.payload,
+            workspace: registry.adoptRecord(validation.command.payload.workspace),
+          },
+        } satisfies WorkspaceSyncCommand
+      : validation.command
+
+    // `announce: false` — the IPC handler broadcasts this one itself so it can
+    // skip the window that sent it. That window learns the authoritative
+    // outcome from the invoke result, which carries the accepted event
+    // (including any value main normalized) or the rejection, so a broadcast
+    // back to it would only be a redundant round-trip.
+    return emit(command, sourceWindowId, 'ui', false)
   }
 
-  async function flushRoutingSnapshot(): Promise<void> {
-    if (pendingPersistTimer) {
-      clearTimeout(pendingPersistTimer)
-      pendingPersistTimer = null
+  /**
+   * Create a workspace and return the authoritative record in the SAME call.
+   *
+   * This is what retires `createWorkspaceConfirmed`'s renderer round-trip and
+   * its 7s bus-confirmation poll: the caller never gets back an id it cannot
+   * observe, because the id it gets is the one main just committed. With zero
+   * windows open it still succeeds — creation is no longer a renderer errand.
+   */
+  function createWorkspace(
+    input: WorkspaceCreateRequest,
+    actor: WorkspaceMutationActor,
+  ): { ok: true; result: WorkspaceCreateResult } | { ok: false; reason: string; message: string } {
+    const prepared = registry.prepareCreate(input)
+    // A reuse is not a creation. Emitting `workspace.created` for a record that
+    // already exists would announce a workspace every window already has and
+    // bump its revision for nothing. What reuse actually owes the caller is the
+    // two behaviours the renderer branch had: the folder is no longer missing,
+    // and the workspace joins the requesting window's membership if it is not
+    // already there.
+    const emitted = prepared.reused
+      ? reuseExisting(prepared, actor)
+      : emit(
+        {
+          type: 'workspace.created',
+          payload: {
+            workspace: prepared.workspace,
+            windowId: prepared.windowId,
+            insert: { kind: 'folder_head', folderPath: prepared.folderPath },
+          },
+        },
+        prepared.windowId,
+        actor,
+      )
+    if (!emitted.ok) return { ok: false, reason: emitted.reason, message: emitted.message }
+    const committed = registry.getRecord(prepared.workspace.id)
+    if (!committed) {
+      return {
+        ok: false,
+        reason: 'registry_commit_failed',
+        message: `Workspace "${prepared.workspace.id}" was accepted but is not readable from the registry.`,
+      }
     }
-    await persistRoutingSnapshotNow()
-    await pendingPersistPromise
+    return { ok: true, result: { ...prepared, workspace: committed } }
+  }
+
+  /**
+   * Adopt a record a window composed itself — the modes whose creation logic
+   * still lives in the renderer (a Sprint Engine roster, a guided brief).
+   * The record is normalized and committed here, so main remains the only
+   * writer and the only persister; the window proposed the payload, it did not
+   * write it.
+   */
+  function adoptWorkspace(
+    workspace: Workspace,
+    windowId: string,
+    folderPath: string | null,
+    actor: WorkspaceMutationActor,
+  ): WorkspaceSyncCommandResult {
+    return emit(
+      {
+        type: 'workspace.created',
+        payload: {
+          workspace: registry.adoptRecord(workspace),
+          windowId,
+          insert: { kind: 'folder_head', folderPath },
+        },
+      },
+      windowId,
+      actor,
+    )
+  }
+
+  /** Remove a workspace and tombstone its id so a lagging edit cannot resurrect it. */
+  function removeWorkspace(workspaceId: WorkspaceId, actor: WorkspaceMutationActor): WorkspaceSyncCommandResult {
+    if (!registry.getRecord(workspaceId)) {
+      return failure('unknown_workspace', `Workspace "${workspaceId}" is not in the registry.`)
+    }
+    return emit(
+      { type: 'workspace.remove', payload: { workspaceId } },
+      registry.getState().primaryWorkspaceWindowId,
+      actor,
+    )
+  }
+
+  /**
+   * Record a main-originated field change (folder resolution, archive, the
+   * scheduler's own bookkeeping). Not last-write-wins: main's subsystems write
+   * through the service and carry no user gesture to stamp.
+   */
+  function updateWorkspaceFields(
+    workspaceId: WorkspaceId,
+    patch: WorkspaceFieldsPatch,
+    actor: WorkspaceMutationActor,
+  ): WorkspaceSyncCommandResult {
+    return emit(
+      { type: 'workspace.update_fields', payload: { workspaceId, patch, editedAt: now() } },
+      registry.getState().primaryWorkspaceWindowId,
+      actor,
+    )
+  }
+
+  function updateWorkspaceAgent(
+    workspaceId: WorkspaceId,
+    agentId: string,
+    patch: Partial<AgentState> | null,
+    actor: WorkspaceMutationActor,
+  ): WorkspaceSyncCommandResult {
+    return emit(
+      { type: 'workspace.update_agent', payload: { workspaceId, agentId, patch, configEditedAt: now() } },
+      registry.getState().primaryWorkspaceWindowId,
+      actor,
+    )
+  }
+
+  /**
+   * Subscribe to accepted events. The IPC layer attaches here so an event minted
+   * with no source window — a gateway create, an automation, the scheduler —
+   * still reaches every window; `dispatch` results are broadcast by the IPC
+   * handler itself so it can skip the window that sent the command.
+   */
+  function subscribeEvents(listener: (event: WorkspaceSyncEvent) => void): () => void {
+    eventListeners.add(listener)
+    return () => eventListeners.delete(listener)
   }
 
   return {
+    adoptWorkspace,
+    createWorkspace,
     dispatch,
-    flushRoutingSnapshot,
+    flush: () => registry.flush(),
     getEventsAfter,
     getSnapshot,
+    removeWorkspace,
+    subscribeEvents,
+    updateWorkspaceAgent,
+    updateWorkspaceFields,
   }
 
-  function schedulePersist(): void {
-    if (!options.persistRoutingSnapshot) return
-    if (pendingPersistTimer) clearTimeout(pendingPersistTimer)
-    pendingPersistTimer = setTimeout(() => {
-      pendingPersistTimer = null
-      void persistRoutingSnapshotNow()
-    }, Math.max(0, Math.floor(options.persistDebounceMs ?? 250)))
+  /**
+   * Land a reuse: clear `folderMissing` if the caller's folder resolved it, and
+   * assign the workspace to the requesting window when it is not already there.
+   * Both are no-ops when nothing changed, so a repeated reuse is silent.
+   */
+  function reuseExisting(
+    prepared: WorkspaceCreateResult,
+    actor: WorkspaceMutationActor,
+  ): WorkspaceSyncCommandResult {
+    const existing = registry.getRecord(prepared.workspace.id)
+    if (!existing) {
+      return failure('unknown_workspace', `Workspace "${prepared.workspace.id}" vanished during reuse.`)
+    }
+    const alreadyInWindow = registry
+      .getState()
+      .workspaceWindows.some((windowState) => windowState.workspaceIds.includes(existing.id))
+    if (existing.folderMissing) {
+      const cleared = emit(
+        { type: 'workspace.update_fields', payload: { workspaceId: existing.id, patch: { folderMissing: false }, editedAt: now() } },
+        prepared.windowId,
+        actor,
+      )
+      if (!cleared.ok) return cleared
+    }
+    if (alreadyInWindow) {
+      return {
+        ok: true,
+        event: {
+          id: `workspace-reuse-${existing.id}`,
+          type: 'workspace.created',
+          sourceWindowId: prepared.windowId,
+          sequence: registry.getState().lastAppliedWorkspaceSyncSequence,
+          createdAt: now(),
+          payload: {
+            workspace: existing,
+            windowId: prepared.windowId,
+            insert: { kind: 'folder_head', folderPath: prepared.folderPath },
+          },
+        },
+      }
+    }
+    return emit(
+      {
+        type: 'workspace.move_to_window',
+        payload: { workspaceId: existing.id, fromWindowId: null, toWindowId: prepared.windowId, makeActive: false },
+      },
+      prepared.windowId,
+      actor,
+    )
   }
 
-  function persistRoutingSnapshotNow(): Promise<void> {
-    if (!options.persistRoutingSnapshot) return pendingPersistPromise
-    const snapshot = stateToRoutingSnapshot(state)
-    pendingPersistPromise = pendingPersistPromise
-      .catch(() => undefined)
-      .then(async () => {
-        try {
-          await options.persistRoutingSnapshot!(snapshot)
-        } catch (error) {
-          options.logDiagnostic?.({
-            level: 'warning',
-            title: 'Workspace sync routing snapshot write failed',
-            message: 'Unable to persist the workspace sync routing snapshot.',
-            details: error instanceof Error ? error.message : 'unknown_write_error',
-          })
-        }
-      })
-    return pendingPersistPromise
+  /** Mint, apply, log, and announce one accepted command. */
+  function emit(
+    command: WorkspaceSyncCommand,
+    sourceWindowId: string,
+    actor: WorkspaceMutationActor,
+    announce = true,
+  ): WorkspaceSyncCommandResult {
+    const event: WorkspaceSyncEvent = {
+      id: `workspace-sync-${nextSequence}`,
+      type: eventTypeForCommand(command),
+      sourceWindowId,
+      sequence: nextSequence,
+      createdAt: now(),
+      payload: eventPayloadForCommand(command, state(), resolveResumeCapabilities, now),
+    } as WorkspaceSyncEvent
+
+    if (!registry.applyEvent(event, actor)) {
+      return failure('event_apply_failed', 'Workspace sync command could not be applied to the registry.')
+    }
+
+    nextSequence += 1
+    events.push(event)
+    if (events.length > maxReplayEvents) events.splice(0, events.length - maxReplayEvents)
+    if (announce) {
+      for (const listener of eventListeners) listener(clone(event))
+    }
+    return { ok: true, event: clone(event) }
   }
 }
 
@@ -148,164 +341,11 @@ function failure(reason: string, message: string): WorkspaceSyncCommandResult {
   return { ok: false, reason, message }
 }
 
-function createEmptyState(sequence: number): WorkspaceSyncState {
-  return {
-    activeWorkspaceId: null,
-    lastAppliedWorkspaceSyncSequence: sequence,
-    primaryWorkspaceWindowId: DEFAULT_PRIMARY_WINDOW_ID,
-    workspaces: [],
-    workspaceWindows: [
-      {
-        id: DEFAULT_PRIMARY_WINDOW_ID,
-        kind: 'primary',
-        workspaceIds: [],
-        activeWorkspaceId: null,
-        bounds: null,
-        isMaximized: false,
-        displayId: null,
-        createdAt: 0,
-        lastFocusedAt: 0,
-      },
-    ],
-  }
-}
-
-function snapshotToState(snapshot: WorkspaceSyncSnapshot): WorkspaceSyncState {
-  return {
-    ...clone(snapshot.state),
-    lastAppliedWorkspaceSyncSequence: snapshot.sequence,
-  }
-}
-
-function routingSnapshotToState(snapshot: WorkspaceSyncRoutingSnapshot): WorkspaceSyncState {
-  const workspaceWindows = normalizeRoutingWindows(snapshot.workspaceWindows, snapshot.primaryWorkspaceWindowId)
-  const workspaceIds = Array.from(
-    new Set(
-      workspaceWindows.flatMap((windowState) => [
-        ...windowState.workspaceIds,
-        ...(windowState.activeWorkspaceId ? [windowState.activeWorkspaceId] : []),
-      ])
-    )
-  )
-  return {
-    activeWorkspaceId: workspaceWindows.find((windowState) => windowState.id === snapshot.primaryWorkspaceWindowId)?.activeWorkspaceId ?? null,
-    lastAppliedWorkspaceSyncSequence: snapshot.sequence,
-    primaryWorkspaceWindowId: snapshot.primaryWorkspaceWindowId,
-    workspaces: workspaceIds.map((id) =>
-      createRoutingPlaceholderWorkspace(
-        id,
-        snapshot.workspaceNames?.[id],
-        snapshot.workspaceFolderPaths?.[id],
-        snapshot.workspaceModes?.[id],
-      )
-    ),
-    workspaceWindows,
-  }
-}
-
 function stateToSnapshot(state: WorkspaceSyncState): WorkspaceSyncSnapshot {
   const { lastAppliedWorkspaceSyncSequence: sequence, ...snapshotState } = state
   return {
     sequence,
     state: clone(snapshotState),
-  }
-}
-
-function stateToRoutingSnapshot(state: WorkspaceSyncState): WorkspaceSyncRoutingSnapshot {
-  const workspaceNames: Record<string, string> = {}
-  const workspaceFolderPaths: Record<string, string> = {}
-  const workspaceModes: Record<string, Workspace['mode']> = {}
-  for (const workspace of state.workspaces) {
-    const name = workspace.name?.trim()
-    // Skip routing placeholders (name === id): persisting them would cement the
-    // raw id as a "real" name and mask the workspace's true name once it hydrates.
-    if (name && name !== workspace.id) workspaceNames[workspace.id] = workspace.name
-    // Capture the folder so a workspace restored before the renderer re-registers
-    // it still resolves its folder in main's snapshot (folder-gated automations).
-    if (workspace.folderPath?.trim()) workspaceFolderPaths[workspace.id] = workspace.folderPath
-    // Capture non-standard modes so mode-gated resolution (the automation
-    // executor's per-project 'automations-host' lookup) survives a restart;
-    // 'standard' is the placeholder default and stays implicit.
-    if (workspace.mode && workspace.mode !== 'standard') workspaceModes[workspace.id] = workspace.mode
-  }
-  return {
-    sequence: state.lastAppliedWorkspaceSyncSequence,
-    primaryWorkspaceWindowId: state.primaryWorkspaceWindowId,
-    workspaceWindows: state.workspaceWindows.map((windowState) => ({
-      ...windowState,
-      workspaceIds: [...windowState.workspaceIds],
-      bounds: windowState.bounds ? { ...windowState.bounds } : null,
-    })),
-    // Omit the maps entirely when empty, so the common (placeholder-only)
-    // snapshot stays compact.
-    ...(Object.keys(workspaceNames).length > 0 ? { workspaceNames } : {}),
-    ...(Object.keys(workspaceFolderPaths).length > 0 ? { workspaceFolderPaths } : {}),
-    ...(Object.keys(workspaceModes).length > 0 ? { workspaceModes } : {}),
-  }
-}
-
-function normalizeRoutingWindows(
-  workspaceWindows: WorkspaceWindowState[],
-  primaryWorkspaceWindowId: string
-): WorkspaceWindowState[] {
-  const windows: WorkspaceWindowState[] = workspaceWindows
-    .filter((windowState) => normalizeId(windowState.id))
-    .map((windowState) => {
-      const workspaceIds = Array.from(new Set(windowState.workspaceIds.filter((workspaceId) => normalizeId(workspaceId))))
-      const activeWorkspaceId = windowState.activeWorkspaceId && workspaceIds.includes(windowState.activeWorkspaceId)
-        ? windowState.activeWorkspaceId
-        : workspaceIds[0] ?? null
-      const kind: WorkspaceWindowState['kind'] = windowState.id === primaryWorkspaceWindowId ? 'primary' : 'detached'
-      return {
-        ...windowState,
-        kind,
-        workspaceIds,
-        activeWorkspaceId,
-        bounds: windowState.bounds ? { ...windowState.bounds } : null,
-      }
-    })
-  if (!windows.some((windowState) => windowState.id === primaryWorkspaceWindowId)) {
-    windows.unshift({
-      id: primaryWorkspaceWindowId,
-      kind: 'primary',
-      workspaceIds: [],
-      activeWorkspaceId: null,
-      bounds: null,
-      isMaximized: false,
-      displayId: null,
-      createdAt: 0,
-      lastFocusedAt: 0,
-    })
-  }
-  return windows
-}
-
-function createRoutingPlaceholderWorkspace(
-  id: WorkspaceId,
-  name?: string,
-  folderPath?: string,
-  mode?: Workspace['mode'],
-): Workspace {
-  return {
-    id,
-    name: name?.trim() ? name : id,
-    mode: mode ?? 'standard',
-    folderPath: folderPath?.trim() ? folderPath : null,
-    templateId: ROUTING_PLACEHOLDER_TEMPLATE_ID,
-    layoutModel: { global: {}, borders: [], layout: { type: 'row', children: [] } },
-    agents: {},
-    worktreeState: { containerPath: null, entries: {}, updatedAt: null },
-    memory: { relativeRoot: null },
-    editorState: { openFiles: [], activeFilePath: null },
-    sprintEngineState: null,
-    sprintEngineAutoState: {
-      desiredMode: 'manual',
-      runtimeState: 'idle',
-      cliPermissionPreset: 'default',
-      maxConcurrentAgents: 0,
-      deliveredAgentNotificationEventKeys: [],
-    },
-    createdAt: 0,
   }
 }
 
@@ -333,6 +373,16 @@ function validateCommand(input: unknown, state: WorkspaceSyncState, sourceWindow
       return validateAssignSession(input.payload, state, sourceWindowId)
     case 'agent_terminal.update_launch_state':
       return validateLaunchState(input.payload, state, sourceWindowId)
+    case 'workspace.rename':
+      return validateRename(input.payload)
+    case 'workspace.update_layout':
+      return validateUpdateLayout(input.payload)
+    case 'workspace.update_fields':
+      return validateUpdateFields(input.payload)
+    case 'workspace.update_agent':
+      return validateUpdateAgent(input.payload)
+    case 'workspace.remove':
+      return validateRemove(input.payload)
     default:
       return reject('unknown_command_type', `Workspace sync command type "${input.type}" is not supported.`)
   }
@@ -476,14 +526,11 @@ function validateWorkspaceCreated(
   if (!state.workspaceWindows.some((candidate) => candidate.id === windowId)) {
     return reject('unknown_window', `Window "${windowId}" is not known to workspace sync.`)
   }
-  // A same-id create is normally a duplicate and is rejected — with one
-  // exception: when main tracks the workspace only as a restart-restored
-  // routing placeholder, the renderer is re-offering its real record (the
-  // Automations-host reuse path). Accepting lets the applier replace the
-  // placeholder, healing the mode/name/folder main lost across the restart —
-  // the automation executor's mode-gated host-by-folder lookup depends on it.
-  const tracked = state.workspaces.find((workspace) => workspace.id === workspaceId)
-  if (tracked && tracked.templateId !== ROUTING_PLACEHOLDER_TEMPLATE_ID) {
+  // A same-id create is a duplicate, full stop. The placeholder exception this
+  // check used to carry ("accept a re-offer over a restart placeholder to heal
+  // the mode main lost") is gone with the placeholder: main never loses the
+  // mode now, so there is nothing to heal and a duplicate is only ever a bug.
+  if (state.workspaces.some((workspace) => workspace.id === workspaceId)) {
     return reject('workspace_already_exists', `Workspace "${workspaceId}" already exists.`)
   }
   if (!isRecord(payload.workspace.agents)) {
@@ -507,6 +554,119 @@ function validateWorkspaceCreated(
       },
     },
   }
+}
+
+function validateRename(payload: Record<string, unknown>): ValidationResult {
+  const workspaceId = normalizeId(payload.workspaceId)
+  if (!workspaceId) return reject('invalid_workspace_id', 'Rename commands require a workspace id.')
+  if (typeof payload.name !== 'string' || !payload.name.trim()) {
+    return reject('invalid_workspace_name', 'Rename commands require a non-empty name.')
+  }
+  const editedAt = editedAtOf(payload.editedAt)
+  if (editedAt === null) return reject('invalid_edited_at', 'Rename commands require a numeric editedAt stamp.')
+  if (payload.titleLocked !== undefined && typeof payload.titleLocked !== 'boolean') {
+    return reject('invalid_title_locked', 'Rename command field "titleLocked" must be boolean when provided.')
+  }
+  return {
+    ok: true,
+    command: {
+      type: 'workspace.rename',
+      payload: {
+        workspaceId,
+        name: payload.name,
+        ...(payload.titleLocked !== undefined ? { titleLocked: payload.titleLocked } : {}),
+        editedAt,
+      },
+    },
+  }
+}
+
+function validateUpdateLayout(payload: Record<string, unknown>): ValidationResult {
+  const workspaceId = normalizeId(payload.workspaceId)
+  if (!workspaceId) return reject('invalid_workspace_id', 'Layout commands require a workspace id.')
+  if (!isRecord(payload.layoutModel)) {
+    return reject('invalid_layout_model', 'Layout commands require a FlexLayout model object.')
+  }
+  const editedAt = editedAtOf(payload.editedAt)
+  if (editedAt === null) return reject('invalid_edited_at', 'Layout commands require a numeric editedAt stamp.')
+  return {
+    ok: true,
+    command: {
+      type: 'workspace.update_layout',
+      payload: {
+        workspaceId,
+        layoutModel: clone(payload.layoutModel) as unknown as Workspace['layoutModel'],
+        editedAt,
+      },
+    },
+  }
+}
+
+// The fields a window may edit. Anything outside this list is main's own
+// (session assignment, launch flags, scheduler-owned roster records) and is
+// refused rather than silently dropped, so a caller learns its patch did
+// nothing instead of believing it landed.
+const EDITABLE_FIELDS = [
+  'folderPath',
+  'folderMissing',
+  'memory',
+  'archivedAt',
+  'highlight',
+  'worktree',
+  'lastTerminalActivityAt',
+] as const
+
+function validateUpdateFields(payload: Record<string, unknown>): ValidationResult {
+  const workspaceId = normalizeId(payload.workspaceId)
+  if (!workspaceId) return reject('invalid_workspace_id', 'Field commands require a workspace id.')
+  if (!isRecord(payload.patch)) return reject('invalid_patch', 'Field commands require a patch object.')
+  const editedAt = editedAtOf(payload.editedAt)
+  if (editedAt === null) return reject('invalid_edited_at', 'Field commands require a numeric editedAt stamp.')
+  const patch: WorkspaceFieldsPatch = {}
+  for (const [key, value] of Object.entries(payload.patch)) {
+    if (value === undefined) continue
+    if (!(EDITABLE_FIELDS as readonly string[]).includes(key)) {
+      return reject('field_not_editable', `Workspace field "${key}" is not editable through workspace sync.`)
+    }
+    ;(patch as Record<string, unknown>)[key] = clone(value)
+  }
+  if (Object.keys(patch).length === 0) {
+    return reject('empty_patch', 'Field commands require at least one field to change.')
+  }
+  return { ok: true, command: { type: 'workspace.update_fields', payload: { workspaceId, patch, editedAt } } }
+}
+
+function validateUpdateAgent(payload: Record<string, unknown>): ValidationResult {
+  const workspaceId = normalizeId(payload.workspaceId)
+  const agentId = normalizeId(payload.agentId)
+  if (!workspaceId || !agentId) {
+    return reject('invalid_agent_payload', 'Agent commands require workspace and agent ids.')
+  }
+  if (payload.patch !== null && !isRecord(payload.patch)) {
+    return reject('invalid_patch', 'Agent commands require a patch object or null to remove the agent.')
+  }
+  const configEditedAt = editedAtOf(payload.configEditedAt)
+  if (configEditedAt === null) {
+    return reject('invalid_edited_at', 'Agent commands require a numeric configEditedAt stamp.')
+  }
+  return {
+    ok: true,
+    command: {
+      type: 'workspace.update_agent',
+      payload: {
+        workspaceId,
+        agentId,
+        patch: payload.patch === null ? null : (clone(payload.patch) as Partial<AgentState>),
+        configEditedAt,
+      },
+    },
+  }
+}
+
+function validateRemove(payload: Record<string, unknown>): ValidationResult {
+  const workspaceId = normalizeId(payload.workspaceId)
+  if (!workspaceId) return reject('invalid_workspace_id', 'Remove commands require a workspace id.')
+  return { ok: true, command: { type: 'workspace.remove', payload: { workspaceId } } }
 }
 
 function validateAssignSession(
@@ -585,7 +745,8 @@ function validateSourceWindowOwnsWorkspace(
 function eventPayloadForCommand(
   command: WorkspaceSyncCommand,
   state: WorkspaceSyncState,
-  resolveResumeCapabilities: (cli: string) => { resumeSession: boolean; sessionIdFromCaller: boolean }
+  resolveResumeCapabilities: (cli: string) => { resumeSession: boolean; sessionIdFromCaller: boolean },
+  now: () => number
 ): unknown {
   if (command.type === 'workspace_window.close') {
     const closing = state.workspaceWindows.find((windowState) => windowState.id === command.payload.windowId)
@@ -604,6 +765,9 @@ function eventPayloadForCommand(
       cliResumeAvailable: caps.resumeSession,
       cliUsesStableSessionId: caps.sessionIdFromCaller,
     }
+  }
+  if (command.type === 'workspace.remove') {
+    return { workspaceId: command.payload.workspaceId, removedAt: now() }
   }
   return clone(command.payload)
 }
@@ -624,11 +788,25 @@ function eventTypeForCommand(command: WorkspaceSyncCommand): WorkspaceSyncEventT
       return 'agent_terminal.session_assigned'
     case 'agent_terminal.update_launch_state':
       return 'agent_terminal.launch_state_updated'
+    case 'workspace.rename':
+      return 'workspace.renamed'
+    case 'workspace.update_layout':
+      return 'workspace.layout_updated'
+    case 'workspace.update_fields':
+      return 'workspace.fields_updated'
+    case 'workspace.update_agent':
+      return 'workspace.agents_updated'
+    case 'workspace.remove':
+      return 'workspace.removed'
   }
 }
 
 function reject(reason: string, message: string): ValidationResult {
   return { ok: false, reason, message }
+}
+
+function editedAtOf(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 }
 
 function normalizeId(value: unknown): string {

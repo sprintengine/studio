@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../../../shared/automation'
+import type { SprintCreateRequest, SprintCreateResult } from '../../../shared/sprint-create'
 import type { ActionContext } from '../../../shared/automations/contracts'
 import {
   SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID,
@@ -49,11 +49,11 @@ function context(overrides: Partial<ActionContext> = {}): ActionContext {
 }
 
 function harness(overrides: Partial<SprintEngineStartActionDeps> & {
-  respond?: AutomationRendererResponse
+  respond?: SprintCreateResult
 } = {}) {
-  const requests: AutomationRendererRequest[] = []
+  const requests: SprintCreateRequest[] = []
   const provider = createSprintEngineStartActionProvider({
-    delegateToRenderer: async (request) => {
+    createSprint: async (request) => {
       requests.push(request)
       return overrides.respond ?? { ok: true, workspaceId: 'ws-chained' }
     },
@@ -82,8 +82,6 @@ async function assertStartDelegatesPlanSourcedCreationOnRefreshedBase(): Promise
   assert.deepEqual(fetched, [WORKSPACE_ROOT], 'a worktree chain fetches before resolving the start point')
   assert.equal(requests.length, 1)
   const request = requests[0]
-  assert.equal(request.kind, 'sprint.create')
-  if (request.kind !== 'sprint.create') return
   assert.equal(request.folderPath, WORKSPACE_ROOT)
   assert.equal(request.sourceRelativePath, 'backlog/2026-07-02-next-item.md')
   assert.equal(request.rosterName, 'Core Roster')
@@ -106,7 +104,6 @@ async function assertLegacyTeamConfigKeyStillStaffsTheRoster(): Promise<void> {
     context(),
   )
   const legacyRequest = legacy.requests[0]
-  if (legacyRequest.kind !== 'sprint.create') return assert.fail('expected sprint.create')
   assert.equal(
     legacyRequest.rosterName,
     'Core Roster',
@@ -119,7 +116,6 @@ async function assertLegacyTeamConfigKeyStillStaffsTheRoster(): Promise<void> {
     context(),
   )
   const bothRequest = both.requests[0]
-  if (bothRequest.kind !== 'sprint.create') return assert.fail('expected sprint.create')
   assert.equal(bothRequest.rosterName, 'New Roster', 'the new key wins over the legacy one')
 }
 
@@ -135,7 +131,6 @@ async function assertNonWorktreeStartSkipsFetchAndStartPoint(): Promise<void> {
   )
   assert.equal(result.status, 'completed')
   const request = requests[0]
-  if (request.kind !== 'sprint.create') return assert.fail('expected sprint.create')
   assert.equal(request.useWorktrees, false)
   assert.equal(request.baseStartPoint, undefined, 'no start point without a worktree')
 }
@@ -163,8 +158,7 @@ async function assertWatchedTeamRidesAsSelfTriggerGuard(): Promise<void> {
     context({ triggerPayload: { kind: 'sprint-engine.run-landed', team: 'team-a' } }),
   )
   const request = requests[0]
-  if (request.kind !== 'sprint.create') return assert.fail('expected sprint.create')
-  assert.equal(request.refuseTeamSlug, 'team-a', 'the watched team rides along so the renderer can refuse a self-loop')
+  assert.equal(request.refuseTeamSlug, 'team-a', 'the watched team rides along so creation can refuse a self-loop')
 }
 
 async function assertInvalidConfigsAreRefused(): Promise<void> {

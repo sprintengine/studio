@@ -34,14 +34,13 @@ export const mobileRelayModule: CapabilityModule = {
     const multicodeAuth = host.requireService(MulticodeAuthToken)
     const workspaceSync = host.requireService(WorkspaceSyncServiceToken)
 
-    let mobileWorkspaceRoots: string[] = []
-    // The phone's scope no longer depends on a renderer push (MC-2153): a window
-    // that pushed its open-workspace roots still wins by being first in the
-    // union, but with no window ever opened the same roots are read from main's
-    // own workspace snapshot — restored from the persisted routing snapshot at
-    // boot — so a paired phone sees this Multicode's runs headlessly.
+    // The phone's scope is read from main's own registry (MC-2158). The renderer
+    // push this used to union in is gone: its only remaining job was supplying
+    // folders the routing-placeholder model had lost, and there are no
+    // placeholders left — every record main holds carries its real folder,
+    // whether or not a window has ever opened it this session.
     const resolveWorkspaceRoots = (): string[] =>
-      uniqueResolvedRoots([...mobileWorkspaceRoots, ...listKnownWorkspaceRoots(workspaceSync.getSnapshot())])
+      uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSync.getSnapshot()))
     const snapshotService = new MobileSprintEngineSnapshotService()
     const bridge = new MobileBridge(() => multicodeAuth.getSession(), {
       accessTokenProvider: () => multicodeAuth.getRelayAccessToken(),
@@ -57,13 +56,7 @@ export const mobileRelayModule: CapabilityModule = {
       description: 'Encrypted relay connection; only active while this module is enabled.',
     })
 
-    registerMobileBridgeIpc(host.ipcMain, {
-      bridge,
-      getWorkspaceRoots: () => mobileWorkspaceRoots,
-      setWorkspaceRoots: (roots: string[]) => {
-        mobileWorkspaceRoots = roots
-      },
-    })
+    registerMobileBridgeIpc(host.ipcMain, { bridge })
 
     host.onShutdown(() => bridge.shutdown())
   },

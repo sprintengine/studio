@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 
 import { registerWorkspaceSyncIpc } from './workspace-sync-ipc'
 import { createWorkspaceSyncService } from '../workspace-sync-service'
+import { createWorkspaceRegistryService } from '../workspace-registry-service'
+import { createInMemoryWorkspaceRegistryStore } from '../workspace-registry-store'
 
 type Handler = (_event: IpcEvent, input?: unknown) => unknown
 
@@ -61,7 +63,9 @@ async function main(): Promise<void> {
       },
     },
   }
-  const service = createWorkspaceSyncService()
+  const service = createWorkspaceSyncService({
+    registry: createWorkspaceRegistryService({ store: createInMemoryWorkspaceRegistryStore() }),
+  })
 
   registerWorkspaceSyncIpc(ipcMain as unknown as Parameters<typeof registerWorkspaceSyncIpc>[0], service, {
     listWindows: () => [source.window, target.window, destroyed] as unknown as ReturnType<

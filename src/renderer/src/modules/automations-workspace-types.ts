@@ -1,9 +1,8 @@
 import type { RendererHost } from './renderer-host'
-import type { LayoutTemplate, PreviewSlot } from '../types/workspace'
+import type { LayoutTemplate } from '../types/workspace'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../types/workspace'
+import { AUTOMATIONS_HOST_TEMPLATE } from '../../../shared/layouts/templates'
 import { AutomationsWorkspaceTypeIcon } from '../components/AppIcons'
-
-const editor = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'editor', label })
 
 // The automations control center owns one non-closeable tab whose tabset hides
 // the FlexLayout tab strip, so AutomationsPanel renders the only visible control
@@ -11,38 +10,10 @@ const editor = (label: string, x: number, y: number, w: number, h: number): Prev
 // never stack into this tabset — `addAgentTabTiled` recognises the
 // `automations-control-center` component and docks runs into a right-hand
 // terminals tabset, so the control panel keeps its real estate and the live
-// runs appear beside it.
-const automationsControlCenterTab = () => ({
-  type: 'tab',
-  name: 'Automations',
-  component: 'automations-control-center',
-  enableClose: false,
-})
-
+// runs appear beside it. The layout lives in `shared` (MC-2158) so a host the
+// automation executor mints headlessly carries the same control centre.
 export function createAutomationsTemplate(): LayoutTemplate {
-  return {
-    id: 'automations-mode',
-    name: 'Automations Mode',
-    description: 'Schedule agents on this project, watch run history, and manage triggers — with runs hosted as live terminals beside the control panel.',
-    previewSlots: [
-      editor('Automations', 4, 4, 292, 102),
-    ],
-    layout: {
-      global: { tabSetEnableDrop: true, tabEnableClose: true },
-      borders: [],
-      layout: {
-        type: 'row',
-        children: [
-          {
-            type: 'tabset',
-            weight: 100,
-            enableTabStrip: false,
-            children: [automationsControlCenterTab()],
-          },
-        ],
-      },
-    },
-  }
+  return AUTOMATIONS_HOST_TEMPLATE
 }
 
 // The `automations-host` type stays REGISTERED but is hidden from the creation

@@ -5,7 +5,7 @@ import type {
   WorkspaceSyncEvent,
   WorkspaceSyncSnapshot,
 } from '../../shared/workspace-sync'
-import type { ElectronApi } from '../../shared/electron-api'
+import type { ElectronApi, WorkspaceRegistryHydrateResult } from '../../shared/electron-api'
 
 type WorkspaceSyncIpcRenderer = {
   invoke(channel: string, ...args: unknown[]): Promise<unknown>
@@ -19,8 +19,17 @@ export function createWorkspaceSyncApi(renderer: WorkspaceSyncIpcRenderer): Pick
   | 'workspaceSyncGetSnapshot'
   | 'workspaceSyncGetEventsAfter'
   | 'onWorkspaceSyncEvent'
+  | 'workspaceRegistryNeedsHydration'
+  | 'workspaceRegistryHydrate'
 > {
   return {
+    // The one-time hydration handshake (MC-2158). `needs-hydration` is false
+    // from the moment main has written a registry, which is how a window learns
+    // to stop offering its localStorage state and start mirroring.
+    workspaceRegistryNeedsHydration: (): Promise<boolean> =>
+      renderer.invoke('workspace-registry:needs-hydration') as Promise<boolean>,
+    workspaceRegistryHydrate: (payload: unknown): Promise<WorkspaceRegistryHydrateResult> =>
+      renderer.invoke('workspace-registry:hydrate', payload) as Promise<WorkspaceRegistryHydrateResult>,
     workspaceSyncDispatch: (command: WorkspaceSyncCommand): Promise<WorkspaceSyncCommandResult> =>
       renderer.invoke('workspace-sync:dispatch', command) as Promise<WorkspaceSyncCommandResult>,
     workspaceSyncGetSnapshot: (): Promise<WorkspaceSyncSnapshot> =>
@@ -42,4 +51,6 @@ export const workspaceSyncApi = createWorkspaceSyncApi(ipcRenderer) satisfies Pi
   | 'workspaceSyncGetSnapshot'
   | 'workspaceSyncGetEventsAfter'
   | 'onWorkspaceSyncEvent'
+  | 'workspaceRegistryNeedsHydration'
+  | 'workspaceRegistryHydrate'
 >

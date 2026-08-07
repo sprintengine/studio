@@ -378,11 +378,11 @@ export function normalizeRecentWorkspaceFolders(
   return normalized.slice(0, MAX_RECENT_WORKSPACE_FOLDERS)
 }
 
-export function normalizeCliPermissionPreset(
-  input: SprintEngineCliPermissionPreset | null | undefined
-): SprintEngineCliPermissionPreset {
-  return input === 'auto_workspace' || input === 'bypass_all' ? input : 'default'
-}
+// Relocated to shared with MC-2160 (main normalizes the preset when it composes
+// a sprint run); re-exported so every existing renderer import site is unchanged.
+import { normalizeCliPermissionPreset } from '../../../../shared/sprintengine/automation-lifecycle'
+
+export { normalizeCliPermissionPreset }
 
 // The app-level default preset for NEW agent spawns (owner ruling 2026-07-26:
 // "we should be setting bypass permission mode as the default generally

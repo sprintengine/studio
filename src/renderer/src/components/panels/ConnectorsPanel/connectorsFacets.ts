@@ -21,6 +21,7 @@ import type {
   MarketplacePluginEntry,
 } from '../../../../../shared/marketplace/manifest'
 import { componentKindLabels } from '../../settings/storefrontView'
+import { connectorCanLaunch } from '../../../../../shared/connector-launch'
 
 export type ConnectorSource = 'catalog' | 'registry'
 
@@ -100,10 +101,9 @@ const FACET_RULES: ReadonlyArray<{ facet: NamedFacet; test: RegExp }> = [
 // isolated MCP, no seeded skill). Every surface that offers or performs a
 // launch — canLaunch below, the Ready-to-launch rail, the automation connector
 // picker, and resolveConnectorLaunch — expresses it through this predicate so
-// they cannot drift.
-export function connectorCanLaunch(skill: string | undefined, installed: boolean): boolean {
-  return Boolean(skill) || installed
-}
+// they cannot drift. It lives in `src/shared/connector-launch.ts` since MC-2159,
+// because main resolves connectors for headless launches through the same rule.
+export { connectorCanLaunch }
 
 // Present an installed (settings) MCP server as a catalog-shaped entry so the
 // Ready-to-launch rail renders one shape for both populations — catalog entries

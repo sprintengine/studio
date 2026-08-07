@@ -1,6 +1,6 @@
 import { app, BrowserWindow, powerSaveBlocker, shell } from 'electron'
 import { existsSync } from 'fs'
-import { access } from 'fs/promises'
+import { access, readdir, readFile, stat } from 'fs/promises'
 import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
 import { createAgentStateService } from './agent-state-service'
@@ -8,7 +8,6 @@ import { createAutomationService } from './automation/automation-service'
 import { createAutomationTools } from './automation/automation-tools'
 import { createStudioGatewayTools } from './automation/studio-gateway-tools'
 import type { McpToolContribution } from './module-host/main-host'
-import { createRendererAutomationDelegate } from './automation/renderer-delegate'
 import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
 import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
 import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
@@ -73,16 +72,21 @@ import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-syn
 import { createGitWorktree, excludeMcpConfigFromWorktree } from './git'
 import { agentWorktreePaths } from '../shared/worktree-paths'
 import { cliResumeCapabilities, createTerminalRuntime, resolveSpawnEventSink } from './terminal-runtime'
+import { createAgentControlPlane } from './agent-control-plane'
+import { createAgentLaunchService } from './agent-launch-service'
 import { ConversationRuntime } from './conversation-runtime'
 import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { MulticodeUpdateService } from './update-service'
 import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
-import { createWorkspaceSyncRoutingSnapshotStore } from './workspace-sync-routing-snapshot'
+import { createWorkspaceRegistryStore } from './workspace-registry-store'
+import { createWorkspaceRegistryService } from './workspace-registry-service'
 import { createWorkspaceSyncService } from './workspace-sync-service'
 import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
+import { pathExists } from './filesystem-workspace'
+import { createSprintCreateService } from './sprint-create-service'
 
 export function createAppServices(diagnosticsEnabled: boolean) {
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
@@ -348,6 +352,35 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       return { ok: false, retryable: false, message: result.message }
     },
   })
+  // The one interaction path to a live agent session (MC-102). Every caller
+  // that drives an agent — Sprint Engine dispatch, the review guide, later the
+  // composer and MCP — goes through this instead of writing to a pty itself, so
+  // concurrent prompts serialize per session and submit determinism lives in
+  // one place. It holds no window reference, so it works headless.
+  const agentControlPlane = createAgentControlPlane({
+    terminal: {
+      list: () => terminalRuntime.ipcHandlers.listTerminals(),
+      write: (sessionId, data) => terminalRuntime.ipcHandlers.writeTerminal(sessionId, data),
+      read: (sessionId) => terminalRuntime.readTerminalOutput(sessionId),
+    },
+    conversation: {
+      // The runtime's list result carries the shared ok/message envelope but
+      // never fails; the empty arm is the type's other branch, not a swallowed
+      // error — a target that matches nothing fails loudly at the plane.
+      list: () => {
+        const result = conversationRuntime.listSessions()
+        return result.ok ? result.sessions : []
+      },
+      sendTurn: async ({ sessionId, message }) => {
+        const result = await conversationRuntime.sendTurn({ sessionId, message })
+        return result.ok ? { ok: true } : { ok: false, message: result.message }
+      },
+      interrupt: async ({ sessionId }) => {
+        const result = await conversationRuntime.interrupt({ sessionId })
+        return result.ok ? { ok: true } : { ok: false, message: result.message }
+      },
+    },
+  })
   // The main-process sprint scheduler (sprint-runtime-ownership Phase 2):
   // drives the shared auto-run cycle against the terminal runtime in-process,
   // immune to renderer occlusion throttling. Spawns still need a window as the
@@ -408,6 +441,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     terminal: {
       list: () => terminalRuntime.ipcHandlers.listTerminals(),
       write: (sessionId, data) => terminalRuntime.ipcHandlers.writeTerminal(sessionId, data),
+      // Dispatch prompts go through the control plane, not a bare write pair:
+      // the paste and its submit are one queue entry, so nothing interleaves.
+      sendPrompt: async (sessionId, text) => {
+        const result = await agentControlPlane.send({ sessionId }, text, { submit: true })
+        return result.ok ? { ok: true } : { ok: false, message: result.message }
+      },
       kill: (sessionId) => terminalRuntime.ipcHandlers.killTerminal(sessionId),
       status: async (sessionId) => {
         const status = await terminalRuntime.ipcHandlers.getTerminalStatus(sessionId)
@@ -513,16 +552,93 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   }) => {
     void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
   }
-  const workspaceSyncRoutingSnapshotStore = createWorkspaceSyncRoutingSnapshotStore({
+  // The authoritative workspace registry (MC-2158). It replaces the routing
+  // snapshot outright: routing lives IN the record now, so the
+  // workspaceNames/workspaceFolderPaths/workspaceModes side-maps that snapshot
+  // carried — each added to patch a specific placeholder gap — have nothing
+  // left to patch.
+  const workspaceRegistryStore = createWorkspaceRegistryStore({
     resolveUserDataDir: () => app.getPath('userData'),
     logDiagnostic: logWorkspaceSyncDiagnostic,
   })
-  const workspaceSyncService = createWorkspaceSyncService({
-    initialRoutingSnapshot: workspaceSyncRoutingSnapshotStore.read() ?? undefined,
-    persistRoutingSnapshot: (snapshot) => workspaceSyncRoutingSnapshotStore.write(snapshot),
+  const workspaceRegistry = createWorkspaceRegistryService({
+    store: workspaceRegistryStore,
     logDiagnostic: logWorkspaceSyncDiagnostic,
+  })
+  const workspaceSyncService = createWorkspaceSyncService({
+    registry: workspaceRegistry,
     resolveResumeCapabilities: cliResumeCapabilities,
   })
+  // Composing an agent launch is main's job (MC-2159). Built here, after the
+  // terminal runtime and workspace sync, because it reads both: the workspace it
+  // launches into comes from the sync snapshot, and the launch itself is the
+  // runtime's own spawn handler. Its defaults come from the main-owned launch
+  // settings store, so a launch with zero windows open still uses the user's
+  // real CLI, permission preset, and MCP servers.
+  const agentLaunchService = createAgentLaunchService({
+    listWorkspaces: () => workspaceSyncService.getSnapshot().state.workspaces,
+    getLaunchSettings: () => sprintEngineLaunchSettings.get(),
+    listConnectorCatalog: () => mcpConfigService.listCatalog(),
+    // The same resolver the renderer reaches over `memory:resolve-root`, so a
+    // headless launch carries the project's Knowledge Graph exactly like an
+    // interactively-spawned agent does.
+    resolveKnowledgeRoot: (input) => resolveMemoryRoot(input.workspaceRoot, input.relativeRoot),
+    terminal: {
+      list: () => terminalRuntime.ipcHandlers.listTerminals(),
+      // A headless launch has no window to be the event sink; the runtime
+      // resolves one (or its no-op headless sender) itself.
+      spawn: (payload) => terminalRuntime.ipcHandlers.spawnTerminal(resolveSpawnEventSink(), payload),
+      kill: (sessionId) => terminalRuntime.ipcHandlers.killTerminal(sessionId),
+    },
+  })
+
+  // Creating a sprint run is main's job (MC-2160). Built after workspace sync and
+  // the scheduler because it uses both: the composed run's workspace is adopted
+  // into the registry, and the run is then handed to `sprintRuntime`, whose
+  // run-start bootstrap spawns the coordinator seat. That is what replaces the
+  // old board-mount handshake, and it is why creation works with zero windows.
+  const sprintCreateService = createSprintCreateService({
+    getLaunchSettings: () => sprintEngineLaunchSettings.get(),
+    // What the registry HOLDS, which is what main can spawn — the same set
+    // `cli.runtime.list` reports.
+    listLaunchableClis: () => getPluginRegistry().loaded().map((plugin) => plugin.manifest.id),
+    initializeSprintEngineState: (input) => sprintEngineArtifacts.initializeSprintEngineState(input),
+    fs: {
+      pathExists: (path) => pathExists(path),
+      readdir: async (path) => (await readdir(path, { withFileTypes: true }))
+        .map((entry) => ({ name: entry.name, isDir: entry.isDirectory() })),
+      readfile: (path) => readFile(path, 'utf8'),
+      readFile: (path) => readFile(path, 'utf8'),
+      statPath: async (path) => {
+        const stats = await stat(path)
+        return {
+          isFile: stats.isFile(),
+          isDirectory: stats.isDirectory(),
+          sizeBytes: stats.size,
+          modifiedAt: stats.mtime.toISOString(),
+          modifiedAtMs: stats.mtimeMs,
+        }
+      },
+    },
+    newWorkspaceId: () => workspaceRegistry.newWorkspaceId(),
+    adoptWorkspace: (workspace, windowId, folderPath) => {
+      const adopted = workspaceSyncService.adoptWorkspace(workspace, windowId, folderPath, 'automation')
+      return adopted.ok ? { ok: true } : { ok: false, message: adopted.message }
+    },
+    primaryWorkspaceWindowId: () => workspaceSyncService.getSnapshot().state.primaryWorkspaceWindowId,
+    updateWorkspaceAgent: (workspaceId, agentId, patch) => {
+      workspaceSyncService.updateWorkspaceAgent(workspaceId, agentId, patch, 'automation')
+    },
+    hydrateAutomationMode: (input) => sprintEngineAutomation.hydrateAutomationMode(input),
+    setCliPermissionPreset: (input) =>
+      sprintEngineAutomation.setCliPermissionPreset({ ...input, actor: 'automation' }),
+    registerSprintRun: (registration) => sprintRuntime.registerRun(registration),
+    addBacklogLink: (input) => addOrUpdateBacklogLink(input),
+    logDiagnostic: (input) => {
+      void writeDiagnosticLog({ ...input, source: 'sprintengine' })
+    },
+  })
+
   // Built after workspace sync because adopting the retired skill packs needs to
   // know which projects are open — that is where a previously installed pack's
   // directory would be.
@@ -535,10 +651,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .filter((folderPath): folderPath is string => typeof folderPath === 'string' && folderPath.length > 0),
   })
   // Instance-global SprintEngine Studio MCP surface: reads come from the workspace-sync snapshot
-  // and terminal runtime; mutations are delegated to the primary renderer so
-  // they run the same store actions as the UI. The gateway starts with the
-  // app; Python Sprint Engine remains module-owned and lazy.
-  const automationDelegate = createRendererAutomationDelegate()
+  // and terminal runtime, and mutations go straight to the main services that
+  // own them — one lane, no window required (MC-2161). The gateway starts with
+  // the app; Python Sprint Engine remains module-owned and lazy.
   const automationService = createAutomationService({
     resolveUserDataDir: () => app.getPath('userData'),
     appVersion: app.getVersion(),
@@ -564,7 +679,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       appTools: createAutomationTools({
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
-        delegateToRenderer: (request) => automationDelegate.request(request),
+        launchAgent: (request) => agentLaunchService.launch(request),
+        createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
+        createSprint: (request) => sprintCreateService.createSprint(request),
         listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
         readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
         // Same filesystem store the Automations IPC front door reads; roots are
@@ -712,7 +829,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   return {
     agentConfigImportService,
     agentStateService,
-    automationDelegate,
+    sprintCreateService,
     automationService,
     backgroundModeStore,
     readBackgroundStatus,
@@ -733,6 +850,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       resolveModuleMcpTools = resolver
     },
     moduleRegistryMirror,
+    agentControlPlane,
+    agentLaunchService,
     builtinSkillManager,
     conversationRuntime,
     githubTokenStore,
@@ -757,7 +876,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     agentSkillInstaller,
     capabilityWatcher,
     workspaceSyncService,
-    workspaceSyncRoutingSnapshotStore,
+    workspaceRegistry,
   }
 }
 

@@ -5,6 +5,7 @@ import { sprintEngineCoordinatorSeatForRoleCounts, sprintEngineRoleKey } from '.
 import { backlogIssueLinkIndex } from './backlogTrackerPickerModel'
 import { matchProxyItemByIssue } from '../../utils/sprintengineTrackerSeeding'
 import { startTrackerProxySprint } from '../../utils/sprintengineWorkspaceCreation'
+import { rendererSprintEngineWorkspaceCreationPort } from '../../utils/sprintengineWorkspaceCreationPorts'
 import {
   DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
   DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
@@ -172,6 +173,7 @@ export function useBacklogTrackerSeeding(params: {
             })
             if (!linked.ok) throw new Error(linked.message)
           },
+          workspace: rendererSprintEngineWorkspaceCreationPort,
         })
         if (!result.ok) return { ok: false, error: result.message }
         // Re-scan so the new proxy row shows its running-sprint link immediately.

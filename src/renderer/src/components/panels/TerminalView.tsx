@@ -38,6 +38,7 @@ import {
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
+import { knowledgeLaunchContext, type KnowledgeLaunchContext } from '../../../../shared/project-knowledge'
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { resumeCapabilitiesForCli } from '../../store/slices/pluginsSlice'
@@ -79,11 +80,7 @@ type AgentExecutionRoot = {
   worktreePath: string | undefined
 }
 
-type MemoryLaunchContext = {
-  promptSuffix: string | null
-  rootPath: string | undefined
-  relativeRoot: string | undefined
-}
+type MemoryLaunchContext = KnowledgeLaunchContext
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
 
@@ -134,24 +131,10 @@ async function resolveMemoryLaunchContext(
     message: error instanceof Error ? error.message : 'Unable to resolve workspace knowledge.',
   }))
 
-  if (status.ok) {
-    return {
-      rootPath: status.rootPath,
-      relativeRoot: status.relativeRoot,
-      promptSuffix: [
-        `Knowledge Graph is configured at ${status.relativeRoot}.`,
-        'This is a repo-local Markdown knowledge graph for product, architecture, brand, and ecosystem context.',
-        'Inspect it when relevant instead of assuming project context.',
-        'Use the workspace-knowledge skill if it is installed in .agents/skills.',
-      ].join(' '),
-    }
-  }
-
-  return {
-    rootPath: undefined,
-    relativeRoot: configuredRoot,
-    promptSuffix: `Knowledge Graph is configured at ${configuredRoot}, but the folder is currently missing or inaccessible. Do not guess another knowledge folder.`,
-  }
+  // The env vars and the prompt line are composed in `shared/project-knowledge`
+  // since MC-2159, because the main-process AgentLaunchService composes exactly
+  // the same pair for an agent launched with no window.
+  return knowledgeLaunchContext(status)
 }
 
 function appendMemoryPrompt(prompt: string | undefined, memoryContext: MemoryLaunchContext): string | undefined {

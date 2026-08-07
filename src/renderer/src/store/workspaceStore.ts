@@ -43,6 +43,7 @@ import type {
   GuidedBriefRuntimeState,
 } from '../types/workspace'
 import type { AppTheme, WindowMaterial } from '../types/appTheme'
+import type { LaunchedAgentProjection } from '../utils/launchedAgentProjection'
 import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
 import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
 import type { CommandId } from '../commands/commandRegistry'
@@ -98,7 +99,6 @@ import {
   dropRetiredRoadmapWorkspaces,
   nameGenericWorkspaceAgents,
   normalizeWorkspaceForPartialize,
-  preserveNewerSprintEngineAutomationState,
 } from './slices/normalizers'
 import { reconcileWorkspaceModuleState } from './slices/workspaceModuleState'
 import {
@@ -213,6 +213,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   archiveStaleWorkspaces: () => void
   recordWorkspaceTerminalActivity: (id: WorkspaceId, lastInputAt: number) => void
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
+  projectLaunchedAgentSessions: (sessions: TerminalSessionSnapshot[]) => LaunchedAgentProjection[]
   setAuthState: (authState: MulticodeAuthState) => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setCliModelCatalog: (cli: AgentCli, catalog: DiscoveredCliModelCatalog | null) => void
@@ -512,18 +513,8 @@ type SettingsEnvelopeState = {
   openFilesInExternalWindow: unknown
 }
 
-let lastWrittenRegistrySerialized: string | null = null
 let lastWrittenSettingsSerialized: string | null = null
 let suppressNextPersistWrite = false
-
-function getCurrentWorkspaceWindowId(): WorkspaceWindowId {
-  if (typeof window === 'undefined') return PRIMARY_WORKSPACE_WINDOW_ID
-  try {
-    return new URL(window.location.href).searchParams.get('windowId')?.trim() || PRIMARY_WORKSPACE_WINDOW_ID
-  } catch {
-    return PRIMARY_WORKSPACE_WINDOW_ID
-  }
-}
 
 function preserveAgentTerminalMetadata(incomingWorkspace: Workspace, currentWorkspace: Workspace | undefined): Workspace {
   if (!currentWorkspace) return incomingWorkspace
@@ -812,9 +803,9 @@ const workspaceStateStorage: StateStorage = {
     if (!registryState && !settingsState) return null
 
     const version = Math.max(registryVersion, settings.envelope?.version ?? 0)
-    // Seed the dedup baselines so the first post-hydrate setItem can decide
-    // whether to re-serialize each key.
-    lastWrittenRegistrySerialized = JSON.stringify(extractRegistryFields(mergedState))
+    // Seed the settings dedup baseline so the first post-hydrate setItem can
+    // decide whether to re-serialize that key. The registry key has no baseline
+    // any more: it is frozen and never written again.
     lastWrittenSettingsSerialized = JSON.stringify(extractSettingsFields(mergedState))
     return JSON.stringify({ state: mergedState, version })
   },
@@ -835,25 +826,18 @@ const workspaceStateStorage: StateStorage = {
     const version = envelope.version ?? WORKSPACE_STORE_VERSION
     const fullState = envelope.state
 
-    // Registry key — dedup'd. Settings writes that don't touch workspace
-    // fields produce an identical serialized payload and the localStorage
-    // write is skipped, which gives the AC2/AC3 by-construction guarantee.
+    // The registry key is FROZEN, not deleted (MC-2158). Main owns the workspace
+    // registry now, so the renderer stops writing this key and leaves the last
+    // written value in place for one release as the rollback artifact; the
+    // release after this deletes it, in its own commit.
+    //
+    // The stated trade: a user who downgrades after one release loses workspace
+    // changes made during it. Dual-writing the key instead would be exactly the
+    // dual authority this move exists to end — and a stale dual-write is worse
+    // than a clean frozen snapshot, because it would silently lose the NEWER
+    // state on the way back up.
     const registryFields = extractRegistryFields(fullState)
-    const registrySerialized = JSON.stringify(registryFields)
     const registryEnvelopeSerialized = JSON.stringify({ state: registryFields, version })
-    if (registrySerialized !== lastWrittenRegistrySerialized) {
-      try {
-        window.localStorage.setItem(
-          WORKSPACE_STORAGE_KEY,
-          registryEnvelopeSerialized,
-        )
-      } catch (error) {
-        console.warn('[workspaceStore] localStorage registry write failed', {
-          message: error instanceof Error ? error.message : 'unknown',
-        })
-      }
-      lastWrittenRegistrySerialized = registrySerialized
-    }
 
     // Settings key — also dedup'd. Workspace registry mutations that don't
     // touch settings produce identical settings payloads here, so the
@@ -896,7 +880,6 @@ const workspaceStateStorage: StateStorage = {
     } catch {
       // Removal is best-effort.
     }
-    lastWrittenRegistrySerialized = null
     lastWrittenSettingsSerialized = null
   },
 }
@@ -1395,153 +1378,168 @@ function syncActiveSprintRunsToMain(): void {
 }
 syncActiveSprintRunsToMain()
 
-function syncWorkspaceRegistryAcrossWindows(): void {
-  if (typeof window === 'undefined') return
-  if (!isStorageEventWorkspaceLiveSyncEnabled()) return
-  window.addEventListener('storage', (event) => {
-    if (event.key !== WORKSPACE_STORAGE_KEY || !event.newValue) return
-    let parsed: { state?: Partial<WorkspaceMigrationState> } | null = null
-    try {
-      parsed = JSON.parse(event.newValue) as { state?: Partial<WorkspaceMigrationState> }
-    } catch {
-      return
-    }
-    const incoming = parsed?.state
-    if (!incoming || !Array.isArray(incoming.workspaces)) return
-    // Cross-window sync adopts another window's list without the migrate
-    // ladder, so a writer still holding pre-migration state would re-import
-    // duplicate Automations hosts (store v64) or a retired roadmap-mode (store
-    // v65) or multiloop-mode (store v66) workspace here. The filters are
-    // deterministic, so every window converges on the same list regardless of
-    // which window wrote last.
-    const incomingWorkspaces = dropRetiredMultiloopWorkspaces(
-      dropRetiredRoadmapWorkspaces(
-        dedupeAutomationsHostWorkspaces(incoming.workspaces as Workspace[]),
-      ),
-    )
-    let appliedRegistrySerialized: string | null = null
-    suppressNextPersistWrite = true
-    try {
-      useWorkspaceStore.setState((current) => {
-        const normalizedWindows = normalizeWorkspaceWindows(
-          incomingWorkspaces,
-          incoming.workspaceWindows,
-          incoming.primaryWorkspaceWindowId,
-          incoming.activeWorkspaceId ?? current.activeWorkspaceId,
-        )
-        const workspaceWindowId = getCurrentWorkspaceWindowId()
-        const currentOwnedWindow = current.workspaceWindows.find((windowState) => windowState.id === workspaceWindowId)
-        const incomingOwnedWindow = normalizedWindows.windows.find((windowState) => windowState.id === workspaceWindowId)
-        const currentWorkspaceById = new Map(current.workspaces.map((workspace) => [workspace.id, workspace] as const))
-        const currentOwnedWorkspaceIds = new Set(currentOwnedWindow?.workspaceIds ?? [])
-        let nextWorkspaces = incomingWorkspaces.map((workspace) => {
-          const currentWorkspace = currentWorkspaceById.get(workspace.id)
-          const automationSafe = preserveNewerSprintEngineAutomationState(workspace, currentWorkspace)
-          return currentOwnedWorkspaceIds.has(workspace.id)
-            ? preserveAgentTerminalMetadata(automationSafe, currentWorkspace)
-            : automationSafe
-        })
-        if (currentOwnedWindow && incomingOwnedWindow) {
-          const preservableWorkspaceIds = new Set(
-            currentOwnedWindow.workspaceIds.filter((workspaceId) => incomingOwnedWindow.workspaceIds.includes(workspaceId))
-          )
-          nextWorkspaces = nextWorkspaces.map((workspace) =>
-            preservableWorkspaceIds.has(workspace.id)
-              ? currentWorkspaceById.get(workspace.id) ?? workspace
-              : workspace
-          )
-        }
-        if (
-          currentOwnedWindow
-          && incomingOwnedWindow
-          && currentOwnedWindow.lastFocusedAt > incomingOwnedWindow.lastFocusedAt
-        ) {
-          if (
-            currentOwnedWindow.activeWorkspaceId
-            && incomingOwnedWindow.workspaceIds.includes(currentOwnedWindow.activeWorkspaceId)
-          ) {
-            incomingOwnedWindow.activeWorkspaceId = currentOwnedWindow.activeWorkspaceId
-          }
-          incomingOwnedWindow.lastFocusedAt = currentOwnedWindow.lastFocusedAt
-        }
-        // The incoming active pointer can reference a host the dedupe dropped;
-        // don't let it dangle.
-        const incomingActiveWorkspaceId =
-          incoming.activeWorkspaceId
-          && nextWorkspaces.some((workspace) => workspace.id === incoming.activeWorkspaceId)
-            ? incoming.activeWorkspaceId
-            : null
-        const nextState = {
-          ...current,
-          workspaces: nextWorkspaces,
-          activeWorkspaceId: incomingActiveWorkspaceId ?? current.activeWorkspaceId,
-          workspaceWindows: normalizedWindows.windows,
-          primaryWorkspaceWindowId: normalizedWindows.primaryWorkspaceWindowId,
-          workspaceRegistryEmptyState:
-            incoming.workspaceRegistryEmptyState === undefined
-              ? current.workspaceRegistryEmptyState
-              : incoming.workspaceRegistryEmptyState,
-        }
-        // Advance the dedup baseline with the SAME normalized shape partialize
-        // feeds setItem. nextWorkspaces can reuse live workspace objects (with
-        // file content / in-memory buffers) for preserved ids, so serializing
-        // the raw state here would differ from the normalized partialized form
-        // and let a later unrelated write re-emit this imported registry.
-        appliedRegistrySerialized = JSON.stringify(partializeRegistryFields(nextState))
-        return nextState
-      })
-    } finally {
-      suppressNextPersistWrite = false
-    }
-    if (appliedRegistrySerialized) {
-      lastWrittenRegistrySerialized = appliedRegistrySerialized
+// One-time hydration handshake (MC-2158). On the first boot after the registry
+// inverted, main has no registry file and this window is the only place the
+// user's workspaces exist. It offers its POST-migrate-ladder state — the value
+// after zustand's `migrate` chain has run up to WORKSPACE_STORE_VERSION —
+// because the ladder lives here and would never be re-run against main's file.
+//
+// Main decides: it seeds only when it has written nothing, so a second window
+// racing this one is a no-op rather than a merge, and it REFUSES an empty offer
+// that carries no explicit "the user removed everything" record. The legacy key
+// is left untouched either way, so a refusal costs one boot and retries.
+async function offerRegistryHydration(): Promise<void> {
+  const api = window.api as {
+    workspaceRegistryNeedsHydration?: () => Promise<boolean>
+    workspaceRegistryHydrate?: (payload: unknown) => Promise<unknown>
+  } | undefined
+  if (!api?.workspaceRegistryNeedsHydration || !api.workspaceRegistryHydrate) return
+  let needsHydration = false
+  try {
+    needsHydration = await api.workspaceRegistryNeedsHydration()
+  } catch {
+    return
+  }
+  if (!needsHydration) return
+  const state = useWorkspaceStore.getState()
+  const registry = readWorkspaceRegistryKey()
+  try {
+    await api.workspaceRegistryHydrate({
+      ...partializeRegistryFields(state),
+      rawLocalStorage: registry.raw,
+    })
+  } catch (error) {
+    console.warn('[workspaceStore] workspace registry hydration offer failed', {
+      message: error instanceof Error ? error.message : 'unknown',
+    })
+  }
+}
+
+// Adopt main's registry wholesale. This is the mirror's seed at start and its
+// recovery after a sequence gap. Presentation state the renderer still owns
+// (open editor files, the file-explorer/backlog/git panel view) is preserved
+// per workspace: main strips those fields on write, so taking the snapshot
+// verbatim would blank the panels of every workspace on every resync.
+function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync').WorkspaceSyncSnapshot): void {
+  // An empty registry never replaces a non-empty window. This is the same wipe
+  // guard the localStorage path has carried since an empty snapshot overwrote a
+  // real profile once, moved to the seam where the hazard now lives: on the
+  // first boot the hydration offer and this seed race, and a corrupt registry
+  // file reads as empty on purpose. Either way, blanking every open workspace
+  // is never the right answer — main re-seeds from this window instead.
+  if (snapshot.state.workspaces.length === 0 && useWorkspaceStore.getState().workspaces.length > 0) {
+    console.warn('[workspaceStore] ignored an empty registry snapshot over a non-empty window', {
+      localWorkspaceCount: useWorkspaceStore.getState().workspaces.length,
+      snapshotSequence: snapshot.sequence,
+    })
+    return
+  }
+  useWorkspaceStore.setState((current) => {
+    const currentById = new Map(current.workspaces.map((workspace) => [workspace.id, workspace] as const))
+    const workspaces = snapshot.state.workspaces.map((incoming) => {
+      const existing = currentById.get(incoming.id)
+      if (!existing) return incoming
+      return {
+        ...incoming,
+        editorState: existing.editorState,
+        fileExplorerState: existing.fileExplorerState,
+        backlogState: existing.backlogState,
+        gitPanelState: existing.gitPanelState,
+        // Live-only fields main never persists: the projection cache the
+        // supervisor re-reads from disk, and in-flight terminal metadata for
+        // agents this window owns.
+        sprintEngineState: existing.sprintEngineState,
+        agents: preserveAgentTerminalMetadata(incoming, existing).agents,
+      }
+    })
+    return {
+      ...current,
+      workspaces,
+      activeWorkspaceId: snapshot.state.activeWorkspaceId ?? current.activeWorkspaceId,
+      workspaceWindows: snapshot.state.workspaceWindows,
+      primaryWorkspaceWindowId: snapshot.state.primaryWorkspaceWindowId,
+      workspaceRegistryEmptyState: workspaces.length === 0 ? current.workspaceRegistryEmptyState : null,
     }
   })
 }
-syncWorkspaceRegistryAcrossWindows()
 
-function isStorageEventWorkspaceLiveSyncEnabled(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    if (window.localStorage.getItem('multicode.workspaceStorageLiveSync') === '1') return true
-  } catch {
-    // Dev/rollback flag read is best-effort.
-  }
-  return import.meta.env.DEV && import.meta.env.VITE_MULTICODE_WORKSPACE_STORAGE_LIVE_SYNC === '1'
-}
-
-// Wire the main-mediated workspace sync bus. The client dispatches active
-// selection commands and applies accepted/broadcast active_changed events to
-// the store. Storage-event sync above remains the functional rollback path.
+// Wire the main-mediated workspace sync bus. The client asks main for every
+// registry mutation and applies the accepted/broadcast events to this window's
+// mirror. Main is the authority: an apply is not a local decision being
+// recorded, it is main's decision being adopted.
 function initWorkspaceSyncClient(): void {
   if (typeof window === 'undefined') return
-  // Applying an imported (accepted or broadcast) event must not re-emit a live
-  // command. Each apply runs under `suppressNextPersistWrite` so it mutates the
-  // in-memory store but does not write the registry to localStorage — without
-  // this, the application would persist the full registry and another window's
-  // storage listener would import routing/active wholesale, echoing the event
-  // back and potentially flipping a window that the event did not target
-  // (AC5/AC6 of the active path; the same hazard applies to move/close/
-  // placement). The change still reaches other windows through the source
-  // renderer's own persisted user-action write, so suppression only removes the
-  // echo. Suppressing the immediate write is not enough on its own: the registry
-  // dedup baseline (`lastWrittenRegistrySerialized`) must also advance to the
-  // post-apply state, or the next unrelated persisted mutation (e.g.
-  // setSidebarCollapsed) would detect a phantom registry diff and serialize the
-  // imported snapshot later. The baseline uses the SAME normalized shape
-  // `partialize` feeds setItem, so this reuses partializeRegistryFields.
+  // Applying an imported (accepted or broadcast) event must not re-emit a
+  // command — the no-echo contract. It no longer needs the persist-suppression
+  // and dedup-baseline plumbing it used to: with the registry out of
+  // localStorage, an apply cannot trigger a registry write, and there is no
+  // storage listener left to echo it back.
   const applyImportedSyncEvent = (apply: () => void): void => {
-    suppressNextPersistWrite = true
-    try {
-      apply()
-    } finally {
-      suppressNextPersistWrite = false
-    }
-    lastWrittenRegistrySerialized = JSON.stringify(
-      partializeRegistryFields(useWorkspaceStore.getState()),
-    )
+    apply()
+  }
+  const patchWorkspace = (workspaceId: WorkspaceId, patch: (workspace: Workspace) => Workspace): void => {
+    useWorkspaceStore.setState((current) => ({
+      ...current,
+      workspaces: current.workspaces.map((workspace) =>
+        workspace.id === workspaceId ? patch(workspace) : workspace),
+    }))
   }
   configureWorkspaceSyncClient({
+    applyRegistrySnapshot: (snapshot) => applyImportedSyncEvent(() => adoptRegistrySnapshot(snapshot)),
+    applyWorkspaceRenamed: (apply) =>
+      applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => ({
+        ...workspace,
+        name: apply.name,
+        ...(apply.titleLocked !== undefined ? { titleLocked: apply.titleLocked } : {}),
+      }))),
+    applyWorkspaceLayoutUpdated: (apply) =>
+      applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => ({
+        ...workspace,
+        layoutModel: apply.layoutModel,
+      }))),
+    applyWorkspaceFieldsUpdated: (apply) =>
+      applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => {
+        const next = { ...workspace } as Record<string, unknown>
+        // An absent key is "no opinion" and is skipped; an explicit null is the
+        // user clearing the field and is written through.
+        for (const [key, value] of Object.entries(apply.patch)) {
+          if (value === undefined) continue
+          next[key] = value
+        }
+        return next as Workspace
+      })),
+    applyWorkspaceAgentUpdated: (apply) =>
+      applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => {
+        if (apply.patch === null) {
+          const { [apply.agentId]: _removed, ...agents } = workspace.agents
+          return { ...workspace, agents }
+        }
+        const existing = workspace.agents[apply.agentId] ?? defaultAgent(apply.agentId)
+        return {
+          ...workspace,
+          agents: {
+            ...workspace.agents,
+            [apply.agentId]: { ...existing, ...apply.patch, configEditedAt: apply.configEditedAt },
+          },
+        }
+      })),
+    applyWorkspaceRemoved: (apply) =>
+      applyImportedSyncEvent(() => {
+        useWorkspaceStore.setState((current) => ({
+          ...current,
+          workspaces: current.workspaces.filter((workspace) => workspace.id !== apply.workspaceId),
+          activeWorkspaceId: current.activeWorkspaceId === apply.workspaceId
+            ? current.workspaces.filter((workspace) => workspace.id !== apply.workspaceId).at(-1)?.id ?? null
+            : current.activeWorkspaceId,
+          workspaceWindows: current.workspaceWindows.map((windowState) => ({
+            ...windowState,
+            workspaceIds: windowState.workspaceIds.filter((id) => id !== apply.workspaceId),
+            activeWorkspaceId: windowState.activeWorkspaceId === apply.workspaceId
+              ? windowState.workspaceIds.filter((id) => id !== apply.workspaceId)[0] ?? null
+              : windowState.activeWorkspaceId,
+          })),
+        }))
+      }),
     applyActiveChanged: (apply: WorkspaceActiveChangedApply) =>
       applyImportedSyncEvent(() => useWorkspaceStore.getState().applyWorkspaceActiveChangedEvent(apply)),
     applyWorkspaceMoved: (apply: WorkspaceMovedApply) =>
@@ -1557,7 +1555,13 @@ function initWorkspaceSyncClient(): void {
     applyAgentTerminalLaunchState: (apply: AgentTerminalLaunchStateApply) =>
       applyImportedSyncEvent(() => useWorkspaceStore.getState().applyAgentTerminalLaunchStateEvent(apply)),
   })
+  // Subscribe immediately so no broadcast is missed, and offer hydration
+  // alongside it. The two race by design: the snapshot seed cannot blank this
+  // window because `adoptRegistrySnapshot` refuses an empty registry over a
+  // non-empty one, and once main is seeded its next broadcast (or the next
+  // gap resync) carries the authoritative list.
   workspaceSyncClient.start()
+  void offerRegistryHydration()
 }
 initWorkspaceSyncClient()
 

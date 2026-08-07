@@ -322,50 +322,18 @@ export function nonEmptyPersistedWorkspaceState(): Partial<WorkspaceMigrationSta
   return Array.isArray(persisted?.workspaces) && persisted.workspaces.length > 0 ? persisted : null
 }
 
-export type PersistedStateClassification =
-  | 'present'
-  | 'dangerous_empty_missing_storage'
-  | 'dangerous_empty_unreadable'
-  | 'dangerous_empty_no_workspaces'
-
-type ClassificationInput = {
-  rawLocalStorage: string | null
-  parseError?: unknown
-}
-
-// Shape-only classifier. It cannot prove intent — the previous "valid_empty"
-// inference (workspaces=[] + companion appSettings/sidebarCollapsed) was
-// unreliable because every startup write also carries those fields. Intent
-// lives in {@link consumePendingValidEmptyIntent} instead, which the user-
-// action path (removeWorkspace on the last workspace) sets and partialize
-// consumes.
-export function classifyPersistedWorkspaceState(input: ClassificationInput): PersistedStateClassification {
-  if (input.rawLocalStorage === null) return 'dangerous_empty_missing_storage'
-  if (input.parseError) return 'dangerous_empty_unreadable'
-
-  let parsed: { state?: Partial<WorkspaceMigrationState> } | null = null
-  try {
-    parsed = JSON.parse(input.rawLocalStorage) as { state?: Partial<WorkspaceMigrationState> }
-  } catch {
-    return 'dangerous_empty_unreadable'
-  }
-
-  const state = parsed?.state
-  if (!state || typeof state !== 'object') return 'dangerous_empty_unreadable'
-
-  if (Array.isArray(state.workspaces) && state.workspaces.length > 0) return 'present'
-
-  // workspaces missing or empty — defense-in-depth treats both as dangerous.
-  // Whether to write empty or recover from backup is governed by the explicit
-  // intent flag and the recovery flow, not by guessing intent from shape.
-  return 'dangerous_empty_no_workspaces'
-}
-
-export function isDangerousEmptyClassification(
-  classification: PersistedStateClassification,
-): boolean {
-  return classification !== 'present'
-}
+// The persisted-state classifier moved to `src/shared/workspace-registry.ts`
+// (MC-2158) so main's registry hydration and this window's wipe guard share one
+// implementation instead of two that can drift — main refuses to seed on
+// exactly the classifications the guard refuses to overwrite on. Re-exported
+// here because the renderer's import sites (and the store's public surface)
+// name it from this module.
+export {
+  classifyPersistedWorkspaceState,
+  isDangerousEmptyClassification,
+} from '../../../../shared/workspace-registry'
+import type { PersistedStateClassification } from '../../../../shared/workspace-registry'
+export type { PersistedStateClassification }
 
 // The T22 one-shot intent flag was removed in T23 — intent now lives in
 // state.workspaceRegistryEmptyState (an explicit record set by removeWorkspace

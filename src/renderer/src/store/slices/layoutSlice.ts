@@ -1,59 +1,17 @@
 import type { IJsonModel } from 'flexlayout-react'
-import { buildSprintEngineAgentRosterForState } from '../../utils/sprintengine'
+// The board layout moved to shared with MC-2160 (main composes sprint
+// workspaces headlessly and stores the same layout); re-exported so every
+// existing renderer import site is unchanged.
+import { sprintEngineTabsLayoutModel } from '../../../../shared/sprintengine/workspace-record'
+
+export { sprintEngineTabsLayoutModel }
+
 import { railSideOfComponents } from '../../utils/modelRegistry'
+import { workspaceSyncClient } from '../workspaceSyncClient'
 import type {
-  SprintEngineState,
   Workspace,
   WorkspaceId,
 } from '../../types/workspace'
-
-const sprintEngineAgentTab = (id: string, name: string) => ({
-  type: 'tab',
-  name,
-  component: 'agent',
-  config: { agentId: id },
-})
-
-// The Sprint Engine board owns Inbox / Roster / Tasks as internal segmented
-// chrome (see SprintEngineBoardPanel). It lives as a single non-closeable
-// FlexLayout tab so the workspace nav stays stable.
-const sprintEngineBoardTab = () => ({
-  type: 'tab',
-  name: 'Sprint',
-  component: 'sprintengine',
-  enableClose: false,
-})
-
-export const sprintEngineTabsLayoutModel = (
-  sprintEngineState: SprintEngineState | null,
-  agents: Workspace['agents'] = {},
-  options?: { includeAgentTabs?: boolean }
-): IJsonModel => ({
-  global: { tabSetEnableDrop: true, tabEnableClose: true },
-  borders: [],
-  layout: {
-    type: 'row',
-    children: [
-      {
-        type: 'tabset',
-        weight: options?.includeAgentTabs === false ? 100 : 58,
-        // The SE board owns its own segmented nav (workspace top bar), so the
-        // FlexLayout tab strip on this tabset would just be redundant chrome.
-        enableTabStrip: false,
-        children: [sprintEngineBoardTab()],
-      },
-      ...(options?.includeAgentTabs === false
-        ? []
-        : [{
-          type: 'tabset',
-          weight: 42,
-          children: buildSprintEngineAgentRosterForState(sprintEngineState).map((agent) =>
-            sprintEngineAgentTab(agent.id, agents[agent.id]?.name ?? agent.label)
-          ),
-        }]),
-    ],
-  },
-})
 
 export function modelContainsComponent(value: unknown, component: string): boolean {
   if (!value) return false
@@ -407,10 +365,17 @@ type LayoutSliceSet = (mutator: (state: LayoutSliceCarrier) => void) => void
 
 export function createLayoutSlice(set: LayoutSliceSet): LayoutSlice {
   return {
-    updateLayout: (id, model) =>
+    // `layoutModel` is renderer-AUTHORED and main-PERSISTED (MC-2158). Only a
+    // window can compute a layout change — FlexLayout lives here — so the model
+    // is applied locally and then sent as a command; main stores it. Main needs
+    // the field at all because a workspace it mints headlessly must be fully
+    // formed, and a workspace with no layout is not.
+    updateLayout: (id, model) => {
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (ws) ws.layoutModel = model
-      }),
+      })
+      void workspaceSyncClient.dispatchUpdateWorkspaceLayout(id, model)
+    },
   }
 }

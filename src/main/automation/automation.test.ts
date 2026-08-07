@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import type { BrowserWindow } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
@@ -14,11 +13,13 @@ import {
   STUDIO_MCP_SERVER_INFO_FILENAME,
 } from './automation-service'
 import { createMcpSocketServer, type McpConnectionContext, type McpToolRegistration } from './mcp-socket-server'
+import { createWorkspaceRegistryService } from '../workspace-registry-service'
+import { createInMemoryWorkspaceRegistryStore } from '../workspace-registry-store'
+import { createWorkspaceSyncService } from '../workspace-sync-service'
 import { createMainKernel } from '../module-host/main-host'
 import { createFakeIpcMain } from '../module-host/ipc-main-fake.test-helper'
 import { loadMainModules, type CapabilityModule } from '../module-host/load-modules'
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
-import { createRendererAutomationDelegate } from './renderer-delegate'
 import { createGatewayAuditStore, STUDIO_GATEWAY_AUDIT_FILENAME } from './gateway-audit'
 import { createStudioGatewayTools, isStudioGatewayMutation } from './studio-gateway-tools'
 import { createReviewGatewayTools } from '../review/gateway-tools'
@@ -37,7 +38,8 @@ import type {
   TerminalSessionSnapshot,
 } from '../../shared/electron-api'
 import type { SprintEngineArtifactReviewPayload } from '../ipc/sprintengine-ipc'
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
+import type { SprintCreateRequest, SprintCreateResult } from '../../shared/sprint-create'
+import type { AgentLaunchRequest } from '../../shared/agent-launch'
 import type { LoadedPlugin } from '../../shared/plugin-manifest'
 import type { MarketplaceRegistryReadInput } from '../../shared/electron-api'
 import type { MarketplaceComponentKind } from '../../shared/marketplace/manifest'
@@ -101,7 +103,9 @@ function snapshotOf(workspaces: Workspace[]): WorkspaceSyncSnapshot {
 type BackendsOverrides = {
   workspaces?: Workspace[]
   sessions?: TerminalSessionSnapshot[]
-  delegate?: (request: AutomationRendererRequest) => Promise<AutomationRendererResponse>
+  createSprint?: (request: SprintCreateRequest) => Promise<SprintCreateResult>
+  createWorkspace?: AutomationBackends['createWorkspace']
+  launchAgent?: AutomationBackends['launchAgent']
   listBacklogItems?: AutomationBackends['listBacklogItems']
   readBacklogItem?: AutomationBackends['readBacklogItem']
   listAutomationDefinitions?: AutomationBackends['listAutomationDefinitions']
@@ -140,12 +144,27 @@ function unexpectedCall(name: string): () => never {
 }
 
 function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
+  // `workspace.create` mints in main now (MC-2158), so the backend is a real
+  // registry rather than a delegated renderer call the test has to stub answering.
+  let createdIds = 0
+  const registry = createWorkspaceRegistryService({
+    store: createInMemoryWorkspaceRegistryStore(),
+    now: () => 1_000,
+    newWorkspaceId: () => `ws-created-${++createdIds}`,
+  })
+  const workspaceSync = createWorkspaceSyncService({ registry, now: () => 1_000 })
   return {
     getWorkspaceSyncSnapshot: () => snapshotOf(overrides.workspaces ?? []),
+    createWorkspace: overrides.createWorkspace ?? ((input, actor) => workspaceSync.createWorkspace(input, actor)),
     listTerminalSessions: () => overrides.sessions ?? [],
-    delegateToRenderer:
-      overrides.delegate
-      ?? (async () => ({ ok: false, code: 'no_primary_window', message: 'no window in test' })),
+    createSprint:
+      overrides.createSprint
+      ?? (async () => ({ ok: false, code: 'no_sprint_create_service', message: 'no sprint create service in test' })),
+    // Default: no launch port wired. A test that reaches a launch without
+    // stubbing one gets an explicit failure, not a silent success.
+    launchAgent:
+      overrides.launchAgent
+      ?? (async () => ({ ok: false, code: 'no_launch_service', message: 'no launch service in test' })),
     listBacklogItems: overrides.listBacklogItems ?? (async () => ({ ok: true, key: null, items: [] })),
     readBacklogItem:
       overrides.readBacklogItem ?? (async (_root, relativePath) => ({ ok: false, message: `no item ${relativePath}` })),
@@ -397,7 +416,11 @@ async function testReadToolsAnswerFromSnapshot(): Promise<void> {
     cliStartRequested: true,
     cliHasLaunched: true,
   } as Workspace['agents'][string]
-  const placeholder = testWorkspace('ws-old', { templateId: 'workspace-sync-routing-placeholder' })
+  // The restart survivor MC-1903 had to hide (a routing placeholder with no
+  // live terminal, the unactionable graveyard) no longer exists: main persists
+  // the real record, so a workspace that survived a restart is listed like any
+  // other and every workspace-scoped tool accepts its id.
+  const restartSurvivor = testWorkspace('ws-old', { name: 'Survivor', folderPath: '/repo/old' })
   const sessions: TerminalSessionSnapshot[] = [
     {
       sessionId: 'session-1',
@@ -413,39 +436,22 @@ async function testReadToolsAnswerFromSnapshot(): Promise<void> {
       activity: { kind: 'idle', since: 20 },
     } as unknown as TerminalSessionSnapshot,
   ]
-  const tools = createAutomationTools(backendsOf({ workspaces: [workspace, placeholder], sessions }))
+  const tools = createAutomationTools(backendsOf({ workspaces: [workspace, restartSurvivor], sessions }))
 
-  // MC-1903: a routing placeholder with no live agent is the unactionable
-  // graveyard — workspace.list omits it entirely.
   const list = await tool(tools, 'workspace.list').handler({})
   assert.equal(list.isError, undefined)
   const listed = list.structuredContent as { workspaces: Array<{ id: string; detail: string }> }
-  assert.equal(listed.workspaces.length, 1)
-  assert.equal(listed.workspaces[0]?.id, 'ws-1')
-  assert.equal(listed.workspaces[0]?.detail, 'full')
+  assert.equal(listed.workspaces.length, 2)
+  assert.deepEqual(listed.workspaces.map((entry) => entry.detail), ['full', 'full'])
 
-  // A placeholder whose agent terminal survived the restart is the current
-  // Studio-owned session: it stays listed, disclosed as routing-only.
-  const liveOldSession = {
-    sessionId: 'session-old',
-    processAlive: true,
-    kind: 'agent',
-    workspaceId: 'ws-old',
-    agentId: 'agent-old',
-    visible: true,
-    startedAt: 10,
-    lastOutputAt: 20,
-    lastInputAt: null,
-    lastVisibleAt: null,
-    activity: { kind: 'idle', since: 20 },
-  } as unknown as TerminalSessionSnapshot
-  const toolsWithLivePlaceholder = createAutomationTools(
-    backendsOf({ workspaces: [workspace, placeholder], sessions: [...sessions, liveOldSession] })
+  // A gateway tool operates on the restart survivor with no live agent
+  // terminal — the case that used to fail `workspace_without_folder`.
+  const survivorStatus = await tool(tools, 'workspace.status').handler({ workspaceId: 'ws-old' })
+  assert.equal(survivorStatus.isError, undefined)
+  assert.equal(
+    (survivorStatus.structuredContent as { workspace: { folderPath: string | null } }).workspace.folderPath,
+    '/repo/old',
   )
-  const listWithLive = await tool(toolsWithLivePlaceholder, 'workspace.list').handler({})
-  const listedWithLive = listWithLive.structuredContent as { workspaces: Array<{ id: string; detail: string }> }
-  assert.equal(listedWithLive.workspaces.length, 2)
-  assert.equal(listedWithLive.workspaces.find((entry) => entry.id === 'ws-old')?.detail, 'routing-only')
 
   const status = await tool(tools, 'agent.status').handler({ workspaceId: 'ws-1', agentId: 'agent-a' })
   assert.equal(status.isError, undefined)
@@ -477,18 +483,23 @@ async function testInvalidRequestsReturnExplicitErrors(): Promise<void> {
   assert.match(JSON.stringify(launchUnknownWorkspace.structuredContent), /unknown_workspace/)
 }
 
-// Wires a workspace + delegate that simulate a confirmed launch: the delegate
+// Wires a workspace + launch port that simulate a confirmed launch: the port
 // records the request, inserts the agent into the (mutated) workspace, and
-// registers a live terminal session so the handler's bus-confirmation probe
-// passes. Returns the request log and the worktree-creation call log.
+// registers a live terminal session so the handler's confirmation probe passes.
+// Returns the launch log and the worktree-creation call log.
+//
+// The launch stopped being a renderer delegation in MC-2159, so this stubs
+// `launchAgent` (the main-process AgentLaunchService) rather than the retired
+// renderer request — and the session it registers carries the id the launch
+// reports back, which is what the handler now confirms against.
 function launchHarness(overrides: BackendsOverrides = {}): {
   tools: ReturnType<typeof createAutomationTools>
-  requests: AutomationRendererRequest[]
+  requests: AgentLaunchRequest[]
   worktreeCalls: Array<{ workspaceRoot: string; name: string }>
 } {
   const workspace = testWorkspace('ws-1', { folderPath: '/tmp/project-a' })
   const sessions: TerminalSessionSnapshot[] = []
-  const requests: AutomationRendererRequest[] = []
+  const requests: AgentLaunchRequest[] = []
   const worktreeCalls: Array<{ workspaceRoot: string; name: string }> = []
   const backends: AutomationBackends = {
     ...backendsOf({ workspaces: [workspace], sessions, ...overrides }),
@@ -500,8 +511,8 @@ function launchHarness(overrides: BackendsOverrides = {}): {
         worktreeCalls.push(input)
         return { worktreePath: `${input.workspaceRoot}/.multicode-worktrees/${input.name}`, branch: `agent/${input.name}` }
       }),
-    delegateToRenderer:
-      overrides.delegate
+    launchAgent:
+      overrides.launchAgent
       ?? (async (request) => {
         requests.push(request)
         const agentId = 'agent-claude-abc'
@@ -515,7 +526,7 @@ function launchHarness(overrides: BackendsOverrides = {}): {
           startedAt: 1,
           lastOutputAt: 1,
         } as never)
-        return { ok: true, workspaceId: (request as { workspaceId: string }).workspaceId, agentId }
+        return { ok: true, workspaceId: request.workspaceId, agentId, sessionId: 'sess-1' }
       }),
   }
   return { tools: createAutomationTools(backends), requests, worktreeCalls }
@@ -533,7 +544,7 @@ async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
     (refused.structuredContent as { error: { code: string } }).error.code,
     'permission_preset_not_allowed'
   )
-  assert.equal(bypass.requests.length, 0, 'a refused preset never reaches the renderer')
+  assert.equal(bypass.requests.length, 0, 'a refused preset never reaches the launch service')
 
   // An out-of-vocabulary preset is a plain invalid_arguments failure.
   const badPreset = await tool(launchHarness().tools, 'agent.launch').handler({
@@ -555,7 +566,7 @@ async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
   })
   assert.equal(okConfig.isError, undefined, JSON.stringify(okConfig.structuredContent))
   assert.equal(configured.worktreeCalls.length, 0, 'no worktree requested ⇒ createAgentWorktree not called')
-  const req = configured.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  const req = configured.requests[0]
   assert.equal(req.cliModel, 'opus')
   assert.equal(req.permissionPreset, 'auto_workspace')
   assert.equal(req.specialistId, 'security-reviewer')
@@ -563,7 +574,7 @@ async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
   assert.equal((okConfig.structuredContent as { worktreePath?: string }).worktreePath, undefined)
 
   // worktree:{} creates an agent/<name> worktree and threads its path through the
-  // delegate request and the success payload.
+  // launch request and the success payload.
   const isolated = launchHarness()
   const okWorktree = await tool(isolated.tools, 'agent.launch').handler({
     workspaceId: 'ws-1',
@@ -572,7 +583,7 @@ async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
   })
   assert.equal(okWorktree.isError, undefined, JSON.stringify(okWorktree.structuredContent))
   assert.deepEqual(isolated.worktreeCalls, [{ workspaceRoot: '/tmp/project-a', name: 'Scout' }])
-  const worktreeReq = isolated.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  const worktreeReq = isolated.requests[0]
   assert.equal(worktreeReq.worktreePath, '/tmp/project-a/.multicode-worktrees/Scout')
   assert.equal(
     (okWorktree.structuredContent as { worktreePath?: string }).worktreePath,
@@ -588,12 +599,12 @@ async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
   })
   assert.equal(okConnector.isError, undefined, JSON.stringify(okConnector.structuredContent))
   assert.deepEqual(connector.worktreeCalls, [{ workspaceRoot: '/tmp/project-a', name: 'Scout' }])
-  const connectorReq = connector.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  const connectorReq = connector.requests[0]
   assert.equal(connectorReq.connectorId, 'railway')
   assert.equal(connectorReq.worktreePath, '/tmp/project-a/.multicode-worktrees/Scout')
 
   // A worktree-creation failure is fatal isolation — worktree_unavailable, and
-  // the launch is never delegated.
+  // the launch never happens.
   const failed = launchHarness({ createAgentWorktree: async () => ({ error: 'not a git repository' }) })
   const denied = await tool(failed.tools, 'agent.launch').handler({ workspaceId: 'ws-1', worktree: { name: 'x' } })
   assert.equal(denied.isError, true)
@@ -608,72 +619,36 @@ async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
   assert.equal((badWorktree.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
 }
 
-async function testCreateDelegatesAndConfirmsOnTheBus(): Promise<void> {
-  // The delegate "creates" the workspace by inserting it into the snapshot the
-  // backends serve — modeling the renderer dispatching workspace.created.
-  const workspaces: Workspace[] = []
-  const requests: AutomationRendererRequest[] = []
-  const backends: AutomationBackends = {
-    ...backendsOf({ workspaces }),
-    getWorkspaceSyncSnapshot: () => snapshotOf(workspaces),
-    delegateToRenderer: async (request) => {
-      requests.push(request)
-      workspaces.push(testWorkspace('ws-new', { name: 'Created via automation' }))
-      return { ok: true, workspaceId: 'ws-new' }
-    },
-  }
+async function testCreateMintsInMainWithNoWindow(): Promise<void> {
+  // The delegate-then-poll shape this used to assert is gone (MC-2158): there
+  // is no renderer to ask and no bus confirmation to wait on, so the tool
+  // succeeds with zero windows and returns the record main just committed.
+  const backends = backendsOf()
   const tools = createAutomationTools(backends)
-  const created = await tool(tools, 'workspace.create').handler({ name: 'Created via automation' })
-  assert.equal(created.isError, undefined, 'create succeeds once the bus shows the workspace')
-  assert.equal((created.structuredContent as { workspace: { id: string } }).workspace.id, 'ws-new')
-  assert.deepEqual(requests, [{ kind: 'workspace.create', name: 'Created via automation', folderPath: undefined, templateId: undefined }])
-}
-
-async function testCreateNeverFakesSuccessWithoutBusConfirmation(): Promise<void> {
-  const backends = backendsOf({
-    delegate: async () => ({ ok: true, workspaceId: 'ws-ghost' }),
+  const created = await tool(tools, 'workspace.create').handler({
+    name: 'Created via automation',
+    folderPath: '/repo/a',
   })
-  const tools = createAutomationTools(backends)
-  const created = await tool(tools, 'workspace.create').handler({})
-  assert.equal(created.isError, true, 'renderer ok without bus confirmation is an explicit error')
-  assert.match(JSON.stringify(created.structuredContent), /bus_confirmation_timeout/)
+  assert.equal(created.isError, undefined, 'creation no longer depends on a window being open')
+  const projection = (created.structuredContent as {
+    workspace: { id: string; name: string; folderPath: string | null; detail: string }
+  }).workspace
+  assert.equal(projection.id, 'ws-created-1')
+  assert.equal(projection.name, 'Created via automation')
+  assert.equal(projection.folderPath, '/repo/a')
+  assert.equal(projection.detail, 'full', 'there is no routing-only projection left to report')
 }
 
-async function testDelegateFailurePassesThrough(): Promise<void> {
+async function testCreateSurfacesARegistryRefusal(): Promise<void> {
+  // A refusal from main is reported with its own reason — never softened into a
+  // success, and never a timeout for something that is not a timeout.
   const backends = backendsOf({
-    delegate: async () => ({ ok: false, code: 'no_primary_window', message: 'closed' }),
+    createWorkspace: () => ({ ok: false, reason: 'registry_commit_failed', message: 'disk is gone' }),
   })
   const tools = createAutomationTools(backends)
   const created = await tool(tools, 'workspace.create').handler({})
   assert.equal(created.isError, true)
-  assert.match(JSON.stringify(created.structuredContent), /no_primary_window/)
-}
-
-async function testDelegatePreservesWorkspaceModeOnSuccess(): Promise<void> {
-  // The delegate's response normalizer must pass workspaceMode through: it is
-  // the renderer registry's authoritative mode, and without it the mode
-  // assertion after workspace.create falls back to the sync snapshot's
-  // restart-restored 'standard' placeholder, failing every automation run
-  // that reuses a pre-existing Automations host.
-  const sentRequestIds: string[] = []
-  const findPrimaryWindow = () => ({
-    webContents: {
-      send: (_channel: string, requestId: string) => {
-        sentRequestIds.push(requestId)
-      },
-    },
-  }) as unknown as Pick<BrowserWindow, 'webContents'>
-  const delegate = createRendererAutomationDelegate(findPrimaryWindow)
-
-  const pending = delegate.request({ kind: 'workspace.create', folderPath: '/repo/a', mode: 'automations-host' })
-  assert.equal(sentRequestIds.length, 1, 'the delegate sends the request to the primary window')
-  delegate.handleResponse(sentRequestIds[0], { ok: true, workspaceId: 'ws-host', workspaceMode: 'automations-host' })
-  assert.deepEqual(await pending, { ok: true, workspaceId: 'ws-host', workspaceMode: 'automations-host' })
-
-  // A malformed workspaceMode is dropped, never forwarded.
-  const malformed = delegate.request({ kind: 'workspace.create', folderPath: '/repo/a' })
-  delegate.handleResponse(sentRequestIds[1], { ok: true, workspaceId: 'ws-host', workspaceMode: 42 })
-  assert.deepEqual(await malformed, { ok: true, workspaceId: 'ws-host' })
+  assert.match(JSON.stringify(created.structuredContent), /registry_commit_failed/)
 }
 
 async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
@@ -1505,8 +1480,8 @@ async function testBacklogWorkHandsItemToAgent(): Promise<void> {
   assert.equal(result.relativePath, 'backlog/example.md')
   assert.equal(result.agentId, 'agent-claude-abc')
 
-  // The delegated startup prompt is the invocation with instructions appended.
-  const req = harness.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  // The launched startup prompt is the invocation with instructions appended.
+  const req = harness.requests[0]
   assert.equal(req.prompt, '/backlog backlog/example.md\n\nFocus on the failing test first.')
   assert.equal(req.cli, 'claude-code')
 
@@ -1542,7 +1517,7 @@ async function testBacklogWorkFallsBackAndRefusesFinishedItems(): Promise<void> 
   assert.match(invocation, /Work the Backlog item at backlog\/example\.md/)
   assert.match(invocation, /in_progress/)
   assert.match(invocation, /completed/)
-  const req = fallback.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  const req = fallback.requests[0]
   assert.equal(req.prompt, invocation, 'no instructions ⇒ prompt is exactly the fallback invocation')
 
   // completed and archived items are refused and never launched.
@@ -1783,7 +1758,7 @@ async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> 
   const omittedLaunch = launchHarness()
   const launched = await tool(omittedLaunch.tools, 'agent.launch').handler({ workspaceId: 'ws-1', prompt: 'go' })
   assert.equal(launched.isError, undefined, JSON.stringify(launched.structuredContent))
-  const launchRequest = omittedLaunch.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  const launchRequest = omittedLaunch.requests[0]
   assert.equal(
     launchRequest.permissionPreset,
     'default',
@@ -1878,12 +1853,12 @@ async function testSprintReadToolsAnswerFromDisk(): Promise<void> {
   }
 }
 
-async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
-  const requests: AutomationRendererRequest[] = []
+async function testSprintCreateComposesInMainAndConfirms(): Promise<void> {
+  const requests: SprintCreateRequest[] = []
   let workspaceVisible = false
   let architectAlive = false
-  // What the next delegate call sets the live-session flag to — lets the
-  // timeout path model a run whose architect never comes up.
+  // What the next creation sets the live-session flag to — lets the timeout path
+  // model a run whose architect never comes up.
   let nextArchitectAlive = true
   const workspace = testWorkspace('ws-sprint', { folderPath: '/tmp/project-a', mode: 'sprintengine' as never })
   const session: TerminalSessionSnapshot = {
@@ -1899,7 +1874,7 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
     ...backendsOf(),
     getWorkspaceSyncSnapshot: () => snapshotOf(workspaceVisible ? [workspace] : []),
     listTerminalSessions: () => (architectAlive ? [session] : []),
-    delegateToRenderer: async (request) => {
+    createSprint: async (request) => {
       requests.push(request)
       workspaceVisible = true
       architectAlive = nextArchitectAlive
@@ -1916,7 +1891,6 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
   assert.deepEqual(started.structuredContent, { workspaceId: 'ws-sprint', started: true })
   assert.deepEqual(requests, [
     {
-      kind: 'sprint.create',
       folderPath: '/tmp/project-a',
       goal: 'Ship checkout',
       name: undefined,
@@ -1948,9 +1922,9 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
   const manual = await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'Ship checkout' })
   assert.deepEqual(manual.structuredContent, { workspaceId: 'ws-sprint', started: false })
 
-  // MC-2077 — the plural form. A multi-ref launch delegates the full deduped
-  // list as `sourceRelativePaths`, and `goal` may be absent (the selection
-  // derives one).
+  // MC-2077 — the plural form. A multi-ref launch hands the full deduped list to
+  // the service as `sourceRelativePaths`, and `goal` may be absent (the
+  // selection derives one).
   requests.length = 0
   nextArchitectAlive = true
   const multi = await tool(tools, 'sprint.create').handler({
@@ -2036,10 +2010,10 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
     assert.equal((bad.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
   }
 
-  // Delegate failures pass through verbatim (no window, controller errors).
+  // Service failures pass through verbatim (name collisions, controller errors).
   const failing = createAutomationTools({
     ...backendsOf(),
-    delegateToRenderer: async () => ({ ok: false, code: 'sprint_team_exists', message: 'That team already exists.' }),
+    createSprint: async () => ({ ok: false, code: 'sprint_team_exists', message: 'That team already exists.' }),
   })
   const failed = await tool(failing, 'sprint.create').handler({ folderPath: '/tmp/p', goal: 'g' })
   assert.equal((failed.structuredContent as { error: { code: string } }).error.code, 'sprint_team_exists')
@@ -2050,12 +2024,12 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
 // ceiling. Each one reaches the renderer verbatim, and a malformed one is
 // refused at the boundary rather than forwarded for the renderer to interpret.
 async function testSprintCreateCarriesTheRunRuntime(): Promise<void> {
-  const requests: AutomationRendererRequest[] = []
+  const requests: SprintCreateRequest[] = []
   const workspace = testWorkspace('ws-sprint', { folderPath: '/tmp/project-a', mode: 'sprintengine' as never })
   const tools = createAutomationTools({
     ...backendsOf(),
     getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
-    delegateToRenderer: async (request) => {
+    createSprint: async (request) => {
       requests.push(request)
       return { ok: true, workspaceId: 'ws-sprint' }
     },
@@ -2204,7 +2178,7 @@ async function testSprintCreateWarnsOnAnUnmarkedEpic(): Promise<void> {
   const tools = createAutomationTools({
     ...backendsOf(),
     getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
-    delegateToRenderer: async () => ({ ok: true, workspaceId: 'ws-sprint' }),
+    createSprint: async () => ({ ok: true, workspaceId: 'ws-sprint' }),
     readBacklogItem: async (_root, relativePath) => {
       const item = epics[relativePath]
       return item
@@ -4021,17 +3995,15 @@ const tests = [
   testBypassStaysRefusedAtTheExternalToolBoundary,
   testAutomationMutationToolsPassPipelineFailuresThrough,
   testSprintReadToolsAnswerFromDisk,
-  testSprintCreateDelegatesAndConfirms,
+  testSprintCreateComposesInMainAndConfirms,
   testSprintCreateWarnsOnAnUnmarkedEpic,
   testSprintLifecycleToolsMutateViaMainServices,
   testSprintSteeringToolsMutateViaMainServices,
   testSprintVcsAndUsageToolsReadViaMainServices,
   testAgentLaunchWidensConfigAndIsolation,
   testInvalidRequestsReturnExplicitErrors,
-  testCreateDelegatesAndConfirmsOnTheBus,
-  testCreateNeverFakesSuccessWithoutBusConfirmation,
-  testDelegateFailurePassesThrough,
-  testDelegatePreservesWorkspaceModeOnSuccess,
+  testCreateMintsInMainWithNoWindow,
+  testCreateSurfacesARegistryRefusal,
   testSocketServerSpeaksMcpAndOnlyWhenStarted,
   testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt,
   testToolsAnswerAConnectionThatNeverInitialized,

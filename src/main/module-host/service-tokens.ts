@@ -20,6 +20,19 @@ import { createServiceToken } from './main-host'
 export const TerminalRuntimeToken = createServiceToken<AppServices['terminalRuntime']>(
   'core.terminal-runtime'
 )
+// The single main-process path that drives an agent session (MC-102): send,
+// submit, interrupt, read, wait — serialized per session, dispatched per
+// transport. Consumers resolve this instead of writing to a pty themselves.
+export const AgentControlPlaneToken = createServiceToken<AppServices['agentControlPlane']>(
+  'core.agent-control-plane'
+)
+// The single main-process path that COMPOSES an agent launch (MC-2159): CLI and
+// permission defaults, connector resolution, naming, specialist prompt, spawn.
+// Consumers resolve this instead of asking a renderer to launch for them, which
+// is what made every headless agent launch fail for want of an open window.
+export const AgentLaunchServiceToken = createServiceToken<AppServices['agentLaunchService']>(
+  'core.agent-launch-service'
+)
 export const GitHubTokenStoreToken = createServiceToken<AppServices['githubTokenStore']>(
   'core.github-token-store'
 )
@@ -44,11 +57,21 @@ export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth'
 export const SprintEngineMcpHubToken = createServiceToken<AppServices['sprintEngineMcpHub']>(
   'core.sprintengine-mcp-hub'
 )
-export const AutomationDelegateToken = createServiceToken<AppServices['automationDelegate']>(
-  'core.automation-delegate'
+// Sprint creation in main (MC-2160): the automations module's `sprint-engine-start`
+// action and the roadmap orchestrator's `startSprint` both create runs through it,
+// so neither needs a window any more.
+export const SprintCreateServiceToken = createServiceToken<AppServices['sprintCreateService']>(
+  'core.sprint-create-service'
 )
 export const WorkspaceSyncServiceToken = createServiceToken<AppServices['workspaceSyncService']>(
   'core.workspace-sync-service'
+)
+// The authoritative workspace registry (MC-2158). Modules that need to READ the
+// durable record — the phone's scope resolver, a workspace-scoped surface —
+// resolve this rather than reaching for the bus, which only carries events.
+// Creation still goes through WorkspaceServiceToken below, which writes here.
+export const WorkspaceRegistryToken = createServiceToken<AppServices['workspaceRegistry']>(
+  'core.workspace-registry'
 )
 export const AutomationsEngineToken = createServiceToken<AutomationsEngine>(
   'automations.engine'

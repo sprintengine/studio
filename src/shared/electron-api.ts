@@ -1,4 +1,8 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
+// Type-only both ways (agent-launch.ts imports this module's McpSettings /
+// permission-preset vocabulary), so the cycle erases at compile time and no
+// runtime import exists in either direction.
+import type { AgentLaunchRecord } from './agent-launch'
 import type {
   FolderOpenRequest,
   FolderOpenResult,
@@ -53,11 +57,7 @@ import type {
   SprintRuntimeRunRegistration,
   SprintRuntimeStopReasonPush,
 } from './sprintengine/runtime-bridge'
-import type {
-  AutomationRendererRequest,
-  AutomationRendererResponse,
-  AutomationServerStatus,
-} from './automation'
+import type { AutomationServerStatus } from './automation'
 import type {
   AutomationsCreateInput,
   AutomationsDefinitionInput,
@@ -1298,6 +1298,15 @@ export type AgentPhase =
 // lifecycle-hook frame; `inferred` means it was derived from the legacy
 // output-timing heuristic. The UI uses this to signal confidence and we run both
 // detection paths side by side before cutting over.
+/** Main's answer to a window's one-time registry hydration offer. */
+export type WorkspaceRegistryHydrateResult = {
+  changed: boolean
+  reason: 'seeded' | 'already_present' | 'refused_dangerous_empty' | 'seeded_empty_intent'
+  classification?: string
+  seededWorkspaceCount?: number
+  droppedRecordIds?: string[]
+}
+
 export type AgentStateSource = 'hook' | 'inferred'
 
 export type AgentState = {
@@ -1342,6 +1351,14 @@ export type TerminalSessionSnapshot = {
   worktreeId?: string
   worktreePath?: string
   agentSession?: AgentSessionIdentity
+  // Present only on sessions the main-process AgentLaunchService composed
+  // (MC-2159): the launch decisions main made — name, CLI, model, permission
+  // preset, specialist, connector environment. The renderer projects these into
+  // an AgentState so a headless-launched agent gets a tab it never created, and
+  // so a window opened after the launch sees the same agent the launch made.
+  // Absent for renderer-launched agents (which already own their record) and
+  // for plain terminals.
+  agentRecord?: AgentLaunchRecord
   visible: boolean
   // Freeze-the-view: agent process killed to reclaim memory, scrollback kept
   // painted, resumable on keystroke. `processAlive` is false while suspended.
@@ -2971,11 +2988,18 @@ export type ElectronApi = {
   workspaceSyncDispatch: (command: WorkspaceSyncCommand) => Promise<WorkspaceSyncCommandResult>
   workspaceSyncGetSnapshot: () => Promise<WorkspaceSyncSnapshot>
   workspaceSyncGetEventsAfter: (sequence: number) => Promise<WorkspaceSyncEvent[]>
+  /**
+   * True while main has never written a workspace registry (MC-2158) — the
+   * first boot after the inversion, or a fresh install. A window answers it by
+   * offering its post-migrate-ladder localStorage state to
+   * `workspaceRegistryHydrate`; false means main is authoritative and the
+   * window mirrors instead.
+   */
+  workspaceRegistryNeedsHydration: () => Promise<boolean>
+  workspaceRegistryHydrate: (payload: unknown) => Promise<WorkspaceRegistryHydrateResult>
   onWorkspaceSyncEvent: (cb: (event: WorkspaceSyncEvent) => void) => () => void
   automationGetStatus: () => Promise<AutomationServerStatus>
   automationSetEnabled: (enabled: boolean) => Promise<AutomationServerStatus>
-  onAutomationRequest: (cb: (requestId: string, request: AutomationRendererRequest) => void) => () => void
-  automationRespond: (requestId: string, response: AutomationRendererResponse) => Promise<void>
   // Automations platform (per-project scheduled agent automations). The renderer
   // reads/writes only through these channels; the engine owns the on-disk store.
   listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>
@@ -3021,7 +3045,6 @@ export type ElectronApi = {
   mobileBridgeRevokeDevice: (deviceId: string, reason?: string) => Promise<MobileControlDevice>
   mobileBridgePublishPresence: (presence: MobileBridgePresence) => Promise<MobileBridgeState>
   mobileBridgeGetDiagnostics: () => Promise<MobileBridgeDiagnosticEntry[]>
-  mobileBridgeUpdateWorkspaceRoots: (roots: string[]) => Promise<{ roots: string[] }>
   onMobileBridgeStateChanged: (cb: (state: MobileBridgeState) => void) => () => void
   readdir: (path: string) => Promise<{ name: string; isDir: boolean }[]>
   searchFiles: (rootPath: string, query: string, options?: { limit?: number; excludes?: string[] }) => Promise<FileSearchResult>

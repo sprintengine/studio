@@ -1,8 +1,6 @@
 import type { IJsonModel } from 'flexlayout-react'
-import { current } from 'immer'
 import { nanoid } from 'nanoid'
 import {
-  buildSprintEngineAgentRosterForState,
   createEmptySprintEngineRoleCounts,
   createInitialSprintEngineState,
   normalizeSprintEngineState,
@@ -14,7 +12,7 @@ import {
   removeEditorBuffersForPath,
   setEditorBuffer,
 } from '../../utils/editorBuffers'
-import { resolveSprintEngineRoleRuntime, sprintEngineRoleKey } from '../../../../shared/sprintengine/state'
+import { composeSprintEngineWorkspaceRecord } from '../../../../shared/sprintengine/workspace-record'
 import { detectLanguage } from '../../utils/files'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
 import { shouldAutoArchiveWorkspace } from '../../utils/workspaceAutoArchive'
@@ -499,21 +497,6 @@ function normalizeWindowAssignments(state: WorkspacesSliceCarrier): void {
   state.workspaceWindows = state.workspaceWindows.filter((windowState) =>
     windowState.kind === 'primary' || windowState.workspaceIds.length > 0
   )
-}
-
-function resolveSprintEngineRoleCli(
-  roleCliDefaults: Required<SprintEngineRoleCliDefaults>,
-  role: SprintEngineRoleId | undefined
-): AgentCli {
-  const cli = roleCliDefaults[sprintEngineRoleKey(role)]
-  if (typeof cli === 'string' && cli.trim()) return cli.trim()
-  // SprintEngineRoleId is open-ended (custom/user-defined roles), so a role
-  // missing from the defaults map must never throw here: addWorkspace runs
-  // AFTER initializeSprintEngineState has already written run.yaml and (in
-  // worktree mode) created the git worktree+branch, so a throw orphans a real
-  // on-disk run with no workspace. Fall back to the team's architect CLI when
-  // one is configured, else the universal default.
-  return roleCliDefaults.architect?.trim() || 'claude-code'
 }
 
 type LayoutAgentTabNode = {
@@ -1088,19 +1071,12 @@ export function createWorkspacesSlice(
           }
           targetWindow.activeWorkspaceId = existingHost.id
           normalizeWindowAssignments(state)
-          // Offer the reused host to main as a workspace.created command. When
-          // main holds only a restart-restored routing placeholder for the id
-          // (mode unknown, reads 'standard'), the accept replaces it, healing
-          // membership AND mode so the automation executor's host-by-folder
-          // lookup works next run. A real same-session record still rejects
-          // as workspace_already_exists — a logged no-op.
-          // `current()` detaches the payload from the immer draft, which is
-          // revoked once set() returns.
-          createdEventPayload = {
-            workspace: current(existingHost),
-            windowId: targetWindow.id,
-            folderPath,
-          }
+          // No re-offer to main. That step existed only to heal a
+          // restart-restored routing placeholder whose mode main had lost
+          // (MC-2158 removed the placeholder), and reuse itself is main's call
+          // now: `prepareCreate` resolves the folder's existing host inside the
+          // same critical section as the mint, which is the only place the
+          // check can hold ACROSS windows.
           return
         }
         const sprintEngineState = isSprintEngine
@@ -1123,53 +1099,17 @@ export function createWorkspacesSlice(
         const sprintEngineRoleCliDefaults = sprintEngineState
           ? deps.normalizeSprintEngineRoleCliDefaults(options?.sprintEngineRoleCliDefaults)
           : undefined
-        const initialSpawnRoles = new Set(options?.sprintEngineInitialSpawnRoles ?? [])
-        const initialSpawnAgentIds: AgentId[] = []
+        // A sprint's roster agents and board layout are composed by the shared
+        // builder below (MC-2160), which main runs too — a second copy here
+        // would drift the first time a seeded field changes. All this branch
+        // still owns is the fail-fast: the builder needs the CLI defaults, and
+        // creation runs AFTER initializeSprintEngineState has written run.yaml
+        // and (in worktree mode) created the git worktree, so failing later
+        // would orphan a real on-disk run.
         if (sprintEngineState) {
           if (!sprintEngineRoleCliDefaults) {
             throw new Error('Missing Sprint Engine CLI defaults for workspace creation.')
           }
-          buildSprintEngineAgentRosterForState(sprintEngineState).forEach((agent) => {
-            const overrideCli = options?.sprintEngineAgentCliOverrides?.[agent.id]
-            const rosterCli = typeof overrideCli === 'string' && overrideCli.trim()
-              ? overrideCli.trim()
-              : resolveSprintEngineRoleCli(sprintEngineRoleCliDefaults, agent.role)
-            // An explicit roster model choice wins; null or absent means the
-            // user picked the CLI default (no model flag).
-            const modelOverride = options?.sprintEngineRoleModelOverrides?.[sprintEngineRoleKey(agent.role)]
-            const rosterModel = modelOverride === null
-              ? undefined
-              : modelOverride?.trim() || undefined
-            // The reasoning-effort level comes from the run's own `roleRuntimes`
-            // (what init just wrote, read back off the projection) rather than
-            // from a second wizard map, so this seeded record already says what
-            // the first reconcile would say. It has to be seeded here at all for
-            // the reason cli/model are: the architect seat launches from THIS
-            // record the moment the board opens, before any projection arrives,
-            // so a level left out of the seed silently launches the run's first
-            // agent at the CLI's own default effort (MC-1450, one field over).
-            const rosterReasoning = resolveSprintEngineRoleRuntime(
-              sprintEngineState.roleRuntimes,
-              agent.role,
-            )?.cliReasoning
-            agents[agent.id] = {
-              ...deps.defaultAgent(
-                agent.id,
-                deps.pickWorkspaceAgentName(agents),
-                'sprintengine'
-              ),
-              cli: rosterCli,
-              cliModel: rosterModel,
-              ...(rosterReasoning ? { cliReasoning: rosterReasoning } : {}),
-              // An explicit per-agent CLI pick from the wizard outranks the
-              // role config on every later reconcile (MC-1450 hierarchy), so
-              // record it as a durable override rather than a silent snapshot.
-              ...(typeof overrideCli === 'string' && overrideCli.trim()
-                ? { cliRuntimeOverride: { cli: overrideCli.trim() } }
-                : {}),
-            }
-            if (initialSpawnRoles.has(sprintEngineRoleKey(agent.role))) initialSpawnAgentIds.push(agent.id)
-          })
         } else if (options?.seedAgent?.terminal) {
           // Terminal seed: the lone agent tab is swapped for a terminal tab in
           // the layout below, so no agent record is created for it.
@@ -1227,7 +1167,32 @@ export function createWorkspacesSlice(
             ...(options?.sprintEngineAutoState ?? {}),
           })
           : deps.normalizeSprintEngineAutoState(options?.sprintEngineAutoState)
-        const newWorkspace: Workspace = {
+        // A sprint workspace is composed by the shared builder (MC-2160): its
+        // roster-seeded agents, board layout, and the canonical/legacy run-state
+        // pair are the same record main mints for a headless `sprint.create`.
+        const sprintWorkspace = sprintEngineState && sprintEngineRoleCliDefaults
+          ? composeSprintEngineWorkspaceRecord({
+            workspaceId: id,
+            sprintEngineState,
+            sprintEngineContext,
+            folderPath,
+            roleCliDefaults: sprintEngineRoleCliDefaults,
+            agentCliOverrides: options?.sprintEngineAgentCliOverrides ?? null,
+            roleModelOverrides: options?.sprintEngineRoleModelOverrides ?? null,
+            initialSpawnRoles: options?.sprintEngineInitialSpawnRoles ?? null,
+            sprintEngineAutoState,
+            createdAt: Date.now(),
+            pickAgentName: deps.pickWorkspaceAgentName,
+            defaults: {
+              worktreeState: deps.defaultWorkspaceWorktreeState(),
+              memory: deps.defaultWorkspaceMemoryConfig(),
+              editorState: deps.defaultEditorState(),
+              fileExplorerState: defaultWorkspaceFileExplorerState(),
+            },
+            ...(options?.worktree ? { worktree: options.worktree } : {}),
+          }).workspace
+          : null
+        const standardWorkspace: Workspace = {
           id,
           name: workspaceName,
           ...(titleLocked ? { titleLocked: true } : {}),
@@ -1235,44 +1200,38 @@ export function createWorkspacesSlice(
             ? 'switchboard'
             : isGuidedBrief
               ? 'guided-brief'
-              : sprintEngineState
-                ? 'sprintengine'
-                : isAutomationsHost
-                  ? AUTOMATIONS_HOST_WORKSPACE_MODE
-                  : explicitMode === REVIEWS_HOST_WORKSPACE_MODE
-                    ? REVIEWS_HOST_WORKSPACE_MODE
-                    : isReview
-                      ? REVIEW_WORKSPACE_MODE
-                      // Module-contributed workspace types: the explicit mode
-                      // from buildModuleTypeCreation IS the identity every
-                      // mode-derived surface (panel scopes, run glyphs, the
-                      // not-installed state, creation re-resolution) keys on —
-                      // dropping it to 'standard' silently strips all of them.
-                      : explicitMode ?? 'standard',
+              : isAutomationsHost
+                ? AUTOMATIONS_HOST_WORKSPACE_MODE
+                : explicitMode === REVIEWS_HOST_WORKSPACE_MODE
+                  ? REVIEWS_HOST_WORKSPACE_MODE
+                  : isReview
+                    ? REVIEW_WORKSPACE_MODE
+                    // Module-contributed workspace types: the explicit mode
+                    // from buildModuleTypeCreation IS the identity every
+                    // mode-derived surface (panel scopes, run glyphs, the
+                    // not-installed state, creation re-resolution) keys on —
+                    // dropping it to 'standard' silently strips all of them.
+                    : explicitMode ?? 'standard',
           folderPath,
           folderMissing: false,
           ...(options?.worktree ? { worktree: options.worktree } : {}),
           sprintEngineContext,
           templateId: template.id,
-          layoutModel: isGuidedBrief
-            ? guidedBriefLayoutModel()
-            : sprintEngineState
-            ? deps.sprintEngineTabsLayoutModel(sprintEngineState, agents, { includeAgentTabs: false })
-            : standardLayout,
+          layoutModel: isGuidedBrief ? guidedBriefLayoutModel() : standardLayout,
           agents,
           worktreeState: deps.defaultWorkspaceWorktreeState(),
           memory: deps.defaultWorkspaceMemoryConfig(),
           editorState: deps.defaultEditorState(),
           fileExplorerState: defaultWorkspaceFileExplorerState(),
-          // Canonical bag entry + legacy mirror together (MC-1573 lockstep).
-          ...(sprintEngineState ? { moduleState: { [SPRINT_ENGINE_MODULE_ID]: sprintEngineState } } : {}),
           sprintEngineState,
           guidedBriefState,
           sprintEngineRoleCliDefaults,
-          ...(initialSpawnAgentIds.length > 0 ? { sprintEngineInitialSpawnAgentIds: initialSpawnAgentIds } : {}),
           sprintEngineAutoState,
           createdAt: Date.now(),
         }
+        const newWorkspace: Workspace = sprintWorkspace
+          ? { ...sprintWorkspace, guidedBriefState }
+          : standardWorkspace
         // New workspaces appear at the top of their folder's block (newest
         // first), matching the recency-ordered sidebar. A brand-new folder
         // lands at the head of the registry so its group renders first. Manual
@@ -1315,7 +1274,11 @@ export function createWorkspacesSlice(
       return id
     },
 
-    removeWorkspace: (id) =>
+    // Main tombstones the id as it removes the record, so a lagging window's
+    // optimistic edit against this workspace is rejected rather than
+    // resurrecting it.
+    removeWorkspace: (id) => {
+      void workspaceSyncClient.dispatchRemoveWorkspace(id)
       set((state) => {
         const idx = state.workspaces.findIndex((w) => w.id === id)
         if (idx === -1) return
@@ -1325,17 +1288,24 @@ export function createWorkspacesSlice(
         }
         normalizeWindowAssignments(state)
         if (state.workspaces.length === 0) {
-          // Explicit registry empty-state record. Persisted into the
-          // workspace-registry storage key so cold-load can distinguish this
-          // from hydration failure. addWorkspace + importWorkspace clear it.
+          // Explicit registry empty-state record: the one thing that tells main
+          // an empty registry is intent rather than a fault, so hydration seeds
+          // empty instead of refusing. addWorkspace + importWorkspace clear it.
           state.workspaceRegistryEmptyState = {
             reason: 'user_removed_all',
             updatedAt: new Date().toISOString(),
           }
         }
-      }),
+      })
+    },
 
-    renameWorkspace: (id, name) =>
+    // Applied optimistically, then asked of main (MC-2158). Main decides with
+    // per-field last-write-wins on the name stamp: the later gesture wins
+    // whatever order the two commands arrive in, and the window that loses
+    // converges on main's broadcast. The lock travels with the name — without
+    // it the winning rename would still be auto-titled over.
+    renameWorkspace: (id, name) => {
+      let accepted: string | null = null
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (!ws) return
@@ -1344,7 +1314,10 @@ export function createWorkspacesSlice(
         // the lock is set even when the rename was a no-op (the user retyping
         // the same name is still them settling on it).
         ws.titleLocked = true
-      }),
+        accepted = ws.name
+      })
+      if (accepted) void workspaceSyncClient.dispatchRenameWorkspace(id, accepted, true)
+    },
 
     // Name a still-default workspace after the first real prompt sent inside it.
     // A no-op once the name is locked — by an earlier auto-title, a manual
@@ -1354,7 +1327,8 @@ export function createWorkspacesSlice(
     // Takes the raw prompt rather than a finished title so the derivation stays
     // in one place and a rejected prompt (an app-injected skill drop, filler)
     // leaves the workspace unlocked for the next one.
-    autoTitleWorkspaceFromPrompt: (id, prompt) =>
+    autoTitleWorkspaceFromPrompt: (id, prompt) => {
+      let accepted: string | null = null
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (!ws || ws.titleLocked) return
@@ -1362,7 +1336,10 @@ export function createWorkspacesSlice(
         if (!title) return
         ws.name = title
         ws.titleLocked = true
-      }),
+        accepted = title
+      })
+      if (accepted) void workspaceSyncClient.dispatchRenameWorkspace(id, accepted, true)
+    },
 
     setActiveWorkspace: (id) =>
       set((state) => {

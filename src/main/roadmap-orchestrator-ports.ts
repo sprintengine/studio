@@ -1,7 +1,7 @@
 // Wires the roadmap orchestrator's ports to the real main-process collaborators:
 // the backlog service (item listing + execution links), the Sprint Engine front
-// doors (projection read, PR status/merge), the renderer creation delegate
-// (`sprint.create`), the single instance-global sidecar store, the home-project
+// doors (projection read, PR status/merge), main's sprint-creation service
+// (`sprint.create`, MC-2160), the single instance-global sidecar store, the home-project
 // setting (D1), and the user notification channel. Kept separate from
 // `automations-module.ts` so the module wiring stays small and this glue is
 // unit-inspectable in isolation.
@@ -9,7 +9,7 @@
 import { appendFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../shared/automation'
+import type { SprintCreateRequest, SprintCreateResult } from '../shared/sprint-create'
 import { parseAgentRuntime } from '../shared/backlog/roadmap'
 import { listBacklogItems, readBacklogObjectStore, removeBacklogLink, updateBacklogStatus } from './backlog-service'
 import { createRoadmapOrchestratorStore, roadmapRuntimePath } from './roadmap-orchestrator-store'
@@ -36,7 +36,7 @@ import {
 
 export type RoadmapOrchestratorPortsDeps = {
   frontDoors: SprintEngineAutomationFrontDoors
-  delegateToRenderer(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
+  createSprint(request: SprintCreateRequest): Promise<SprintCreateResult>
   // The designated home project root (D1), from the roadmap-home setting; null
   // when unset.
   getHomeProjectRoot(): string | null
@@ -155,17 +155,17 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
     },
 
     startSprint: async ({ workspaceRoot, itemRelativePath, roster, agent, permissionPreset }) => {
-      // The shared plan-sourced creation flow — the same `sprint.create` delegate a
+      // The shared plan-sourced creation flow — the same `sprint.create` service a
       // human backlog start and sprint chaining use. It creates the workspace, inits
       // the run store (worktree mode), starts the runner, and records the execution
       // link, in the item's own project root. Worktree mode is on so the lane gates
       // on a PR (MC-1439). An epic source is fine — the run's brief is the epic and
       // the architect plans its members as tasks (one sprint per roadmap STEP).
       // `roster` names the roadmap's saved roster (agent config — NOT the run's
-      // team slug); the delegate fails explicitly on an unknown name rather than
-      // silently staffing a fallback.
-      const response = await deps.delegateToRenderer({
-        kind: 'sprint.create',
+      // team slug); creation fails explicitly on an unknown name rather than
+      // silently staffing a fallback. It runs in main, so a lane step starts with
+      // no window open (MC-2160).
+      const response = await deps.createSprint({
         folderPath: workspaceRoot,
         goal: '',
         sourceRelativePath: itemRelativePath,
@@ -177,15 +177,15 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
         useWorktrees: true,
         // A lane sprint is unwatched, so its agents spawn under the horizon's
         // permission policy (MC-1900) — bypass unless the file says otherwise.
-        // Always sent: an omitted preset would let the delegate pick, and this
+        // Always sent: an omitted preset would let creation pick, and this
         // is the run's only chance to be bypass (spawn-time-only, MC-1808).
         permissionPreset,
         ...(roster ? { rosterName: roster } : {}),
         // The step's agent runtime (MC-2145), as the request's run-level
         // `runtime` (MC-2120): it reaches the roleless seat and is overridden
         // by a roster's own per-role CLIs, which is exactly the precedence a
-        // plain-agents step needs. The delegate validates the CLI and fails
-        // the start loudly on one it cannot spawn.
+        // plain-agents step needs. Creation validates the CLI and fails the
+        // start loudly on one it cannot spawn.
         ...(agent ? { runtime: parseAgentRuntime(agent) } : {}),
       })
       return response.ok ? { ok: true } : { ok: false, message: response.message }

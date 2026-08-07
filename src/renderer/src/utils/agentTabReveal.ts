@@ -17,11 +17,26 @@ import { revealAgentTab, type AgentTabRevealTarget } from './modelRegistry'
 // workspace layer is mounted, the persisted layout plus a latched green flash
 // when it is not (a workspace beyond the layer-retention window has no
 // registered Model to mutate).
-export function revealAgentTerminalTab(target: AgentTabRevealTarget): boolean {
+export function revealAgentTerminalTab(
+  target: AgentTabRevealTarget,
+  options: { activateWorkspace?: boolean } = {},
+): boolean {
+  // Activating is what clears a door surface, so it is the default and every
+  // operator-facing reveal keeps it. `activateWorkspace: false` is for a tab
+  // that must EXIST without the operator being moved into it — the main-owned
+  // agent-launch projection (MC-2159) minting the tab for an agent launched into
+  // a rail-hidden host (an Automations host, a sprint run). Jumping the view
+  // into one of those on every background launch, or on every window open that
+  // discovers one still running, would strand the operator in a workspace the
+  // rail cannot navigate back to.
+  const activateWorkspace = options.activateWorkspace ?? true
   return revealAgentTab(target, {
     getWorkspace: (workspaceId) =>
       useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspaceId) ?? null,
-    setActiveWorkspace: (workspaceId) => useWorkspaceStore.getState().setActiveWorkspace(workspaceId),
+    setActiveWorkspace: (workspaceId) => {
+      if (!activateWorkspace) return
+      useWorkspaceStore.getState().setActiveWorkspace(workspaceId)
+    },
     updateLayout: (workspaceId, layoutModel) =>
       useWorkspaceStore.getState().updateLayout(workspaceId, layoutModel),
   })

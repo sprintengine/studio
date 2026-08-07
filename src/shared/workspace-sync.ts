@@ -61,6 +61,57 @@ export type WorkspaceSyncCommand =
         cliResumeAvailable?: boolean
       }
     }
+  // Registry-domain edits (MC-2158). Main owns the record; a renderer applies
+  // optimistically and asks, and main decides. One command per user-editable
+  // fact, so two concurrent edits to different fields never contend — a rename
+  // in one window and a layout drag in another both land.
+  //
+  // `editedAt` is stamped by the ORIGINATING window at the moment of the user
+  // gesture, never on arrival in main: a stamp assigned on arrival would make
+  // ordering depend on IPC latency, which is exactly the bug per-field
+  // last-write-wins exists to prevent.
+  | {
+      type: 'workspace.rename'
+      payload: { workspaceId: WorkspaceId; name: string; titleLocked?: boolean; editedAt: number }
+    }
+  | {
+      type: 'workspace.update_layout'
+      payload: { workspaceId: WorkspaceId; layoutModel: Workspace['layoutModel']; editedAt: number }
+    }
+  | {
+      type: 'workspace.update_fields'
+      payload: { workspaceId: WorkspaceId; patch: WorkspaceFieldsPatch; editedAt: number }
+    }
+  | {
+      type: 'workspace.update_agent'
+      payload: {
+        workspaceId: WorkspaceId
+        agentId: AgentId
+        /** `null` removes the agent from the roster. */
+        patch: Partial<AgentState> | null
+        configEditedAt: number
+      }
+    }
+  | {
+      type: 'workspace.remove'
+      payload: { workspaceId: WorkspaceId }
+    }
+
+/**
+ * The registry fields a user edits through `workspace.update_fields`. An absent
+ * key means "this window has no opinion" and never clears main's copy; an
+ * explicit `null` is a tombstone meaning "the user cleared this" — the same
+ * distinction `SprintRuntimeAgentConfig` already draws.
+ */
+export type WorkspaceFieldsPatch = {
+  folderPath?: string | null
+  folderMissing?: boolean
+  memory?: Workspace['memory']
+  archivedAt?: number | null
+  highlight?: Workspace['highlight'] | null
+  worktree?: Workspace['worktree']
+  lastTerminalActivityAt?: number | null
+}
 
 export type WorkspaceSyncEventType =
   | 'workspace_window.active_changed'
@@ -70,6 +121,11 @@ export type WorkspaceSyncEventType =
   | 'workspace.created'
   | 'agent_terminal.session_assigned'
   | 'agent_terminal.launch_state_updated'
+  | 'workspace.renamed'
+  | 'workspace.layout_updated'
+  | 'workspace.fields_updated'
+  | 'workspace.agents_updated'
+  | 'workspace.removed'
 
 // The closed event extends the close command payload with the ids the service
 // actually routed to the fallback window. The source renderer already knows the
@@ -98,6 +154,11 @@ export type WorkspaceSyncEvent =
   | WorkspaceSyncBaseEvent<'workspace.created', Extract<WorkspaceSyncCommand, { type: 'workspace.created' }>['payload']>
   | WorkspaceSyncBaseEvent<'agent_terminal.session_assigned', AgentTerminalSessionAssignedEventPayload>
   | WorkspaceSyncBaseEvent<'agent_terminal.launch_state_updated', Extract<WorkspaceSyncCommand, { type: 'agent_terminal.update_launch_state' }>['payload']>
+  | WorkspaceSyncBaseEvent<'workspace.renamed', Extract<WorkspaceSyncCommand, { type: 'workspace.rename' }>['payload']>
+  | WorkspaceSyncBaseEvent<'workspace.layout_updated', Extract<WorkspaceSyncCommand, { type: 'workspace.update_layout' }>['payload']>
+  | WorkspaceSyncBaseEvent<'workspace.fields_updated', Extract<WorkspaceSyncCommand, { type: 'workspace.update_fields' }>['payload']>
+  | WorkspaceSyncBaseEvent<'workspace.agents_updated', Extract<WorkspaceSyncCommand, { type: 'workspace.update_agent' }>['payload']>
+  | WorkspaceSyncBaseEvent<'workspace.removed', { workspaceId: WorkspaceId; removedAt: number }>
 
 export type WorkspaceSyncBaseEvent<
   Type extends WorkspaceSyncEventType,
@@ -231,7 +292,96 @@ function applyWorkspaceSyncEventInPlace(state: WorkspaceSyncState, event: Worksp
     case 'agent_terminal.launch_state_updated':
       updateAgentTerminalLaunchState(state, event.payload)
       break
+    case 'workspace.renamed':
+      applyWorkspaceRename(state, event.payload)
+      break
+    case 'workspace.layout_updated':
+      applyWorkspaceLayout(state, event.payload)
+      break
+    case 'workspace.fields_updated':
+      applyWorkspaceFields(state, event.payload)
+      break
+    case 'workspace.agents_updated':
+      applyWorkspaceAgentPatch(state, event.payload)
+      break
+    case 'workspace.removed':
+      removeWorkspaceFromState(state, event.payload.workspaceId, event.createdAt)
+      break
   }
+}
+
+function findWorkspace(state: WorkspaceSyncState, workspaceId: WorkspaceId): Workspace | undefined {
+  return state.workspaces.find((candidate) => candidate.id === workspaceId)
+}
+
+function applyWorkspaceRename(
+  state: WorkspaceSyncState,
+  payload: Extract<WorkspaceSyncCommand, { type: 'workspace.rename' }>['payload']
+): void {
+  const workspace = findWorkspace(state, payload.workspaceId)
+  if (!workspace) return
+  workspace.name = payload.name
+  // `titleLocked` travels with the winning name: the lock is what makes the name
+  // stop moving, so a rename that landed without it would let the next prompt
+  // auto-title over the user's choice.
+  if (payload.titleLocked !== undefined) workspace.titleLocked = payload.titleLocked
+}
+
+function applyWorkspaceLayout(
+  state: WorkspaceSyncState,
+  payload: Extract<WorkspaceSyncCommand, { type: 'workspace.update_layout' }>['payload']
+): void {
+  const workspace = findWorkspace(state, payload.workspaceId)
+  if (!workspace) return
+  workspace.layoutModel = payload.layoutModel
+}
+
+function applyWorkspaceFields(
+  state: WorkspaceSyncState,
+  payload: Extract<WorkspaceSyncCommand, { type: 'workspace.update_fields' }>['payload']
+): void {
+  const workspace = findWorkspace(state, payload.workspaceId)
+  if (!workspace) return
+  // An absent key is "no opinion" and is skipped; an explicit null is the
+  // user clearing the field and is written through.
+  for (const [key, value] of Object.entries(payload.patch)) {
+    if (value === undefined) continue
+    ;(workspace as Record<string, unknown>)[key] = value
+  }
+}
+
+function applyWorkspaceAgentPatch(
+  state: WorkspaceSyncState,
+  payload: Extract<WorkspaceSyncCommand, { type: 'workspace.update_agent' }>['payload']
+): void {
+  const workspace = findWorkspace(state, payload.workspaceId)
+  if (!workspace) return
+  if (payload.patch === null) {
+    const { [payload.agentId]: _removed, ...rest } = workspace.agents
+    workspace.agents = rest
+    return
+  }
+  const agent = findOrCreateAgent(state, payload.workspaceId, payload.agentId)
+  if (!agent) return
+  Object.assign(agent, payload.patch, { configEditedAt: payload.configEditedAt })
+}
+
+function removeWorkspaceFromState(
+  state: WorkspaceSyncState,
+  workspaceId: WorkspaceId,
+  timestamp: number
+): void {
+  state.workspaces = state.workspaces.filter((candidate) => candidate.id !== workspaceId)
+  for (const windowState of state.workspaceWindows) {
+    windowState.workspaceIds = windowState.workspaceIds.filter((id) => id !== workspaceId)
+    if (windowState.activeWorkspaceId === workspaceId) {
+      windowState.activeWorkspaceId = windowState.workspaceIds[0] ?? null
+    }
+  }
+  if (state.activeWorkspaceId === workspaceId) {
+    state.activeWorkspaceId = state.workspaces.at(-1)?.id ?? null
+  }
+  normalizeWorkspaceAssignments(state, timestamp)
 }
 
 function cloneSyncState(state: WorkspaceSyncState): WorkspaceSyncState {

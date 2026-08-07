@@ -1,18 +1,10 @@
 import type { RendererHost } from './renderer-host'
-import type { LayoutTemplate, PreviewSlot, SprintEngineMockConfig } from '../types/workspace'
+import type { LayoutTemplate, SprintEngineMockConfig } from '../types/workspace'
+import { createSprintEngineLayoutTemplate } from '../../../shared/sprintengine/workspace-record'
 import { SprintEngineWorkspaceTypeIcon } from '../components/AppIcons'
 import { deriveSprintEngineRunGlyph } from '../utils/sprintengine'
 import { isSprintEngineWorkspace } from '../utils/sprintEngineWorkspace'
 import type { WorkspaceRunGlyph, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
-
-const editor = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'editor', label })
-
-const sprintEngineBoardTab = () => ({
-  type: 'tab',
-  name: 'Sprint',
-  component: 'sprintengine',
-  enableClose: false,
-})
 
 export const defaultSprintEngineTemplateConfig: SprintEngineMockConfig = {
   name: 'Sprint Roster',
@@ -20,29 +12,11 @@ export const defaultSprintEngineTemplateConfig: SprintEngineMockConfig = {
   roleCounts: {} as SprintEngineMockConfig['roleCounts'],
 }
 
+// The layout itself lives in `shared/sprintengine/workspace-record.ts` (MC-2160)
+// so a headlessly minted sprint workspace and a window-minted one record the
+// same template id and board tab. The config has never shaped the layout.
 export function createSprintEngineTemplate(_config: SprintEngineMockConfig): LayoutTemplate {
-  return {
-    id: 'sprintengine-mode',
-    name: 'Sprint',
-    description: 'Inbox, Agents, and Tasks together in one stable board.',
-    previewSlots: [
-      editor('Sprint', 4, 4, 292, 102),
-    ],
-    layout: {
-      global: { tabSetEnableDrop: true, tabEnableClose: true },
-      borders: [],
-      layout: {
-        type: 'row',
-        children: [
-          {
-            type: 'tabset',
-            weight: 100,
-            children: [sprintEngineBoardTab()],
-          },
-        ],
-      },
-    },
-  }
+  return createSprintEngineLayoutTemplate()
 }
 
 // A sprint's run glyph is a pure function of sprint state — the task board plus

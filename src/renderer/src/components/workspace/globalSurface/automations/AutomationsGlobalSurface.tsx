@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
-import { revealAutomationAgent } from '../../../../hooks/useAutomationRequests'
+import { revealAgentTerminalTab } from '../../../../utils/agentTabReveal'
 import { publishDiagnosticSync } from '../../../../utils/diagnostics'
 import { listAutomationProjectFolders } from '../../../../utils/automationsEntry'
 import type { AutomationDefinition, AutomationRun, AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
@@ -263,7 +263,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     // workspace when the run carries no agentId or the agent is gone. Activating
     // a workspace clears this surface — leaving the door to read the run is the
     // intent.
-    if (agentId && revealAutomationAgent({ workspaceId, agentId })) return
+    if (agentId && revealAgentTerminalTab({ workspaceId, agentId })) return
     setActiveWorkspace(workspaceId)
   }, [setActiveWorkspace])
 

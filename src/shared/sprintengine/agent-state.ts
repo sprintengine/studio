@@ -199,3 +199,43 @@ export type AgentBacklogItemRef = {
   title: string
   linkedAt: number
 }
+// ---------------------------------------------------------------------------
+// Record construction (MC-2160)
+// ---------------------------------------------------------------------------
+//
+// The blank agent record every creation path starts from. It lived in the
+// renderer's agents slice until main began composing sprint workspaces itself;
+// a second copy in main would drift the moment a field is added, so both
+// processes mint records here. `agentsSlice.ts` re-exports these so existing
+// renderer import sites are unchanged.
+
+export function defaultAgentExecution(): AgentExecution {
+  return { mode: 'current_workspace', worktreeId: null, cwd: null }
+}
+
+export function defaultAgent(id: AgentId, name = id, kind: AgentKind = 'general'): AgentState {
+  return {
+    id,
+    name,
+    status: 'idle',
+    execution: defaultAgentExecution(),
+    messages: [],
+    streamBuffer: '',
+    runtimeKind: 'terminal',
+    conversation: undefined,
+    cliSessionId: undefined,
+    harnessSessionId: undefined,
+    cliStartRequested: false,
+    cliRestartNonce: 0,
+    cliHasLaunched: false,
+    cliOnboardingPromptSent: false,
+    cliResumeAvailable: false,
+    cli: undefined,
+    cliModel: undefined,
+    cliPermissionPreset: 'default',
+    cliStartupPrompt: undefined,
+    kind,
+    specialistId: undefined,
+    backlogItemRef: undefined,
+  }
+}

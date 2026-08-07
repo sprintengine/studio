@@ -25,7 +25,6 @@ import {
   subscribeLiveTerminalSessionSnapshots,
 } from '../../hooks/useTerminalSessions'
 import { useAppTheme } from '../../hooks/useAppTheme'
-import { useAutomationRequests } from '../../hooks/useAutomationRequests'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
 import {
   GENERAL_AGENT_ENGINE_KEY,
@@ -69,7 +68,7 @@ import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAuto
 import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
-import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, removeNewAgentTab, revealNavRailComponent, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
+import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, removeAgentTab, removeNewAgentTab, revealNavRailComponent, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -91,6 +90,8 @@ import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
+import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
+import { markLaunchedAgentProjected, retiredLaunchedAgents } from '../../utils/launchedAgentProjection'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import {
   TERMINAL_FOCUS_RETRY_DELAYS_MS,
@@ -333,9 +334,6 @@ export default function WorkspaceManager() {
   useAppTheme()
   const dialog = useConfirmDialog()
   const workspaceWindowId = useMemo(() => getWorkspaceWindowIdFromLocation(), [])
-  // App-automation MCP mutations delegate to the primary window so they run the
-  // same store actions as the UI (see src/main/automation/).
-  useAutomationRequests(workspaceWindowId)
   // Dock-back from the external editor window: the window owning that workspace's
   // FlexLayout model reopens the file as a tab and flips the sticky preference
   // back to tabs; windows that do not own the workspace no-op.
@@ -384,7 +382,6 @@ export default function WorkspaceManager() {
     [moduleEnablement],
   )
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
-  const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
   const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
   const firstRunCliCardDismissed = useWorkspaceStore((s) => s.appSettings.firstRunCliCardDismissed)
   const dismissFirstRunCliCard = useWorkspaceStore((s) => s.dismissFirstRunCliCard)
@@ -419,6 +416,7 @@ export default function WorkspaceManager() {
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const autoTitleWorkspaceFromPrompt = useWorkspaceStore((s) => s.autoTitleWorkspaceFromPrompt)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
+  const projectLaunchedAgentSessions = useWorkspaceStore((s) => s.projectLaunchedAgentSessions)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
@@ -569,10 +567,6 @@ export default function WorkspaceManager() {
       cancelled = true
     }
   }, [activeWorkspaceFolderPath, setSprintEngineRoleRegistry])
-  const mobileWorkspaceRootKey = workspaces
-    .map((workspace) => workspace.folderPath)
-    .filter((folderPath): folderPath is string => Boolean(folderPath?.trim()))
-    .join('\n')
   const selectedSpecialistAction =
     enabledSpecialists.find((action) => action.id === lastSelectedSpecialist) ??
     getSpecialistAction(lastSelectedSpecialist)
@@ -1826,12 +1820,6 @@ export default function WorkspaceManager() {
     return () => window.clearTimeout(timeout)
   }, [mountedWorkspaceIds, terminalSessions, visibleWorkspaces, windowActiveWorkspaceId, workspaceLayoutRetentionTick])
 
-  useEffect(() => {
-    if (!mobileRelayEnabled) return
-    const roots = mobileWorkspaceRootKey.split('\n').filter(Boolean)
-    void window.api.mobileBridgeUpdateWorkspaceRoots(roots).catch(() => {})
-  }, [mobileRelayEnabled, mobileWorkspaceRootKey])
-
   // Auto-open the new-workspace panel when there are no workspaces — unless the
   // first-run CLI question still owns that window (MC-2094). Precedence lives
   // HERE, at the opener, not on the card: the card's own "don't fight for the
@@ -1929,6 +1917,44 @@ export default function WorkspaceManager() {
         reconcileWorkspaceAgentLaunchFlags(sessions)
       }
 
+      // Agents the MAIN process launched (MC-2159) have no record here until
+      // this projects one: main composed and spawned them, possibly with no
+      // window open at all. Running on every session tick — not once — is what
+      // makes a window opened long after a headless launch show the agent, and
+      // what makes a launch into an already-open window appear as a tab. Both
+      // arrive the same way, so there is one path to be right.
+      //
+      // The store is idempotent (an agent it already holds is untouched), so the
+      // only per-tick work is revealing the tabs it just created.
+      for (const projected of projectLaunchedAgentSessions(sessions)) {
+        markLaunchedAgentProjected(projected.workspaceId, projected.agentId)
+        const host = useWorkspaceStore
+          .getState()
+          .workspaces.find((candidate) => candidate.id === projected.workspaceId)
+        revealAgentTerminalTab(
+          {
+            workspaceId: projected.workspaceId,
+            agentId: projected.agentId,
+            name: projected.agent.name,
+          },
+          // A launch into a standard workspace is something the operator asked
+          // for and gets the view; a launch into a rail-hidden host (Automations,
+          // a sprint run) gets its tab without moving anyone into it.
+          { activateWorkspace: !host || !isHiddenFromRail(host) },
+        )
+      }
+
+      // The renderer half of `agent.dispose`. Main kills a finished run's agent
+      // session (so a one-shot agent never lingers pointing at a torn-down run
+      // worktree); this is what drops the tab and the record that were standing
+      // in for it. Only agents THIS projection created are ever candidates — a
+      // user-created agent whose terminal exited keeps its tab, exactly as
+      // before. Record last, so any tab-close handler still sees the agent.
+      for (const retired of retiredLaunchedAgents(sessions)) {
+        removeAgentTab(retired.workspaceId, retired.agentId)
+        useWorkspaceStore.getState().removeAgent(retired.workspaceId, retired.agentId)
+      }
+
       const signature = getTerminalSessionsSignature(sessions)
       if (signature === terminalSessionsSignatureRef.current) return
       terminalSessionsSignatureRef.current = signature
@@ -1945,7 +1971,12 @@ export default function WorkspaceManager() {
       unsubscribe()
       window.clearInterval(interval)
     }
-  }, [recordWorkspaceTerminalActivity, reconcileWorkspaceAgentLaunchFlags, autoTitleWorkspaceFromPrompt])
+  }, [
+    recordWorkspaceTerminalActivity,
+    reconcileWorkspaceAgentLaunchFlags,
+    projectLaunchedAgentSessions,
+    autoTitleWorkspaceFromPrompt,
+  ])
 
   useEffect(() => {
     if (window.api.platform === 'darwin') return

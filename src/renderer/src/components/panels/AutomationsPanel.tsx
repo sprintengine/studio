@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { revealAutomationAgent } from '../../hooks/useAutomationRequests'
+import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { consumePendingRevealTarget, subscribeRevealTarget } from '../../utils/revealTarget'
 import type { NotificationNavigationTarget } from '../../types/workspace'
@@ -238,7 +238,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
                     // Focus the concrete launched agent tab (T10 reveal); fall
                     // back to activating the workspace when the run carries no
                     // agentId or the agent/workspace is gone.
-                    if (agentId && revealAutomationAgent({ workspaceId: wsId, agentId })) return
+                    if (agentId && revealAgentTerminalTab({ workspaceId: wsId, agentId })) return
                     setActiveWorkspace(wsId)
                   }}
                   onViewReport={setViewerRun}

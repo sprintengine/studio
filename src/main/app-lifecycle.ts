@@ -35,7 +35,8 @@ type RegisterAppLifecycleOptions = {
     shutdown(): Promise<void>
   }
   workspaceSyncService?: {
-    flushRoutingSnapshot(): Promise<void>
+    /** Persist the debounced workspace registry write before the app exits. */
+    flush(): Promise<void>
   }
   // The main-process sprint scheduler (sprint-runtime-ownership Phase 2):
   // stopped before the terminal runtime tears down so no tick spawns into a
@@ -232,7 +233,7 @@ export function registerAppLifecycle({
       await agentStateService?.shutdown()
       await terminalRuntime.shutdown()
       await conversationRuntime?.shutdown()
-      await workspaceSyncService?.flushRoutingSnapshot()
+      await workspaceSyncService?.flush()
       await releaseAllWorkspaceRunnerLocks()
       // Module-owned shutdown runs here via each module's onShutdown hook —
       // draining in-flight work and stopping kernel-owned sidecars (e.g. the

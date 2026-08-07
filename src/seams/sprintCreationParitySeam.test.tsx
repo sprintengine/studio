@@ -2,9 +2,19 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../shared/automation'
+import type { SprintCreateRequest } from '../shared/sprint-create'
+import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import type { Workspace } from '../renderer/src/types/workspace'
+import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import { createSprintCreateService } from '../main/sprint-create-service'
 
 // Sprint creation parity — the MCP gateway vs the New Sprint dialog.
+//
+// Since MC-2160 the two paths run in different PROCESSES: the dialog composes in
+// the window, `sprint.create` composes in main (`sprint-create-service.ts`).
+// That is exactly why this comparison matters more, not less — both drive the
+// same shared composition, and this suite is what proves the two drivers still
+// ask the engine for the same run.
 //
 // T3 widened `sprint.create` with `runtime`/`roleClis`/`roleModels`/`roleEfforts`/
 // `maxConcurrentAgents`; T7 gave the dialog its Connectors row and its advanced-
@@ -110,16 +120,6 @@ const initCalls: InitCall[] = []
   readBacklogObjectStore: async () => ({ ok: false, message: 'not in this test' }),
   openFile: async () => null,
   addOrUpdateBacklogLink: async () => ({ ok: true }),
-  onAutomationRequest: (cb: (requestId: string, request: AutomationRendererRequest) => void) => {
-    automationHandler = cb
-    return () => {
-      automationHandler = null
-    }
-  },
-  automationRespond: async (requestId: string, response: AutomationRendererResponse) => {
-    pendingResponses.get(requestId)?.(response)
-    pendingResponses.delete(requestId)
-  },
   initializeSprintEngineState: async (input: InitCall) => {
     initCalls.push(input)
     return { ok: true, data: {} }
@@ -135,8 +135,6 @@ const initCalls: InitCall[] = []
   },
 }
 const mcpSyncCalls: Array<{ workspaceRoot: string; enabledIds: string[] }> = []
-let automationHandler: ((requestId: string, request: AutomationRendererRequest) => void) | null = null
-const pendingResponses = new Map<string, (response: AutomationRendererResponse) => void>()
 
 // The run-shaping fields both paths must agree on. Deliberately NOT the whole
 // payload: `statePath`, `teamSlug` and the source seed differ by run name and
@@ -159,7 +157,6 @@ async function main(): Promise<void> {
   const { act } = await import('react')
   const { createRoot } = await import('react-dom/client')
   const NewSprintDialog = (await import('../renderer/src/components/workspace/newSprint/NewSprintDialog')).default
-  const { useAutomationRequests } = await import('../renderer/src/hooks/useAutomationRequests')
   const { useWorkspaceStore } = await import('../renderer/src/store/workspaceStore')
   const { buildBacklogSelectionSourcePlan } = await import(
     '../renderer/src/components/backlog/backlogSelectionSourcePlan'
@@ -257,71 +254,63 @@ async function main(): Promise<void> {
 
   // --- path B: an MCP caller issuing sprint.create -------------------------
   //
-  // Driven through the REAL registered callback and read off the same
-  // `automationRespond` channel main uses — never by reaching into an internal.
-  const { registerModel } = await import('../renderer/src/utils/modelRegistry')
-  // `waitForLayoutModel` polls the flexlayout registry and fails the request
-  // after 5s if no board mounts. Nothing renders one here, so stand a model in
-  // the moment the store gains a workspace.
-  const registered = new Set<string>()
-  const registerModels = (): void => {
-    for (const workspace of useWorkspaceStore.getState().workspaces) {
-      if (registered.has(workspace.id)) continue
-      registered.add(workspace.id)
-      registerModel(workspace.id, {} as unknown as Parameters<typeof registerModel>[1])
-    }
-  }
-  useWorkspaceStore.subscribe(registerModels)
-  registerModels()
-
-  function AutomationHost(): null {
-    useAutomationRequests('primary')
-    return null
-  }
-  const hostContainer = dom.window.document.createElement('div')
-  dom.window.document.body.appendChild(hostContainer)
-  const hostRoot = createRoot(hostContainer)
-  await act(async () => {
-    hostRoot.render(<AutomationHost />)
+  // The gateway lane in main (MC-2160), driven with the same filesystem, the
+  // same engine-init capture, and the same saved roster the dialog reads — the
+  // roster arrives through the launch-settings mirror, which is main's copy of
+  // exactly the `sprintEngineRoleSettings` the store holds.
+  const api = (dom.window as unknown as { api: Record<string, (...args: never[]) => unknown> }).api
+  const gatewayWorkspaces = new Map<string, Workspace>()
+  let gatewayWorkspaceSeq = 0
+  const sprintCreateService = createSprintCreateService({
+    getLaunchSettings: (): SprintEngineLaunchSettings => ({
+      ...emptySprintEngineLaunchSettings(),
+      sprintEngineRoleSettings: useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings ?? { enabled: {} },
+    }),
+    listLaunchableClis: () => ['claude-code', 'codex'],
+    initializeSprintEngineState: api.initializeSprintEngineState as never,
+    fs: {
+      pathExists: api.pathExists as never,
+      readdir: api.readdir as never,
+      readfile: api.readfile as never,
+      readFile: api.readfile as never,
+      statPath: api.statPath as never,
+    },
+    newWorkspaceId: () => `gateway-ws-${++gatewayWorkspaceSeq}`,
+    adoptWorkspace: (workspace) => {
+      gatewayWorkspaces.set(workspace.id, workspace)
+      return { ok: true }
+    },
+    primaryWorkspaceWindowId: () => 'primary',
+    updateWorkspaceAgent: (workspaceId, agentId, patch) => {
+      const workspace = gatewayWorkspaces.get(workspaceId)
+      if (!workspace) return
+      workspace.agents = { ...workspace.agents, [agentId]: { ...workspace.agents[agentId], ...patch } }
+    },
+    hydrateAutomationMode: async () => ({ ok: true }),
+    setCliPermissionPreset: async () => ({ ok: true }),
+    registerSprintRun: () => undefined,
+    addBacklogLink: async () => ({ ok: true }),
   })
-  await flush()
-  assert.ok(automationHandler, 'the automation hook registered its handler')
 
-  let requestSeq = 0
   type GatewayRun = { init: InitCall; workspaceId: string }
-  async function createThroughTheGateway(request: Record<string, unknown>): Promise<GatewayRun> {
+  async function createThroughTheGateway(request: Partial<SprintCreateRequest>): Promise<GatewayRun> {
     initCalls.length = 0
-    requestSeq += 1
-    const requestId = `parity-${requestSeq}`
-    const settled = new Promise<AutomationRendererResponse>((resolve) => {
-      pendingResponses.set(requestId, resolve)
+    const result = await sprintCreateService.createSprint({
+      folderPath: ROOT,
+      goal: '',
+      // The SAME selection the dialog was preloaded with, in the same order —
+      // a different source would make the comparison meaningless.
+      sourceRelativePaths: [EPIC_REF, LOOSE_REF],
+      ...request,
     })
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timedOut = new Promise<AutomationRendererResponse>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error(`request ${requestId} never answered`)), 15_000)
-    })
-    let response: AutomationRendererResponse
-    await act(async () => {
-      automationHandler!(requestId, {
-        kind: 'sprint.create',
-        folderPath: ROOT,
-        goal: '',
-        // The SAME selection the dialog was preloaded with, in the same order —
-        // a different source would make the comparison meaningless.
-        sourceRelativePaths: [EPIC_REF, LOOSE_REF],
-        ...request,
-      } as AutomationRendererRequest)
-      response = await Promise.race([settled, timedOut])
-    })
-    if (timer) clearTimeout(timer)
-    assert.equal(response!.ok, true, `sprint.create failed: ${JSON.stringify(response!)}`)
+    assert.equal(result.ok, true, `sprint.create failed: ${JSON.stringify(result)}`)
     assert.equal(initCalls.length, 1, `the gateway initialized exactly one run (got ${initCalls.length})`)
-    // The workspace id rides back with the payload: the store accumulates a
-    // workspace per check, so a later assertion that goes looking for "the
-    // sprint workspace" would find the FIRST one and pass on the wrong run.
-    const workspaceId = (response! as { workspaceId?: string }).workspaceId
-    assert.ok(workspaceId, 'the response names the workspace it created')
-    return { init: initCalls[0], workspaceId: workspaceId! }
+    // The workspace id rides back with the payload: each check creates another
+    // run, so an assertion that went looking for "the sprint workspace" would
+    // find the FIRST one and pass on the wrong run.
+    const workspaceId = result.ok ? result.workspaceId : ''
+    assert.ok(workspaceId, 'the result names the workspace it created')
+    return { init: initCalls[0], workspaceId }
   }
 
   // ── the parity assertion ──────────────────────────────────────────────────
@@ -368,10 +357,8 @@ async function main(): Promise<void> {
     // Sending that same number reproduces that same run — the ceiling is not
     // re-defaulted, floored, or dropped on the way through the gateway.
     const gateway = await createThroughTheGateway({ rosterName: ROSTER_NAME, maxConcurrentAgents: dialogCeiling })
-    const gatewayWorkspace = useWorkspaceStore
-      .getState()
-      .workspaces.find((workspace) => workspace.id === gateway.workspaceId)
-    assert.ok(gatewayWorkspace, 'the gateway workspace is the one its response named')
+    const gatewayWorkspace = gatewayWorkspaces.get(gateway.workspaceId)
+    assert.ok(gatewayWorkspace, 'the gateway workspace is the one its result named')
     assert.equal(
       gatewayWorkspace!.sprintEngineAutoState?.maxConcurrentAgents,
       dialogCeiling,
@@ -380,8 +367,7 @@ async function main(): Promise<void> {
     // And a ceiling the dialog cannot express is clamped, not honoured raw.
     const overshoot = await createThroughTheGateway({ rosterName: ROSTER_NAME, maxConcurrentAgents: 99 })
     assert.equal(
-      useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === overshoot.workspaceId)
-        ?.sprintEngineAutoState?.maxConcurrentAgents,
+      gatewayWorkspaces.get(overshoot.workspaceId)?.sprintEngineAutoState?.maxConcurrentAgents,
       10,
       'an out-of-range ceiling is clamped to the run maximum, never written through raw',
     )
@@ -455,9 +441,6 @@ async function main(): Promise<void> {
       })
     }
   })
-
-  hostRoot.unmount()
-  hostContainer.remove()
 
   if (failures > 0) {
     console.error(`\n${failures} check(s) failed`)

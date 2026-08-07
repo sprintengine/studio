@@ -1,4 +1,4 @@
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
+import type { SprintCreateRequest, SprintCreateResult } from '../../shared/sprint-create'
 import type { AutomationActionProvider, AutomationTriggerProvider, JsonSchema } from '../../shared/automations/contracts'
 import { BUNDLED_MODULE_IDS } from '../../shared/modules/manifest'
 import { createRunSkillLoopActionProvider } from './actions/run-skill-loop'
@@ -26,11 +26,12 @@ export type BuiltInAutomationProviderRegistryOptions = {
   switchboard?: SwitchboardAutomationFrontDoors
   sprintEngine?: SprintEngineAutomationFrontDoors
   /**
-   * Renderer delegate for providers that create runs through the renderer
-   * (sprint-engine-start). Run creation still terminates in the renderer's
-   * workspace store, so the action is only registered when a delegate exists.
+   * Sprint creation for the `sprint-engine-start` action, backed by main's
+   * SprintCreateService (MC-2160). The action is only registered when a
+   * creator is supplied, so a host without one advertises no way to start a
+   * run rather than one that fails at execution time.
    */
-  delegateToRenderer?: (request: AutomationRendererRequest) => Promise<AutomationRendererResponse>
+  createSprint?: (request: SprintCreateRequest) => Promise<SprintCreateResult>
 }
 
 type RegisteredProviderType = 'trigger' | 'action'
@@ -156,10 +157,10 @@ export function createBuiltInAutomationProviderRegistry(
       SPRINT_ENGINE_PROVIDER_MODULE_ID,
       createSprintEngineRunCompletedTriggerProvider(options.sprintEngine)
     )
-    if (options.delegateToRenderer) {
+    if (options.createSprint) {
       registry.registerActionProvider(
         SPRINT_ENGINE_PROVIDER_MODULE_ID,
-        createSprintEngineStartActionProvider({ delegateToRenderer: options.delegateToRenderer })
+        createSprintEngineStartActionProvider({ createSprint: options.createSprint })
       )
     }
   }

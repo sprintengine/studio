@@ -1,11 +1,13 @@
 import type { ElectronApi } from '../../../shared/electron-api'
 import type {
   WindowPlacement,
+  WorkspaceFieldsPatch,
   WorkspaceSyncCommand,
   WorkspaceSyncCommandResult,
   WorkspaceSyncEvent,
+  WorkspaceSyncSnapshot,
 } from '../../../shared/workspace-sync'
-import type { AgentCli, AgentId, Workspace, WorkspaceId, WorkspaceWindowId } from '../types/workspace'
+import type { AgentCli, AgentId, AgentState, Workspace, WorkspaceId, WorkspaceWindowId } from '../types/workspace'
 
 // Defined locally (matching WorkspaceManager/workspacesSlice) so this adapter
 // does not import a store slice, keeping the module dependency graph acyclic.
@@ -18,11 +20,12 @@ const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 // the accepted/broadcast events to the local store, and tracks the last applied
 // sequence so duplicate or older events are ignored.
 //
-// Storage-event sync (workspaceStore.syncWorkspaceRegistryAcrossWindows) stays
-// in place as the functional rollback path during this phase. Until a later
-// task seeds the main service with workspace/window membership, dispatches will
-// be rejected; that rejection is a safe no-op here because the local store
-// already applied the change optimistically.
+// Main owns the registry (MC-2158), so this client is the store's only route to
+// it: the storage-event cross-window path it used to sit beside is gone with the
+// localStorage registry. The store applies a user edit optimistically and asks
+// through here; a rejection means main refused the write (a stale per-field
+// last-write-wins edit, or a workspace another window removed) and carries the
+// snapshot the store reconciles against, so a value main refused is never kept.
 
 // The narrow slice of window.api this client depends on, so tests can inject a
 // fake transport without constructing the full ElectronApi surface.
@@ -92,6 +95,37 @@ export type AgentTerminalSessionApply = {
   cliUsesStableSessionId: boolean
 }
 
+// Local application of the registry-domain events. Each is main's accepted
+// value for one user-editable fact, so a window that lost a last-write-wins
+// race converges here rather than holding its own.
+export type WorkspaceRenamedApply = {
+  workspaceId: WorkspaceId
+  name: string
+  titleLocked?: boolean
+}
+
+export type WorkspaceLayoutUpdatedApply = {
+  workspaceId: WorkspaceId
+  layoutModel: Workspace['layoutModel']
+}
+
+export type WorkspaceFieldsUpdatedApply = {
+  workspaceId: WorkspaceId
+  patch: WorkspaceFieldsPatch
+}
+
+export type WorkspaceAgentUpdatedApply = {
+  workspaceId: WorkspaceId
+  agentId: AgentId
+  /** `null` removes the agent from the roster. */
+  patch: Partial<AgentState> | null
+  configEditedAt: number
+}
+
+export type WorkspaceRemovedApply = {
+  workspaceId: WorkspaceId
+}
+
 export type AgentTerminalLaunchStateApply = {
   workspaceId: WorkspaceId
   agentId: AgentId
@@ -118,6 +152,17 @@ export type WorkspaceSyncClientDependencies = {
   applyWorkspaceCreated: (apply: WorkspaceCreatedApply) => void
   applyAgentTerminalSession: (apply: AgentTerminalSessionApply) => void
   applyAgentTerminalLaunchState: (apply: AgentTerminalLaunchStateApply) => void
+  applyWorkspaceRenamed: (apply: WorkspaceRenamedApply) => void
+  applyWorkspaceLayoutUpdated: (apply: WorkspaceLayoutUpdatedApply) => void
+  applyWorkspaceFieldsUpdated: (apply: WorkspaceFieldsUpdatedApply) => void
+  applyWorkspaceAgentUpdated: (apply: WorkspaceAgentUpdatedApply) => void
+  applyWorkspaceRemoved: (apply: WorkspaceRemovedApply) => void
+  /**
+   * Adopt main's full registry wholesale. Used to seed the mirror at start and
+   * to recover from a sequence gap the bounded replay log can no longer bridge —
+   * the resync `applyWorkspaceSyncSnapshot` exists for.
+   */
+  applyRegistrySnapshot: (snapshot: WorkspaceSyncSnapshot) => void
   logDiagnostic?: (diagnostic: WorkspaceSyncDiagnostic) => void
 }
 
@@ -159,6 +204,20 @@ export type WorkspaceSyncClient = {
     agentId: AgentId,
     update: Omit<AgentTerminalLaunchStateApply, 'workspaceId' | 'agentId'>
   ) => Promise<void>
+  /** Ask main to rename a workspace; stamped at the gesture for last-write-wins. */
+  dispatchRenameWorkspace: (workspaceId: WorkspaceId, name: string, titleLocked?: boolean) => Promise<void>
+  /** Ask main to store a layout the window just computed (renderer-authored, main-persisted). */
+  dispatchUpdateWorkspaceLayout: (workspaceId: WorkspaceId, layoutModel: Workspace['layoutModel']) => Promise<void>
+  /** Ask main to change user-editable record fields (folder, memory, archive, highlight). */
+  dispatchUpdateWorkspaceFields: (workspaceId: WorkspaceId, patch: WorkspaceFieldsPatch) => Promise<void>
+  /** Ask main to change one agent's durable config, or `null` to remove the agent. */
+  dispatchUpdateWorkspaceAgent: (
+    workspaceId: WorkspaceId,
+    agentId: AgentId,
+    patch: Partial<AgentState> | null
+  ) => Promise<void>
+  /** Ask main to remove a workspace and tombstone its id. */
+  dispatchRemoveWorkspace: (workspaceId: WorkspaceId) => Promise<void>
   /** Stop listeners and reset sequence/diagnostic state (used by tests). */
   reset: () => void
 }
@@ -242,6 +301,36 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
       case 'agent_terminal.launch_state_updated':
         deps.applyAgentTerminalLaunchState(event.payload)
         break
+      case 'workspace.renamed':
+        deps.applyWorkspaceRenamed({
+          workspaceId: event.payload.workspaceId,
+          name: event.payload.name,
+          ...(event.payload.titleLocked !== undefined ? { titleLocked: event.payload.titleLocked } : {}),
+        })
+        break
+      case 'workspace.layout_updated':
+        deps.applyWorkspaceLayoutUpdated({
+          workspaceId: event.payload.workspaceId,
+          layoutModel: event.payload.layoutModel,
+        })
+        break
+      case 'workspace.fields_updated':
+        deps.applyWorkspaceFieldsUpdated({
+          workspaceId: event.payload.workspaceId,
+          patch: event.payload.patch,
+        })
+        break
+      case 'workspace.agents_updated':
+        deps.applyWorkspaceAgentUpdated({
+          workspaceId: event.payload.workspaceId,
+          agentId: event.payload.agentId,
+          patch: event.payload.patch,
+          configEditedAt: event.payload.configEditedAt,
+        })
+        break
+      case 'workspace.removed':
+        deps.applyWorkspaceRemoved({ workspaceId: event.payload.workspaceId })
+        break
     }
     lastAppliedSequence = event.sequence
     return true
@@ -281,12 +370,22 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
     await recoverSnapshotBaseline(api)
   }
 
+  // A gap the bounded replay log can no longer bridge is recovered by taking
+  // main's whole registry. Before MC-2158 this only advanced the sequence
+  // baseline — the registry lived in localStorage and importing main's state
+  // would have overwritten the authority with a mirror. It is the other way
+  // round now: main IS the authority, so the snapshot is adopted.
   const recoverSnapshotBaseline = async (api: WorkspaceSyncClientApi): Promise<void> => {
     try {
       const snapshot = await api.workspaceSyncGetSnapshot()
-      if (Number.isFinite(snapshot?.sequence) && snapshot.sequence > lastAppliedSequence) {
-        lastAppliedSequence = snapshot.sequence
-      }
+      if (!Number.isFinite(snapshot?.sequence)) return
+      // Adopt only a snapshot at least as new as what is already applied. The
+      // `await` above is a real window: a broadcast can land and advance the
+      // baseline while the fetch is in flight, and adopting the older snapshot
+      // afterwards would silently undo the event that beat it.
+      if (snapshot.sequence < lastAppliedSequence) return
+      deps.applyRegistrySnapshot(snapshot)
+      lastAppliedSequence = Math.max(lastAppliedSequence, snapshot.sequence)
     } catch {
       log({ phase: 'snapshot', reason: 'snapshot_failed', message: 'Failed to read the workspace sync snapshot after replay recovery.' })
     }
@@ -331,16 +430,20 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
       unsubscribe = null
     }
 
-    // Seed the sequence baseline from the current main snapshot so events at or
-    // below it are treated as already applied. We deliberately do not import the
-    // snapshot's routing into the local store here: storage-event sync still
-    // owns workspace/window membership during this phase.
+    // Seed the mirror from main's registry and take its sequence as the
+    // baseline, so events at or below it are treated as already applied. The
+    // store's own hydration handshake decides whether this window still has a
+    // legacy registry to OFFER main first; by the time this resolves, main's
+    // answer is authoritative either way.
     void api
       .workspaceSyncGetSnapshot()
       .then((snapshot) => {
-        if (Number.isFinite(snapshot?.sequence) && snapshot.sequence > lastAppliedSequence) {
-          lastAppliedSequence = snapshot.sequence
-        }
+        if (!Number.isFinite(snapshot?.sequence)) return
+        // Same ordering guard as the gap recovery above: a broadcast may have
+        // already applied while this fetch was in flight.
+        if (snapshot.sequence < lastAppliedSequence) return
+        deps.applyRegistrySnapshot(snapshot)
+        lastAppliedSequence = Math.max(lastAppliedSequence, snapshot.sequence)
       })
       .catch(() => {
         log({ phase: 'snapshot', reason: 'snapshot_failed', message: 'Failed to read the workspace sync snapshot.' })
@@ -452,6 +555,50 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
       payload: { workspaceId, agentId, ...update },
     })
 
+  // `editedAt` is stamped HERE, at the user gesture, not on arrival in main:
+  // a stamp assigned on arrival would make last-write-wins ordering depend on
+  // IPC latency, which is the bug the rule exists to prevent.
+  const dispatchRenameWorkspace = (
+    workspaceId: WorkspaceId,
+    name: string,
+    titleLocked?: boolean
+  ): Promise<void> =>
+    dispatchCommand({
+      type: 'workspace.rename',
+      payload: { workspaceId, name, ...(titleLocked !== undefined ? { titleLocked } : {}), editedAt: Date.now() },
+    })
+
+  const dispatchUpdateWorkspaceLayout = (
+    workspaceId: WorkspaceId,
+    layoutModel: Workspace['layoutModel']
+  ): Promise<void> =>
+    dispatchCommand({
+      type: 'workspace.update_layout',
+      payload: { workspaceId, layoutModel, editedAt: Date.now() },
+    })
+
+  const dispatchUpdateWorkspaceFields = (
+    workspaceId: WorkspaceId,
+    patch: WorkspaceFieldsPatch
+  ): Promise<void> =>
+    dispatchCommand({
+      type: 'workspace.update_fields',
+      payload: { workspaceId, patch, editedAt: Date.now() },
+    })
+
+  const dispatchUpdateWorkspaceAgent = (
+    workspaceId: WorkspaceId,
+    agentId: AgentId,
+    patch: Partial<AgentState> | null
+  ): Promise<void> =>
+    dispatchCommand({
+      type: 'workspace.update_agent',
+      payload: { workspaceId, agentId, patch, configEditedAt: Date.now() },
+    })
+
+  const dispatchRemoveWorkspace = (workspaceId: WorkspaceId): Promise<void> =>
+    dispatchCommand({ type: 'workspace.remove', payload: { workspaceId } })
+
   const reset = (): void => {
     stop()
     lastAppliedSequence = 0
@@ -468,6 +615,11 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
     dispatchCreateWorkspace,
     dispatchAssignTerminalSession,
     dispatchUpdateTerminalLaunchState,
+    dispatchRenameWorkspace,
+    dispatchUpdateWorkspaceLayout,
+    dispatchUpdateWorkspaceFields,
+    dispatchUpdateWorkspaceAgent,
+    dispatchRemoveWorkspace,
     reset,
   }
 }
@@ -508,6 +660,12 @@ export type WorkspaceSyncEventHandlers = {
   applyWorkspaceCreated: (apply: WorkspaceCreatedApply) => void
   applyAgentTerminalSession: (apply: AgentTerminalSessionApply) => void
   applyAgentTerminalLaunchState: (apply: AgentTerminalLaunchStateApply) => void
+  applyWorkspaceRenamed: (apply: WorkspaceRenamedApply) => void
+  applyWorkspaceLayoutUpdated: (apply: WorkspaceLayoutUpdatedApply) => void
+  applyWorkspaceFieldsUpdated: (apply: WorkspaceFieldsUpdatedApply) => void
+  applyWorkspaceAgentUpdated: (apply: WorkspaceAgentUpdatedApply) => void
+  applyWorkspaceRemoved: (apply: WorkspaceRemovedApply) => void
+  applyRegistrySnapshot: (snapshot: WorkspaceSyncSnapshot) => void
 }
 
 let configuredHandlers: WorkspaceSyncEventHandlers | null = null
@@ -526,4 +684,10 @@ export const workspaceSyncClient = createWorkspaceSyncClient({
   applyWorkspaceCreated: (apply) => configuredHandlers?.applyWorkspaceCreated(apply),
   applyAgentTerminalSession: (apply) => configuredHandlers?.applyAgentTerminalSession(apply),
   applyAgentTerminalLaunchState: (apply) => configuredHandlers?.applyAgentTerminalLaunchState(apply),
+  applyWorkspaceRenamed: (apply) => configuredHandlers?.applyWorkspaceRenamed(apply),
+  applyWorkspaceLayoutUpdated: (apply) => configuredHandlers?.applyWorkspaceLayoutUpdated(apply),
+  applyWorkspaceFieldsUpdated: (apply) => configuredHandlers?.applyWorkspaceFieldsUpdated(apply),
+  applyWorkspaceAgentUpdated: (apply) => configuredHandlers?.applyWorkspaceAgentUpdated(apply),
+  applyWorkspaceRemoved: (apply) => configuredHandlers?.applyWorkspaceRemoved(apply),
+  applyRegistrySnapshot: (snapshot) => configuredHandlers?.applyRegistrySnapshot(snapshot),
 })

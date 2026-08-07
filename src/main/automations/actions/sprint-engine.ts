@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../../../shared/automation'
+import type { SprintCreateRequest, SprintCreateResult } from '../../../shared/sprint-create'
 import type { AutomationActionProvider, AutomationRun } from '../../../shared/automations/contracts'
 import type {
   SprintEngineArtifactCommandResult,
@@ -88,11 +88,11 @@ export function createSprintEngineRunActionProvider(
 
 export type SprintEngineStartActionDeps = {
   /**
-   * The renderer executes the actual creation (`sprint.create` delegate): run
-   * creation still terminates in the renderer's workspace store, exactly like
-   * `spawn-agent`. Same primary-window constraint that request already accepts.
+   * Main's sprint-creation service (MC-2160). A chained sprint no longer needs a
+   * window: creation composes in-process and the scheduler bootstraps the
+   * coordinator, so an unattended 02:00 chain starts the same as an attended one.
    */
-  delegateToRenderer(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
+  createSprint(request: SprintCreateRequest): Promise<SprintCreateResult>
   /**
    * Fetch the checkout's upstream and return the freshly-updated remote-tracking
    * ref of the current branch (e.g. `origin/main`), or null when there is no
@@ -150,9 +150,9 @@ export function createSprintEngineStartActionProvider(
       const parsed = parseSprintEngineStartConfig(config)
       const useWorktrees = parsed.useWorktrees !== false
 
-      // Self-trigger loop guard: the renderer refuses creation when the new run's
-      // team dir would equal the trigger's watched team dir. The watched team is
-      // only known at fire time (it rides the run-landed payload), so the guard is
+      // Self-trigger loop guard: creation refuses when the new run's team dir
+      // would equal the trigger's watched team dir. The watched team is only
+      // known at fire time (it rides the run-landed payload), so the guard is
       // enforced here, not at definition-write.
       const watchedTeam = typeof ctx.triggerPayload.team === 'string'
         ? ctx.triggerPayload.team.trim()
@@ -163,8 +163,7 @@ export function createSprintEngineStartActionProvider(
       // auto-pull) — if the checkout is behind, the sprint builds on what is there.
       const baseStartPoint = useWorktrees ? await resolveBaseStartPoint(ctx.workspaceRoot) : null
 
-      const delegated = await deps.delegateToRenderer({
-        kind: 'sprint.create',
+      const created = await deps.createSprint({
         folderPath: ctx.workspaceRoot,
         goal: '',
         name: parsed.sprintName,
@@ -176,11 +175,11 @@ export function createSprintEngineStartActionProvider(
         ...(watchedTeam ? { refuseTeamSlug: watchedTeam } : {}),
         ...(baseStartPoint ? { baseStartPoint } : {}),
       })
-      if (!delegated.ok) return failedRun(delegated.message)
+      if (!created.ok) return failedRun(created.message)
 
       return {
         status: 'completed',
-        workspaceId: delegated.workspaceId,
+        workspaceId: created.workspaceId,
         summary: baseStartPoint
           ? `Started a sprint from ${parsed.backlogItem} on ${baseStartPoint}.`
           : `Started a sprint from ${parsed.backlogItem}.`,

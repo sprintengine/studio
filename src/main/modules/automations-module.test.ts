@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMain } from 'electron'
 
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type {
   AgentPhaseEvent,
   AgentPhaseListener,
@@ -22,13 +21,16 @@ import type {
 import type { AutomationsEngine, AutomationsEngineEvaluationResult, AutomationsEngineOptions } from '../automations/engine'
 import { AutomationsStore } from '../automations/store'
 import { runGitCommand } from '../git-utils'
+import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationProviderPermissionChecker } from '../automations/provider-registry'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { IpcInvokeHandler } from '../module-host/main-host'
 import { loadMainModules } from '../module-host/load-modules'
+import type { SprintCreateRequest, SprintCreateResult } from '../../shared/sprint-create'
 import {
-  AutomationDelegateToken,
+  AgentLaunchServiceToken,
   AutomationsProviderRegistryToken,
+  SprintCreateServiceToken,
   SprintEngineAutomationFrontDoorsToken,
   SwitchboardAutomationFrontDoorsToken,
   TerminalRuntimeToken,
@@ -118,7 +120,8 @@ function createFakeTerminalRuntime(options: { liveExecutionIds?: string[] } = {}
 }
 
 function fakeAgentRuntimeModule(options: {
-  delegateRequest?: (request: AutomationRendererRequest) => Promise<AutomationRendererResponse>
+  launchAgent?: (request: AgentLaunchRequest) => Promise<AgentLaunchResult>
+  createSprint?: (request: SprintCreateRequest) => Promise<SprintCreateResult>
   workspaceSnapshot?: unknown
   terminalRuntime?: unknown
 } = {}): CapabilityModule {
@@ -131,10 +134,6 @@ function fakeAgentRuntimeModule(options: {
       core: true,
     },
     registerMain(host) {
-      host.provideService(AutomationDelegateToken, () => ({
-        request: options.delegateRequest ?? (async () => ({ ok: false, message: 'not used in module registration tests' })),
-        handleResponse: () => undefined,
-      } as never))
       host.provideService(WorkspaceSyncServiceToken, () => ({
         getSnapshot: () => options.workspaceSnapshot ?? ({
           sequence: 1,
@@ -150,6 +149,20 @@ function fakeAgentRuntimeModule(options: {
         TerminalRuntimeToken,
         () => (options.terminalRuntime ?? createFakeTerminalRuntime().runtime) as never
       )
+      // Sprint creation is a main-process service since MC-2160, and the
+      // `sprint-engine-start` action is registered only when the module can
+      // resolve it — so the fake core must seed it or the module fails to load.
+      host.provideService(SprintCreateServiceToken, () => ({
+        createSprint: options.createSprint
+          ?? (async () => ({ ok: false, code: 'not_used', message: 'not used in module registration tests' })),
+      } as never))
+      // Agent launch is its own main-process service since MC-2159; the module
+      // resolves it separately.
+      host.provideService(AgentLaunchServiceToken, () => ({
+        launch: options.launchAgent
+          ?? (async () => ({ ok: false, code: 'not_used', message: 'not used in module registration tests' })),
+        dispose: () => ({ ok: true, workspaceId: '', agentId: '' }),
+      } as never))
     },
   }
 }
@@ -679,7 +692,7 @@ async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<v
   // proving there is no pre-launch dirty-tree block). Real repository, because
   // the module wires the real `defaultCreateRunWorktree`.
   const folderPath = await initDirtyTestRepo('multicode-automations-module-dirty-')
-  const launchRequests: AutomationRendererRequest[] = []
+  const launchRequests: Array<{ kind: 'agent.launch' } & AgentLaunchRequest> = []
   let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
     null as AutomationsEngineOptions['runAutomation'] | null
 
@@ -691,8 +704,8 @@ async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<v
         // automations-host workspace; seed one so the run reaches the launch
         // (which the fake delegate then refuses) instead of trying to create one.
         workspaceSnapshot: workspaceSnapshot(folderPath, 'automations-host'),
-        delegateRequest: async (request) => {
-          launchRequests.push(request)
+        launchAgent: async (request) => {
+          launchRequests.push({ kind: 'agent.launch', ...request })
           return { ok: false, code: 'should_not_launch', message: 'should not launch' }
         },
       }),
@@ -716,7 +729,7 @@ async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<v
   assert.notEqual(result.status, 'blocked', 'a dirty checkout no longer blocks before launch')
   assert.ok(
     launchRequests.some((request) => request.kind === 'agent.launch'),
-    'the run delegates an agent launch instead of gating on the dirty tree',
+    'the run reaches the agent launch instead of gating on the dirty tree',
   )
 }
 
@@ -726,7 +739,7 @@ async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<v
 // Real module wiring, so this covers the production `defaultCreateRunWorktree`.
 async function testModuleExecutorBlocksWhenTheRunCannotGetAWorktree(): Promise<void> {
   const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-non-git-'))
-  const launchRequests: AutomationRendererRequest[] = []
+  const launchRequests: Array<{ kind: 'agent.launch' } & AgentLaunchRequest> = []
   let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
     null as AutomationsEngineOptions['runAutomation'] | null
 
@@ -735,8 +748,8 @@ async function testModuleExecutorBlocksWhenTheRunCannotGetAWorktree(): Promise<v
     modules: [
       fakeAgentRuntimeModule({
         workspaceSnapshot: workspaceSnapshot(folderPath, 'automations-host'),
-        delegateRequest: async (request) => {
-          launchRequests.push(request)
+        launchAgent: async (request) => {
+          launchRequests.push({ kind: 'agent.launch', ...request })
           return { ok: false, code: 'should_not_launch', message: 'should not launch' }
         },
       }),

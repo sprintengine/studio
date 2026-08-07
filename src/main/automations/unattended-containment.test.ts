@@ -4,14 +4,14 @@ import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
+import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import { runGitCommand } from '../git-utils'
 import { WRITE_UP_ONLY_INSTRUCTION } from './actions/spawn-agent'
 import { AutomationsEngine } from './engine'
-import { RunWorktreeUnavailableError, createLocalAutomationExecutor, defaultCreateRunWorktree } from './executor-local'
+import { RunWorktreeUnavailableError, createLocalAutomationExecutor, defaultCreateRunWorktree, type LocalAutomationExecutorOptions } from './executor-local'
 import { AutomationsStore } from './store'
 
 // The containment an unattended (`bypass_all`) automation run is supposed to
@@ -82,27 +82,33 @@ function harness(
   options: { triggerKind?: string; worktree?: WorktreeOutcome } = {}
 ) {
   const workspaces: Workspace[] = []
-  const launches: Array<Extract<AutomationRendererRequest, { kind: 'agent.launch' }>> = []
+  const launches: AgentLaunchRequest[] = []
   const pullRequests: PullRequestCall[] = []
-  const delegateToRenderer = async (request: AutomationRendererRequest): Promise<AutomationRendererResponse> => {
-    if (request.kind === 'workspace.create') {
-      const created = workspace('ws-host', request.folderPath ?? null, request.mode ?? 'standard')
-      workspaces.push(created)
-      return { ok: true, workspaceId: created.id }
-    }
-    if (request.kind === 'agent.launch') {
-      launches.push(request)
-      const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
-      if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
-      const agentId = `agent-${launches.length}`
-      target.agents[agentId] = { id: agentId, name: request.name ?? agentId, cli: request.cli ?? 'codex' } as Workspace['agents'][string]
-      return { ok: true, workspaceId: request.workspaceId, agentId }
-    }
-    return { ok: false, code: 'unsupported', message: 'unsupported request' }
+  // Workspace creation is a main-process port since MC-2158, not a renderer
+  // request. It honours the mode the executor asks for: the default launch
+  // route resolves an `automations-host` workspace, and a 'standard' stand-in
+  // would never satisfy it.
+  const createWorkspace: LocalAutomationExecutorOptions['createWorkspace'] = (input) => {
+    const created = workspace('ws-host', input.folderPath ?? null, input.mode ?? 'standard')
+    workspaces.push(created)
+    return { ok: true, result: { workspace: created as never, windowId: 'primary', folderPath: input.folderPath ?? null, reused: false } }
+  }
+
+  // Agent launch is a main-process port since MC-2159, not a renderer request;
+  // this stub stands in for the AgentLaunchService so the launch stays
+  // observable at the same level of detail.
+  const launchAgent = async (request: AgentLaunchRequest): Promise<AgentLaunchResult> => {
+    launches.push(request)
+    const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
+    if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
+    const agentId = `agent-${launches.length}`
+    target.agents[agentId] = { id: agentId, name: request.name ?? agentId, cli: request.cli ?? 'codex' } as Workspace['agents'][string]
+    return { ok: true, workspaceId: request.workspaceId, agentId, sessionId: `session-${agentId}` }
   }
 
   const executor = createLocalAutomationExecutor({
-    delegateToRenderer,
+    createWorkspace,
+    launchAgent,
     getWorkspaceSyncSnapshot: () => snapshot(workspaces),
     sleep: async () => undefined,
     createRunWorktree: async (input) => {
@@ -165,7 +171,7 @@ type StartPath = 'schedule' | 'run-now' | 'trigger'
 
 type DispatchResult = {
   root: string
-  launches: Array<Extract<AutomationRendererRequest, { kind: 'agent.launch' }>>
+  launches: AgentLaunchRequest[]
   pullRequests: PullRequestCall[]
   run: AutomationRun
   engine: AutomationsEngine
@@ -218,7 +224,7 @@ async function runToFinalize(
   path: StartPath,
   definition: AutomationDefinition,
   worktree: WorktreeOutcome
-): Promise<{ root: string; launch: Extract<AutomationRendererRequest, { kind: 'agent.launch' }>; pullRequests: PullRequestCall[]; run: AutomationRun }> {
+): Promise<{ root: string; launch: AgentLaunchRequest; pullRequests: PullRequestCall[]; run: AutomationRun }> {
   const { root, launches, pullRequests, engine } = await dispatch(path, definition, worktree)
   assert.equal(launches.length, 1, `the ${path} path fires exactly one launch`)
   const finalized = await engine.finalizeRun({

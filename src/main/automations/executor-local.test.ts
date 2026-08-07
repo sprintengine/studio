@@ -3,10 +3,13 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
+import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationActionProvider, AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { Workspace } from '../../renderer/src/types/workspace'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../shared/workspace-mode'
+import type { WorkspaceCreateRequest } from '../workspace-registry-service'
+import type { WorkspaceMutationActor } from '../workspace-sync-service'
 import { SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID, SPRINT_ENGINE_RUN_ACTION_KIND } from './actions/sprint-engine'
 import {
   SWITCHBOARD_AUTOMATION_INTEGRATION_ID,
@@ -126,6 +129,30 @@ const LAUNCHABLE_WATCHTOWER_REVIEW_PRESETS = [
 
 const launchableWatchtowerReviewPresets = new Set<string>(LAUNCHABLE_WATCHTOWER_REVIEW_PRESETS)
 
+// What the harness records, across BOTH outbound ports, each tagged with the
+// kind the retired renderer-delegate request used to carry so ordering
+// assertions read the same.
+type RecordedExecutorRequest =
+  | ({ kind: 'agent.launch' } & AgentLaunchRequest)
+  | ({ kind: 'workspace.create'; actor: WorkspaceMutationActor } & WorkspaceCreateRequest)
+
+// The negative-path port set: every outbound port records and refuses, so a
+// test asserting "this never launched" fails loudly if the executor reaches any
+// of them. Agent launch became a main-process port in MC-2159 and workspace
+// creation in MC-2158, so both are covered here.
+function refusingPorts(requests: RecordedExecutorRequest[]) {
+  return {
+    createWorkspace: ((input, actor) => {
+      requests.push({ kind: 'workspace.create', ...input, actor })
+      return { ok: false, reason: 'should_not_launch', message: 'should not launch' }
+    }) as LocalAutomationExecutorOptions['createWorkspace'],
+    launchAgent: async (request: AgentLaunchRequest): Promise<AgentLaunchResult> => {
+      requests.push({ kind: 'agent.launch', ...request })
+      return { ok: false, code: 'should_not_launch', message: 'should not launch' }
+    },
+  }
+}
+
 function executorHarness(
   initialWorkspaces: Workspace[] = [],
   options: {
@@ -137,49 +164,65 @@ function executorHarness(
   } = {}
 ) {
   const workspaces = [...initialWorkspaces]
-  const requests: AutomationRendererRequest[] = []
-  const delegateToRenderer = async (request: AutomationRendererRequest): Promise<AutomationRendererResponse> => {
-    requests.push(request)
-    if (request.kind === 'workspace.create') {
-      const id = 'ws-created'
-      // Honor the explicit mode the executor threads through (T2 create-with-mode),
-      // mirroring the renderer addWorkspace path, so a created automations host is
-      // observed as `automations-host` on the bus.
-      workspaces.push(workspace(id, request.folderPath ?? null, {
-        name: request.name ?? id,
-        mode: request.mode ?? 'standard',
-      }))
-      return { ok: true, workspaceId: id }
-    }
+  // Both ports land in one ordered list so a test can still assert "created the
+  // workspace, THEN launched into it". `agent.launch` is no longer a renderer
+  // request (MC-2159) — it goes through the main-owned launch port below — but
+  // recording it in the same shape keeps the ordering assertions honest.
+  const requests: RecordedExecutorRequest[] = []
 
-    if (request.kind === 'agent.launch') {
-      const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
-      if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
-      const agentId = `agent-${Object.keys(target.agents).length + 1}`
-      target.agents[agentId] = {
-        id: agentId,
-        name: request.name ?? agentId,
-        status: 'idle',
-        execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
-        messages: [],
-        streamBuffer: '',
-        runtimeKind: 'terminal',
-        cli: request.cli ?? 'codex',
-        cliSessionId: `session-${agentId}`,
-        cliStartRequested: true,
-        cliHasLaunched: true,
-      } as Workspace['agents'][string]
-      return { ok: true, workspaceId: request.workspaceId, agentId }
+  // Workspace creation is main's (MC-2158): the executor calls the registry
+  // rather than asking a window and polling the bus. Recorded in the same
+  // ordered list so "created the host, THEN launched into it" still asserts.
+  const createWorkspace: LocalAutomationExecutorOptions['createWorkspace'] = (input, actor) => {
+    requests.push({ kind: 'workspace.create', ...input, actor })
+    const existing = input.mode
+      ? workspaces.find((candidate) =>
+        candidate.mode === input.mode
+        && (candidate.folderPath ?? null) === (input.folderPath ?? null))
+      : undefined
+    // Reuse is main's call and holds across callers, so the fake honours it too.
+    if (existing) {
+      return { ok: true, result: { workspace: existing as never, windowId: 'primary', folderPath: input.folderPath ?? null, reused: true } }
     }
+    const id = 'ws-created'
+    const created = workspace(id, input.folderPath ?? null, {
+      name: input.name ?? id,
+      mode: input.mode ?? 'standard',
+    })
+    workspaces.push(created)
+    return { ok: true, result: { workspace: created as never, windowId: 'primary', folderPath: input.folderPath ?? null, reused: false } }
+  }
 
-    return { ok: false, code: 'unsupported', message: 'unsupported request' }
+  // Stands in for the main-process AgentLaunchService: composes nothing, but
+  // mints the ids and the agent record a real launch would leave behind, so the
+  // executor's post-launch correlation has the same surface to read.
+  const launchAgent = async (request: AgentLaunchRequest): Promise<AgentLaunchResult> => {
+    requests.push({ kind: 'agent.launch', ...request })
+    const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
+    if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
+    const agentId = `agent-${Object.keys(target.agents).length + 1}`
+    target.agents[agentId] = {
+      id: agentId,
+      name: request.name ?? agentId,
+      status: 'idle',
+      execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
+      messages: [],
+      streamBuffer: '',
+      runtimeKind: 'terminal',
+      cli: request.cli ?? 'codex',
+      cliSessionId: `session-${agentId}`,
+      cliStartRequested: true,
+      cliHasLaunched: true,
+    } as Workspace['agents'][string]
+    return { ok: true, workspaceId: request.workspaceId, agentId, sessionId: `session-${agentId}` }
   }
 
   return {
     requests,
     workspaces,
     executor: createLocalAutomationExecutor({
-      delegateToRenderer,
+      createWorkspace,
+      launchAgent,
       getWorkspaceSyncSnapshot: () => snapshot(workspaces),
       now: (() => {
         let current = 0
@@ -312,56 +355,20 @@ async function assertDefaultRunReusesExistingHostWorkspace(): Promise<void> {
   assert.equal(launch.kind === 'agent.launch' ? launch.workspaceId : '', 'ws-host')
 }
 
-async function assertDefaultRunReusesRestartRestoredHostViaRendererMode(): Promise<void> {
-  // After an app restart, main's sync snapshot restores workspaces as routing
-  // placeholders. A pre-workspaceModes snapshot (or a lost one) reads the host
-  // as mode 'standard', so the executor's host-by-folder lookup misses and it
-  // delegates workspace.create — the renderer then REUSES the real host and
-  // reports its actual mode on the response. The executor must trust that
-  // renderer-reported mode over the stale placeholder, or every run for a
-  // pre-existing project fails its host-mode assertion.
-  const stalePlaceholderHost = workspace('ws-restored-host', '/repo/a', { mode: 'standard' })
-  const requests: AutomationRendererRequest[] = []
-  const workspaces = [stalePlaceholderHost]
-  const delegateToRenderer = async (request: AutomationRendererRequest): Promise<AutomationRendererResponse> => {
-    requests.push(request)
-    if (request.kind === 'workspace.create') {
-      // Renderer-side one-host-per-folder reuse: same id back, real mode stamped.
-      return { ok: true, workspaceId: 'ws-restored-host', workspaceMode: 'automations-host' }
-    }
-    if (request.kind === 'agent.launch') {
-      const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
-      if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
-      target.agents['agent-1'] = {
-        id: 'agent-1',
-        name: request.name ?? 'agent-1',
-        status: 'idle',
-        execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
-        messages: [],
-        streamBuffer: '',
-        runtimeKind: 'terminal',
-      } as Workspace['agents'][string]
-      return { ok: true, workspaceId: request.workspaceId, agentId: 'agent-1' }
-    }
-    return { ok: false, code: 'unsupported', message: 'unsupported request' }
-  }
-  const executor = createLocalAutomationExecutor({
-    delegateToRenderer,
-    getWorkspaceSyncSnapshot: () => snapshot(workspaces),
-    now: (() => {
-      let current = 0
-      return () => {
-        current += 30_000
-        return current
-      }
-    })(),
-    sleep: async () => undefined,
-    createRunWorktree: async (input) => ({
-      worktreePath: `${input.workspaceRoot}/.multi-code/automations/worktrees/${input.runId}`,
-      branch: `automations/${input.runId}`,
-    }),
+async function assertDefaultRunReusesRestartRestoredHost(): Promise<void> {
+  // Before MC-2158 this was the hardest case in the file: after a restart main
+  // rebuilt every workspace as a routing placeholder reading mode 'standard',
+  // so the executor's host-by-folder lookup MISSED, it delegated a create, and
+  // the renderer had to report the reused host's real mode back for the run's
+  // host-mode assertion to pass. Main owns the registry now, so a restart
+  // survivor carries its real mode and the lookup simply hits — the run reaches
+  // its host with no create at all.
+  const restoredHost = workspace('ws-restored-host', '/repo/a', {
+    mode: AUTOMATIONS_HOST_WORKSPACE_MODE,
+    name: 'Automations',
   })
-  const result = await executor({
+  const harness = executorHarness([restoredHost])
+  const result = await harness.executor({
     workspaceRoot: '/repo/a',
     definition: definition(),
     run: run(),
@@ -370,11 +377,10 @@ async function assertDefaultRunReusesRestartRestoredHostViaRendererMode(): Promi
 
   assert.equal(result.status, 'running', `restored-host run must launch, got: ${result.summary ?? result.blockedReason ?? ''}`)
   assert.equal(result.workspaceId, 'ws-restored-host')
-  assert.deepEqual(requests.map((request) => request.kind), ['workspace.create', 'agent.launch'])
-  assert.equal(
-    requests[0].kind === 'workspace.create' ? requests[0].name : '',
-    'Automations',
-    'an executor-created host carries the stable surface name, never the run agent name',
+  assert.deepEqual(
+    harness.requests.map((request) => request.kind),
+    ['agent.launch'],
+    'a restart survivor needs no create: main never lost its mode',
   )
 }
 
@@ -663,12 +669,9 @@ async function assertNonGitWorkspaceNoLongerBlocksLaunch(): Promise<void> {
 
 async function assertMissingIntegrationBlocksWithoutFakeSuccess(): Promise<void> {
   const cleanWorkspace = workspace('ws-clean', '/repo/a')
-  const requests: AutomationRendererRequest[] = []
+  const requests: RecordedExecutorRequest[] = []
   const executor = createLocalAutomationExecutor({
-    delegateToRenderer: async (request) => {
-      requests.push(request)
-      return { ok: false, code: 'should_not_launch', message: 'should not launch' }
-    },
+    ...refusingPorts(requests),
     getWorkspaceSyncSnapshot: () => snapshot([cleanWorkspace]),
     isIntegrationAvailable: (id) => id !== 'mcp:sentry',
     sleep: async () => undefined,
@@ -710,12 +713,9 @@ async function assertRequiredIntegrationFailsClosed(): Promise<void> {
   assert.deepEqual(withoutResolver.requests, [], 'required integrations fail closed when no resolver is configured')
 
   const cleanWorkspace = workspace('ws-clean', '/repo/a')
-  const requests: AutomationRendererRequest[] = []
+  const requests: RecordedExecutorRequest[] = []
   const unknownResolverExecutor = createLocalAutomationExecutor({
-    delegateToRenderer: async (request) => {
-      requests.push(request)
-      return { ok: false, code: 'should_not_launch', message: 'should not launch' }
-    },
+    ...refusingPorts(requests),
     getWorkspaceSyncSnapshot: () => snapshot([cleanWorkspace]),
     isIntegrationAvailable: () => undefined,
     sleep: async () => undefined,
@@ -738,7 +738,7 @@ async function assertRequiredIntegrationFailsClosed(): Promise<void> {
 }
 
 async function assertDeniedKindCollisionUsesBlockedWrapperDispatch(): Promise<void> {
-  const requests: AutomationRendererRequest[] = []
+  const requests: RecordedExecutorRequest[] = []
   let originalProviderRunCount = 0
   const collisionProvider: AutomationActionProvider = {
     kind: 'spawn-agent',
@@ -762,10 +762,7 @@ async function assertDeniedKindCollisionUsesBlockedWrapperDispatch(): Promise<vo
     reason: 'Module "weather-deck" is not trusted in Settings -> Modules.',
   })
   const executor = createLocalAutomationExecutor({
-    delegateToRenderer: async (request) => {
-      requests.push(request)
-      return { ok: false, code: 'should_not_launch', message: 'should not launch' }
-    },
+    ...refusingPorts(requests),
     getWorkspaceSyncSnapshot: () => snapshot([workspace('ws-clean', '/repo/a')]),
     actionProviderRegistrations: registrations,
     checkProviderPermission: denyProvider,
@@ -788,7 +785,7 @@ async function assertDeniedKindCollisionUsesBlockedWrapperDispatch(): Promise<vo
 }
 
 async function assertDeniedBuiltInSpawnAgentUsesBlockedWrapperDispatch(): Promise<void> {
-  const requests: AutomationRendererRequest[] = []
+  const requests: RecordedExecutorRequest[] = []
   const registry = createBuiltInAutomationProviderRegistry()
   const denySpawnAgent: AutomationProviderPermissionChecker = (registration) => {
     if (registration.providerId === 'automations.spawn-agent') {
@@ -800,10 +797,7 @@ async function assertDeniedBuiltInSpawnAgentUsesBlockedWrapperDispatch(): Promis
     return { ok: true }
   }
   const executor = createLocalAutomationExecutor({
-    delegateToRenderer: async (request) => {
-      requests.push(request)
-      return { ok: false, code: 'should_not_launch', message: 'should not launch' }
-    },
+    ...refusingPorts(requests),
     getWorkspaceSyncSnapshot: () => snapshot([workspace('ws-clean', '/repo/a')]),
     actionProviderRegistrations: registry.listActionProviderRegistrations(),
     checkProviderPermission: denySpawnAgent,
@@ -1061,7 +1055,7 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
     SWITCHBOARD_RUNNER_TICK_ACTION_KIND,
     WATCHTOWER_REVIEW_ACTION_KIND,
     SPRINT_ENGINE_RUN_ACTION_KIND,
-  ], 'sprint-engine-start is delegate-gated: absent without delegateToRenderer')
+  ], 'sprint-engine-start is creator-gated: absent without a createSprint backend')
   assert.equal(WATCHTOWER_AUTOMATION_INTEGRATION_ID, 'module:watchtower')
   assert.equal(SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID, 'module:sprint-engine')
 
@@ -1152,7 +1146,7 @@ async function main(): Promise<void> {
   assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates()
   await assertDefaultRunCreatesHostWorkspaceAndLaunchesOnBus()
   await assertDefaultRunReusesExistingHostWorkspace()
-  await assertDefaultRunReusesRestartRestoredHostViaRendererMode()
+  await assertDefaultRunReusesRestartRestoredHost()
   await assertDefaultRunNeverHijacksStandardWorkspace()
   await assertExplicitConfigWorkspaceIdLaunchesIntoNamedWorkspace()
   await assertRunWorktreeIsThreadedToLaunchAndPatch()

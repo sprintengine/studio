@@ -1,4 +1,5 @@
-import type { LayoutTemplate, Workspace } from '../../types/workspace'
+import type { Workspace } from '../../types/workspace'
+import { REVIEWS_HOST_TEMPLATE } from '../../../../shared/layouts/templates'
 import { REVIEWS_HOST_WORKSPACE_MODE } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 
@@ -15,20 +16,6 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 // It is created on demand — starting a run, or asking the guide a question — and
 // never by the user, so it has no entry in the workspace-type registry and no
 // creation flow.
-
-// Rail-hidden and never user-created, so this template is only ever the shape of
-// an empty workspace: guide tabs are added to it one at a time as reviews run.
-const REVIEWS_HOST_TEMPLATE: LayoutTemplate = {
-  id: 'reviews-host-mode',
-  name: 'Reviews',
-  description: 'Hosts the review guide terminals for one project.',
-  previewSlots: [],
-  layout: {
-    global: { tabSetEnableDrop: true, tabEnableClose: true },
-    borders: [],
-    layout: { type: 'row', children: [] },
-  },
-}
 
 export function isReviewsHostWorkspace(workspace: { mode: string }): boolean {
   return workspace.mode === REVIEWS_HOST_WORKSPACE_MODE

@@ -9,7 +9,51 @@
  * re-export shim, so every existing import site and test keeps working
  * unchanged.
  */
+import type { MemoryRootStatus } from './electron-api'
 import { basename } from './paths'
+
+/**
+ * What a launch needs from the resolved Knowledge Graph root: the env vars that
+ * tell the agent's tooling where the graph is, and the prompt line that tells
+ * the AGENT it exists.
+ */
+export type KnowledgeLaunchContext = {
+  rootPath?: string
+  relativeRoot?: string
+  promptSuffix: string | null
+}
+
+/**
+ * Turn a resolved root into launch inputs. Shared because both launch paths
+ * compose it: `TerminalView` for an interactively-spawned agent, and the
+ * main-process AgentLaunchService (MC-2159) for one launched with no window —
+ * which must not silently drop the graph just because nobody is watching.
+ *
+ * An UNRESOLVABLE configured root still yields a prompt line. Saying nothing
+ * would leave the agent to guess another knowledge folder, which is exactly the
+ * invention the line forbids.
+ */
+export function knowledgeLaunchContext(status: MemoryRootStatus): KnowledgeLaunchContext {
+  if (status.ok) {
+    return {
+      rootPath: status.rootPath,
+      relativeRoot: status.relativeRoot,
+      promptSuffix: [
+        `Knowledge Graph is configured at ${status.relativeRoot}.`,
+        'This is a repo-local Markdown knowledge graph for product, architecture, brand, and ecosystem context.',
+        'Inspect it when relevant instead of assuming project context.',
+        'Use the workspace-knowledge skill if it is installed in .agents/skills.',
+      ].join(' '),
+    }
+  }
+  return {
+    rootPath: undefined,
+    ...(status.relativeRoot ? { relativeRoot: status.relativeRoot } : {}),
+    promptSuffix: status.relativeRoot
+      ? `Knowledge Graph is configured at ${status.relativeRoot}, but the folder is currently missing or inaccessible. Do not guess another knowledge folder.`
+      : null,
+  }
+}
 
 export type ProjectKnowledgeConfig = {
   projectRoot: string

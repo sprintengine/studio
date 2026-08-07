@@ -1,4 +1,4 @@
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
+import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { ActionContext, AutomationActionProvider, AutomationCliPermissionPreset, AutomationRun } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { join } from 'node:path'
@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import type { Workspace, WorkspaceMode } from '../../renderer/src/types/workspace'
 import { createGitWorktree, removeGitWorktree } from '../git'
 import { resolveRepoRoot } from '../git-worktree-validation'
-import { createWorkspaceConfirmed } from '../workspace-create'
+import type { WorkspaceCreateRequest, WorkspaceCreateResult } from '../workspace-registry-service'
+import type { WorkspaceMutationActor } from '../workspace-sync-service'
 import type { AutomationRunExecutionInput, AutomationRunExecutor } from './engine'
 import { runSkillLoopAction } from './actions/run-skill-loop'
 import { runSpawnAgentAction, type SpawnAgentResolvedTarget } from './actions/spawn-agent'
@@ -21,7 +22,24 @@ import {
 } from './provider-registry'
 
 export type LocalAutomationExecutorOptions = {
-  delegateToRenderer(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
+  /**
+   * Compose and spawn the run's agent in main (MC-2159). This is the change
+   * that makes an agent-backed automation run headless at all: the composition
+   * used to live in a renderer hook, so a scheduled run with no window open
+   * failed before it reached a pty. Every other outbound port here is a main
+   * service too, so the executor asks a window for nothing (MC-2161).
+   */
+  launchAgent(request: AgentLaunchRequest): Promise<AgentLaunchResult>
+  /**
+   * Mint the run's automations-host workspace in main's registry (MC-2158).
+   * The other half of headless: host creation used to be a renderer errand
+   * too, and reuse of an existing host could only be guaranteed within one
+   * window — main's single writer guarantees it across all of them.
+   */
+  createWorkspace(
+    input: WorkspaceCreateRequest,
+    actor: WorkspaceMutationActor,
+  ): { ok: true; result: WorkspaceCreateResult } | { ok: false; reason: string; message: string }
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
   // Resolves the spawned agent's terminal-session executionId at launch-confirm
   // time so the run can correlate an agent-lifecycle exit back to itself. A miss
@@ -32,7 +50,6 @@ export type LocalAutomationExecutorOptions = {
   isIntegrationAvailable?: (id: string) => boolean | undefined
   now?: () => number
   sleep?: (ms: number) => Promise<void>
-  launchConfirmTimeoutMs?: number
   launchConfirmPollIntervalMs?: number
   executionIdTimeoutMs?: number
   actionProviders?: AutomationActionProvider[]
@@ -73,10 +90,10 @@ export class RunWorktreeUnavailableError extends Error {
   }
 }
 
-const DEFAULT_LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const DEFAULT_LAUNCH_CONFIRM_POLL_INTERVAL_MS = 150
-// The workspace-sync bus confirms the agent before its pty is spawned, so the
-// terminal session (and its executionId) can appear a moment after launch-confirm.
+// The launch resolves once main has spawned the pty, so the session's execution
+// identity is normally registered by the time this is read. Kept as a bounded
+// poll because registration and the resolver's own view are still two steps.
 const DEFAULT_EXECUTION_ID_TIMEOUT_MS = 10_000
 
 export function createLocalAutomationExecutor(options: LocalAutomationExecutorOptions): AutomationRunExecutor {
@@ -236,13 +253,12 @@ async function spawnAgent(
   // The host is the durable per-project Automations workspace, so it carries the
   // stable surface name — never the launching run's agent name, which would brand
   // the shared host after whichever automation happened to create it.
-  const workspaceId = target.workspaceId ?? await createWorkspace({
+  const workspaceId = target.workspaceId ?? createWorkspace({
     folderPath: target.folderPath,
     name: 'Automations',
   }, options)
 
-  const delegated = await options.delegateToRenderer({
-    kind: 'agent.launch',
+  const launched = await options.launchAgent({
     workspaceId,
     cli: input.cli,
     cliModel: input.cliModel,
@@ -254,42 +270,28 @@ async function spawnAgent(
     name: input.name,
     prompt: input.prompt,
   })
-  if (!delegated.ok) throw new Error(delegated.message)
-  if (!delegated.agentId) throw new Error('The renderer accepted the launch but returned no agent id.')
-  if (delegated.workspaceId !== workspaceId) {
-    throw new Error(`The renderer launched the agent in workspace "${delegated.workspaceId}" instead of "${workspaceId}".`)
+  if (!launched.ok) throw new Error(launched.message)
+  if (launched.workspaceId !== workspaceId) {
+    throw new Error(`The agent launched in workspace "${launched.workspaceId}" instead of "${workspaceId}".`)
   }
+  const agentId = launched.agentId
 
-  const confirmed = await waitFor(
-    options.launchConfirmTimeoutMs ?? DEFAULT_LAUNCH_CONFIRM_TIMEOUT_MS,
-    options.launchConfirmPollIntervalMs ?? DEFAULT_LAUNCH_CONFIRM_POLL_INTERVAL_MS,
-    options,
-    () => {
-      const candidate = findWorkspaceById(options.getWorkspaceSyncSnapshot(), workspaceId)
-      return candidate?.agents[delegated.agentId ?? ''] ? delegated.agentId ?? null : null
-    }
-  )
-  if (!confirmed) {
-    throw new Error(
-      `Agent "${delegated.agentId}" was delegated to workspace "${workspaceId}" but was not observed on the workspace-sync bus.`
-    )
-  }
-
-  // Secondary correlation key for agent-lifecycle finalization: the terminal
-  // session is spawned after the workspace-sync bus confirms the agent, so a
-  // single probe here races the pty and reliably misses. Poll until the session
-  // registers. Best-effort — a permanent miss leaves executionId undefined and
-  // must not fail the launch; the run still correlates on (workspaceId, agentId).
+  // Secondary correlation key for agent-lifecycle finalization. The launch call
+  // returns once the pty exists, but the runtime registers the session's
+  // execution identity as part of that spawn, so this now resolves promptly
+  // instead of racing a renderer that had not written the agent record yet. Kept
+  // as a poll: best-effort, and a permanent miss must not fail the launch — the
+  // run still correlates on (workspaceId, agentId).
   const executionId = options.resolveAgentExecutionId
     ? await waitFor(
         options.executionIdTimeoutMs ?? DEFAULT_EXECUTION_ID_TIMEOUT_MS,
         options.launchConfirmPollIntervalMs ?? DEFAULT_LAUNCH_CONFIRM_POLL_INTERVAL_MS,
         options,
-        () => options.resolveAgentExecutionId?.({ workspaceId, agentId: confirmed }) ?? null
+        () => options.resolveAgentExecutionId?.({ workspaceId, agentId }) ?? null
       ) ?? undefined
     : undefined
 
-  return { workspaceId, agentId: confirmed, executionId }
+  return { workspaceId, agentId, executionId }
 }
 
 // Fails the run rather than returning "no worktree": every caller asked for
@@ -406,31 +408,27 @@ function resolveStandardLaunchTarget(
     : { folderPath: targetFolderPath }
 }
 
-async function createWorkspace(
+function createWorkspace(
   input: { folderPath: string; name?: string },
   options: LocalAutomationExecutorOptions
-): Promise<string> {
-  const created = await createWorkspaceConfirmed(
+): string {
+  const created = options.createWorkspace(
     {
       name: input.name,
       folderPath: input.folderPath,
       mode: AUTOMATIONS_HOST_WORKSPACE_MODE,
     },
-    {
-      delegateToRenderer: options.delegateToRenderer,
-      getWorkspaceSyncSnapshot: options.getWorkspaceSyncSnapshot,
-      now: options.now,
-      sleep: options.sleep,
-    }
+    'automation',
   )
   if (!created.ok) throw new Error(created.message)
-  if (!isAutomationsHostWorkspace(created.workspace)) {
+  const workspace = created.result.workspace
+  if (!isAutomationsHostWorkspace(workspace)) {
     throw new Error(
-      `Created workspace "${created.workspaceId}" is a ${created.workspace.mode} workspace; `
+      `Created workspace "${workspace.id}" is a ${workspace.mode} workspace; `
       + 'automation agent launch requires an automations-host workspace.'
     )
   }
-  return created.workspaceId
+  return workspace.id
 }
 
 function findWorkspaceById(snapshot: WorkspaceSyncSnapshot, workspaceId: string): Workspace | null {

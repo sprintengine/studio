@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { TerminalSessionSnapshot, TerminalSpawnResult } from '../../shared/electron-api'
 import type { TerminalSpawnPayload } from '../ipc/terminal-ipc'
 import type { BriefRunEvent } from './brief-run-service'
+import { createAgentControlPlane } from '../agent-control-plane'
 import { GuideRunRegistry } from './guide-run-registry'
 import {
   createReviewGuideTerminalService,
@@ -88,6 +89,16 @@ function makeHarness(
   const sessions = options.sessions ?? []
   const exitListeners: Array<(event: GuideAgentExit) => void> = []
   let nextSpawn: TerminalSpawnResult = { ok: true, sessionId: PTY_ID }
+  // `delay: async () => {}` so the paste-submit gap does not make tests sleep.
+  const controlPlane = createAgentControlPlane({
+    terminal: {
+      list: () => sessions,
+      write: (sessionId, data) => writes.push({ sessionId, data }),
+      read: (sessionId) =>
+        sessions.some((session) => session.sessionId === sessionId) ? '' : undefined,
+    },
+    delay: async () => {},
+  })
 
   const service = createReviewGuideTerminalService({
     listWorkspaces: () => options.workspaces ?? HOST_WORKSPACES,
@@ -110,7 +121,13 @@ function makeHarness(
         }
         return nextSpawn
       },
-      write: (sessionId, data) => writes.push({ sessionId, data }),
+      // The guide delivers prompts through the REAL control plane (MC-102) over
+      // this fake terminal, so these tests keep asserting the bytes that reach a
+      // pty while proving the guide owns no write path of its own.
+      sendPrompt: async (sessionId, text) => {
+        const result = await controlPlane.send({ sessionId }, text, { submit: true })
+        return result.ok ? { ok: true } : { ok: false, message: result.message }
+      },
       kill: (sessionId) => {
         kills.push(sessionId)
         const index = sessions.findIndex((session) => session.sessionId === sessionId)
@@ -125,7 +142,6 @@ function makeHarness(
     resolveSkillInvocation: options.skillInvocation ?? (() => '/review-guide'),
     emit: (event) => events.push(event),
     guideRuns: registry,
-    delay: async () => {},
   })
 
   return {

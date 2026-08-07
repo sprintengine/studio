@@ -1,17 +1,19 @@
-import {
-  createWorkspaceConfirmed,
-  type WorkspaceCreateDeps,
-  type WorkspaceCreateInput,
-} from '../workspace-create'
 import { toModuleWorkspaceView, type ModuleWorkspaceView } from '../../shared/modules/workspace-view'
+import type { WorkspaceCreateRequest } from '../workspace-registry-service'
+import type { WorkspaceSyncService } from '../workspace-sync-service'
+import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 
 // The workspace-creation service capability modules consume via the host
-// service bridge (WorkspaceServiceToken). It is a thin adapter over the shared
-// createWorkspaceConfirmed core (also used by the automation workspace.create
-// tool): delegate to the renderer, confirm on the workspace-sync bus, and hand
-// the module just the confirmed id (or an explicit failure).
+// service bridge (WorkspaceServiceToken).
+//
+// It used to delegate to the primary renderer and then poll the workspace-sync
+// bus for up to 7s to confirm the id it had been handed. Both are gone
+// (MC-2158): main owns the registry, so `createWorkspace` mints the record
+// under its own single writer and the id is readable in the same tick. A module
+// can now create a workspace with no window open, which the delegated path used
+// to refuse outright.
 
-export type ModuleWorkspaceCreateInput = WorkspaceCreateInput
+export type ModuleWorkspaceCreateInput = WorkspaceCreateRequest
 
 export type ModuleWorkspaceCreateResult =
   | { ok: true; workspaceId: string }
@@ -21,32 +23,36 @@ export type ModuleWorkspaceService = {
   create(input: ModuleWorkspaceCreateInput): Promise<ModuleWorkspaceCreateResult>
 }
 
-export type ModuleWorkspaceServiceBackends = WorkspaceCreateDeps
+export type ModuleWorkspaceServiceBackends = {
+  workspaceSync: Pick<WorkspaceSyncService, 'createWorkspace'>
+}
 
 export function createModuleWorkspaceService(
   backends: ModuleWorkspaceServiceBackends
 ): ModuleWorkspaceService {
   return {
     async create(input): Promise<ModuleWorkspaceCreateResult> {
-      const outcome = await createWorkspaceConfirmed(input, backends)
-      if (!outcome.ok) return { ok: false, code: outcome.code, message: outcome.message }
-      return { ok: true, workspaceId: outcome.workspaceId }
+      const outcome = backends.workspaceSync.createWorkspace(input, 'module')
+      if (!outcome.ok) return { ok: false, code: outcome.reason, message: outcome.message }
+      return { ok: true, workspaceId: outcome.result.workspace.id }
     },
   }
 }
 
 // Read-only workspace context resolution (WorkspaceContextToken): the main-side
-// twin of RendererHost.getWorkspace, backed by the same workspace-sync snapshot
-// the create flow confirms against. Unknown ids — and post-restart routing
-// placeholders whose folder path hasn't re-hydrated yet — resolve to null
-// (not currently resolvable), never a throw.
+// twin of RendererHost.getWorkspace, backed by the same registry the create flow
+// writes. Unknown ids resolve to null (not currently resolvable), never a throw.
+// Restart survivors resolve fully now — there is no placeholder record left
+// whose folder path has yet to re-hydrate.
 export type { ModuleWorkspaceView } from '../../shared/modules/workspace-view'
 
 export type ModuleWorkspaceContextService = {
   get(workspaceId: string): Promise<ModuleWorkspaceView | null>
 }
 
-export type ModuleWorkspaceContextBackends = Pick<WorkspaceCreateDeps, 'getWorkspaceSyncSnapshot'>
+export type ModuleWorkspaceContextBackends = {
+  getWorkspaceSyncSnapshot: () => WorkspaceSyncSnapshot
+}
 
 export function createModuleWorkspaceContextService(
   backends: ModuleWorkspaceContextBackends

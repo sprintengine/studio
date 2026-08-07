@@ -1,31 +1,23 @@
 import { createSprintEngineTemplate } from '../../../../modules/sprint-engine-workspace-types'
 import {
-  createInitialSprintEngineState,
-  normalizeSprintEngineProjection,
-  sprintEngineCoordinatorSeatForRoleCounts,
-  sprintEngineEnabledRoles,
-  sprintEngineRoleKey,
-} from '../../../../utils/sprintengine'
-import {
-  sprintEngineAutomationInitialStateForMode,
-  sprintEngineAutomationModeForRunOptions,
-} from '../../../../utils/sprintengineAutomationLifecycle'
-import {
   PlanSourcedSprintEngineWorkspaceError,
-  buildSprintEngineRoleRuntimes,
   createPlanSourcedSprintEngineWorkspace,
 } from '../../../../utils/sprintengineWorkspaceCreation'
+import { rendererSprintEngineWorkspaceCreationPort } from '../../../../utils/sprintengineWorkspaceCreationPorts'
+// The goal-sourced composition relocated to shared with MC-2160 (main creates
+// sprints headlessly). This controller is the wizard's wrapper over it: it adds
+// the layout template `OnCreateArgs` carries, which is a window concern.
 import {
-  getSprintEngineDirectoryPath,
-  getSprintEngineStateFilePath,
-  slugifySprintEngineName,
-} from '../../../../utils/sprintengineStateFile'
-import type {
-  SprintEngineAutomationMode,
-  SprintEngineRoleCounts,
-  SprintEngineRoleId,
-  SprintEngineWorkspaceContext,
-} from '../../../../types/workspace'
+  SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
+  SprintEngineNewTeamCreationError,
+  buildSprintEngineContext,
+  buildSprintEngineEffectiveSpawnAtStartRoles,
+  buildSprintEngineNewTeamCreation as composeSprintEngineNewTeamCreation,
+  clampSprintEngineMaxParallelAgents,
+  runSprintEngineNewTeamCreation as composeAndInitSprintEngineNewTeam,
+  sprintEngineAutoStateFromRunOptions,
+  type SprintEngineNewTeamCreation,
+} from '../../../../../../shared/sprintengine/new-team-creation'
 import type {
   OnCreateArgs,
   SprintEngineExistingTeamInput,
@@ -35,17 +27,12 @@ import type {
   SprintEnginePlanSourcedPorts,
 } from './types'
 
-export class SprintEngineNewTeamCreationError extends Error {
-  constructor(public readonly code:
-    | 'missing-folder'
-    | 'team-exists'
-    | 'init-failed'
-    | 'invalid-projection'
-    | 'unknown'
-  ) {
-    super(code)
-    this.name = 'SprintEngineNewTeamCreationError'
-  }
+export {
+  SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
+  SprintEngineNewTeamCreationError,
+  buildSprintEngineContext,
+  buildSprintEngineEffectiveSpawnAtStartRoles,
+  clampSprintEngineMaxParallelAgents,
 }
 
 export class SprintEnginePlanSourcedError extends Error {
@@ -64,41 +51,6 @@ export class SprintEnginePlanSourcedError extends Error {
     super(code)
     this.name = 'SprintEnginePlanSourcedError'
   }
-}
-
-function sprintEngineAutoStateFromRunOptions(input: {
-  startRunner: boolean
-  autoApproveArtifacts: boolean
-}) {
-  return sprintEngineAutomationInitialStateForMode(sprintEngineAutomationModeForRunOptions(input))
-}
-
-// Workspace-level cap on concurrent agent sessions (MC-1450). The supervisor
-// re-clamps on read, so this only shapes what gets stored.
-export const SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS = 3
-
-export function clampSprintEngineMaxParallelAgents(value: number | null | undefined): number {
-  const parsed = Math.floor(Number(value))
-  if (!Number.isFinite(parsed) || parsed < 1) return SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS
-  return Math.max(1, Math.min(10, parsed))
-}
-
-export function buildSprintEngineEffectiveSpawnAtStartRoles(input: {
-  automationMode: SprintEngineAutomationMode
-  existingTeam: boolean
-  visibleRoleCounts: SprintEngineRoleCounts
-}): Partial<Record<SprintEngineRoleId, boolean>> {
-  // Lazy roster: only the coordinator seat carries a start-at-launch intent —
-  // the architect when the selection staffs one, otherwise the roleless seat,
-  // keyed by `sprintEngineRoleKey` because it has no role to key on. Worker ids
-  // are minted task-scoped and reviewer ids register on first gate, so there is
-  // no per-role "Start now" toggle — the seat just bootstraps a non-manual
-  // new-team run so an agent is awake to plan it.
-  if (input.automationMode !== 'manual' && !input.existingTeam) {
-    const seat = sprintEngineCoordinatorSeatForRoleCounts(input.visibleRoleCounts)
-    return { [sprintEngineRoleKey(seat.role)]: true }
-  }
-  return {}
 }
 
 export function buildSprintEngineExistingTeamCreation(
@@ -130,148 +82,35 @@ export function buildSprintEngineExistingTeamCreation(
   }
 }
 
-// Lived in useNewWorkspaceFolder until the wizard's sprint flow was deleted
-// (MC-2062); the controller is its only consumer now.
-export function buildSprintEngineContext(
-  folderPath: string,
-  teamName: string,
-  teamSlug: string,
-): SprintEngineWorkspaceContext {
+// The wizard's shape of a composed goal-sourced run: the shared composition plus
+// the layout template the workspace is minted from.
+function toOnCreateArgs(created: SprintEngineNewTeamCreation): OnCreateArgs {
   return {
-    teamName,
-    teamSlug,
-    teamDirectoryPath: getSprintEngineDirectoryPath(folderPath, teamSlug),
-    statePath: getSprintEngineStateFilePath(folderPath, teamSlug),
+    template: createSprintEngineTemplate({
+      name: created.sprintEngineState.name,
+      goal: created.sprintEngineState.goal,
+      roleCounts: created.sprintEngineState.roleCounts,
+    }),
+    name: created.name,
+    folderPath: created.folderPath,
+    sprintEngineState: created.sprintEngineState,
+    sprintEngineContext: created.sprintEngineContext,
+    sprintEngineRoleCliDefaults: created.roleCliDefaults,
+    sprintEngineRoleModelOverrides: created.roleModelOverrides,
+    sprintEngineInitialSpawnRoles: created.initialSpawnRoles,
+    sprintEngineAutoState: created.sprintEngineAutoState,
   }
 }
 
-export function buildSprintEngineNewTeamCreation(
-  input: SprintEngineNewTeamInput,
-): OnCreateArgs {
-  const sprintEngineConfig = {
-    name: input.teamName.trim() || 'Sprint Roster',
-    goal: input.goal.trim(),
-    roleCounts: input.visibleRoleCounts,
-  }
-  const sprintEngineState = createInitialSprintEngineState(sprintEngineConfig)
-  if (input.useWorktrees) {
-    sprintEngineState.useWorktrees = true
-  }
-  const template = createSprintEngineTemplate(sprintEngineConfig)
-  const sprintEngineContext = input.folderPath
-    ? buildSprintEngineContext(
-      input.folderPath,
-      sprintEngineState.name,
-      slugifySprintEngineName(sprintEngineState.name),
-    )
-    : null
-  return {
-    template,
-    name: sprintEngineState.name,
-    folderPath: input.folderPath,
-    sprintEngineState,
-    sprintEngineContext,
-    sprintEngineRoleCliDefaults: input.roleCliDefaults,
-    sprintEngineRoleModelOverrides: input.roleModelOverrides ?? null,
-    sprintEngineInitialSpawnRoles: input.initialSpawnRoles ?? null,
-    sprintEngineAutoState: {
-      ...sprintEngineAutoStateFromRunOptions(input),
-      cliPermissionPreset: input.cliPermissionPreset,
-      maxConcurrentAgents: clampSprintEngineMaxParallelAgents(input.maxParallelAgents),
-    },
-  }
-}
-
-function parseInitializedSprintEngineState(
-  input: unknown,
-  fallbackName: string,
-) {
-  if (!input || typeof input !== 'object') return null
-  const projectionContent = (input as { projectionContent?: unknown }).projectionContent
-  if (typeof projectionContent !== 'string' || !projectionContent.trim()) return null
-  try {
-    return normalizeSprintEngineProjection(JSON.parse(projectionContent) as unknown, fallbackName)
-  } catch {
-    return null
-  }
+export function buildSprintEngineNewTeamCreation(input: SprintEngineNewTeamInput): OnCreateArgs {
+  return toOnCreateArgs(composeSprintEngineNewTeamCreation(input))
 }
 
 export async function runSprintEngineNewTeamCreation(
   input: SprintEngineNewTeamInput,
   ports: SprintEngineNewTeamPorts,
 ): Promise<OnCreateArgs> {
-  if (!input.folderPath) throw new SprintEngineNewTeamCreationError('missing-folder')
-
-  const args = buildSprintEngineNewTeamCreation(input)
-  if (!args.sprintEngineContext || !args.sprintEngineState) {
-    throw new SprintEngineNewTeamCreationError('missing-folder')
-  }
-  if (ports.pathExists && await ports.pathExists(args.sprintEngineContext.statePath)) {
-    throw new SprintEngineNewTeamCreationError('team-exists')
-  }
-
-  try {
-    const initResult = await ports.initializeSprintEngineState({
-      statePath: args.sprintEngineContext.statePath,
-      name: args.sprintEngineState.name,
-      goal: args.sprintEngineState.goal,
-      agents: args.sprintEngineState.sprintEngineAgents,
-      tasks: args.sprintEngineState.tasks,
-      events: args.sprintEngineState.events,
-      artifacts: args.sprintEngineState.artifacts,
-      useWorktrees: input.useWorktrees === true,
-      // Per-task worktrees (MC-2136), only ever alongside run worktrees — the
-      // engine refuses the pair, and absent keeps the payload as it was.
-      ...(input.useWorktrees === true && input.taskIsolation === true ? { taskIsolation: true } : {}),
-      // The other projects this run also works in (item 1765), declared here so a
-      // multi-project run has every worktree the moment it initializes. Only ever
-      // present alongside worktree mode — the engine refuses the pair, and the
-      // wizard drops the selection when the toggle goes off. Mid-run additions
-      // still arrive through `sprintengine.vcs.request_repo`; this is the set the
-      // operator already knew about.
-      ...(input.useWorktrees === true && input.repos && input.repos.length > 0
-        ? { repos: input.repos }
-        : {}),
-      // Record the roster's per-role model selection so claimed tasks get
-      // stamped with the model that worked them, and its effort level so every
-      // spawn of the role launches at it (same as the plan-sourced path).
-      roleRuntimes: buildSprintEngineRoleRuntimes(
-        input.roleModelOverrides,
-        input.roleCliDefaults,
-        input.roleReasoningOverrides,
-      ),
-      // Persist the enabled role set (init `configuredRoles`, the run's legal
-      // role set for plan.add_task/seating) covering the configured-but-not-
-      // yet-seated roles under the lazy roster.
-      enabledRoles: sprintEngineEnabledRoles(args.sprintEngineState.roleCounts),
-      // The run's phase list. The wizard omits it when it is at its default, so
-      // forward it only when actually set — a plain run stays byte-identical.
-      ...(input.defaultPhases !== undefined ? { defaultPhases: input.defaultPhases } : {}),
-    })
-    if (!initResult.ok) {
-      const wrapped = new SprintEngineNewTeamCreationError('init-failed')
-      wrapped.message = initResult.message || 'Could not initialize sprint run state.'
-      throw wrapped
-    }
-
-    const initializedState = parseInitializedSprintEngineState(
-      initResult.data,
-      args.sprintEngineState.name,
-    )
-    if (!initializedState) {
-      throw new SprintEngineNewTeamCreationError('invalid-projection')
-    }
-
-    return {
-      ...args,
-      sprintEngineState: initializedState,
-    }
-  } catch (error) {
-    if (error instanceof SprintEngineNewTeamCreationError) throw error
-    const wrapped = new SprintEngineNewTeamCreationError('unknown')
-    wrapped.message = error instanceof Error ? error.message : String(error)
-    throw wrapped
-  }
+  return toOnCreateArgs(await composeAndInitSprintEngineNewTeam(input, ports))
 }
 
 // What a plan-sourced creation hands back: enough identity for the caller to
@@ -351,6 +190,7 @@ export async function runSprintEnginePlanSourcedCreation(
       },
       pathExists: ports.pathExists,
       initializeSprintEngineState: ports.initializeSprintEngineState,
+      workspace: rendererSprintEngineWorkspaceCreationPort,
     })
     if (ports.recordBacklogExecutionLink && optionRelativePath.startsWith('backlog/')) {
       await ports.recordBacklogExecutionLink({

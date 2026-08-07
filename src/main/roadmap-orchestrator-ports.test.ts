@@ -83,7 +83,7 @@ function ports(options: {
   } as unknown as SprintEngineAutomationFrontDoors
   return createRoadmapOrchestratorPorts({
     frontDoors,
-    delegateToRenderer: async () => ({ ok: true }) as never,
+    createSprint: async () => ({ ok: true, workspaceId: 'ws-lane' }),
     getHomeProjectRoot: () => '/w/home',
     getWorkspaceRoots: () => ['/w/home'],
     notify: () => undefined,
@@ -105,9 +105,9 @@ test('SEAM: a horizon roster rides as rosterName and never touches run identity'
       readProjection: async () => ({ ok: true as const, data: undefined }),
       mergePullRequest: async () => ({ ok: true as const }),
     } as unknown as SprintEngineAutomationFrontDoors,
-    delegateToRenderer: async (request) => {
+    createSprint: async (request) => {
       requests.push(request as unknown as Record<string, unknown>)
-      return { ok: true } as never
+      return { ok: true, workspaceId: 'ws-lane' }
     },
     getHomeProjectRoot: () => '/w/home',
     getWorkspaceRoots: () => ['/w/home'],
@@ -124,13 +124,12 @@ test('SEAM: a horizon roster rides as rosterName and never touches run identity'
 
   assert.equal(requests.length, 1)
   const request = requests[0]
-  assert.equal(request.kind, 'sprint.create')
   assert.equal(request.rosterName, 'opus', 'the roster name is the staffing choice')
   assert.equal(request.name, undefined, 'a roster name must NEVER seed the run directory slug')
   assert.equal(request.refuseTeamSlug, undefined, 'a roster name must NEVER become a refused run slug')
   assert.equal(request.sourceRelativePath, 'backlog/epics/thing.md')
   // SEAM (MC-1900 x MC-1883): staffing and permissions ride the SAME start, and
-  // the preset is always sent — an omitted key would let the delegate pick, and
+  // the preset is always sent — an omitted key would let creation pick, and
   // this is the run's only chance to be bypass (spawn-time-only, MC-1808).
   assert.equal(request.permissionPreset, 'bypass_all')
 

@@ -8,6 +8,7 @@ import {
   createPlanSourcedSprintEngineWorkspace,
   PlanSourcedSprintEngineWorkspaceError,
 } from '../../../utils/sprintengineWorkspaceCreation'
+import { rendererSprintEngineWorkspaceCreationPort } from '../../../utils/sprintengineWorkspaceCreationPorts'
 import {
   applyUserDisabledSprintEngineRoleCounts,
   getSprintEngineRoleLabel,
@@ -145,6 +146,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
           maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
         },
         pathExists: window.api.pathExists,
+        workspace: rendererSprintEngineWorkspaceCreationPort,
       })
     } catch (error) {
       if (error instanceof PlanSourcedSprintEngineWorkspaceError && error.code === 'team-exists') {

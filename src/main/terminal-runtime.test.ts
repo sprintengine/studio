@@ -9,6 +9,8 @@ import type { WebContents } from 'electron'
 import type { McpSettings, TerminalSpawnResult } from '../shared/electron-api'
 import { MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR } from './sprintengine-managed-mcp-sync'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
+import { createAgentLaunchService } from './agent-launch-service'
+import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
 
 type RuntimeModule = typeof import('./terminal-runtime')
 type SyncMcpConfig = NonNullable<Parameters<typeof import('./terminal-runtime')['createTerminalRuntime']>[0]['syncMcpConfig']>
@@ -170,6 +172,7 @@ async function main(): Promise<void> {
     await assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule)
     await assertLaunchRegistryRootsIncludeUserRolesWhenPresent(runtimeModule)
     await assertHeadlessSpawnAttachesToLaterWindow(runtimeModule)
+    await assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule)
     await assertDescriptorSpawnSucceedsWithNoWindows(runtimeModule)
     await assertMobileAgentSpawnSucceedsWithNoWindows(runtimeModule)
     await assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule)
@@ -589,6 +592,129 @@ async function assertHeadlessSpawnAttachesToLaterWindow(runtimeModule: RuntimeMo
     )
   } finally {
     runtime.ipcHandlers.killTerminal('session-headless')
+  }
+}
+
+// AgentLaunchService end to end with zero windows (MC-2159), which is the whole
+// point of the item: `agent.launch` used to fail with no window open because the
+// COMPOSITION lived in a React hook, even though the spawn below never needed a
+// window. This drives the real service over the real runtime, so it proves the
+// composed CLI, permission preset, MCP config, and specialist prompt reach an
+// actual pty with every window closed — and that a window opened afterwards
+// adopts that same session with its scrollback rather than starting a second one.
+async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-launch-headless-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const syncInputs: SyncInput[] = []
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    syncMcpConfig: async (input): Promise<SyncResult> => {
+      syncInputs.push(input)
+      return { ok: true }
+    },
+  })
+  pinAgentCliPreflight(runtimeModule, { installed: true, resolvedPath: '/usr/local/bin/claude' })
+
+  const service = createAgentLaunchService({
+    listWorkspaces: () => [{ id: 'ws-headless-launch', mode: 'standard', folderPath: workspaceRoot, agents: {} }],
+    getLaunchSettings: () => ({
+      ...emptySprintEngineLaunchSettings(),
+      lastSelectedCli: 'claude-code',
+      lastAgentSpawnPermissionPreset: 'auto_workspace',
+      mcp: { syncEnabled: true, servers: {} },
+    }),
+    listConnectorCatalog: () => ({ ok: true, servers: [] }),
+    terminal: {
+      list: () => runtime.ipcHandlers.listTerminals(),
+      spawn: (payload) => runtime.ipcHandlers.spawnTerminal(runtimeModule.resolveSpawnEventSink(), payload),
+      kill: (sessionId) => runtime.ipcHandlers.killTerminal(sessionId),
+    },
+  })
+
+  try {
+    const launched = await withNoWindows(() => service.launch({
+      workspaceId: 'ws-headless-launch',
+      specialistId: 'security',
+      prompt: 'Audit the auth flow.',
+    }))
+    assert.equal(launched.ok, true, JSON.stringify(launched))
+    if (!launched.ok) return
+    assert.equal(mockPty.spawnCalls.length, 1, 'a windowless agent.launch still creates the pty')
+    assert.equal(
+      (await runtime.ipcHandlers.getTerminalStatus(launched.sessionId)).processAlive,
+      true,
+      'the launched session is live with no window open'
+    )
+
+    // The composition main did, read off the real launch: the user's CLI and
+    // permission preset rendered into the startup script, their MCP settings
+    // handed to the config sync, and the specialist directive wrapped in the
+    // soul-fetch preamble.
+    const startupScript = await readFile(String(mockPty.spawnCalls[0]!.args.at(-1)), 'utf8')
+    assert.match(startupScript, /claude/, 'the last-selected CLI is what launched')
+    assert.match(startupScript, /--permission-mode auto/, 'the app-level spawn preset reached the argv')
+    assert.match(startupScript, /souls get security/, 'the specialist fetches its Soul first')
+    assert.match(startupScript, /Audit the auth flow\./, 'and carries the caller directive')
+    assert.deepEqual(syncInputs.at(-1)?.settings, { syncEnabled: true, servers: {} }, "the user's MCP settings synced")
+
+    // The launch record rides the session snapshot — this is what the renderer
+    // projects a tab from when a window finally opens.
+    const snapshot = runtime.ipcHandlers.listTerminals().find((entry) => entry.sessionId === launched.sessionId)
+    assert.equal(snapshot?.agentRecord?.agentId, launched.agentId)
+    assert.equal(snapshot?.agentRecord?.cli, 'claude-code')
+    assert.equal(snapshot?.agentRecord?.cliPermissionPreset, 'auto_workspace')
+    assert.equal(snapshot?.agentRecord?.kind, 'specialist')
+
+    // The run's correlation key. An agent-backed automation finalizes on its
+    // agent's exit, and the runtime only reports that exit for a session with an
+    // execution identity — so a launch that composed everything else correctly
+    // and omitted this would start runs that could never end.
+    assert.equal(
+      runtime.resolveAgentExecutionId({ workspaceId: 'ws-headless-launch', agentId: launched.agentId }),
+      launched.sessionId,
+    )
+
+    mockPty.spawnCalls[0]!.process.emitData('launched output before any window\r\n')
+
+    // A window opens later and the projected tab attaches by session id — the
+    // same-sessionId spawn the renderer issues — replaying what buffered.
+    const reattach = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: launched.sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      resume: true,
+      workspaceId: 'ws-headless-launch',
+      agentId: launched.agentId,
+      visible: true,
+    })
+    assert.equal(reattach.ok, true, JSON.stringify(reattach))
+    assert.equal(mockPty.spawnCalls.length, 1, 'the projected tab attaches; it never launches a second agent')
+    const replay = mockSender.sent.find((event) => event.channel === `terminal:replay:${launched.sessionId}`)
+    assert.ok(replay, 'the later window replays the headless launch scrollback')
+    assert.ok(
+      String(replay?.payload ?? '').includes('launched output before any window'),
+      'replay carries output produced while headless'
+    )
+  } finally {
+    // Restore the file-wide empty-registry pin, NOT `null`. Clearing the
+    // override entirely re-enables the real probe, which reads this machine's
+    // PATH and caches a live verdict for 60s — and the pre-flight assertion
+    // later in this file then reads that cached "installed" over its own pinned
+    // "absent" and stops testing anything.
+    runtimeModule.__setAgentCliPreflightForTest({
+      platform: 'darwin',
+      shell: '/bin/zsh',
+      deps: { listEntries: () => [] },
+    })
+    await runtime.shutdown()
   }
 }
 

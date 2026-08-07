@@ -36,7 +36,6 @@ import type {
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../../shared/electron-api'
-import { bracketedTerminalPaste } from '../../shared/sprintengine/auto-run-executor'
 import { isModeHiddenFromRail, REVIEWS_HOST_WORKSPACE_MODE } from '../../shared/workspace-mode'
 import type { TerminalSpawnPayload } from '../ipc/terminal-ipc'
 import type { BriefRunEvent } from './brief-run-service'
@@ -68,10 +67,6 @@ const REVIEW_ID_PATTERN = /^[A-Za-z0-9._-]+$/
 // output is not wrapped into nonsense in the retained scrollback.
 const GUIDE_TERMINAL_COLS = 120
 const GUIDE_TERMINAL_ROWS = 30
-
-// Bracketed paste, then Enter. Mirrors the sprint auto-run dispatch: a CLI TUI
-// needs the paste to settle before the submit or the first line is swallowed.
-const PROMPT_SUBMIT_DELAY_MS = 50
 
 // The two ways a guide run ends without a brief. Both point at the terminal,
 // because that is where the reason actually is.
@@ -157,7 +152,12 @@ export interface GuideTerminalDeps {
   terminal: {
     list: () => TerminalSessionSnapshot[]
     spawn: (payload: TerminalSpawnPayload) => Promise<TerminalSpawnResult>
-    write: (sessionId: string, data: string) => void
+    // Deliver a prompt to a live session through the agent control plane
+    // (MC-102): bracketed paste + a separately-dispatched submit, as ONE
+    // serialized turn. This service owns no pty write of its own — a Sprint
+    // Engine dispatch landing on the same session at the same moment queues
+    // behind this one instead of interleaving bytes into it.
+    sendPrompt: (sessionId: string, text: string) => Promise<{ ok: boolean; message?: string }>
     kill: (sessionId: string) => void
     setReapExempt: (sessionId: string, exempt: boolean) => void
     // Fires when any agent session's process exits — the watchdog's only input.
@@ -175,8 +175,6 @@ export interface GuideTerminalDeps {
   // Run state of record. Defaults to the process-wide registry the status IPC
   // reads back; tests inject their own.
   guideRuns?: GuideRunRegistry
-  // Overridable only so tests do not sleep for the paste-submit delay.
-  delay?: (ms: number) => Promise<void>
 }
 
 // What the watchdog needs to know about a review's open run: the terminal it is
@@ -386,9 +384,10 @@ export class ReviewGuideTerminalService {
   ): Promise<{ ok: true; reused: boolean } | { ok: false; error: string }> {
     const { handle } = prepared
     if (prepared.liveSession) {
-      this.deps.terminal.write(handle.sessionId, bracketedTerminalPaste(prompt))
-      await (this.deps.delay ?? sleep)(PROMPT_SUBMIT_DELAY_MS)
-      this.deps.terminal.write(handle.sessionId, '\r')
+      const sent = await this.deps.terminal.sendPrompt(handle.sessionId, prompt)
+      if (!sent.ok) {
+        return { ok: false, error: sent.message ?? 'Could not deliver the prompt to the guide terminal.' }
+      }
       return { ok: true, reused: true }
     }
 
@@ -620,8 +619,4 @@ function validateTarget(reviewId: string, projectRoot: string): string | null {
 function normalizeFolder(folderPath: string | null | undefined): string | null {
   const trimmed = folderPath?.trim()
   return trimmed ? resolve(trimmed) : null
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((done) => setTimeout(done, ms))
 }

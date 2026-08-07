@@ -1,10 +1,12 @@
 import type { SprintEngineState } from '../../../../shared/sprintengine/run-types'
 import type { Workspace, WorkspaceModuleStateBag } from '../../types/workspace'
 import { normalizeSprintEngineState } from '../../utils/sprintengine'
+// The bundled Sprint Engine module's bag key (MC-1573). Defined in shared with
+// MC-2160 because main writes the same bag entry when it composes a sprint
+// workspace headlessly; re-exported here so renderer import sites are unchanged.
+import { SPRINT_ENGINE_WORKSPACE_MODULE_ID } from '../../../../shared/sprintengine/workspace-record'
 
-// The bundled Sprint Engine module's bag key (MC-1573). Matches the module id
-// the shell registers for the sprint-engine capability module.
-export const SPRINT_ENGINE_MODULE_ID = 'sprintengine'
+export const SPRINT_ENGINE_MODULE_ID = SPRINT_ENGINE_WORKSPACE_MODULE_ID
 
 /**
  * A workspace's state entry for one module, from the per-module bag.

@@ -225,6 +225,13 @@ type TerminalRuntime = {
   // Applies an authoritative agent-state frame (from the lifecycle-hook reporter
   // socket) to the matching live session. Validated upstream by the service.
   ingestAgentStateFrame(frame: AgentStateFrame): void
+  // The session's retained output, for main-process readers (the agent control
+  // plane's `read`/`wait`). `undefined` means there is no such session — a
+  // known session with nothing buffered yet returns an empty string, which is a
+  // different answer. Distinct from the renderer replay path, which also
+  // prefers the serialized screen snapshot: this is the raw stream, because a
+  // caller matching a pattern needs the text the agent printed.
+  readTerminalOutput(sessionId: string): string | undefined
 }
 
 let requireAuthenticatedUser = (_message: string): void => {}
@@ -444,6 +451,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     killAgentSession: killAgentSessionByExecutionId,
     spawnAgentSession: spawnAgentSessionFromDescriptor,
     ingestAgentStateFrame,
+    readTerminalOutput,
     ipcHandlers: {
       spawnTerminal: spawnTerminalFromIpc,
       writeTerminal: writeTerminalInput,
@@ -2701,6 +2709,7 @@ async function spawnTerminalFromIpc(
     connectorLaunch,
     connectorSkillId,
     spawnSkillId,
+    agentRecord,
   }: TerminalSpawnPayload
 ): Promise<TerminalSpawnResult> {
     const existingSession = terminals.get(sessionId)
@@ -3101,6 +3110,7 @@ async function spawnTerminalFromIpc(
         worktreeId,
         worktreePath,
         agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
+        agentRecord,
         visible,
         startedAt,
         lastOutputAt: startedAt,
@@ -3150,6 +3160,14 @@ async function spawnTerminalFromIpc(
         exitCode: 1,
       } satisfies TerminalSpawnResult
     }
+}
+
+// Raw retained output for a session, for in-process readers. A disposed session
+// is gone, so it reads as absent rather than as an empty screen.
+function readTerminalOutput(sessionId: string): string | undefined {
+  const session = terminals.get(sessionId)
+  if (!session || session.isDisposed) return undefined
+  return materializeTerminalReplay(session)
 }
 
 function writeTerminalInput(sessionId: string, data: string): void {

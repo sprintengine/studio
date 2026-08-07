@@ -88,6 +88,14 @@ export interface SprintEngineAutoRunExecutorPorts {
   // Terminal IPC ---------------------------------------------------------
   terminalList(): Promise<TerminalSessionSnapshot[]>
   terminalWrite(sessionId: string, data: string): Promise<void>
+  /**
+   * Deliver a whole prompt as ONE serialized turn through the host's agent
+   * control plane (MC-102): the paste and the submit cannot be split by another
+   * writer landing on the same session. Present in main (which owns the plane),
+   * absent in the renderer host, which still has only the raw write seam —
+   * `writeBracketedPrompt` falls back to the two-write pair there.
+   */
+  terminalSendPrompt?(sessionId: string, text: string): Promise<{ ok: boolean; message?: string }>
   terminalKill(sessionId: string): Promise<void>
   terminalStatus(sessionId: string): Promise<{ processAlive: boolean }>
   terminalSpawn(args: TerminalSpawnArgs): Promise<TerminalSpawnResult>
@@ -235,6 +243,14 @@ export async function writeBracketedPrompt(
   text: string,
   submitDelayMs = BRACKETED_PROMPT_SUBMIT_DELAY_MS,
 ): Promise<void> {
+  if (ports.terminalSendPrompt) {
+    const sent = await ports.terminalSendPrompt(sessionId, text)
+    // Callers treat a failed dispatch as a thrown error (the cycle catches it
+    // and disables auto-run for the workspace); keep that contract rather than
+    // returning quietly and letting the run believe the prompt landed.
+    if (!sent.ok) throw new Error(sent.message ?? `Could not deliver the prompt to session ${sessionId}.`)
+    return
+  }
   await ports.terminalWrite(sessionId, bracketedTerminalPaste(text))
   if (submitDelayMs > 0) {
     await new Promise((resolve) => setTimeout(resolve, submitDelayMs))

@@ -1,5 +1,4 @@
 import type { IpcMain } from 'electron'
-import { resolve } from 'path'
 import type {
   MobileBridgeDiagnosticEntry,
   MobileBridgePairingChallenge,
@@ -21,8 +20,6 @@ type MobileBridgeIpcBridge = {
 
 type MobileBridgeIpcDependencies = {
   bridge: MobileBridgeIpcBridge
-  getWorkspaceRoots(): string[]
-  setWorkspaceRoots(roots: string[]): void
 }
 
 export function registerMobileBridgeIpc(ipcMain: IpcMain, deps: MobileBridgeIpcDependencies): void {
@@ -45,18 +42,4 @@ export function registerMobileBridgeIpc(ipcMain: IpcMain, deps: MobileBridgeIpcD
   })
 
   ipcMain.handle('mobile-bridge:get-diagnostics', () => deps.bridge.getDiagnostics())
-
-  ipcMain.handle('mobile-bridge:update-workspace-roots', (_, roots: unknown) => {
-    if (!Array.isArray(roots)) {
-      deps.setWorkspaceRoots([])
-      return { roots: deps.getWorkspaceRoots() }
-    }
-
-    deps.setWorkspaceRoots([...new Set(
-      roots
-        .filter((root): root is string => typeof root === 'string' && root.trim().length > 0)
-        .map((root) => resolve(root))
-    )])
-    return { roots: deps.getWorkspaceRoots() }
-  })
 }

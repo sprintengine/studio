@@ -18,7 +18,7 @@ import { createModuleAutomationsRegistry } from '../automations/module-service'
 import { AutomationsStore } from '../automations/store'
 import { registerAutomationsIpc } from '../ipc/automations-ipc'
 import {
-  AutomationDelegateToken,
+  SprintCreateServiceToken,
   AutomationsAppFrontDoorToken,
   AutomationsEngineToken,
   AutomationsModuleServiceToken,
@@ -26,6 +26,7 @@ import {
   RoadmapAppFrontDoorToken,
   SprintEngineAutomationFrontDoorsToken,
   SwitchboardAutomationFrontDoorsToken,
+  AgentLaunchServiceToken,
   TerminalRuntimeToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
@@ -114,7 +115,8 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       dependsOn: ['agent-runtime'],
     },
     registerMain(host) {
-      const automationDelegate = host.requireService(AutomationDelegateToken)
+      const sprintCreateService = host.requireService(SprintCreateServiceToken)
+      const agentLaunchService = host.requireService(AgentLaunchServiceToken)
       const workspaceSyncService = host.requireService(WorkspaceSyncServiceToken)
       const terminalRuntime = host.requireService(TerminalRuntimeToken)
       const switchboardFrontDoors = serviceBackedSwitchboardFrontDoors(() =>
@@ -130,7 +132,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const providerRegistry = createBuiltInAutomationProviderRegistry({
         switchboard: switchboardFrontDoors,
         sprintEngine: sprintEngineFrontDoors,
-        delegateToRenderer: (request) => automationDelegate.request(request),
+        createSprint: (request) => sprintCreateService.createSprint(request),
       })
       const checkProviderPermission = options.checkProviderPermission ?? allowAutomationProvider
       host.provideService(AutomationsProviderRegistryToken, () => providerRegistry)
@@ -139,7 +141,8 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const getTriggerProviders = () =>
         executableTriggerProviders(getTriggerProviderRegistrations(), checkProviderPermission)
       const runAutomation = createLocalAutomationExecutor({
-        delegateToRenderer: (request) => automationDelegate.request(request),
+        launchAgent: (request) => agentLaunchService.launch(request),
+        createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         resolveAgentExecutionId: (input) => terminalRuntime.resolveAgentExecutionId(input),
         isIntegrationAvailable,
@@ -170,7 +173,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const roadmapOrchestrator = createRoadmapOrchestrator(
         createRoadmapOrchestratorPorts({
           frontDoors: sprintEngineFrontDoors,
-          delegateToRenderer: (request) => automationDelegate.request(request),
+          createSprint: (request) => sprintCreateService.createSprint(request),
           getHomeProjectRoot: () => readRoadmapHomeProjectPath(resolveUserDataDir()),
           // All open roots — used to resolve a `projects:` alias path to a known
           // workspace root (an unresolvable alias parks the lane `unknown_project`).
@@ -215,10 +218,16 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
               body: input.body,
             }),
           removeRunWorktree: defaultRemoveRunWorktree,
-          disposeRunAgent: (input) =>
-            automationDelegate
-              .request({ kind: 'agent.dispose', workspaceId: input.workspaceId, agentId: input.agentId })
-              .then(() => undefined),
+          // Killing the run's agent is main's own work now (MC-2159): the
+          // terminal is main's, and the renderer's part — dropping the tab and
+          // the record — follows from the session disappearing, because the tab
+          // is a projection of the live session list. Run finalize therefore
+          // completes with no window open, which is where a one-shot agent left
+          // pointing at a torn-down run worktree used to come from.
+          disposeRunAgent: (input) => {
+            agentLaunchService.dispose({ workspaceId: input.workspaceId, agentId: input.agentId })
+            return Promise.resolve()
+          },
           getLiveAgentExecutionIds: () =>
             terminalRuntime.getLiveAgentExecutionIds().map((execution) => execution.executionId),
         })

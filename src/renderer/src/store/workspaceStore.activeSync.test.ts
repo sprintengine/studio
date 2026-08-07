@@ -3,14 +3,13 @@ import assert from 'node:assert/strict'
 import type { Workspace, WorkspaceWindowState } from '../types/workspace'
 import type { WorkspaceSyncEvent } from '../../../shared/workspace-sync'
 
-// Production-faithful regression test for the active-workspace sync event path
-// (T3). It loads the real Zustand workspace store with the real persist +
-// storage-event rollback path and proves that applying an imported
-// active_changed event does NOT write the registry to localStorage. That write
-// is the mechanism by which a broadcast applied in one window could echo
-// through another window's `storage` listener and flip its global active
-// workspace (AC5/AC6). User-initiated selection must still persist so it
-// reaches other windows through the existing rollback path.
+// Production-faithful regression test for the active-workspace sync event path.
+// It loads the real Zustand workspace store and proves the no-echo contract now
+// that main owns the registry (MC-2158): applying an imported active_changed
+// event updates the mirror without writing localStorage, and a user-initiated
+// selection reaches other windows by DISPATCHING to main rather than by
+// persisting a registry another window's `storage` listener would import. That
+// listener is gone, and with it the echo hazard it created.
 
 const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 
@@ -75,7 +74,11 @@ Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock, con
 const { useWorkspaceStore, __workspaceStoreBackupRecoveryPromise } = await import('./workspaceStore')
 await __workspaceStoreBackupRecoveryPromise
 
-assert.equal(storageListeners.length, 1, 'rollback storage listener is registered only when the live-sync flag is enabled')
+assert.equal(
+  storageListeners.length,
+  0,
+  'the storage-event cross-window path is deleted: it was the rollback for a localStorage registry that no longer exists',
+)
 
 function workspace(id: string): Workspace {
   return { id, name: id, folderPath: null, agents: {} } as unknown as Workspace
@@ -176,9 +179,10 @@ assert.equal(
 console.log('workspaceStore.activeSync.test.ts: current-window broadcast applies without persist echo — ok')
 
 // ── CASE 3 ────────────────────────────────────────────────────────────────
-// A genuine user selection still persists (the source renderer's write is how
-// the selection reaches other windows through the storage rollback path) and
-// still dispatches through the sync bus.
+// A genuine user selection dispatches through the sync bus — that dispatch IS
+// how the selection reaches other windows now. It writes no registry: the
+// source renderer's localStorage write used to be the transport, and main's
+// broadcast replaced it.
 seedTwoWindows()
 await new Promise<void>((resolve) => setTimeout(resolve, 10))
 writesBefore = registryWriteCount
@@ -187,7 +191,11 @@ const dispatchesBefore = dispatchCalls.length
 useWorkspaceStore.getState().setActiveWorkspaceForWindow('A', 'wsA2')
 await new Promise<void>((resolve) => setTimeout(resolve, 10))
 
-assert.ok(registryWriteCount > writesBefore, 'a user-initiated active selection persists the registry')
+assert.equal(
+  registryWriteCount,
+  writesBefore,
+  'a user-initiated active selection writes no registry: the dispatch below is the transport',
+)
 assert.equal(dispatchCalls.length, dispatchesBefore + 1, 'a user-initiated active selection dispatches set_active once')
 assert.equal(useWorkspaceStore.getState().activeWorkspaceId, 'wsA2')
 console.log('workspaceStore.activeSync.test.ts: user selection persists and dispatches — ok')
@@ -206,33 +214,19 @@ assert.equal(
 console.log('workspaceStore.activeSync.test.ts: re-select emits no dispatch — ok')
 
 // ── CASE 5 ────────────────────────────────────────────────────────────────
-// Full no-echo contract: after an imported foreign-window broadcast applies
-// under suppression, a LATER unrelated persisted mutation (settings-only, e.g.
-// setSidebarCollapsed) must not serialize the imported window-active snapshot
-// to the registry key. Without advancing the registry dedup baseline after the
-// suppressed apply, the next setItem detects a registry diff and writes the
-// imported state to `multicode-workspaces`, where another window's storage
-// listener would import it and flip its global active workspace.
+// The deferred-echo hazard, closed structurally. This used to be a live risk: a
+// suppressed apply left the registry dedup baseline stale, so a LATER unrelated
+// settings write serialized the imported window-active snapshot into
+// `multicode-workspaces`, where another window's storage listener imported it
+// and flipped that window's active workspace. Neither half exists now — the
+// registry key is frozen and the listener is deleted — so the assertion is that
+// NOTHING reaches the key, whatever order the mutations arrive in.
 seedTwoWindows()
 await new Promise<void>((resolve) => setTimeout(resolve, 10))
 
+const frozenRegistryRaw = stored[WORKSPACE_STORAGE_KEY]
 emitBroadcast(activeEvent(3, 'B', 'wsB2'))
 await new Promise<void>((resolve) => setTimeout(resolve, 10))
-
-// Baseline must reflect the pre-import persisted registry: window B active wsB1.
-function persistedWindowActive(windowId: string): string | null | undefined {
-  const raw = stored[WORKSPACE_STORAGE_KEY]
-  if (!raw) return undefined
-  const parsed = JSON.parse(raw) as {
-    state?: { workspaceWindows?: Array<{ id: string; activeWorkspaceId: string | null }> }
-  }
-  return parsed.state?.workspaceWindows?.find((w) => w.id === windowId)?.activeWorkspaceId
-}
-assert.equal(
-  persistedWindowActive('B'),
-  'wsB1',
-  'before the settings mutation, the persisted registry still has window B active wsB1 (the imported event was suppressed)',
-)
 
 writesBefore = registryWriteCount
 useWorkspaceStore.getState().setSidebarCollapsed(true)
@@ -241,13 +235,57 @@ await new Promise<void>((resolve) => setTimeout(resolve, 10))
 assert.equal(
   registryWriteCount,
   writesBefore,
-  'a settings-only mutation after an imported event must not write the registry (no deferred storage echo)',
+  'a settings-only mutation after an imported event writes no registry',
 )
 assert.equal(
-  persistedWindowActive('B'),
-  'wsB1',
-  'the persisted registry never serializes the imported window-active snapshot through the later settings write',
+  stored[WORKSPACE_STORAGE_KEY],
+  frozenRegistryRaw,
+  'the frozen registry key is byte-identical after an import followed by a settings write',
 )
-console.log('workspaceStore.activeSync.test.ts: settings write after import does not echo imported state — ok')
+assert.equal(
+  useWorkspaceStore.getState().workspaceWindows.find((w) => w.id === 'B')?.activeWorkspaceId,
+  'wsB2',
+  'the imported event still applied to the in-memory mirror',
+)
+console.log('workspaceStore.activeSync.test.ts: no registry write can carry an imported event — ok')
+
+// ── CASE 6 ────────────────────────────────────────────────────────────────
+// Registry-domain user edits are asked of main (MC-2158). Each carries an
+// `editedAt` stamped HERE, at the gesture, because main's per-field
+// last-write-wins ordering must not depend on IPC latency.
+seedTwoWindows()
+await new Promise<void>((resolve) => setTimeout(resolve, 10))
+const beforeEdits = dispatchCalls.length
+const stampedAfter = Date.now()
+
+useWorkspaceStore.getState().renameWorkspace('wsA1', 'Typed by hand')
+useWorkspaceStore.getState().updateLayout('wsA1', { global: {}, borders: [], layout: { type: 'row', children: [] } })
+useWorkspaceStore.getState().removeWorkspace('wsA2')
+await new Promise<void>((resolve) => setTimeout(resolve, 10))
+
+const registryCommands = dispatchCalls.slice(beforeEdits) as Array<{ type: string; payload: Record<string, unknown> }>
+assert.deepEqual(
+  registryCommands.map((command) => command.type),
+  ['workspace.rename', 'workspace.update_layout', 'workspace.remove'],
+  'each user-editable fact is its own command, so two windows editing different fields never contend',
+)
+
+const rename = registryCommands[0]!
+assert.equal(rename.payload.name, 'Typed by hand')
+assert.equal(rename.payload.titleLocked, true, 'the lock travels with the name or auto-titling overwrites the winner')
+assert.ok(
+  typeof rename.payload.editedAt === 'number' && (rename.payload.editedAt as number) >= stampedAfter,
+  'the rename is stamped at the gesture, not on arrival in main',
+)
+assert.ok(
+  typeof registryCommands[1]!.payload.editedAt === 'number',
+  'the layout command is stamped too — layout is renderer-authored, main-persisted',
+)
+assert.equal(registryCommands[2]!.payload.workspaceId, 'wsA2')
+
+// The optimistic apply still happened locally; main's answer reconciles it.
+assert.equal(useWorkspaceStore.getState().workspaces.find((w) => w.id === 'wsA1')?.name, 'Typed by hand')
+assert.equal(useWorkspaceStore.getState().workspaces.some((w) => w.id === 'wsA2'), false)
+console.log('workspaceStore.activeSync.test.ts: registry edits dispatch stamped commands — ok')
 
 console.log('workspaceStore.activeSync.test.ts: ok')

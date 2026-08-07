@@ -4,11 +4,12 @@ import type { WorkspaceSyncSnapshot } from '../shared/workspace-sync'
 /**
  * The project roots main knows about with NO window open.
  *
- * The workspace-sync snapshot is restored from the persisted routing snapshot at
- * construction (`workspace-sync-routing-snapshot.ts` carries `workspaceFolderPaths`
- * across a restart), so this answers at app ready — before any renderer mounts and
- * pushes its open-workspace roots. It is the roots source for every main-owned
- * disk scan that must not wait for a window: boot-time sprint run discovery
+ * The snapshot is the main-owned workspace registry
+ * (`workspace-registry-service.ts`), loaded from userData at construction, so
+ * this answers at app ready — before any renderer mounts, and with every
+ * workspace's real folder rather than the subset a routing snapshot used to
+ * carry. It is the roots source for every main-owned disk scan that must not
+ * wait for a window: boot-time sprint run discovery
  * (`sprintengine-boot-discovery.ts`) and the mobile relay's run snapshot.
  *
  * Bounded by construction: only workspaces this Multicode has open contribute a
@@ -19,9 +20,8 @@ export function listKnownWorkspaceRoots(snapshot: WorkspaceSyncSnapshot): string
 }
 
 /**
- * Resolve, drop the empty ones, and dedupe — the same normalization the mobile
- * relay's IPC applies to renderer-pushed roots, so a root pushed by a window and
- * the same root read from the snapshot collapse to one scan.
+ * Resolve, drop the empty ones, and dedupe, so two spellings of one folder
+ * never become two scans.
  */
 export function uniqueResolvedRoots(roots: ReadonlyArray<string | null | undefined>): string[] {
   const seen = new Set<string>()

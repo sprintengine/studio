@@ -1,121 +1,62 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
-
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
-import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
+import test from 'node:test'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
+import { createWorkspaceRegistryService } from '../workspace-registry-service'
+import { createInMemoryWorkspaceRegistryStore } from '../workspace-registry-store'
+import { createWorkspaceSyncService } from '../workspace-sync-service'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../shared/workspace-mode'
 
-function snapshotWith(ids: string[]): WorkspaceSyncSnapshot {
-  return {
-    state: {
-      workspaces: ids.map((id) => ({ id })),
-    },
-  } as unknown as WorkspaceSyncSnapshot
+// The delegate-then-poll shape these tests used to assert is gone (MC-2158):
+// there is no renderer round trip to observe and no bus confirmation to time
+// out, because the id a module gets back is the one main just committed.
+
+function harness() {
+  let ids = 0
+  const registry = createWorkspaceRegistryService({
+    store: createInMemoryWorkspaceRegistryStore(),
+    now: () => 1_000,
+    newWorkspaceId: () => `ws-${++ids}`,
+  })
+  const workspaceSync = createWorkspaceSyncService({ registry, now: () => 1_000 })
+  return { registry, workspaceSync, service: createModuleWorkspaceService({ workspaceSync }) }
 }
 
-test('delegates to the renderer and confirms via the sync bus', async () => {
-  const requests: AutomationRendererRequest[] = []
-  let present: string[] = []
-  const service = createModuleWorkspaceService({
-    delegateToRenderer: async (request): Promise<AutomationRendererResponse> => {
-      requests.push(request)
-      // The workspace appears on the bus right after the renderer answers.
-      present = ['ws-1']
-      return { ok: true, workspaceId: 'ws-1' }
-    },
-    getWorkspaceSyncSnapshot: () => snapshotWith(present),
-    now: () => 0,
-    sleep: async () => {},
-  })
-
+test('a module create mints the workspace in main with no window open', async () => {
+  const { registry, service } = harness()
   const result = await service.create({ name: 'Demo', folderPath: '/tmp/demo', templateId: '  ' })
   assert.deepEqual(result, { ok: true, workspaceId: 'ws-1' })
-  assert.equal(requests.length, 1)
-  assert.deepEqual(requests[0], {
-    kind: 'workspace.create',
-    name: 'Demo',
-    folderPath: '/tmp/demo',
-    // Blank templateId is normalized away so the default template is used.
-    templateId: undefined,
-  })
+
+  const record = registry.getRecord('ws-1')
+  assert.ok(record, 'the id a module is handed is readable from the registry immediately')
+  assert.equal(record.name, 'Demo')
+  assert.equal(record.folderPath, '/tmp/demo')
+  // A blank templateId falls through to the default template rather than failing.
+  assert.equal(record.templateId, 'solo')
 })
 
-test('propagates a renderer failure', async () => {
-  const service = createModuleWorkspaceService({
-    delegateToRenderer: async (): Promise<AutomationRendererResponse> => ({
-      ok: false,
-      code: 'no_primary_window',
-      message: 'No window.',
-    }),
-    getWorkspaceSyncSnapshot: () => snapshotWith([]),
-  })
-  const result = await service.create({})
-  assert.deepEqual(result, { ok: false, code: 'no_primary_window', message: 'No window.' })
+test('a module create of a folder’s host reuses the existing one', async () => {
+  const { registry, service } = harness()
+  const first = await service.create({ folderPath: '/repo', mode: AUTOMATIONS_HOST_WORKSPACE_MODE })
+  const second = await service.create({ folderPath: '/repo', mode: AUTOMATIONS_HOST_WORKSPACE_MODE })
+  assert.ok(first.ok && second.ok)
+  assert.equal(second.workspaceId, first.workspaceId)
+  assert.equal(registry.getRecords().length, 1)
 })
 
-test('reports an unverified creation when the bus never confirms', async () => {
-  let clock = 0
-  const service = createModuleWorkspaceService({
-    delegateToRenderer: async (): Promise<AutomationRendererResponse> => ({ ok: true, workspaceId: 'ws-x' }),
-    // The workspace never shows up on the bus.
-    getWorkspaceSyncSnapshot: () => snapshotWith([]),
-    now: () => clock,
-    sleep: async () => {
-      clock += 1000
-    },
-  })
-  const result = await service.create({ name: 'Ghost' })
-  assert.equal(result.ok, false)
-  if (result.ok) return
-  assert.equal(result.code, 'bus_confirmation_timeout')
-})
-
-// WorkspaceContextToken contract: id → read-only {id, name, folderPath, mode}
-// view from the same sync snapshot; unknown ids are null, never a throw, and
-// a folderless workspace reports folderPath: null.
-test('workspace context resolves the read-only view or null', async () => {
+test('workspace context resolves a record main holds, and null for an unknown id', async () => {
+  const { workspaceSync, service } = harness()
+  const created = await service.create({ name: 'Context', folderPath: '/repo' })
+  assert.ok(created.ok)
   const context = createModuleWorkspaceContextService({
-    getWorkspaceSyncSnapshot: () =>
-      ({
-        state: {
-          workspaces: [
-            { id: 'ws-1', name: 'Calendar sprint', folderPath: '/repos/calendar', mode: 'calendar' },
-            { id: 'ws-2', name: 'Scratch', folderPath: null, mode: 'standard' },
-          ],
-        },
-      }) as unknown as WorkspaceSyncSnapshot,
+    getWorkspaceSyncSnapshot: () => workspaceSync.getSnapshot(),
   })
-  assert.deepEqual(await context.get('ws-1'), {
-    id: 'ws-1',
-    name: 'Calendar sprint',
-    folderPath: '/repos/calendar',
-    mode: 'calendar',
+  assert.deepEqual(await context.get(created.workspaceId), {
+    id: created.workspaceId,
+    name: 'Context',
+    folderPath: '/repo',
+    mode: 'standard',
   })
-  assert.deepEqual(await context.get('ws-2'), { id: 'ws-2', name: 'Scratch', folderPath: null, mode: 'standard' })
-  assert.equal(await context.get('ws-missing'), null)
+  assert.equal(await context.get('nope'), null)
 })
 
-// Post-restart routing placeholders (folder path not yet re-hydrated) resolve
-// null — "not currently resolvable" — rather than attesting folderPath: null
-// as a folderless workspace. A placeholder that DID persist its folder path
-// serves real data.
-test('workspace context reports unhydrated routing placeholders as unresolvable', async () => {
-  const context = createModuleWorkspaceContextService({
-    getWorkspaceSyncSnapshot: () =>
-      ({
-        state: {
-          workspaces: [
-            { id: 'ws-stale', name: 'ws-stale', folderPath: null, mode: 'standard', templateId: 'workspace-sync-routing-placeholder' },
-            { id: 'ws-hydrated', name: 'Calendar', folderPath: '/repos/calendar', mode: 'calendar', templateId: 'workspace-sync-routing-placeholder' },
-          ],
-        },
-      }) as unknown as WorkspaceSyncSnapshot,
-  })
-  assert.equal(await context.get('ws-stale'), null)
-  assert.deepEqual(await context.get('ws-hydrated'), {
-    id: 'ws-hydrated',
-    name: 'Calendar',
-    folderPath: '/repos/calendar',
-    mode: 'calendar',
-  })
-})
+console.log('module-workspace-service.test.ts: ok')

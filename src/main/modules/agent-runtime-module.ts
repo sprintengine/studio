@@ -3,7 +3,9 @@ import { app } from 'electron'
 import type { AppServices } from '../app-services'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import {
-  AutomationDelegateToken,
+  AgentControlPlaneToken,
+  AgentLaunchServiceToken,
+  SprintCreateServiceToken,
   CompanionAgentServiceToken,
   CompanionAgentsModuleServiceToken,
   GitHubTokenStoreToken,
@@ -17,6 +19,7 @@ import {
   SprintRuntimeToken,
   TerminalRuntimeToken,
   WorkspaceContextToken,
+  WorkspaceRegistryToken,
   WorkspaceServiceToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
@@ -69,6 +72,8 @@ export function createAgentRuntimeModule(
     manifest: AGENT_RUNTIME_MANIFEST,
     registerMain(host) {
       host.provideService(TerminalRuntimeToken, () => services.terminalRuntime)
+      host.provideService(AgentControlPlaneToken, () => services.agentControlPlane)
+      host.provideService(AgentLaunchServiceToken, () => services.agentLaunchService)
       host.provideService(GitHubTokenStoreToken, () => services.githubTokenStore)
       host.provideService(SprintEngineArtifactsToken, () => services.sprintEngineArtifacts)
       host.provideService(SprintEngineAutomationServiceToken, () => services.sprintEngineAutomation)
@@ -77,18 +82,17 @@ export function createAgentRuntimeModule(
       host.provideService(SprintPullRequestMergePollerToken, () => services.sprintPullRequestMergePoller)
       host.provideService(MulticodeAuthToken, () => services.multicodeAuth)
       host.provideService(SprintEngineMcpHubToken, () => services.sprintEngineMcpHub)
-      host.provideService(AutomationDelegateToken, () => services.automationDelegate)
+      host.provideService(SprintCreateServiceToken, () => services.sprintCreateService)
       host.provideService(WorkspaceSyncServiceToken, () => services.workspaceSyncService)
-      // Programmatic workspace creation, routed through the same renderer
-      // delegate + workspace-sync confirmation the automation tool uses.
+      host.provideService(WorkspaceRegistryToken, () => services.workspaceRegistry)
+      // Programmatic workspace creation, minted in main's registry (MC-2158).
+      // A module can create a workspace with no window open; the id it gets
+      // back is the one main just committed.
       host.provideService(WorkspaceServiceToken, () =>
-        createModuleWorkspaceService({
-          delegateToRenderer: (request) => services.automationDelegate.request(request),
-          getWorkspaceSyncSnapshot: () => services.workspaceSyncService.getSnapshot(),
-        })
+        createModuleWorkspaceService({ workspaceSync: services.workspaceSyncService })
       )
-      // Read-only workspace context (id → root/name/mode), backed by the same
-      // workspace-sync snapshot the create flow confirms against.
+      // Read-only workspace context (id → root/name/mode), read from the same
+      // registry the create flow writes.
       host.provideService(WorkspaceContextToken, () =>
         createModuleWorkspaceContextService({
           getWorkspaceSyncSnapshot: () => services.workspaceSyncService.getSnapshot(),

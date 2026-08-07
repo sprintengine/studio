@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 
 import { createWorkspaceSyncService } from '../../../main/workspace-sync-service'
+import { createWorkspaceRegistryService } from '../../../main/workspace-registry-service'
+import { createInMemoryWorkspaceRegistryStore } from '../../../main/workspace-registry-store'
+import { emptyWorkspaceRegistryFile, toWorkspaceRegistryRecord } from '../../../shared/workspace-registry'
 import {
   createWorkspaceSyncClient,
   type WorkspaceActiveChangedApply,
@@ -190,7 +193,33 @@ function storeDeps(
     applyWorkspaceCreated: store.applyCreated,
     applyAgentTerminalSession: store.applyTerminalSession,
     applyAgentTerminalLaunchState: store.applyTerminalLaunchState,
+    // Registry-domain applies (MC-2158) are not what these tests exercise —
+    // they assert sequencing, replay, and no-echo — so they are inert here and
+    // covered by the reconciliation suite instead.
+    ...inertRegistryApplies(),
     logDiagnostic,
+  }
+}
+
+// The registry-domain apply handlers, as no-ops. Declared once so adding an
+// event type does not mean editing every dependency literal in this file.
+function inertRegistryApplies(): Pick<
+  WorkspaceSyncClientDependencies,
+  | 'applyWorkspaceRenamed'
+  | 'applyWorkspaceLayoutUpdated'
+  | 'applyWorkspaceFieldsUpdated'
+  | 'applyWorkspaceAgentUpdated'
+  | 'applyWorkspaceRemoved'
+  | 'applyRegistrySnapshot'
+> {
+  const noop = () => {}
+  return {
+    applyWorkspaceRenamed: noop,
+    applyWorkspaceLayoutUpdated: noop,
+    applyWorkspaceFieldsUpdated: noop,
+    applyWorkspaceAgentUpdated: noop,
+    applyWorkspaceRemoved: noop,
+    applyRegistrySnapshot: noop,
   }
 }
 
@@ -208,6 +237,7 @@ function stubDeps(
     applyWorkspaceCreated: noop,
     applyAgentTerminalSession: noop,
     applyAgentTerminalLaunchState: noop,
+    ...inertRegistryApplies(),
     ...partial,
   }
 }
@@ -233,7 +263,20 @@ function workspace(id: string): Workspace {
 // A bus that mirrors the real main IPC: dispatch goes through one shared
 // service; accepted events broadcast to every window except the source sender.
 function createBus(snapshot: WorkspaceSyncSnapshot) {
-  const service = createWorkspaceSyncService({ initialSnapshot: snapshot, now: () => 1_000 })
+  // The bus reads and writes through the registry, so a seeded test bus is a
+  // seeded registry — `initialSnapshot` went with the non-authoritative mirror.
+  const registry = createWorkspaceRegistryService({
+    store: createInMemoryWorkspaceRegistryStore({
+      ...emptyWorkspaceRegistryFile(1),
+      revision: 1,
+      workspaces: snapshot.state.workspaces.map((entry) => toWorkspaceRegistryRecord(entry, 1)),
+      workspaceWindows: snapshot.state.workspaceWindows,
+      primaryWorkspaceWindowId: snapshot.state.primaryWorkspaceWindowId,
+      activeWorkspaceId: snapshot.state.activeWorkspaceId,
+    }),
+    now: () => 1_000,
+  })
+  const service = createWorkspaceSyncService({ registry, now: () => 1_000 })
   const listeners = new Map<string, Set<(event: WorkspaceSyncEvent) => void>>()
   let dispatchCount = 0
 
@@ -821,6 +864,62 @@ async function terminalMetadataEventsRespectWorkspaceOwnership(): Promise<void> 
   console.log('workspaceSyncClient.test.ts: terminal metadata events respect workspace ownership — ok')
 }
 
+
+// A snapshot fetch is asynchronous, so a broadcast can land and advance the
+// baseline while it is in flight. Adopting the older snapshot afterwards would
+// silently undo the event that beat it — the mirror would show main's state
+// from before the change it just applied. Regression guard for that ordering.
+async function aStaleSnapshotNeverClobbersANewerAppliedEvent(): Promise<void> {
+  const adopted: number[] = []
+  const applied: WorkspaceActiveChangedApply[] = []
+  const listenerRef: { emit?: (event: WorkspaceSyncEvent) => void } = {}
+  let releaseSnapshot: (() => void) | undefined
+  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve })
+
+  const api: WorkspaceSyncClientApi = {
+    workspaceSyncDispatch: () => Promise.resolve({ ok: false, reason: 'unused', message: 'unused' }),
+    // Held open until the test has delivered a newer event.
+    workspaceSyncGetSnapshot: async () => {
+      await snapshotGate
+      // Sequence 0: main's state from BEFORE the event that already applied.
+      return { sequence: 0, state: seedSnapshot().state }
+    },
+    workspaceSyncGetEventsAfter: () => Promise.resolve([]),
+    onWorkspaceSyncEvent: (cb) => {
+      listenerRef.emit = cb
+      return () => { listenerRef.emit = undefined }
+    },
+  }
+  const client = createWorkspaceSyncClient(stubDeps({
+    getApi: () => api,
+    getWindowId: () => 'A',
+    applyActiveChanged: (apply) => applied.push(apply),
+    applyRegistrySnapshot: (snapshot) => adopted.push(snapshot.sequence),
+  }))
+  const stop = client.start()
+
+  // Event 1 arrives and applies while the snapshot request is still open.
+  assert.ok(listenerRef.emit)
+  listenerRef.emit({
+    id: 'workspace-sync-1',
+    type: 'workspace_window.active_changed',
+    sourceWindowId: 'A',
+    sequence: 1,
+    createdAt: 11,
+    payload: { windowId: 'A', workspaceId: 'wsA2' },
+  })
+  await flush()
+  assert.equal(applied.length, 1, 'the broadcast applied while the snapshot was in flight')
+
+  releaseSnapshot?.()
+  await flush()
+
+  assert.deepEqual(adopted, [], 'a snapshot older than the applied sequence is not adopted over it')
+  stop()
+  client.reset()
+  console.log('workspaceSyncClient.test.ts: a stale snapshot never clobbers a newer applied event — ok')
+}
+
 async function main(): Promise<void> {
   await twoWindowSelectionDoesNotFlipOther()
   await ignoresDuplicateAndStaleEvents()
@@ -836,6 +935,7 @@ async function main(): Promise<void> {
   await placementUpdatesPropagateWithoutTouchingMembership()
   await simultaneousCreationsPreserveBothWorkspaces()
   await terminalMetadataEventsRespectWorkspaceOwnership()
+  await aStaleSnapshotNeverClobbersANewerAppliedEvent()
   console.log('workspaceSyncClient.test.ts: ok')
 }
 

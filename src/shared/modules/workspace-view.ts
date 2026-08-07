@@ -19,17 +19,15 @@ export type ModuleWorkspaceView = {
   mode: string
 }
 
-// Post-restart, the main process rebuilds its sync state from the routing
-// snapshot with placeholder workspaces until a renderer re-hydrates the bus.
-// A placeholder that carries no folder path cannot be told apart from a real
-// folderless workspace, so resolution reports it as not-yet-resolvable (null)
-// rather than attesting `folderPath: null` as fact.
-const ROUTING_PLACEHOLDER_TEMPLATE_ID = 'workspace-sync-routing-placeholder'
-
 export type ModuleWorkspaceViewSource = Pick<Workspace, 'id' | 'name' | 'folderPath' | 'mode' | 'templateId'>
 
+// Every record main holds is a real workspace now (MC-2158). The
+// not-yet-resolvable branch this used to carry existed for restart-restored
+// routing placeholders — records whose folder was unknown until a renderer
+// re-offered them — and it went with the placeholder model: a `folderPath: null`
+// here is now a fact about a genuinely folderless workspace, not an admission
+// that main had not been told yet.
 export function toModuleWorkspaceView(workspace: ModuleWorkspaceViewSource): ModuleWorkspaceView | null {
-  if (workspace.templateId === ROUTING_PLACEHOLDER_TEMPLATE_ID && !workspace.folderPath) return null
   return {
     id: workspace.id,
     name: workspace.name,

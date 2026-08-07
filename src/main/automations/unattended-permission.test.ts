@@ -3,12 +3,12 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
+import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationDefinition } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import { AutomationsEngine } from './engine'
-import { createLocalAutomationExecutor } from './executor-local'
+import { createLocalAutomationExecutor, type LocalAutomationExecutorOptions } from './executor-local'
 import { AutomationsStore } from './store'
 
 // Every path that can start an automation run — the scheduler's due-run tick,
@@ -65,33 +65,36 @@ function snapshot(workspaces: Workspace[]): WorkspaceSyncSnapshot {
   }
 }
 
-// Engine + executor wired together, with the renderer stubbed at the delegate
-// boundary so the launch request is observable.
+// Engine + executor wired together, with the main-process launch port stubbed
+// so the launch request is observable.
 function harness(root: string, options: { triggerKind?: string } = {}) {
   const workspaces: Workspace[] = []
-  const launches: Array<Extract<AutomationRendererRequest, { kind: 'agent.launch' }>> = []
-  const delegateToRenderer = async (request: AutomationRendererRequest): Promise<AutomationRendererResponse> => {
-    if (request.kind === 'workspace.create') {
-      // Honor the mode the executor asks for: the default launch route resolves
-      // an `automations-host` workspace, and a 'standard' stand-in would never
-      // satisfy it.
-      const created = workspace('ws-host', request.folderPath ?? null, request.mode ?? 'standard')
-      workspaces.push(created)
-      return { ok: true, workspaceId: created.id }
-    }
-    if (request.kind === 'agent.launch') {
-      launches.push(request)
-      const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
-      if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
-      const agentId = `agent-${launches.length}`
-      target.agents[agentId] = { id: agentId, name: request.name ?? agentId, cli: request.cli ?? 'codex' } as Workspace['agents'][string]
-      return { ok: true, workspaceId: request.workspaceId, agentId }
-    }
-    return { ok: false, code: 'unsupported', message: 'unsupported request' }
+  const launches: AgentLaunchRequest[] = []
+  // Workspace creation is a main-process port since MC-2158, not a renderer
+  // request. It honours the mode the executor asks for: the default launch
+  // route resolves an `automations-host` workspace, and a 'standard' stand-in
+  // would never satisfy it.
+  const createWorkspace: LocalAutomationExecutorOptions['createWorkspace'] = (input) => {
+    const created = workspace('ws-host', input.folderPath ?? null, input.mode ?? 'standard')
+    workspaces.push(created)
+    return { ok: true, result: { workspace: created as never, windowId: 'primary', folderPath: input.folderPath ?? null, reused: false } }
+  }
+
+  // Agent launch is a main-process port since MC-2159, not a renderer request;
+  // this stub stands in for the AgentLaunchService so the launch stays
+  // observable at the same level of detail.
+  const launchAgent = async (request: AgentLaunchRequest): Promise<AgentLaunchResult> => {
+    launches.push(request)
+    const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
+    if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
+    const agentId = `agent-${launches.length}`
+    target.agents[agentId] = { id: agentId, name: request.name ?? agentId, cli: request.cli ?? 'codex' } as Workspace['agents'][string]
+    return { ok: true, workspaceId: request.workspaceId, agentId, sessionId: `session-${agentId}` }
   }
 
   const executor = createLocalAutomationExecutor({
-    delegateToRenderer,
+    createWorkspace,
+    launchAgent,
     getWorkspaceSyncSnapshot: () => snapshot(workspaces),
     sleep: async () => undefined,
     // Hermetic: no real `git worktree` subprocess. The run still gets the
