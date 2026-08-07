@@ -7,8 +7,6 @@ import type {
   EntitlementSnapshot,
   MulticodeAuthState,
   SessionSnapshot,
-  UsageRequest,
-  UsageResult,
 } from '../shared/electron-api'
 import {
   ENTITLEMENT_GRACE_MS,
@@ -158,18 +156,6 @@ class MulticodeMultiauthClient {
     return snapshot
   }
 
-  async checkUsage(input: UsageRequest): Promise<UsageResult> {
-    return this.usage('/api/usage/check', input)
-  }
-
-  async consumeUsage(input: UsageRequest): Promise<UsageResult> {
-    return this.usage('/api/usage/consume', input)
-  }
-
-  async releaseUsage(input: UsageRequest): Promise<UsageResult> {
-    return this.usage('/api/usage/release', input)
-  }
-
   async getAccessToken(clientId: typeof MULTICODE_CLIENT_ID = MULTICODE_CLIENT_ID): Promise<string> {
     if (!this.accessToken || this.accessTokenExpiresAt <= Date.now() + 60_000) {
       await this.refresh(clientId)
@@ -178,16 +164,6 @@ class MulticodeMultiauthClient {
       throw new Error('No desktop access token is available.')
     }
     return this.accessToken
-  }
-
-  private async usage(path: string, input: UsageRequest): Promise<UsageResult> {
-    return this.request<UsageResult>(path, {
-      method: 'POST',
-      body: JSON.stringify({
-        product: MULTICODE_PRODUCT,
-        ...input,
-      }),
-    })
   }
 
   private async request<T>(path: string, init: RequestInit): Promise<T> {
@@ -514,18 +490,6 @@ export class MulticodeAuthBridge {
     } catch {
       return null
     }
-  }
-
-  async checkUsage(input: UsageRequest): Promise<UsageResult> {
-    return this.client.checkUsage(input)
-  }
-
-  async consumeUsage(input: UsageRequest): Promise<UsageResult> {
-    return this.client.consumeUsage(input)
-  }
-
-  async releaseUsage(input: UsageRequest): Promise<UsageResult> {
-    return this.client.releaseUsage(input)
   }
 
   async openUpgrade(reason?: string): Promise<{ opened: true; url: string }> {

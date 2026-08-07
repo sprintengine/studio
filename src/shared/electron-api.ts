@@ -2322,29 +2322,6 @@ export type PremiumAccessDecision = {
   graceExpiresAt?: string
 }
 
-export type UsageRequest = {
-  featureKey: string
-  amount?: number
-  actorType?: 'user' | 'organization' | 'api_key'
-  actorId?: string
-  idempotencyKey: string
-  window?: 'day' | 'month'
-}
-
-export type UsageResult = {
-  allowed: boolean
-  featureKey: string
-  amount: number
-  used: number
-  remaining: number | null
-  limit: number | null
-  idempotencyKey: string
-  windowStart: string
-  windowEnd: string
-  replayed: boolean
-  reason: 'allowed' | 'missing_entitlement' | 'limit_exceeded' | 'released'
-}
-
 export type SessionSnapshot =
   | {
       authenticated: true
@@ -3096,9 +3073,6 @@ export type ElectronApi = {
   authGetSession: () => Promise<SessionSnapshot>
   authGetEntitlements: (options?: { forceRefresh?: boolean }) => Promise<EntitlementSnapshot>
   authRequireEntitlement: (input: string | PremiumAccessRequest) => Promise<FeatureValue>
-  authCheckUsage: (input: UsageRequest) => Promise<UsageResult>
-  authConsumeUsage: (input: UsageRequest) => Promise<UsageResult>
-  authReleaseUsage: (input: UsageRequest) => Promise<UsageResult>
   onAuthStateChanged: (cb: (state: MulticodeAuthState) => void) => () => void
   onAuthCallbackError: (cb: (message: string) => void) => () => void
   mobileBridgeGetState: () => Promise<MobileBridgeState>
