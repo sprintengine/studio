@@ -14,6 +14,7 @@ import {
   PLANNING_AGENT_TOOLTIP,
 } from '../newSprint/newSprintModel'
 import { SprintIsolationRowView, type SprintIsolationRow } from '../newSprint/SprintIsolationRow'
+import { SprintConnectorsRowView, type SprintConnectorsRow } from '../newSprint/SprintConnectorsRow'
 import { AgentCliPicker, type SprintEngineCliOption } from './SprintEngineRosterTable'
 
 /**
@@ -51,6 +52,7 @@ export function PlainAgentsPanel({
   onSetReasoning,
   planningAgent,
   isolation,
+  connectors,
 }: {
   agentCount: number
   onChangeAgentCount?: (value: number) => void
@@ -67,6 +69,9 @@ export function PlainAgentsPanel({
    *  is: only the create surface chooses a run's isolation, and it is fixed
    *  once the team exists. */
   isolation?: SprintIsolationRow
+  /** The "Connectors" row (MC-2124): which MCP servers the run's agents launch
+   *  with. Opt-in like the two above, and rendered by the staffed card too. */
+  connectors?: SprintConnectorsRow
 }) {
   const clamp = (value: number) => Math.max(1, Math.min(10, Math.floor(value)))
   const setCount = (value: number) => {
@@ -132,6 +137,7 @@ export function PlainAgentsPanel({
           <PlanningAgentRowView row={planningAgent} cliOptions={cliOptions} />
         ) : null}
         {isolation ? <SprintIsolationRowView row={isolation} /> : null}
+        {connectors ? <SprintConnectorsRowView row={connectors} /> : null}
       </div>
     </div>
   )

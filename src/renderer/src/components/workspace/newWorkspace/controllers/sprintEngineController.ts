@@ -56,6 +56,9 @@ export class SprintEnginePlanSourcedError extends Error {
     | 'missing-team-name'
     | 'plan-not-on-disk'
     | 'team-exists'
+    // Advanced setup (MC-2124) refused: `message` carries the seam's own
+    // actionable text, which is what the surface shows.
+    | 'advanced-setup-failed'
     | 'unknown'
   ) {
     super(code)
@@ -305,6 +308,18 @@ export async function runSprintEnginePlanSourcedCreation(
 
   if (!(await ports.pathExists(optionPath))) {
     throw new SprintEnginePlanSourcedError('plan-not-on-disk')
+  }
+
+  // Advanced setup runs BEFORE the first mutation (MC-2124), so a refusal
+  // leaves no half-configured run behind — the same ordering the guided-brief
+  // path uses, and the reason the seam returns a message instead of throwing.
+  if (ports.persistAdvancedSetup) {
+    const advancedSetupError = await ports.persistAdvancedSetup(input.folderPath)
+    if (advancedSetupError) {
+      const failure = new SprintEnginePlanSourcedError('advanced-setup-failed')
+      failure.message = advancedSetupError
+      throw failure
+    }
   }
 
   try {
