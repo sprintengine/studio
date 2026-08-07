@@ -181,13 +181,6 @@ export function getWorkspaceActivity(
   )
 }
 
-export function hasActiveProPlan(authState: MulticodeAuthState): boolean {
-  return (
-    authState.entitlements?.plan.status === 'active' &&
-    authState.entitlements.plan.code.toLowerCase() === 'pro'
-  )
-}
-
 export function uniqueAgentName(baseName: string, agents: Workspace['agents']): string {
   const existingNames = new Set(Object.values(agents).map((agent) => agent.name))
   if (!existingNames.has(baseName)) return baseName
