@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { FilePreviewPane, FOCUS_RING_INSET_CLASS, InboxRow, InboxSearchInput, PanelHeader, Section, SidePane } from '../../ui'
+import { FilePreviewPane, FOCUS_RING_INSET_CLASS, InboxRow, InboxSearchInput, PanelHeader, Section, SidePane, Tooltip } from '../../ui'
+import { BacklogRowContent, BacklogRowHoverCard } from '../../backlog/BacklogRow'
 import { HtmlArtifactFrame } from '../../workspace/guidedBrief/MockupPreviewPane'
 import { isEditableTarget } from '../../../utils/keyboard'
 import { getSprintEngineArtifactDependencyBlockers, isCanceledSprintEngineRun } from '../../../utils/sprintengine'
@@ -7,6 +8,9 @@ import { joinFilePath, parentPath } from '../../../utils/paths'
 import { revealNavRailComponent } from '../../../utils/modelRegistry'
 import { dispatchBacklogReveal } from '../../../utils/backlogReveal'
 import { useSharedBacklogScan } from '../../../hooks/useSharedBacklogScan'
+import { useRelativeNow } from '../../../hooks/useRelativeNow'
+import { epicMetaBySlug, epicSlug, type BacklogEpicMeta } from '../../../utils/backlogEpics'
+import type { BacklogItem } from '../../../utils/backlog'
 import type { SprintEngineArtifact, SprintEngineState } from '../../../types/workspace'
 import {
   getSprintEngineEvidenceArtifacts,
@@ -17,8 +21,9 @@ import { SprintEngineInboxRow, SprintEngineBlockedByRow } from '../SprintEngineI
 import { SprintEngineEmptyDetail } from './SprintEngineEmptyDetail'
 import {
   buildSprintEngineStartedFrom,
-  sprintEngineCapturedLabel,
+  sprintEngineSeedCaptureLabel,
   sprintEngineSeedProvenanceProviderLabel,
+  sprintEngineSharedCaptureLabel,
   trackerSeedProvenance,
   type SprintEngineSeedProvenance,
   type SprintEngineSeedRow,
@@ -63,28 +68,26 @@ export function SprintEngineInboxView({
     () => buildSprintEngineStartedFrom(sprintEngineState.source, sprintEngineState.sourceBundle),
     [sprintEngineState.source, sprintEngineState.sourceBundle],
   )
-  // The seed row title mirrors the backlog item that launched the sprint, and
-  // epic children show a green tick when their backlog frontmatter status is
-  // 'completed'. Both come from the backlog store, not run state, so read them
-  // from the shared scan — gated on a backlog-backed seed (epic or a backlog
-  // primary) to avoid scanning backlog/ for runs seeded by a raw document.
-  const primaryBacklogPath = startedFrom?.rows[0]?.backlogPath ?? null
-  const needsBacklogScan = Boolean(startedFrom && (startedFrom.epic || primaryBacklogPath))
+  // A seeded backlog item IS a backlog item, so the seeded-documents list renders
+  // it with the Backlog's own row (`BacklogRowContent`) rather than a file-path
+  // line of its own — same status glyph, id, size, priority and touched-time as
+  // the Backlog panel, narrowed to the documents this sprint was launched from.
+  // Those fields live in the backlog store, not in run state, so they come from
+  // the shared scan — gated on the seed actually naming a backlog file, to avoid
+  // scanning backlog/ for a run seeded by a raw document.
+  const needsBacklogScan = Boolean(startedFrom?.rows.some((row) => row.backlogPath))
   const { scan: backlogScan } = useSharedBacklogScan(needsBacklogScan ? folderPath : null)
-  const backlogStatusByPath = useMemo(() => {
-    const map = new Map<string, string>()
+  const backlogItemByPath = useMemo(() => {
+    const map = new Map<string, BacklogItem>()
     for (const item of backlogScan?.items ?? []) {
-      map.set(item.relativePath.toLowerCase(), item.status)
+      map.set(item.relativePath.toLowerCase(), item)
     }
     return map
   }, [backlogScan])
-  const backlogTitleByPath = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const item of backlogScan?.items ?? []) {
-      map.set(item.relativePath.toLowerCase(), item.title)
-    }
-    return map
-  }, [backlogScan])
+  // Identity (title/colour/id) for a seeded EPIC row — the primary of an epic
+  // launch — so it tints its layers glyph exactly as it does in the Backlog. The
+  // children never pill their parent: the epic row directly above them names it.
+  const epicMetaMap = useMemo(() => epicMetaBySlug(backlogScan?.items ?? []), [backlogScan])
   // Tracker provenance (native key + issue URL) for proxy-seeded rows (MC-1639),
   // derived from the backlog scan already loaded above — no extra file reads. A
   // native (non-proxy) seed contributes nothing, so its row stays unchanged.
@@ -103,10 +106,10 @@ export function SprintEngineInboxView({
     const primary = startedFrom?.rows[0]
     if (!primary) return null
     const fromBacklog = primary.backlogPath
-      ? backlogTitleByPath.get(primary.backlogPath.toLowerCase())
+      ? backlogItemByPath.get(primary.backlogPath.toLowerCase())?.title
       : undefined
     return fromBacklog?.trim() || primary.fileName
-  }, [startedFrom, backlogTitleByPath])
+  }, [startedFrom, backlogItemByPath])
 
   // The seed is a normal inbox row now. Selecting it opens the "Seeded
   // documents" list in the detail pane; opening one of those rows previews the
@@ -423,7 +426,8 @@ export function SprintEngineInboxView({
             // In this branch selectedSeed is null (a chosen seed swaps this
             // pane for the preview above), so no list row is ever highlighted.
             selectedSeedKey={null}
-            backlogStatusByPath={backlogStatusByPath}
+            backlogItemByPath={backlogItemByPath}
+            epicMetaMap={epicMetaMap}
             provenanceByPath={provenanceByPath}
             onOpenSeed={handleOpenSeed}
             onOpenInBacklog={handleOpenInBacklog}
@@ -501,11 +505,20 @@ function SprintEngineSeedInboxRow({
 // behind the seed inbox row. Opening a row previews that file (handled by the
 // parent, which swaps this pane for the preview). Selection is owned by the
 // parent so a highlighted row survives the preview round-trip.
+//
+// A row that names a backlog file renders as a BACKLOG ROW — the Backlog's own
+// `BacklogRowContent`, the same anatomy the Backlog panel, the Epic tab and the
+// New sprint dialog draw — so a seeded item reads here exactly as it does
+// everywhere else, and the list is simply the backlog narrowed to what this
+// sprint was launched from. Only a seed with no backlog item behind it (a
+// mockup, a plan, a typed brief) keeps the file-oriented line, because for those
+// the path IS the identity.
 function SprintEngineSeededDocumentsPanel({
   startedFrom,
   seedTitle,
   selectedSeedKey,
-  backlogStatusByPath,
+  backlogItemByPath,
+  epicMetaMap,
   provenanceByPath,
   onOpenSeed,
   onOpenInBacklog,
@@ -514,7 +527,8 @@ function SprintEngineSeededDocumentsPanel({
   startedFrom: NonNullable<ReturnType<typeof buildSprintEngineStartedFrom>>
   seedTitle: string | null
   selectedSeedKey: string | null
-  backlogStatusByPath: Map<string, string>
+  backlogItemByPath: Map<string, BacklogItem>
+  epicMetaMap: Map<string, BacklogEpicMeta>
   provenanceByPath: Map<string, SprintEngineSeedProvenance>
   onOpenSeed: (row: SprintEngineSeedRow) => void
   onOpenInBacklog: (backlogPath: string) => void
@@ -522,130 +536,146 @@ function SprintEngineSeededDocumentsPanel({
 }) {
   const rows = startedFrom.rows
   const documentWord = rows.length === 1 ? 'document' : 'documents'
+  // Ticks only while this pane is mounted — the backlog rows' touched-times are
+  // the only thing on the surface that ages.
+  const now = useRelativeNow()
+  // The capture provenance, said once when every row agrees on it (the common
+  // launch). Null keeps it on the rows, where a genuine difference is visible.
+  const sharedCapture = useMemo(() => sprintEngineSharedCaptureLabel(rows), [rows])
 
   return (
     <SprintEngineSeedPreviewShell title="Seeded documents" path={seedTitle ?? 'Seeded documents'} onBack={onBack}>
-      <p className="px-5 py-3 text-meta leading-5 text-[color:var(--text-muted)]">
-        This sprint was seeded from the following {documentWord}. Open one to preview it.
-      </p>
+      <div className="px-5 py-3 text-meta leading-5 text-[color:var(--text-muted)]">
+        <p>This sprint was seeded from the following {documentWord}. Open one to preview it.</p>
+        {sharedCapture ? (
+          <p className="mt-0.5 text-micro text-[color:var(--text-subtle)]">{sharedCapture}</p>
+        ) : null}
+      </div>
       <ul className="pb-2">
-        {rows.map((row) => (
-          <li key={row.key}>
-            <SprintEngineSeedRowButton
-              row={row}
-              selected={selectedSeedKey === row.key}
-              completed={
-                row.role === 'epic-child' && row.backlogPath
-                  ? backlogStatusByPath.get(row.backlogPath.toLowerCase()) === 'completed'
-                  : false
-              }
-              provenance={row.backlogPath ? provenanceByPath.get(row.backlogPath.toLowerCase()) ?? null : null}
-              onOpen={() => onOpenSeed(row)}
-              onOpenInBacklog={onOpenInBacklog}
-            />
-          </li>
-        ))}
+        {rows.map((row) => {
+          const item = row.backlogPath ? backlogItemByPath.get(row.backlogPath.toLowerCase()) ?? null : null
+          return (
+            <li key={row.key}>
+              <SprintEngineSeedRowButton
+                row={row}
+                item={item}
+                epicMeta={item?.isEpic ? epicMetaMap.get(epicSlug(item)) : undefined}
+                now={now}
+                selected={selectedSeedKey === row.key}
+                captureLabel={sharedCapture ? null : sprintEngineSeedCaptureLabel(row)}
+                provenance={row.backlogPath ? provenanceByPath.get(row.backlogPath.toLowerCase()) ?? null : null}
+                onOpen={() => onOpenSeed(row)}
+                onOpenInBacklog={onOpenInBacklog}
+              />
+            </li>
+          )
+        })}
       </ul>
     </SprintEngineSeedPreviewShell>
   )
 }
 
-// One seed row. Epic children are indented under a hairline tree guide and show
-// a green tick when their backlog item is completed. The whole row opens the
-// file in the detail pane; backlog rows carry a hover/focus-revealed
-// "Open in Backlog" jump-out.
+// One seed row. A backlog-backed seed is the Backlog's own row interior; every
+// other seed keeps the file-oriented two-line form (name, then path + kind).
+// Epic children sit under the epic on an indent alone — no tree guide, no left
+// bar: the Epic tab already rules that containment inside a sprint surface is
+// carried by indentation, and the row's own status glyph now says what the
+// hand-rolled green tick used to. The whole row opens the file in the detail
+// pane; backlog rows carry a hover/focus-revealed "Open in Backlog" jump-out.
 function SprintEngineSeedRowButton({
   row,
+  item,
+  epicMeta,
+  now,
   selected,
-  completed,
+  captureLabel,
   provenance,
   onOpen,
   onOpenInBacklog,
 }: {
   row: SprintEngineSeedRow
+  /** The backlog item behind this seed, when the scan resolved one. Null for a
+   *  non-backlog document, and while the scan is still in flight. */
+  item: BacklogItem | null
+  /** An epic row's OWN identity, tinting its layers glyph. Undefined on leaves —
+   *  a child never pills the epic listed directly above it. */
+  epicMeta: BacklogEpicMeta | undefined
+  now: number
   selected: boolean
-  completed: boolean
+  /** This row's capture provenance, or null when the list hoisted a shared one
+   *  into its header. */
+  captureLabel: string | null
   provenance: SprintEngineSeedProvenance | null
   onOpen: () => void
   onOpenInBacklog: (backlogPath: string) => void
 }) {
   const isChild = row.role === 'epic-child'
-  const capturedLabel = sprintEngineCapturedLabel(row.capturedAt, row.mode)
-  const modeLabel = row.mode === 'reference' ? 'Reference' : 'Copy'
 
   return (
     <div
       className={`group relative flex items-stretch ${selected ? 'bg-[color:var(--bg-selected)]' : ''}`}
     >
-      {isChild ? (
-        <span aria-hidden="true" className="ml-4 w-3 shrink-0 border-l border-[color:var(--border-default)]" />
-      ) : null}
       <button
         type="button"
         onClick={onOpen}
         aria-current={selected ? 'true' : undefined}
-        className={`interactive flex min-w-0 flex-1 flex-col gap-0.5 py-1.5 pr-3 text-left focus-visible:focus-ring-inset ${isChild ? 'pl-2' : 'pl-8'} ${selected ? '' : 'hover:bg-[color:var(--bg-surface)]'}`}
+        className={`interactive flex min-w-0 flex-1 flex-col gap-0.5 py-1.5 pr-3 text-left focus-visible:focus-ring-inset ${isChild ? 'pl-10' : 'pl-5'} ${selected ? '' : 'hover:bg-[color:var(--bg-surface)]'}`}
       >
-        <span className="flex min-w-0 items-center gap-1.5">
-          {completed ? (
-            <svg
-              viewBox="0 0 16 16"
-              className="icon-xs shrink-0 text-[color:var(--tone-good)]"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              aria-label="Completed"
-              role="img"
-            >
-              <path d="M3.5 8.5l3 3 6-6.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          ) : isChild ? (
-            // Reserve the tick's width so incomplete children share the one
-            // left margin as completed siblings — no ragged left edge.
-            <span aria-hidden="true" className="icon-xs shrink-0" />
-          ) : null}
-          <span className="min-w-0 truncate text-meta font-medium text-[color:var(--text-strong)]">
-            {row.fileName}
-          </span>
-          {row.isPrimary ? (
-            <span className="shrink-0 rounded-sm border border-[color:var(--border-default)] px-1 text-micro leading-4 text-[color:var(--text-muted)]">
-              Launched from
-            </span>
-          ) : null}
-        </span>
-        {/* Path on its own truncating line, then the short labels wrap — so
-            every metadata item stays visible with no horizontal overflow even
-            at the Inbox column's 320px minimum width. */}
-        <span className="flex min-w-0 flex-col gap-0.5 text-micro text-[color:var(--text-muted)]">
-          <span
-            className="min-w-0 truncate font-mono text-[color:var(--text-subtle)]"
-            title={row.path}
+        {item ? (
+          <Tooltip
+            content={<BacklogRowHoverCard item={item} />}
+            placement="top"
+            openDelayMs={600}
+            wrapperClassName="block"
+            wrapperRole="presentation"
           >
-            {row.path}
-          </span>
-          <span className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
-            <span>{row.kindLabel}</span>
-            <span aria-hidden="true">·</span>
-            <span>{modeLabel}</span>
-            {capturedLabel ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{capturedLabel}</span>
-              </>
-            ) : null}
-            {provenance ? (
-              <>
-                <span aria-hidden="true">·</span>
-                {/* Native tracker key, verbatim (mono, tabular) — the provenance
-                    of a proxy-seeded run alongside its backlog path (MC-1639).
-                    The provider is named by the "View in …" jump-out, not repeated
-                    here. */}
-                <span className="font-mono tabular-nums text-[color:var(--text-subtle)]">{provenance.nativeKey}</span>
-              </>
-            ) : null}
-          </span>
-        </span>
+            <BacklogRowContent item={item} now={now} plainTitle selected={selected} epicMeta={epicMeta} />
+          </Tooltip>
+        ) : (
+          <>
+            <span className="min-w-0 truncate text-meta font-medium text-[color:var(--text-strong)]">
+              {row.fileName}
+            </span>
+            {/* Path on its own truncating line, then the short labels wrap — so
+                every metadata item stays visible with no horizontal overflow even
+                at the Inbox column's 320px minimum width. */}
+            <span className="flex min-w-0 flex-col gap-0.5 text-micro text-[color:var(--text-muted)]">
+              <span
+                className="min-w-0 truncate font-mono text-[color:var(--text-subtle)]"
+                title={row.path}
+              >
+                {row.path}
+              </span>
+              <SprintEngineSeedMetaLine
+                kindLabel={row.kindLabel}
+                provenance={provenance}
+                captureLabel={captureLabel}
+              />
+            </span>
+          </>
+        )}
+        {/* A backlog row's own supporting line is already full — id, size,
+            priority, touched-time — so the seed-specific metadata it cannot hold
+            rides beneath it, aligned to the title behind the status glyph. Its
+            kind is omitted: the row itself says "backlog item" better than a
+            word can. */}
+        {item ? (
+          <SprintEngineSeedMetaLine
+            kindLabel={null}
+            provenance={provenance}
+            captureLabel={captureLabel}
+            className="pl-[22px]"
+          />
+        ) : null}
       </button>
+      {/* The launch seed's mark. A backlog row's title line has no slot to take
+          it inline, so it holds the trailing edge — where every row's actions
+          also live — rather than displacing the title. */}
+      {row.isPrimary ? (
+        <span className="mr-2 shrink-0 self-center rounded-sm border border-[color:var(--border-default)] px-1 text-micro leading-4 text-[color:var(--text-muted)]">
+          Launched from
+        </span>
+      ) : null}
       {provenance?.url ? (
         <button
           type="button"
@@ -667,6 +697,50 @@ function SprintEngineSeedRowButton({
         </button>
       ) : null}
     </div>
+  )
+}
+
+// The seed-specific metadata a row carries beneath its identity, dot-separated
+// and rendered only when something is actually earned: what kind of document it
+// is (file rows only — a backlog row's own anatomy says that better than a word
+// can), the native tracker key of a proxy-seeded item, and the capture label on
+// a mixed-capture launch where the header could not hoist a shared one.
+function SprintEngineSeedMetaLine({
+  kindLabel,
+  provenance,
+  captureLabel,
+  className = '',
+}: {
+  kindLabel: string | null
+  provenance: SprintEngineSeedProvenance | null
+  captureLabel: string | null
+  className?: string
+}) {
+  const parts: React.ReactNode[] = []
+  if (kindLabel) parts.push(<span key="kind">{kindLabel}</span>)
+  if (provenance) {
+    // Native tracker key, verbatim (mono, tabular) — the provenance of a
+    // proxy-seeded run (MC-1639). The provider is named by the "View in …"
+    // jump-out beside the row, not repeated here.
+    parts.push(
+      <span key="tracker" className="font-mono tabular-nums">
+        {provenance.nativeKey}
+      </span>,
+    )
+  }
+  if (captureLabel) parts.push(<span key="capture">{captureLabel}</span>)
+  if (parts.length === 0) return null
+  return (
+    <span
+      className={`flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-micro text-[color:var(--text-subtle)] ${className}`}
+    >
+      {parts.map((part, index) => (
+        <React.Fragment key={index}>
+          {index > 0 ? <span aria-hidden="true">·</span> : null}
+          {part}
+        </React.Fragment>
+      ))}
+    </span>
   )
 }
 

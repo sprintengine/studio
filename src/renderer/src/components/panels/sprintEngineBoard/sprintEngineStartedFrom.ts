@@ -108,6 +108,29 @@ export function sprintEngineCapturedLabel(
   return clock ? `captured at launch · ${clock}` : 'captured at launch'
 }
 
+// "Reference · captured at launch · 18:26" / "Copy" — how the run took the file,
+// plus (for a reference) the moment it read it.
+export function sprintEngineSeedCaptureLabel(row: SprintEngineSeedRow): string {
+  const mode = row.mode === 'reference' ? 'Reference' : 'Copy'
+  const captured = sprintEngineCapturedLabel(row.capturedAt, row.mode)
+  return captured ? `${mode} · ${captured}` : mode
+}
+
+// One capture line for the whole seeded-documents list, when every row agrees on
+// it. A seeded backlog item now renders as an ordinary Backlog row — status
+// glyph, id, size, priority, touched-time — which has no slot for capture
+// metadata; and on the common launch, where every document was taken the same
+// way at the same instant, repeating "Reference · captured at launch · 18:26" on
+// each row was noise the rows had to make space for. Hoisting it says the same
+// thing once. Returns null when the rows genuinely disagree (a typed seed beside
+// referenced bundle files), and the panel then falls back to a per-row capture
+// cell so a real difference is never silently dropped.
+export function sprintEngineSharedCaptureLabel(rows: readonly SprintEngineSeedRow[]): string | null {
+  if (rows.length === 0) return null
+  const first = sprintEngineSeedCaptureLabel(rows[0])
+  return rows.every((row) => sprintEngineSeedCaptureLabel(row) === first) ? first : null
+}
+
 function formatClockTime(iso: string): string | null {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return null

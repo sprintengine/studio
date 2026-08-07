@@ -7,7 +7,9 @@ import {
   sprintEngineSeedKindLabel,
   sprintEngineSeedMode,
   sprintEngineSeedPreviewKind,
+  sprintEngineSeedCaptureLabel,
   sprintEngineSeedProvenanceProviderLabel,
+  sprintEngineSharedCaptureLabel,
   trackerSeedProvenance,
 } from './sprintEngineStartedFrom'
 import type { SprintEngineSource, SprintEngineSourceBundleStateItem } from '../../../types/workspace'
@@ -167,12 +169,18 @@ assert.equal(sprintEngineSeedKindLabel({ kind: 'unknown', isEpicRoot: false }), 
     viewSource.includes('aria-label={`Open ${row.fileName} in Backlog`}'),
     'Open-in-Backlog button aria-label names the seed file',
   )
-  // T14/4 (polish): incomplete epic children reserve the tick's width so child
-  // filenames share one left margin (no ragged left edge). The completed tick
-  // and the reserved spacer both carry the icon-xs width.
+  // A seeded backlog item renders as a BACKLOG row — the Backlog's own
+  // `BacklogRowContent` and hover card — so status, id, size, priority and
+  // touched-time read here exactly as they do in the Backlog panel, and the
+  // hand-rolled file line (with its own green completed tick) is gone. Only a
+  // seed with no backlog item behind it keeps the path-first form.
   assert.ok(
-    viewSource.includes('<span aria-hidden="true" className="icon-xs shrink-0" />'),
-    'incomplete epic children reserve a fixed-width tick spacer',
+    viewSource.includes('<BacklogRowContent') && viewSource.includes('<BacklogRowHoverCard'),
+    'a seeded backlog item renders with the shared Backlog row',
+  )
+  assert.ok(
+    viewSource.includes('backlogItemByPath.get(row.backlogPath.toLowerCase())'),
+    'the row resolves its backlog item from the shared scan by path',
   )
 }
 
@@ -371,6 +379,37 @@ assert.equal(sprintEngineSeedKindLabel({ kind: 'unknown', isEpicRoot: false }), 
   assert.equal(model.rows[0].kindLabel, 'Backlog item', 'a plain-item anchor is a backlog item')
   const epicRow = model.rows.find((row) => row.path === 'backlog/epics/auth.md')
   assert.equal(epicRow?.kindLabel, 'Epic', 'a selected epic keeps its Epic label')
+}
+
+// 12. Shared capture label: a seeded backlog item renders as a Backlog row,
+// which has no slot for capture metadata — so when every row was taken the same
+// way at the same moment the list says it once, in its header. Rows that
+// genuinely disagree keep it, so a difference is never silently dropped.
+{
+  const uniform = buildSprintEngineStartedFrom(
+    source({ planKind: 'epic', path: 'backlog/epics/auth.md', capturedAt: '2026-07-05T15:00:00Z' }),
+    [
+      bundleItem({ path: 'backlog/login.md', capturedAt: '2026-07-05T15:00:00Z' }),
+      bundleItem({ path: 'backlog/logout.md', capturedAt: '2026-07-05T15:00:00Z' }),
+    ],
+  )
+  assert.ok(uniform)
+  const shared = sprintEngineSharedCaptureLabel(uniform.rows)
+  assert.ok(shared?.startsWith('Reference · captured at launch'), 'one label covers a uniform launch')
+  assert.equal(shared, sprintEngineSeedCaptureLabel(uniform.rows[1]), 'the shared label is the rows own label')
+
+  const mixed = buildSprintEngineStartedFrom(
+    source({ planKind: 'epic', origin: 'stdin', path: 'brief.md' }),
+    [bundleItem({ path: 'backlog/login.md', capturedAt: '2026-07-05T15:00:00Z' })],
+  )
+  assert.ok(mixed)
+  assert.equal(
+    sprintEngineSharedCaptureLabel(mixed.rows),
+    null,
+    'a typed seed beside a referenced file has no shared label — the rows keep their own',
+  )
+  assert.equal(sprintEngineSeedCaptureLabel(mixed.rows[0]), 'Copy', 'a copy has no capture moment to name')
+  assert.equal(sprintEngineSharedCaptureLabel([]), null, 'no rows, no label')
 }
 
 // eslint-disable-next-line no-console
