@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AGENT_BACKED_ACTION_KINDS,
   AUTOMATION_DEFAULT_PERMISSION_PRESET,
+  type AutomationCliPermissionPreset,
   type AutomationDefinition,
 } from '../../../../../shared/automations/contracts'
 import type {
@@ -423,7 +424,11 @@ function projectName(workspaceRoot: string): string {
 // editor's own options (AutomationEditor.tsx PERMISSION_PRESET_ITEMS) so the
 // shelf and the place it hands off to say the same thing; an unset preset reads
 // as the unattended default the spawn resolves, never as blank.
-const PERMISSION_LABEL: Record<string, string> = {
+// Keyed by the closed preset union rather than by `string`, so the map must
+// cover every preset: DEFAULT_PERMISSION_LABEL below reads out of it, and a
+// preset added to the union without a label here would otherwise blank the
+// aside's row rather than fail the build.
+const PERMISSION_LABEL: Record<AutomationCliPermissionPreset, string> = {
   default: 'Default — asks before acting',
   auto_workspace: 'Auto in workspace — fewer prompts',
   bypass_all: 'Bypass all — runs unattended',
@@ -449,8 +454,12 @@ function isAgentBacked(definition: AutomationDefinition): boolean {
 const DEFAULT_PERMISSION_LABEL = PERMISSION_LABEL[AUTOMATION_DEFAULT_PERMISSION_PRESET]
 
 function permissionLabel(definition: AutomationDefinition): string {
+  // `permissionPreset` comes off provider-owned config, so it is any string
+  // until it is checked against the map that has a label for it.
   const preset = actionField(definition, 'permissionPreset')
-  return (preset ? PERMISSION_LABEL[preset] : null) ?? DEFAULT_PERMISSION_LABEL
+  return preset && preset in PERMISSION_LABEL
+    ? PERMISSION_LABEL[preset as AutomationCliPermissionPreset]
+    : DEFAULT_PERMISSION_LABEL
 }
 
 // What an automation row says and offers, derived from the one thing that
