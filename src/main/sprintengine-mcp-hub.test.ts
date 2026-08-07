@@ -224,6 +224,10 @@ async function testStatelessSingleRequestToolCall(): Promise<void> {
     }) as { content?: Array<{ text?: string }> }
     assert.equal(result.content?.[0]?.text, 'ok', 'the single response body is unwrapped to its JSON-RPC result')
 
+    // Drain before counting: the session DELETE this replaced was fire-and-forget
+    // (`void deleteMcpSession(...)` in a finally), so it would have landed AFTER
+    // the call resolved. Counting immediately would not have caught it coming back.
+    await new Promise((resolve) => setTimeout(resolve, 25))
     assert.equal(requests.length, 1, `a tool call is exactly one HTTP request, got ${JSON.stringify(requests.map((entry) => `${entry.method} ${entry.path}`))}`)
     const [call] = requests
     assert.equal(call.method, 'POST')
