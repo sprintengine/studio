@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 
-import { buildHorizonPlan, type HorizonPlanInput, type HorizonRefDisplay } from './horizonPlanModel'
+import {
+  buildHorizonPlan,
+  horizonStepTeamKind,
+  type HorizonPlanInput,
+  type HorizonRefDisplay,
+} from './horizonPlanModel'
 import { parseRoadmap, type RoadmapLane } from '../../../../../shared/backlog/roadmap'
 import type { RoadmapBoardLane, RoadmapBoardUnit } from '../../../../../shared/sprintengine/roadmap-surface'
 
@@ -456,6 +461,43 @@ run('an ordinary eligible track raises no notice at all', () => {
     input({ lanes, boardLanes: [boardLane('Delivery', [unit({ ref: 'backlog/one.md', state: 'up_next' })])] }),
   )
   assert.equal(plan.bands.flatMap((band) => band.rows)[0].notice, undefined)
+})
+
+// MC-2066 — which shape the step's team band takes. The order is the whole
+// point: a name that resolves to no saved roster is MISSING first, so the band
+// says the step cannot start instead of describing the plain-agent default the
+// step would never actually get.
+run('the team band reads missing before anything else, and never falls back', () => {
+  assert.equal(
+    horizonStepTeamKind({ label: 'Opus', overridden: true, missing: true }, false),
+    'missing',
+  )
+  assert.equal(
+    // Even if something upstream claimed it resolves, missing wins.
+    horizonStepTeamKind({ label: 'Opus', overridden: true, missing: true }, true),
+    'missing',
+  )
+})
+
+run('no roles is the plain-agent shape; a saved roster carries the agents', () => {
+  assert.equal(
+    horizonStepTeamKind({ label: 'No roles', overridden: false, missing: false }, false),
+    'plain_agents',
+  )
+  assert.equal(
+    horizonStepTeamKind({ label: 'Mobile UI', overridden: true, missing: false }, true),
+    'roster',
+  )
+  // Inheritance is orthogonal: an inherited roster is still a roster, and an
+  // overridden "No roles" is still plain agents.
+  assert.equal(
+    horizonStepTeamKind({ label: 'Mobile UI', overridden: false, missing: false }, true),
+    'roster',
+  )
+  assert.equal(
+    horizonStepTeamKind({ label: 'No roles', overridden: true, missing: false }, false),
+    'plain_agents',
+  )
 })
 
 if (failures > 0) {

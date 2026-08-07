@@ -47,6 +47,26 @@ export type HorizonStepRoster = {
   missing: boolean
 }
 
+/** What the step's team band has to say (MC-2066). The choice is the New sprint
+ *  dialog's, because it is the same choice: `plain_agents` means no roles, so
+ *  what matters is which agent runs the step; `roster` means the roster carries
+ *  the agents, and its roles are the answer. */
+export type HorizonStepTeamKind = 'missing' | 'plain_agents' | 'roster'
+
+/** Which of the three a step's staffing is. Pure so the ORDER is provable: a
+ *  name that resolves to no saved roster reads MISSING first and never falls
+ *  through to the built-in default — a step naming a deleted roster fails its
+ *  start loudly (the epic's standing decision), and softening that here would
+ *  make the band promise a run that cannot happen. */
+export function horizonStepTeamKind(
+  roster: HorizonStepRoster,
+  /** The label resolves to one of the user's saved rosters. */
+  resolvesToSavedRoster: boolean,
+): HorizonStepTeamKind {
+  if (roster.missing) return 'missing'
+  return resolvesToSavedRoster ? 'roster' : 'plain_agents'
+}
+
 // The attention a track is holding, attached to the step it happened to. This is
 // where the deleted "Waiting on you" strip's job now lives (MC-1922): a reason
 // beside the control that resolves it, never a list away from the work.

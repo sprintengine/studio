@@ -26,7 +26,7 @@ import React, {
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { useBacklogScan } from '../newWorkspace/useBacklogScan'
 import { useRosterEditor } from '../newWorkspace/useRosterEditor'
-import { selectAgentCliCatalog } from '../newWorkspace/cliRuntimeOptions'
+import { runtimeLabelFor, selectAgentCliCatalog } from '../newWorkspace/cliRuntimeOptions'
 import {
   isNoRolesRosterRef,
   NO_ROLES_ROSTER_ID,
@@ -46,7 +46,6 @@ import {
   PlanningAgentRowView,
   type PlanningAgentRow,
 } from '../newWorkspace/PlainAgentsPanel'
-import type { SprintEngineCliOption } from '../newWorkspace/SprintEngineRosterTable'
 import { RosterEditor } from '../../backlog/RosterEditor'
 import { RosterMenu } from '../../backlog/RosterMenu'
 import { BacklogFilterMenu } from '../../backlog/BacklogFilterMenu'
@@ -173,21 +172,6 @@ function isListableBacklogItem(item: BacklogItem): boolean {
   if (isRoadmapContent(item.relativePath, item.rawType)) return false
   if (item.relativePath.startsWith('backlog/mockups/')) return false
   return true
-}
-
-// Human "CLI · model" crumb for a roster line, mirroring the picker chips.
-function runtimeLabelFor(
-  cli: string | undefined,
-  model: string | null | undefined,
-  cliOptions: SprintEngineCliOption[],
-): string | null {
-  if (!cli) return null
-  const option = cliOptions.find((candidate) => candidate.value === cli)
-  const cliLabel = option?.label ?? cli
-  if (!model) return cliLabel
-  const modelLabel =
-    option?.modelSelection?.options.find((entry) => entry.id === model)?.label ?? model
-  return `${cliLabel} · ${modelLabel}`
 }
 
 export default function NewSprintDialog({

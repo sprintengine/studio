@@ -93,6 +93,13 @@ function writeCore() {
   return { core, changed }
 }
 
+// The payload is `unknown` on purpose here — the bundle is bytes off disk, and
+// `validateScheduleTriggerConfig` is the gate that decides whether it is a
+// schedule at all. This only reaches in far enough to hand it that gate.
+function payloadTriggerConfig(payload: unknown): unknown {
+  return (payload as { trigger?: { config?: unknown } } | null)?.trigger?.config
+}
+
 async function withProjectRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
   const root = await mkdtemp(join(tmpdir(), 'mc-prepackaged-seam-'))
   try {
@@ -183,7 +190,7 @@ async function assertEveryShippedStarterSurvivesTheWholeChain(): Promise<void> {
       // is kept and read in the installing user's zone, so "nightly" is nightly
       // for them rather than mid-afternoon (item 2039).
       const schedule = validateScheduleTriggerConfig(definition.trigger.config)
-      const authored = validateScheduleTriggerConfig((starter.payload.trigger as { config: unknown }).config)
+      const authored = validateScheduleTriggerConfig(payloadTriggerConfig(starter.payload))
       assert.ok(schedule.ok, `${id}: an installed schedule must validate`)
       assert.ok(authored.ok, `${id}: so must the payload's own`)
       assert.equal(authored.value.timezone, 'UTC', `${id}: the payload ships the author's zone`)

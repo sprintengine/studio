@@ -466,9 +466,14 @@ const starterProviders: AutomationsProviders = {
   }],
 }
 
+// A catalogue install resolves the schedule into the installing machine's zone
+// (item 2039), so a starter's 02:00 is this reader's 02:00.
+const HOST_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
+const ELSEWHERE = HOST_ZONE === 'UTC' ? 'Asia/Kolkata' : 'UTC'
+
 const DAILY_AT_0200: AutomationDefinition['trigger'] = {
   kind: 'schedule',
-  config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'daily', timeLocal: '02:00' } },
+  config: { kind: 'schedule', timezone: HOST_ZONE, cadence: { type: 'daily', timeLocal: '02:00' } },
 }
 
 // Exactly what the install writes (src/main/automations/definition-write.ts
@@ -503,6 +508,19 @@ assert.match(starterMarkup, /Extensions shelf/, 'the aside names where it came f
 assert.match(starterMarkup, /Find code in this repository that nothing reaches\./, 'the starter’s prompt is loaded')
 assert.match(starterMarkup, /Daily/, 'the cadence is the real one the definition carries')
 assert.match(starterMarkup, /02:00/, 'including its time')
+assert.match(starterMarkup, /Local time, 24-hour/, 'and that time is the reader’s own, so the field says local')
+
+// A record written in a zone that is not this reader's — a starter added before
+// catalogue schedules became local, or one a module authored — must not read as
+// local here: the editor names the clock its 02:00 is on, the same fact the
+// panel's cadence summary carries, so the two cannot tell the user different
+// things about one schedule.
+const elsewhereMarkup = renderEditor({
+  ...starterDefinition,
+  trigger: { kind: 'schedule', config: { kind: 'schedule', timezone: ELSEWHERE, cadence: { type: 'daily', timeLocal: '02:00' } } },
+})
+assert.match(elsewhereMarkup, new RegExp(`24-hour \\(HH:MM\\), in ${ELSEWHERE}`), 'the time field names the zone it is read in')
+assert.doesNotMatch(elsewhereMarkup, /Local time/, 'and does not also claim to be local')
 assert.match(starterMarkup, /Bypass all — runs unattended/, 'permission reads the unattended default it will run on')
 assert.match(starterMarkup, /Every run/, 'the aside states the run contract')
 assert.match(starterMarkup, /A branch it can open a pull request from/, 'what a worktree run produces')

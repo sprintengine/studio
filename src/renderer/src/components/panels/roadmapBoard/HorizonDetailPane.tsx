@@ -6,12 +6,14 @@
 // mockups, the dependencies, the body and the epic⇄child navigation all come
 // free and can never drift from Backlog.
 //
-// What Horizon ADDS is one band directly under the title: the run that is
-// delivering this step — agents, tasks left, the branch, the pull request, and
-// the steering the step's state earns. That is the only thing on this surface
-// Backlog cannot know. Beneath it, for a MULTI-REPO run, the pull-request
-// surface with its merge-order blockers, because one "Approve & merge" cannot
-// express which repo has to land first.
+// What Horizon ADDS sits directly under the title. First the step's TEAM
+// (MC-2066) — who will run it, and the picker that changes it, beside the step
+// rather than in the top bar. Then the run that is delivering this step —
+// agents, tasks left, the branch, the pull request, and the steering the step's
+// state earns. That pair is the only thing on this surface Backlog cannot know.
+// Beneath it, for a MULTI-REPO run, the pull-request surface with its
+// merge-order blockers, because one "Approve & merge" cannot express which repo
+// has to land first.
 //
 // The v1 "In this horizon" key/value block (track · step N of M · starts next)
 // is deliberately NOT built: every one of those facts is already visible in the
@@ -90,6 +92,11 @@ export type HorizonDetailPaneProps = {
   /** What this pane says with nothing selected. A DRAFT horizon says what a
    *  draft is here (MC-1925) rather than growing a second layout for it. */
   emptySelection?: { title: string; body: string }
+  /** The step's TEAM band (MC-2066) — who runs this step, and the picker that
+   *  changes it. Built by the door, which owns the plan draft the pick writes
+   *  to; rendered above the run strip because it decides who does the work,
+   *  while the strip reports work already under way. */
+  team?: JSX.Element
 }
 
 export function HorizonDetailPane(props: HorizonDetailPaneProps): JSX.Element {
@@ -151,18 +158,23 @@ export function HorizonDetailPane(props: HorizonDetailPaneProps): JSX.Element {
       onBack={() => undefined}
       onNavigate={props.onNavigate}
       headerExtra={
-        run ? (
-          <HorizonRunStrip
-            run={run}
-            canOpenRun={props.canOpenRun}
-            homePath={props.homePath}
-            onReload={props.onReload}
-            onPause={props.onPause}
-            onResume={props.onResume}
-            onApprove={props.onApprove}
-            onMerge={props.onMerge}
-            onOpenRun={props.onOpenRun}
-          />
+        props.team || run ? (
+          <>
+            {props.team}
+            {run ? (
+              <HorizonRunStrip
+                run={run}
+                canOpenRun={props.canOpenRun}
+                homePath={props.homePath}
+                onReload={props.onReload}
+                onPause={props.onPause}
+                onResume={props.onResume}
+                onApprove={props.onApprove}
+                onMerge={props.onMerge}
+                onOpenRun={props.onOpenRun}
+              />
+            ) : null}
+          </>
         ) : undefined
       }
     />

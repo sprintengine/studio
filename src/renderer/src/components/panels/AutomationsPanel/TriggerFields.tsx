@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 
 import { Field, GhostButton, InlineNotice, Input, Select, type SelectItem, Switch } from '../../ui'
-import type { AutomationsProviders, TriggerKind } from '../../../../../shared/automations/contracts'
+import type { AutomationDefinition, AutomationsProviders, TriggerKind } from '../../../../../shared/automations/contracts'
+import { foreignScheduleTimeZone } from '../../../../../shared/automations/cadence'
 import {
   REPO_EVENT_TRIGGER_KIND,
   SCHEDULE_TRIGGER_KIND,
@@ -14,6 +15,7 @@ import {
   cadenceSummary,
   generateWebhookSecret,
   isAuthorableTrigger,
+  isScheduleConfig,
   providerUnavailableReason,
   type EditorState,
   type RepoEventForm,
@@ -142,7 +144,7 @@ export function TriggerFields({
       {selectedReason ? <InlineNotice tone="warn">{selectedReason}</InlineNotice> : null}
 
       {value.triggerKind === SCHEDULE_TRIGGER_KIND ? (
-        <ScheduleFields value={value} onChange={onChange} />
+        <ScheduleFields value={value} onChange={onChange} writtenTimeZone={loadedScheduleForeignZone(loaded)} />
       ) : value.triggerKind === REPO_EVENT_TRIGGER_KIND ? (
         <RepoEventFields value={value.repoEvent} onChange={(repoEvent) => onChange({ repoEvent })} />
       ) : value.triggerKind === WEBHOOK_TRIGGER_KIND ? (
@@ -213,11 +215,23 @@ function SprintLandedFields({
   )
 }
 
+// The zone a loaded schedule's wall-clock is read in, when that is not this
+// machine's. A save preserves the loaded zone (`resolveSubmitTrigger`), so the
+// field below must say which clock it is on rather than claiming "local" — and a
+// new automation, or one installed since catalogue schedules became local (item
+// 2039), is already in this zone and gets nothing extra.
+function loadedScheduleForeignZone(loaded: AutomationDefinition['trigger'] | null): string | null {
+  if (!loaded || loaded.kind !== SCHEDULE_TRIGGER_KIND || !isScheduleConfig(loaded.config)) return null
+  return foreignScheduleTimeZone(loaded.config, Intl.DateTimeFormat().resolvedOptions().timeZone)
+}
+
 function ScheduleFields({
-  value, onChange,
+  value, onChange, writtenTimeZone,
 }: {
   value: TriggerFieldsValue
   onChange: (patch: Partial<TriggerFieldsValue>) => void
+  /** The zone this schedule's wall-clock is read in, when it is not the reader's. */
+  writtenTimeZone: string | null
 }) {
   return (
     <>
@@ -250,7 +264,11 @@ function ScheduleFields({
         <Field
           label="Date and time"
           htmlFor="automation-at-datetime"
-          help="Runs once, then stays listed with no upcoming run."
+          help={
+            writtenTimeZone
+              ? `In ${writtenTimeZone}. Runs once, then stays listed with no upcoming run.`
+              : 'Runs once, then stays listed with no upcoming run.'
+          }
         >
           <Input
             id="automation-at-datetime"
@@ -262,7 +280,11 @@ function ScheduleFields({
           />
         </Field>
       ) : (
-        <Field label="Time" htmlFor="automation-time" help="Local time, 24-hour (HH:MM).">
+        <Field
+          label="Time"
+          htmlFor="automation-time"
+          help={writtenTimeZone ? `24-hour (HH:MM), in ${writtenTimeZone}.` : 'Local time, 24-hour (HH:MM).'}
+        >
           <Input
             id="automation-time"
             type="time"

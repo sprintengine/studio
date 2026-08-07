@@ -73,10 +73,25 @@ export function scheduleCadenceSummaryForReader(
   readerTimeZone: string,
 ): string {
   if (config.cadence.type === 'interval') return scheduleCadenceSummary(config)
-  const written = config.timezone.trim().toLowerCase()
-  const reader = readerTimeZone.trim().toLowerCase()
-  if (written && written === reader) return scheduleCadenceSummary(config)
-  return scheduleCadenceSummaryWithZone(config, at)
+  return foreignScheduleTimeZone(config, readerTimeZone)
+    ? scheduleCadenceSummaryWithZone(config, at)
+    : scheduleCadenceSummary(config)
+}
+
+/**
+ * The zone a schedule was written in when that is NOT the reader's own — the one
+ * rule for "does this wall-clock need saying whose clock it is on", so the
+ * cadence summary above and the editor's own time field cannot disagree about
+ * the same schedule. Null when it is the reader's zone (nothing to qualify) or
+ * when the config names no zone.
+ */
+export function foreignScheduleTimeZone(
+  config: ScheduleTriggerConfig,
+  readerTimeZone: string,
+): string | null {
+  const written = config.timezone.trim()
+  if (!written) return null
+  return written.toLowerCase() === readerTimeZone.trim().toLowerCase() ? null : written
 }
 
 // "PDT", "UTC", "GMT+5:30" — whatever the runtime's zone data has for that instant.
