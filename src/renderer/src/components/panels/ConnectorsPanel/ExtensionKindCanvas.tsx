@@ -13,7 +13,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { AGENT_BACKED_ACTION_KINDS, type AutomationDefinition } from '../../../../../shared/automations/contracts'
+import {
+  AGENT_BACKED_ACTION_KINDS,
+  AUTOMATION_DEFAULT_PERMISSION_PRESET,
+  type AutomationDefinition,
+} from '../../../../../shared/automations/contracts'
 import type {
   AgentCli,
   AgentCliAvailabilityMap,
@@ -438,9 +442,15 @@ function isAgentBacked(definition: AutomationDefinition): boolean {
   return AGENT_BACKED_ACTION_KINDS.includes(definition.action.kind)
 }
 
+// The label an automation naming no preset will run on. Both asides read it from
+// AUTOMATION_DEFAULT_PERMISSION_PRESET rather than from a literal of their own,
+// so the pre-add and post-add asides cannot drift apart — or away from what
+// parseSpawnAgentConfig actually resolves at launch.
+const DEFAULT_PERMISSION_LABEL = PERMISSION_LABEL[AUTOMATION_DEFAULT_PERMISSION_PRESET]
+
 function permissionLabel(definition: AutomationDefinition): string {
-  const preset = actionField(definition, 'permissionPreset') ?? 'bypass_all'
-  return PERMISSION_LABEL[preset] ?? PERMISSION_LABEL.bypass_all
+  const preset = actionField(definition, 'permissionPreset')
+  return (preset ? PERMISSION_LABEL[preset] : null) ?? DEFAULT_PERMISSION_LABEL
 }
 
 // What an automation row says and offers, derived from the one thing that
@@ -556,19 +566,68 @@ function AutomationRegistryRow({
   )
 }
 
+// The aside's fact list, over the one thing that decides it: whether this
+// project already holds the automation. Once it does, every fact is read from
+// the definition itself. Before that the surface has no automation payload —
+// the registry index carries none — so it states only what adding it is
+// guaranteed to produce: what `catalogueDraftInput`
+// (src/main/automations/definition-write.ts) forces or strips, the project the
+// add writes to, and the permission preset the app resolves for a run that pins
+// none. Anything else about an unadded entry — its cadence, agent and prompt —
+// is genuinely unknown here and is left out rather than guessed at.
+export function automationDetailFacts(
+  added: AutomationDefinition | null,
+  workspaceRoot: string | null,
+): Array<{ term: string; description: string }> {
+  if (added) {
+    return [
+      { term: 'Runs', description: cadenceSummary(added.trigger) },
+      {
+        term: 'Runs in',
+        description: added.runInWorktree === false ? 'This project’s checkout' : 'Its own worktree and branch',
+      },
+      // Agent and permission belong to an action that launches one. A
+      // non-agent action has neither, so it gets neither row rather than a
+      // default that would not be true of it.
+      ...(isAgentBacked(added)
+        ? [
+            {
+              term: 'Agent',
+              description: (() => {
+                const specialist = actionField(added, 'specialistId')
+                return specialist ? `Role — ${specialist}` : 'Plain — no role, no soul'
+              })(),
+            },
+            { term: 'Permission', description: permissionLabel(added) },
+          ]
+        : []),
+    ]
+  }
+  return [
+    { term: 'Runs in', description: 'Its own worktree and branch' },
+    { term: 'Starts', description: 'Enabled, on its own schedule' },
+    { term: 'Adds to', description: workspaceRoot ? projectName(workspaceRoot) : 'No project is open' },
+    // Last, because it is the last thing read before Get: that this will run an
+    // agent unattended with permissions bypassed is the most consequential fact
+    // about adding one, and holding it back until after the add was backwards.
+    // It is the app's own resolved default rather than a read of the entry —
+    // the install pins no preset, so an added automation naming none renders the
+    // same string off the same constant, and the two asides cannot disagree.
+    // The permission is machine-wide, which is why the worktree row above is not
+    // written as if it fenced the agent in: a worktree bounds what git sees,
+    // never what the process can reach.
+    { term: 'Permission', description: DEFAULT_PERMISSION_LABEL },
+  ]
+}
+
 // The automation detail aside. Everything the row may not carry lives here: the
 // description, what adding it will do, and — once it is added — the schedule and
 // prompt the project actually holds. One primary, because an inspector aside is
 // its own view.
 //
-// Nothing here is editable: this shelf configures nothing. The facts are read
-// from the real definition once there is one, and before that only from what the
-// install path itself guarantees (`catalogueDraftInput` in
-// src/main/automations/definition-write.ts forces `status: 'enabled'` and strips
-// `runInWorktree`, so both are true of every automation added from here). The
-// registry index carries no automation payload, so the cadence, agent and prompt
-// of an entry that is NOT yet added are genuinely unknown to this surface and
-// are left out rather than guessed at.
+// Nothing here is editable: this shelf configures nothing. The fact list is
+// automationDetailFacts above; what may honestly be said before the add is
+// settled there.
 function AutomationDetailPanel({
   plugin,
   registryUrl,
@@ -610,34 +669,7 @@ function AutomationDetailPanel({
   }, [onClose])
 
   const prompt = added ? actionField(added, 'prompt') : null
-  const facts = added
-    ? [
-        { term: 'Runs', description: cadenceSummary(added.trigger) },
-        {
-          term: 'Runs in',
-          description: added.runInWorktree === false ? 'This project’s checkout' : 'Its own worktree and branch',
-        },
-        // Agent and permission belong to an action that launches one. A
-        // non-agent action has neither, so it gets neither row rather than a
-        // default that would not be true of it.
-        ...(isAgentBacked(added)
-          ? [
-              {
-                term: 'Agent',
-                description: (() => {
-                  const specialist = actionField(added, 'specialistId')
-                  return specialist ? `Role — ${specialist}` : 'Plain — no role, no soul'
-                })(),
-              },
-              { term: 'Permission', description: permissionLabel(added) },
-            ]
-          : []),
-      ]
-    : [
-        { term: 'Runs in', description: 'Its own worktree and branch' },
-        { term: 'Starts', description: 'Enabled, on its own schedule' },
-        { term: 'Adds to', description: workspaceRoot ? projectName(workspaceRoot) : 'No project is open' },
-      ]
+  const facts = automationDetailFacts(added, workspaceRoot)
 
   return (
     <aside

@@ -8,7 +8,7 @@ import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
 import { ConnectorsBody, FacetTabs, ReadyConnectorsRail } from './ConnectorsBrowseCanvas'
-import { ExtensionKindCanvas, automationShelfRowState } from './ExtensionKindCanvas'
+import { ExtensionKindCanvas, automationDetailFacts, automationShelfRowState } from './ExtensionKindCanvas'
 import { deriveConnectorsView, registryEntriesForKinds, type ConnectorFacet, type SourceLoad } from './connectorsFacets'
 import type { ConnectorSources } from './useConnectorSources'
 
@@ -485,6 +485,49 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
   const paused = automationShelfRowState(entry, { ...definition, status: 'paused' }, true)
   assert.equal(paused.stateLine, 'Added, paused — Daily at 02:00')
   assert.equal(paused.action, 'open')
+
+  // The aside's facts, over the same fact. The permission an agent-backed
+  // automation runs with is stated BEFORE Get, not only after: an unattended
+  // agent with permissions bypassed is the most consequential thing about
+  // adding one, so the pre-add aside cannot be the one place it is missing.
+  const preAdd = automationDetailFacts(null, '/repo')
+  const preAddPermission = preAdd.find((fact) => fact.term === 'Permission')
+  assert.ok(preAddPermission, 'the not-yet-added aside states the permission it will run with')
+  assert.equal(preAdd.at(-1)?.term, 'Permission', 'and states it last, next to the Get it qualifies')
+  assert.deepEqual(
+    preAdd.map((fact) => fact.term),
+    ['Runs in', 'Starts', 'Adds to', 'Permission'],
+    'beside the other facts adding it is guaranteed to produce',
+  )
+  assert.equal(preAdd[2].description, 'repo', 'the project the add writes to is named')
+
+  // The two asides agree on that fact: both read the resolved default the spawn
+  // applies, so neither can drift into its own wording of the same answer.
+  const postAdd = automationDetailFacts(definition, '/repo')
+  assert.equal(
+    postAdd.find((fact) => fact.term === 'Permission')?.description,
+    preAddPermission.description,
+    'the pre-add and post-add asides say the same thing about the permission',
+  )
+  assert.match(preAddPermission.description, /unattended/, 'and say plainly that it runs unattended')
+
+  // A definition naming its own preset still reports its own, never the default.
+  const asked = automationDetailFacts(
+    { ...definition, action: { kind: 'spawn-agent', config: { permissionPreset: 'default' } } } as AutomationDefinition,
+    '/repo',
+  )
+  assert.equal(asked.find((fact) => fact.term === 'Permission')?.description, 'Default — asks before acting')
+
+  // A non-agent action launches no agent, so it gets no permission row rather
+  // than a default that would not be true of it.
+  const nonAgent = automationDetailFacts(
+    { ...definition, action: { kind: 'sprint-engine-start', config: {} } } as AutomationDefinition,
+    '/repo',
+  )
+  assert.ok(
+    !nonAgent.some((fact) => fact.term === 'Permission' || fact.term === 'Agent'),
+    'an action that launches no agent carries neither row',
+  )
 }
 
 // --- data-URI icons from the generated catalogue render through PluginIcon --
