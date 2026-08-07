@@ -67,15 +67,19 @@ function formatShortDate(value: string | null): string {
   return new Date(value).toLocaleString()
 }
 
-// Human plan label for the account row's secondary line ("Pro plan" / "Free").
-// Presentation only: it reads the plan's name to print it, and nothing may
-// branch on what it returns.
+// The plan's own name, for printing: "Pro plan" while active, else the status
+// ("Past due"). Null when there is no plan to name. Presentation only — it
+// reads the plan code to SHOW it, and nothing may branch on what it returns.
+function planLabel(authState: MulticodeAuthState): string | null {
+  const plan = authState.entitlements?.plan
+  if (!plan) return null
+  return plan.status === 'active' ? `${sentenceCase(plan.code)} plan` : sentenceCase(plan.status)
+}
+
+// The account row's secondary line, which always shows something: the plan's
+// name when there is one, else the tier word.
 function accountPlanLabel(authState: MulticodeAuthState): string {
-  const plan = authState.entitlements?.plan ?? null
-  if (plan) {
-    return plan.status === 'active' ? `${sentenceCase(plan.code)} plan` : sentenceCase(plan.status)
-  }
-  return ACCOUNT_TIER_STYLE[planDisplayTier(authState)].label
+  return planLabel(authState) ?? ACCOUNT_TIER_STYLE[planDisplayTier(authState)].label
 }
 
 function AccountMenuItem({ onSelect, children }: { onSelect: () => void; children: React.ReactNode }) {
@@ -123,11 +127,7 @@ function AccountPopover({
   onLogout: () => void
   onUpgrade: () => void
 }) {
-  const plan = authState.entitlements?.plan ?? null
-  const planLabel = plan
-    ? plan.status === 'active' ? `${sentenceCase(plan.code)} plan` : sentenceCase(plan.status)
-    : null
-  const metaLine = [planLabel, authState.selectedOrganization?.name]
+  const metaLine = [planLabel(authState), authState.selectedOrganization?.name]
     .filter(Boolean)
     .join(' · ')
   const primaryLine = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
