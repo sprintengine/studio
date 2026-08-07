@@ -98,7 +98,9 @@ async function main(): Promise<void> {
     unmount: () => void
   }
 
-  async function mountPicker(): Promise<Mounted> {
+  // `keepEngineDefaults` reopens against the store the previous spawn wrote —
+  // the remembered-default check. Every other mount starts from a clean one.
+  async function mountPicker(keepEngineDefaults = false): Promise<Mounted> {
     __resetModelFavouritesForTest()
     dom.window.localStorage.clear()
     const settings = useWorkspaceStore.getState().appSettings
@@ -108,7 +110,9 @@ async function main(): Promise<void> {
       cliAvailabilityStatus: 'ready',
       cliAvailability: null,
       sprintEngineRoleRegistry: ROLE_REGISTRY,
-      appSettings: { ...settings, specialistCliDefaults: {}, specialistModelDefaults: {}, specialistOrder: [] },
+      appSettings: keepEngineDefaults
+        ? { ...settings, specialistOrder: [] }
+        : { ...settings, specialistCliDefaults: {}, specialistModelDefaults: {}, specialistOrder: [] },
     } as never)
 
     const spawns: Confirm[] = []
@@ -200,6 +204,22 @@ async function main(): Promise<void> {
     )
     assert.equal(view.closes(), 1, 'and the picker closed behind it')
     view.unmount()
+  })
+
+  await check('SEAM: the remembered spawn default is the model last spawned', async () => {
+    const view = await mountPicker()
+    await view.click(view.row('Opus 5'))
+    view.unmount()
+
+    // A second open, against the store the first spawn wrote.
+    const reopened = await mountPicker(true)
+    const current = reopened.rows().find((row) => row.getAttribute('aria-selected') === 'true')
+    assert.match(
+      current?.textContent ?? '',
+      /Opus 5/,
+      'reopening lands on the model that was spawned, not on a roster row',
+    )
+    reopened.unmount()
   })
 
   await check('SEAM: Terminal and Conversation are rail entries, and the footer leaves with them', async () => {

@@ -206,6 +206,19 @@ export default function SpawnPicker({
     )
   }
 
+  // An unresolved catalog is not an empty one. Rendering the picker here would
+  // say "No models here yet." about a machine we have not finished asking, and
+  // offer a footer configuring a spawn with nothing to spawn.
+  if (composer.agentCliOptions.length === 0 && composer.catalogStatus !== 'ready') {
+    return (
+      <div className="w-[380px] max-w-[calc(100vw-2rem)] px-3 py-2 text-micro text-[color:var(--text-muted)]" role="status">
+        {composer.catalogStatus === 'error'
+          ? composer.catalogError ?? 'Could not load agent plugins.'
+          : 'Loading installed agents…'}
+      </div>
+    )
+  }
+
   return (
     <CliModelPopoverSurface
       ariaLabel="Spawn agent"
@@ -445,7 +458,7 @@ function FooterMenu({
 }): JSX.Element {
   const [open, setOpen] = React.useState(false)
   const surfaceRef = React.useRef<HTMLDivElement | null>(null)
-  const trigger = (
+  return (
     <Popover
       open={open}
       onOpenChange={setOpen}
@@ -453,26 +466,38 @@ function FooterMenu({
       popupRole="menu"
       placement={placement}
       surfaceClassName={MENU_LIST_CLASS}
-      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
-          ref={ref}
-          type="button"
-          aria-label={ariaLabel}
-          onClick={togglePopover}
-          className={[
-            'interactive inline-flex h-6 shrink-0 items-center gap-1 rounded-[5px] px-2 text-meta',
-            tone === 'warn'
-              ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
-              : tone === 'accent'
-                ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
-                : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]',
-            FOCUS_RING_CLASS,
-          ].join(' ')}
-          {...triggerProps}
-        >
-          {label}
-        </button>
-      )}
+      renderTrigger={({ ref, triggerProps, togglePopover }) => {
+        // The tooltip wraps the BUTTON, never the Popover: it attaches its
+        // handlers by cloning its child, and a component that does not forward
+        // them swallows the tooltip silently.
+        const button = (
+          <button
+            ref={ref}
+            type="button"
+            aria-label={ariaLabel}
+            onClick={togglePopover}
+            className={[
+              'interactive inline-flex h-6 shrink-0 items-center gap-1 rounded-[5px] px-2 text-meta',
+              tone === 'warn'
+                ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
+                : tone === 'accent'
+                  ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
+                  : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]',
+              FOCUS_RING_CLASS,
+            ].join(' ')}
+            {...triggerProps}
+          >
+            {label}
+          </button>
+        )
+        return tooltip ? (
+          <Tooltip content={tooltip} placement="top">
+            {button}
+          </Tooltip>
+        ) : (
+          button
+        )
+      }}
     >
       <div
         ref={surfaceRef}
@@ -483,13 +508,6 @@ function FooterMenu({
         {children(() => setOpen(false))}
       </div>
     </Popover>
-  )
-  return tooltip ? (
-    <Tooltip content={tooltip} placement="top">
-      {trigger}
-    </Tooltip>
-  ) : (
-    trigger
   )
 }
 

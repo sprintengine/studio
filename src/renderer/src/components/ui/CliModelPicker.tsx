@@ -371,7 +371,10 @@ export function CliModelPopoverSurface({
   // it.
   const [activeKey, setActiveKey] = React.useState<string | null>(null)
   const activeRowRef = React.useRef<HTMLDivElement | null>(null)
-  const showNoneRow = Boolean(noneRow) && !searching
+  // The pinned "no runtime" row belongs to the model list: under a rail extra
+  // there is no runtime being chosen at all, so pinning "None" above a list of
+  // shells would offer a choice that means nothing there.
+  const showNoneRow = Boolean(noneRow) && !searching && !activeExtra
   type NavRow =
     | { key: string; kind: 'none' }
     | { key: string; kind: 'model'; entry: VisibleEntry }
