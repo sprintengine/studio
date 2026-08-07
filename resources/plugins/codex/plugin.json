@@ -97,7 +97,8 @@
       "fileDropTemplate": "Use ${{skillId}} to work {{path}}.",
       "explicitTemplate": "Use ${{skillId}}.",
       "explicitMention": true,
-      "implicitInvocation": true
+      "implicitInvocation": true,
+      "mentionPrefix": "$"
     }
   },
   "detect": {

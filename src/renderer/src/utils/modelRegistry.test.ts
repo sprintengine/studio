@@ -3,7 +3,12 @@ import assert from 'node:assert/strict'
 import { Actions, Model, Rect, type IJsonModel } from 'flexlayout-react'
 import {
   addAgentTabTiled,
+  addNewAgentTab,
   addTerminalTab,
+  convertNewAgentTabToAgent,
+  removeNewAgentTab,
+  NEW_AGENT_TAB_COMPONENT,
+  NEW_AGENT_TAB_NAME,
   captureRailWidthFraction,
   captureRailWidthFractions,
   consumePendingAgentFlash,
@@ -946,6 +951,82 @@ function bothRailsModel(): Model {
   )
 
   assert.equal(focusedAgentTabInLayout(undefined), null)
+}
+
+// MC-2147 — the new-agent tab. The "+" opens the tab the terminal will live in,
+// so the two things worth pinning are that it docks where an agent tab docks,
+// and that spawning RETYPES that node instead of replacing it: a remove-and-add
+// would move the pane out from under the person who was just looking at it.
+{
+  const model = freshModel()
+  registerModel(WS, model)
+
+  const tabId = addNewAgentTab(WS)
+  assert.ok(tabId, 'the + opens a tab')
+  assert.ok(
+    allComponents(model).includes(NEW_AGENT_TAB_COMPONENT),
+    'the tab holds the launch surface, not an agent panel',
+  )
+
+  const placed = allTabs(model).find((tab) => tab.component === NEW_AGENT_TAB_COMPONENT)
+  assert.equal(placed?.name, NEW_AGENT_TAB_NAME, 'and it is named for what it is')
+
+  // Retype in place: the node id survives, so the tab keeps its tabset and size.
+  const before = model.getNodeById(tabId!)
+  assert.ok(before, 'the node exists before the spawn')
+  const converted = convertNewAgentTabToAgent(WS, tabId!, 'a-new', 'Atlas')
+  assert.equal(converted, true, 'a live new-agent tab converts')
+
+  const after = model.getNodeById(tabId!)
+  assert.ok(after, 'the SAME node is still there — not a new tab somewhere else')
+  const agentTab = allTabs(model).find((tab) => tab.config?.agentId === 'a-new')
+  assert.equal(agentTab?.component, 'agent', 'it is an agent tab now')
+  assert.equal(agentTab?.name, 'Atlas', 'wearing the agent’s name')
+  assert.ok(
+    !allComponents(model).includes(NEW_AGENT_TAB_COMPONENT),
+    'and the launch surface is gone — one tab, not two',
+  )
+  assert.ok(
+    (agentTab?.className ?? '').includes('agent-tab-spawn-flash'),
+    'a terminal that just came alive flashes, as every other spawn does',
+  )
+
+  // Converting something that is not a new-agent tab is a no-op, so a stale tab
+  // id from a closed composer can never hijack an agent’s tab.
+  assert.equal(
+    convertNewAgentTabToAgent(WS, tabId!, 'a-other', 'Wren'),
+    false,
+    'an already-converted tab does not convert twice',
+  )
+
+  unregisterModel(WS)
+}
+
+// Closing the composer without launching leaves nothing behind.
+{
+  const model = freshModel()
+  registerModel(WS, model)
+  const tabId = addNewAgentTab(WS)
+  assert.ok(tabId)
+  assert.equal(removeNewAgentTab(WS, tabId!), true, 'the tab closes')
+  assert.ok(
+    !allComponents(model).includes(NEW_AGENT_TAB_COMPONENT),
+    'no residue: closing before launch created nothing',
+  )
+  assert.equal(removeNewAgentTab(WS, tabId!), false, 'and closing it twice is a no-op')
+  unregisterModel(WS)
+}
+
+// A nav-only workspace (the sidebar panel alone) must not bury the surface
+// inside the strip-less rail — same rule agent and terminal tabs already follow.
+{
+  const model = navOnlyModel()
+  registerModel(WS, model)
+  addNewAgentTab(WS)
+  const hosting = tabsets(model).find((tabset) => componentsOf(tabset).includes(NEW_AGENT_TAB_COMPONENT))
+  assert.ok(hosting, 'the surface is somewhere')
+  assert.notEqual(hosting?.enableTabStrip, false, 'and never inside the strip-less nav pane')
+  unregisterModel(WS)
 }
 
 console.log('modelRegistry.test.ts: ok')

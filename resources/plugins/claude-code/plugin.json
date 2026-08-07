@@ -93,7 +93,8 @@
     "invocation": {
       "fileDropTemplate": "/{{skillId}} {{path}}",
       "explicitTemplate": "/{{skillId}}",
-      "nativeSlashCommand": true
+      "nativeSlashCommand": true,
+      "mentionPrefix": "/"
     }
   },
   "detect": {

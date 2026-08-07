@@ -159,6 +159,14 @@ export type CliSkillInvocation = {
   nativeSlashCommand?: boolean
   explicitMention?: boolean
   implicitInvocation?: boolean
+  /**
+   * The character typed to name a skill mid-prompt (`/`, `$`). Omit when the
+   * CLI has no in-prompt form — surfaces then offer a picker instead of a
+   * type-ahead rather than borrowing another CLI's trigger.
+   */
+  mentionPrefix?: string
+  /** What a picked skill inserts; defaults to `{{mentionPrefix}}{{skillId}}`. */
+  mentionTemplate?: string
 }
 
 export type CliSkillIntegration = {
@@ -679,6 +687,39 @@ function validateSkillInvocation(value: unknown, issues: CliManifestIssue[]): vo
   for (const key of ['nativeSlashCommand', 'explicitMention', 'implicitInvocation'] as const) {
     if (key in value && typeof value[key] !== 'boolean') {
       issues.push({ path: `skillIntegration.invocation.${key}`, message: `${key} must be a boolean when present.` })
+    }
+  }
+  // A trigger is one character the user types, not a word: a multi-character
+  // "prefix" would fire the type-ahead partway through ordinary typing.
+  if ('mentionPrefix' in value) {
+    const prefix = value.mentionPrefix
+    if (typeof prefix !== 'string' || prefix.trim().length !== 1) {
+      issues.push({
+        path: 'skillIntegration.invocation.mentionPrefix',
+        message: 'mentionPrefix must be a single non-space character when present.',
+      })
+    }
+  }
+  if ('mentionTemplate' in value) {
+    const template = value.mentionTemplate
+    if (typeof template !== 'string' || template.length === 0) {
+      issues.push({
+        path: 'skillIntegration.invocation.mentionTemplate',
+        message: 'mentionTemplate must be a non-empty string.',
+      })
+    } else {
+      validateTemplateVariables(
+        template,
+        'skillIntegration.invocation.mentionTemplate',
+        ['skillId', 'skillName', 'mentionPrefix'],
+        issues,
+      )
+      if (!('mentionPrefix' in value)) {
+        issues.push({
+          path: 'skillIntegration.invocation.mentionTemplate',
+          message: 'mentionTemplate needs a mentionPrefix — without one there is no trigger to insert it from.',
+        })
+      }
     }
   }
 }

@@ -186,6 +186,45 @@ export function argvToPosixShellCommand(argv: string[]): string {
   return argv.map(quotePosixToken).join(' ')
 }
 
+/**
+ * The invocation a spawn WOULD make, rendered for display before it happens
+ * (MC-2147: the new-agent tab's receipt line).
+ *
+ * It goes through `renderAgentLaunchArgv` — the same call the spawn makes — for
+ * the reason the surface exists: a hand-written preview of `--permission-mode`
+ * flags is a promise the launch path is free to break, and the first flag that
+ * moved would turn the receipt into a lie. Sharing the renderer means a manifest
+ * change reaches the preview and the spawn in one step.
+ *
+ * The prompt is deliberately NOT rendered: it is visible in the composer a line
+ * above, it would re-render the preview on every keystroke, and on the CLIs that
+ * pass it as argv it would bury the flags the line exists to show. `binary` is
+ * the resolved command; callers show it plus `args`.
+ *
+ * `debugMode` is absent from the input for the same reason, and it is the
+ * orthogonality invariant showing through: debug mode prepends a directive to
+ * the PROMPT and never touches a flag, so on a prompt-free preview it has
+ * nothing to say — and rendering it anyway would print a multi-line directive
+ * into a one-line receipt. The row's own Debug chip carries that state.
+ */
+export function renderAgentLaunchPreview(
+  input: Omit<AgentLaunchRenderInput, 'sessionId' | 'resume' | 'initialPrompt' | 'debugMode'>,
+): { binary: string; args: string[]; display: string } {
+  const { argv, binary } = renderAgentLaunchArgv({
+    ...input,
+    // A stable placeholder: session ids are rendered into argv by some
+    // manifests, and a real one would make the preview churn per keystroke
+    // while telling the reader nothing.
+    sessionId: 'preview',
+    resume: false,
+    initialPrompt: undefined,
+    debugMode: false,
+  })
+  // argv[0] is the binary; the receipt shows the command name and its flags.
+  const args = argv.slice(1)
+  return { binary, args, display: argvToPosixShellCommand(argv) }
+}
+
 // Exit status the launch script reports when its agent binary is not there —
 // the shell's own "command not found", matching AGENT_CLI_NOT_FOUND_EXIT.
 const AGENT_BINARY_NOT_FOUND_EXIT = 127

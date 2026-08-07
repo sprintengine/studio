@@ -664,6 +664,127 @@ function terminalTabJson(terminalId: string, name: string) {
   return { type: 'tab', name, component: 'terminal', config: { terminalId } }
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// The new-agent tab (MC-2147). The tab-strip "+" opens the tab an agent will
+// run in, holding the launch surface until something spawns; the spawn then
+// RETYPES that same node rather than closing it and opening an agent tab. Same
+// node means same tabset, same position, same size — the pane the person is
+// looking at becomes the terminal instead of one appearing somewhere else.
+// ──────────────────────────────────────────────────────────────────────────
+
+export const NEW_AGENT_TAB_COMPONENT = 'new-agent'
+export const NEW_AGENT_TAB_NAME = 'New agent'
+
+/**
+ * Open a new-agent tab, docked exactly where a spawned agent tab would dock
+ * (agentTileLocation on the active content tabset, a fresh right-hand column
+ * when only rails exist) — so the surface appears where its terminal will be.
+ * Returns the new tab's id, which the caller holds to retype it on spawn.
+ */
+export function addNewAgentTab(workspaceId: string): string | null {
+  const model = models.get(workspaceId)
+  if (!model) return null
+
+  const tabId = `new-agent-${Math.random().toString(36).slice(2, 10)}`
+  const tabJson = {
+    type: 'tab',
+    id: tabId,
+    name: NEW_AGENT_TAB_NAME,
+    component: NEW_AGENT_TAB_COMPONENT,
+    config: {},
+  }
+
+  // Sprint Engine and Automations layouts dock agents into their right-hand
+  // terminal column; the "+" is not offered there today, but the helper follows
+  // the same policy so it cannot strand a tab inside a control panel's tabset.
+  if (modelDocksAgentsRight(model)) {
+    const terminalHost = firstTerminalLikeTabset(model)
+    model.doAction(
+      terminalHost
+        ? Actions.addNode(tabJson, terminalHost.getId(), DockLocation.CENTER, -1, true)
+        : Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true),
+    )
+    return tabId
+  }
+
+  const targetTabset = activeContentTabset(model)
+  model.doAction(
+    targetTabset
+      ? Actions.addNode(tabJson, targetTabset.getId(), agentTileLocation(targetTabset), -1, true)
+      : Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true),
+  )
+  return tabId
+}
+
+/**
+ * Turn a new-agent tab into the agent's terminal in place: same node, retyped
+ * to the `agent` component, renamed, and given the agent id its panel reads.
+ * The spawn flash fires here for the same reason it fires on every other spawn
+ * — a terminal that just came alive says so.
+ *
+ * Returns false when the tab is gone (closed while the composer was open) or is
+ * not a new-agent tab, which the caller treats as "dock one the ordinary way"
+ * rather than as an error.
+ */
+export function convertNewAgentTabToAgent(
+  workspaceId: string,
+  tabId: string,
+  agentId: string,
+  name: string,
+  config?: Record<string, unknown>,
+): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+  const node = model.getNodeById(tabId)
+  if (!(node instanceof TabNode) || node.getComponent() !== NEW_AGENT_TAB_COMPONENT) return false
+
+  model.doAction(
+    Actions.updateNodeAttributes(tabId, {
+      name,
+      component: 'agent',
+      config: { agentId, ...(config ?? {}) },
+      className: withClass(node.getClassName(), AGENT_TAB_SPAWN_FLASH_CLASS),
+      contentClassName: withClass(node.getContentClassName(), AGENT_TAB_SPAWN_FLASH_PANEL_CLASS),
+    }),
+  )
+  model.doAction(Actions.selectTab(tabId))
+  window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
+  return true
+}
+
+/**
+ * The same conversion for the roster's Terminal row, which opens a shell rather
+ * than an agent. Same node, same reason: the pane the person is looking at
+ * becomes the thing they asked for.
+ */
+export function convertNewAgentTabToTerminal(
+  workspaceId: string,
+  tabId: string,
+  terminalId: string,
+  name = 'Terminal',
+): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+  const node = model.getNodeById(tabId)
+  if (!(node instanceof TabNode) || node.getComponent() !== NEW_AGENT_TAB_COMPONENT) return false
+
+  model.doAction(
+    Actions.updateNodeAttributes(tabId, { name, component: 'terminal', config: { terminalId } }),
+  )
+  model.doAction(Actions.selectTab(tabId))
+  return true
+}
+
+/** Close a new-agent tab that was never launched from. Nothing else to undo. */
+export function removeNewAgentTab(workspaceId: string, tabId: string): boolean {
+  const model = models.get(workspaceId)
+  if (!model) return false
+  const node = model.getNodeById(tabId)
+  if (!(node instanceof TabNode) || node.getComponent() !== NEW_AGENT_TAB_COMPONENT) return false
+  deleteTabPreservingRails(model, tabId)
+  return true
+}
+
 // Places a new terminal tab in the layout. Stacks into an existing terminal
 // tabset when one exists so multiple terminals share a tab strip. In Sprint
 // Engine layouts the right-hand "terminals" tabset is shared with agent

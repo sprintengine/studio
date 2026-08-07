@@ -104,6 +104,26 @@ export type PluginSkillInvocation = {
   nativeSlashCommand?: boolean
   explicitMention?: boolean
   implicitInvocation?: boolean
+  /**
+   * The character a person types to name a skill mid-prompt — `/` for a CLI
+   * with real slash commands, `$` for one whose skills are `$`-mentions. Absent
+   * means the CLI has no in-prompt form at all (opencode says "Use the X
+   * skill."), and surfaces that offer a type-ahead must fall back to a picker
+   * rather than inventing a trigger.
+   *
+   * Declared rather than derived: reading the character before `{{skillId}}` in
+   * `explicitTemplate` yields `/`, `$`, and — for the sentence form — `e`.
+   * Right twice and silently wrong once.
+   */
+  mentionPrefix?: string
+  /**
+   * What a picked skill inserts at the caret. Defaults to
+   * `{{mentionPrefix}}{{skillId}}`. Distinct from `explicitTemplate`, which is
+   * the STANDALONE form used to seed a whole prompt (debug launch, connector
+   * chat, backlog handoff) and may be a full sentence — inserting that
+   * mid-sentence would write the user's sentence for them.
+   */
+  mentionTemplate?: string
 }
 
 export type PluginSkillIntegration = {

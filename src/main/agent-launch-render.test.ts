@@ -10,6 +10,7 @@ import {
   pluginIdForCli,
   quotePosixToken,
   renderAgentLaunchArgv,
+  renderAgentLaunchPreview,
   resolveCliRuntimeSettings,
   resolveDebugSkillInvocation,
 } from './agent-launch-render'
@@ -68,6 +69,8 @@ async function main(): Promise<void> {
     testDebugModeOrthogonality()
     testDebugDirectiveReachesRenderedArgvAllPaths()
     testCodexLegacyWindowsDebugInjection()
+    testLaunchPreviewMatchesTheLaunchItPreviews()
+    testLaunchPreviewCarriesEveryControlOnTheRow()
   })
 
   console.log('agent-launch-render tests passed')
@@ -966,6 +969,89 @@ function testCodexLegacyWindowsDebugInjection(): void {
     expectedNoPrompt,
     'codex-legacy: debug-on with empty prompt injects the codex invocation + directive (newlines escaped)',
   )
+}
+
+// MC-2147: the new-agent tab prints the invocation a spawn WOULD make. The
+// value of that line is entirely in it being true, so it is rendered through
+// renderAgentLaunchArgv — these two tests are the proof, and they fail the day
+// someone reimplements the preview by hand.
+function testLaunchPreviewMatchesTheLaunchItPreviews(): void {
+  const cases: Array<{ cli: 'claude-code' | 'codex' | 'opencode'; model?: string; preset?: SprintEngineCliPermissionPreset }> = [
+    { cli: 'claude-code' },
+    { cli: 'claude-code', preset: 'bypass_all', model: 'claude-opus-5' },
+    { cli: 'codex', preset: 'auto_workspace' },
+    { cli: 'opencode', model: 'anthropic/claude-opus-5' },
+  ]
+
+  for (const { cli, model, preset } of cases) {
+    const preview = renderAgentLaunchPreview({
+      cli,
+      cliModel: model,
+      cliPermissionPreset: preset,
+    })
+    // The same inputs through the spawn's own renderer, prompt-free and on the
+    // preview's placeholder session, must produce the identical argv.
+    const launched = renderAgentLaunchArgv({
+      cli,
+      sessionId: 'preview',
+      cliModel: model,
+      cliPermissionPreset: preset,
+    })
+
+    assert.deepEqual(
+      [preview.binary, ...preview.args],
+      launched.argv,
+      `${cli}: the preview must BE the launch argv, not a copy of it`,
+    )
+    assert.equal(
+      preview.display,
+      argvToPosixShellCommand(launched.argv),
+      `${cli}: the display line is the same argv, posix-quoted`,
+    )
+    assert.equal(preview.args.includes('preview'), preview.args.includes('preview'))
+  }
+}
+
+// Every control the argument row offers has to reach the line; a control whose
+// change leaves the receipt unmoved is a control the user cannot verify.
+function testLaunchPreviewCarriesEveryControlOnTheRow(): void {
+  const base = renderAgentLaunchPreview({ cli: 'claude-code' })
+
+  const bypassed = renderAgentLaunchPreview({ cli: 'claude-code', cliPermissionPreset: 'bypass_all' })
+  assert.ok(
+    bypassed.args.includes('--permission-mode') && bypassed.args.includes('bypassPermissions'),
+    'approval reaches the line as the flag it becomes',
+  )
+  assert.notEqual(base.display, bypassed.display, 'changing approval moves the line')
+
+  const withModel = renderAgentLaunchPreview({ cli: 'claude-code', cliModel: 'claude-opus-5' })
+  assert.ok(withModel.args.includes('--model') && withModel.args.includes('claude-opus-5'), 'model reaches the line')
+
+  const withReasoning = renderAgentLaunchPreview({
+    cli: 'claude-code',
+    cliModel: 'claude-opus-5',
+    cliReasoning: 'high',
+  })
+  assert.notEqual(withModel.display, withReasoning.display, 'reasoning moves the line on a CLI that declares levels')
+
+  // Debug is a prompt directive, never a flag (the orthogonality invariant this
+  // file already pins), so the preview has no debug knob at all: with the prompt
+  // withheld, a debug launch and an ordinary one differ only in the prompt token.
+  const debugArgv = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'preview', debugMode: true })
+  const plainArgv = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'preview', debugMode: false })
+  assert.deepEqual(
+    debugArgv.argv.filter((token) => !token.includes(DEBUG_DIRECTIVE)),
+    plainArgv.argv,
+    'debug mode adds a prompt token and moves no flag — which is why the receipt omits it',
+  )
+  assert.equal(base.display, renderAgentLaunchPreview({ cli: 'claude-code' }).display, 'the preview is stable')
+
+  // The runtime override is what actually gets executed, so it is what shows.
+  const overridden = renderAgentLaunchPreview({
+    cli: 'claude-code',
+    cliRuntime: { command: '/opt/homebrew/bin/claude', useWsl: false },
+  })
+  assert.equal(overridden.binary, '/opt/homebrew/bin/claude', 'the receipt names the binary that will run')
 }
 
 main().catch((err) => {
