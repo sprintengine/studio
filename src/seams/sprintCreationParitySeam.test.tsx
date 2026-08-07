@@ -288,7 +288,8 @@ async function main(): Promise<void> {
   assert.ok(automationHandler, 'the automation hook registered its handler')
 
   let requestSeq = 0
-  async function createThroughTheGateway(request: Record<string, unknown>): Promise<InitCall> {
+  type GatewayRun = { init: InitCall; workspaceId: string }
+  async function createThroughTheGateway(request: Record<string, unknown>): Promise<GatewayRun> {
     initCalls.length = 0
     requestSeq += 1
     const requestId = `parity-${requestSeq}`
@@ -315,14 +316,19 @@ async function main(): Promise<void> {
     if (timer) clearTimeout(timer)
     assert.equal(response!.ok, true, `sprint.create failed: ${JSON.stringify(response!)}`)
     assert.equal(initCalls.length, 1, `the gateway initialized exactly one run (got ${initCalls.length})`)
-    return initCalls[0]
+    // The workspace id rides back with the payload: the store accumulates a
+    // workspace per check, so a later assertion that goes looking for "the
+    // sprint workspace" would find the FIRST one and pass on the wrong run.
+    const workspaceId = (response! as { workspaceId?: string }).workspaceId
+    assert.ok(workspaceId, 'the response names the workspace it created')
+    return { init: initCalls[0], workspaceId: workspaceId! }
   }
 
   // ── the parity assertion ──────────────────────────────────────────────────
 
   await check('the same roster produces the same run through the dialog and through sprint.create', async () => {
     const viaDialog = await createThroughTheDialog()
-    const viaGateway = await createThroughTheGateway({ rosterName: ROSTER_NAME, maxConcurrentAgents: CEILING })
+    const viaGateway = (await createThroughTheGateway({ rosterName: ROSTER_NAME, maxConcurrentAgents: CEILING })).init
 
     // The headline: the run each path asks the engine to create is the same run.
     assert.deepEqual(
@@ -347,19 +353,38 @@ async function main(): Promise<void> {
   })
 
   await check('the ceiling the caller sends is the ceiling the dialog would have set', async () => {
-    // The dialog's staffed-roster default (MC-1585) is the value a person sees
-    // pre-filled; an MCP caller reproducing that run must send it, and when it
-    // does the two runs are the same run.
-    const viaGateway = await createThroughTheGateway({ rosterName: ROSTER_NAME, maxConcurrentAgents: 3 })
-    const state = useWorkspaceStore.getState()
-    const gatewayWorkspace = state.workspaces.find((workspace) => workspace.sprintEngineState !== null)
-    assert.ok(gatewayWorkspace, 'the gateway created a sprint workspace')
+    // Read off the run each path ACTUALLY created, by id. The store keeps every
+    // workspace an earlier check made, so "find the sprint workspace" would
+    // answer with the first one and prove nothing about this call.
+    const dialogBefore = new Set(useWorkspaceStore.getState().workspaces.map((workspace) => workspace.id))
+    await createThroughTheDialog()
+    const dialogWorkspace = useWorkspaceStore
+      .getState()
+      .workspaces.find((workspace) => !dialogBefore.has(workspace.id))
+    assert.ok(dialogWorkspace, 'the dialog created a workspace of its own')
+    const dialogCeiling = dialogWorkspace!.sprintEngineAutoState?.maxConcurrentAgents
+    assert.equal(dialogCeiling, 3, 'the dialog pre-fills a staffed roster at 3 (MC-1585)')
+
+    // Sending that same number reproduces that same run — the ceiling is not
+    // re-defaulted, floored, or dropped on the way through the gateway.
+    const gateway = await createThroughTheGateway({ rosterName: ROSTER_NAME, maxConcurrentAgents: dialogCeiling })
+    const gatewayWorkspace = useWorkspaceStore
+      .getState()
+      .workspaces.find((workspace) => workspace.id === gateway.workspaceId)
+    assert.ok(gatewayWorkspace, 'the gateway workspace is the one its response named')
     assert.equal(
       gatewayWorkspace!.sprintEngineAutoState?.maxConcurrentAgents,
-      3,
+      dialogCeiling,
       'the caller\'s ceiling reaches the run rather than being re-defaulted',
     )
-    assert.ok(viaGateway.roleRuntimes, 'and the run still carries its runtimes')
+    // And a ceiling the dialog cannot express is clamped, not honoured raw.
+    const overshoot = await createThroughTheGateway({ rosterName: ROSTER_NAME, maxConcurrentAgents: 99 })
+    assert.equal(
+      useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === overshoot.workspaceId)
+        ?.sprintEngineAutoState?.maxConcurrentAgents,
+      10,
+      'an out-of-range ceiling is clamped to the run maximum, never written through raw',
+    )
   })
 
   await check('neither path gives a run its own MCP server set — both take the app-level one', async () => {
@@ -371,10 +396,22 @@ async function main(): Promise<void> {
     // tools from identical settings, silently.
     for (const [label, init] of [
       ['dialog', await createThroughTheDialog()],
-      ['gateway', await createThroughTheGateway({ rosterName: ROSTER_NAME, maxConcurrentAgents: CEILING })],
+      ['gateway', (await createThroughTheGateway({ rosterName: ROSTER_NAME, maxConcurrentAgents: CEILING })).init],
     ] as const) {
-      const mcpKeys = Object.keys(init).filter((key) => /mcp|connector|server/i.test(key))
-      assert.deepEqual(mcpKeys, [], `the ${label} path recorded a run-scoped MCP set: ${mcpKeys.join(', ')}`)
+      // Walked in full, not just the top level: a run-scoped server set would
+      // most naturally arrive nested (under a settings or runtime member), and
+      // a shallow key scan would wave it straight through.
+      const found: string[] = []
+      const walk = (value: unknown, path: string, depth: number): void => {
+        if (depth > 6 || value === null || typeof value !== 'object') return
+        for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+          const here = path ? `${path}.${key}` : key
+          if (/mcp|connector|(^|\.)servers?$/i.test(here)) found.push(here)
+          walk(child, here, depth + 1)
+        }
+      }
+      walk(init, '', 0)
+      assert.deepEqual(found, [], `the ${label} path recorded a run-scoped MCP set at: ${found.join(', ')}`)
     }
   })
 
