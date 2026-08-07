@@ -92,6 +92,9 @@ export type ModuleRegistrySnapshot = {
   modules: ModuleRegistryEntry[]
 }
 
+// The upper bound `new Date(ms).toISOString()` accepts (ECMAScript time range).
+const MAX_TIMESTAMP_MS = 8.64e15
+
 /** Answer to a push: `ok: false` names why the snapshot was refused. */
 export type ModuleRegistrySnapshotWriteResult = { ok: boolean; message?: string }
 
@@ -104,7 +107,10 @@ export type ModuleRegistrySnapshotWriteResult = { ok: boolean; message?: string 
 export function normalizeModuleRegistrySnapshot(value: unknown): ModuleRegistrySnapshot | null {
   if (!isRecord(value)) return null
   const { capturedAt, channel, modules } = value
+  // Bounded, not merely finite: a consumer formats this as a date, and
+  // `new Date(1e21).toISOString()` throws rather than returning nonsense.
   if (typeof capturedAt !== 'number' || !Number.isFinite(capturedAt)) return null
+  if (capturedAt <= 0 || capturedAt > MAX_TIMESTAMP_MS) return null
   if (channel !== 'development' && channel !== 'production') return null
   if (!Array.isArray(modules)) return null
   const normalized: ModuleRegistryEntry[] = []
