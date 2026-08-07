@@ -33,7 +33,14 @@ from sprintengine_mcp.capabilities import (
     classify_session,
     clear_role_classification_cache,
 )
-from sprintengine_mcp.http_server import SESSION_HEADER, SprintEngineHttpMcpServer
+from sprintengine_mcp.http_server import (
+    METHOD_HEADER,
+    NAME_HEADER,
+    PROTOCOL_VERSION_HEADER,
+    SESSION_HEADER,
+    STATELESS_PROTOCOL_VERSION,
+    SprintEngineHttpMcpServer,
+)
 from sprintengine_mcp.schemas import TOOL_SCHEMAS
 from sprintengine_mcp.tool_contracts import MCP_TOOL_CONTRACTS
 
@@ -563,11 +570,12 @@ def run_http_server(server: SprintEngineMcpServer, token: str):
         httpd.server_close()
 
 
-def post(url: str, token: str, payload: dict, session_id: str | None = None) -> tuple[dict[str, str], dict]:
+def post(url: str, token: str, payload: dict, session_id: str | None = None, extra_headers: dict[str, str] | None = None) -> tuple[dict[str, str], dict]:
     data = json.dumps(payload).encode("utf-8")
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     if session_id:
         headers[SESSION_HEADER] = session_id
+    headers.update(extra_headers or {})
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     with urllib.request.urlopen(request, timeout=5) as response:
         return dict(response.headers.items()), json.loads(response.read().decode("utf-8"))
@@ -620,6 +628,26 @@ def test_http_agent_scoped_registration_filters_listing_and_enforces_calls(tmp_p
         assert claimed_result["ok"] is True
         assert claimed_result["result"]["claimed"] is True
 
+        # The SAME role gate applies with no session at all (item 2141). This is the
+        # security half of making the handshake optional: the role and agent id that
+        # filter the surface come from the registration behind the bearer token, so a
+        # stateless request must not see one tool more than a session-bound one. A
+        # future refactor that resolved stateless context from anything looser would
+        # widen the surface silently, and this is what would catch it.
+        stateless = {PROTOCOL_VERSION_HEADER: STATELESS_PROTOCOL_VERSION, METHOD_HEADER: "tools/list"}
+        _, session_less_listing = post(base_url, run["runToken"], {"jsonrpc": "2.0", "id": 5, "method": "tools/list"}, extra_headers=stateless)
+        assert {tool["name"] for tool in session_less_listing["result"]["tools"]} == names
+
+        _, session_less_denied = post(base_url, run["runToken"], {
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {"name": "sprintengine.plan.add_task", "arguments": {"title": "Sneaky", "role": "developer"}},
+        }, extra_headers={**stateless, METHOD_HEADER: "tools/call", NAME_HEADER: "sprintengine.plan.add_task"})
+        session_less_denied_result = json.loads(session_less_denied["result"]["content"][0]["text"])
+        assert session_less_denied_result["ok"] is False
+        assert session_less_denied_result["error"]["code"] == "tool_not_permitted_for_role"
+
         # Run-scoped registrations (no agentId/role) keep the operator surface.
         _, run_scoped = post(f"{base_url}/runs", "admin-token", {
             "runId": "operator-run",
@@ -629,7 +657,7 @@ def test_http_agent_scoped_registration_filters_listing_and_enforces_calls(tmp_p
             "registryRoots": [],
             "actorId": "multicode-app",
         })
-        op_headers, _ = post(base_url, run_scoped["runToken"], {"jsonrpc": "2.0", "id": 5, "method": "initialize", "params": {}})
-        _, op_listing = post(base_url, run_scoped["runToken"], {"jsonrpc": "2.0", "id": 6, "method": "tools/list"}, op_headers[SESSION_HEADER])
+        op_headers, _ = post(base_url, run_scoped["runToken"], {"jsonrpc": "2.0", "id": 7, "method": "initialize", "params": {}})
+        _, op_listing = post(base_url, run_scoped["runToken"], {"jsonrpc": "2.0", "id": 8, "method": "tools/list"}, op_headers[SESSION_HEADER])
         op_names = {tool["name"] for tool in op_listing["result"]["tools"]}
         assert op_names == set(TOOL_SCHEMAS)

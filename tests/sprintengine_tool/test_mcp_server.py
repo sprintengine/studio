@@ -1719,6 +1719,10 @@ def test_stdio_transport_negotiates_the_protocol_version_instead_of_echoing_it(t
         {"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {"protocolVersion": unsupported}},
         {"jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {}},
         {"jsonrpc": "2.0", "id": 4, "method": "initialize", "params": {"protocolVersion": 20260728}},
+        # The head of the set, asked for by name: the version the HTTP transport
+        # earned by serving session-less requests must be answerable as itself,
+        # not merely reachable as the default.
+        {"jsonrpc": "2.0", "id": 5, "method": "initialize", "params": {"protocolVersion": "2026-07-28"}},
     ]
     completed = subprocess.run(
         [sys.executable, "-m", "sprintengine_mcp", "--allowed-root", str(tmp_path)],
@@ -1743,6 +1747,7 @@ def test_stdio_transport_negotiates_the_protocol_version_instead_of_echoing_it(t
         2: DEFAULT_PROTOCOL_VERSION,
         3: DEFAULT_PROTOCOL_VERSION,
         4: DEFAULT_PROTOCOL_VERSION,
+        5: "2026-07-28",
     }
     assert unsupported not in completed.stdout, "the requested version must never come back to the caller"
     # The TypeScript gateway pins the same literal (automation.test.ts); that pair is
