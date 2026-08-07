@@ -38,6 +38,14 @@ import type {
 import type { SprintEngineArtifactReviewPayload } from '../ipc/sprintengine-ipc'
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type { LoadedPlugin } from '../../shared/plugin-manifest'
+import type { MarketplaceRegistryReadInput } from '../../shared/electron-api'
+import type { MarketplaceComponentKind } from '../../shared/marketplace/manifest'
+import type { CapabilityManifest, ThirdPartyModuleView } from '../../shared/modules/manifest'
+import {
+  EMPTY_MODULE_SURFACES,
+  type ModuleRegistryEntry,
+  type ModuleRegistrySnapshot,
+} from '../../shared/modules/registry-snapshot'
 import type { Workspace } from '../../renderer/src/types/workspace'
 
 function testWorkspace(id: string, overrides: Partial<Workspace> = {}): Workspace {
@@ -118,6 +126,10 @@ type BackendsOverrides = {
   createAgentWorktree?: AutomationBackends['createAgentWorktree']
   listPlugins?: AutomationBackends['listPlugins']
   ensureBuiltinSkillInstalled?: AutomationBackends['ensureBuiltinSkillInstalled']
+  getModuleRegistrySnapshot?: AutomationBackends['getModuleRegistrySnapshot']
+  listInstalledThirdPartyModules?: AutomationBackends['listInstalledThirdPartyModules']
+  listModuleContributedTools?: AutomationBackends['listModuleContributedTools']
+  readMarketplaceRegistry?: AutomationBackends['readMarketplaceRegistry']
 }
 
 function unexpectedCall(name: string): () => never {
@@ -222,6 +234,18 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
       })),
     listPlugins: overrides.listPlugins ?? (() => []),
     ensureBuiltinSkillInstalled: overrides.ensureBuiltinSkillInstalled ?? (async () => true),
+    // module.*/marketplace.*: no registry mirrored and nothing installed unless
+    // a case says otherwise, so the default backends prove the "not reported
+    // yet" path rather than a fabricated empty registry.
+    getModuleRegistrySnapshot: overrides.getModuleRegistrySnapshot ?? (() => null),
+    listInstalledThirdPartyModules:
+      overrides.listInstalledThirdPartyModules ?? (async () => ({ modules: [], rejected: [] })),
+    listModuleContributedTools: overrides.listModuleContributedTools ?? (() => []),
+    readMarketplaceRegistry:
+      overrides.readMarketplaceRegistry
+      ?? (async () => {
+        throw new Error('unexpected readMarketplaceRegistry call')
+      }),
     // Confirmation polling is exercised against static snapshots; collapse the
     // wait so timeout paths run instantly.
     sleep: async () => {},
@@ -330,6 +354,9 @@ async function testToolListNamesTheToolSurface(): Promise<void> {
       'horizon.resume',
       'horizon.skip',
       'horizon.status',
+      'marketplace.list',
+      'module.list',
+      'module.status',
       'sprint.artifact.approve',
       'sprint.artifact.request_changes',
       'sprint.cancel',
@@ -3021,6 +3048,318 @@ async function testReviewToolsRefuseWhileTheModuleIsDisabled(): Promise<void> {
   }
 }
 
+// --- module.* / marketplace.* (MC-2078) --------------------------------------
+
+function registryEntry(
+  manifest: CapabilityManifest,
+  overrides: Partial<ModuleRegistryEntry> = {}
+): ModuleRegistryEntry {
+  return {
+    id: manifest.id,
+    manifest,
+    source: manifest.source ?? 'bundled',
+    enabled: true,
+    absence: null,
+    surfaces: { ...EMPTY_MODULE_SURFACES },
+    ...overrides,
+  }
+}
+
+function registrySnapshot(
+  modules: ModuleRegistryEntry[],
+  channel: ModuleRegistrySnapshot['channel'] = 'development'
+): ModuleRegistrySnapshot {
+  return { capturedAt: Date.parse('2026-08-06T10:00:00Z'), channel, modules }
+}
+
+function installedModuleView(
+  id: string,
+  trust: ThirdPartyModuleView['trust'],
+  launch: Partial<ThirdPartyModuleView['launch']> = {}
+): ThirdPartyModuleView {
+  return {
+    manifest: { id, displayName: `Module ${id}`, version: 3, defaultEnabled: true, source: 'third-party' },
+    trust,
+    launch: { status: 'blocked_unsigned', hasMainEntry: true, expectedToLoad: false, ...launch },
+  }
+}
+
+async function testModuleToolsReportTheRegistryTheUserSees(): Promise<void> {
+  const snapshot = registrySnapshot([
+    registryEntry(
+      {
+        id: 'sprint-engine',
+        displayName: 'Sprint Engine',
+        version: 1,
+        category: 'orchestration',
+        defaultEnabled: true,
+        dependsOn: ['agent-runtime'],
+      },
+      {
+        surfaces: {
+          ...EMPTY_MODULE_SURFACES,
+          globalSurfaces: ['sprints'],
+          workspaceTypes: ['sprintengine'],
+        },
+      }
+    ),
+    registryEntry(
+      { id: 'git', displayName: 'Git panel', version: 1, defaultEnabled: true },
+      { enabled: false, absence: { reason: 'disabled', message: 'Module "git" is not enabled (Settings → Modules).' } }
+    ),
+    registryEntry(
+      {
+        id: 'weather',
+        displayName: 'Weather',
+        version: 2,
+        defaultEnabled: true,
+        source: 'third-party',
+        permissions: ['workspace.read'],
+      }
+    ),
+  ])
+  const tools = createAutomationTools(
+    backendsOf({
+      getModuleRegistrySnapshot: () => snapshot,
+      // `weather` loaded; `sketchy` is installed on disk but never trusted, so
+      // the renderer registry has never heard of it.
+      listInstalledThirdPartyModules: async () => ({
+        modules: [
+          installedModuleView('weather', 'trusted', { status: 'trusted_executable', expectedToLoad: true }),
+          installedModuleView('sketchy', 'unsigned'),
+        ],
+        rejected: [],
+      }),
+      listModuleContributedTools: () => [{ moduleId: 'weather', toolName: 'weather.forecast' }],
+    })
+  )
+
+  const listed = await tool(tools, 'module.list').handler({})
+  const modules = (listed.structuredContent as {
+    modules: Array<{ id: string; source: string; enabled: boolean; installed: boolean; absence: { reason: string } | null; trust?: string }>
+  }).modules
+  assert.deepEqual(
+    modules.map((module) => module.id).sort(),
+    ['git', 'sketchy', 'sprint-engine', 'weather'],
+    'every module the user could see is listed, including an installed-but-untrusted one'
+  )
+  const git = modules.find((module) => module.id === 'git')
+  assert.equal(git?.enabled, false)
+  assert.equal(git?.absence?.reason, 'disabled', 'a switched-off module says so instead of vanishing')
+  const sketchy = modules.find((module) => module.id === 'sketchy')
+  assert.equal(sketchy?.installed, true, 'an untrusted module is still installed')
+  assert.equal(sketchy?.enabled, false)
+  assert.equal(sketchy?.absence?.reason, 'untrusted')
+  assert.equal(sketchy?.trust, 'unsigned')
+  assert.equal(
+    modules.find((module) => module.id === 'weather')?.trust,
+    'trusted',
+    'main-owned trust rides along for a loaded third-party module'
+  )
+
+  const thirdParty = await tool(tools, 'module.list').handler({ source: 'third-party' })
+  assert.deepEqual(
+    (thirdParty.structuredContent as { modules: Array<{ id: string }> }).modules.map((module) => module.id).sort(),
+    ['sketchy', 'weather']
+  )
+  const enabledOnly = await tool(tools, 'module.list').handler({ enabled: true })
+  assert.deepEqual(
+    (enabledOnly.structuredContent as { modules: Array<{ id: string }> }).modules.map((module) => module.id),
+    ['sprint-engine', 'weather']
+  )
+  assert.equal(
+    (await tool(tools, 'module.list').handler({ source: 'nope' })).isError,
+    true,
+    'an unknown source is rejected rather than filtered to nothing'
+  )
+
+  const status = await tool(tools, 'module.status').handler({ id: 'sprint-engine' })
+  const detail = (status.structuredContent as {
+    module: { manifest: { id: string }; dependsOn: string[]; surfaces: { globalSurfaces: string[] }; contributedTools: string[] }
+  }).module
+  assert.equal(detail.manifest.id, 'sprint-engine')
+  assert.deepEqual(detail.dependsOn, ['agent-runtime'])
+  assert.deepEqual(detail.surfaces.globalSurfaces, ['sprints'], 'contributed surfaces are reported, not guessed')
+  assert.deepEqual(detail.contributedTools, [], 'sprint-engine contributes no gateway tool in this fixture')
+  const weatherStatus = await tool(tools, 'module.status').handler({ id: 'weather' })
+  assert.deepEqual(
+    (weatherStatus.structuredContent as { module: { contributedTools: string[]; permissions: string[] } }).module,
+    {
+      ...(weatherStatus.structuredContent as { module: Record<string, unknown> }).module,
+      contributedTools: ['weather.forecast'],
+      permissions: ['workspace.read'],
+    }
+  )
+
+  // An installed-but-untrusted module still reports its own manifest — the
+  // declared permissions are what a caller reads BEFORE deciding to trust it —
+  // and null surfaces, because it registered nothing.
+  const untrusted = await tool(tools, 'module.status').handler({ id: 'sketchy' })
+  const untrustedDetail = (untrusted.structuredContent as {
+    module: { manifest: { id: string } | null; surfaces: unknown; absence: { reason: string }; trust: string }
+  }).module
+  assert.equal(untrustedDetail.manifest?.id, 'sketchy')
+  assert.equal(untrustedDetail.surfaces, null, 'a module that never loaded contributes nothing')
+  assert.equal(untrustedDetail.absence.reason, 'untrusted')
+  assert.equal(untrustedDetail.trust, 'unsigned')
+
+  const unknown = await tool(tools, 'module.status').handler({ id: 'nothing-like-this' })
+  assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_module')
+}
+
+async function testDevOnlyModulesAreAbsentFromAPackagedBuild(): Promise<void> {
+  // A packaged build's renderer registry never carries the dev-only modules —
+  // `activeForChannel` drops them — so the tools must report absence, never a
+  // present-but-disabled row.
+  const tools = createAutomationTools(
+    backendsOf({
+      getModuleRegistrySnapshot: () =>
+        registrySnapshot(
+          [registryEntry({ id: 'backlog', displayName: 'Backlog', version: 1, defaultEnabled: true })],
+          'production'
+        ),
+    })
+  )
+  const listed = await tool(tools, 'module.list').handler({})
+  const listedIds = (listed.structuredContent as { modules: Array<{ id: string }> }).modules.map((m) => m.id)
+  assert.deepEqual(listedIds, ['backlog'], 'no dev-only module appears in a packaged build')
+  assert.equal((listed.structuredContent as { channel: string }).channel, 'production')
+
+  const devOnly = await tool(tools, 'module.status').handler({ id: 'roadmap' })
+  const error = (devOnly.structuredContent as { error: { code: string; message: string } }).error
+  assert.equal(error.code, 'module_not_in_build', 'a dev-only id is absent, not disabled')
+  assert.match(error.message, /development builds/)
+}
+
+async function testModuleToolsRefuseBeforeTheRegistryArrives(): Promise<void> {
+  const tools = createAutomationTools(backendsOf())
+  for (const [name, args] of [
+    ['module.list', {}],
+    ['module.status', { id: 'git' }],
+  ] as Array<[string, Record<string, unknown>]>) {
+    const answered = await tool(tools, name).handler(args)
+    assert.equal(answered.isError, true, `${name} fails explicitly`)
+    assert.equal(
+      (answered.structuredContent as { error: { code: string } }).error.code,
+      'module_registry_unavailable',
+      `${name} never reports an empty registry as fact`
+    )
+  }
+}
+
+async function testMarketplaceListReadsTheSameIndexTheDoorReads(): Promise<void> {
+  const marketplace = {
+    schemaVersion: 1 as const,
+    plugins: [
+      {
+        id: 'weather-module',
+        name: 'Weather',
+        publisher: { name: 'Acme', verified: true },
+        summary: 'Local forecasts in a panel.',
+        category: 'Insight',
+        icon: 'cloud',
+        latest: 3,
+        provides: ['module'] as MarketplaceComponentKind[],
+        source: 'https://example.test/weather.zip',
+        tags: ['forecast'],
+      },
+      {
+        id: 'railway-mcp',
+        name: 'Railway',
+        publisher: { name: 'Railway', verified: false },
+        summary: 'Deploy from an agent.',
+        category: 'Connectivity',
+        icon: 'train',
+        latest: 1,
+        provides: ['mcp'] as MarketplaceComponentKind[],
+      },
+    ],
+  }
+  const reads: Array<MarketplaceRegistryReadInput | undefined> = []
+  const tools = createAutomationTools(
+    backendsOf({
+      readMarketplaceRegistry: async (input) => {
+        reads.push(input)
+        return {
+          ok: true,
+          state: 'ok',
+          registryUrl: 'https://example.test/marketplace.json',
+          source: 'bundled',
+          stale: false,
+          fetchedAt: '2026-08-06T09:00:00.000Z',
+          marketplace,
+        }
+      },
+    })
+  )
+
+  const all = await tool(tools, 'marketplace.list').handler({})
+  const listed = all.structuredContent as {
+    total: number
+    matched: number
+    plugins: Array<{ id: string; signed: boolean; bundleSource?: string }>
+    source: string
+  }
+  assert.equal(listed.total, 2)
+  assert.equal(listed.source, 'bundled', 'the read discloses where the index came from')
+  assert.equal(listed.plugins.find((plugin) => plugin.id === 'weather-module')?.signed, false)
+
+  const modulesOnly = await tool(tools, 'marketplace.list').handler({ provides: 'module' })
+  assert.deepEqual(
+    (modulesOnly.structuredContent as { plugins: Array<{ id: string }> }).plugins.map((plugin) => plugin.id),
+    ['weather-module'],
+    'the module-first facet is a provides filter over the same index'
+  )
+  const searched = await tool(tools, 'marketplace.list').handler({ query: 'RAILWAY' })
+  assert.deepEqual(
+    (searched.structuredContent as { plugins: Array<{ id: string }> }).plugins.map((plugin) => plugin.id),
+    ['railway-mcp']
+  )
+  await tool(tools, 'marketplace.list').handler({ forceRefresh: true })
+  assert.deepEqual(reads, [undefined, undefined, undefined, { forceRefresh: true }])
+  assert.equal(
+    (await tool(tools, 'marketplace.list').handler({ provides: 'widgets' })).isError,
+    true,
+    'an unknown component kind is rejected'
+  )
+
+  const offline = createAutomationTools(
+    backendsOf({
+      readMarketplaceRegistry: async () => ({
+        ok: false,
+        state: 'fetch-error',
+        registryUrl: 'https://example.test/marketplace.json',
+        stale: false,
+        message: 'network unreachable',
+      }),
+    })
+  )
+  const failed = await tool(offline, 'marketplace.list').handler({})
+  assert.equal(failed.isError, true)
+  const failure = (failed.structuredContent as { error: { code: string; message: string } }).error
+  assert.equal(failure.code, 'marketplace_unavailable', 'a failed registry read never renders as an empty catalogue')
+  assert.match(failure.message, /network unreachable/)
+}
+
+async function testModuleAndMarketplaceToolsAreReadOnly(): Promise<void> {
+  // MC-2078 defers install/uninstall/enable to the trust-modelled item, and the
+  // gateway's mutation classifier must agree: none of these tools may be
+  // audited or gated as a mutation.
+  for (const name of ['module.list', 'module.status', 'marketplace.list']) {
+    assert.equal(isStudioGatewayMutation(name), false, `${name} is a read`)
+  }
+  const tools = createAutomationTools(backendsOf())
+  for (const name of ['module.list', 'module.status', 'marketplace.list']) {
+    const schema = tool(tools, name).inputSchema as { additionalProperties?: boolean }
+    assert.equal(schema.additionalProperties, false, `${name} refuses unknown arguments`)
+  }
+  assert.equal(
+    tools.some((registration) => /^module\.(install|uninstall|enable|disable)$/.test(registration.name)),
+    false,
+    'no module mutation reached this surface'
+  )
+}
+
 const tests = [
   testSettingsDefaultOnAndRoundTrip,
   testStudioGatewayStartsDespiteLegacyDisabledSetting,
@@ -3067,6 +3406,11 @@ const tests = [
   testReviewSubmitBriefRejectsSeverityAnnotationKind,
   testReviewToolsRejectUnknownTargetAndStripAbsolutePaths,
   testReviewToolsRefuseWhileTheModuleIsDisabled,
+  testModuleToolsReportTheRegistryTheUserSees,
+  testDevOnlyModulesAreAbsentFromAPackagedBuild,
+  testModuleToolsRefuseBeforeTheRegistryArrives,
+  testMarketplaceListReadsTheSameIndexTheDoorReads,
+  testModuleAndMarketplaceToolsAreReadOnly,
 ]
 
 async function main(): Promise<void> {
