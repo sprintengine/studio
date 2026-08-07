@@ -23,7 +23,7 @@ import { createMarketplacePluginVerifier } from '../marketplace/plugin-verify'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
 import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/trusted-publishers'
 import { createMarketplacePluginInstaller, type MarketplaceAutomationInstaller } from '../modules/plugin-bundle-installer'
-import { readTrustedModulesSync } from '../modules/trust-store'
+import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
 
 export function registerMarketplacePluginIpc(
   ipcMain: IpcMain,
@@ -77,6 +77,13 @@ export function registerMarketplacePluginIpc(
     receiptStorePath: defaultMarketplacePluginInstallStorePath(app.getPath('userData')),
     stagingRoot: defaultMarketplacePluginStagingRoot(app.getPath('userData')),
     resolveSkillHarnesses: () => resolveInstalledSkillHarnesses(),
+    // The trust decision the install prompt already took, written through the
+    // one trust-store writer the Settings toggle uses — so a trusted install
+    // does not land behind a second, identical toggle in Settings → Modules.
+    setModuleTrust: async (id, manifestFp) => {
+      const { result, previous } = await setModuleTrust(app.getPath('userData'), id, manifestFp)
+      return { ...result, previous }
+    },
     log: marketplaceLog,
   })
 

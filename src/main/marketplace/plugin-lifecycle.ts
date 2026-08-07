@@ -32,6 +32,7 @@ import type { MarketplaceResourceResolver } from './resources'
 
 export const MARKETPLACE_PLUGIN_INSTALLS_FILENAME = 'marketplace-plugin-installs.json'
 const RECEIPT_COMPONENT_KINDS = new Set(['mcp', 'skills', 'module', 'cli', 'automation'])
+const MODULE_TRUST_STATUSES = new Set(['trusted', 'signed', 'unsigned', 'invalid'])
 
 export type MarketplacePluginInstallReceipt = {
   id: string
@@ -71,6 +72,19 @@ export type MarketplacePluginLifecycleServices = MarketplacePluginInstallerServi
   resolveSkillHarnesses?: () => Promise<SkillHarness[]>
   /** Test seam for packaged resource resolution (bundled claude-plugin skills). */
   packagedResourceResolver?: MarketplaceResourceResolver
+  /**
+   * Trust-store writer for module components (id → manifest fingerprint; null
+   * revokes), delegating to modules/trust-store.ts so there is still exactly
+   * one writer of that file. Grants happen only after a whole bundle installs;
+   * uninstalling a module component revokes its entry. The returned `previous`
+   * is what the id mapped to before the write, so a failed receipt write can
+   * put the trust store back as it was. Absent, installs still succeed and the
+   * module simply stays awaiting-trust in Settings → Modules.
+   */
+  setModuleTrust?: (
+    id: string,
+    manifestFp: string | null
+  ) => Promise<{ ok: boolean; message?: string; previous?: string | null }>
   log?: MarketplaceInstallLog
 }
 
@@ -262,6 +276,17 @@ export async function installOrUpdateMarketplacePlugin(
       }
     }
 
+    // Marketplace trust grant — only now, after every component installed and
+    // stale components were removed: a failed later component rolls files back,
+    // so no grant may precede full success. The install-prompt trust decision
+    // IS the module trust decision, so a signed module component no longer
+    // lands awaiting a second, identical toggle in Settings → Modules. Bound to
+    // the installed manifest fingerprint, so different bytes under the same id
+    // never inherit it. Only the community tier reaches here with a grant:
+    // verified installs never ask for one, and an unsigned bundle carrying a
+    // module is refused at the signature gate.
+    const granted = await grantModuleComponentTrust(receipt.components, input, services, installClassification)
+
     store.plugins[receipt.id] = receipt
     try {
       await writeInstallStore(services.receiptStorePath, store)
@@ -270,7 +295,10 @@ export async function installOrUpdateMarketplacePlugin(
       const restored = previousSnapshot.snapshot
         ? await restorePreviousInstallSnapshot(previousSnapshot.snapshot, input, services)
         : { ok: true as const }
-      return appendRestoreFailure(appendRollbackFailure({
+      // Last, so the rollback's own module revocations cannot undo it: the
+      // trust store ends exactly as it was before this install.
+      const trustRestored = await restoreModuleComponentTrust(granted, services)
+      return appendTrustRestoreFailure(appendRestoreFailure(appendRollbackFailure({
         ok: false,
         message: `Could not write marketplace plugin install receipt: ${formatError(error)}`,
         sourceUrl: download.sourceUrl,
@@ -279,7 +307,7 @@ export async function installOrUpdateMarketplacePlugin(
         loadEligible: installed.loadEligible,
         installed: receipt.components,
         updated: Boolean(previous),
-      }, rollback), restored)
+      }, rollback), restored), trustRestored)
     }
 
     return {
@@ -744,6 +772,57 @@ async function installClaudeCodePluginEntry(
   }
 }
 
+type ModuleTrustGrant = { id: string; previous: string | null }
+
+// Record the install-prompt trust decision against each signed module the
+// bundle just installed. Mutates each component's receipt message so the user
+// is told what actually happened, including when the trust write failed and the
+// module is installed but still awaiting a Settings toggle.
+async function grantModuleComponentTrust(
+  components: MarketplacePluginInstalledComponent[],
+  input: MarketplacePluginRegistryInstallInput,
+  services: MarketplacePluginLifecycleServices,
+  classification: 'verified' | 'community' | 'unsigned'
+): Promise<ModuleTrustGrant[]> {
+  const granted: ModuleTrustGrant[] = []
+  if (input.trustGranted !== true || !services.setModuleTrust || classification !== 'community') return granted
+  for (const component of components) {
+    // 'signed' is the only status a grant changes: 'trusted' already loads
+    // (first-party publisher key, or an existing grant for these exact bytes).
+    // A module whose OWN manifest carries no signature stays awaiting-trust in
+    // Settings — the bundle signature covers its bytes, but the module identity
+    // a grant binds to is the one the module itself signs.
+    if (component.kind !== 'module' || component.trustStatus !== 'signed' || !component.manifestFp) continue
+    const grant = await services.setModuleTrust(component.id, component.manifestFp)
+    if (grant.ok) {
+      granted.push({ id: component.id, previous: grant.previous ?? null })
+      component.message = 'Installed and trusted; loads on the next app launch.'
+    } else {
+      component.message = `Installed, but recording trust failed (${grant.message ?? 'unknown error'}); trust it from Settings → Modules.`
+    }
+  }
+  return granted
+}
+
+// Put back what each id mapped to before the grant. A restore that itself
+// fails leaves a module trusted whose files were just rolled back, so it is
+// named in the failure message rather than swallowed.
+async function restoreModuleComponentTrust(
+  granted: ModuleTrustGrant[],
+  services: MarketplacePluginLifecycleServices
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const failed: string[] = []
+  for (const entry of granted) {
+    const restore = await services.setModuleTrust?.(entry.id, entry.previous)
+    if (restore && !restore.ok) failed.push(`${entry.id} (${restore.message ?? 'unknown error'})`)
+  }
+  if (failed.length === 0) return { ok: true }
+  return {
+    ok: false,
+    message: `Trust granted during this install could not be taken back for ${failed.join('; ')}. Review these modules in Settings → Modules.`,
+  }
+}
+
 function installedInlineMcpComponent(servers: McpServerConfig[]): MarketplacePluginInstalledComponent {
   return {
     kind: 'mcp',
@@ -788,8 +867,13 @@ export async function uninstallMarketplacePlugin(
 async function uninstallReceipt(
   receipt: MarketplacePluginInstallReceipt,
   input: MarketplacePluginUninstallInput,
-  services: MarketplacePluginLifecycleServices
+  services: MarketplacePluginLifecycleServices,
+  // Removing a module for good retracts its trust decision; undoing a failed
+  // install must NOT — the files being rolled back may be replacing a module
+  // the user trusted earlier, which the snapshot restore is about to put back.
+  options: { revokeModuleTrust?: boolean } = {}
 ): Promise<MarketplacePluginUninstallResult> {
+  const revokeModuleTrust = options.revokeModuleTrust ?? true
   const removed: MarketplacePluginInstalledComponent[] = []
   let nextMcpSettings = input.mcpSettings
 
@@ -804,6 +888,16 @@ async function uninstallReceipt(
           break
         case 'module':
           await rm(moduleInstallPath((services.moduleRoot ?? defaultUserModuleRoot)(), component.id), { recursive: true, force: true })
+          // An orphaned id→fingerprint entry would silently re-trust the same
+          // bytes if they ever came back via a folder drop or another bundle —
+          // so a failed revoke fails the uninstall (the receipt survives and
+          // the retry is idempotent) rather than leaving that entry unseen.
+          if (revokeModuleTrust && services.setModuleTrust) {
+            const revoked = await services.setModuleTrust(component.id, null)
+            if (!revoked.ok) {
+              throw new Error(`Removed module "${component.id}" but could not withdraw its trust: ${revoked.message ?? 'unknown error'}`)
+            }
+          }
           break
         case 'cli':
           await rm(join((services.pluginRoot ?? getPluginRegistryUserRoot)(), component.id), { recursive: true, force: true })
@@ -1049,7 +1143,8 @@ async function rollbackInstalledComponents(
       components,
     },
     { ...input, pluginId, mcpSettings },
-    services
+    services,
+    { revokeModuleTrust: false }
   )
   if (rollback.ok) return { ok: true }
   return { ok: false, message: rollback.message }
@@ -1064,6 +1159,14 @@ function appendRollbackFailure<T extends Extract<MarketplacePluginRegistryInstal
     ...result,
     message: `${result.message} Rollback after failed marketplace install also failed: ${rollback.message}`,
   }
+}
+
+function appendTrustRestoreFailure<T extends Extract<MarketplacePluginRegistryInstallResult, { ok: false }>>(
+  result: T,
+  trustRestore: { ok: true } | { ok: false; message: string }
+): T {
+  if (trustRestore.ok) return result
+  return { ...result, message: `${result.message} ${trustRestore.message}` }
 }
 
 function appendRestoreFailure<T extends Extract<MarketplacePluginRegistryInstallResult, { ok: false }>>(
@@ -1179,6 +1282,18 @@ function validateReceiptComponent(value: unknown, path: string): MarketplacePlug
   if (value.installedDirName !== undefined) {
     if (!isSafeIdentifier(value.installedDirName)) throw new Error(`${path}.installedDirName: installed directory name must be safe.`)
     component.installedDirName = value.installedDirName
+  }
+  if (value.trustStatus !== undefined) {
+    if (!MODULE_TRUST_STATUSES.has(value.trustStatus as string)) {
+      throw new Error(`${path}.trustStatus: unsupported module trust status.`)
+    }
+    component.trustStatus = value.trustStatus as MarketplacePluginInstalledComponent['trustStatus']
+  }
+  if (value.manifestFp !== undefined) {
+    if (typeof value.manifestFp !== 'string' || !/^[0-9a-f]{64}$/.test(value.manifestFp)) {
+      throw new Error(`${path}.manifestFp: manifest fingerprint must be a sha256 hex digest.`)
+    }
+    component.manifestFp = value.manifestFp
   }
   if (value.serverIds !== undefined) component.serverIds = validateStringArray(value.serverIds, `${path}.serverIds`, isSafeIdentifier)
   if (value.harnesses !== undefined) component.harnesses = validateStringArray(value.harnesses, `${path}.harnesses`, isSafeIdentifier) as typeof component.harnesses

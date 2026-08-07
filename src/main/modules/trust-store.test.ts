@@ -27,6 +27,22 @@ async function testRoundTripAndUntrust(): Promise<void> {
   })
 }
 
+// Every write reports what the id mapped to before it, which is what a caller
+// restores when the work the grant belongs to fails afterwards.
+async function testWriteReportsPreviousFingerprint(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const first = await setModuleTrust(dir, 'alpha', 'fp-1')
+    assert.equal(first.previous, null, 'an untrusted id has no previous fingerprint')
+    const regrant = await setModuleTrust(dir, 'alpha', 'fp-2')
+    assert.equal(regrant.previous, 'fp-1')
+    const revoke = await setModuleTrust(dir, 'alpha', null)
+    assert.equal(revoke.previous, 'fp-2')
+    // Restoring what was reported puts the store back as it was.
+    await setModuleTrust(dir, 'alpha', regrant.previous)
+    assert.equal(readTrustedModulesSync(dir).get('alpha'), 'fp-1')
+  })
+}
+
 // Two rapid trust writes must not lose an update (read-modify-write is serialized).
 async function testConcurrentWritesDoNotClobber(): Promise<void> {
   await withTempDir(async (dir) => {
@@ -112,6 +128,7 @@ function testPublisherLockBindsToVerifiedSignerKey(): void {
 
 async function main(): Promise<void> {
   await testRoundTripAndUntrust()
+  await testWriteReportsPreviousFingerprint()
   await testConcurrentWritesDoNotClobber()
   await testMalformedFileIsEmpty()
   testPublisherLockBindsToVerifiedSignerKey()

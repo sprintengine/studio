@@ -345,11 +345,17 @@ async function installModuleComponent(
   if (result.trust.status === 'invalid') {
     return componentFailure('module', `Module "${result.id}" has an invalid signature and was not accepted.`, installed)
   }
+  // No trust mutation here: this runs mid-bundle, while a later component can
+  // still fail and roll every file back. The receipt carries the trust identity
+  // instead, and the lifecycle records the marketplace grant against
+  // `manifestFp` only once the whole install has succeeded.
   return {
     ok: true,
     installed: {
       kind: 'module',
       id: result.id,
+      trustStatus: result.trust.status,
+      manifestFp: result.manifestFp,
       message: `Installed with trust status ${result.trust.status}; load eligible: ${isLoadEligible(result.trust.status) ? 'yes' : 'no'}.`,
     },
   }
@@ -430,7 +436,7 @@ async function prepareComponent(
     case 'skills':
       return prepareSkillComponent(path)
     case 'module':
-      return prepareModuleComponent(path, trustContext)
+      return prepareModuleComponent(path, trustContext, manifest)
     case 'cli':
       return prepareCliComponent(path)
     case 'automation':
@@ -537,7 +543,8 @@ async function prepareSkillComponent(path: string): Promise<{ ok: true; componen
 
 async function prepareModuleComponent(
   path: string,
-  trustContext: ModuleTrustContext
+  trustContext: ModuleTrustContext,
+  bundleManifest: MarketplacePluginAuthoringManifest
 ): Promise<{ ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }> {
   const manifest = await readText(join(path, 'manifest.json'), 'module manifest')
   if (!manifest.ok) return { ok: false, message: 'No manifest.json found in module component.', issues: manifest.issues }
@@ -551,6 +558,23 @@ async function prepareModuleComponent(
       ok: false,
       message: `Module "${parsed.manifest.id}" has an invalid signature and cannot be installed.`,
       issues: [{ path: 'signature', message: 'Invalid signature.' }],
+    }
+  }
+  // The trust prompt discloses the BUNDLE manifest's permissions (see the
+  // header of src/renderer/src/components/settings/installFlow.ts), but the
+  // trust decision ultimately covers the inner module. A module declaring
+  // scopes its bundle never disclosed would make the grant authorize access
+  // the user never saw — refuse the bundle rather than install past it.
+  const disclosed = new Set<string>(bundleManifest.permissions ?? [])
+  const undisclosed = (parsed.manifest.permissions ?? []).filter((permission) => !disclosed.has(permission))
+  if (undisclosed.length > 0) {
+    return {
+      ok: false,
+      message: `Module "${parsed.manifest.id}" declares permissions its plugin bundle does not disclose: ${undisclosed.join(', ')}.`,
+      issues: undisclosed.map((permission) => ({
+        path: 'permissions',
+        message: `"${permission}" is declared by the module manifest but not by plugin.json.`,
+      })),
     }
   }
   return { ok: true, component: { kind: 'module', path, id: parsed.manifest.id, trust } }
