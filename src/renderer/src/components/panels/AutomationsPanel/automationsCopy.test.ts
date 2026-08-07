@@ -46,6 +46,17 @@ function trigger(kind: string, config: unknown = {}): AutomationDefinition['trig
   return { kind, config }
 }
 
+// A cadence reads against the machine's own zone, so the reader is named here
+// rather than left to whatever zone the test host happens to be in — otherwise
+// these assertions pass or fail by geography. AT is only used to resolve a zone
+// label (Dublin is IST in July, GMT in January), so it is pinned too.
+const READER_ZONE = 'Europe/Dublin'
+const AT = new Date('2026-07-30T12:00:00.000Z')
+
+function summary(trigger: AutomationDefinition['trigger']): string {
+  return cadenceSummary(trigger, AT, READER_ZONE)
+}
+
 // --- Action labels (T2 AC#1) -----------------------------------------------
 
 run('maps every known action kind to a sentence-case label', () => {
@@ -95,9 +106,14 @@ run('falls back to the raw kind for an unknown trigger family', () => {
 
 run('schedule rows keep their cadence summary as the detail', () => {
   const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
-    trigger('schedule', { kind: 'schedule', timezone: 'UTC', cadence })
-  assert.equal(triggerDetail(schedule({ type: 'interval', everyMinutes: 120 })), 'Every 2h')
-  assert.equal(triggerDetail(schedule({ type: 'daily', timeLocal: '09:00' })), 'Daily at 09:00')
+    trigger('schedule', { kind: 'schedule', timezone: READER_ZONE, cadence })
+  assert.equal(triggerDetail(schedule({ type: 'interval', everyMinutes: 120 }), AT, READER_ZONE), 'Every 2h')
+  assert.equal(triggerDetail(schedule({ type: 'daily', timeLocal: '09:00' }), AT, READER_ZONE), 'Daily at 09:00')
+  // The list row carries the same zone qualifier the summary does.
+  assert.equal(
+    triggerDetail(trigger('schedule', { kind: 'schedule', timezone: 'UTC', cadence: { type: 'daily', timeLocal: '09:00' } }), AT, READER_ZONE),
+    'Daily at 09:00 UTC',
+  )
 })
 
 run('repo-event detail is config-specific (provider + events), not the family word', () => {
@@ -124,12 +140,38 @@ run('returns null detail for an unknown non-schedule family (family label stands
 
 run('still renders schedule cadences for the four cadence types', () => {
   const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
+    trigger('schedule', { kind: 'schedule', timezone: READER_ZONE, cadence })
+  assert.equal(summary(schedule({ type: 'interval', everyMinutes: 30 })), 'Every 30 min')
+  assert.equal(summary(schedule({ type: 'interval', everyMinutes: 120 })), 'Every 2h')
+  assert.equal(summary(schedule({ type: 'daily', timeLocal: '09:00' })), 'Daily at 09:00')
+  assert.equal(summary(schedule({ type: 'weekly', timeLocal: '08:30', daysOfWeek: [1, 3] })), 'Weekly · Mon, Wed at 08:30')
+  assert.equal(summary(schedule({ type: 'cron', expression: '0 9 * * 1' })), 'Cron · 0 9 * * 1')
+})
+
+// --- A cadence written somewhere else is named (item 2039) -----------------
+// A catalogue install now resolves the schedule into the installing user's own
+// zone, so the bare wall-clock above IS the reader's. A record that predates
+// that rule — or one a module authored elsewhere — must not read as if it were.
+
+run('leaves a cadence in the reader’s own zone unqualified', () => {
+  const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
+    trigger('schedule', { kind: 'schedule', timezone: READER_ZONE, cadence })
+  assert.equal(summary(schedule({ type: 'daily', timeLocal: '02:00' })), 'Daily at 02:00')
+  assert.equal(summary(schedule({ type: 'at', datetime: '2026-08-01T09:30' })), 'Once at 2026-08-01 09:30')
+})
+
+run('names the zone of a cadence written in someone else’s', () => {
+  const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
     trigger('schedule', { kind: 'schedule', timezone: 'UTC', cadence })
-  assert.equal(cadenceSummary(schedule({ type: 'interval', everyMinutes: 30 })), 'Every 30 min')
-  assert.equal(cadenceSummary(schedule({ type: 'interval', everyMinutes: 120 })), 'Every 2h')
-  assert.equal(cadenceSummary(schedule({ type: 'daily', timeLocal: '09:00' })), 'Daily at 09:00')
-  assert.equal(cadenceSummary(schedule({ type: 'weekly', timeLocal: '08:30', daysOfWeek: [1, 3] })), 'Weekly · Mon, Wed at 08:30')
-  assert.equal(cadenceSummary(schedule({ type: 'cron', expression: '0 9 * * 1' })), 'Cron · 0 9 * * 1')
+  // The pre-2039 starter as it sits in an existing store: 02:00 UTC is 03:00 for
+  // this reader in July, and the row says which 02:00 it means.
+  assert.equal(summary(schedule({ type: 'daily', timeLocal: '02:00' })), 'Daily at 02:00 UTC')
+  assert.equal(
+    summary(schedule({ type: 'weekly', timeLocal: '08:30', daysOfWeek: [1] })),
+    'Weekly · Mon at 08:30 UTC',
+  )
+  // An interval names no wall-clock, so there is nothing to qualify.
+  assert.equal(summary(schedule({ type: 'interval', everyMinutes: 120 })), 'Every 2h')
 })
 
 // --- Operational overview (T6): engine health + runs feed -------------------

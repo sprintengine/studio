@@ -41,6 +41,7 @@ import {
 } from '../shared/automations/contracts'
 import { createDefinitionWriteCore } from '../main/automations/definition-write'
 import { allowAutomationProvider, createBuiltInAutomationProviderRegistry } from '../main/automations/provider-registry'
+import { computeNextRun, validateScheduleTriggerConfig } from '../main/automations/schedule'
 import { AutomationsStore } from '../main/automations/store'
 import {
   WRITE_UP_ONLY_INSTRUCTION,
@@ -69,6 +70,12 @@ const STARTER_IDS = [
 
 const FIXED_NOW = Date.parse('2026-07-30T12:00:00.000Z')
 
+// The seam installs as a user somewhere the starters were not authored in, which
+// is every user: the payloads ship UTC and the install resolves the schedule
+// into the installing machine's zone (item 2039). Pinned rather than read off
+// the host so the instants below hold wherever this runs.
+const INSTALLING_USER_ZONE = 'Australia/Sydney'
+
 function writeCore() {
   const registry = createBuiltInAutomationProviderRegistry()
   const changed: string[] = []
@@ -78,6 +85,7 @@ function writeCore() {
     getActionProviderRegistrations: () => registry.listActionProviderRegistrations(),
     checkProviderPermission: allowAutomationProvider,
     now: () => FIXED_NOW,
+    hostTimeZone: () => INSTALLING_USER_ZONE,
     onDefinitionsChanged: (workspaceRoot) => {
       changed.push(workspaceRoot)
     },
@@ -170,6 +178,22 @@ async function assertEveryShippedStarterSurvivesTheWholeChain(): Promise<void> {
       assert.notEqual(definition.id, starter.manifest.id, `${id}: the catalogue id never becomes the store id`)
       assert.equal(definition.runInWorktree, undefined, `${id}: a starter cannot opt the user out of isolation`)
       assert.notEqual(definition.nextRunAt, null, `${id}: scheduled at install, not at the next restart`)
+
+      // The payload's UTC does not survive the install: the authored wall-clock
+      // is kept and read in the installing user's zone, so "nightly" is nightly
+      // for them rather than mid-afternoon (item 2039).
+      const schedule = validateScheduleTriggerConfig(definition.trigger.config)
+      const authored = validateScheduleTriggerConfig((starter.payload.trigger as { config: unknown }).config)
+      assert.ok(schedule.ok, `${id}: an installed schedule must validate`)
+      assert.ok(authored.ok, `${id}: so must the payload's own`)
+      assert.equal(authored.value.timezone, 'UTC', `${id}: the payload ships the author's zone`)
+      assert.equal(schedule.value.timezone, INSTALLING_USER_ZONE, `${id}: the record carries the installing user's`)
+      assert.deepEqual(schedule.value.cadence, authored.value.cadence, `${id}: the authored wall-clock is untouched`)
+      assert.notEqual(
+        definition.nextRunAt,
+        new Date(computeNextRun(authored.value, FIXED_NOW) ?? 0).toISOString(),
+        `${id}: so it is not armed at the instant the payload's UTC would have given`,
+      )
       assert.deepEqual(changed, [root], `${id}: open surfaces are told the project's definitions changed`)
 
       // T2: the retired field is on neither the record nor the file.

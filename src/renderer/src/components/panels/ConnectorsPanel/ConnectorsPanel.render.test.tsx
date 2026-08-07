@@ -462,11 +462,15 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
   assert.equal(notAdded.health, 'neutral')
   assert.equal(notAdded.action, 'get')
 
+  // The install resolves a catalogue schedule into the zone of the machine that
+  // adds it (item 2039), so the record this shelf reads back is in the reader's
+  // own zone — which is why the row's 02:00 needs no qualifier.
+  const hostZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const definition = {
     id: 'auto-1',
     name: 'Dead code sweep',
     status: 'enabled',
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '02:00' }, timezone: 'UTC' } },
+    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '02:00' }, timezone: hostZone } },
     action: { kind: 'spawn-agent', config: { prompt: 'Find code nothing reaches.' } },
     sourceCatalogueId: 'multicode.dead-code-sweep',
     nextRunAt: null,
@@ -480,6 +484,16 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
   assert.equal(added.stateLine, 'Added — Daily at 02:00', 'the state line names the schedule the project actually holds')
   assert.equal(added.health, 'good', 'the dot follows the state, and is not a trust tier')
   assert.equal(added.action, 'open', 'an automation already in this project cannot be got again')
+
+  // A record added before that rule still sits in stores, written in a zone that
+  // is not the reader's. The row names that zone rather than showing a 02:00 the
+  // reader would take for theirs.
+  const foreign = automationShelfRowState(
+    entry,
+    { ...definition, trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '02:00' }, timezone: hostZone === 'UTC' ? 'Asia/Kolkata' : 'UTC' } } } as AutomationDefinition,
+    true,
+  )
+  assert.match(foreign.stateLine, /^Added — Daily at 02:00 \S+/, 'a cadence written elsewhere is qualified with its zone')
 
   // A paused one is still added — the state line says which, rather than
   // reading as if it were still on the shelf.

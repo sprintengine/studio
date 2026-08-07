@@ -52,6 +52,33 @@ export function scheduleCadenceSummaryWithZone(config: ScheduleTriggerConfig, at
   return zone ? `${summary} ${zone}` : summary
 }
 
+/**
+ * The cadence as read by someone who DOES share the desktop's clock — the panel,
+ * the shelf aside, the editor. A schedule written in the reader's own zone needs
+ * no qualifier: "Daily at 03:30" is their 03:30, which is what a catalogue
+ * install now guarantees (`localiseCatalogueSchedule`, src/main/automations/
+ * definition-write.ts, item 2039). A schedule written in any OTHER zone — a
+ * record installed before that rule, or one a module authored — is named, so a
+ * surface never shows a wall-clock the reader would read as theirs when it is
+ * not. `interval` names no wall-clock, so it is never qualified.
+ *
+ * Zones are compared by name, not by current offset: a name match is stable
+ * across DST, where an offset match would make the qualifier appear and vanish
+ * twice a year for the same pair. The cost is a redundant-but-true "GMT" for a
+ * London reader of a UTC schedule in winter.
+ */
+export function scheduleCadenceSummaryForReader(
+  config: ScheduleTriggerConfig,
+  at: Date,
+  readerTimeZone: string,
+): string {
+  if (config.cadence.type === 'interval') return scheduleCadenceSummary(config)
+  const written = config.timezone.trim().toLowerCase()
+  const reader = readerTimeZone.trim().toLowerCase()
+  if (written && written === reader) return scheduleCadenceSummary(config)
+  return scheduleCadenceSummaryWithZone(config, at)
+}
+
 // "PDT", "UTC", "GMT+5:30" — whatever the runtime's zone data has for that instant.
 // Null when the zone is unknown to the runtime (Intl throws on an invalid zone) or
 // the instant is invalid: the caller then leaves the cadence unqualified rather

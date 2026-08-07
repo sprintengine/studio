@@ -614,7 +614,13 @@ export function automationDetailFacts(
   }
   return [
     { term: 'Runs in', description: 'Its own worktree and branch' },
-    { term: 'Starts', description: 'Enabled, on its own schedule' },
+    // The cadence itself is unknown before the add, but the zone it will be read
+    // in is not: the install resolves a catalogue schedule to this machine's zone
+    // (`localiseCatalogueSchedule`, src/main/automations/definition-write.ts), so
+    // an authored "nightly at 02:00" is 02:00 here. Said before Get, because
+    // after Get the cadence row says the resolved time and this is the only
+    // place the guarantee behind it can be read.
+    { term: 'Starts', description: 'Enabled, on its own schedule in your timezone' },
     { term: 'Adds to', description: workspaceRoot ? projectName(workspaceRoot) : 'No project is open' },
     // Last, because it is the last thing read before Get: that this will run an
     // agent unattended with permissions bypassed is the most consequential fact

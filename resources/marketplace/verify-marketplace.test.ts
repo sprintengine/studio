@@ -374,6 +374,13 @@ function testStarterPayloadsInstallAndArm(): void {
     const schedule = validateScheduleTriggerConfig(draft.value.trigger.config)
     assert.ok(schedule.ok, `${starter.id} schedule must validate`)
     assert.deepEqual(schedule.value.cadence, { type: 'daily', timeLocal: starter.timeLocal })
+    // The authored zone, which is a placeholder and not what any user gets:
+    // the install stamps the installing machine's own zone over it, so an
+    // authored 02:00 is 02:00 wherever the starter is added (item 2039,
+    // `localiseCatalogueSchedule` in src/main/automations/definition-write.ts;
+    // the install-side proof is in that file's tests and the shelf e2e). What
+    // this asserts is that the payload carries a zone the schedule validator
+    // accepts, so a starter still parses on a host that cannot name its own.
     assert.equal(schedule.value.timezone, 'UTC')
     assert.ok(computeNextRun(schedule.value, Date.parse('2026-07-30T12:00:00Z')) !== null)
 

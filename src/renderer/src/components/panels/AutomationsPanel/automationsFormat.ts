@@ -21,7 +21,7 @@ import {
   type TriggerKind,
   type WebhookTriggerConfig,
 } from '../../../../../shared/automations/contracts'
-import { WEEKDAY_SHORT, formatAtDatetime, scheduleCadenceSummary } from '../../../../../shared/automations/cadence'
+import { WEEKDAY_SHORT, formatAtDatetime, scheduleCadenceSummaryForReader } from '../../../../../shared/automations/cadence'
 import { TRACKER_PROVIDER_LABEL } from '../../../../../shared/tracker/provider-label'
 import type { TrackerProviderId } from '../../../../../shared/tracker/types'
 import { relativeFromNow } from '../../../utils/relativeTime'
@@ -150,11 +150,21 @@ export function triggerFamilyLabel(trigger: AutomationDefinition['trigger']): st
 // Schedule cadences render through the shared rule (shared/automations/cadence.ts),
 // which the mobile snapshot projection renders through too. Only the non-schedule
 // fallback is panel copy.
-export function cadenceSummary(trigger: AutomationDefinition['trigger']): string {
+//
+// The reader is this desktop, so a cadence written in this machine's own zone
+// renders bare and one written elsewhere is qualified with its zone
+// (`scheduleCadenceSummaryForReader`). Both arguments are defaulted rather than
+// threaded through every caller: every desktop surface has the same reader, and
+// there is no second answer for any of them to pass.
+export function cadenceSummary(
+  trigger: AutomationDefinition['trigger'],
+  at: Date = new Date(),
+  readerTimeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone,
+): string {
   if (trigger.kind !== SCHEDULE_TRIGGER_KIND || !isScheduleConfig(trigger.config)) {
     return TRIGGER_SUMMARY[trigger.kind] ?? trigger.kind
   }
-  return scheduleCadenceSummary(trigger.config)
+  return scheduleCadenceSummaryForReader(trigger.config, at, readerTimeZone)
 }
 
 // Config-specific repo-event detail for the list's supporting line ('GitHub
@@ -196,9 +206,13 @@ function webhookDetail(config: unknown): string | null {
 // webhook path) or null when none exists — the caller then shows the family label
 // on its own. cadenceSummary stays the standalone summary used where no family
 // prefix precedes it (the detail pane's Trigger meta).
-export function triggerDetail(trigger: AutomationDefinition['trigger']): string | null {
+export function triggerDetail(
+  trigger: AutomationDefinition['trigger'],
+  at?: Date,
+  readerTimeZone?: string,
+): string | null {
   if (trigger.kind === SCHEDULE_TRIGGER_KIND) {
-    return isScheduleConfig(trigger.config) ? cadenceSummary(trigger) : null
+    return isScheduleConfig(trigger.config) ? cadenceSummary(trigger, at, readerTimeZone) : null
   }
   if (trigger.kind === REPO_EVENT_TRIGGER_KIND) return repoEventDetail(trigger.config)
   if (trigger.kind === WEBHOOK_TRIGGER_KIND) return webhookDetail(trigger.config)

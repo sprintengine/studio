@@ -8,6 +8,7 @@ import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from '../../shared/automations/
 import { SPRINT_ENGINE_START_ACTION_KIND } from './actions/sprint-engine'
 import { createDefinitionWriteCore, parseDefinitionDraft, parseDefinitionPatch } from './definition-write'
 import { allowAutomationProvider, createBuiltInAutomationProviderRegistry } from './provider-registry'
+import { validateScheduleTriggerConfig } from './schedule'
 import { AutomationsStore } from './store'
 
 function draftInput(overrides: {
@@ -89,7 +90,7 @@ const CATALOGUE_PAYLOAD = {
   action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
 }
 
-function catalogueWriteCore(now = Date.parse('2026-07-30T12:00:00.000Z')) {
+function catalogueWriteCore(now = Date.parse('2026-07-30T12:00:00.000Z'), hostTimeZone?: () => string) {
   const registry = createBuiltInAutomationProviderRegistry()
   const changed: string[] = []
   const core = createDefinitionWriteCore({
@@ -98,6 +99,7 @@ function catalogueWriteCore(now = Date.parse('2026-07-30T12:00:00.000Z')) {
     getActionProviderRegistrations: () => registry.listActionProviderRegistrations(),
     checkProviderPermission: allowAutomationProvider,
     now: () => now,
+    ...(hostTimeZone ? { hostTimeZone } : {}),
     onDefinitionsChanged: (workspaceRoot) => {
       changed.push(workspaceRoot)
     },
@@ -234,6 +236,147 @@ async function assertUnknownTriggerProviderWritesNothing(): Promise<void> {
   })
 }
 
+// ── Catalogue schedules are local to whoever adds them (item 2039) ───────────
+
+// The payload's zone is the author's, and every starter ships UTC — so before
+// this, "nightly at 03:00" fired at 03:00 UTC, which is 13:00 in Sydney.
+const SYDNEY = () => 'Australia/Sydney'
+
+function storedSchedule(definition: { trigger: { config: unknown } }): { timezone: string; cadence: unknown } {
+  const validated = validateScheduleTriggerConfig(definition.trigger.config)
+  assert.ok(validated.ok, 'an installed schedule must validate')
+  return { timezone: validated.value.timezone, cadence: validated.value.cadence }
+}
+
+async function assertInstallResolvesTheCadenceIntoTheInstallingUsersZone(): Promise<void> {
+  await withProjectRoots(1, async ([root]) => {
+    const { core } = catalogueWriteCore(undefined, SYDNEY)
+    const installed = await core.installFromCatalogue(root, {
+      payload: CATALOGUE_PAYLOAD,
+      sourceCatalogueId: 'multicode.nightly-sweep',
+    })
+
+    assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
+    if (!installed.ok) return
+    const schedule = storedSchedule(installed.value.definition)
+    assert.equal(schedule.timezone, 'Australia/Sydney', 'the installing user\'s zone, not the payload\'s')
+    assert.deepEqual(schedule.cadence, { type: 'daily', timeLocal: '03:00' }, 'the authored wall-clock is untouched')
+
+    // 03:00 Sydney (UTC+10 in July) after 2026-07-30T12:00Z — not the 03:00 UTC
+    // the payload would have produced.
+    assert.equal(installed.value.definition.nextRunAt, '2026-07-30T17:00:00.000Z', 'it fires at 03:00 where the user is')
+    assert.notEqual(installed.value.definition.nextRunAt, '2026-07-31T03:00:00.000Z')
+
+    const stored = await new AutomationsStore(root).getDefinition(installed.value.definition.id)
+    assert.equal(stored.ok, true)
+    if (!stored.ok) return
+    assert.equal(storedSchedule(stored.value).timezone, 'Australia/Sydney', 'and that is what is on disk')
+  })
+}
+
+// A one-shot `at` is a local wall-clock like daily/weekly, not a fixed global
+// instant: a catalogue payload is a template every reader installs at a
+// different moment, so there is no single instant its author could have meant.
+async function assertOneShotAndIntervalFollowTheSameOneRule(): Promise<void> {
+  await withProjectRoots(2, async ([oneShotRoot, intervalRoot]) => {
+    const { core } = catalogueWriteCore(undefined, SYDNEY)
+
+    const oneShot = await core.installFromCatalogue(oneShotRoot, {
+      payload: {
+        ...CATALOGUE_PAYLOAD,
+        trigger: {
+          kind: 'schedule',
+          config: { kind: 'schedule', cadence: { type: 'at', datetime: '2026-08-01T09:00' }, timezone: 'UTC' },
+        },
+      },
+      sourceCatalogueId: 'multicode.one-shot',
+    })
+    assert.equal(oneShot.ok, true, oneShot.ok ? '' : oneShot.message)
+    if (!oneShot.ok) return
+    assert.equal(storedSchedule(oneShot.value.definition).timezone, 'Australia/Sydney', 'an `at` is localised too')
+    // 09:00 Sydney on 1 August, not 09:00 UTC.
+    assert.equal(oneShot.value.definition.nextRunAt, '2026-07-31T23:00:00.000Z')
+
+    // An interval names no wall-clock, so localising its zone changes nothing
+    // about when it runs — it is rewritten anyway rather than special-cased.
+    const interval = await core.installFromCatalogue(intervalRoot, {
+      payload: {
+        ...CATALOGUE_PAYLOAD,
+        trigger: {
+          kind: 'schedule',
+          config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' },
+        },
+      },
+      sourceCatalogueId: 'multicode.interval',
+    })
+    assert.equal(interval.ok, true, interval.ok ? '' : interval.message)
+    if (!interval.ok) return
+    assert.equal(storedSchedule(interval.value.definition).timezone, 'Australia/Sydney')
+    assert.equal(interval.value.definition.nextRunAt, '2026-07-30T12:30:00.000Z', 'the cadence is unaffected')
+  })
+}
+
+// The resolution is an install default, not a read rule: once the record is the
+// user's, their own edit is the only thing that moves it.
+async function assertAUsersOwnEditIsNeverRelocalised(): Promise<void> {
+  await withProjectRoots(1, async ([root]) => {
+    const { core } = catalogueWriteCore(undefined, SYDNEY)
+    const installed = await core.installFromCatalogue(root, {
+      payload: CATALOGUE_PAYLOAD,
+      sourceCatalogueId: 'multicode.nightly-sweep',
+    })
+    assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
+    if (!installed.ok) return
+
+    // The user moves it to a zone that is not theirs — a deliberate choice the
+    // app must not correct.
+    const edited = await core.update(root, installed.value.definition.id, {
+      trigger: {
+        kind: 'schedule',
+        config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:15' }, timezone: 'Europe/Dublin' },
+      },
+    })
+    assert.equal(edited.ok, true, edited.ok ? '' : edited.message)
+    if (!edited.ok) return
+    assert.deepEqual(storedSchedule(edited.value), {
+      timezone: 'Europe/Dublin',
+      cadence: { type: 'daily', timeLocal: '09:15' },
+    })
+
+    const reread = await new AutomationsStore(root).getDefinition(installed.value.definition.id)
+    assert.equal(reread.ok, true)
+    if (!reread.ok) return
+    assert.equal(storedSchedule(reread.value).timezone, 'Europe/Dublin', 'a later read re-localises nothing')
+
+    // Nor does a second Get for the same entry rewrite the record already there.
+    const again = await core.installFromCatalogue(root, {
+      payload: CATALOGUE_PAYLOAD,
+      sourceCatalogueId: 'multicode.nightly-sweep',
+    })
+    assert.equal(again.ok, true, again.ok ? '' : again.message)
+    if (!again.ok) return
+    assert.equal(again.value.alreadyAdded, true)
+    assert.equal(storedSchedule(again.value.definition).timezone, 'Europe/Dublin')
+  })
+}
+
+// A host that cannot name a usable zone must not cost the user the install: the
+// payload's own zone stays, which is exactly what shipped before this rule.
+async function assertAnUnusableHostZoneLeavesThePayloadAlone(): Promise<void> {
+  await withProjectRoots(2, async ([blankRoot, bogusRoot]) => {
+    for (const [root, zone, id] of [
+      [blankRoot, '', 'multicode.no-zone'],
+      [bogusRoot, 'Mars/Olympus_Mons', 'multicode.bogus-zone'],
+    ] as const) {
+      const { core } = catalogueWriteCore(undefined, () => zone)
+      const installed = await core.installFromCatalogue(root, { payload: CATALOGUE_PAYLOAD, sourceCatalogueId: id })
+      assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
+      if (!installed.ok) return
+      assert.equal(storedSchedule(installed.value.definition).timezone, 'UTC', `"${zone}" is not stamped over the payload`)
+    }
+  })
+}
+
 function assertProvenanceCannotBePatchedOrForged(): void {
   const forged = parseDefinitionDraft({
     ...CATALOGUE_PAYLOAD,
@@ -264,6 +407,10 @@ async function main(): Promise<void> {
   await assertSameEntryInstallsIndependentlyIntoTwoProjects()
   await assertMalformedPayloadWritesNothing()
   await assertUnknownTriggerProviderWritesNothing()
+  await assertInstallResolvesTheCadenceIntoTheInstallingUsersZone()
+  await assertOneShotAndIntervalFollowTheSameOneRule()
+  await assertAUsersOwnEditIsNeverRelocalised()
+  await assertAnUnusableHostZoneLeavesThePayloadAlone()
   console.log('automations definition-write chain-default and catalogue-install tests passed')
 }
 

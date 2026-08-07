@@ -345,7 +345,10 @@ function compareLocalDateTime(left: LocalDateTime, right: LocalDateTime): number
   )
 }
 
-function isValidTimeZone(timeZone: string): boolean {
+// Exported because the catalogue install path resolves a zone of its own (the
+// host's) and must hold it to the same bar the config field is held to, rather
+// than keeping a second opinion about what a usable zone is.
+export function isValidTimeZone(timeZone: string): boolean {
   try {
     formatterForTimeZone(timeZone)
     return true
