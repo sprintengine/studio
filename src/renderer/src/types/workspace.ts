@@ -457,6 +457,7 @@ export type AgentCliModelSelection = {
 export type NewChatAgentChoice =
   | { kind: 'general' }
   | { kind: 'terminal' }
+  | { kind: 'conversation' }
   | { kind: 'specialist'; specialistId: SpecialistActionId }
 
 export type AppSettings = {

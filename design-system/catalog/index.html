@@ -6720,18 +6720,36 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     color: var(--sem-color-text-default);
     font-weight: var(--sem-font-weight-regular);
   }
-.ds-embed-pattern-context-rail .cr-back {
+.ds-embed-pattern-context-rail .cr-bar {
     display: flex;
     align-items: center;
     gap: var(--sem-space-sm);
-    padding: var(--sem-space-sm) var(--sem-space-lg);
+    flex: none;
+    height: 36px;
+    padding: 0 var(--sem-space-md);
+    border-bottom: 1px solid var(--sem-color-border-subtle);
+    background: var(--sem-color-bg-surface);
+  }
+.ds-embed-pattern-context-rail .cr-bar-title {
+    font-size: var(--sem-font-size-body);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+.ds-embed-pattern-context-rail .cr-back {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    padding: 0;
     border: 0;
-    border-top: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-control);
     background: transparent;
     color: var(--sem-color-text-muted);
-    font: inherit;
-    font-size: var(--sem-font-size-meta);
-    text-align: left;
     cursor: pointer;
   }
 .ds-embed-pattern-context-rail .cr-back:hover {
@@ -6741,6 +6759,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-pattern-context-rail .cr-back:focus-visible {
     outline: var(--sem-focus-ring);
     outline-offset: var(--sem-focus-ring-offset);
+  }
+.ds-embed-pattern-context-rail .cr-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
 .ds-embed-pattern-context-rail .cr-glyph {
     width: var(--sem-icon-size-sm);
@@ -9577,14 +9601,26 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </div>
 </div>
 <div class="catalog-doc">
-<p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
-<p>The filter-as-you-type input over a listbox — for choosing from a set large enough to search. <code>Select</code> is select-only by design, so every filterable case rebuilt the pattern: five bespoke listboxes ship today (<code>CliModelPicker</code>, <code>SkillPickerPopover</code>, <code>CommandPalette</code>, <code>agentComposer/AgentComposerPopover.tsx</code>, and <code>newSprint/NewSprintDialog.tsx</code>'s own <code>role=&quot;listbox&quot;</code>), each re-owning typeahead, active-option state, and keyboard handling. This entry replaces those with one WAI-ARIA combobox contract on the shared popover surface — <code>CommandPalette.tsx</code> already has the correct ARIA and is the reference implementation the primitive should share bones with, not duplicate.</p>
+<p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>. <strong>Keyboard model ruled and adopted 2026-08-06</strong> (MC-2134) — see the ruling below.</p>
+<p>The filter-as-you-type input over a listbox — for choosing from a set large enough to search. <code>Select</code> is select-only by design, so every filterable case rebuilt the pattern, and the rebuilds disagreed about the part that matters least visually and most functionally: <strong>the keyboard model</strong>. This entry is the one contract they now share.</p>
 <h4>As shipped</h4>
-<p>The ARIA is <code>CommandPalette</code>'s, as intended: <strong>the input is the combobox and keeps focus throughout</strong>, options are never focused, and the highlighted one is named by <code>aria-activedescendant</code>. That is what lets typing and arrowing work at the same time — moving real focus onto an option takes it off the field, and the next keystroke goes nowhere. This is the thing the five bespoke versions each got differently.</p>
-<p>| Key | Behaviour | |---|---| | <code>↑</code> / <code>↓</code> | move the active option, skipping disabled rows | | <code>Home</code> / <code>End</code> | jump to the ends | | <code>Enter</code> | commit the active option | | <code>Escape</code> | close the list only — <code>stopPropagation</code>, so a dialog hosting a combobox does not close with it |</p>
+<p>The ARIA is <code>CommandPalette</code>'s: <strong>the input is the combobox and keeps focus throughout</strong>, options are never focused, and the highlighted one is named by <code>aria-activedescendant</code>.</p>
+<p>| Key | Behaviour | |---|---| | <code>↑</code> / <code>↓</code> | move the highlighted option, skipping disabled rows | | <code>Enter</code> | commit the highlighted option | | <code>Escape</code> | close the list only — <code>stopPropagation</code>, so a dialog hosting a combobox does not close with it | | <code>Home</code> / <code>End</code> | jump to the ends of the list — <strong>only while the field is empty</strong>, and only where a picker binds them at all; see the ruling | | <code>→</code> | enter the highlighted row's own controls, where it has any — see the ruling |</p>
 <p>Options commit on <code>pointerdown</code>, not <code>click</code>: a click fires after the field has lost focus, and the blur closes the popup out from under the pointer.</p>
 <p><strong>Ruling — one shape: a trigger opening a surface that carries the field above the list.</strong> There is deliberately no inline-field variant. <code>Popover</code> hands its trigger a button ref and owns anchoring, flipping, clamping and outside-click; an inline field would have to either fight that contract or hand-roll an absolutely-positioned surface — which <code>lint-panel-composition</code>'s <code>no-bespoke-popover-shell</code> rule forbids outright. A caller wanting the field to *be* the control passes a full-width trigger styled as one.</p>
-<p><strong>No picker has adopted it yet.</strong> The five named above each carry behaviour past filter-plus-listbox — favourites, model families, an inline handle, their own selection models — so adoption means deciding, per picker, what moves into the primitive and what stays local. Tracked on MC-2117; rewriting them on assumption is how a shared primitive collects five escape hatches and stops being shared.</p>
+<h4>Ruling — the keyboard model (MC-2134)</h4>
+<p>Two incompatible models shipped, and both were defensible. <strong>Focus stays in the field</strong>, highlight named by <code>aria-activedescendant</code>. Or <strong>real DOM focus moves onto the option</strong>, which lets each row hold its own controls, and is what <code>CliModelPicker</code> did so that its favourite star had somewhere to be reached from.</p>
+<p><strong>Ruled: <code>aria-activedescendant</code>, always.</strong> Narrowing and walking in one motion is what a searchable list is *for*; with real focus on the row, every keystroke after the first arrow goes to the row instead of the query, so you can filter or you can walk, never both. Adopted in <code>CliModelPicker</code> on 2026-08-06 — the only picker that was on the other model.</p>
+<p><strong>A row may hold its own controls, and must then offer a keyboard path into them.</strong> The ruling does not shrink what a row can carry; it moves the cost onto the picker that carries it. With focus pinned to the field, a row-level control is unreachable unless the picker gives it a key: <code>→</code> (ArrowRight) moves real focus into the highlighted row's control — <code>←</code> returns to the field, and Escape still closes the surface from anywhere inside it. Both call sites with row-level controls implement it: <code>CliModelPicker</code>'s favourite star, and <code>AgentComposerPopover</code>'s per-row engine chip, which before the ruling was a <code>tabIndex={-1}</code> span no key could reach at all.</p>
+<p><strong>Keys the caret has a claim on reach the list only when the caret cannot use them.</strong> <code>↑</code>/<code>↓</code>/<code>Enter</code>/<code>Escape</code> are unconditionally the list's — a single-line field has no use for them. <code>Home</code>/<code>End</code> are the caret's whenever the field has text: a filter you cannot reach the end of the query in is worse than one you cannot jump the list in. A picker MAY give them to the list while the field is empty (<code>ui/Combobox</code>, <code>CliModelPicker</code> and <code>AgentComposerPopover</code> do; <code>CommandPalette</code> leaves them to the caret always, which is the same prohibition observed more strictly). <code>→</code> only leaves the caret when the caret is already at the end of the query.</p>
+<p>The prohibition is the ruled part. Which of the optional halves a picker takes is its own call — what no picker may do is take a key the caret is currently using.</p>
+<p><strong>A key the field consumes stops at the field.</strong> <code>preventDefault</code> is not enough: a combobox can be hosted inside a menu — <code>CliModelPicker</code> is, twice, in the Sprint Engine roster — and a menu surface answers <code>↑</code>/<code>↓</code>/<code>Home</code>/<code>End</code> by moving real focus onto one of its own items. Left to bubble, the host takes focus off the field on the first arrow, which is the failure this ruling exists to end. Escape is the exception and is never consumed: it must reach the surface that closes.</p>
+<p><strong>A row-level control that a pointer reveals must also be revealed by the keyboard highlight.</strong> <code>CliModelPicker</code>'s star appears on hover; it now appears on the highlighted row too, because <code>→</code> is otherwise an affordance only a mouse user could discover.</p>
+<p><strong>The highlight and the current value are two different marks.</strong> Where a picker has both — a persistent chosen value AND a moving highlight — the highlight uses <code>--bg-hover</code> (what <code>Select</code> gives its own active option) and the current value keeps the stronger <code>--bg-selected</code> fill. Never the focus ring: that belongs to the field, which is the thing actually holding focus.</p>
+<h4>Conformance, measured 2026-08-06</h4>
+<p>| Picker | Verdict | |---|---| | <code>CommandPalette</code> | conformant — the reference the primitive was built from; binds no <code>Home</code>/<code>End</code>, so the caret always keeps them | | <code>ui/Combobox</code> | conformant — the primitive; <code>Home</code>/<code>End</code> made caret-aware by this ruling | | <code>AgentComposerPopover</code> | conformant — gained <code>→</code> into its row engine chip, caret-aware <code>Home</code>/<code>End</code>, and an Escape that peels the flyout rather than the picker | | <code>CliModelPicker</code> | conformant — <strong>migrated</strong> off DOM-focus roving to <code>aria-activedescendant</code> | | <code>SkillPickerPopover</code> | <strong>not a combobox.</strong> <code>role=&quot;menu&quot;</code> with <code>menuitem</code> rows and a filter field. Picking a skill to insert chooses an *action*, not a value — the shape <code>components/menu</code> already specifies. Struck from MC-2117's list rather than migrated. | | <code>newSprint/NewSprintDialog</code> | <strong>not a combobox.</strong> A multi-selectable listbox with an external filter: rows toggle rather than commit, <code>aria-multiselectable</code> is not a property a combobox may carry, the list is permanently rendered and is its own tab stop running its own cursor, and <code>Space</code> (the toggle) cannot coexist with a field that owns focus. Given the link that DOES fit that shape — the field naming the list through <code>aria-controls</code> (<code>ui/InboxSearchInput</code>'s <code>controlsId</code>). |</p>
+<h4>Adoption is the contract, not the chrome</h4>
+<p>Four of the six surfaces above are comboboxes. Three of those are call sites, and none of the three renders its rows through the primitive — <code>ui/Combobox</code> still has no consumer, which is the honest state and a deliberate one. Each carries behaviour past filter-plus-listbox — favourites and model families (<code>CliModelPicker</code>), per-row engine editors and specialist sections (<code>AgentComposerPopover</code>), grouped results with keybinding hints (<code>CommandPalette</code>) — and growing <code>Combobox</code> an escape hatch per picker is how a shared primitive stops being shared. What they share is the keyboard model above; <code>ui/Combobox</code> is for the cases that are genuinely a filter over a flat list.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/combobox/component.css</summary><pre><code>/* Combobox — a text field that filters a listbox, for choosing from a set
@@ -14800,6 +14836,10 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>| Property | Token | Value | |---|---|---| | Type | <code>font.size.meta</code> | 12px | | Padding | <code>space.xs</code> vertical, <code>space.md</code> horizontal | 6px / 10px | | Gap | <code>space.sm</code> | 8px | | Radius | none | full-bleed |</p>
 <p>Vertical padding (6px) is deliberately what the three menus already agreed on before this spec. A spec that moves values which were never divergent is a spec nobody can adopt cheaply.</p>
 <p><strong>The size travels with the item, never with the host.</strong> A host that sets the type size on the surface — including the surface of a submenu it opens — is rebuilding the drift this spec closed.</p>
+<h5>The stacked item</h5>
+<p>There is <strong>one</strong> second row shape, and it exists for a picker whose entries carry a supporting line under the name — a skill and its description, a connector and what it does. It shares the item's inset, gap, highlight, disabled state and focus ring, and differs in exactly two ways:</p>
+<p>| Property | Stacked item | Why | |---|---|---| | Cross-axis alignment | <code>start</code>, not <code>center</code> | a glyph and a trailing mark belong on the FIRST line; centred, they float against the gap between two | | Type | none of its own | each line names its own step — <code>body</code> for the name, <code>meta</code> for the support |</p>
+<p>It is a *shape*, not a host's preference, and it is the only one: a menu that wants a third is a menu asking for a list. Nothing else about it is negotiable, and no host may reach for <code>start</code> alignment itself — an alignment written beside the item's own is resolved by stylesheet order rather than by the order the class names appear, so the two shapes have to be two named things.</p>
 <h4>Divider</h4>
 <p><code>border.subtle</code>, 1px, with <code>space.2xs</code> (4px) of air above and below. A group label is the *alternative* to a divider, not an addition to it: one or the other says &quot;a new group starts here&quot;, and both together says it twice.</p>
 <p>A group label is <code>font.size.micro</code> at <code>text.subtle</code>, on the item's own horizontal inset so the heading and its rows share a left edge — quieter than the rows, and never bolder. A heading that out-weighs the actions under it is competing with them.</p>
@@ -14835,6 +14875,8 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>The values then moved out of the components and into one shared class pair, <code>ui/menuClasses.ts</code> — the surface and the item — which is what makes a host unable to drift: a component that takes <code>MENU_ITEM_CLASS</code> gets the size, the full-bleed geometry, the one highlight state and the inset ring together, and has nothing left to answer for itself. Every menu host now consumes it, and the flyout size pin above is gone with it.</p>
 <p><code>SplitButton</code>'s alternatives list and <code>Select</code>'s listbox belong to the same family: same chrome, same row geometry, same highlight. A select option keeps <code>body</code> (13px) rather than <code>meta</code>, because its popup echoes strings its trigger is already showing at that size and picking a value must not resize it ([select](../select/component.md)). A menu item has no such at-rest twin, which is why 12px is right here and not there.</p>
 <p>Held by <code>ui/designSystemAxes.test.ts</code>, whose menu checks take <strong>this document — <code>design-system/components/menu/component.md</code> — as their source of truth</strong>, and which compares the three components against each other rather than each against itself: the divergence only ever existed *between* components, so a per-component test could not have caught it.</p>
+<p><strong>Reconciled 2026-08-05, again (MC-2138).</strong> The class pair above had converged the five components the kit owns; every menu row *outside* them was still hand-rolled — the horizon's roster popover, both in-app menubar fallbacks, the account menu, the reasoning selector — each with its own inset, its own type step and no disabled state. Two of them were the same menu drawn at two sizes. They consume <code>MENU_ITEM_CLASS</code> now, their surfaces consume <code>MENU_LIST_CLASS</code> (and so gave up the horizontal padding this spec rules out), and the two picker popovers that had shipped as byte-identical copies of one hand-rolled row became the stacked item above. <code>role=&quot;menuitem&quot;</code> also stopped appearing on things that are not rows: the notifications popover put it on a report block carrying its own buttons, and is a <code>dialog</code> popover now.</p>
+<p>Held additionally by the <code>MC-2138</code> rules in <code>src/renderer/src/components/ui/designSystemConformance.test.tsx</code>, which read the literals a developer types across a directory list that grows as each surface converges — the earlier sweeps' scoped guards plus an unscoped &quot;complete&quot; claim are precisely how this tail survived three of them.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/menu/component.css</summary><pre><code>/* Menu — the list of actions inside a popover surface.
@@ -21928,7 +21970,8 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <h4>Accessibility</h4>
 <ul><li>Politeness follows severity: <code>role=&quot;status&quot;</code> + <code>aria-live=&quot;polite&quot;</code> for neutral, good, and accent; <code>role=&quot;alert&quot;</code> + <code>aria-live=&quot;assertive&quot;</code> for warn and danger. A success must not interrupt; a failure must.</li><li>A toast <strong>never takes focus</strong>. Announcement is the live region's job; stealing focus from the person's task to report on it is the interruption the polite/assertive split exists to avoid.</li><li>The dot is <code>aria-hidden</code>; the words carry the tone for a screen reader, and shape-plus-color carries it visually — never color alone.</li><li>The dismiss button carries <code>aria-label=&quot;Dismiss&quot;</code> and pads its 10px glyph out to <code>size.hit-target-min</code> with a transparent hit area — the glyph shrinks, the target does not.</li><li>The entrance animation honours <code>prefers-reduced-motion: reduce</code>.</li><li>Persistent tones remain until explicitly dismissed, so an assistive-tech user navigating slowly is never raced by a timer.</li></ul>
 <h4>Known drift</h4>
-<ul><li><code>Toast.tsx</code> draws its dismiss button at 20px with no hit-area padding — below <code>--sem-size-hit-target-min: 24px</code>. The token is the spec; the undersized target rides with the overlay-geometry pass, <strong>MC-2110</strong>.</li><li>The shipped kit leaves toast *placement* to each host (the component takes a <code>className</code>). The region above is the reference placement consuming <code>--sem-z-toast</code>, which no shipped surface consumes yet — also <strong>MC-2110</strong>.</li></ul>
+<p>None. Both entries that stood here were spent on 2026-08-05 (<strong>MC-2138</strong>):</p>
+<ul><li>The dismiss target was 20px, under <code>--sem-size-hit-target-min</code>. <code>Toast.tsx</code> now takes its floor from that token directly, keeping the 10px glyph and the flow advance the smaller target had.</li><li>The placement note pointed at <strong>MC-2110</strong>, which had already shipped. It was never drift: the shipped product has no corner stack. Its one toast host renders the surface IN FLOW, at the top of a scrolling pane, where the toast belongs to the panel that produced it and stacks nothing. <code>.ds-toast-region</code> and <code>--sem-z-toast</code> stay in this spec as the reference placement for a host that does need a corner — unconsumed on purpose, not pending.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/toast/component.css</summary><pre><code>/* Toast — the transient report. Extracted from the source product's Toast
@@ -23356,7 +23399,8 @@ measureAll()
   <p class="pat-lede">
     Drilling into a surface <em>replaces</em> the rail. It never mounts a second
     column of navigation beside the first. One rail, in one column, at one width —
-    and <code>Back</code> pinned at its bottom to restore what it replaced.
+    and one way out, a chevron leading the surface's bar, next to the name of the
+    thing it leaves.
   </p>
 
   <p class="pat-heading">The rule: one rail, ever</p>
@@ -23400,20 +23444,26 @@ measureAll()
               <button type="button" class="cr-row">Provider rows<span class="cr-row-count">6</span></button>
             </div>
           </div>
-          <label class="cr-back" for="cr-drill">
-            <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M13 8H3.5m0 0L7 4.5M3.5 8 7 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-            Back
-          </label>
         </div>
       </div>
     </div>
-    <div class="cr-canvas">
-      <h3>Model pickers</h3>
-      <div class="cr-field"><span>Delivered by</span><span>sprint-1932</span></div>
-      <div class="cr-field"><span>Track</span><span>Delivery</span></div>
-      <div class="cr-field"><span>Depends on</span><span>Type + icon ramp</span></div>
+    <div class="cr-body">
+      <div class="cr-bar">
+        <!-- Back leads the door's bar. It is a label here only so the demo's
+             checkbox can un-drill; in the product it is a button. -->
+        <label class="cr-back" for="cr-drill" aria-label="Back">
+          <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </label>
+        <span class="cr-bar-title">Horizon</span>
+      </div>
+      <div class="cr-canvas">
+        <h3>Model pickers</h3>
+        <div class="cr-field"><span>Delivered by</span><span>sprint-1932</span></div>
+        <div class="cr-field"><span>Track</span><span>Delivery</span></div>
+        <div class="cr-field"><span>Depends on</span><span>Type + icon ramp</span></div>
+      </div>
     </div>
   </div>
   <p class="pat-caption">
@@ -23468,10 +23518,18 @@ measureAll()
       heading earns its place only by separating one group from another: over a
       lone list, or over a list whose search field already names it, it is the
       same word said twice.</li>
-    <li><strong>Back.</strong> A rail row pinned to the bottom, below everything.
-      It restores the rail the surface replaced, and <code>Escape</code> does the
-      same. The canvas carries no back affordance — two affordances are two
-      answers to one question.</li>
+    <li><strong>Back.</strong> A chevron leading the surface's <em>bar</em>,
+      immediately before the surface's name. It restores the rail the surface
+      replaced, and <code>Escape</code> does the same. Still one affordance and
+      one answer — the rail carries none.
+      <br />
+      It <em>was</em> a rail row pinned to the column's bottom, and that is the
+      one thing this pattern got wrong. Below a scrollport is the last place the
+      eye goes and the furthest point from the title of the thing being left, so
+      the most-used control on the surface sat where it cost the most to reach.
+      Attaching it to the name reads as "leave <em>this</em>" rather than "go
+      back", which also keeps it distinct from the window's own history
+      back/forward pair elsewhere in the chrome.</li>
   </ul>
 
   <p class="pat-heading">The alignment grid</p>
@@ -23511,11 +23569,12 @@ measureAll()
       <code>.rail-row</code>. The shipped rails ran one step smaller on both.</li>
     <li><strong>Group heading inset 8px</strong>, aligned to the row's fill inner
       edge rather than to its title.</li>
-    <li><strong>Back row <code>space.sm</code> / <code>space.lg</code> (8/12px),
-      <code>font.size.meta</code></strong> — <code>.cr-back</code>, which the
-      shipped row missed in both directions (10px inset, 14px type). At 12px its
-      label lands at <code>12 + 16 + 8 = 36px</code>: the same text edge as the
-      titles above it.</li>
+    <li><strong>Back chevron: a <code>size.control.xs</code> box on the bar's
+      leading edge</strong> — <code>.cr-back</code>, icon-only, no label. In a
+      bar that is indented to align its title with the canvas below it, the
+      chevron takes that line and the title follows: the box hangs back by half a
+      step so the <em>glyph</em>, not the button's edge, sits on the grid. Align
+      the box instead and the indent reads as 8px too deep.</li>
     <li><strong>The empty-filter notice belongs to the rail</strong>, rendered
       inside the scrollport under the head at the row inset. As a sibling of a
       <code>flex: 1</code> rail it is pushed to the bottom of the column when the
@@ -23574,18 +23633,22 @@ measureAll()
             <button type="button" class="cr-row">Provider rows<span class="cr-row-count">6</span></button>
           </div>
         </div>
-        <button type="button" class="cr-back">
-          <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M13 8H3.5m0 0L7 4.5M3.5 8 7 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          Back
-        </button>
       </div>
     </div>
-    <div class="cr-canvas">
-      <h3>Model pickers</h3>
-      <div class="cr-field"><span>Delivered by</span><span>sprint-1932</span></div>
-      <div class="cr-field"><span>Track</span><span>Delivery</span></div>
+    <div class="cr-body">
+      <div class="cr-bar">
+        <button type="button" class="cr-back" aria-label="Back">
+          <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <span class="cr-bar-title">Horizon</span>
+      </div>
+      <div class="cr-canvas">
+        <h3>Model pickers</h3>
+        <div class="cr-field"><span>Delivered by</span><span>sprint-1932</span></div>
+        <div class="cr-field"><span>Track</span><span>Delivery</span></div>
+      </div>
     </div>
   </div>
 </div>
@@ -23798,19 +23861,40 @@ measureAll()
     color: var(--sem-color-text-default);
     font-weight: var(--sem-font-weight-regular);
   }
-  /* Back: a rail row pinned to the column's bottom, above nothing. */
-  .cr-back {
+  /* The door's bar: its name, and the one control that leaves it. */
+  .cr-bar {
     display: flex;
     align-items: center;
     gap: var(--sem-space-sm);
-    padding: var(--sem-space-sm) var(--sem-space-lg);
+    flex: none;
+    height: 36px;
+    padding: 0 var(--sem-space-md);
+    border-bottom: 1px solid var(--sem-color-border-subtle);
+    background: var(--sem-color-bg-surface);
+  }
+  .cr-bar-title {
+    font-size: var(--sem-font-size-body);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Back: a chevron leading the door's bar, immediately before the door's name.
+     It was a rail row pinned to the column's bottom, and the move is the whole
+     of this revision — see the Anatomy note. */
+  .cr-back {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    padding: 0;
     border: 0;
-    border-top: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-control);
     background: transparent;
     color: var(--sem-color-text-muted);
-    font: inherit;
-    font-size: var(--sem-font-size-meta);
-    text-align: left;
     cursor: pointer;
   }
   .cr-back:hover {
@@ -23820,6 +23904,13 @@ measureAll()
   .cr-back:focus-visible {
     outline: var(--sem-focus-ring);
     outline-offset: var(--sem-focus-ring-offset);
+  }
+  /* The canvas and the bar above it are one column beside the rail. */
+  .cr-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
   .cr-glyph {
     width: var(--sem-icon-size-sm);
@@ -23897,7 +23988,8 @@ measureAll()
   &lt;p class=&quot;pat-lede&quot;&gt;
     Drilling into a surface &lt;em&gt;replaces&lt;/em&gt; the rail. It never mounts a second
     column of navigation beside the first. One rail, in one column, at one width —
-    and &lt;code&gt;Back&lt;/code&gt; pinned at its bottom to restore what it replaced.
+    and one way out, a chevron leading the surface's bar, next to the name of the
+    thing it leaves.
   &lt;/p&gt;
 
   &lt;p class=&quot;pat-heading&quot;&gt;The rule: one rail, ever&lt;/p&gt;
@@ -23941,20 +24033,26 @@ measureAll()
               &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Provider rows&lt;span class=&quot;cr-row-count&quot;&gt;6&lt;/span&gt;&lt;/button&gt;
             &lt;/div&gt;
           &lt;/div&gt;
-          &lt;label class=&quot;cr-back&quot; for=&quot;cr-drill&quot;&gt;
-            &lt;svg class=&quot;cr-glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
-              &lt;path d=&quot;M13 8H3.5m0 0L7 4.5M3.5 8 7 11.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
-            &lt;/svg&gt;
-            Back
-          &lt;/label&gt;
         &lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
-    &lt;div class=&quot;cr-canvas&quot;&gt;
-      &lt;h3&gt;Model pickers&lt;/h3&gt;
-      &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Delivered by&lt;/span&gt;&lt;span&gt;sprint-1932&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Track&lt;/span&gt;&lt;span&gt;Delivery&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Depends on&lt;/span&gt;&lt;span&gt;Type + icon ramp&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;cr-body&quot;&gt;
+      &lt;div class=&quot;cr-bar&quot;&gt;
+        &lt;!-- Back leads the door's bar. It is a label here only so the demo's
+             checkbox can un-drill; in the product it is a button. --&gt;
+        &lt;label class=&quot;cr-back&quot; for=&quot;cr-drill&quot; aria-label=&quot;Back&quot;&gt;
+          &lt;svg class=&quot;cr-glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;path d=&quot;M10 3.5 5.5 8l4.5 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/label&gt;
+        &lt;span class=&quot;cr-bar-title&quot;&gt;Horizon&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;cr-canvas&quot;&gt;
+        &lt;h3&gt;Model pickers&lt;/h3&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Delivered by&lt;/span&gt;&lt;span&gt;sprint-1932&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Track&lt;/span&gt;&lt;span&gt;Delivery&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Depends on&lt;/span&gt;&lt;span&gt;Type + icon ramp&lt;/span&gt;&lt;/div&gt;
+      &lt;/div&gt;
     &lt;/div&gt;
   &lt;/div&gt;
   &lt;p class=&quot;pat-caption&quot;&gt;
@@ -24009,10 +24107,18 @@ measureAll()
       heading earns its place only by separating one group from another: over a
       lone list, or over a list whose search field already names it, it is the
       same word said twice.&lt;/li&gt;
-    &lt;li&gt;&lt;strong&gt;Back.&lt;/strong&gt; A rail row pinned to the bottom, below everything.
-      It restores the rail the surface replaced, and &lt;code&gt;Escape&lt;/code&gt; does the
-      same. The canvas carries no back affordance — two affordances are two
-      answers to one question.&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;Back.&lt;/strong&gt; A chevron leading the surface's &lt;em&gt;bar&lt;/em&gt;,
+      immediately before the surface's name. It restores the rail the surface
+      replaced, and &lt;code&gt;Escape&lt;/code&gt; does the same. Still one affordance and
+      one answer — the rail carries none.
+      &lt;br /&gt;
+      It &lt;em&gt;was&lt;/em&gt; a rail row pinned to the column's bottom, and that is the
+      one thing this pattern got wrong. Below a scrollport is the last place the
+      eye goes and the furthest point from the title of the thing being left, so
+      the most-used control on the surface sat where it cost the most to reach.
+      Attaching it to the name reads as &quot;leave &lt;em&gt;this&lt;/em&gt;&quot; rather than &quot;go
+      back&quot;, which also keeps it distinct from the window's own history
+      back/forward pair elsewhere in the chrome.&lt;/li&gt;
   &lt;/ul&gt;
 
   &lt;p class=&quot;pat-heading&quot;&gt;The alignment grid&lt;/p&gt;
@@ -24052,11 +24158,12 @@ measureAll()
       &lt;code&gt;.rail-row&lt;/code&gt;. The shipped rails ran one step smaller on both.&lt;/li&gt;
     &lt;li&gt;&lt;strong&gt;Group heading inset 8px&lt;/strong&gt;, aligned to the row's fill inner
       edge rather than to its title.&lt;/li&gt;
-    &lt;li&gt;&lt;strong&gt;Back row &lt;code&gt;space.sm&lt;/code&gt; / &lt;code&gt;space.lg&lt;/code&gt; (8/12px),
-      &lt;code&gt;font.size.meta&lt;/code&gt;&lt;/strong&gt; — &lt;code&gt;.cr-back&lt;/code&gt;, which the
-      shipped row missed in both directions (10px inset, 14px type). At 12px its
-      label lands at &lt;code&gt;12 + 16 + 8 = 36px&lt;/code&gt;: the same text edge as the
-      titles above it.&lt;/li&gt;
+    &lt;li&gt;&lt;strong&gt;Back chevron: a &lt;code&gt;size.control.xs&lt;/code&gt; box on the bar's
+      leading edge&lt;/strong&gt; — &lt;code&gt;.cr-back&lt;/code&gt;, icon-only, no label. In a
+      bar that is indented to align its title with the canvas below it, the
+      chevron takes that line and the title follows: the box hangs back by half a
+      step so the &lt;em&gt;glyph&lt;/em&gt;, not the button's edge, sits on the grid. Align
+      the box instead and the indent reads as 8px too deep.&lt;/li&gt;
     &lt;li&gt;&lt;strong&gt;The empty-filter notice belongs to the rail&lt;/strong&gt;, rendered
       inside the scrollport under the head at the row inset. As a sibling of a
       &lt;code&gt;flex: 1&lt;/code&gt; rail it is pushed to the bottom of the column when the
@@ -24115,18 +24222,22 @@ measureAll()
             &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Provider rows&lt;span class=&quot;cr-row-count&quot;&gt;6&lt;/span&gt;&lt;/button&gt;
           &lt;/div&gt;
         &lt;/div&gt;
-        &lt;button type=&quot;button&quot; class=&quot;cr-back&quot;&gt;
-          &lt;svg class=&quot;cr-glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
-            &lt;path d=&quot;M13 8H3.5m0 0L7 4.5M3.5 8 7 11.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
-          &lt;/svg&gt;
-          Back
-        &lt;/button&gt;
       &lt;/div&gt;
     &lt;/div&gt;
-    &lt;div class=&quot;cr-canvas&quot;&gt;
-      &lt;h3&gt;Model pickers&lt;/h3&gt;
-      &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Delivered by&lt;/span&gt;&lt;span&gt;sprint-1932&lt;/span&gt;&lt;/div&gt;
-      &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Track&lt;/span&gt;&lt;span&gt;Delivery&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;cr-body&quot;&gt;
+      &lt;div class=&quot;cr-bar&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;cr-back&quot; aria-label=&quot;Back&quot;&gt;
+          &lt;svg class=&quot;cr-glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;path d=&quot;M10 3.5 5.5 8l4.5 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/button&gt;
+        &lt;span class=&quot;cr-bar-title&quot;&gt;Horizon&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;cr-canvas&quot;&gt;
+        &lt;h3&gt;Model pickers&lt;/h3&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Delivered by&lt;/span&gt;&lt;span&gt;sprint-1932&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Track&lt;/span&gt;&lt;span&gt;Delivery&lt;/span&gt;&lt;/div&gt;
+      &lt;/div&gt;
     &lt;/div&gt;
   &lt;/div&gt;
 &lt;/div&gt;

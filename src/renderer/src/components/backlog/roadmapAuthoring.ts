@@ -51,6 +51,7 @@ export {
   removeLane,
   renameLane,
   roadmapProjectAlias,
+  setEntryAgent,
   setEntryRoster,
   splitAuthoredRef,
   splitLane,

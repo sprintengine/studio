@@ -66,7 +66,7 @@ import CliIcon from '../CliIcon'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { CliInstallControl } from './CliInstallControl'
 import { AgentConfigAdoptionStatus } from '../onboarding/agentConfigAdoption'
-import MulticodeMark from '../brand/MulticodeMark'
+import SprintEngineFrond from '../brand/SprintEngineFrond'
 import {
   GeneralSettingsIcon,
   ProfileSettingsIcon,
@@ -86,6 +86,7 @@ import {
 } from '../AppIcons'
 import { hasActiveProPlan } from '../workspace/workspaceManagerHelpers'
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
+import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
 import { TrackerConnectionsTab } from './TrackerConnectionsTab'
 import {
@@ -1074,6 +1075,11 @@ export default function SettingsPanel({
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
   )
+  // The door chrome's back chevron. Closes by Settings' own route — the generic
+  // one clears the active surface but not the request that opened this door, so
+  // the next cog press would reopen on the tab you left rather than the one you
+  // asked for. Harmless in the other chromes, which never read it.
+  const doorBack = useSurfaceBackNav(onClose)
   const dialog = useConfirmDialog()
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
@@ -1934,7 +1940,7 @@ export default function SettingsPanel({
                 action renders instead of three buttons with two disabled. */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-3.5">
               <div className="flex min-w-0 items-center gap-2.5">
-                <MulticodeMark className="icon-md shrink-0" />
+                <SprintEngineFrond tone="current" className="icon-md shrink-0" />
                 <div className="min-w-0">
                   <div className="text-body font-medium text-[color:var(--text-strong)]">
                     Sprint Engine Studio <span className="tabular-nums">{updateState?.version ?? '…'}</span>
@@ -2712,10 +2718,16 @@ export default function SettingsPanel({
   if (chrome === 'door') {
     // The door owns the bar (its name rides the app strip) and the rail column;
     // this contributes the categories and the body, and nothing else. No Close
-    // control of its own: leaving is the rail's Back row, Escape, or opening
+    // control of its own: leaving is the bar's back chevron, Escape, or opening
     // any other door — the one way out every door already has.
     return (
-      <GlobalSurfaceShell ariaLabel="Settings" bar={{ title: 'Settings' }} rail={sidebarNode}>
+      <GlobalSurfaceShell
+        ariaLabel="Settings"
+        bar={{ title: 'Settings' }}
+        rail={sidebarNode}
+        onBack={doorBack.onBack}
+        canGoBack={doorBack.canGoBack}
+      >
         <div className="h-full min-h-0 overflow-y-auto px-5 py-4">{bodyContent}</div>
       </GlobalSurfaceShell>
     )

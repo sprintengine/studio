@@ -54,6 +54,14 @@ export type SkillsPaneInput = {
    * live under their own heading and are the only rows that offer Add.
    */
   catalogue: BuiltinSkill[]
+  /**
+   * The bundled MCP catalog, for the server rows' marks. The Extensions door
+   * draws a bundled server with the catalog's own artwork, and matching by id
+   * here is what makes this pane's `github` row the same `github` row. A server
+   * the catalog does not carry keeps its monogram — its id is never handed to an
+   * icon CDN on the chance that a private server shares a brand's name.
+   */
+  mcpCatalog?: { id: string; icon?: string }[]
   /** Skill ids attached this session whose CLI only reads them after a restart. */
   restartPending: string[]
   /** The last add/remove that did not fully succeed, if it has not been dismissed. */
@@ -104,6 +112,8 @@ export type PaneServerRow = {
   configPath: string
   pluginIds: string[]
   configPaths: string[]
+  /** The catalog's artwork for this server, when it is a catalog server at all. */
+  iconUrl: string | null
 }
 
 export type PaneNotice =
@@ -197,9 +207,10 @@ function catalogueRow(skill: BuiltinSkill): PaneSkillRow {
   }
 }
 
-function serverRow(server: AgentMcpServer): PaneServerRow {
+function serverRow(server: AgentMcpServer, iconUrl: string | null): PaneServerRow {
   const aggregated = server as CapabilityServer
   return {
+    iconUrl,
     key: `server:${server.id}`,
     serverId: server.id,
     title: server.id,
@@ -210,6 +221,17 @@ function serverRow(server: AgentMcpServer): PaneServerRow {
     pluginIds: aggregated.pluginIds ?? [],
     configPaths: aggregated.configPaths ?? [server.configPath],
   }
+}
+
+/**
+ * SprintEngine's own skills and servers, by the only signal their records
+ * carry: the id they are installed under. `sprintengine-studio`, and every
+ * `sprintengine_*` skill the engine ships, are ours and wear our frond; an id
+ * that merely mentions a sprint somewhere in the middle is somebody else's and
+ * keeps its monogram, which is why this anchors at the start.
+ */
+export function isSprintEngineExtension(id: string): boolean {
+  return /^sprint[-_]?engine([-_]|$)/i.test(id.trim())
 }
 
 /**
@@ -327,8 +349,13 @@ export function buildSkillsPaneView(input: SkillsPaneInput): SkillsPaneView {
   const skills = snapshot.skills
     .map(skillRow)
     .filter((row) => matchesQuery([row.skillId, row.description, row.sourceLabel], normalized))
+  const catalogIcons = new Map(
+    (input.mcpCatalog ?? [])
+      .filter((entry) => Boolean(entry.icon))
+      .map((entry) => [entry.id, entry.icon as string]),
+  )
   const servers = snapshot.servers
-    .map(serverRow)
+    .map((server) => serverRow(server, catalogIcons.get(server.id) ?? null))
     .filter((row) => matchesQuery([row.serverId, row.supporting, row.configPath], normalized))
 
   // The catalogue is search-only. At rest the pane answers "what can this agent

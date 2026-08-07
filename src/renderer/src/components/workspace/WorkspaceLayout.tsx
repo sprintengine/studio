@@ -78,7 +78,7 @@ interface Props {
   onNewAgentTab?: () => void
   // Renders the launch surface inside that tab. `tabId` is the node the spawn
   // retypes in place, so the terminal appears where the surface was.
-  renderNewAgentPanel?: (tabId: string) => React.ReactNode
+  renderNewAgentPanel?: (tabId: string, agentName?: string) => React.ReactNode
 }
 
 // Count the live tabs in a model. A workspace whose last tab was closed leaves
@@ -568,7 +568,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         // retypes this same node into an agent tab. Nothing is created while it
         // is open, so a host that cannot spawn (no handler) renders nothing.
         case NEW_AGENT_TAB_COMPONENT:
-          return renderNewAgentPanel ? renderNewAgentPanel(node.getId()) : null
+          // The tab already wears the name its agent will take; the surface
+          // hands it back on launch so the spawn adopts it.
+          return renderNewAgentPanel
+            ? renderNewAgentPanel(node.getId(), (config as { agentName?: string } | undefined)?.agentName)
+            : null
         // Defensive fallbacks for stale layouts that escaped migration — the
         // canonical layout now uses a single 'sprintengine' tab whose internal
         // segmented chrome covers all three views.

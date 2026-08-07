@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { SprintEngineFrond } from './brand/SprintEngineFrond'
 import type { ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import { getRendererHost, selectModuleEnabled } from '../modules'
 import type { SpecialistIcon } from '../specialists/specialistActions'
@@ -94,34 +95,24 @@ export function SwitchboardWorkspaceTypeIcon({ className }: IconProps) {
   )
 }
 
+// SprintEngine wherever the app names it as a thing you can open — the Sprints
+// door's nav entry, the launcher row, the workspace-type registry. It was a
+// three-circle team glyph, which said "a team of agents" while the sidebar mark
+// beside it said SprintEngine; one product now has one mark (owner, 2026-08-06).
 export function SprintEngineWorkspaceTypeIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="6" r="2.4" stroke="currentColor" strokeWidth={iconStroke} />
-      <circle cx="6.5" cy="16.5" r="2.4" stroke="currentColor" strokeWidth={iconStroke} />
-      <circle cx="17.5" cy="16.5" r="2.4" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M10.85 8.2L7.65 14.35M13.15 8.2L16.35 14.35M9 16.5H15" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
+  return <SprintEngineFrond className={className} tone="current" />
 }
 
-// The SprintEngine brand mark (assets/brand/sprintengine/sprintengine-mark.svg)
-// as an inline component: the comet head with a knocked-out engine port and
-// three trailing motion streaks. Single-color via currentColor — pair it with
-// --tool-sprintengine-ink so it stays legible on light and dark themes.
+// The SprintEngine brand mark: the frond the mobile app wears as its
+// application icon, so one product's mark is the other's (`brand/
+// SprintEngineFrond`, geometry copied from the mobile repo's generator). It
+// replaced a comet drawn only here, which meant the two products carried
+// different marks for the same name.
+//
+// Single-color via currentColor — pair it with --tool-sprintengine-ink so it
+// stays legible on light and dark themes.
 export function SprintEngineMarkIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M4.4 12 L13 5 C17.4 6 20 8.6 20 12 C20 15.4 17.4 18 13 19 Z M16.6 12 C16.6 10.6 15.5 9.5 14.1 9.5 C12.7 9.5 11.6 10.6 11.6 12 C11.6 13.4 12.7 14.5 14.1 14.5 C15.5 14.5 16.6 13.4 16.6 12 Z"
-      />
-      <path d="M5.4 11.2 L5.4 12.8 L0.8 12 Z" />
-      <path d="M6.2 8.3 L6.2 9.7 L2.4 7.1 Z" />
-      <path d="M6.2 14.3 L6.2 15.7 L2.4 16.9 Z" />
-    </svg>
-  )
+  return <SprintEngineFrond className={className} tone="current" />
 }
 
 // Automations identity glyph: a schedule dial (the schedule trigger) wrapped

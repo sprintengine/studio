@@ -58,14 +58,18 @@ export type GlobalSurfaceShellProps = {
   rail?: React.ReactNode
   /**
    * Back affordance for the surface bar (mockup #view-doors). When `canGoBack`
-   * is true the bar shows a leading chevron that invokes `onBack` — returning to
-   * the location the door was opened from. Omit for a surface with nowhere to go
-   * back to; surfaces derive both from `useSurfaceBackNav`.
+   * is true the bar shows a leading chevron that invokes `onBack` — leaving the
+   * door. Omit for a surface with nowhere to go back to; surfaces derive both
+   * from `useSurfaceBackNav`.
    *
-   * Only the inline (non-replacing) host renders this. A host that replaces its
-   * rail with the surface's owns the affordance itself, as the rail's pinned
-   * `Back` row (item 1993) — the bar/canvas then carries none, because two back
-   * affordances on one screen is two answers to one question.
+   * Rendered by BOTH hosts, inline and lifted. It used to be suppressed whenever
+   * the host took the surface's rail, on the grounds that the rail's pinned
+   * `Back` row (item 1993) was the one way out — but every door in the product
+   * hands over a rail, so the suppression was total: the chevron never rendered
+   * and the only exit sat at the bottom-left of a scrolling column, the last
+   * place the eye goes and the furthest point from the title of the thing it
+   * leaves. The chevron is back, glued to the door's name, and the rail row is
+   * gone with it. Still ONE affordance, just the one that reads.
    */
   onBack?: () => void
   canGoBack?: boolean
@@ -88,8 +92,9 @@ export function GlobalSurfaceShell({
   const barSlot = useGlobalSurfaceBarSlot()
   const liftBar = barSlot !== null
   // Item 1993: a host that replaces its rail takes this surface's rail into the
-  // app sidebar's own column, and owns `Back` there as a rail row. Same settle
-  // rule as the bar, and the same reason: the inline aside must never flash in.
+  // app sidebar's own column. Same settle rule as the bar, and the same reason:
+  // the inline aside must never flash in. The rail no longer owns `Back` — that
+  // is the bar chevron's job on either host.
   const railSlot = useContextRailSlot()
   const liftRail = railSlot !== null
   const hasRail = Boolean(rail)
@@ -104,7 +109,7 @@ export function GlobalSurfaceShell({
     onRailPresence(hasRail)
     return () => onRailPresence(false)
   }, [onRailPresence, hasRail])
-  const showBack = Boolean(canGoBack && onBack) && !(liftRail && hasRail)
+  const showBack = Boolean(canGoBack && onBack)
   return (
     <section
       aria-label={ariaLabel}
@@ -124,7 +129,7 @@ export function GlobalSurfaceShell({
             // has somewhere to go back to; the title truncates; the actions stay
             // pinned to the right edge of the slot.
             <>
-              {showBack && onBack ? <BarBackChevron onBack={onBack} /> : null}
+              {showBack && onBack ? <BarBackChevron onBack={onBack} inGutter /> : null}
               <h2 className="truncate text-body font-semibold text-[color:var(--text-strong)]">
                 {bar.title}
               </h2>
@@ -164,15 +169,23 @@ export function GlobalSurfaceShell({
 }
 
 // The bar-slot back chevron (mockup #view-doors): a compact ghost affordance that
-// returns to the previously-visited location. Shown only when the host reports the
-// nav history can step back, so it is never a dead control.
-function BarBackChevron({ onBack }: { onBack: () => void }): JSX.Element {
+// leaves the door. It is the door's ONE exit, and Escape is its keyboard twin.
+//
+// `inGutter` is optical alignment, not a nudge. The lifted bar slot indents by the
+// 20px door gutter so the door's name shares a vertical line with the content
+// under it (WorkspaceHeader). A chevron placed at that line would push the title
+// off it and put a 24px button's worth of padding where 20px was measured, so the
+// button hangs 8px back instead: its glyph — inset ~7px inside the box — lands on
+// the gutter line, and the LEADING EDGE OF THE BAR keeps the alignment the title
+// used to keep alone. The inline fallback bar has no gutter to align to, so it
+// takes the plain box.
+function BarBackChevron({ onBack, inGutter = false }: { onBack: () => void; inGutter?: boolean }): JSX.Element {
   return (
     <button
       type="button"
       onClick={onBack}
       aria-label="Back"
-      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${inGutter ? '-ml-2' : ''} ${FOCUS_RING_CLASS}`}
     >
       <svg viewBox="0 0 16 16" fill="none" className="icon-md" aria-hidden="true">
         <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />

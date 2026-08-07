@@ -3,10 +3,12 @@ import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import {
+  headerSteering,
   HorizonDetailPane,
   resolveStepItem,
   runStripFacts,
   type HorizonDetailPaneProps,
+  type HorizonStepRun,
 } from './HorizonDetailPane'
 import { buildLibraryGroupModels } from './HorizonBacklogSource'
 import { createBacklogItem, type BacklogItem } from '../../../utils/backlog'
@@ -161,6 +163,112 @@ run('one agent and one task read singular', () => {
     runStripFacts({ agentsWorking: 1, tasksLeft: 1, loading: false, attention: 'none' }),
     ['1 agent', '1 task left'],
   )
+})
+
+run('a canceled sprint says canceled — zero tasks left is not "delivered"', () => {
+  assert.deepEqual(
+    runStripFacts({
+      agentsWorking: 0,
+      tasksLeft: 0,
+      loading: false,
+      attention: 'paused',
+      parkReason: 'run_canceled',
+      pullRequestUrl: 'https://github.com/o/r/pull/7',
+      pullRequestState: 'open',
+    }),
+    ['canceled', 'PR #7 open'],
+  )
+})
+
+run('a failed sprint says failed; a bare pause says paused; neither claims delivery', () => {
+  assert.deepEqual(
+    runStripFacts({ agentsWorking: 0, tasksLeft: 0, loading: false, attention: 'paused', parkReason: 'run_failed' }),
+    ['failed'],
+  )
+  assert.deepEqual(
+    runStripFacts({ agentsWorking: 0, tasksLeft: 3, loading: false, attention: 'paused' }),
+    ['paused', '3 tasks left'],
+  )
+})
+
+// ── the header's steering (MC-2148 UX pass, second round) ────────────────────
+// The rail only STATES a track's attention; every action is the header's — one
+// primary action per surface. A mounted run strip owns the steering itself, so
+// the header hands over the moment `run` exists.
+
+run('a ready step with no run carries the header Start sprint, in the accent', () => {
+  assert.deepEqual(headerSteering({ ready: true, state: 'up_next' }, null), {
+    act: 'approve',
+    label: 'Start sprint',
+    line: 'Ready — waiting for you to start this sprint',
+    tone: 'accent',
+  })
+})
+
+run('a mounted run strip owns the steering — the header never doubles it', () => {
+  const run: HorizonStepRun = { statePath: '/runs/a.json', lane: 'Delivery', attention: 'approval', busy: false }
+  assert.equal(headerSteering({ ready: true, state: 'up_next' }, run), null)
+})
+
+run('a parked step moves Resume to the header, with the reason on the line', () => {
+  const steering = headerSteering(
+    {
+      state: 'paused',
+      notice: {
+        kind: 'paused',
+        message: 'No sprint was created. Resuming tries the start again.',
+        detail: 'the renderer did not answer within 60000ms',
+        actionLabel: 'Resume',
+      },
+    },
+    null,
+  )
+  assert.deepEqual(steering, {
+    act: 'resume',
+    label: 'Resume',
+    line: 'No sprint was created. Resuming tries the start again.',
+    detail: 'the renderer did not answer within 60000ms',
+    tone: 'warn',
+  })
+})
+
+run('a waiting merge is the header’s Approve & merge', () => {
+  const steering = headerSteering(
+    {
+      state: 'running',
+      notice: { kind: 'merge', message: 'This step delivered. Its pull request is waiting on you.', actionLabel: 'Approve & merge' },
+    },
+    null,
+  )
+  assert.equal(steering?.act, 'merge')
+  assert.equal(steering?.label, 'Approve & merge')
+})
+
+run('a blocked step states the reason and offers no control that cannot help', () => {
+  const steering = headerSteering(
+    {
+      state: 'queued',
+      notice: { kind: 'blocked', message: 'This step is waiting on work it depends on.' },
+    },
+    null,
+  )
+  assert.equal(steering?.act, null)
+  assert.equal(steering?.label, null)
+  assert.equal(steering?.tone, 'warn')
+})
+
+run('finished work reads Completed — a label, never a button', () => {
+  assert.deepEqual(headerSteering({ state: 'done' }, null), {
+    act: null,
+    label: null,
+    line: 'Completed',
+    tone: 'good',
+  })
+})
+
+run('an ordinary queued step gets no header steering at all', () => {
+  assert.equal(headerSteering({ state: 'queued' }, null), null)
+  assert.equal(headerSteering(null, null), null)
 })
 
 // ── resolving a step to its item ─────────────────────────────────────────────

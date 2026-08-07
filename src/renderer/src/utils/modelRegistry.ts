@@ -673,15 +673,21 @@ function terminalTabJson(terminalId: string, name: string) {
 // ──────────────────────────────────────────────────────────────────────────
 
 export const NEW_AGENT_TAB_COMPONENT = 'new-agent'
-export const NEW_AGENT_TAB_NAME = 'New agent'
 
 /**
  * Open a new-agent tab, docked exactly where a spawned agent tab would dock
  * (agentTileLocation on the active content tabset, a fresh right-hand column
  * when only rails exist) — so the surface appears where its terminal will be.
+ *
+ * The tab is named for the agent that will run in it, decided here rather than
+ * at spawn: a tab called "New agent" that becomes "Atlas" changes identity
+ * under the person reading it, and every other terminal in the strip has had a
+ * name from the moment it opened. The name rides the tab's own config so the
+ * launch adopts it instead of drawing a second one.
+ *
  * Returns the new tab's id, which the caller holds to retype it on spawn.
  */
-export function addNewAgentTab(workspaceId: string): string | null {
+export function addNewAgentTab(workspaceId: string, agentName: string): string | null {
   const model = models.get(workspaceId)
   if (!model) return null
 
@@ -689,9 +695,9 @@ export function addNewAgentTab(workspaceId: string): string | null {
   const tabJson = {
     type: 'tab',
     id: tabId,
-    name: NEW_AGENT_TAB_NAME,
+    name: agentName,
     component: NEW_AGENT_TAB_COMPONENT,
-    config: {},
+    config: { agentName },
   }
 
   // Sprint Engine and Automations layouts dock agents into their right-hand

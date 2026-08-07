@@ -62,6 +62,7 @@ import {
   removeLane,
   renameLane,
   roadmapItemStatesMulti,
+  setEntryAgent,
   setEntryRoster,
   splitAuthoredRef,
 } from '../../backlog/roadmapAuthoring'
@@ -85,7 +86,7 @@ import { createBacklogDoorActions, type BacklogDoorMutationApi } from './backlog
 import { getRendererHost, selectModuleEnabled } from '../../../modules'
 import { focusOrAddFileTab } from '../../../utils/modelRegistry'
 import type { BacklogLinkProvider } from '../../../modules/renderer-host'
-import { roadmapRefSlug, validateRoadmap, type ProjectKey, type RoadmapPolicy } from '../../../../../shared/backlog/roadmap'
+import { resolveEntryAgent, roadmapRefSlug, validateRoadmap, type ProjectKey, type RoadmapPolicy } from '../../../../../shared/backlog/roadmap'
 import type { SprintEngineRoster } from '../../../types/workspace'
 import type { BacklogItem } from '../../../utils/backlog'
 import type { BacklogProjectFeed, BacklogProjectRef } from '../../../hooks/useAllProjectsBacklog'
@@ -800,6 +801,9 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       statePath: lane.activeStatePath,
       lane: lane.lane,
       attention: lane.attention,
+      // The strip must never read a canceled sprint's zero-tasks-left as
+      // "delivered" — the park reason is what lets it say what actually stopped.
+      ...(lane.parked ? { parkReason: lane.parked.reason } : {}),
       busy: busyLane === lane.lane,
     }
   }, [selectedStep, isActiveSelected, activeRoadmap, busyLane])
@@ -942,7 +946,6 @@ export default function RoadmapGlobalSurface(): JSX.Element {
             steering={steering}
             onRenameTrack={(laneIndex) => void handleRenameTrack(laneIndex)}
             onRemoveTrack={(laneIndex) => void handleRemoveTrack(laneIndex)}
-            selectedHasRunStrip={selectedRun !== null}
           />
         ) : null
       }
@@ -1078,6 +1081,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
                     unresolved={stepUnresolved}
                     canOpenRun={selectedRun !== null && openRunStatePaths.includes(selectedRun.statePath)}
                     run={selectedRun}
+                    steeringBusy={selectedStep !== null && busyLane === selectedStep.laneTitle}
                     homePath={homePath}
                     now={now}
                     actions={detailActions}
@@ -1119,6 +1123,19 @@ export default function RoadmapGlobalSurface(): JSX.Element {
                           onSelect={(name) => setStepRoster(selectedStep, name ?? NO_ROLES_ROSTER_NAME)}
                           onInherit={() => setStepRoster(selectedStep, undefined)}
                           onManageRosters={() => setRosterManagerOpen(true)}
+                          // The step's agent runtime (MC-2145), resolved through
+                          // the same two-tier rule the orchestrator freezes at
+                          // start — so what this band shows IS what a start
+                          // launches.
+                          agent={resolveEntryAgent(
+                            plan.draft.lanes[selectedStep.laneIndex]?.entries[selectedStep.entryIndex] ?? {},
+                            plan.draft.policy,
+                          )}
+                          onSelectAgent={(token) =>
+                            plan.setLanes(
+                              setEntryAgent(plan.draft.lanes, selectedStep.laneIndex, selectedStep.entryIndex, token),
+                            )
+                          }
                         />
                       ) : undefined
                     }

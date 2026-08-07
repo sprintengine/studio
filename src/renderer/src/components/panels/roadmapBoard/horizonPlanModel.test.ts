@@ -275,7 +275,7 @@ run('a park hangs its real reason on the step it happened to, with one action', 
   const paused = rows.find((row) => row.title === 'Two')
   assert.deepEqual(paused?.notice, {
     kind: 'paused',
-    message: 'No sprint was created. Resume to continue.',
+    message: 'No sprint was created. Resuming tries the start again.',
     detail: 'roster "opus" was not found',
     actionLabel: 'Resume',
   })
@@ -314,7 +314,7 @@ run('you-paused-it says so without telling you to resume twice', () => {
   assert.equal(plan.bands.flatMap((b) => b.rows)[0].notice?.message, 'You paused this track.')
 })
 
-run('an outstanding approval lands on the step it would start', () => {
+run('an outstanding approval marks the step it would start ready — never a warn notice', () => {
   const lanes = lanesOf('## Delivery\n- backlog/one.md\n- backlog/two.md\n')
   const plan = buildHorizonPlan(
     input({
@@ -331,8 +331,14 @@ run('an outstanding approval lands on the step it would start', () => {
       ],
     }),
   )
-  const two = plan.bands.flatMap((band) => band.rows).find((row) => row.title === 'Two')
-  assert.equal(two?.notice?.actionLabel, 'Start next')
+  const rows = plan.bands.flatMap((band) => band.rows)
+  const two = rows.find((row) => row.title === 'Two')
+  assert.equal(two?.ready, true, 'the pending step reads ready')
+  assert.equal(two?.notice, undefined, 'waiting for a go-ahead is a healthy state, not an advisory')
+  assert.ok(
+    rows.every((row) => row.title === 'Two' || !row.ready),
+    'exactly one step is the one the horizon would start',
+  )
 })
 
 run('a delivered-but-unmerged step carries the merge action', () => {

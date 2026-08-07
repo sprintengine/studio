@@ -654,6 +654,7 @@ export function normalizeNewChatAgentChoice(input: unknown): NewChatAgentChoice 
   if (!input || typeof input !== 'object') return { kind: 'general' }
   const choice = input as Partial<NewChatAgentChoice>
   if (choice.kind === 'terminal') return { kind: 'terminal' }
+  if (choice.kind === 'conversation') return { kind: 'conversation' }
   if (choice.kind === 'specialist') {
     const id = typeof choice.specialistId === 'string' ? (choice.specialistId.trim() as SpecialistActionId) : null
     if (id) return { kind: 'specialist', specialistId: id }
@@ -759,7 +760,20 @@ export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineR
   const hasNewKey = Array.isArray(candidate.savedRosters)
   const rosterSource = hasNewKey ? candidate.savedRosters : candidate.savedTeams
   const legacyKeyMigrated = !hasNewKey && Array.isArray(candidate.savedTeams)
+  // A stored roster named "No roles" predates the reserved-name guard and is a
+  // walking contradiction — the owner met one carrying an architect and a
+  // developer (2026-08-06). The guard blocks new ones; this heals old ones by
+  // renaming (never dropping — the staffing is the user's work), so the
+  // built-in's name means exactly one thing everywhere. The rename dodges any
+  // existing name, since resolution is by name.
   const rosters = normalizeSprintEngineRosters(rosterSource)
+  for (const roster of rosters) {
+    if (!isNoRolesRosterRef(roster.name)) continue
+    const taken = new Set(rosters.filter((other) => other !== roster).map((other) => other.name.toLowerCase()))
+    let healed = 'Recovered roster'
+    for (let n = 2; taken.has(healed.toLowerCase()); n += 1) healed = `Recovered roster ${n}`
+    roster.name = healed
+  }
 
   // Migrate a legacy single saved roster into a named roster so existing users
   // keep their saved config as a selectable roster the first time they load.

@@ -13,9 +13,17 @@ import { useState } from 'react'
 
 import { CheckIcon } from '../AppIcons'
 import { Popover } from '../ui'
-import { MENU_DIVIDER_CLASS, MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
+import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
 import type { SprintEngineRoster } from '../../types/workspace'
-import { NO_ROLES_ROSTER_NAME, isNoRolesRosterRef } from '../workspace/newWorkspace/savedRosters'
+import { isNoRolesRosterRef } from '../workspace/newWorkspace/savedRosters'
+
+// How the built-in no-roster choice READS (MC-2145 UX pass). The stored name
+// stays `No roles` (`NO_ROLES_ROSTER_NAME` — frontmatter back-compat), but a
+// dropdown whose resting label described what it ISN'T was the owner's exact
+// complaint (2026-08-06: "it's a bit unintuitive to have a drop down that says
+// no roles in it"). Picking just an agent IS what no-roster means — the agent
+// picker beside this control is where WHICH agent gets chosen.
+export const JUST_AN_AGENT_LABEL = 'Just an agent'
 
 export const POLICY_ROSTER_TRIGGER_CLASS =
   'interactive inline-flex h-control-sm items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring'
@@ -67,7 +75,7 @@ export function RosterMenu({
     && !isNoRolesRosterRef(selectedName)
     && !rosters.some((roster) => roster.name.trim().toLowerCase() === selectedName.trim().toLowerCase()),
   )
-  const triggerLabel = noRolesSelected ? NO_ROLES_ROSTER_NAME : selectedName ?? NO_ROLES_ROSTER_NAME
+  const triggerLabel = noRolesSelected ? JUST_AN_AGENT_LABEL : selectedName ?? JUST_AN_AGENT_LABEL
   // On a step row, "inherited" is the ABSENCE of an override — exactly
   // `inherit.selected`. The tone must never be derived from the label, or a step
   // that deliberately picks the same roster the horizon uses would read as
@@ -158,10 +166,12 @@ export function RosterMenu({
             <span className="min-w-0 flex-1 truncate">Use the horizon&apos;s roster</span>
             {inherit.selected ? <CheckIcon className="icon-xs shrink-0" /> : null}
             <span className="shrink-0 max-w-[7.5rem] truncate text-micro text-[color:var(--text-subtle)]">
-              {inherit.resolvedLabel}
+              {isNoRolesRosterRef(inherit.resolvedLabel) ? JUST_AN_AGENT_LABEL : inherit.resolvedLabel}
             </span>
           </button>
-          <div role="separator" className={MENU_DIVIDER_CLASS} />
+          {/* Spacing separates the groups — never hairlines (owner, 2026-08-06:
+              "we don't need these, we can just use spacing instead"). */}
+          <div aria-hidden="true" className="h-1.5" />
         </>
       ) : null}
       {/* A missing roster leads, so the problem is the first thing read. */}
@@ -172,11 +182,11 @@ export function RosterMenu({
               {selectedName} (not found)
             </span>
           </button>
-          <div role="separator" className={MENU_DIVIDER_CLASS} />
+          <div aria-hidden="true" className="h-1.5" />
         </>
       ) : null}
-      {/* "No roles" is the absence of a roster, so it is pinned first,
-          separated, and shows no staffing summary. */}
+      {/* Just an agent — the absence of a roster. Pinned first, no staffing
+          summary: which agent is the picker's job, not this menu's. */}
       <button
         type="button"
         role="menuitemradio"
@@ -184,11 +194,11 @@ export function RosterMenu({
         className={itemClass}
         onClick={() => pick(undefined)}
       >
-        <span className="min-w-0 flex-1 truncate">{NO_ROLES_ROSTER_NAME}</span>
+        <span className="min-w-0 flex-1 truncate">{JUST_AN_AGENT_LABEL}</span>
         {noRolesSelected ? <CheckIcon className="icon-xs shrink-0" /> : null}
-        <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">default</span>
+        <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">no roles</span>
       </button>
-      <div role="separator" className={MENU_DIVIDER_CLASS} />
+      <div aria-hidden="true" className="h-1.5" />
       {rosters.map((roster) => {
         const staffed = Object.values(roster.roleCounts).filter((count) => (count ?? 0) > 0).length
         const checked = !noRolesSelected
@@ -214,7 +224,7 @@ export function RosterMenu({
           </button>
         )
       })}
-      <div role="separator" className={MENU_DIVIDER_CLASS} />
+      <div aria-hidden="true" className="h-1.5" />
       <button
         type="button"
         role="menuitem"

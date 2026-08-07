@@ -1303,14 +1303,236 @@ def workspace_is_git_repository(state_path: Path) -> bool:
     return result.returncode == 0
 
 
-def build_run_pull_request_body(state: Dict[str, Any], branch: str, *, repo_id: str = PRIMARY_REPO_ID) -> str:
-    """Default PR description: the run goal plus the tasks it delivered in THIS repo.
+def _backlog_item_label(state_path: Optional[Path], project_relative_path: str) -> Dict[str, str]:
+    """One backlog item as a reviewer names it: ``id``, ``title``, ``path``.
+
+    The item file is the only place the id and the H1 live, so this is a read —
+    but a best-effort one. An item that has been moved, renamed, or deleted since
+    the run started yields its slug as the title and an empty id, which still
+    reads as a heading a person recognises rather than taking a pull request down.
+    """
+    from sprintengine_core.tool.plans import backlog_item_frontmatter, backlog_item_title
+
+    path_value = str(project_relative_path or "").strip()
+    if not path_value:
+        return {"id": "", "title": "", "path": ""}
+    absolute = Path(path_value)
+    if not absolute.is_absolute() and state_path is not None:
+        absolute = workspace_root_for_state_path(state_path) / path_value
+    if not absolute.is_file():
+        return {"id": "", "title": Path(path_value).stem, "path": path_value}
+    item_id = str(backlog_item_frontmatter(absolute).get("id") or "").strip().strip("'\"")
+    return {"id": item_id, "title": backlog_item_title(absolute), "path": path_value}
+
+
+def _backlog_item_heading(label: Dict[str, str]) -> str:
+    """``MC-2141 — <title>``, degrading to whichever half the item actually has."""
+    item_id = label.get("id") or ""
+    title = label.get("title") or ""
+    marker = f"MC-{item_id}" if item_id else ""
+    if marker and title:
+        return f"{marker} — {title}"
+    return marker or title or "Tasks"
+
+
+def _run_source_item(state: Dict[str, Any], state_path: Optional[Path]) -> Dict[str, str]:
+    """The backlog item this run was launched from, or empty fields.
+
+    ``state["source"]`` is the run's root source whatever its plan kind — an epic,
+    a product plan, the first item of a selection. Every launch path that starts
+    from the Backlog records it, and it is the only handle the run keeps on the
+    piece of work a reviewer knows this pull request by.
+    """
+    source = state.get("source")
+    if not isinstance(source, dict):
+        return {"id": "", "title": "", "path": ""}
+    return _backlog_item_label(state_path, str(source.get("path") or ""))
+
+
+def build_run_pull_request_title(
+    state: Dict[str, Any], state_path: Optional[Path] = None, branch: str = ""
+) -> str:
+    """Default PR title: the backlog item this run delivers, named as people name it.
+
+    ``MC-2141: The sprintengine MCP surface adopts the 2026-07-28 specification``.
+    A reviewer scanning the pull request list is looking for the piece of work, and
+    the id is how it is referred to everywhere else — in commits, in the Backlog, in
+    conversation. The run's `goal` restates the item's title, so the item's own H1
+    is used rather than the paraphrase, and the limit is generous enough that it is
+    the sentence itself and not an ellipsis.
+
+    A `selection` run delivering several epics has no single item to be named by,
+    so it is named by all of their ids and keeps the goal as its sentence — naming
+    it after `source`, which is only the first entry of that selection, would say
+    something untrue about what merging it lands.
+
+    A run with no backlog source (a bare `--goal`) keeps the title it always had.
+    """
+    from sprintengine_core.tool.plans import selected_epic_source_items
+
+    goal = str(state.get("sprintengine", {}).get("goal") or "").strip()
+    epics = [_backlog_item_label(state_path, str(entry.get("path") or "")) for entry in selected_epic_source_items(state)]
+    ids = [f"MC-{epic['id']}" for epic in epics if epic.get("id")]
+    if len(ids) > 1:
+        return compact_commit_subject(f"{', '.join(ids)}: {goal or branch}", limit=110)
+    item = _run_source_item(state, state_path)
+    if item.get("id") and item.get("title"):
+        return compact_commit_subject(f"MC-{item['id']}: {item['title']}", limit=110)
+    return compact_commit_subject(f"SprintEngine: {goal or branch}")
+
+
+# Worst first: a reviewer reading a task's findings wants the one that decides
+# where to look, not the order the reviewer happened to write them in.
+_FINDING_SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def _task_review_lines(task: Dict[str, Any]) -> List[str]:
+    """What a reviewer should know about a task whose review did not pass clean.
+
+    Read from what the run already records and nothing else: the self-review's
+    outcome and the findings it raised. A task that passed clean contributes no
+    lines at all, which is what keeps this section worth reading.
+
+    The wording follows the outcome, because the same `findings` list means two
+    different things under the two of them. On `pass_with_fixes` the reviewer
+    found these AND fixed them in the same pass — the titles say so ("...; now
+    typing.cast") — and calling them open would be a false alarm. On any other
+    outcome they are what is still standing.
+    """
+    feedback = task.get("feedback")
+    if not isinstance(feedback, dict):
+        return []
+    phase = feedback.get("phase")
+    outcome = str(phase.get("outcome") or "").strip() if isinstance(phase, dict) else ""
+    if not outcome or outcome == "pass":
+        return []
+    findings = [finding for finding in feedback.get("findings") or [] if isinstance(finding, dict)]
+    findings.sort(key=lambda f: _FINDING_SEVERITY_ORDER.get(str(f.get("severity") or "").strip(), 9))
+    headline = (
+        "self-review found and fixed" if outcome == "pass_with_fixes" else f"self-review outcome `{outcome}`"
+    )
+    count = (
+        f" {len(findings)} issue{'' if len(findings) == 1 else 's'}"
+        if outcome == "pass_with_fixes" and findings
+        else ""
+    )
+    lines = [f"- **{str(task.get('title') or task.get('id') or 'task').strip()}** — {headline}{count}"]
+    for finding in findings:
+        severity = str(finding.get("severity") or "").strip() or "unrated"
+        kind = str(finding.get("kind") or "").strip()
+        title = str(finding.get("title") or finding.get("id") or "finding").strip()
+        lines.append(f"  - `{severity}` {title}{f' _({kind})_' if kind else ''}")
+    return lines
+
+
+def _task_delivery_line(task: Dict[str, Any]) -> List[str]:
+    """One task as a checklist entry: ticked when done, with its evidence beneath."""
+    status = str(task.get("status") or "").strip()
+    title = str(task.get("title") or task.get("id") or "task").strip()
+    role = str(task.get("role") or "").strip()
+    box = "x" if status == "done" else " "
+    suffix = f" _({role})_" if role else ""
+    if status != "done":
+        suffix += f" — **{status.replace('_', ' ') or 'not started'}**"
+    lines = [f"- [{box}] {title}{suffix}"]
+    if status == "needs_input":
+        needs_input = task.get("needsInput")
+        question = str(needs_input.get("question") or "").strip() if isinstance(needs_input, dict) else ""
+        if question:
+            lines.append(f"  - Waiting on: {question.splitlines()[0].strip()}")
+    evidence = task.get("evidence")
+    summary = str(evidence.get("summary")).strip() if isinstance(evidence, dict) and evidence.get("summary") else ""
+    if summary:
+        lines.append(f"  - {summary.splitlines()[0].strip()}")
+    return lines
+
+
+def _delivery_groups(
+    state: Dict[str, Any], state_path: Optional[Path], tasks: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """This repo's tasks, grouped under the backlog item each was launched from.
+
+    A run launched from one epic is one group; a `selection` run spanning several
+    epics is one group per epic, because that is how the work was chosen and how a
+    reviewer reads it back. Grouping keys off the task's own ``backlogRef`` — the
+    link minting wrote — and falls back to a single group named by the run's root
+    source, so a run whose tasks were planned rather than minted still gets a
+    heading rather than a bare list.
+    """
+    from sprintengine_core.tool.plans import EPIC_CHILD_SLUG_KEY, source_bundle_items
+
+    epic_of_child: Dict[str, str] = {}
+    for entry in source_bundle_items(state):
+        child_path = str(entry.get("path") or "").strip()
+        epic_slug = str(entry.get(EPIC_CHILD_SLUG_KEY) or "").strip()
+        if child_path and epic_slug:
+            epic_of_child[child_path.replace("\\", "/")] = epic_slug
+    epic_path_by_slug = {
+        Path(str(entry.get("path") or "")).stem: str(entry.get("path") or "")
+        for entry in source_bundle_items(state, "epic")
+    }
+
+    # A task carries a `backlogRef` only when it was minted FROM an item; a planned
+    # task carries none, and on a single-source run both kinds deliver the same
+    # piece of work. So an unattributed task belongs to the run's own source rather
+    # than to a second heading — otherwise PR 86, whose planned tasks and whose one
+    # minted task all deliver MC-2141, would render that item's heading twice.
+    # ...but only when the run has one piece of work to attribute them to. A
+    # `selection` run spanning two epics would otherwise file every planned task
+    # under whichever epic `source` happens to name first, which is a claim about
+    # the work that nothing in the run supports; there they get their own heading.
+    run_source = _run_source_item(state, state_path)
+    default_key = "" if len(epic_path_by_slug) > 1 else str(run_source.get("path") or "").replace("\\", "/")
+
+    def source_path_of(task: Dict[str, Any]) -> str:
+        ref = task.get("backlogRef")
+        item_path = str(ref.get("projectRelativePath") or "").strip() if isinstance(ref, dict) else ""
+        item_path = item_path.replace("\\", "/")
+        if not item_path:
+            return default_key
+        epic_slug = epic_of_child.get(item_path)
+        # A child rolls up to the epic that scoped it; a directly-selected item
+        # stands as its own group, which is exactly what selecting it meant.
+        return epic_path_by_slug.get(epic_slug, item_path) if epic_slug else item_path
+
+    ordered: List[str] = []
+    members: Dict[str, List[Dict[str, Any]]] = {}
+    for task in tasks:
+        key = source_path_of(task)
+        if key not in members:
+            ordered.append(key)
+            members[key] = []
+        members[key].append(task)
+
+    return [
+        {
+            "label": _backlog_item_label(state_path, key) if key else {"id": "", "title": "", "path": ""},
+            "tasks": members[key],
+        }
+        for key in ordered
+    ]
+
+
+def build_run_pull_request_body(
+    state: Dict[str, Any],
+    branch: str,
+    *,
+    repo_id: str = PRIMARY_REPO_ID,
+    state_path: Optional[Path] = None,
+) -> str:
+    """Default PR description: the run goal plus what it delivered in THIS repo.
 
     A reviewer opening the PR sees what shipped and why, not just the branch name.
-    The task table is scoped to the repo the pull request is for: a run spanning two
+    Work is grouped under the backlog item it came from and rendered as a checklist:
+    ticked for delivered, unticked with its status for everything that did not land,
+    and a Caveats block for the delivered work that came with open findings, a
+    non-clean review, or reported friction. A reviewer's first two questions about a
+    sprint are "is it all here" and "what should I look at hardest", and both are
+    answers the run already holds.
+
+    The task list is scoped to the repo the pull request is for: a run spanning two
     projects opens one pull request per project, and a reviewer of the mobile PR is
-    not reviewing — and cannot merge — the desktop tasks. A single-repo run's tasks
-    all target the primary repo, so its body is what it always was.
+    not reviewing — and cannot merge — the desktop tasks.
 
     A caller-supplied ``--body`` overrides this entirely.
     """
@@ -1319,21 +1541,33 @@ def build_run_pull_request_body(state: Dict[str, Any], branch: str, *, repo_id: 
     sprintengine = state.get("sprintengine", {})
     goal = str(sprintengine.get("goal") or "").strip()
     lines = [f"Sprint Engine run delivery for branch `{branch}`.", "", f"**Goal:** {goal or '_(not set)_'}"]
-    done = [
+    tasks = [
         t
         for t in (state.get("tasks") or [])
-        if isinstance(t, dict) and t.get("status") == "done" and folder_store.task_repo(t) == repo_id
+        if isinstance(t, dict) and t.get("status") != "canceled" and folder_store.task_repo(t) == repo_id
     ]
-    if done:
-        lines += ["", f"## Tasks delivered ({len(done)})"]
-        for task in done:
-            title = str(task.get("title") or task.get("id") or "task").strip()
-            role = str(task.get("role") or "").strip()
-            lines.append(f"- {title}{f' _({role})_' if role else ''}")
-            evidence = task.get("evidence")
-            summary = str(evidence.get("summary")).strip() if isinstance(evidence, dict) and evidence.get("summary") else ""
-            if summary:
-                lines.append(f"  - {summary.splitlines()[0].strip()}")
+    if not tasks:
+        return "\n".join(lines)
+
+    for group in _delivery_groups(state, state_path, tasks):
+        done = [task for task in group["tasks"] if task.get("status") == "done"]
+        outstanding = [task for task in group["tasks"] if task.get("status") != "done"]
+        lines += ["", f"## {_backlog_item_heading(group['label'])}", ""]
+        item_path = group["label"].get("path") or ""
+        if item_path:
+            lines += [f"`{item_path}`", ""]
+        lines.append(f"**Delivered: {len(done)} of {len(group['tasks'])}**")
+        if done:
+            lines.append("")
+            for task in done:
+                lines += _task_delivery_line(task)
+        if outstanding:
+            lines += ["", "### Not delivered", ""]
+            for task in outstanding:
+                lines += _task_delivery_line(task)
+        review_notes = [line for task in group["tasks"] for line in _task_review_lines(task)]
+        if review_notes:
+            lines += ["", "### Review notes", ""] + review_notes
     return "\n".join(lines)
 
 
@@ -1400,6 +1634,7 @@ def _repo_pull_request_body(
     repo: Dict[str, Any],
     *,
     body_override: Optional[str],
+    state_path: Optional[Path] = None,
 ) -> str:
     """One repo's full body: its description, plus the links to its companions.
 
@@ -1408,7 +1643,9 @@ def _repo_pull_request_body(
     description a caller is choosing to word differently.
     """
     override = _optional_str(body_override)
-    base_body = override or build_run_pull_request_body(state, repo["branchName"], repo_id=repo["id"])
+    base_body = override or build_run_pull_request_body(
+        state, repo["branchName"], repo_id=repo["id"], state_path=state_path
+    )
     companions = _companion_pull_request_lines(state, workspace_root, repos, urls, repo["id"])
     return "\n".join([base_body, *companions]) if companions else base_body
 
@@ -1480,6 +1717,7 @@ def _open_repo_pull_request(
     draft: bool,
     push: bool,
     remote: str,
+    state_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Push one repo's run branch and open its pull request. Never raises.
 
@@ -1536,9 +1774,7 @@ def _open_repo_pull_request(
     if stored_url:
         return opened(stored_url, already_exists=True)
 
-    pr_title = (title or "").strip() or compact_commit_subject(
-        f"SprintEngine: {str(state.get('sprintengine', {}).get('goal') or '').strip() or branch}"
-    )
+    pr_title = (title or "").strip() or build_run_pull_request_title(state, state_path, branch)
     try:
         pr = run_gh_checked(
             worktree,
@@ -1579,6 +1815,7 @@ def _sync_companion_bodies(
     worktrees: Dict[str, Path],
     *,
     body_override: Optional[str],
+    state_path: Optional[Path] = None,
 ) -> List[Dict[str, str]]:
     """Second pass: rewrite every open body so each names its companions.
 
@@ -1603,7 +1840,9 @@ def _sync_companion_bodies(
         # history — the companions a reviewer still has to merge all say so themselves.
         if not url or not worktree:
             continue
-        body = _repo_pull_request_body(state, workspace_root, repos, urls, repo, body_override=body_override)
+        body = _repo_pull_request_body(
+            state, workspace_root, repos, urls, repo, body_override=body_override, state_path=state_path
+        )
         try:
             edited = run_gh_checked(worktree, ["pr", "edit", url, "--body", body], allow_failure=True)
         except SystemExit as exc:
@@ -1686,10 +1925,13 @@ def create_run_pull_request(
             repo,
             base=base,
             title=title,
-            body=_repo_pull_request_body(state, workspace_root, repos, {}, repo, body_override=body),
+            body=_repo_pull_request_body(
+                state, workspace_root, repos, {}, repo, body_override=body, state_path=state_path
+            ),
             draft=draft,
             push=push,
             remote=remote,
+            state_path=state_path,
         )
         results.append(opened)
         url = _optional_str(opened.get("pullRequestUrl"))
@@ -1697,7 +1939,9 @@ def create_run_pull_request(
             urls[repo["id"]] = url
 
     # Pass two: now that every url exists, give each body its companion links.
-    body_failures = _sync_companion_bodies(state, workspace_root, repos, urls, worktrees, body_override=body)
+    body_failures = _sync_companion_bodies(
+        state, workspace_root, repos, urls, worktrees, body_override=body, state_path=state_path
+    )
 
     # Every project also reports the name a person calls it, so the surfaces that show
     # these pull requests (the app, the phone, the Backlog item's links) label them the
@@ -1872,6 +2116,29 @@ def _merge_order_refusal(workspace_root: Path, repos: List[Dict[str, Any]], repo
     return "\n".join(lines)
 
 
+def _merge_message_args(
+    state: Dict[str, Any], state_path: Path, repo: Dict[str, Any], method: str
+) -> List[str]:
+    """``--subject``/``--body`` for the merge commit, or nothing.
+
+    The merge commit is what lands on `main` and what everyone reads in the log
+    forever after, and left to itself it is either "Merge pull request #86 from
+    sprintengine/the-mcp-gateway-…" or a pile of per-task commit subjects. So the
+    commit says the same thing the pull request does: the backlog item by name,
+    and the delivery summary beneath it.
+
+    Only for `merge` and `squash`. A rebase writes no merge commit at all, and
+    `gh` rejects the flags there rather than ignoring them.
+    """
+    if method not in {"merge", "squash"}:
+        return []
+    subject = build_run_pull_request_title(state, state_path, repo.get("branchName") or "")
+    body = build_run_pull_request_body(
+        state, repo.get("branchName") or "", repo_id=repo["id"], state_path=state_path
+    )
+    return ["--subject", subject, "--body", body]
+
+
 def merge_repo_pull_request(
     state: Dict[str, Any],
     state_path: Path,
@@ -1949,7 +2216,7 @@ def merge_repo_pull_request(
     worktree = _repo_worktree(state_path, repo)
     cwd = worktree if (worktree and worktree.exists()) else resolve_vcs_path(workspace_root, repo["root"])
     try:
-        merged = run_gh_checked(cwd, ["pr", "merge", url, f"--{method}"], allow_failure=True)
+        merged = run_gh_checked(cwd, ["pr", "merge", url, f"--{method}", *_merge_message_args(state, state_path, repo, method)], allow_failure=True)
     except SystemExit as exc:
         return {**result, "ok": False, "error": str(exc)}
     if merged.returncode != 0:

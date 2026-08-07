@@ -16,30 +16,37 @@
 // always lived one level up in `RoadmapGlobalSurface`; folding the column in
 // moved the pane, not the state.
 //
-// What a row says, and nothing more: a lifecycle glyph, the title, and its size.
-// No id (the detail carries it), no status word beside the glyph that already
-// says it, and no project tag repeated on every row of a single-project horizon.
+// What a row says: a lifecycle glyph, then two lines — the id and title (the
+// title clamps at two lines, with the full text in a tooltip when clamped), and
+// a meta line carrying the Ready chip, the step's size WITH its unit ("5
+// items"), and the team chip. Two lines, deliberately: the one-line 26px row
+// made every step unrecognizable without clicking it. Still no status word
+// beside the glyph that already says it, and no project tag repeated on every
+// row of a single-project horizon.
 //
 // Editing happens HERE — drag to reorder within and across tracks, drop from the
 // detail pane's backlog mode to add, right-click to remove, the trailing chip to
 // staff. Every edit is a write to the horizon file through the shared autosave
 // (useRoadmapPlanDraft); there is no edit mode and no save button.
 //
-// A track's attention — a park, an approval, a merge — renders as a compact
-// notice attached to the step it happened to, carrying the real reason and the
-// one action that clears it. This is where the deleted "Waiting on you" strip's
-// job now lives (MC-1922).
+// A track's attention — a park, a merge, a block — is a one-word label on the
+// step's own meta line, exactly like the Ready chip. The rail STATES; it never
+// explains and never acts. The reason and the action both live on the detail
+// pane's header (MC-1909's visibility rule is met there — the reason renders
+// inline on the selected step, one click from the label that flagged it).
+// Owner, 2026-08-06: extra prose in the sidebar "shouldn't be on this sidebar
+// here. That should be within the sprint information on the right hand panel."
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   ContextMenu,
   GhostButton,
-  InlineNotice,
   LifecycleGlyph,
   MenuItem,
   OverflowMenu,
   PrimaryButton,
+  Tooltip,
   TruncatedText,
 } from '../../ui'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
@@ -57,7 +64,7 @@ import { NO_ROLES_ROSTER_NAME } from '../../workspace/newWorkspace/savedRosters'
 import type { SprintEngineRoster } from '../../../types/workspace'
 import type { RoadmapLane } from '../../../../../shared/backlog/roadmap'
 import { roadmapUnitLifecycle } from './roadmapMemberLifecycle'
-import type { HorizonBand, HorizonPlan, HorizonStepRow } from './horizonPlanModel'
+import type { HorizonBand, HorizonPlan, HorizonStepNoticeKind, HorizonStepRow } from './horizonPlanModel'
 
 /** The steering a track's attention notice and its menu can invoke, by track
  *  name. Pause/Resume live on the TRACK's own menu — they act on that track, not
@@ -141,11 +148,6 @@ export type HorizonPlanColumnProps = {
   onRemoveTrack: (laneIndex: number) => void
   /** The keyboard cursor's step ref (MC-1925), distinct from the selection. */
   cursorRef?: string | null
-  /** The selected step's detail is showing a run strip, which carries the same
-   *  merge action louder. ONLY then is the row's merge notice suppressed —
-   *  the notice is attached by fallback when the track names no active item, and
-   *  suppressing it blindly removed the only way to merge. */
-  selectedHasRunStrip?: boolean
 }
 
 type DragOrigin = { lane: number; index: number } | null
@@ -170,7 +172,6 @@ export function HorizonPlanColumn({
   onRenameTrack,
   onRemoveTrack,
   cursorRef = null,
-  selectedHasRunStrip = false,
 }: HorizonPlanColumnProps): JSX.Element {
   const [drag, setDrag] = useState<DragOrigin>(null)
   const [over, setOver] = useState<DropTarget>(null)
@@ -376,7 +377,6 @@ export function HorizonPlanColumn({
               trackCount={trackCount}
               selectedRef={selectedRef}
               cursorRef={cursor}
-              selectedHasRunStrip={selectedHasRunStrip}
               rowRefs={rowRefs}
               showProjectTag={showProjectTag}
               rosters={rosters}
@@ -434,7 +434,6 @@ function PlanBand({
   trackCount,
   selectedRef,
   cursorRef,
-  selectedHasRunStrip,
   rowRefs,
   showProjectTag,
   rosters,
@@ -461,7 +460,6 @@ function PlanBand({
   trackCount: number
   selectedRef: string | null
   cursorRef: string | null
-  selectedHasRunStrip: boolean
   rowRefs: React.MutableRefObject<Map<string, HTMLButtonElement | null>>
   showProjectTag: boolean
   rosters: ReadonlyArray<SprintEngineRoster>
@@ -582,15 +580,6 @@ function PlanBand({
               onMenu={(position) => onRowMenu(row, position)}
               buttonRef={(node) => rowRefs.current.set(row.ref, node)}
             />
-            {/* The selected step's merge action is already the loud primary in
-                the detail pane 400px right, but ONLY when that pane actually
-                mounted a run strip for it — the notice can be attached by
-                fallback to a step the detail will not claim, and suppressing it
-                then removed the only way to merge. */}
-            {row.notice
-            && !(row.ref === selectedRef && row.notice.kind === 'merge' && selectedHasRunStrip) ? (
-              <StepNotice row={row} steering={steering} />
-            ) : null}
           </li>
         ))}
         {showDrop && over !== null && over.index > lastShownIndex ? <DropIndicator /> : null}
@@ -657,14 +646,17 @@ function StepRow({
         aria-current={selected ? 'true' : undefined}
         onClick={onSelect}
         // Identifier and title in one accessible name, as the family contract asks.
-        aria-label={`${row.title}${row.sizeLabel ? `, ${row.sizeLabel} items` : ''}`}
+        aria-label={`${row.displayId ? `${row.displayId}: ` : ''}${row.title}${
+          row.sizeLabel ? `, ${sizeCountLabel(row.sizeLabel)}` : ''
+        }${row.ready ? ', ready to start' : row.notice ? `, ${noticeLabel(row.notice.kind).toLowerCase()}` : ''}`}
         // Rounded like every other row in this rail: the plan is a group of the
         // rail now, not a column with its own full-bleed rows.
         // `px-2 gap-2` and the 16px slot below put the title on the rail's own
-        // 36px text edge (MC-2099, grid per MC-2101). The 26px single-line height
-        // stays — plan steps are deliberately denser than horizons; it was only
-        // the horizontal geometry that had drifted.
-        className={`flex h-[26px] w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
+        // 36px text edge (MC-2099, grid per MC-2101). The height is now
+        // content-driven — two lines of text — because the 26px single-line row
+        // truncated every title to a stub and made the plan unreadable without
+        // clicking each step in turn.
+        className={`flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
           selected
             ? 'bg-[color:var(--bg-selected)]'
             : 'hover:bg-[color:var(--bg-hover)]'
@@ -674,8 +666,9 @@ function StepRow({
             state glyph at rest, the grip on hover. A dedicated 11px handle column
             is what pushed this title 9px past every other row in the column, and
             it bought nothing — the whole row is `draggable`, so the grip is a
-            signal that dragging is possible, never the only place to grab. */}
-        <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
+            signal that dragging is possible, never the only place to grab.
+            `mt-px` optically centres the 16px glyph on the title's first line. */}
+        <span className="relative mt-px flex size-icon-sm shrink-0 items-center justify-center">
           {/* Only a genuinely live run animates; a queued step's glyph is static.
               A ref that resolves to nothing reads blocked, whatever its position. */}
           <LifecycleGlyph
@@ -690,67 +683,103 @@ function StepRow({
             <GripGlyph />
           </span>
         </span>
-        {row.unresolved || row.projectUnavailable ? (
-          // Surfaced, never silently dropped — but the two cases are different
-          // problems and must not read the same. A step whose PROJECT is closed
-          // is probably fine; telling the author to remove it would be wrong,
-          // and the detail pane says the opposite 400px to the right.
-          <span
-            className="min-w-0 flex-1 truncate font-mono text-micro text-[color:var(--text-disabled)]"
-            title={
-              row.projectUnavailable
-                ? `${row.projectName} is not open, so this step cannot be read.`
-                : `No backlog item matches “${row.ref}”. Remove the stale step, or create the item.`
-            }
-          >
-            {row.projectUnavailable ? `Not open · ${row.projectName}` : `Unknown · ${row.ref}`}
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          {row.unresolved || row.projectUnavailable ? (
+            // Surfaced, never silently dropped — but the two cases are different
+            // problems and must not read the same. A step whose PROJECT is closed
+            // is probably fine; telling the author to remove it would be wrong,
+            // and the detail pane says the opposite 400px to the right.
+            <span
+              className="min-w-0 truncate font-mono text-micro text-[color:var(--text-disabled)]"
+              title={
+                row.projectUnavailable
+                  ? `${row.projectName} is not open, so this step cannot be read.`
+                  : `No backlog item matches “${row.ref}”. Remove the stale step, or create the item.`
+              }
+            >
+              {row.projectUnavailable ? `Not open · ${row.projectName}` : `Unknown · ${row.ref}`}
+            </span>
+          ) : (
+            // The identity line: the minted id, then the title on a two-line
+            // clamp with the full text in a tooltip only when clamped. The id
+            // hangs at the leading edge so titles align under each other.
+            <span className="flex min-w-0 items-baseline gap-1.5">
+              {row.displayId ? (
+                <span className="shrink-0 font-mono text-micro text-[color:var(--text-subtle)]">
+                  {row.displayId}
+                </span>
+              ) : null}
+              <TruncatedText
+                as="span"
+                multiline
+                text={row.title}
+                placement="bottom"
+                className={`min-w-0 flex-1 line-clamp-2 text-meta leading-snug ${
+                  selected
+                    ? 'font-medium text-[color:var(--text-strong)]'
+                    : 'text-[color:var(--text-default)]'
+                }`}
+              />
+            </span>
+          )}
+          {/* The meta line. State reads at the leading edge; the count sits
+              with the team at the TRAILING edge so nothing strands mid-line —
+              the count alone at the left with the chip far right read as two
+              unrelated scraps. The trailing spacer is the team chip's gutter,
+              reserved rather than filled because the chip is a SIBLING of this
+              button (one click target per row). */}
+          <span className="flex min-w-0 items-center gap-1.5 text-micro text-[color:var(--text-subtle)]">
+            {row.ready ? (
+              // Good news in the accent, never the warn tone: this is the rail's
+              // whole answer to "which step can I start?". The action itself is
+              // the detail header's louder "Start sprint".
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-[color:var(--accent-primary-soft-strong)] px-1.5 font-medium leading-4 text-[color:var(--accent-primary)]">
+                <span aria-hidden="true" className="size-[5px] rounded-full bg-current" />
+                Ready
+              </span>
+            ) : row.notice ? (
+              // Attention as ONE word, the same volume as Ready. The reason and
+              // the action are the detail header's — the rail only flags.
+              <span className="inline-flex shrink-0 items-center gap-1 font-medium leading-4 text-[color:var(--text-default)]">
+                <span aria-hidden="true" className="size-[5px] rounded-full bg-[color:var(--tone-warn)]" />
+                {noticeLabel(row.notice.kind)}
+              </span>
+            ) : null}
+            {showProjectTag ? (
+              <span
+                className="shrink-0 max-w-[7rem] truncate rounded-sm border border-[color:var(--border-subtle)] px-1 font-mono leading-4"
+                title={
+                  row.state === 'unknown_project'
+                    ? `${row.projectName} — this project is not open`
+                    : `In ${row.projectName}`
+                }
+              >
+                {row.projectName}
+              </span>
+            ) : null}
+            {row.sizeLabel ? (
+              <Tooltip
+                content={sizeTooltip(row.sizeLabel)}
+                placement="top"
+                wrapperClassName="ml-auto inline-flex min-w-0"
+              >
+                <span className="truncate tabular-nums">{sizeCountLabel(row.sizeLabel)}</span>
+              </Tooltip>
+            ) : null}
+            <span
+              aria-hidden="true"
+              className={`w-[5.25rem] shrink-0 ${row.sizeLabel ? '' : 'ml-auto'}`}
+            />
           </span>
-        ) : (
-          <span
-            className={`min-w-0 flex-1 truncate text-meta ${
-              selected
-                ? 'font-medium text-[color:var(--text-strong)]'
-                : 'text-[color:var(--text-default)]'
-            }`}
-            title={row.title}
-          >
-            {row.title}
-          </span>
-        )}
-        {showProjectTag ? (
-          <span
-            className="shrink-0 max-w-[7rem] truncate rounded-sm border border-[color:var(--border-subtle)] px-1 font-mono text-micro leading-4 text-[color:var(--text-subtle)]"
-            title={
-              row.state === 'unknown_project'
-                ? `${row.projectName} — this project is not open`
-                : `In ${row.projectName}`
-            }
-          >
-            {row.projectName}
-          </span>
-        ) : null}
-        {/* The team chip's gutter. It is reserved rather than filled because the
-            chip is a SIBLING of this button (one click target per row), and it
-            is as wide as the chip's own cap so a team name never runs under the
-            title it sits beside. */}
-        <span aria-hidden="true" className="w-[5.25rem] shrink-0" />
-        {/* Fixed width, right-aligned: the roster chip is absolutely positioned
-            against this gutter, so a wider count ("12/19") must not grow the
-            cell and slide under the chip. */}
-        {row.sizeLabel ? (
-          <span className="w-9 shrink-0 text-right text-micro tabular-nums text-[color:var(--text-subtle)]">
-            {row.sizeLabel}
-          </span>
-        ) : null}
+        </span>
       </button>
       {/* The step's TEAM, resting on the row (MC-2066) — a sibling of the row
           button, never nested: one click target per row stays the rule, and a
-          button inside a button is invalid HTML. Picking a team is one click
-          from here; the horizon's default is what an untouched step inherits,
-          not the only comfortable way to set anything. */}
-      <span
-        className={`absolute top-1/2 -translate-y-1/2 ${row.sizeLabel ? 'right-[2.75rem]' : 'right-2'}`}
-      >
+          button inside a button is invalid HTML. Anchored to the meta line's
+          trailing edge, inside the gutter that line reserves. Picking a team is
+          one click from here; the horizon's default is what an untouched step
+          inherits, not the only comfortable way to set anything. */}
+      <span className="absolute bottom-1 right-2">
         <RosterMenu
           variant="row"
           ariaLabel={`Team for ${row.title}`}
@@ -769,45 +798,26 @@ function StepRow({
   )
 }
 
-// ── attention, attached to the work ──────────────────────────────────────────
+/** A track's attention in one word, for the row's meta line. The rail flags;
+ *  the detail header explains and acts. */
+export function noticeLabel(kind: HorizonStepNoticeKind): string {
+  return kind === 'paused' ? 'Paused' : kind === 'merge' ? 'PR waiting' : 'Blocked'
+}
 
-function StepNotice({ row, steering }: { row: HorizonStepRow; steering: HorizonSteering }): JSX.Element {
-  const notice = row.notice as NonNullable<HorizonStepRow['notice']>
-  const busy = steering.busyLane === row.laneTitle
-  const act = (): void => {
-    if (notice.kind === 'paused') steering.onResume(row.laneTitle)
-    else if (notice.kind === 'approval') steering.onApprove(row.laneTitle)
-    else if (notice.kind === 'merge') steering.onMerge(row.laneTitle)
+/** The count with its unit — "5 items", "1 item", "1/2 items". The bare number
+ *  the trailing slot used to show told nobody what it was counting. */
+export function sizeCountLabel(sizeLabel: string): string {
+  return `${sizeLabel} ${sizeLabel === '1' ? 'item' : 'items'}`
+}
+
+/** What the size count means, spelled out for the pointer: the bare "5" told
+ *  nobody it was counting an epic's children. */
+export function sizeTooltip(sizeLabel: string): string {
+  if (sizeLabel.includes('/')) {
+    const [done, total] = sizeLabel.split('/')
+    return `${done} of ${total} child items delivered`
   }
-  // The kit's advisory, not a hand-rolled one (MC-2099). This shipped as its own
-  // `border-l-2 tone-warn` card — the same idea InlineNotice already carries,
-  // spelled differently, so the two drifted on radius, padding and ink.
-  //
-  // `hint` rather than `detail` for the reason: `detail` hides behind a "Show
-  // details" disclosure, and MC-1909's whole point is that a pause a person
-  // cannot act on must state WHY where they can see it. `hint` renders inline.
-  //
-  // `ml-8` hangs the card under the step's title (4px scrollport + 8px row
-  // padding + 16px icon slot + 8px gap = the 36px text edge), so the attention
-  // reads as belonging to that row rather than to the track.
-  return (
-    <InlineNotice
-      tone="warn"
-      title={notice.message}
-      hint={notice.detail}
-      className="mb-1.5 ml-8 mr-2 mt-0.5"
-      // Only when there IS one action. A track stalled on a prerequisite is
-      // fixed in the backlog, not here, so it states the reason and offers no
-      // button rather than a control that cannot help.
-      action={
-        notice.actionLabel ? (
-          <PrimaryButton size="xs" disabled={busy} onClick={act}>
-            {notice.actionLabel}
-          </PrimaryButton>
-        ) : undefined
-      }
-    />
-  )
+  return `${sizeLabel} child ${sizeLabel === '1' ? 'item' : 'items'} in this epic`
 }
 
 // ── delivered ────────────────────────────────────────────────────────────────

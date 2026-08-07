@@ -5,14 +5,17 @@ import { JSDOM } from 'jsdom'
 // MC-2147 — the launch surface behind the tab strip's "+". Rendered for real,
 // because the acceptance is about what a person sees and presses:
 //
-//   1. every launch argument is on the surface, and the receipt line under them
-//      is the invocation main says a spawn would make;
-//   2. Start hands the host a confirm plus the typed prompt — and creates
+//   1. the row shows what a launch usually changes — engine and access — while
+//      role, worktree, reasoning and debug stay behind the ⋯ menu until set;
+//   2. the invocation main renders rides Start's hover, not a line of chrome;
+//   3. Start hands the host a confirm plus the typed prompt — and creates
 //      nothing itself;
-//   3. a suggestion card spawns on click, carrying its own full prompt;
-//   4. the skill trigger is the CLI's declared one, and a CLI that declares
+//   4. a suggestion card spawns on click, carrying its own full prompt;
+//   5. the skill trigger is the CLI's declared one, and a CLI that declares
 //      none keeps the "+ Skill" chip instead of borrowing a "/";
-//   5. with no agent CLI installed the surface offers the install route rather
+//   6. the greeting uses a first name when there is one and reads correctly
+//      when there is not;
+//   7. with no agent CLI installed the surface offers the install route rather
 //      than controls that would fail on click.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -101,6 +104,7 @@ async function main(): Promise<void> {
         binary: 'claude',
         resumeSession: true,
         sessionIdFromCaller: true,
+        reasoningSelection: { levels: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }] },
         skillIntegration: {
           support: 'native',
           harnessId: 'claude',
@@ -131,7 +135,7 @@ async function main(): Promise<void> {
     container: HTMLElement
     unmount: () => void
     launches: Array<Record<string, unknown>>
-    closes: number
+    closed: () => number
     text: () => string
     find: (predicate: (el: HTMLElement) => boolean) => HTMLElement | undefined
   }
@@ -171,7 +175,7 @@ async function main(): Promise<void> {
         container.remove()
       },
       launches,
-      closes,
+      closed: () => closes,
       text: () => container.textContent ?? '',
       find: (predicate) =>
         [...container.querySelectorAll('button, span, p')].find((el) =>
@@ -180,24 +184,48 @@ async function main(): Promise<void> {
     }
   }
 
-  // 1. Every argument, and a receipt line that is main's answer verbatim.
-  await check('the surface shows the arguments and the command a launch would run', async () => {
+  // 1. The row carries the usual decisions; the rare ones stay behind ⋯.
+  await check('the row shows engine and access, and hides the rest behind ⋯', async () => {
     seedStore()
     previewCalls.length = 0
     const view = await render()
     const text = view.text()
 
-    assert.ok(text.includes('What needs doing?'), 'the headline asks for the task')
-    assert.ok(text.includes('multicode'), 'the scope line names the project the agent will run in')
-    assert.ok(text.includes('Default') && text.includes('Auto') && text.includes('Bypass'), 'approval is on the row')
-    assert.ok(text.includes('+ Worktree'), 'worktree is offered inside a git repo')
+    // The PROJECT folder, not the workspace name: a solo-chat workspace is
+    // called things like "new chat panel", which says nothing about where the
+    // agent runs. The fixture names them differently on purpose.
+    assert.ok(text.includes('proj'), 'the scope line names the folder the agent will run in')
+    assert.ok(!text.includes('multicode'), 'and not the workspace’s own name')
+    assert.ok(text.includes('Auto'), 'access carries its own value on the chip — here, the seeded preset')
     assert.ok(text.includes('+ Connector'), 'the connector attachment is offered')
-    assert.ok(/debug/i.test(text), 'debug is on the row')
+    assert.ok(text.includes('⋯'), 'the overflow is there')
 
-    assert.ok(
-      text.includes(PREVIEW_DISPLAY),
-      `the receipt shows main's own line; got: ${text.slice(0, 400)}`,
+    assert.ok(!text.includes('+ Worktree'), 'worktree is not on the row until it is set')
+    assert.ok(!text.includes('+ Skill') || !text.includes('Role'), 'no role control anywhere on the row')
+    assert.ok(!/debug/i.test(text), 'nor is debug')
+    assert.ok(!text.includes('Architect'), 'and no role picker sits where the model goes')
+
+    // The command line is not printed under the box any more.
+    assert.ok(!text.includes(PREVIEW_DISPLAY), 'the invocation is not a line of chrome')
+
+    // It rides Start's hover, and it is main's answer verbatim.
+    const start = [...view.container.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'Start agent',
     )
+    assert.ok(start, 'the launch control is there, named for what it does')
+    assert.equal(start?.textContent?.trim(), '⏎', 'and wears the key that triggers it, not a chat send-arrow')
+    // Real focus, not a synthetic 'focus' event: React binds onFocus to focusin,
+    // which is also what a Tab press produces — the path this must work on.
+    await act(async () => {
+      ;(start as HTMLElement).focus()
+    })
+    const tooltip = dom.window.document.querySelector('[role="tooltip"]')
+    assert.ok(tooltip, 'focusing Start opens its tip — keyboard reaches it, not only the pointer')
+    assert.ok(
+      (tooltip?.textContent ?? '').includes(PREVIEW_DISPLAY),
+      `the tip is main's own line; got: ${tooltip?.textContent}`,
+    )
+
     assert.equal(previewCalls.length >= 1, true, 'the surface asked main rather than composing the line itself')
     assert.equal(previewCalls[0]?.cli, 'claude-code', 'it asked about the selected agent’s CLI')
     assert.equal(
@@ -208,9 +236,248 @@ async function main(): Promise<void> {
     assert.ok(!('debugMode' in (previewCalls[0] ?? {})), 'debug is a prompt concern and stays out of the receipt')
 
     view.unmount()
+
+    // Bypass is the value that removes a safeguard, so it is the one that also
+    // changes colour rather than only its text.
+    const bypassed = await render({ permissionPreset: 'bypass_all' })
+    assert.ok(bypassed.text().includes('Bypass'), 'the chip reads Bypass when that is the preset')
+    const chip = [...bypassed.container.querySelectorAll('button')].find((button) =>
+      (button.textContent ?? '').includes('Bypass'),
+    )
+    assert.ok(
+      (chip?.className ?? '').includes('tone-warn'),
+      'and wears the warn tone, not the ordinary accent',
+    )
+    bypassed.unmount()
   })
 
-  // 2. Start hands the host a confirm plus the prompt, and creates nothing.
+  // 1b. The ⋯ menu holds exactly what the row does not — which is now two
+  //     things. Role left with the specialist picker; reasoning effort moved
+  //     into the model's own picker, where it is a property of the model.
+  await check('the ⋯ menu holds worktree and debug, and nothing else', async () => {
+    seedStore()
+    const view = await render()
+    const more = [...view.container.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'More launch options',
+    )
+    assert.ok(more, 'the overflow has an accessible name')
+    await act(async () => {
+      more!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    const menu = dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
+    const menuText = menu?.textContent ?? ''
+    assert.ok(menuText.includes('Worktree'), 'worktree is a row')
+    assert.ok(menuText.includes('Off'), 'showing its current value')
+    assert.ok(menuText.includes('Debug mode'), 'and debug')
+    // The kind of thing being launched lives here too — the only surface that
+    // starts a plain shell or a conversation agent.
+    assert.ok(menuText.includes('Agent'), 'an agent is the default kind')
+    assert.ok(menuText.includes('Terminal'), 'a plain shell is reachable')
+    assert.ok(!menuText.includes('Role'), 'the specialist picker is gone from this surface entirely')
+    assert.ok(!menuText.includes('Reasoning'), 'and reasoning lives in the model picker now')
+    // Debug is about the user's software, not the agent.
+    assert.ok(
+      /instruments your code/i.test(menuText),
+      `debug says what it actually does; got: ${menuText}`,
+    )
+
+    // Worktree expands in place to type its branch — the click that turns it on
+    // is the click that starts typing.
+    const worktreeRow = [...(menu?.querySelectorAll('button') ?? [])].find((button) =>
+      (button.textContent ?? '').startsWith('Worktree'),
+    )
+    assert.ok(worktreeRow, 'the worktree row is pressable')
+    await act(async () => {
+      worktreeRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    const branchInput = dom.window.document.querySelector('[aria-label="Worktree branch name"]')
+    assert.ok(branchInput, 'and reveals the branch field')
+    assert.notEqual(branchInput?.getAttribute('aria-hidden'), 'true', 'which is reachable once open')
+    view.unmount()
+  })
+
+  // 2b. Picking Terminal or Conversation drops every CLI-shaped control: neither
+  //     launches one, so neither may show a model, a permission flag, or a
+  //     command line.
+  await check('a terminal or conversation launch shows no CLI chrome', async () => {
+    seedStore()
+    const view = await render({ conversationAvailable: true })
+    const openMore = async () => {
+      const more = [...view.container.querySelectorAll('button')].find(
+        (button) => button.getAttribute('aria-label') === 'More launch options',
+      )
+      await act(async () => {
+        more!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      return dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
+    }
+
+    const menu = await openMore()
+    // Listed whether or not a provider is configured — an option that vanishes
+    // reads as unimplemented rather than unconfigured.
+    assert.ok((menu?.textContent ?? '').includes('Chat'), 'the chat launch is listed')
+    assert.ok(
+      (menu?.textContent ?? '').includes('An agent in a chat window'),
+      'and says what it is, where a provider can serve one',
+    )
+    const terminalRow = [...(menu?.querySelectorAll('button') ?? [])].find(
+      (button) => (button.textContent ?? '').startsWith('Terminal'),
+    )
+    await act(async () => {
+      terminalRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+
+    const text = view.text()
+    // The fixture seeds auto_workspace, so the access chip would read "Auto".
+    assert.ok(!text.includes('Auto'), 'a shell has no permission preset')
+    assert.ok(!text.includes('Opus'), 'and no model')
+
+    const start = [...view.container.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'Start agent',
+    )
+    await act(async () => {
+      ;(start as HTMLElement).focus()
+    })
+    const tip = dom.window.document.querySelector('[role="tooltip"]')
+    assert.ok(
+      (tip?.textContent ?? '').includes('shell'),
+      `it says what it opens instead of a command; got: ${tip?.textContent}`,
+    )
+
+    // A shell runs nothing on your behalf: no suggested tasks, and a prompt
+    // field that says so rather than dropping what was typed.
+    const { SUGGESTION_BANK } = await import('./suggestionBank')
+    assert.ok(
+      !SUGGESTION_BANK.some((entry) => text.includes(entry.title)),
+      'no suggestion cards for a plain shell',
+    )
+    const promptField = view.container.querySelector('textarea')
+    assert.equal(promptField?.disabled, true, 'and no prompt to type into')
+    assert.ok(
+      (promptField?.getAttribute('placeholder') ?? '').includes('nothing typed'),
+      'which says why',
+    )
+
+    // The menu is the ONLY way to change what is being launched, so hiding it
+    // for a terminal stranded the surface with no way back to an agent.
+    const stillThere = [...view.container.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'More launch options',
+    )
+    assert.ok(stillThere, 'the ⋯ menu survives a terminal selection')
+    await act(async () => {
+      stillThere!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    const backMenu = dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
+    const agentRow = [...(backMenu?.querySelectorAll('button') ?? [])].find(
+      (button) => (button.textContent ?? '').startsWith('Agent'),
+    )
+    assert.ok(agentRow, 'and still offers Agent')
+    await act(async () => {
+      agentRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    const back = view.text()
+    assert.ok(back.includes('Auto'), 'picking Agent brings the permission control back')
+    assert.equal(
+      view.container.querySelector('textarea')?.disabled,
+      false,
+      'and the prompt is typeable again',
+    )
+    assert.ok(
+      SUGGESTION_BANK.some((entry) => back.includes(entry.title)),
+      'and the suggested tasks return',
+    )
+    view.unmount()
+  })
+
+  // 2b-ii. A surface that offers a conversation agent must ASK for the provider
+  //        catalog — the row is gated on availability, and while the catalog was
+  //        loaded by the top bar's menu alone this option could never appear here.
+  // 2b-iii. Unavailable is not invisible: with no provider the row stays, says
+  //         what is missing, and routes to Settings instead of disappearing.
+  await check('the chat launch is listed even with no provider configured', async () => {
+    seedStore()
+    const view = await render({ conversationAvailable: false })
+    const more = [...view.container.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'More launch options',
+    )
+    await act(async () => {
+      more!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    const menu = dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
+    const chatRow = [...(menu?.querySelectorAll('button') ?? [])].find((button) =>
+      (button.textContent ?? '').startsWith('Chat'),
+    )
+    assert.ok(chatRow, 'the row is there')
+    assert.equal(chatRow?.getAttribute('aria-disabled'), 'true', 'marked unavailable')
+    assert.ok(
+      (chatRow?.textContent ?? '').includes('Needs a model provider'),
+      'and says what is missing rather than vanishing',
+    )
+    // The whole sentence, not "connect one in S…": these hints wrap, because a
+    // tooltip to recover text the surface had room for is a worse answer.
+    assert.ok(
+      (chatRow?.textContent ?? '').includes('connect one in Settings'),
+      'the reason is readable in full, not truncated',
+    )
+    assert.ok(
+      !(chatRow?.querySelector('.truncate')),
+      'no truncation inside a row whose text IS the explanation',
+    )
+    view.unmount()
+  })
+
+  await check('the surface asks the host for the conversation catalog', async () => {
+    seedStore()
+    let requests = 0
+    const view = await render({ onRequestConversationCatalog: () => { requests += 1 } })
+    assert.equal(requests, 1, 'asked once on open, so a provider added since last time shows up')
+    view.unmount()
+  })
+
+  // 2c. There is always a way out. The tab host has its tab's ×; the door host
+  //     has none, so the surface carries the control — and Escape cancels from
+  //     anywhere on it, not only from the prompt field.
+  await check('the surface can always be cancelled', async () => {
+    seedStore()
+
+    // Escape from a control that is not the prompt.
+    const view = await render()
+    const chip = [...view.container.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'More launch options',
+    )
+    await act(async () => {
+      ;(chip as HTMLElement).focus()
+      dom.window.document.dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
+    })
+    assert.equal(view.closed(), 1, 'Escape cancels from anywhere on the surface')
+    view.unmount()
+
+    // The door host draws its own close control, because it has no tab.
+    const withButton = await render({ showCloseButton: true })
+    const close = [...withButton.container.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'Cancel',
+    )
+    assert.ok(close, 'a hosted surface with no tab carries its own way out')
+    await act(async () => {
+      close!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    assert.equal(withButton.closed(), 1, 'and it cancels')
+    withButton.unmount()
+
+    // The tab host does NOT draw one — its tab already closes it.
+    const tabHosted = await render()
+    assert.ok(
+      ![...tabHosted.container.querySelectorAll('button')].some(
+        (button) => button.getAttribute('aria-label') === 'Cancel',
+      ),
+      'the tab host relies on its tab, and draws no second control',
+    )
+    tabHosted.unmount()
+  })
+
+  // 3. Start hands the host a confirm plus the prompt, and creates nothing.
   await check('Start reports the launch to the host with the typed prompt', async () => {
     seedStore()
     const view = await render()
@@ -226,8 +493,8 @@ async function main(): Promise<void> {
       textarea!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
     })
 
-    const start = [...view.container.querySelectorAll('button')].find((button) =>
-      (button.textContent ?? '').startsWith('Start'),
+    const start = [...view.container.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'Start agent',
     )
     assert.ok(start, 'the primary action is named for what it does')
     await act(async () => {
@@ -240,7 +507,7 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
-  // 3. A card is a launch button, and it carries the bank's real prompt.
+  // 4. A card is a launch button, and it carries the bank's real prompt.
   await check('a suggestion card spawns on click with its full prompt', async () => {
     seedStore()
     const { SUGGESTION_BANK } = await import('./suggestionBank')
@@ -262,7 +529,7 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
-  // 4. The trigger is the CLI's own, and its absence is not papered over.
+  // 5. The trigger is the CLI's own, and its absence is not papered over.
   await check('the skill trigger comes from the manifest', async () => {
     seedStore()
     const withPrefix = await render()
@@ -300,7 +567,29 @@ async function main(): Promise<void> {
     noPrefix.unmount()
   })
 
-  // 5. Nothing installed: the install route, not live-looking controls.
+  // 6. The greeting: a name when there is one, and a sentence either way.
+  await check('the greeting uses a first name only when there is one', async () => {
+    seedStore()
+    useWorkspaceStore.setState({
+      authState: { ...useWorkspaceStore.getState().authState, user: { id: 'u', email: 'c@example.com', displayName: 'Conal Smith' } },
+    } as never)
+    const named = await render()
+    assert.ok(named.text().includes('Conal'), 'it greets by first name, not full name')
+    assert.ok(!named.text().includes('Smith'), 'and not by surname')
+    named.unmount()
+
+    useWorkspaceStore.setState({
+      authState: { ...useWorkspaceStore.getState().authState, user: null },
+    } as never)
+    const anon = await render()
+    const text = anon.text()
+    assert.ok(!text.includes('Conal'), 'signed out, no name')
+    assert.ok(!/,\s*\?/.test(text), 'and no dangling comma where the name was')
+    assert.ok(!/sign in/i.test(text), 'a launch surface is not a sign-in prompt')
+    anon.unmount()
+  })
+
+  // 7. Nothing installed: the install route, not live-looking controls.
   await check('with no agent CLI the surface offers the install route', async () => {
     seedStore({ plugins: [] })
     const view = await render()

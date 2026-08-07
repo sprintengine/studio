@@ -42,8 +42,24 @@ export type HorizonStepRun = {
   lane: string
   /** What the track is waiting on, if anything. */
   attention: 'none' | 'approval' | 'merge' | 'paused'
+  /** WHY a paused track parked (`run_canceled`, `run_failed`, …), so the strip
+   *  can say "canceled" instead of reading zero tasks left as "delivered". */
+  parkReason?: string
   /** A command for this track is in flight. */
   busy: boolean
+}
+
+/** The parked state in one word, by park reason. A canceled sprint saying
+ *  "delivered" was the defect this map exists to prevent — the fallback is the
+ *  honest generic, never a claim of completion. */
+const STOPPED_WORD: Record<string, string> = {
+  run_canceled: 'canceled',
+  run_failed: 'failed',
+  needs_input: 'waiting on your input',
+  pr_closed: 'pull request closed unmerged',
+  merge_failed: 'merge failed',
+  start_failed: 'no sprint was created',
+  paused: 'paused',
 }
 
 /** A step resolved to the backlog item behind it, in its own project's feed. */
@@ -70,6 +86,10 @@ export type HorizonDetailPaneProps = {
   /** Why `resolved` is null; ignored when it is not. */
   unresolved: HorizonStepUnresolved
   run: HorizonStepRun | null
+  /** A steering command for this step's track is in flight, so the header's
+   *  one action must not fire twice. Only read when the header carries the
+   *  steering — a mounted strip carries its own `run.busy`. */
+  steeringBusy?: boolean
   /** A workspace is mounted on the run's own state file, so "Open sprint" can
    *  actually land. An autonomous run may have none — the affordance is then not
    *  offered at all, rather than being a control that quietly does nothing. */
@@ -97,6 +117,59 @@ export type HorizonDetailPaneProps = {
    *  to; rendered above the run strip because it decides who does the work,
    *  while the strip reports work already under way. */
   team?: JSX.Element
+}
+
+/** What the header says and offers for the selected step — the whole steering
+ *  surface when no run strip is mounted (MC-2148 UX pass, second round). The
+ *  rail only STATES a track's attention; every action lives here, on the title
+ *  row, where the eyes already are.
+ *
+ *  Pure so the exclusivity is provable: a mounted run strip owns the steering
+ *  (it carries the same actions itself), so this returns null the moment `run`
+ *  exists — two Resumes on one pane is one too many. */
+export type HorizonHeaderSteering = {
+  /** The steering command the one button fires, or null for a state that is
+   *  informational (blocked, completed) — then no button renders at all. */
+  act: 'approve' | 'resume' | 'merge' | null
+  /** The button's word, from the notice that asked for it. */
+  label: string | null
+  /** The status line under the title: what this step is waiting on, or that
+   *  nothing is wrong. */
+  line: string
+  /** The underlying reason (the failure, the branch), when the track has one. */
+  detail?: string
+  /** accent = healthy and waiting on you; warn = the track stopped; good =
+   *  finished work. The line's dot carries the tone. */
+  tone: 'accent' | 'warn' | 'good'
+}
+
+export function headerSteering(
+  step: Pick<HorizonStepRow, 'ready' | 'notice' | 'state'> | null,
+  run: HorizonStepRun | null,
+): HorizonHeaderSteering | null {
+  if (!step || run !== null) return null
+  if (step.ready) {
+    return {
+      act: 'approve',
+      label: 'Start sprint',
+      line: 'Ready — waiting for you to start this sprint',
+      tone: 'accent',
+    }
+  }
+  if (step.notice) {
+    const { kind, message, detail, actionLabel } = step.notice
+    return {
+      act: kind === 'paused' ? 'resume' : kind === 'merge' ? 'merge' : null,
+      label: actionLabel ?? null,
+      line: message,
+      ...(detail ? { detail } : {}),
+      tone: 'warn',
+    }
+  }
+  if (step.state === 'done') {
+    return { act: null, label: null, line: 'Completed', tone: 'good' }
+  }
+  return null
 }
 
 export function HorizonDetailPane(props: HorizonDetailPaneProps): JSX.Element {
@@ -140,11 +213,25 @@ export function HorizonDetailPane(props: HorizonDetailPaneProps): JSX.Element {
     )
   }
 
+  const steering = headerSteering(step, run)
+  const steer = (): void => {
+    if (steering?.act === 'approve') props.onApprove(step.laneTitle)
+    else if (steering?.act === 'resume') props.onResume(step.laneTitle)
+    else if (steering?.act === 'merge') props.onMerge(step.laneTitle)
+  }
   return (
     <BacklogItemDetailPane
       item={resolved.item}
       project={resolved.project}
       feed={resolved.feed}
+      headerAction={
+        steering?.label ? (
+          <PrimaryButton size="md" disabled={props.steeringBusy} onClick={steer}>
+            {steering.act === 'approve' ? <PlayGlyph /> : null}
+            {steering.label}
+          </PrimaryButton>
+        ) : undefined
+      }
       // A Horizon step's live state comes from the TRACK (the run strip below),
       // not from a per-workspace runner lookup, so the shared pane's own glyph
       // resolution stays empty here rather than guessing at one.
@@ -158,8 +245,40 @@ export function HorizonDetailPane(props: HorizonDetailPaneProps): JSX.Element {
       onBack={() => undefined}
       onNavigate={props.onNavigate}
       headerExtra={
-        props.team || run ? (
+        steering || props.team || run ? (
           <>
+            {/* The status line under the title: why the big button is there, or
+                why there is none. The tone carries the reading — accent for
+                "healthy, waiting on you", warn for a stopped track (with the
+                real reason inline, MC-1909), good for finished work. */}
+            {steering ? (
+              <p
+                className={`mt-1.5 flex flex-col gap-0.5 text-meta font-medium ${
+                  steering.tone === 'accent'
+                    ? 'text-[color:var(--accent-primary)]'
+                    : steering.tone === 'good'
+                      ? 'text-[color:var(--text-muted)]'
+                      : 'text-[color:var(--text-default)]'
+                }`}
+              >
+                <span className="flex items-center gap-1.5">
+                  <span
+                    aria-hidden="true"
+                    className={`size-1.5 shrink-0 rounded-full ${
+                      steering.tone === 'accent'
+                        ? 'bg-current'
+                        : steering.tone === 'good'
+                          ? 'bg-[color:var(--tone-good)]'
+                          : 'bg-[color:var(--tone-warn)]'
+                    }`}
+                  />
+                  {steering.line}
+                </span>
+                {steering.detail ? (
+                  <span className="pl-3 font-normal text-[color:var(--text-muted)]">{steering.detail}</span>
+                ) : null}
+              </p>
+            ) : null}
             {props.team}
             {run ? (
               <HorizonRunStrip
@@ -192,16 +311,24 @@ export function runStripFacts(input: {
   /** The projection could not be read — zero tasks means UNKNOWN, not done. */
   failed?: boolean
   attention: HorizonStepRun['attention']
+  /** WHY a paused track parked; read only when attention is 'paused'. */
+  parkReason?: string | null
   pullRequestUrl?: string | null
   pullRequestState?: string | null
 }): string[] {
   const facts: string[] = []
+  // A parked track leads with the stop and its reason's own word. It also never
+  // claims 'delivered' below: a canceled sprint reports zero tasks left because
+  // nothing is working them, not because the work landed.
+  if (input.attention === 'paused') {
+    facts.push(STOPPED_WORD[input.parkReason ?? ''] ?? 'paused')
+  }
   if (input.agentsWorking > 0) {
     facts.push(`${input.agentsWorking} ${input.agentsWorking === 1 ? 'agent' : 'agents'}`)
   }
   if (input.tasksLeft > 0) {
     facts.push(`${input.tasksLeft} ${input.tasksLeft === 1 ? 'task' : 'tasks'} left`)
-  } else if (!input.loading && !input.failed) {
+  } else if (!input.loading && !input.failed && input.attention !== 'paused') {
     // Zero tasks left is only 'delivered' when we actually READ the run. A failed
     // projection read also reports zero, and announcing 'delivered' above the
     // words "couldn't read this sprint's progress" is the worst kind of wrong.
@@ -257,6 +384,7 @@ function HorizonRunStrip({
     loading,
     failed: Boolean(error),
     attention: run.attention,
+    parkReason: run.parkReason ?? null,
     pullRequestUrl: pullRequest?.pullRequestUrl ?? vcs?.pullRequestUrl ?? null,
     pullRequestState: pullRequest?.pullRequestState ?? vcs?.pullRequestState ?? null,
   })
@@ -311,7 +439,7 @@ function HorizonRunStrip({
             </PrimaryButton>
           ) : run.attention === 'approval' ? (
             <PrimaryButton size="xs" disabled={run.busy} onClick={() => onApprove(run.lane)}>
-              Start next
+              Start sprint
             </PrimaryButton>
           ) : run.attention === 'paused' ? (
             <PrimaryButton size="xs" disabled={run.busy} onClick={() => onResume(run.lane)}>
@@ -348,6 +476,16 @@ function HorizonRunStrip({
         </div>
       ) : null}
     </div>
+  )
+}
+
+// The start action's glyph — the one control on the surface loud enough to
+// carry an icon beside its word.
+function PlayGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" className="icon-xs shrink-0">
+      <path d="M4.5 3.1a.7.7 0 0 1 1.06-.6l7.2 4.9a.7.7 0 0 1 0 1.2l-7.2 4.9a.7.7 0 0 1-1.06-.6V3.1z" />
+    </svg>
   )
 }
 

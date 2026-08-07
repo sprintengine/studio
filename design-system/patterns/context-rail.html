@@ -206,19 +206,40 @@
     color: var(--sem-color-text-default);
     font-weight: var(--sem-font-weight-regular);
   }
-  /* Back: a rail row pinned to the column's bottom, above nothing. */
-  .cr-back {
+  /* The door's bar: its name, and the one control that leaves it. */
+  .cr-bar {
     display: flex;
     align-items: center;
     gap: var(--sem-space-sm);
-    padding: var(--sem-space-sm) var(--sem-space-lg);
+    flex: none;
+    height: 36px;
+    padding: 0 var(--sem-space-md);
+    border-bottom: 1px solid var(--sem-color-border-subtle);
+    background: var(--sem-color-bg-surface);
+  }
+  .cr-bar-title {
+    font-size: var(--sem-font-size-body);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Back: a chevron leading the door's bar, immediately before the door's name.
+     It was a rail row pinned to the column's bottom, and the move is the whole
+     of this revision — see the Anatomy note. */
+  .cr-back {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    padding: 0;
     border: 0;
-    border-top: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-control);
     background: transparent;
     color: var(--sem-color-text-muted);
-    font: inherit;
-    font-size: var(--sem-font-size-meta);
-    text-align: left;
     cursor: pointer;
   }
   .cr-back:hover {
@@ -228,6 +249,13 @@
   .cr-back:focus-visible {
     outline: var(--sem-focus-ring);
     outline-offset: var(--sem-focus-ring-offset);
+  }
+  /* The canvas and the bar above it are one column beside the rail. */
+  .cr-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
   .cr-glyph {
     width: var(--sem-icon-size-sm);
@@ -305,7 +333,8 @@
   <p class="pat-lede">
     Drilling into a surface <em>replaces</em> the rail. It never mounts a second
     column of navigation beside the first. One rail, in one column, at one width —
-    and <code>Back</code> pinned at its bottom to restore what it replaced.
+    and one way out, a chevron leading the surface's bar, next to the name of the
+    thing it leaves.
   </p>
 
   <p class="pat-heading">The rule: one rail, ever</p>
@@ -349,20 +378,26 @@
               <button type="button" class="cr-row">Provider rows<span class="cr-row-count">6</span></button>
             </div>
           </div>
-          <label class="cr-back" for="cr-drill">
-            <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M13 8H3.5m0 0L7 4.5M3.5 8 7 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-            Back
-          </label>
         </div>
       </div>
     </div>
-    <div class="cr-canvas">
-      <h3>Model pickers</h3>
-      <div class="cr-field"><span>Delivered by</span><span>sprint-1932</span></div>
-      <div class="cr-field"><span>Track</span><span>Delivery</span></div>
-      <div class="cr-field"><span>Depends on</span><span>Type + icon ramp</span></div>
+    <div class="cr-body">
+      <div class="cr-bar">
+        <!-- Back leads the door's bar. It is a label here only so the demo's
+             checkbox can un-drill; in the product it is a button. -->
+        <label class="cr-back" for="cr-drill" aria-label="Back">
+          <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </label>
+        <span class="cr-bar-title">Horizon</span>
+      </div>
+      <div class="cr-canvas">
+        <h3>Model pickers</h3>
+        <div class="cr-field"><span>Delivered by</span><span>sprint-1932</span></div>
+        <div class="cr-field"><span>Track</span><span>Delivery</span></div>
+        <div class="cr-field"><span>Depends on</span><span>Type + icon ramp</span></div>
+      </div>
     </div>
   </div>
   <p class="pat-caption">
@@ -417,10 +452,18 @@
       heading earns its place only by separating one group from another: over a
       lone list, or over a list whose search field already names it, it is the
       same word said twice.</li>
-    <li><strong>Back.</strong> A rail row pinned to the bottom, below everything.
-      It restores the rail the surface replaced, and <code>Escape</code> does the
-      same. The canvas carries no back affordance — two affordances are two
-      answers to one question.</li>
+    <li><strong>Back.</strong> A chevron leading the surface's <em>bar</em>,
+      immediately before the surface's name. It restores the rail the surface
+      replaced, and <code>Escape</code> does the same. Still one affordance and
+      one answer — the rail carries none.
+      <br />
+      It <em>was</em> a rail row pinned to the column's bottom, and that is the
+      one thing this pattern got wrong. Below a scrollport is the last place the
+      eye goes and the furthest point from the title of the thing being left, so
+      the most-used control on the surface sat where it cost the most to reach.
+      Attaching it to the name reads as "leave <em>this</em>" rather than "go
+      back", which also keeps it distinct from the window's own history
+      back/forward pair elsewhere in the chrome.</li>
   </ul>
 
   <p class="pat-heading">The alignment grid</p>
@@ -460,11 +503,12 @@
       <code>.rail-row</code>. The shipped rails ran one step smaller on both.</li>
     <li><strong>Group heading inset 8px</strong>, aligned to the row's fill inner
       edge rather than to its title.</li>
-    <li><strong>Back row <code>space.sm</code> / <code>space.lg</code> (8/12px),
-      <code>font.size.meta</code></strong> — <code>.cr-back</code>, which the
-      shipped row missed in both directions (10px inset, 14px type). At 12px its
-      label lands at <code>12 + 16 + 8 = 36px</code>: the same text edge as the
-      titles above it.</li>
+    <li><strong>Back chevron: a <code>size.control.xs</code> box on the bar's
+      leading edge</strong> — <code>.cr-back</code>, icon-only, no label. In a
+      bar that is indented to align its title with the canvas below it, the
+      chevron takes that line and the title follows: the box hangs back by half a
+      step so the <em>glyph</em>, not the button's edge, sits on the grid. Align
+      the box instead and the indent reads as 8px too deep.</li>
     <li><strong>The empty-filter notice belongs to the rail</strong>, rendered
       inside the scrollport under the head at the row inset. As a sibling of a
       <code>flex: 1</code> rail it is pushed to the bottom of the column when the
@@ -523,18 +567,22 @@
             <button type="button" class="cr-row">Provider rows<span class="cr-row-count">6</span></button>
           </div>
         </div>
-        <button type="button" class="cr-back">
-          <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M13 8H3.5m0 0L7 4.5M3.5 8 7 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          Back
-        </button>
       </div>
     </div>
-    <div class="cr-canvas">
-      <h3>Model pickers</h3>
-      <div class="cr-field"><span>Delivered by</span><span>sprint-1932</span></div>
-      <div class="cr-field"><span>Track</span><span>Delivery</span></div>
+    <div class="cr-body">
+      <div class="cr-bar">
+        <button type="button" class="cr-back" aria-label="Back">
+          <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <span class="cr-bar-title">Horizon</span>
+      </div>
+      <div class="cr-canvas">
+        <h3>Model pickers</h3>
+        <div class="cr-field"><span>Delivered by</span><span>sprint-1932</span></div>
+        <div class="cr-field"><span>Track</span><span>Delivery</span></div>
+      </div>
     </div>
   </div>
 </div>

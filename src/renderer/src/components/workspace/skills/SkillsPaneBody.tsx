@@ -3,16 +3,18 @@ import React from 'react'
 // Imported per module rather than through the `ui` barrel: the barrel re-exports
 // the skill picker, which reaches the workspace store, and this file is a pure
 // render of a view model that its test renders without one.
+import { SprintEngineFrond } from '../../brand/SprintEngineFrond'
 import { GhostButton, IconButton, PrimaryButton } from '../../ui/Buttons'
-import { McpGlyph, SkillsGlyph } from '../../ui/CapabilityGlyphs'
+import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { InlineNotice } from '../../ui/InlineNotice'
 import { Spinner } from '../../ui/Spinner'
 import { Tooltip } from '../../ui/Tooltip'
-import type {
-  PaneNotice,
-  PaneServerRow,
-  PaneSkillRow,
-  SkillsPaneView,
+import {
+  isSprintEngineExtension,
+  type PaneNotice,
+  type PaneServerRow,
+  type PaneSkillRow,
+  type SkillsPaneView,
 } from './skillsPaneModel'
 
 // Everything the Skills pane draws, as a pure function of the view model. The
@@ -61,12 +63,22 @@ type BodyProps = SkillsPaneActions & {
   implicitInvocation: boolean
 }
 
+// `--icon-lg`, as a number: the chip is sized in pixels (it carries artwork, not
+// a stroke), and this is the one place the two have to agree — the row's icon
+// slot is `size-icon-lg`.
+const ROW_ICON_SIZE = 22
+
+/** SprintEngine's own extensions wear our mark; everything else answers for itself. */
+function ownMark(id: string): React.ReactNode {
+  return isSprintEngineExtension(id) ? <SprintEngineFrond /> : undefined
+}
+
 const CHEVRON_RIGHT = 'M6.5 4 10 8l-3.5 4'
 const CHEVRON_DOWN = 'M4 6.5 8 10l4-3.5'
 
 function Chevron({ open }: { open: boolean }) {
   return (
-    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
+    <svg viewBox="0 0 16 16" fill="none" className="icon-sm shrink-0" aria-hidden="true">
       <path
         d={open ? CHEVRON_DOWN : CHEVRON_RIGHT}
         stroke="currentColor"
@@ -163,8 +175,10 @@ function Row({
       className="interactive flex min-w-0 flex-1 items-baseline gap-2 px-3 py-1.5 text-left focus-visible:focus-ring"
     >
       {/* Same one-slot disclosure used by project folders in WorkspaceSidebar:
-          identity at rest, direction only while the row is being driven. */}
-      <span className="relative flex size-icon-sm shrink-0 self-center items-center justify-center text-[color:var(--text-subtle)]">
+          identity at rest, direction only while the row is being driven. The
+          slot is the icon chip's own size (`--icon-lg`), so the mark sits in it
+          at the size the Extensions door draws it rather than shrunk to fit. */}
+      <span className="relative flex size-icon-lg shrink-0 self-center items-center justify-center text-[color:var(--text-subtle)]">
         <span className="inline-flex transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0">
           {glyph}
         </span>
@@ -317,7 +331,13 @@ function SkillRow({
       <Row
         title={row.title}
         supporting={row.supporting}
-        glyph={<SkillsGlyph className="icon-sm shrink-0" />}
+        // The Extensions door's own mark for this thing, at the size that door
+        // draws it in a list. A skill we ship wears our frond; a skill from
+        // anywhere else has no artwork — no publisher ships any — so it takes
+        // the monogram chip, exactly as it does in the door's inventory.
+        glyph={
+          <ExtensionIcon name={row.title} mark={ownMark(row.skillId)} size={ROW_ICON_SIZE} />
+        }
         tooltip={row.description}
         open={open}
         actions={actions}
@@ -385,7 +405,18 @@ function ServerRow({
       <Row
         title={row.title}
         supporting={row.supporting}
-        glyph={<McpGlyph className="icon-sm shrink-0" />}
+        // Our own server wears the frond; a catalog server wears its own brand
+        // mark; anything else — a local or private server the bundled catalog
+        // has never heard of — wears its monogram rather than having its name
+        // guessed at by an icon CDN.
+        glyph={
+          <ExtensionIcon
+            name={row.title}
+            icon={row.iconUrl ?? undefined}
+            mark={ownMark(row.serverId)}
+            size={ROW_ICON_SIZE}
+          />
+        }
         // Only when the config stated one. A server with no declared tool count
         // renders no count at all rather than a zero it did not earn.
         trailing={

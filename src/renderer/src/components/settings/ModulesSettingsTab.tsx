@@ -11,7 +11,7 @@ import {
 import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../AppIcons'
 import { ConnectorRow, ConnectorSectionHeading } from '../panels/ConnectorsPanel/ConnectorRow'
 import { EmptyState, GhostButton, InboxSearchInput, Switch } from '../ui'
-import { mcpMonogram } from './mcpMonogram'
+import { mcpMonogram } from '../ui/mcpMonogram'
 import { COMING_SOON_IDS, MODULE_CATEGORY_GROUPS, categoryLabel } from './ModuleControls'
 import { ThirdPartyModuleList } from './ThirdPartyModuleList'
 

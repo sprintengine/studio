@@ -80,6 +80,13 @@ export type RoadmapPolicy = {
   // with. Unset = the user's last-used roster (the sprint.create default). An
   // unknown name fails the start explicitly, never a silent fallback roster.
   roster?: string
+  // The agent RUNTIME a plain-agents (no-roster) sprint launches on, spelled
+  // `cli` or `cli/model` (e.g. `claude-code` or `claude-code/claude-opus-5`;
+  // the model may itself contain `/`, so only the FIRST slash splits — see
+  // parseAgentRuntime). Unset = the stock default (claude-code). MC-2145: this
+  // is what lets a horizon say which agent runs it. A roster step ignores it —
+  // the roster carries its own per-role runtimes.
+  agent?: string
   // The CLI permission preset every sprint this roadmap starts spawns its agents
   // with. Unset = bypass (see resolveRoadmapPermissionPreset). A horizon runs
   // unwatched by definition, so a gated preset stalls it on the first tool call.
@@ -139,6 +146,10 @@ export type RoadmapEntry = {
   // authored as a trailing ` @roster=<name>` annotation on the entry line.
   // Undefined = inherit (see resolveEntryRoster).
   roster?: string
+  // The agent RUNTIME this step overrides the roadmap-wide `agent:` with,
+  // authored as a ` @agent=<cli[/model]>` annotation. Undefined = inherit
+  // (see resolveEntryAgent). Meaningful only for a plain-agents step.
+  agent?: string
 }
 
 // The trailing per-step staffing annotation. Roster names contain spaces
@@ -148,6 +159,13 @@ export type RoadmapEntry = {
 // The ref itself is still `split(/\s+/)[0]`, so ref handling is untouched and a
 // build without this feature reads the same plan and merely ignores staffing.
 const ROSTER_ANNOTATION_PREFIX = '@roster='
+
+// The per-step agent annotation (MC-2145). Unlike a roster NAME, a runtime
+// token never contains whitespace, so it is whitespace-delimited and may sit
+// before or after `@roster=` on the line — the parser extracts it first, so a
+// to-end-of-line roster name still reads correctly. The canonical render order
+// is `@agent=` then `@roster=` for exactly that reason.
+const AGENT_ANNOTATION_PREFIX = '@agent='
 
 export type RoadmapLane = {
   // The lane heading text (the `## ` line), verbatim.
@@ -172,6 +190,8 @@ export type RoadmapParseIssue = {
     // A `@roster=` annotation with nothing after the `=`. Surfaced rather than
     // read as "inherit", so a truncated edit is visible instead of silent.
     | 'empty_roster'
+    // A `@agent=` annotation with nothing after the `=` — same rule.
+    | 'empty_agent'
   message: string
 }
 
@@ -289,17 +309,41 @@ function entryKindForRelativePath(relativePath: string): Exclude<RoadmapEntryKin
   return relativePath.startsWith(EPICS_DIR_PREFIX) ? 'epic' : 'item'
 }
 
-// Split a list item's content (everything after `- `) into its ref token and any
-// trailing `@roster=` annotation. `present` distinguishes an absent annotation
-// from an empty one, so `@roster=` with no name raises `empty_roster` instead of
-// silently reading as inherit. Any OTHER trailing text is ignored exactly as it
-// was before this annotation existed — the parser has always kept only the first
+// Split a list item's content (everything after `- `) into its ref token and
+// any trailing annotations. `present` distinguishes an absent annotation from
+// an empty one, so `@roster=`/`@agent=` with no value raises its issue instead
+// of silently reading as inherit. Any OTHER trailing text is ignored exactly as
+// it was before annotations existed — the parser has always kept only the first
 // token, and tightening that here would turn hand-authored notes into issues.
-function splitRosterAnnotation(content: string): { present: boolean; roster: string } {
+//
+// `@agent=` is extracted FIRST, from anywhere in the remainder: its token never
+// contains whitespace, while a roster NAME runs to end-of-line — so this order
+// is what lets `@roster=Mobile UI @agent=codex` read both correctly.
+function splitEntryAnnotations(content: string): {
+  rosterPresent: boolean
+  roster: string
+  agentPresent: boolean
+  agent: string
+} {
   const firstToken = content.split(/\s+/)[0]
-  const remainder = content.slice(firstToken.length).trim()
-  if (!remainder.startsWith(ROSTER_ANNOTATION_PREFIX)) return { present: false, roster: '' }
-  return { present: true, roster: remainder.slice(ROSTER_ANNOTATION_PREFIX.length).trim() }
+  let remainder = content.slice(firstToken.length).trim()
+  let agentPresent = false
+  let agent = ''
+  const agentMatch = /(?:^|\s)@agent=(\S*)/.exec(remainder)
+  if (agentMatch) {
+    agentPresent = true
+    agent = agentMatch[1]
+    remainder = `${remainder.slice(0, agentMatch.index)} ${remainder.slice(agentMatch.index + agentMatch[0].length)}`.trim()
+  }
+  if (!remainder.startsWith(ROSTER_ANNOTATION_PREFIX)) {
+    return { rosterPresent: false, roster: '', agentPresent, agent }
+  }
+  return {
+    rosterPresent: true,
+    roster: remainder.slice(ROSTER_ANNOTATION_PREFIX.length).trim(),
+    agentPresent,
+    agent,
+  }
 }
 
 // The one place the two staffing tiers are combined: a step's own roster wins
@@ -319,6 +363,33 @@ export function resolveEntryRoster(
   if (entryRoster) return entryRoster
   const policyRoster = policy.roster?.trim()
   return policyRoster ? policyRoster : undefined
+}
+
+// The agent tier, combined with the same precedence and for the same reason:
+// the step's `@agent=` wins over the roadmap's `agent:`, and `undefined` means
+// the stock default downstream (claude-code today). One resolver, called by the
+// Team band and the orchestrator both, so what the band shows and what a start
+// launches cannot drift (MC-2145).
+export function resolveEntryAgent(
+  entry: Pick<RoadmapEntry, 'agent'>,
+  policy: Pick<RoadmapPolicy, 'agent'>,
+): string | undefined {
+  const entryAgent = entry.agent?.trim()
+  if (entryAgent) return entryAgent
+  const policyAgent = policy.agent?.trim()
+  return policyAgent ? policyAgent : undefined
+}
+
+/** Split an authored runtime token into its CLI and optional model. Only the
+ *  FIRST slash splits, because model ids may themselves contain slashes
+ *  (`openrouter/x`): `claude-code/claude-opus-5` → cli `claude-code`, model
+ *  `claude-opus-5`; a bare `codex` → cli `codex`, no model. */
+export function parseAgentRuntime(token: string): { cli: string; model?: string } {
+  const trimmed = token.trim()
+  const slash = trimmed.indexOf('/')
+  if (slash < 0) return { cli: trimmed }
+  const model = trimmed.slice(slash + 1)
+  return { cli: trimmed.slice(0, slash), ...(model ? { model } : {}) }
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +441,7 @@ export function parseRoadmap(content: string): Roadmap {
     if (!listItem) continue
     const indent = listItem[1].replace(/\t/g, '  ').length
     const rawToken = normalizeRef(listItem[2].split(/\s+/)[0])
-    const annotation = splitRosterAnnotation(listItem[2])
+    const annotation = splitEntryAnnotations(listItem[2])
 
     // A pre-MC-2031 plan stored an epic's members as indented lines beneath it.
     // Membership is now derived from live `epic:` frontmatter, so such a line is
@@ -393,8 +464,11 @@ export function parseRoadmap(content: string): Roadmap {
     if (resolved.unknownAlias) {
       issues.push({ line: lineNumber, kind: 'unknown_alias', message: `Entry "${rawToken}" uses an undefined project alias.` })
     }
-    if (annotation.present && annotation.roster === '') {
+    if (annotation.rosterPresent && annotation.roster === '') {
       issues.push({ line: lineNumber, kind: 'empty_roster', message: `Entry "${rawToken}" has an empty @roster= annotation.` })
+    }
+    if (annotation.agentPresent && annotation.agent === '') {
+      issues.push({ line: lineNumber, kind: 'empty_agent', message: `Entry "${rawToken}" has an empty @agent= annotation.` })
     }
     currentLane.entries.push({
       kind: entryKindForRelativePath(resolved.relativePath),
@@ -402,6 +476,7 @@ export function parseRoadmap(content: string): Roadmap {
       projectKey: resolved.projectKey,
       relativePath: resolved.relativePath,
       ...(annotation.roster ? { roster: annotation.roster } : {}),
+      ...(annotation.agent ? { agent: annotation.agent } : {}),
     })
   }
 
@@ -468,6 +543,7 @@ function parseRoadmapPolicy(fields: Record<string, string>): RoadmapPolicy {
   const merge = fields.merge === 'auto' ? 'auto' : 'manual'
   const concurrency = parsePositiveInt(fields.concurrency) ?? DEFAULT_ROADMAP_POLICY.concurrency
   const roster = fields.roster?.trim()
+  const agent = fields.agent?.trim()
   // An unrecognised `permissions:` value is dropped rather than trusted, so a
   // typo reads as "unset" (= bypass) instead of resolving to some third thing.
   const permissions = fields.permissions?.trim()
@@ -476,6 +552,7 @@ function parseRoadmapPolicy(fields: Record<string, string>): RoadmapPolicy {
     merge,
     concurrency,
     ...(roster ? { roster } : {}),
+    ...(agent ? { agent } : {}),
     ...(isRoadmapPermissionPreset(permissions) ? { permissions } : {}),
   }
 }
@@ -526,6 +603,7 @@ export function setRoadmapPolicy(content: string, updates: Partial<RoadmapPolicy
   // Key presence (not definedness) decides: `{ roster: undefined }` clears the
   // frontmatter scalar, an absent key leaves it untouched.
   if ('roster' in updates) frontmatterUpdates.roster = updates.roster?.trim() ? updates.roster.trim() : null
+  if ('agent' in updates) frontmatterUpdates.agent = updates.agent?.trim() ? updates.agent.trim() : null
   if ('permissions' in updates) {
     if (updates.permissions !== undefined && !isRoadmapPermissionPreset(updates.permissions)) {
       throw new Error(`Roadmap permissions must be default, auto_workspace or bypass_all, got ${updates.permissions}.`)
@@ -608,10 +686,16 @@ export function renderRoadmapBody(roadmap: Pick<Roadmap, 'title' | 'lanes'>): st
     out.push(`## ${lane.title}`)
     for (const entry of lane.entries) {
       // Two spaces before `@` keep the ref visually separate on the line. An
-      // entry without a roster emits exactly what it did before this annotation
+      // entry without annotations emits exactly what it did before they
       // existed — no trailing whitespace, so an un-staffed file is byte-stable.
+      // `@agent=` renders BEFORE `@roster=` because the roster name runs to
+      // end-of-line while the agent token is whitespace-delimited.
       const roster = entry.roster?.trim()
-      out.push(roster ? `- ${entry.ref}  ${ROSTER_ANNOTATION_PREFIX}${roster}` : `- ${entry.ref}`)
+      const agent = entry.agent?.trim()
+      let line = `- ${entry.ref}`
+      if (agent) line += `  ${AGENT_ANNOTATION_PREFIX}${agent}`
+      if (roster) line += `  ${ROSTER_ANNOTATION_PREFIX}${roster}`
+      out.push(line)
     }
   })
   return out.join('\n') + '\n'
@@ -891,6 +975,9 @@ export type RoadmapUnitRef = {
   // carried so the orchestrator can resolve staffing at the decision point
   // without re-looking-up the entry by path. Resolution is `resolveEntryRoster`.
   roster?: string
+  // The step's own `@agent=` override, verbatim and UNRESOLVED (MC-2145), same
+  // rules — resolution is `resolveEntryAgent`.
+  agent?: string
 }
 
 export type RoadmapLaneEligibility = {
@@ -922,6 +1009,8 @@ export type LaneUnit = {
   // place staffing is decided — carrying the raw value here keeps this flattening
   // a pure projection of the entry rather than a second resolution site.
   roster?: string
+  // The step's own `@agent=` override, same rules (MC-2145).
+  agent?: string
 }
 
 // The runnable units of a lane: ONE unit per entry. A step is the dispatch
@@ -940,6 +1029,7 @@ export function flattenLaneUnits(lane: RoadmapLane): LaneUnit[] {
     relativePath: entry.relativePath,
     kind: entry.kind,
     ...(entry.roster ? { roster: entry.roster } : {}),
+    ...(entry.agent ? { agent: entry.agent } : {}),
   }))
 }
 
@@ -1102,6 +1192,7 @@ export function nextEligible(
     projectKey: unit.projectKey,
     relativePath: unit.relativePath,
     ...(unit.roster ? { roster: unit.roster } : {}),
+    ...(unit.agent ? { agent: unit.agent } : {}),
   })
 
   return roadmap.lanes.map((lane) => {

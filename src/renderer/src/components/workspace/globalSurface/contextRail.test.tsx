@@ -8,13 +8,14 @@ import { JSDOM } from 'jsdom'
 // because each of them is silent when it breaks:
 //
 //   1. A surface's rail lifts OUT of the shell into the host's column, and the
-//      shell then renders neither its inline aside nor a bar back chevron. Miss
-//      either half and the app is back to two navigation columns, or to two back
-//      affordances answering one question.
+//      shell stops rendering its inline aside. Miss that and the app is back to
+//      two navigation columns. The bar's back chevron survives the lift — it is
+//      the door's ONE way out, on either host, and it used to be suppressed
+//      here in favour of a row pinned to the column's bottom.
 //   2. The app sidebar hides its own rail while a surface owns the column, and
-//      the row that opened the surface stays in the DOM so Back can hand focus
-//      to it. Unmounting it instead reads identical on screen and quietly loses
-//      the keyboard.
+//      the row that opened the surface stays in the DOM so leaving can hand
+//      focus back to it. Unmounting it instead reads identical on screen and
+//      quietly loses the keyboard.
 //   3. Escape leaves the SURFACE, not whatever is open on top of it. A dialog, a
 //      menu and a listbox each close themselves first; a keystroke from the
 //      door's own rail or canvas is the door's.
@@ -71,6 +72,7 @@ async function main(): Promise<void> {
   const { createRoot } = await import('react-dom/client')
   const { ContextRailColumn, ContextRailSlotContext, escapeLeavesSurface } = await import('./contextRail')
   const { GlobalSurfaceShell } = await import('./GlobalSurfaceShell')
+  const { SurfaceExitContext, useSurfaceBackNav } = await import('./surfaceBackNav')
   const { SIDEBAR_DEFAULT_WIDTH } = await import('../sidebarWidth')
   const { default: WorkspaceSidebar } = await import('../WorkspaceSidebar')
 
@@ -92,7 +94,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── 1. the shell lifts its rail, and stops drawing a second back affordance ──
+  // ── 1. the shell lifts its rail, and keeps its back chevron either way ──────
 
   run('with no host column the shell keeps its inline aside, at the ONE rail width', () => {
     const view = mount(
@@ -116,12 +118,12 @@ async function main(): Promise<void> {
     assert.ok(aside!.querySelector('[data-testid="rail-row"]'), 'the rail content is inside it')
     assert.ok(
       view.container.querySelector('button[aria-label="Back"]'),
-      'this host has no rail row to carry back, so the bar chevron stays',
+      'and the bar chevron is the way out',
     )
     view.unmount()
   })
 
-  run('given a host column the rail moves into it and the bar chevron goes', () => {
+  run('given a host column the rail moves into it and the bar chevron stays', () => {
     const slot = document.createElement('div')
     document.body.appendChild(slot)
     const view = mount(
@@ -139,10 +141,14 @@ async function main(): Promise<void> {
     )
     assert.equal(view.container.querySelector('aside'), null, 'no second navigation column beside the host’s')
     assert.ok(slot.querySelector('[data-testid="rail-row"]'), 'the rail rendered into the host’s column')
-    assert.equal(
+    // The rail taking the sidebar over used to SUPPRESS this chevron, on the
+    // grounds that the rail's own pinned row was the way out. Every door hands
+    // over a rail, so that suppression was total — the chevron never rendered in
+    // the product, and the only exit sat at the bottom of a scrolling column.
+    // Still one affordance; it is this one now, beside the door's name.
+    assert.ok(
       view.container.querySelector('button[aria-label="Back"]'),
-      null,
-      'and the bar/canvas carries no back affordance — the rail’s pinned row is the one way out',
+      'and the bar chevron stays — the exit belongs beside the door’s name, not below its rail',
     )
     view.unmount()
     slot.remove()
@@ -175,32 +181,101 @@ async function main(): Promise<void> {
     slot.remove()
   })
 
+  // The chevron is rendered inside the SURFACE's tree, but leaving a door is the
+  // host's business: only the host captured the row that opened it, and only the
+  // host can refocus that row in the commit its rail comes back. The rail row this
+  // replaces was the host's own element and got that for free; the chevron has to
+  // route through the host explicitly, or it closes the door and drops the
+  // keyboard on `<body>`.
+  run('the bar chevron leaves through the host, so the keyboard goes back with it', () => {
+    const order: string[] = []
+    // A door exactly as the real ones are built: its back comes from the hook,
+    // not from a handler the test invented.
+    function Door({ close }: { close: () => void }): JSX.Element {
+      const back = useSurfaceBackNav(close)
+      return (
+        <GlobalSurfaceShell
+          ariaLabel="Extensions"
+          bar={{ title: 'Extensions' }}
+          onBack={back.onBack}
+          canGoBack={back.canGoBack}
+        >
+          <div>canvas</div>
+        </GlobalSurfaceShell>
+      )
+    }
+    const view = mount(
+      <SurfaceExitContext.Provider
+        value={{
+          leave: (close) => {
+            order.push('host-leave')
+            close()
+          },
+        }}
+      >
+        <Door close={() => order.push('close')} />
+      </SurfaceExitContext.Provider>,
+    )
+    const chevron = view.container.querySelector('button[aria-label="Back"]') as HTMLElement | null
+    assert.ok(chevron, 'the door has a bar chevron')
+    act(() => {
+      chevron!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    assert.deepEqual(
+      order,
+      ['host-leave', 'close'],
+      'the host’s leave wraps the door’s close — arming the focus restore BEFORE the door goes',
+    )
+    view.unmount()
+  })
+
+  // Tests and storybook have no host. The door must still close there, or the
+  // hook would make the exit depend on a provider the surface cannot see.
+  run('with no host in scope the chevron still closes the door', () => {
+    let closed = 0
+    function Door(): JSX.Element {
+      const back = useSurfaceBackNav(() => {
+        closed += 1
+      })
+      return (
+        <GlobalSurfaceShell ariaLabel="Extensions" bar={{ title: 'Extensions' }} onBack={back.onBack} canGoBack>
+          <div>canvas</div>
+        </GlobalSurfaceShell>
+      )
+    }
+    const view = mount(<Door />)
+    const chevron = view.container.querySelector('button[aria-label="Back"]') as HTMLElement
+    act(() => {
+      chevron.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    assert.equal(closed, 1, 'closed, just with no trigger to hand the keyboard back to')
+    view.unmount()
+  })
+
   // ── 2. the rail column, and the sidebar it replaces ─────────────────────────
 
-  run('the host column pins Back below the rail scrollport', () => {
-    let backs = 0
+  run('the host column is the rail scrollport and nothing else', () => {
     const view = mount(
       <ContextRailColumn
         surfaceKey="roadmap"
         ariaLabel="Horizon rail"
         active
         railRef={() => undefined}
-        onBack={() => {
-          backs += 1
-        }}
       />,
     )
     const column = view.container.querySelector('[data-context-rail]')
     assert.ok(column, 'the column is findable by the marker Escape resolution uses')
     const children = [...column!.children] as HTMLElement[]
-    assert.equal(children.length, 2, 'a scrollport and one pinned row, nothing else')
+    assert.equal(children.length, 1, 'the scrollport, and nothing pinned under it')
     assert.equal(children[0].getAttribute('aria-label'), 'Horizon rail', 'the scrollport is the named rail')
-    assert.equal(children[1].tagName, 'BUTTON', 'Back is the last thing in the column')
-    assert.match(children[1].textContent ?? '', /Back/)
-    act(() => {
-      children[1].dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-    })
-    assert.equal(backs, 1, 'and it invokes the host’s back — closeGlobalSurface, never NavHistory')
+    // The column carries navigation only. Back used to be a row pinned here,
+    // below the scrollport — reaching it meant travelling past every row the
+    // door brought, so it moved to the bar beside the door's name.
+    assert.equal(
+      column!.querySelector('button'),
+      null,
+      'no control of the column’s own — the way out is the door’s bar chevron',
+    )
     view.unmount()
   })
 
@@ -272,7 +347,7 @@ async function main(): Promise<void> {
       root.render(<WorkspaceSidebar {...baseProps} />)
     })
     const restored = container.querySelector('nav[role="tree"]') as HTMLElement | null
-    assert.equal(restored!.className.includes('hidden'), false, 'Back restores the rail it replaced')
+    assert.equal(restored!.className.includes('hidden'), false, 'leaving the door restores the rail it replaced')
     act(() => root.unmount())
     container.remove()
   })

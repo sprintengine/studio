@@ -10,6 +10,7 @@ import { appendFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/
 import { basename, dirname, join } from 'node:path'
 
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../shared/automation'
+import { parseAgentRuntime } from '../shared/backlog/roadmap'
 import { listBacklogItems, readBacklogObjectStore, removeBacklogLink, updateBacklogStatus } from './backlog-service'
 import { createRoadmapOrchestratorStore, roadmapRuntimePath } from './roadmap-orchestrator-store'
 import type {
@@ -153,7 +154,7 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
       await updateBacklogStatus({ workspaceRoot, relativePath, status })
     },
 
-    startSprint: async ({ workspaceRoot, itemRelativePath, roster, permissionPreset }) => {
+    startSprint: async ({ workspaceRoot, itemRelativePath, roster, agent, permissionPreset }) => {
       // The shared plan-sourced creation flow — the same `sprint.create` delegate a
       // human backlog start and sprint chaining use. It creates the workspace, inits
       // the run store (worktree mode), starts the runner, and records the execution
@@ -180,6 +181,12 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
         // is the run's only chance to be bypass (spawn-time-only, MC-1808).
         permissionPreset,
         ...(roster ? { rosterName: roster } : {}),
+        // The step's agent runtime (MC-2145), as the request's run-level
+        // `runtime` (MC-2120): it reaches the roleless seat and is overridden
+        // by a roster's own per-role CLIs, which is exactly the precedence a
+        // plain-agents step needs. The delegate validates the CLI and fails
+        // the start loudly on one it cannot spawn.
+        ...(agent ? { runtime: parseAgentRuntime(agent) } : {}),
       })
       return response.ok ? { ok: true } : { ok: false, message: response.message }
     },

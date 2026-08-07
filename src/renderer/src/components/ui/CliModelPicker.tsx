@@ -5,7 +5,7 @@ import { Popover } from './Popover'
 import { StarGlyph } from './StarGlyph'
 import { Tooltip } from './Tooltip'
 import { FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS } from './tokens'
-import { ReasoningSelector, hasReasoningAxes, reasoningTriggerLabel } from './ReasoningSelector'
+import { ReasoningSelector, hasContextWindows, hasReasoningAxes, hasReasoningLevels, reasoningTriggerLabel } from './ReasoningSelector'
 import {
   modelFavouriteKey,
   parseModelFavouriteKey,
@@ -707,19 +707,42 @@ export function CliModelPopoverSurface({
             and an inert row of controls reads as one that does. */}
         {footer && !activeExtra ? footer : null}
 
+        {/* Two controls, not one composed trigger: context window and effort are
+            separate decisions about the chosen model, and "Auto · Standard" made
+            changing either one a menu-open away from knowing which half you were
+            reading. Context sits left of reasoning — it is a property of the
+            model above it, and effort is the thing changed more often. Each is
+            withheld unless the runtime actually offers that axis. */}
         {showReasoning && hasReasoningAxes(reasoningAxes) ? (
-          <div className="flex items-center justify-end border-t border-[color:var(--border-subtle)] px-1.5 py-1">
-            <ReasoningSelector
-              ariaLabel={reasoningAriaLabel ?? 'Reasoning and context window'}
-              reasoningSelection={currentOption?.reasoningSelection}
-              reasoning={effectiveReasoningFor?.(currentCli)}
-              onSelectReasoning={
-                reasoningWired ? (reasoning) => onSelectReasoning!(currentCli, reasoning) : undefined
-              }
-              family={currentFamily}
-              model={effectiveModel}
-              onSelectModel={(model) => onSelectModel(currentCli, model)}
-            />
+          <div className="flex items-center justify-end gap-1 border-t border-[color:var(--border-subtle)] px-1.5 py-1">
+            {hasContextWindows(reasoningAxes) ? (
+              <ReasoningSelector
+                scope="context"
+                ariaLabel="Context window"
+                reasoningSelection={currentOption?.reasoningSelection}
+                reasoning={effectiveReasoningFor?.(currentCli)}
+                onSelectReasoning={
+                  reasoningWired ? (reasoning) => onSelectReasoning!(currentCli, reasoning) : undefined
+                }
+                family={currentFamily}
+                model={effectiveModel}
+                onSelectModel={(model) => onSelectModel(currentCli, model)}
+              />
+            ) : null}
+            {hasReasoningLevels(reasoningAxes) ? (
+              <ReasoningSelector
+                scope="reasoning"
+                ariaLabel={reasoningAriaLabel ?? 'Reasoning'}
+                reasoningSelection={currentOption?.reasoningSelection}
+                reasoning={effectiveReasoningFor?.(currentCli)}
+                onSelectReasoning={
+                  reasoningWired ? (reasoning) => onSelectReasoning!(currentCli, reasoning) : undefined
+                }
+                family={currentFamily}
+                model={effectiveModel}
+                onSelectModel={(model) => onSelectModel(currentCli, model)}
+              />
+            ) : null}
           </div>
         ) : null}
       </div>

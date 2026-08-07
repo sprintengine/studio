@@ -215,18 +215,53 @@ assert.match(rows, /aria-label="Remove backlog"/, 'installed rows offer remove')
 // Reveal is opacity-only and rides focus as well as hover, so the actions are
 // reachable by keyboard and revealing one never reflows the row.
 assert.match(rows, /opacity-0[^"]*group-hover\/row:opacity-100[^"]*group-focus-within\/row:opacity-100/)
-assert.match(rows, /M3 3h10v10H3zM3 6h10M6 6v7/, 'skill rows reuse the Extensions glyph')
+// The Extensions door's mark, not a pane-local glyph: the neutral icon chip,
+// carrying the monogram for a skill (nobody ships artwork for one) at the size
+// the door draws it.
+assert.match(
+  rows,
+  /var\(--icon-chip-bg\)[^>]*>[\s\S]{0,200}?>B</,
+  'skill rows wear the Extensions icon chip with their monogram',
+)
+assert.match(rows, /width:22px;height:22px/, 'the chip is drawn at the icon-lg size, not shrunk')
 assert.match(
   rows,
   /group-hover\/row:opacity-0 group-focus-within\/row:opacity-0/,
-  'the glyph yields its fixed slot to the disclosure chevron on hover or focus',
+  'the mark yields its fixed slot to the disclosure chevron on hover or focus',
 )
 
-const serverRow = render({ snapshot: snapshot({ servers: [SERVER] }) })
-assert.match(
-  serverRow,
-  /M5\.5 2v3M10\.5 2v3M4 5h8v3\.5a4 4 0 0 1-8 0zM8 12\.5V14/,
-  'MCP rows reuse the Extensions glyph',
+// A server the bundled catalog carries wears that catalog's own artwork...
+const serverRow = render({
+  snapshot: snapshot({ servers: [SERVER] }),
+  mcpCatalog: [{ id: 'github', icon: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=' }],
+})
+assert.match(serverRow, /src="data:image\/svg\+xml;base64,PHN2Zz48L3N2Zz4="/, 'MCP rows wear the catalog icon')
+// ...and one it does not carry keeps its monogram rather than having its id
+// handed to an icon CDN.
+const privateServer = render({
+  snapshot: snapshot({ servers: [{ ...SERVER, id: 'acme-internal' }] }),
+})
+assert.doesNotMatch(privateServer, /cdn\.simpleicons\.org/, 'an unknown server id never reaches an icon CDN')
+assert.match(privateServer, />A</, 'an unknown server keeps its monogram')
+
+// --- our own extensions wear our mark, on both kinds of row -----------------
+// The frond the mobile app wears as its application icon, drawn rather than
+// fetched: the stem path is the mark's own geometry.
+const FROND_STEM = /M 303\.12,855\.85/
+const ownServer = render({
+  snapshot: snapshot({ servers: [{ ...SERVER, id: 'sprintengine-studio' }] }),
+})
+assert.match(ownServer, FROND_STEM, 'the SprintEngine server wears the frond')
+assert.doesNotMatch(ownServer, />S</, 'and not the monogram it would otherwise fall back to')
+const ownSkill = render({
+  snapshot: snapshot({ skills: [{ ...SKILL, id: 'sprintengine_workflow', name: 'sprintengine_workflow' }] }),
+})
+assert.match(ownSkill, FROND_STEM, 'a SprintEngine skill wears the frond too')
+// A name that merely mentions a sprint is somebody else's.
+assert.doesNotMatch(
+  render({ snapshot: snapshot({ skills: [{ ...SKILL, id: 'plan-sprint-engine' }] }) }),
+  FROND_STEM,
+  'the mark is claimed by our ids only, not by any id containing the words',
 )
 
 // `targetPolicy` is what makes this row offerable at all: the catalogue only

@@ -280,11 +280,17 @@ export type RoadmapOrchestratorPorts = {
   // resolved from the roadmap's `permissions:` policy (MC-1900). Spawn-time only:
   // a live agent can never be flipped to bypass afterwards (MC-1808), so the lane
   // gets exactly one chance to pass it.
+  // `agent` is the step's RESOLVED runtime token (MC-2145, `cli` or
+  // `cli/model`) — already resolved upstream through `resolveEntryAgent`, same
+  // no-re-derive rule as `roster`. Meaningful only for a plain-agents step: the
+  // delegate applies it as the run-level runtime, which a roster's own per-role
+  // CLIs override.
   startSprint(input: {
     workspaceRoot: string
     itemRelativePath: string
     isEpic: boolean
     roster?: string
+    agent?: string
     permissionPreset: SprintEngineCliPermissionPreset
   }): Promise<{ ok: boolean; message?: string }>
   // Abandon a dead run when the human resumes a parked lane: remove the item's
@@ -573,14 +579,16 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
         const item = entry.items.find(
           (candidate) => candidate.projectKey === action.projectKey && candidate.relativePath === action.relativePath,
         )
-        // The roster arrives RESOLVED on the action (MC-1883) — the step's own
-        // `@roster=` or the roadmap's, decided once by `resolveEntryRoster` in
-        // the reducer. The driver must not re-derive the two-tier fallback here.
+        // The roster and the agent runtime arrive RESOLVED on the action
+        // (MC-1883 / MC-2145) — the step's own annotation or the roadmap's,
+        // decided once by `resolveEntryRoster`/`resolveEntryAgent` in the
+        // reducer. The driver must not re-derive the two-tier fallback here.
         const started = await executeStart(
           root,
           action.relativePath,
           item?.isEpic ?? false,
           action.roster,
+          action.agent,
           resolveRoadmapPermissionPreset(entry.roadmap.policy),
         )
         if (!started.ok) {
@@ -750,6 +758,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     itemRelativePath: string,
     isEpic: boolean,
     roster: string | undefined,
+    agent: string | undefined,
     permissionPreset: SprintEngineCliPermissionPreset,
   ): Promise<{ ok: true; runRef: RoadmapRunRef } | { ok: false; message?: string }> {
     const existing = await ports.resolveExecutionLink(workspaceRoot, itemRelativePath)
@@ -760,7 +769,14 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
       const snapshot = await ports.observeRun(existing)
       if (snapshot && isAdoptable(snapshot)) return { ok: true, runRef: existing }
     }
-    const created = await ports.startSprint({ workspaceRoot, itemRelativePath, isEpic, permissionPreset, ...(roster ? { roster } : {}) })
+    const created = await ports.startSprint({
+      workspaceRoot,
+      itemRelativePath,
+      isEpic,
+      permissionPreset,
+      ...(roster ? { roster } : {}),
+      ...(agent ? { agent } : {}),
+    })
     if (!created.ok) return { ok: false, message: created.message }
     const runRef = await ports.resolveExecutionLink(workspaceRoot, itemRelativePath)
     if (!runRef) {

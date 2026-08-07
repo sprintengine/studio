@@ -6,9 +6,11 @@ import {
   isRoadmapContent,
   isRoadmapRelativePath,
   nextEligible,
+  parseAgentRuntime,
   parseRoadmap,
   qualifiedRef,
   renderRoadmapBody,
+  resolveEntryAgent,
   resolveEntryRoster,
   roadmapRefSlug,
   setRoadmapPolicy,
@@ -869,6 +871,83 @@ run('roster: forward-compat — the old first-token-only rule still yields every
     parseBody(ROSTERED_BODY).issues.filter((issue) => issue.kind === 'unparseable_entry').length,
     0,
   )
+})
+
+// ---------------------------------------------------------------------------
+// Per-step agent runtime (MC-2145) — same round-trip risk surface as @roster=
+// ---------------------------------------------------------------------------
+
+const AGENTED_BODY = `# Agented roadmap
+
+## Up next
+- backlog/auth-api.md
+- backlog/epics/payments.md  @agent=codex
+- mobile:backlog/epics/login.md  @agent=claude-code/claude-opus-5  @roster=Mobile UI
+`
+
+run('agent: an annotated entry parses its runtime and keeps its ref and roster', () => {
+  const roadmap = parseBody(AGENTED_BODY)
+  const entries = roadmap.lanes[0].entries
+  assert.deepEqual(
+    entries.map((entry) => [entry.ref, entry.agent, entry.roster]),
+    [
+      ['backlog/auth-api.md', undefined, undefined],
+      ['backlog/epics/payments.md', 'codex', undefined],
+      ['mobile:backlog/epics/login.md', 'claude-code/claude-opus-5', 'Mobile UI'],
+    ],
+  )
+  assert.deepEqual(roadmap.issues, [])
+})
+
+run('agent: the annotation reads correctly even AFTER a to-end-of-line roster name', () => {
+  const roadmap = parseBody('## L\n- backlog/foo.md  @roster=Mobile UI @agent=codex\n')
+  const entry = roadmap.lanes[0].entries[0]
+  assert.equal(entry.roster, 'Mobile UI', 'the roster name does not swallow the agent token')
+  assert.equal(entry.agent, 'codex')
+})
+
+run('agent: an annotated body round-trips byte-identically', () => {
+  const roadmap = parseBody(AGENTED_BODY)
+  assert.equal(renderRoadmapBody(roadmap), AGENTED_BODY)
+  const reparsed = parseBody(renderRoadmapBody(roadmap))
+  assert.deepEqual(reparsed.lanes, roadmap.lanes)
+})
+
+run('agent: an empty @agent= raises empty_agent and does not read as inherit', () => {
+  const roadmap = parseRoadmap('---\ntype: roadmap\nagent: codex\n---\n## L\n- backlog/foo.md  @agent=\n')
+  const entry = roadmap.lanes[0].entries[0]
+  assert.equal(entry.agent, undefined)
+  assert.deepEqual(
+    roadmap.issues.map((issue) => issue.kind),
+    ['empty_agent'],
+  )
+  assert.equal(resolveEntryAgent(entry, roadmap.policy), 'codex')
+})
+
+run('agent: the policy scalar parses, writes, and clears by key presence', () => {
+  const parsed = parseRoadmap('---\ntype: roadmap\nagent: claude-code/claude-opus-5\n---\n## L\n- backlog/foo.md\n')
+  assert.equal(parsed.policy.agent, 'claude-code/claude-opus-5')
+  const cleared = setRoadmapPolicy(
+    '---\ntype: roadmap\nagent: codex\n---\n## L\n- backlog/foo.md\n',
+    { agent: undefined },
+  )
+  assert.equal(parseRoadmap(cleared).policy.agent, undefined)
+  const written = setRoadmapPolicy('---\ntype: roadmap\n---\n## L\n- backlog/foo.md\n', { agent: 'codex' })
+  assert.equal(parseRoadmap(written).policy.agent, 'codex')
+})
+
+run('resolveEntryAgent: step wins over policy; whitespace is absence', () => {
+  assert.equal(resolveEntryAgent({ agent: 'codex' }, { agent: 'claude-code' }), 'codex')
+  assert.equal(resolveEntryAgent({}, { agent: 'claude-code' }), 'claude-code')
+  assert.equal(resolveEntryAgent({}, {}), undefined)
+  assert.equal(resolveEntryAgent({ agent: '  ' }, { agent: '  ' }), undefined)
+})
+
+run('parseAgentRuntime: only the FIRST slash splits, so slashed model ids survive', () => {
+  assert.deepEqual(parseAgentRuntime('claude-code'), { cli: 'claude-code' })
+  assert.deepEqual(parseAgentRuntime('claude-code/claude-opus-5'), { cli: 'claude-code', model: 'claude-opus-5' })
+  assert.deepEqual(parseAgentRuntime('opencode/openrouter/qwen-3'), { cli: 'opencode', model: 'openrouter/qwen-3' })
+  assert.deepEqual(parseAgentRuntime('codex/'), { cli: 'codex' })
 })
 
 run('resolveEntryRoster: entry wins over policy; policy wins over nothing', () => {

@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/automation'
 import { LAYOUT_TEMPLATES } from '../layouts/templates'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { selectAgentCliCatalog } from '../components/workspace/newWorkspace/cliRuntimeOptions'
 import { pickRandomAgentName } from '../utils/agentNames'
 import { getModel, removeAgentTab, type AgentTabRevealTarget } from '../utils/modelRegistry'
 import { revealAgentTerminalTab } from '../utils/agentTabReveal'
@@ -262,11 +263,48 @@ type RuntimeResolution =
     }
   | { ok: false; response: AutomationRendererResponse }
 
+// Every CLI the app could actually launch: the stock catalog plus ready plugin
+// entries, minus anything detection says is NOT installed. The same set the
+// pickers offer, read from the same selector, so "valid here" and "offered
+// there" cannot drift.
+function launchableCliValues(): Set<string> {
+  const s = useWorkspaceStore.getState()
+  const options = selectAgentCliCatalog(
+    s.pluginCatalogStatus,
+    s.pluginCatalogEntries,
+    s.appSettings.cliRuntimes,
+    { map: s.cliAvailability, status: s.cliAvailabilityStatus },
+    s.appSettings.cliModelCatalog,
+  )
+  return new Set(options.map((option) => String(option.value)))
+}
+
 function resolveRequestedRuntime(
   request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>,
   roster: ReturnType<typeof resolveInitialSprintEngineRoster>,
   launchRoleCounts: SprintEngineRoleCounts
 ): RuntimeResolution {
+  // A named runtime that cannot spawn fails the start loudly (MC-2145's trap),
+  // matching the unknown-`rosterName` precedent — a silent fallback would
+  // launch a horizon's every step on an agent the author never picked and
+  // never be told.
+  const requestedClis = [request.runtime?.cli, ...Object.values(request.roleClis ?? {})].filter(
+    (cli): cli is string => Boolean(cli),
+  )
+  if (requestedClis.length > 0) {
+    const launchable = launchableCliValues()
+    const unknown = requestedClis.find((cli) => !launchable.has(cli))
+    if (unknown) {
+      return {
+        ok: false,
+        response: {
+          ok: false,
+          code: 'sprint_unknown_runtime',
+          message: `Agent CLI "${unknown}" is not installed or not known, so this sprint cannot start on it. Install it, or pick another agent.`,
+        },
+      }
+    }
+  }
   const roleCliDefaults = { ...roster.roleCliDefaults }
   const roleModelOverrides: SprintEngineRoleModelOverrides = { ...roster.roleModelOverrides }
   const roleReasoningOverrides: SprintEngineRoleReasoningOverrides = {}

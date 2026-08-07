@@ -107,6 +107,7 @@ import {
   escapeLeavesSurface,
   useSurfaceTriggerFocus,
 } from './globalSurface/contextRail'
+import { SurfaceExitContext, type SurfaceExit } from './globalSurface/surfaceBackNav'
 import {
   setExtensionsSurfaceHost,
   type ExtensionsSurfaceHostPorts,
@@ -182,11 +183,12 @@ import { isGlobalShortcutSuppressedTarget } from '../../utils/keyboard'
 const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
 // The pre-creation New Chat panel — agent + engine chooser that creates nothing
 // until the user starts the chat. Code-split like NewWorkspacePanel; rendered
-// only when showNewChatPanel is true.
-const NewChatPanel = React.lazy(() => import('./agentComposer/NewChatPanel'))
-// Lazy for the same reason NewChatPanel is: it pulls the roster, the model
-// picker and the skill inventory, and nobody pays for that until they press the
-// tab strip's "+".
+// only when the New chat door or the tab strip's "+" asks for it.
+//
+// One surface, two destinations (MC-2147): pressing "+" retypes a tab into the
+// agent's terminal; New chat creates a solo workspace in the picked project.
+// The panel that used to serve the second — NewChatPanel — is gone rather than
+// left beside this one, because two launch surfaces drift.
 const NewAgentPanel = React.lazy(() => import('./agentComposer/NewAgentPanel'))
 // The New sprint dialog (MC-2062): one light dialog, shaped like New chat —
 // sprint creation left the wizard, and every entry point converges here.
@@ -236,7 +238,16 @@ const EMPTY_DISABLED_SPECIALIST_PACKS: string[] = []
 // Where a spawn should land, and what it should start with. Present only when
 // the spawn came from the tab strip's "+" (MC-2147): `tabId` names that tab's
 // node and `prompt` is what was typed on the launch surface inside it.
-type AgentSpawnPlacement = { tabId?: string; prompt?: string }
+type AgentSpawnPlacement = {
+  tabId?: string
+  prompt?: string
+  /**
+   * The name the tab already wears. The new-agent tab is named when it opens,
+   * like every other terminal in the strip, so the agent adopts that name
+   * rather than drawing a second one and renaming the tab under the reader.
+   */
+  agentName?: string
+}
 
 /**
  * Put a freshly spawned agent in its tab. From a new-agent tab that means
@@ -665,7 +676,11 @@ export default function WorkspaceManager() {
   // effect only fires an IPC call on an actual transition.
   const appliedTerminalVisibilityRef = useRef<Map<string, boolean>>(new Map())
   const collapsedStaleDetachedWindowsRef = useRef(false)
-  const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel
+  // A full-canvas pre-creation surface owns the window: the workspace under it
+  // is not what the chrome is describing any more. The New chat door counts for
+  // the same reason the New workspace panel does — and the tab strip's "+" does
+  // NOT, because that one lives inside a workspace whose header is still true.
+  const workspaceActionsEnabled = activeWorkspace && !showNewWorkspacePanel && !newChatPanelOpen
   const commandDispatcherRef = useRef(new RendererCommandDispatcher())
   // Per-window visit history backing mouse back/forward workspace navigation.
   // Transient shell state: a ref (not store state) because navigation must not
@@ -945,6 +960,14 @@ export default function WorkspaceManager() {
     surfaceTrigger.leave(closeGlobalSurface)
   }, [surfaceTrigger, closeGlobalSurface])
 
+  // The same trigger-focus restore, offered to the door itself. The bar chevron
+  // is rendered inside the surface's tree by `GlobalSurfaceShell`, so without this
+  // it would reach only the store's bare `closeGlobalSurface` and leave the
+  // keyboard on `<body>` — the rail row it replaces got the restore for free by
+  // being the host's own. `leave` takes the close so a door that owns extra state
+  // (Settings) can still clear it on the way out.
+  const surfaceExit = useMemo<SurfaceExit>(() => ({ leave: surfaceTrigger.leave }), [surfaceTrigger])
+
   // A door has to hold the keyboard to have a keyboard exit at all.
   //
   // `ContextRailColumn` takes focus when it replaces the sidebar, so a door WITH
@@ -973,9 +996,8 @@ export default function WorkspaceManager() {
     surfaceRegionEl.focus()
   }, [surfaceRegionEl, contextRailActive, activeGlobalSurface])
 
-  // Escape leaves the door, now that back is a rail row rather than a bar
-  // chevron: the two affordances have to agree, and a full-page surface with no
-  // keyboard exit is the one thing worse than a bar chevron. Deliberately NOT a
+  // Escape leaves the door: the keyboard twin of the bar's back chevron, and the
+  // two affordances have to agree. Deliberately NOT a
   // dialog dismissal — nothing here traps focus, and a keystroke aimed at an
   // overlay ON the door (a context menu, a confirm, a listbox) stays that
   // overlay's, which is what `escapeLeavesSurface` decides.
@@ -1061,12 +1083,22 @@ export default function WorkspaceManager() {
   // Conversation spawn is offered only in standard workspaces; Sprint Engine
   // agents stay terminal/MCP-owned (AgentPanel enforces this too).
   const conversationSpawnEnabled = activeWorkspace?.mode === 'standard'
-  // Load the conversation provider catalog when the spawn menu opens in a
-  // standard workspace. Defensive: if the IPC is absent the feature is simply
-  // unavailable and no rows render. We refetch on each open so a provider just
-  // configured in Settings shows up without a restart.
+  // Every surface that can spawn a conversation agent has to ask for the
+  // catalog, not just the top bar's menu: the launch surface (MC-2147) offers
+  // the same row, and while this was keyed on `specialistMenuOpen` alone that
+  // row could never appear there — the catalog stayed empty, so the option
+  // silently did not exist.
+  const [conversationCatalogRequests, setConversationCatalogRequests] = useState(0)
+  const requestConversationCatalog = useCallback(() => {
+    setConversationCatalogRequests((count) => count + 1)
+  }, [])
+
+  // Load the conversation provider catalog when a surface that offers one opens
+  // in a standard workspace. Defensive: if the IPC is absent the feature is
+  // simply unavailable and no rows render. We refetch on each open so a provider
+  // just configured in Settings shows up without a restart.
   React.useEffect(() => {
-    if (!specialistMenuOpen || !conversationSpawnEnabled) return
+    if ((!specialistMenuOpen && conversationCatalogRequests === 0) || !conversationSpawnEnabled) return
     if (typeof window.api.conversationProvidersList !== 'function') {
       setConversationProviderResult(null)
       return
@@ -1083,7 +1115,7 @@ export default function WorkspaceManager() {
     return () => {
       cancelled = true
     }
-  }, [specialistMenuOpen, conversationSpawnEnabled, cliRuntimes])
+  }, [specialistMenuOpen, conversationCatalogRequests, conversationSpawnEnabled, cliRuntimes])
   const conversationSpawnOptions = useMemo<ConversationSpawnOption[]>(
     () => buildConversationSpawnOptions(conversationProviderResult),
     [conversationProviderResult],
@@ -1164,7 +1196,14 @@ export default function WorkspaceManager() {
     workspaceWindowId,
   ])
 
-  const createNewChat = useCallback((folderPath?: string | null, cli?: AgentCli, skill?: WorkspaceSkill) => {
+  const createNewChat = useCallback((
+    folderPath?: string | null,
+    cli?: AgentCli,
+    skill?: WorkspaceSkill,
+    // What the launch surface typed. A new chat is a solo workspace whose agent
+    // starts itself, so the prompt rides its seed patch rather than a tab.
+    startupPrompt?: string,
+  ) => {
     const chosenCli = cli && cli.trim() ? cli.trim() : null
     // A plain New chat is a General agent, so it rides General's own remembered
     // CLI (falling back to the global default), never the reverse. The result is
@@ -1202,6 +1241,7 @@ export default function WorkspaceManager() {
           ...(cliReasoning ? { cliReasoning } : {}),
           cliPermissionPreset: agentSpawnPermissionPreset,
           debugMode: agentSpawnDebugMode,
+          ...(startupPrompt ? { cliStartupPrompt: startupPrompt } : {}),
           ...(skill
             ? skillSpawnAgentPatch(skill, pluginCatalogEntries.find((entry) => entry.id === templateAgentCli)?.skillIntegration)
             : {}),
@@ -2323,7 +2363,7 @@ export default function WorkspaceManager() {
     const activeWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
     const specialist = getSpecialistAction(specialistId)
     const agentName = normalizeAgentIdentifier(requestedName)
-    const tabName = agentName || pickRandomAgentName(
+    const tabName = agentName || placement?.agentName || pickRandomAgentName(
       Object.values(activeWorkspace?.agents ?? {}).map((agent) => agent.name)
     )
     const newId = `specialist-${specialist.id}-${nanoid(6)}`
@@ -2397,8 +2437,9 @@ export default function WorkspaceManager() {
       return
     }
     // General agents get a real first+last name from the shared pool, exactly
-    // like specialists — not a numbered "General Agent 2/3…" placeholder.
-    const tabName = pickRandomAgentName(
+    // like specialists — not a numbered "General Agent 2/3…" placeholder. A
+    // launch from a new-agent tab keeps the name that tab is already wearing.
+    const tabName = placement?.agentName || pickRandomAgentName(
       Object.values(activeWorkspace?.agents ?? {}).map((agent) => agent.name)
     )
     const newId = `agent-${spawnCli}-${nanoid(6)}`
@@ -2517,14 +2558,19 @@ export default function WorkspaceManager() {
   // chat picker passes the right-clicked folder. Each mirrors its in-workspace
   // spawn counterpart, but seeds the agent at creation time via
   // createSoloChatWorkspace so it lands race-free before the new model mounts.
-  const openGeneralInNewChat = (cli?: AgentCli, folderPath?: string | null, skill?: WorkspaceSkill) =>
-    createNewChat(folderPath, cli, skill)
+  const openGeneralInNewChat = (
+    cli?: AgentCli,
+    folderPath?: string | null,
+    skill?: WorkspaceSkill,
+    startupPrompt?: string,
+  ) => createNewChat(folderPath, cli, skill, startupPrompt)
 
   const openSpecialistInNewChat = (
     specialistId: SpecialistActionId,
     selectedCli?: AgentCli,
     folderPath?: string | null,
     skill?: WorkspaceSkill,
+    startupPrompt?: string,
   ) => {
     setLastSelectedSpecialist(specialistId)
     const specialist = getSpecialistAction(specialistId)
@@ -2551,7 +2597,12 @@ export default function WorkspaceManager() {
           debugMode: agentSpawnDebugMode,
           kind: 'specialist',
           specialistId: specialist.id,
-          cliStartupPrompt: prependAgentIdentifier(prompt, tabName, specialist.shortLabel),
+          cliStartupPrompt: prependAgentIdentifier(
+            // The soul brief first, then the task, as the in-workspace spawn does.
+            startupPrompt ? `${prompt}\n\n${startupPrompt}` : prompt,
+            tabName,
+            specialist.shortLabel,
+          ),
           cliOnboardingPromptSent: false,
           cliHasLaunched: false,
           cliResumeAvailable: false,
@@ -2571,6 +2622,30 @@ export default function WorkspaceManager() {
     })
   }
 
+  // A conversation agent in a fresh chat: same seed mechanism as the CLI paths,
+  // with the conversation runtime patch instead of a CLI. The prompt lands in
+  // the chat composer, typed and unsent — a conversation has no startup prompt
+  // to hand a process, and auto-sending someone's first line is not the same
+  // action as starting a chat.
+  const openConversationInNewChat = (folderPath?: string | null, startupPrompt?: string) => {
+    if (!conversationDefaultOption) return
+    const { providerId, modelId, modelLabel } = conversationDefaultOption
+    const tabName = uniqueAgentName(modelLabel || 'Conversation Agent', {})
+    createSoloChatWorkspace({
+      folderPath,
+      seedAgent: {
+        tabName,
+        agentPatch: {
+          name: tabName,
+          ...conversationAgentRuntimePatch(providerId, modelId),
+          cliPermissionPreset: agentSpawnPermissionPreset,
+          ...(startupPrompt ? { chatComposerPrefill: startupPrompt } : {}),
+        },
+      },
+    })
+    setLastSelectedConversationModel({ providerId, modelId })
+  }
+
   // New-chat picks: each spawns the chosen agent in a fresh chat AND remembers
   // the choice as the default for a plain "New chat in project" click, so the
   // sidebar can show what will spawn and repeat it without reopening the picker.
@@ -2579,18 +2654,24 @@ export default function WorkspaceManager() {
     setLastNewChatAgent({ kind: 'terminal' })
     openTerminalInNewChat(folderPath)
   }
-  const pickNewChatGeneral = (cli?: AgentCli, folderPath?: string | null, skill?: WorkspaceSkill) => {
+  const pickNewChatGeneral = (
+    cli?: AgentCli,
+    folderPath?: string | null,
+    skill?: WorkspaceSkill,
+    startupPrompt?: string,
+  ) => {
     setLastNewChatAgent({ kind: 'general' })
-    openGeneralInNewChat(cli, folderPath, skill)
+    openGeneralInNewChat(cli, folderPath, skill, startupPrompt)
   }
   const pickNewChatSpecialist = (
     specialistId: SpecialistActionId,
     cli?: AgentCli,
     folderPath?: string | null,
     skill?: WorkspaceSkill,
+    startupPrompt?: string,
   ) => {
     setLastNewChatAgent({ kind: 'specialist', specialistId })
-    openSpecialistInNewChat(specialistId, cli, folderPath, skill)
+    openSpecialistInNewChat(specialistId, cli, folderPath, skill, startupPrompt)
   }
 
   // Open the pre-creation New Chat panel. `folderPath === undefined` inherits the
@@ -2700,7 +2781,11 @@ export default function WorkspaceManager() {
   // `folderPathOverride` lets the embedded composer in the unified New Agent panel
   // (the 'chat' pseudo-type) spawn in the wizard's chosen folder rather than the
   // standalone panel's; omitting it keeps the standalone New chat behavior.
-  const confirmNewChat = (confirm: AgentComposerConfirm, folderPathOverride?: string | null) => {
+  const confirmNewChat = (
+    confirm: AgentComposerConfirm,
+    folderPathOverride?: string | null,
+    startupPrompt?: string,
+  ) => {
     const folderPath =
       folderPathOverride !== undefined ? folderPathOverride : newChatPanelState?.folderPath ?? null
     switch (confirm.kind) {
@@ -2720,7 +2805,7 @@ export default function WorkspaceManager() {
             skill: confirm.skill,
           })
         } else {
-          pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath, confirm.skill)
+          pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath, confirm.skill, startupPrompt)
         }
         break
       case 'general':
@@ -2732,12 +2817,12 @@ export default function WorkspaceManager() {
             skill: confirm.skill,
           })
         } else {
-          pickNewChatGeneral(confirm.cli, folderPath, confirm.skill)
+          pickNewChatGeneral(confirm.cli, folderPath, confirm.skill, startupPrompt)
         }
         break
-      default:
-        // The New Chat panel is specialist-mode with no conversation rows, so
-        // those confirm kinds are unreachable here.
+      case 'conversation':
+        setLastNewChatAgent({ kind: 'conversation' })
+        openConversationInNewChat(folderPath, startupPrompt)
         break
     }
     closeNewChatPanel()
@@ -3212,23 +3297,27 @@ export default function WorkspaceManager() {
 
   const openNewAgentTab = () => {
     if (!canOpenNewAgentTab || !windowActiveWorkspaceId) return
-    addNewAgentTab(windowActiveWorkspaceId)
+    // Named now, not at spawn: the tab is a terminal-in-waiting and carries the
+    // name the agent will take.
+    const taken = Object.values(activeWorkspace?.agents ?? {}).map((agent) => agent.name)
+    addNewAgentTab(windowActiveWorkspaceId, pickRandomAgentName(taken))
   }
 
   // The launch surface, rendered inside that tab. It creates nothing: a confirm
   // plus the typed prompt comes back here, and the spawn retypes `tabId` in
   // place so the terminal lands exactly where the surface was.
-  const renderNewAgentPanel = (tabId: string) => (
+  const renderNewAgentPanel = (tabId: string, agentName?: string) => (
     <React.Suspense fallback={null}>
       <NewAgentPanel
         workspaceId={windowActiveWorkspaceId ?? ''}
         conversationAvailable={conversationSpawnAvailable}
+        onRequestConversationCatalog={requestConversationCatalog}
         initialSelection={composerInitialSelection}
         permissionPreset={agentSpawnPermissionPreset}
         onChangePermissionPreset={setAgentSpawnPermissionPreset}
         debugMode={agentSpawnDebugMode}
         onChangeDebugMode={setAgentSpawnDebugMode}
-        onLaunch={({ prompt, ...confirm }) => runComposerSpawn(confirm, { tabId, prompt })}
+        onLaunch={({ prompt, ...confirm }) => runComposerSpawn(confirm, { tabId, prompt, agentName })}
         onClose={() => {
           if (windowActiveWorkspaceId) removeNewAgentTab(windowActiveWorkspaceId, tabId)
         }}
@@ -3485,16 +3574,14 @@ export default function WorkspaceManager() {
         contextRail={
           // Drill-in replaces the rail (item 1993): while a door with a rail is
           // open, that rail renders in this column and the workspaces rail steps
-          // aside. The column is the HOST's, not the surface's, so `Back` is a
-          // rail row rather than a per-door affordance — a door is never a room
-          // with no door out.
+          // aside. The column carries navigation only — the way OUT is the door's
+          // bar chevron, beside the door's name.
           activeGlobalSurfaceEntry ? (
             <ContextRailColumn
               surfaceKey={activeGlobalSurfaceEntry.id}
               ariaLabel={`${surfaceLabel} rail`}
               active={contextRailActive}
               railRef={setSurfaceRailEl}
-              onBack={leaveGlobalSurface}
             />
           ) : undefined
         }
@@ -3545,7 +3632,10 @@ export default function WorkspaceManager() {
         onNewAgent={openNewWorkspacePanel}
         menuItems={window.api.platform === 'darwin' ? [] : MENU_BAR_ITEMS}
         onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
-        globalSurfaceActive={activeGlobalSurfaceEntry !== null}
+        // The New chat door has no lifted bar of its own; passing it here drops
+        // the workspace-scoped left cluster (panel switches + identity), which
+        // was still naming the workspace open behind the surface.
+        globalSurfaceActive={activeGlobalSurfaceEntry !== null || newChatPanelOpen}
         surfaceBarSlotRef={setSurfaceBarEl}
         identitySlot={
           <WorkspaceIdentity
@@ -3575,7 +3665,7 @@ export default function WorkspaceManager() {
             activeWorkspace={activeWorkspace}
             activeWorkspaceId={windowActiveWorkspaceId}
             workspaceActionsEnabled={workspaceActionsEnabled}
-            globalSurfaceActive={activeGlobalSurfaceEntry !== null}
+            globalSurfaceActive={activeGlobalSurfaceEntry !== null || newChatPanelOpen}
             sessionsRef={sessionsRef}
             viewMenuRef={viewMenuRef}
             notificationsRef={notificationsRef}
@@ -3713,27 +3803,40 @@ export default function WorkspaceManager() {
                   close discards. Sits above the layers so it works whether or not
                   a workspace is active. */}
               {newChatPanelState ? (
-                <React.Suspense fallback={<SuspenseFallback label="Loading new chat" />}>
-                  <NewChatPanel
-                    // The composer seeds its attachment from initialConnector on
-                    // mount, so opening a connector "New chat" over an already-open
-                    // panel must remount it — otherwise the connector silently
-                    // fails to attach. Keyed on identity, so removing the chip
-                    // (composer-local state) never remounts.
-                    key={newChatPanelState.connector?.id ?? 'plain'}
-                    initialState={newChatPanelState}
-                    projectOptions={newChatProjectOptions}
-                    onSelectProject={selectNewChatProject}
-                    onBrowseProject={() => void browseNewChatProject()}
-                    initialSelection={lastNewChatAgent ?? { kind: 'general' }}
-                    permissionPreset={agentSpawnPermissionPreset}
-                    onChangePermissionPreset={setAgentSpawnPermissionPreset}
-                    debugMode={agentSpawnDebugMode}
-                    onChangeDebugMode={setAgentSpawnDebugMode}
-                    onConfirm={confirmNewChat}
-                    onClose={closeNewChatPanel}
-                  />
-                </React.Suspense>
+                <div className="absolute inset-0 z-10 isolate overflow-auto bg-[color:var(--bg-app)]">
+                  <React.Suspense fallback={<SuspenseFallback label="Loading new chat" />}>
+                    {/* MC-2147: New chat opens the SAME launch surface the tab
+                        strip's "+" opens. One shell, two destinations — here it
+                        creates a solo workspace in the picked project rather
+                        than retyping a tab. The composer seeds its connector
+                        attachment on mount, so a connector "New chat" over an
+                        open panel must remount; keyed on identity, so removing
+                        the chip never does. */}
+                    <NewAgentPanel
+                      key={newChatPanelState.connector?.id ?? 'plain'}
+                      workspaceId={windowActiveWorkspaceId ?? ''}
+                      conversationAvailable={conversationSpawnAvailable}
+                      onRequestConversationCatalog={requestConversationCatalog}
+                      folderPath={newChatPanelState.folderPath}
+                      projectOptions={newChatProjectOptions}
+                      onSelectProject={selectNewChatProject}
+                      onBrowseProject={() => void browseNewChatProject()}
+                      initialSelection={lastNewChatAgent ?? { kind: 'general' }}
+                      permissionPreset={agentSpawnPermissionPreset}
+                      onChangePermissionPreset={setAgentSpawnPermissionPreset}
+                      debugMode={agentSpawnDebugMode}
+                      onChangeDebugMode={setAgentSpawnDebugMode}
+                      onLaunch={({ prompt, ...confirm }) => {
+                        confirmNewChat(confirm, newChatPanelState.folderPath, prompt)
+                        closeNewChatPanel()
+                      }}
+                      onClose={closeNewChatPanel}
+                      // The door has no tab to close, so the surface carries the
+                      // control itself.
+                      showCloseButton
+                    />
+                  </React.Suspense>
+                </div>
               ) : null}
             </>
           )}
@@ -3766,6 +3869,9 @@ export default function WorkspaceManager() {
               {/* The rail lifts into the app sidebar's column; the surface just
                   declares a rail and does not know which column it landed in. */}
               <ContextRailSlotContext.Provider value={surfaceRailSlot}>
+              {/* The door's bar chevron leaves through here, so it restores the
+                  keyboard to the row that opened the door exactly as Escape does. */}
+              <SurfaceExitContext.Provider value={surfaceExit}>
               {/* A door failure stays a door failure (MC-1835): render/import
                   throws land in this boundary's contained fallback instead of
                   white-screening the renderer. */}
@@ -3778,6 +3884,7 @@ export default function WorkspaceManager() {
                   <activeGlobalSurfaceEntry.Component />
                 </React.Suspense>
               </GlobalSurfaceErrorBoundary>
+              </SurfaceExitContext.Provider>
               </ContextRailSlotContext.Provider>
             </GlobalSurfaceBarSlotContext.Provider>
           </div>

@@ -140,7 +140,12 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   radius: {
     'components/workspace': 169,
     'components/panels': 145,
-    'components/settings': 30,
+    // 30 → 29 with ui 9 → 10: the extension icon chip MOVED into the kit as
+    // `ui/ExtensionIcon` (it was `McpBrandIcon` here) so the Skills and MCPs
+    // aside could draw the same mark as the Extensions door. Its one
+    // `rounded-lg` changed address — the CommandPalette precedent below —
+    // rather than a new off-ramp appearing anywhere.
+    'components/settings': 29,
     'components/backlog': 19,
     // 15 → 17 when CommandPalette MOVED into the kit (MC-2117) carrying its own
     // two radii — nothing regressed, the debt changed address — then 17 → 14
@@ -150,7 +155,7 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // that item paid for are in workspace (197 → 193), panels (173 → 171),
     // backlog (21 → 20) and diagnostics (7 → 6): every dialog-scale shell in
     // the product now draws `OVERLAY_SHELL_CLASS` instead of its own radius.
-    'components/ui': 9,
+    'components/ui': 10,
     'components/worktree': 9,
     'components/diagnostics': 6,
     utils: 4,

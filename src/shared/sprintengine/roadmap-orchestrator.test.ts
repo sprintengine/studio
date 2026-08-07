@@ -463,6 +463,30 @@ test('SEAM(1881x1883): neither tier set → undefined (the built-in default)', (
   assert.equal('activeRoster' in (result.laneRuntimes.get('Backend') ?? {}), false)
 })
 
+// ---------------------------------------------------------------------------
+// Per-step agent runtime (MC-2145) — same freeze-at-start contract as roster
+// ---------------------------------------------------------------------------
+
+test('SEAM(2145): a step @agent= override wins over the policy agent on the start action', () => {
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\nadvance: auto\nmerge: manual\nagent: claude-code\n---\n\n## Backend\n- backlog/a.md  @agent=codex/gpt-5.2\n- backlog/b.md\n',
+  )
+  const { action } = startActionFor(roadmap, [item('backlog/a.md', 'ready'), item('backlog/b.md', 'ready')])
+  assert.equal(action.agent, 'codex/gpt-5.2')
+})
+
+test('SEAM(2145): no step override → the policy agent; neither tier → absent', () => {
+  const withPolicy = parseRoadmap(
+    '---\ntype: roadmap\nadvance: auto\nmerge: manual\nagent: claude-code/claude-opus-5\n---\n\n## Backend\n- backlog/a.md\n',
+  )
+  const { action } = startActionFor(withPolicy, [item('backlog/a.md', 'ready')])
+  assert.equal(action.agent, 'claude-code/claude-opus-5')
+
+  const bare = parseRoadmap('---\ntype: roadmap\nadvance: auto\nmerge: manual\n---\n\n## Backend\n- backlog/a.md\n')
+  const { action: bareAction } = startActionFor(bare, [item('backlog/a.md', 'ready')])
+  assert.equal('agent' in bareAction, false, 'absent means the stock default downstream, never an empty token')
+})
+
 test('SEAM(1881x1883): the action agrees with resolveEntryRoster on every combination', () => {
   // The acceptance claim is "one resolution function serves both". Prove it by
   // asserting the orchestrator's answer EQUALS the substrate function's answer

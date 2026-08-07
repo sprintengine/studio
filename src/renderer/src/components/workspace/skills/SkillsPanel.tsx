@@ -85,6 +85,9 @@ export function SkillsPanel({ workspaceId }: Props) {
   // tab naming what is waiting — not a badge per row.
   const [restartPending, setRestartPending] = useState<Record<string, string[]>>({})
   const [catalogue, setCatalogue] = useState<BuiltinSkill[]>([])
+  // Only what a row's mark needs. The catalog is ~100KB of server records and
+  // the pane draws none of the rest of it.
+  const [serverIcons, setServerIcons] = useState<{ id: string; icon?: string }[]>([])
 
   // Switching agents resets the pane's own transient state: an expanded row and
   // a write report both belong to the agent they were opened against.
@@ -106,6 +109,26 @@ export function SkillsPanel({ workspaceId }: Props) {
         // installed" rows and nothing else; the reachable list is unaffected and
         // must not be blanked by it.
         if (!cancelled) setCatalogue([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    window.api
+      .mcpListCatalog()
+      .then((result) => {
+        if (cancelled) return
+        setServerIcons(
+          result.ok ? result.servers.map((server) => ({ id: server.id, icon: server.icon })) : [],
+        )
+      })
+      .catch(() => {
+        // A catalog that will not load costs the brand marks and nothing else:
+        // every server keeps its monogram and its row is otherwise unchanged.
+        if (!cancelled) setServerIcons([])
       })
     return () => {
       cancelled = true
@@ -223,6 +246,7 @@ export function SkillsPanel({ workspaceId }: Props) {
         agentLabel,
         query,
         catalogue,
+        mcpCatalog: serverIcons,
         restartPending: pluginId ? restartPending[pluginId] ?? [] : [],
         writeReport,
         useError,
@@ -236,6 +260,7 @@ export function SkillsPanel({ workspaceId }: Props) {
       pluginId,
       query,
       restartPending,
+      serverIcons,
       useError,
       writeReport,
     ],

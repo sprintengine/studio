@@ -4,12 +4,17 @@
 // three columns of navigation before the first word of content.
 //
 // The fix is a REPLACEMENT, not another column. A drilled-in surface's rail
-// renders in the app sidebar's own column, at the same width, with `Back` pinned
-// at the column's bottom to restore what it replaced. A surface that seems to
-// need two levels of rail folds the outer level into grouped sections of the one
-// rail (Horizon: a Horizons group at the resting selection tier, a Plan group at
-// the focused one), and a surface whose canvas was a list beside a preview moves
-// that list here whole (Backlog).
+// renders in the app sidebar's own column, at the same width. A surface that
+// seems to need two levels of rail folds the outer level into grouped sections
+// of the one rail (Horizon: a Horizons group at the resting selection tier, a
+// Plan group at the focused one), and a surface whose canvas was a list beside a
+// preview moves that list here whole (Backlog).
+//
+// `Back` used to be a row pinned to this column's bottom. It is the door's bar
+// chevron now: the exit belongs beside the name of the thing it exits, not below
+// a scrolling column where reaching it means travelling past every row the door
+// brought. The column still exists for the same reason it always did — the door
+// needs somewhere to put its rail — it just no longer carries the way out.
 //
 // Presence is DECLARED by the surface, never derived from what it holds (T19):
 // every door hands over a rail in every load state, so the swap happens when the
@@ -18,12 +23,10 @@
 // had finished loading.
 //
 // The host owns this column, not the surface: the column exists whenever a door
-// is open — even for a door that portals no rail into it — so `Back` is never
-// missing and a door can never be a room with no door.
+// is open, even for a door that portals no rail into it, so the swap is decided
+// once by the host rather than negotiated per door.
 
 import React, { useCallback, useContext, useEffect, useRef } from 'react'
-
-import { FOCUS_RING_CLASS } from '../../ui/tokens'
 
 /**
  * The host's rail column, for a surface to portal its rail into. A surface with
@@ -43,10 +46,10 @@ export type ContextRailSlot = {
    *
    * A surface that genuinely brings no rail (a canvas-only tenant, or a host
    * that does not lift) nests no second column either, so there is nothing for
-   * the swap to fix: it REPLACES NOTHING, the host keeps its own rail, and the
-   * surface keeps its bar chevron as the one way back. Emptying the column for
-   * it would trade a nesting problem it does not have for a blank rail's width
-   * of nothing.
+   * the swap to fix: it REPLACES NOTHING and the host keeps its own rail. Its
+   * way out is the bar chevron, the same as every other door's. Emptying the
+   * column for it would trade a nesting problem it does not have for a blank
+   * rail's width of nothing.
    */
   readonly onRailPresence?: (present: boolean) => void
 }
@@ -82,16 +85,15 @@ export function escapeLeavesSurface(active: Element | null, surfaceRegion: HTMLE
 
 /**
  * The drilled-in surface's rail column: a scrollport the surface portals its
- * rail into, plus the pinned `Back` row. Rendered by the host INSIDE the app
- * sidebar's column, so it inherits that column's width and ground — the rail is
- * the sidebar for as long as the surface is open.
+ * rail into. Rendered by the host INSIDE the app sidebar's column, so it
+ * inherits that column's width and ground — the rail is the sidebar for as long
+ * as the surface is open.
  */
 export function ContextRailColumn({
   surfaceKey,
   ariaLabel,
   active,
   railRef,
-  onBack,
 }: {
   /** The open surface's id. A change re-runs the swap, so door → door slides too. */
   surfaceKey: string
@@ -106,8 +108,6 @@ export function ContextRailColumn({
   active: boolean
   /** Receives the scrollport element — the surface's rail portal target. */
   railRef: (element: HTMLDivElement | null) => void
-  /** Restores the rail this column replaced (`closeGlobalSurface`, never NavHistory). */
-  onBack: () => void
 }): JSX.Element {
   const columnRef = useRef<HTMLDivElement | null>(null)
 
@@ -182,40 +182,7 @@ export function ContextRailColumn({
         // scrollport and flush to the column's edges.
         className="flex min-h-0 flex-1 flex-col"
       />
-      <ContextRailBackRow onBack={onBack} />
     </div>
-  )
-}
-
-/**
- * `Back` as a rail row, pinned to the column's bottom — above nothing, below
- * everything. It restores the rail the surface replaced, and Escape does the
- * same. The canvas carries no back affordance: one way out, in one place, on
- * every surface.
- */
-export function ContextRailBackRow({ onBack }: { onBack: () => void }): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onBack}
-      // `.cr-back` (patterns/context-rail.html): 8px vertical / 12px inset,
-      // meta type. It shipped at 10px and `text-heading` (14px) — a narrower
-      // inset and two type steps larger than its own spec. At 12px the label
-      // lands at 12 + 16 (glyph) + 8 (gap) = 36px, the same text edge as the
-      // rail titles above it (MC-2101).
-      className={`interactive flex shrink-0 items-center gap-2 border-t border-[color:var(--border-subtle)] px-3 py-2 text-left text-meta text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-    >
-      <svg viewBox="0 0 16 16" fill="none" className="icon-sm shrink-0" aria-hidden="true">
-        <path
-          d="M13 8H3.5m0 0L7 4.5M3.5 8 7 11.5"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-      Back
-    </button>
   )
 }
 

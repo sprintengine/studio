@@ -8,7 +8,6 @@ import {
   convertNewAgentTabToAgent,
   removeNewAgentTab,
   NEW_AGENT_TAB_COMPONENT,
-  NEW_AGENT_TAB_NAME,
   captureRailWidthFraction,
   captureRailWidthFractions,
   consumePendingAgentFlash,
@@ -961,7 +960,7 @@ function bothRailsModel(): Model {
   const model = freshModel()
   registerModel(WS, model)
 
-  const tabId = addNewAgentTab(WS)
+  const tabId = addNewAgentTab(WS, 'Atlas')
   assert.ok(tabId, 'the + opens a tab')
   assert.ok(
     allComponents(model).includes(NEW_AGENT_TAB_COMPONENT),
@@ -969,7 +968,16 @@ function bothRailsModel(): Model {
   )
 
   const placed = allTabs(model).find((tab) => tab.component === NEW_AGENT_TAB_COMPONENT)
-  assert.equal(placed?.name, NEW_AGENT_TAB_NAME, 'and it is named for what it is')
+  assert.equal(
+    placed?.name,
+    'Atlas',
+    'and it wears the agent’s name from the moment it opens — a tab must not change identity at spawn',
+  )
+  assert.equal(
+    (placed?.config as { agentName?: string } | undefined)?.agentName,
+    'Atlas',
+    'the name rides the tab config so the launch adopts it rather than drawing another',
+  )
 
   // Retype in place: the node id survives, so the tab keeps its tabset and size.
   const before = model.getNodeById(tabId!)
@@ -1006,7 +1014,7 @@ function bothRailsModel(): Model {
 {
   const model = freshModel()
   registerModel(WS, model)
-  const tabId = addNewAgentTab(WS)
+  const tabId = addNewAgentTab(WS, 'Wren')
   assert.ok(tabId)
   assert.equal(removeNewAgentTab(WS, tabId!), true, 'the tab closes')
   assert.ok(
@@ -1022,7 +1030,7 @@ function bothRailsModel(): Model {
 {
   const model = navOnlyModel()
   registerModel(WS, model)
-  addNewAgentTab(WS)
+  addNewAgentTab(WS, 'Juno')
   const hosting = tabsets(model).find((tabset) => componentsOf(tabset).includes(NEW_AGENT_TAB_COMPONENT))
   assert.ok(hosting, 'the surface is somewhere')
   assert.notEqual(hosting?.enableTabStrip, false, 'and never inside the strip-less nav pane')

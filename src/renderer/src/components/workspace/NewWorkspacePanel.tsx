@@ -50,7 +50,7 @@ import {
   getUserDisabledSprintEngineRoleIds,
   sprintEngineRoleOrder,
 } from '../../utils/sprintengine'
-import MulticodeMark from '../brand/MulticodeMark'
+import SprintEngineFrond from '../brand/SprintEngineFrond'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
 import { Checkbox, CliModelPickerButton, CloseIconButton, Field, FOCUS_RING_CLASS, GhostButton, InlineNotice, OutlineButton, PrimaryButton, TruncatedText, WizardProgress } from '../ui'
 import { OVERLAY_SHELL_CLASS, OVERLAY_WIDTH_PX } from '../ui/tokens'
@@ -1493,7 +1493,7 @@ export default function NewWorkspacePanel({
         >
           <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-5 py-3">
             <div className="flex min-w-0 items-center gap-2">
-              <MulticodeMark className="size-icon-md" variant="mono" />
+              <SprintEngineFrond tone="current" className="size-icon-md" />
               <h2
                 id="new-workspace-title"
                 className="text-body font-semibold text-[color:var(--text-strong)]"

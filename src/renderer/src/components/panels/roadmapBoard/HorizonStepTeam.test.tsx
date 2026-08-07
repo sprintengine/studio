@@ -79,6 +79,7 @@ async function main(): Promise<void> {
     host: HTMLElement
     unmount: () => Promise<void>
     picks: Array<string | undefined>
+    agentPicks: Array<string | undefined>
     inherits: number
   }
 
@@ -90,7 +91,7 @@ async function main(): Promise<void> {
     const host = dom.window.document.createElement('div')
     dom.window.document.body.appendChild(host)
     const picks: Array<string | undefined> = []
-    const state: Mount = { host, picks, inherits: 0, unmount: async () => undefined }
+    const state: Mount = { host, picks, agentPicks: [], inherits: 0, unmount: async () => undefined }
     const root = createRoot(host)
     await act(async () => {
       root.render(
@@ -103,6 +104,7 @@ async function main(): Promise<void> {
             state.inherits += 1
           },
           onManageRosters: () => undefined,
+          onSelectAgent: (token: string | undefined) => state.agentPicks.push(token),
           ...props,
         }),
       )
@@ -135,6 +137,21 @@ async function main(): Promise<void> {
     assert.match(text, /up to 3 at once/, 'the concurrency the launch actually uses')
     assert.match(text, /claude-code|Claude Code/, 'and the runtime it actually spawns')
     assert.doesNotMatch(text, /Frontend|Developer/, 'there are no roles to list')
+    await view.unmount()
+  })
+
+  await check('the agent is a PICKER bound to the resolved @agent token (MC-2145)', async () => {
+    const view = await mount({
+      roster: { label: 'No roles', overridden: false, missing: false },
+      agent: 'codex/gpt-5.2',
+    })
+    const trigger = view.host.querySelector('button[aria-label^="Agent for"]')
+    assert.ok(trigger, 'the plain-agents body carries the CliModelPicker trigger, not a sentence readout')
+    assert.match(
+      trigger?.getAttribute('aria-label') ?? '',
+      /gpt-5\.2|codex/i,
+      'and it is bound to the step’s own resolved runtime, not the stock default',
+    )
     await view.unmount()
   })
 
@@ -175,7 +192,11 @@ async function main(): Promise<void> {
     const items = menuItems(view.host)
     const inheritRow = items.find((item) => /Use the horizon/.test(item.textContent ?? ''))
     assert.ok(inheritRow, 'clearing the override is offered first')
-    assert.match(inheritRow.textContent ?? '', /No roles/, 'and names what the step falls back to')
+    assert.match(
+      inheritRow.textContent ?? '',
+      /Just an agent/,
+      'and names what the step falls back to — the built-in reads "Just an agent", never "No roles" (MC-2145)',
+    )
     await click(inheritRow)
     assert.equal(view.inherits, 1, 'inheriting goes through the CLEAR path')
     assert.deepEqual(view.picks, [], 'never through a write of the resolved name')

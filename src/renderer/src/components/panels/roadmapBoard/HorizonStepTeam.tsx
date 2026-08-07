@@ -13,22 +13,24 @@
 // horizon's default use, so "No roles" stays pinned first and "Manage rosters…"
 // stays the one door to the editor.
 //
-// READOUT, not a claim: the plain-agent facts are read through the very
-// resolution the launch performs (`resolveInitialSprintEngineRoster` with the
-// built-in reference, and the plan-sourced launch's own concurrency default), so
-// this band cannot drift from what a start actually spawns. They are not
-// editable per step: the horizon file carries a step's ROSTER and nothing else,
-// so a picker here would write nothing. See
-// `backlog/2026-08-06-a-horizon-step-cannot-name-its-agent.md`.
+// A plain-agents step's agent is a CONTROL now (MC-2145): the `@agent=` step
+// annotation and the horizon's `agent:` policy carry the choice end to end
+// (file → orchestrator start → sprint.create `runtime`), so the picker here
+// writes the very value the launch resolves. The concurrency cap remains a
+// readout — the launch's own default — because the file has no field for it
+// yet (deliberately out of MC-2145's scope; `policy.concurrency` means tracks
+// per repo, a different thing that must not be conflated).
 
 import { useMemo } from 'react'
 
-import { RoleAvatar } from '../../ui'
+import { CliModelPickerButton, RoleAvatar } from '../../ui'
 import { RosterMenu } from '../../backlog/RosterMenu'
+import { parseAgentRuntime } from '../../../../../shared/backlog/roadmap'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import {
   runtimeLabelFor,
   selectAgentCliCatalog,
+  type AgentCliCatalogOption,
   type RuntimeCrumbCliOption,
 } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import {
@@ -60,6 +62,13 @@ export type HorizonStepTeamProps = {
   /** Clear the override so the step inherits the horizon's default again. */
   onInherit: () => void
   onManageRosters: () => void
+  /** The step's RESOLVED agent runtime token (`cli` or `cli/model`) — its own
+   *  `@agent=`, else the horizon's `agent:`, else undefined (the stock
+   *  default). Resolved by the door through `resolveEntryAgent` (MC-2145). */
+  agent?: string
+  /** Write this step's `@agent=` override; `undefined` clears it back to
+   *  inheriting the horizon's default. */
+  onSelectAgent: (token: string | undefined) => void
 }
 
 export function HorizonStepTeam({
@@ -70,6 +79,8 @@ export function HorizonStepTeam({
   onSelect,
   onInherit,
   onManageRosters,
+  agent,
+  onSelectAgent,
 }: HorizonStepTeamProps): JSX.Element {
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
@@ -157,7 +168,13 @@ export function HorizonStepTeam({
           team, or recreate the roster under “Manage rosters…”.
         </p>
       ) : kind === 'plain_agents' ? (
-        <PlainAgentsSummary cliLabel={runtimeLabelFor(plainAgentCli, undefined, cliOptions)} />
+        <PlainAgentsRow
+          stepTitle={stepTitle}
+          agent={agent}
+          fallbackCli={plainAgentCli}
+          cliOptions={cliOptions}
+          onSelectAgent={onSelectAgent}
+        />
       ) : savedRoster ? (
         <RosterSummary roster={savedRoster} registry={registry} cliOptions={cliOptions} />
       ) : null}
@@ -165,24 +182,44 @@ export function HorizonStepTeam({
   )
 }
 
-// No roles: there is no role list to show, so what the reader needs is which
-// agent runs the work and how many of them run at once. Both are the launch's
-// own values, stated — a horizon step cannot yet choose either.
-function PlainAgentsSummary({ cliLabel }: { cliLabel: string | null }): JSX.Element {
+// Plain agents: there is no role list to show, so the row is the WHICH-AGENT
+// choice itself (MC-2145) — the same CliModelPickerButton the New sprint
+// dialog's Agent row uses, bound to the step's resolved `@agent=` token and
+// writing it back. The owner's ruling (2026-07-31): "if someone picks no roles
+// then they're just picking what agent to use" — so the agent picker IS this
+// body, not a sentence about a value nobody could change.
+function PlainAgentsRow({
+  stepTitle,
+  agent,
+  fallbackCli,
+  cliOptions,
+  onSelectAgent,
+}: {
+  stepTitle: string
+  agent: string | undefined
+  /** What an unset choice launches on — the stock default, resolved through
+   *  the launch's own function so this row cannot drift from a real start. */
+  fallbackCli: string | undefined
+  cliOptions: AgentCliCatalogOption[]
+  onSelectAgent: (token: string | undefined) => void
+}): JSX.Element {
+  const parsed = agent ? parseAgentRuntime(agent) : { cli: fallbackCli ?? 'claude-code' }
   return (
-    <p className="text-micro leading-4 text-[color:var(--text-muted)]">
-      {/* The picker beside this already names the team, so the line says what
-          the choice MEANS and never repeats "No roles" back. */}
-      One agent per task, up to {SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS} at once
-      {/* No runtime resolved is not a runtime we can name: the sentence stops
-          rather than inventing one. */}
-      {cliLabel ? (
-        <>
-          , on <span className="text-[color:var(--text-default)]">{cliLabel}</span>
-        </>
-      ) : null}
-      .
-    </p>
+    <div className="flex items-center gap-2">
+      {/* The concurrency cap stays a readout — the launch's own default; the
+          file has no per-step field for it (out of MC-2145's scope). */}
+      <p className="min-w-0 flex-1 text-micro leading-4 text-[color:var(--text-muted)]">
+        One agent per task, up to {SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS} at once, on
+      </p>
+      <CliModelPickerButton
+        ariaLabel={`Agent for ${stepTitle}`}
+        options={cliOptions}
+        cli={parsed.cli}
+        effectiveModelFor={(cli) => (cli === parsed.cli ? parsed.model : undefined)}
+        onSelectCli={(cli) => onSelectAgent(cli)}
+        onSelectModel={(cli, model) => onSelectAgent(model ? `${cli}/${model}` : cli)}
+      />
+    </div>
   )
 }
 

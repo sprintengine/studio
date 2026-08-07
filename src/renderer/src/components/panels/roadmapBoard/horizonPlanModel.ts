@@ -70,7 +70,12 @@ export function horizonStepTeamKind(
 // The attention a track is holding, attached to the step it happened to. This is
 // where the deleted "Waiting on you" strip's job now lives (MC-1922): a reason
 // beside the control that resolves it, never a list away from the work.
-export type HorizonStepNoticeKind = 'paused' | 'approval' | 'merge' | 'blocked'
+//
+// `approval` is deliberately NOT a notice kind. A step waiting for the go-ahead
+// is a healthy state, not a problem, and rendering it in the warn advisory made
+// every ready horizon read as broken. It is the row's `ready` flag instead, and
+// the action lives where the eyes already are — the detail pane's header.
+export type HorizonStepNoticeKind = 'paused' | 'merge' | 'blocked'
 
 export type HorizonStepNotice = {
   kind: HorizonStepNoticeKind
@@ -78,10 +83,10 @@ export type HorizonStepNotice = {
   message: string
   /** The underlying reason (the project, the branch, the failure), when known. */
   detail?: string
-  /** The one action that clears it, when there is one. A track stalled on a
-   *  prerequisite has none — the fix is in the backlog, not on this surface —
-   *  so the notice states the reason and offers no button rather than a
-   *  control that cannot help. */
+  /** The one action that clears it, when there is one — rendered by the DETAIL
+   *  pane's header, never as a button in the rail (the rail only states). A
+   *  track stalled on a prerequisite has none: the fix is in the backlog, so
+   *  both surfaces state the reason and offer no control that cannot help. */
   actionLabel?: string
 }
 
@@ -94,6 +99,9 @@ export type HorizonStepRow = {
   /** The authored ref — the plan's own identity for this step. */
   ref: string
   title: string
+  /** The item's minted id (`MC-1234`), when the scan has one. Leads the title on
+   *  the row — a step must be recognizable without clicking it. */
+  displayId?: string
   kind: RoadmapEntryKind
   state: RoadmapUnitState
   projectKey: ProjectKey
@@ -105,6 +113,10 @@ export type HorizonStepRow = {
   /** The delivering pull request, on a delivered step. */
   prUrl?: string
   notice?: HorizonStepNotice
+  /** The horizon is waiting for the go-ahead to start THIS step. Good news, so
+   *  it renders as a quiet chip on the row — the start action itself is the
+   *  detail pane header's, never a button buried in the rail. */
+  ready?: boolean
   /** The ref names no backlog item this Multicode can see. Surfaced, never
    *  silently dropped (Fallback Discipline) — a stale step the author can act on
    *  beats a row that looks ordinary and parks the track when it is reached. */
@@ -180,6 +192,15 @@ export const HORIZON_PLAN_HEAD_FALLBACK = 'Plan'
 // exactly the unactionable pause MC-1909 was filed on — so the map is exhaustive
 // by construction (`Record<RoadmapParkReason, string>` would be, but the reason
 // arrives as a plain string on the wire, so the lookup stays defensive).
+/** What Resume does after each park, in honest words. A canceled sprint is
+ *  gone; resuming starts a fresh one on the same step — the orchestrator's
+ *  resume issues a `start` for the lane's frontier, never a mid-flight pickup. */
+export const RESUME_HINT: Record<string, string> = {
+  run_canceled: 'Resuming starts a new sprint for this step.',
+  run_failed: 'Resuming starts a new sprint for this step.',
+  start_failed: 'Resuming tries the start again.',
+}
+
 export const HORIZON_PARK_COPY: Record<string, string> = {
   run_failed: 'A sprint failed.',
   run_canceled: 'A sprint was canceled.',
@@ -227,6 +248,7 @@ export function buildHorizonPlan(input: HorizonPlanInput): HorizonPlan {
         laneTitle: lane.title,
         ref: entry.ref,
         title: unit?.title ?? display?.title ?? entry.relativePath,
+        ...(display?.displayId ? { displayId: display.displayId } : {}),
         kind: unit?.kind ?? entry.kind,
         state: unit?.state ?? 'queued',
         projectKey: entry.projectKey,
@@ -329,21 +351,26 @@ function attachAttention(rows: HorizonStepRow[], board: RoadmapBoardLane | undef
   if (board.attention === 'paused' && board.parked) {
     const target = rows.find((row) => row.state === 'paused') ?? openRows[0]
     const reason = HORIZON_PARK_COPY[board.parked.reason] ?? 'This track is paused.'
+    // What Resume actually DOES, not a vague "continue": for a canceled or
+    // failed sprint the orchestrator starts a NEW sprint at the lane's frontier
+    // (roadmap-orchestrator.test.ts: "the lane resumes working the current
+    // plan") — the stopped sprint is never resurrected, so the copy must not
+    // imply it picks back up mid-flight.
+    const resumeHint = RESUME_HINT[board.parked.reason] ?? 'Resume to continue.'
     target.notice = {
       kind: 'paused',
-      message: board.parked.reason === 'paused' ? reason : `${reason} Resume to continue.`,
+      message: board.parked.reason === 'paused' ? reason : `${reason} ${resumeHint}`,
       ...(board.parked.detail ? { detail: board.parked.detail } : {}),
       actionLabel: 'Resume',
     }
     return
   }
   if (board.attention === 'approval') {
+    // Not a notice: waiting for the go-ahead is the healthy resting state of an
+    // ask-first horizon, and the warn card made it read as a defect. The row
+    // shows a quiet Ready chip; the loud "Start sprint" is the detail header's.
     const target = rows.find((row) => row.ref === board.pendingApprovalRef) ?? openRows[0]
-    target.notice = {
-      kind: 'approval',
-      message: 'This step is ready. The horizon asks before starting the next sprint.',
-      actionLabel: 'Start next',
-    }
+    target.ready = true
     return
   }
   const target =

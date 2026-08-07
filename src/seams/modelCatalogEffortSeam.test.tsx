@@ -381,8 +381,23 @@ async function main(): Promise<void> {
       onSelectReasoning: (cli, reasoning) => store().setSpecialistReasoningDefault(specialistId, cli, reasoning),
     })
 
-    assert.equal(view.pickers().length, 1, 'the selected model row carries exactly one picker')
-    await view.click(view.pickers()[0])
+    // One trigger per axis the runtime offers, all on the SELECTED row — never
+    // one per row. Opus 5 ships at two context windows and claude-code declares
+    // effort levels, so this surface carries two: context window, then
+    // reasoning (owner, 2026-08-06 — they were one composed "Auto · Standard"
+    // trigger, which made changing either a menu-open away from knowing which
+    // half you were reading).
+    const pickerLabels = view.pickers().map((picker) => picker.getAttribute('aria-label') ?? '')
+    assert.equal(view.pickers().length, 2, `the selected row carries one trigger per axis: ${pickerLabels}`)
+    assert.ok(
+      pickerLabels.some((label) => label.startsWith('Context window')),
+      `context window is its own control: ${pickerLabels}`,
+    )
+    const reasoningPicker = view
+      .pickers()
+      .find((picker) => (picker.getAttribute('aria-label') ?? '').startsWith('Reasoning'))
+    assert.ok(reasoningPicker, `reasoning is its own control: ${pickerLabels}`)
+    await view.click(reasoningPicker)
     const xhigh = view.menuItems().find((item) => item.textContent?.includes('Extra high'))
     await view.click(xhigh)
 
@@ -410,8 +425,12 @@ async function main(): Promise<void> {
     })
 
     // Round trip: the control reads back what it wrote rather than only writing.
+    // The REASONING trigger specifically — with the axes split, the first
+    // trigger on the row is the context window, which knows nothing about effort.
     view.render({})
-    const trigger = view.pickers()[0]
+    const trigger = view
+      .pickers()
+      .find((picker) => (picker.getAttribute('aria-label') ?? '').startsWith('Reasoning'))
     assert.ok(trigger, 'the picker is still rendered after the write')
     assert.match(trigger.textContent ?? '', /Extra high/, 'and it reads the stored level back')
     view.unmount()

@@ -8,7 +8,8 @@ import React, { useEffect, useState } from 'react'
 import type { BuiltinSkill } from '../../../../shared/electron-api'
 import type { McpCatalogServer, McpServerConfig } from '../../types/workspace'
 import { FOCUS_RING_CLASS, GhostButton, PrimaryButton, TruncatedText } from '../ui'
-import { mcpMonogram } from './mcpMonogram'
+import { ExtensionIcon } from '../ui/ExtensionIcon'
+import { mcpMonogram } from '../ui/mcpMonogram'
 
 export function mcpServerFromCatalog(server: McpCatalogServer): McpServerConfig {
   return {
@@ -49,51 +50,10 @@ function mcpIconSlug(id: string): string | null {
   return id
 }
 
-export function McpBrandIcon({
-  slug,
-  name,
-  icon,
-  size = 36,
-}: {
-  slug: string | null
-  name: string
-  icon?: string
-  size?: number
-}) {
-  const [failed, setFailed] = useState(false)
-  // Per-entry icon (data URI or https URL) wins; else the brand-color Simple
-  // Icons glyph (no tint segment — a baked tint is invisible on the opposite
-  // theme); else the monogram. All three sit on the same neutral chip so brand
-  // colors stay readable on every theme.
-  const src = failed ? null : icon || (slug ? `https://cdn.simpleicons.org/${slug}` : null)
-  return (
-    <span
-      aria-hidden
-      style={{ width: size, height: size }}
-      className="grid shrink-0 place-items-center rounded-lg border border-[color:var(--icon-chip-border)] bg-[color:var(--icon-chip-bg)]"
-    >
-      {src ? (
-        <img
-          src={src}
-          alt=""
-          width={Math.round(size * 0.62)}
-          height={Math.round(size * 0.62)}
-          loading="lazy"
-          decoding="async"
-          onError={() => setFailed(true)}
-          className="pointer-events-none select-none"
-        />
-      ) : (
-        <span
-          style={{ fontSize: Math.round(size * 0.42) }}
-          className="font-mono font-semibold text-[color:var(--icon-chip-ink)]"
-        >
-          {mcpMonogram(name)}
-        </span>
-      )}
-    </span>
-  )
-}
+// The chip itself now lives in `ui/ExtensionIcon`, so the surfaces that cannot
+// import the Settings component graph draw the same mark. This name stays for
+// the call sites that have always used it.
+export { ExtensionIcon as McpBrandIcon }
 
 export function McpInfoPanel({
   server,
@@ -152,7 +112,7 @@ export function McpInfoPanel({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={32} />
+          <ExtensionIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={32} />
           <div className="min-w-0">
             <TruncatedText
               as="h5"

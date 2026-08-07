@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import {
   HorizonPlanColumn,
   nextCursorRef,
+  sizeCountLabel,
+  sizeTooltip,
   trackSteeringItems,
   type HorizonSteering,
 } from './HorizonPlanColumn'
@@ -69,7 +71,6 @@ function render({
   boardLanes = [],
   selectedRef = null,
   cursorRef = null,
-  selectedHasRunStrip = false,
   showProjectTag = false,
   steering = STEERING,
   policyRoster,
@@ -80,7 +81,6 @@ function render({
   boardLanes?: RoadmapBoardLane[]
   selectedRef?: string | null
   cursorRef?: string | null
-  selectedHasRunStrip?: boolean
   showProjectTag?: boolean
   steering?: HorizonSteering
   policyRoster?: string
@@ -105,7 +105,6 @@ function render({
       lanes={lanes}
       selectedRef={selectedRef}
       cursorRef={cursorRef}
-      selectedHasRunStrip={selectedHasRunStrip}
       onSelect={() => undefined}
       showProjectTag={showProjectTag}
       rosters={rosters}
@@ -149,16 +148,19 @@ run('the head names the single track and carries Add work', () => {
   assert.match(markup, /aria-label="Track options"/)
 })
 
-run('a row is 26px and says title only — no id, no status word', () => {
+run('a row is two lines: id + clamped title, then the meta line — no status word', () => {
   const markup = render({
     lanes: SIMPLE,
     boardLanes: [
       { lane: 'Delivery', units: [unit({ state: 'up_next' })], doneCount: 0, total: 1, reason: 'eligible', attention: 'none' },
     ],
   })
-  assert.match(markup, /h-\[26px\]/, 'rows are one line at 26px')
+  const rowClasses = markup.match(/data-step-row="true"[^>]*class="([^"]*)"/)?.[1] ?? ''
+  assert.ok(!/h-\[26px\]/.test(rowClasses), 'the fixed one-line height is gone — it truncated every title to a stub')
   assert.match(markup, /Terminal links open a chooser/)
-  assert.doesNotMatch(markup, /MC-1899/, 'the id belongs to the detail, not every row')
+  assert.match(markup, /MC-1899/, 'the id leads the title — a step must be recognizable without clicking it')
+  assert.match(markup, /line-clamp-2/, 'the title clamps at two lines instead of truncating at one')
+  assert.match(markup, /aria-label="MC-1899: Terminal links open a chooser"/, 'identifier and title in one accessible name')
   assert.doesNotMatch(markup, />Up next</, 'the glyph already says the state')
   assert.doesNotMatch(markup, />Queued</)
 })
@@ -180,7 +182,10 @@ run('the team rests on every step, never hover-revealed', () => {
   assert.doesNotMatch(chipClass, /group-hover\/step:/, 'and nothing about it waits on a hover')
   assert.match(
     markup,
-    /aria-label="Team for Terminal links open a chooser: No roles \(inherited from this horizon\)"/,
+    // The built-in reads "Just an agent" (MC-2145): a label describing what the
+    // choice ISN'T was the owner's exact complaint. The stored name stays
+    // "No roles" for frontmatter back-compat; only the presentation changed.
+    /aria-label="Team for Terminal links open a chooser: Just an agent \(inherited from this horizon\)"/,
     'and it names both the team and where the choice came from',
   )
 })
@@ -261,14 +266,51 @@ run('selection is the neutral fill, with no left bar and no accent', () => {
   assert.match(markup, /aria-current="true"/)
 })
 
-run('an epic step carries its size in the trailing slot', () => {
+run('an epic step counts its children on the meta line, with the unit spelled out', () => {
   const lanes = lanesOf('## Delivery\n- backlog/epics/ext.md\n')
   const markup = render({ lanes })
   assert.match(markup, /Extensions: doors become installable modules/)
-  assert.match(markup, />1\/2</, 'one of two members has landed')
+  assert.match(markup, /1\/2 items/, 'one of two members has landed — never a bare number with no unit')
 })
 
-run('a parked track states its real reason and offers the one action, on the step', () => {
+run('the size count explains itself for the pointer', () => {
+  assert.equal(sizeTooltip('5'), '5 child items in this epic')
+  assert.equal(sizeTooltip('1'), '1 child item in this epic')
+  assert.equal(sizeTooltip('1/2'), '1 of 2 child items delivered')
+})
+
+run('the count carries its unit, singular included', () => {
+  assert.equal(sizeCountLabel('5'), '5 items')
+  assert.equal(sizeCountLabel('1'), '1 item')
+  assert.equal(sizeCountLabel('1/2'), '1/2 items')
+})
+
+// The MC-2148 UX pass: waiting for a go-ahead is a healthy state. The rail says
+// so with a quiet accent chip; the action itself lives on the detail header.
+run('a pending approval is a Ready chip in the accent — never a warn card with a buried button', () => {
+  const markup = render({
+    lanes: lanesOf('## Delivery\n- backlog/one.md\n'),
+    boardLanes: [
+      {
+        lane: 'Delivery',
+        units: [unit({ state: 'up_next' })],
+        doneCount: 0,
+        total: 1,
+        reason: 'eligible',
+        attention: 'approval',
+        pendingApprovalRef: 'backlog/one.md',
+      },
+    ],
+  })
+  assert.match(markup, />Ready</, 'the row says which step the horizon would start')
+  assert.match(markup, /accent-primary-soft-strong/, 'in the accent — this is good news')
+  assert.doesNotMatch(markup, /tone-warn/, 'never the warn tone')
+  assert.doesNotMatch(markup, /This step is ready/, 'no advisory card for a healthy state')
+  assert.doesNotMatch(markup, /Start next|Start sprint/, 'the start action is the detail header’s, not the rail’s')
+  assert.match(markup, /ready to start/, 'and the accessible name carries the state')
+})
+
+run('a parked track is a one-word Paused label — no prose and no button in the rail', () => {
   const lanes = lanesOf('## Delivery\n- backlog/one.md\n')
   const markup = render({
     lanes,
@@ -289,12 +331,17 @@ run('a parked track states its real reason and offers the one action, on the ste
       },
     ],
   })
-  assert.match(markup, /No sprint was created\. Resume to continue\./)
-  assert.match(markup, /the saved roster “opus” was not found/, 'the underlying reason, not a summary of it')
-  assert.match(markup, />Resume</)
+  assert.match(markup, />Paused</, 'the row flags the state at Ready-chip volume')
+  assert.match(markup, /, paused"/, 'and the accessible name carries it')
+  assert.doesNotMatch(
+    markup,
+    /No sprint was created/,
+    'the reason is the detail header’s, not sidebar prose — the rail states, the detail explains and acts',
+  )
+  assert.ok(!markup.includes('>Resume<'), 'and no action button in a navigation rail')
 })
 
-run('the selected step does not restate the merge action its detail already carries', () => {
+run('a waiting merge is a one-word label, never actioned from the rail', () => {
   const lanes = lanesOf('## Delivery\n- backlog/one.md\n')
   const boardLanes: RoadmapBoardLane[] = [
     {
@@ -307,17 +354,10 @@ run('the selected step does not restate the merge action its detail already carr
       activeItemRef: 'backlog/one.md',
     },
   ]
-  assert.match(render({ lanes, boardLanes }), /Approve &amp; merge/, 'an unselected step still shows it')
-  assert.doesNotMatch(
-    render({ lanes, boardLanes, selectedRef: 'backlog/one.md', selectedHasRunStrip: true }),
-    /Approve &amp; merge/,
-    'the selected step’s detail pane is the louder home for it',
-  )
-  assert.match(
-    render({ lanes, boardLanes, selectedRef: 'backlog/one.md', selectedHasRunStrip: false }),
-    /Approve &amp; merge/,
-    'but only when that pane actually mounted a run strip — otherwise this is the only way to merge',
-  )
+  const markup = render({ lanes, boardLanes })
+  assert.match(markup, />PR waiting</, 'the row flags the state')
+  assert.doesNotMatch(markup, /Its pull request is waiting on you/, 'without the prose')
+  assert.doesNotMatch(markup, /Approve &amp; merge/, 'the action is the detail pane’s, selected or not')
 })
 
 run('Delivered is a closed footer carrying steps and items', () => {
@@ -486,7 +526,7 @@ run('the delivered fold adds no second scrollport', () => {
   )
 })
 
-run('the steering notice is the kit advisory, not a hand-rolled card', () => {
+run('attention never renders card chrome or reason prose in the rail', () => {
   const markup = render({
     lanes: lanesOf('## Delivery\n- backlog/one.md\n'),
     boardLanes: [
@@ -506,16 +546,15 @@ run('the steering notice is the kit advisory, not a hand-rolled card', () => {
       },
     ],
   })
+  assert.ok(!markup.includes('border-l-2'), 'no bespoke left-bar card')
   assert.ok(
-    !markup.includes('border-l-2'),
-    'the bespoke left-bar warn card is gone — InlineNotice already carries this shape',
+    !markup.includes('tone-warn-soft'),
+    'no card at all: the InlineNotice advisory read as a broken-state error box at rail volume — attention is a one-word label with a warn dot',
   )
-  assert.match(
-    markup,
-    /the saved roster “opus” was not found/,
-    'and the reason still renders inline — MC-1909: a pause you cannot act on must say WHY where it can be seen, so the detail rides `hint`, never `detail` behind a "Show details" disclosure',
+  assert.ok(
+    !markup.includes('the saved roster “opus” was not found'),
+    'the underlying reason belongs to the detail header (MC-1909 is met there, one click from this label), not to sidebar prose',
   )
-  assert.match(markup, />Resume</, 'the one action survives the swap')
 })
 
 if (failures > 0) {

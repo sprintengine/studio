@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   buildSkillsPaneView,
   firstSentence,
+  isSprintEngineExtension,
   readsSkills,
   type CapabilitySnapshot,
   type SkillsPaneInput,
@@ -416,6 +417,16 @@ for (const reason of ['unreadable', 'malformed'] as const) {
   assert.equal(merged.servers.length, 1, 'the same MCP server is one workspace row')
   assert.deepEqual(merged.servers[0].pluginIds, ['claude-code', 'codex'])
   assert.deepEqual(merged.servers[0].configPaths, ['.mcp.json', '.codex/config.toml'])
+}
+
+// --- which extensions are ours to mark ---------------------------------------
+// The frond is an identity claim, so the rule anchors at the start of the id:
+// what we ship wears it, and what merely mentions us does not.
+for (const id of ['sprintengine-studio', 'sprintengine_workflow', 'sprint-engine', 'SprintEngine']) {
+  assert.equal(isSprintEngineExtension(id), true, `${id} is ours`)
+}
+for (const id of ['plan-sprint-engine', 'sprintengineering-tools', 'github', 'backlog']) {
+  assert.equal(isSprintEngineExtension(id), false, `${id} is not ours`)
 }
 
 console.log('skillsPaneModel: ok')

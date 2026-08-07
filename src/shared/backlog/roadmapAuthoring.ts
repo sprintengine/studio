@@ -178,6 +178,29 @@ export function setEntryRoster(
   })
 }
 
+// Set (or clear) one step's agent-runtime override (MC-2145), the same shape and
+// rules as setEntryRoster: a blank/undefined value REMOVES the key, so a cleared
+// override renders byte-identically to a step that never had one.
+export function setEntryAgent(
+  lanes: RoadmapLane[],
+  laneIndex: number,
+  entryIndex: number,
+  agent: string | undefined,
+): RoadmapLane[] {
+  const trimmed = agent?.trim()
+  return lanes.map((lane, index) => {
+    if (index !== laneIndex) return lane
+    return {
+      ...lane,
+      entries: lane.entries.map((entry, i) => {
+        if (i !== entryIndex) return entry
+        const { agent: _dropped, ...rest } = entry
+        return trimmed ? { ...rest, agent: trimmed } : rest
+      }),
+    }
+  })
+}
+
 // Whether a ref already appears anywhere in the draft (as an entry ref). Used to
 // keep a picker/tool from adding the same item to a track twice.
 export function draftContainsRef(lanes: ReadonlyArray<RoadmapLane>, ref: string): boolean {
@@ -340,6 +363,8 @@ function policyDiff(baseline: RoadmapPolicy, next: RoadmapPolicy): Partial<Roadm
   // A cleared roster must ride the diff as an explicitly-present undefined key —
   // setRoadmapPolicy keys the frontmatter REMOVAL off `'roster' in updates`.
   if (baseline.roster !== next.roster) diff.roster = next.roster
+  // Same key-presence rule for the horizon's default agent runtime (MC-2145).
+  if (baseline.agent !== next.agent) diff.agent = next.agent
   // Same key-presence rule as roster: a cleared permission preset must ride the
   // diff as a present-but-undefined key so setRoadmapPolicy REMOVES the scalar.
   if (baseline.permissions !== next.permissions) diff.permissions = next.permissions

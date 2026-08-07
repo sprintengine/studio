@@ -172,7 +172,7 @@ export default function SpawnPicker({
       ? [
           {
             key: 'conversation',
-            label: 'Conversation agents',
+            label: 'Chats',
             glyph: <ConversationProviderIcon className="size-icon-sm" />,
             rows: conversationRows.map(
               (row): PickerExtraRow => ({

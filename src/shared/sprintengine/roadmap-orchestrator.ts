@@ -19,6 +19,7 @@ import {
   epicMemberLookup,
   flattenLaneUnits,
   nextEligible,
+  resolveEntryAgent,
   resolveEntryRoster,
   roadmapItemKey,
   type EpicMemberLookup,
@@ -140,7 +141,13 @@ export type RoadmapOrchestratorAction =
   // are both in hand, through the single `resolveEntryRoster` — the driver
   // forwards it and never re-derives the fallback, so what the board shows and
   // what the run is staffed with cannot drift.
-  | { kind: 'start'; lane: string; itemRef: string; projectKey: ProjectKey; relativePath: string; roster?: string }
+  // `agent` is the step's RESOLVED runtime token (MC-2145, `cli` or
+  // `cli/model`): the step's own `@agent=` if it has one, else the roadmap's
+  // `agent:` policy, else undefined (the stock claude-code default). Resolved
+  // here through the single `resolveEntryAgent`, for the same no-drift reason
+  // as `roster`. Meaningful only for a plain-agents step — a roster carries its
+  // own per-role runtimes, and the driver ignores this when a roster is named.
+  | { kind: 'start'; lane: string; itemRef: string; projectKey: ProjectKey; relativePath: string; roster?: string; agent?: string }
   // Raise a "start next?" approval for `itemRef` (advance: approve). Idempotent:
   // emitted once, then the lane waits until the ref is approved.
   | { kind: 'queue_approval'; lane: string; itemRef: string }
@@ -412,6 +419,10 @@ function decideFromEligibility(args: LaneReconcileArgs): LaneDecision {
         // step reports it was staffed with (MC-1883) — the board would otherwise
         // lie about a run nobody can restaff.
         const roster = resolveEntryRoster(unit, policy)
+        // The agent runtime freezes at start for the same reason the roster
+        // does: a later `@agent=` edit must not change what a running step
+        // reports it launched on (MC-2145, the MC-1883 rule).
+        const agent = resolveEntryAgent(unit, policy)
         return {
           action: {
             kind: 'start',
@@ -420,6 +431,7 @@ function decideFromEligibility(args: LaneReconcileArgs): LaneDecision {
             projectKey: unit.projectKey,
             relativePath: unit.relativePath,
             ...(roster ? { roster } : {}),
+            ...(agent ? { agent } : {}),
           },
           runtime: {
             ...clearPending(runtime),

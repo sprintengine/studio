@@ -45,15 +45,23 @@ PRE_EPIC_WORKTREE_PATH = ".multi-code/sprintengine/alpha/worktree"
 PRE_EPIC_BRANCH_NAME = "sprintengine/alpha"
 PRE_EPIC_COMMIT_SUBJECT = "SprintEngine T1: Add the endpoint"
 PRE_EPIC_COMMIT_BODY = "Task: T1\nAgent: developer-1"
-PRE_EPIC_PULL_REQUEST_BODY = (
+# The body a default run produces. Its FORMAT is no longer the pre-epic one — the
+# delivery summary (checklist, per-item grouping, review notes) replaced the flat
+# list — but what this constant pins about a single-project run is unchanged: no
+# "Companion pull requests" section, and every delivered task listed, because the
+# per-repo filter must be a no-op when there is one repo.
+SINGLE_PROJECT_PULL_REQUEST_BODY = (
     "Sprint Engine run delivery for branch `sprintengine/alpha`.\n"
     "\n"
     "**Goal:** Ship the thing\n"
     "\n"
-    "## Tasks delivered (2)\n"
-    "- Add the endpoint _(developer)_\n"
+    "## Tasks\n"
+    "\n"
+    "**Delivered: 2 of 2**\n"
+    "\n"
+    "- [x] Add the endpoint _(developer)_\n"
     "  - Endpoint lands with tests.\n"
-    "- Wire the panel _(frontend)_\n"
+    "- [x] Wire the panel _(frontend)_\n"
     "  - Panel reads the endpoint."
 )
 
@@ -179,7 +187,7 @@ def test_a_task_naming_no_repo_still_commits_in_the_default_run(tmp_path) -> Non
 # --- the pull request a default run opens --------------------------------------
 
 
-def test_default_run_pull_request_body_is_byte_identical_to_pre_epic(tmp_path) -> None:
+def test_default_run_pull_request_body_carries_no_companion_section(tmp_path) -> None:
     # AC2, and the epic's named risk: the body must not grow an empty "Companion pull
     # requests" section, and the per-repo task filter must be a no-op — both delivered
     # tasks name no repo, so both must still be listed.
@@ -187,7 +195,7 @@ def test_default_run_pull_request_body_is_byte_identical_to_pre_epic(tmp_path) -
     # This pins the body the reviewer actually reads, transitively: T6's
     # `test_single_project_run_opens_exactly_one_unchanged_pull_request` asserts the
     # body handed to `gh pr create` IS this builder's output (and that pass two never
-    # runs), so pinning the builder to the pre-epic bytes pins what GitHub receives.
+    # runs), so pinning the builder byte-for-byte pins what GitHub receives.
     fixture = _default_run(tmp_path)
     state = read_state(fixture.state_path)
     state["sprintengine"]["goal"] = "Ship the thing"
@@ -195,7 +203,7 @@ def test_default_run_pull_request_body_is_byte_identical_to_pre_epic(tmp_path) -
 
     body = shell.build_run_pull_request_body(state, PRE_EPIC_BRANCH_NAME)
 
-    assert body == PRE_EPIC_PULL_REQUEST_BODY
+    assert body == SINGLE_PROJECT_PULL_REQUEST_BODY
     assert "Companion" not in body
 
 

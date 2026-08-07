@@ -586,9 +586,9 @@ def test_build_run_pull_request_body_lists_delivered_tasks(tmp_path) -> None:
     body = build_run_pull_request_body(state, "sprintengine/alpha")
     assert "**Goal:**" in body
     # T0 (the architect plan gate, closed by `_claim`) and T1 both reached `done`.
-    assert "Tasks delivered (2)" in body
-    assert "Feature" in body  # the task title
-    assert "_(developer)_" in body  # the task role
+    assert "**Delivered: 2 of 2**" in body
+    assert "- [x] Feature _(developer)_" in body  # the task title, ticked, with its role
+    assert "### Not delivered" not in body  # nothing outstanding to report
 
 
 def test_cleanup_merged_worktree_removes_clean_worktree(tmp_path) -> None:

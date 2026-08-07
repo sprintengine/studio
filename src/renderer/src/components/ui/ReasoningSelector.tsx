@@ -64,18 +64,37 @@ export function hasReasoningAxes(axes: ReasoningAxes): boolean {
   return offeredLevels(axes).length > 0 || offeredWindows(axes).length > 0
 }
 
+/** Whether the CLI declares effort levels this host can persist. */
+export function hasReasoningLevels(axes: ReasoningAxes): boolean {
+  return offeredLevels(axes).length > 0
+}
+
+/** Whether the selected model actually ships at more than one context window. */
+export function hasContextWindows(axes: ReasoningAxes): boolean {
+  return offeredWindows(axes).length > 0
+}
+
+/**
+ * Which axis a selector offers. `both` composes them into one control ("High ·
+ * 1M"); naming one splits them into side-by-side controls, which is what a host
+ * with room does — effort and context window are separate decisions, and a
+ * composed trigger makes the user open a menu to change either.
+ */
+export type ReasoningAxisScope = 'both' | 'reasoning' | 'context'
+
 // The trigger's label, exported so a host can name the control in a tooltip
 // without re-deriving the composition.
 export function reasoningTriggerLabel(
-  axes: ReasoningAxes & { reasoning?: string; model?: string },
+  axes: ReasoningAxes & { reasoning?: string; model?: string; scope?: ReasoningAxisScope },
 ): string {
+  const scope = axes.scope ?? 'both'
   const parts: string[] = []
-  const levels = offeredLevels(axes)
+  const levels = scope === 'context' ? [] : offeredLevels(axes)
   if (levels.length > 0) {
     const level = levels.find((entry) => entry.id === axes.reasoning)
     parts.push(level ? level.label ?? level.id : UNSET_LEVEL_LABEL)
   }
-  const windows = offeredWindows(axes)
+  const windows = scope === 'reasoning' ? [] : offeredWindows(axes)
   if (windows.length > 0) {
     parts.push((windows.find((entry) => entry.id === axes.model) ?? windows[0]!).label)
   }
@@ -92,8 +111,11 @@ export function ReasoningSelector({
   onSelectModel,
   disabled,
   quiet,
+  scope = 'both',
 }: Omit<ReasoningAxes, 'reasoningEnabled'> & {
   ariaLabel: string
+  /** Offer one axis, or compose both into a single trigger (the default). */
+  scope?: ReasoningAxisScope
   /** The stored level, or undefined for "the CLI's own default effort". */
   reasoning?: string
   /** Set only by hosts that persist a level; without it no Reasoning group is offered. */
@@ -115,15 +137,15 @@ export function ReasoningSelector({
     family,
     reasoningEnabled: Boolean(onSelectReasoning),
   }
-  const levels = offeredLevels(axes)
-  const variants = offeredWindows(axes)
+  const levels = scope === 'context' ? [] : offeredLevels(axes)
+  const variants = scope === 'reasoning' ? [] : offeredWindows(axes)
   if (levels.length === 0 && variants.length === 0) return null
 
   // Two groups is what earns the headings; one group is its own label and the
-  // menu's accessible name carries it.
+  // menu's accessible name carries it. A scoped selector is always one group.
   const grouped = levels.length > 0 && variants.length > 0
   const costliest = costliestReasoningLevel(levels)
-  const label = reasoningTriggerLabel({ ...axes, reasoning, model })
+  const label = reasoningTriggerLabel({ ...axes, reasoning, model, scope })
 
   const focusChecked = (surface: HTMLElement) => {
     surfaceRef.current = surface

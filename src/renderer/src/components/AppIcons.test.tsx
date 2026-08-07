@@ -10,7 +10,9 @@ import { WorkspaceTypeIcon, resolveEnabledWorkspaceType } from './AppIcons'
 const EXPECTED_ICON_PATH: Record<string, string> = {
   standard: 'M7.25 10L10 12.5L7.25 15',
   switchboard: 'M9 5.5V18.5M15 5.5V18.5',
-  sprintengine: 'M10.85 8.2L7.65 14.35',
+  // The frond's stem — SprintEngine's mode wears the product's own mark
+  // (`brand/SprintEngineFrond`), the same one the mobile app carries.
+  sprintengine: 'M 303.12,855.85',
   'guided-brief': 'M5 6.25C5 5.42',
 }
 

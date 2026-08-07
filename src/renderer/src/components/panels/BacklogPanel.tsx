@@ -2321,6 +2321,7 @@ export function BacklogDetail({
   onCloseMockupPreview,
   onPopOutMockup,
   headerExtra,
+  headerAction,
 }: {
   scan: BacklogScanResult | null
   loading: boolean
@@ -2378,6 +2379,10 @@ export function BacklogDetail({
   onPopOutMockup: () => void
   /** Host-supplied band rendered directly under the title (MC-1923). */
   headerExtra?: React.ReactNode
+  /** Host-supplied primary action, on the title's own line — the Horizon door's
+   *  "Start sprint". The one control loud enough to share the title row, so a
+   *  host offers at most one; everything quieter belongs in `headerExtra`. */
+  headerAction?: React.ReactNode
 }): JSX.Element {
   if (!folderPath) {
     return (
@@ -2569,7 +2574,14 @@ export function BacklogDetail({
           </Tooltip>
           {/* The title is the header's one clear priority: it takes the whole of
               the row that is left and still wraps to two lines, revealing the
-              full text in a tooltip when clamped. */}
+              full text in a tooltip when clamped. Its minted id leads it — the
+              id IS the item's name in every conversation about it, so it reads
+              with the title, not as metadata exiled to the far corner. */}
+          {selected.displayId ? (
+            <span className="mt-1 shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
+              {selected.displayId}
+            </span>
+          ) : null}
           <TruncatedText
             as="h3"
             multiline
@@ -2577,21 +2589,28 @@ export function BacklogDetail({
             placement="bottom"
             className="min-w-0 flex-1 line-clamp-2 text-heading font-semibold leading-snug text-[color:var(--text-strong)]"
           />
-          {/* Identity + time + the menu that acts on them, right-aligned on the
-              title's own line. An id is the item's identity, so it leads the
-              cluster. Not every item HAS one — the scan mints ids best-effort and
-              leaves an item untouched when allocation fails — so the file name
-              stands in rather than a header that says only "4m ago".
+          {/* The host's one loud action, on the title row it acts on (the
+              Horizon door's "Start sprint"). Before the identity cluster so the
+              quiet metadata stays the rightmost, least-competing thing. */}
+          {headerAction ? <div className="shrink-0">{headerAction}</div> : null}
+          {/* Time + the menu that acts on this item, right-aligned on the
+              title's own line. The id moved to lead the title; an item the scan
+              never minted one for (allocation is best-effort) keeps its file
+              name here, so the cluster never says only "4m ago".
 
               The status WORD stays gone (MC-1923): the glyph at the head of the
               row already says the state and carries it as an accessible name. The
               path stays out too — long, truncated, and not identity; it is
               readable from this menu ("Copy path") and from Reveal in Files. */}
           <div className="mt-0.5 flex shrink-0 items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
-            <span className="whitespace-nowrap font-mono tabular-nums text-[color:var(--text-subtle)]">
-              {selected.displayId ?? basename(selected.relativePath)}
-            </span>
-            <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+            {selected.displayId ? null : (
+              <>
+                <span className="whitespace-nowrap font-mono tabular-nums text-[color:var(--text-subtle)]">
+                  {basename(selected.relativePath)}
+                </span>
+                <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+              </>
+            )}
             <Tooltip content={modifiedAbsolute} placement="top" wrapperClassName="inline-flex">
               <span className="whitespace-nowrap tabular-nums">
                 {formatRelativeMsAgo(selected.modifiedAt, now) || 'unknown'}
