@@ -32,16 +32,26 @@ import type {
 
 export const SPRINT_CONNECTORS_ROW_LABEL = 'Connectors'
 
+// Named for the surfaces a user can actually reach: the door is "Extensions"
+// and its section is "MCP servers" (`ExtensionsGlobalSurface.tsx`). "Connectors"
+// is the app's noun for the family — the composer's "+ Connector" picker uses
+// it — but there is no surface by that name to send anyone to.
 export const SPRINT_CONNECTORS_TOOLTIP =
   'The MCP servers this sprint launches its agents with. The selection is shared with the whole app — '
-  + 'switching one on or off here switches it everywhere, exactly like a roster. Install and remove '
-  + 'connectors on the Connectors surface.'
+  + 'switching one on or off here switches it everywhere, exactly like a roster. Add and remove them '
+  + 'under MCP servers in Extensions.'
 
 /** Empty state inside the picker, not copy on the row. */
 export const SPRINT_CONNECTORS_EMPTY = 'No connectors installed yet'
 
-/** Shown when app settings have connectors but MCP sync is switched off. */
-export const SPRINT_CONNECTORS_SYNC_OFF = 'Connector sync is off in Settings'
+/**
+ * Shown when app settings have connectors but MCP sync is switched off. It
+ * deliberately names no control: nothing in the app writes `syncEnabled: false`
+ * today (`setMcpSyncEnabled` has no caller, and every upsert sets it true), so
+ * this state only arrives from persisted settings — pointing at a toggle that
+ * does not exist would be worse than stating the consequence.
+ */
+export const SPRINT_CONNECTORS_SYNC_OFF = 'Connector sync is off — no connector reaches an agent'
 
 // The prefix `persistAdvancedSetup` already uses, kept identical so the same
 // failure reads the same way whichever surface created the workspace.

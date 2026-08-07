@@ -6,10 +6,10 @@
 // owner of the form state and the one save path. Nothing here reads or writes
 // an automation; every control hands its choice back through `onPatchConfig`.
 
-import { CliModelPickerButton, Popover, Select, type SelectItem } from '../../ui'
+import { CliModelPickerButton, MenuItem, Popover, Select, type SelectItem } from '../../ui'
+import { MENU_LIST_CLASS } from '../../ui/menuClasses'
 import type { AgentCliCatalogOption } from '../../workspace/newWorkspace/cliRuntimeOptions'
-import AgentComposerPopover from '../../workspace/agentComposer/AgentComposerPopover'
-import type { AgentComposerSelection } from '../../workspace/agentComposer/AgentComposer'
+import { useSpecialistRoster } from '../../workspace/agentComposer/useAgentComposer'
 import { SpecialistActionIcon } from '../../AppIcons'
 import type { SpecialistAction } from '../../../specialists/specialistActions'
 import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
@@ -29,17 +29,18 @@ const PERMISSION_PRESET_ITEMS: SelectItem<SprintEngineCliPermissionPreset>[] = [
 // reads the CLI the launch would actually fall back to — because an enabled
 // automation showing an empty picker reads broken.
 //
-// The block reuses the shared AgentComposerPopover (select mode) for the
-// specialist + permission preset, and CliModelPickerButton for the runtime — the
-// same components every spawn surface uses — so the picker never drifts. The
-// choice is persisted into the action config so a scheduled run reproduces it.
+// Agent is a ROLE here, not a spawn: the automation picks which soul runs it,
+// and the runtime beside it is CliModelPickerButton — the same control every
+// other surface binds a runtime with. The role list is `useSpecialistRoster`,
+// the one the spawn picker's Role control reads, so a disabled pack disappears
+// from both at once. The choice is persisted into the action config so a
+// scheduled run reproduces it.
 export function AgentModelFields({
   show,
   config,
   cliCatalog,
   selectedCli,
   selectedSpecialist,
-  selectedPermissionPreset,
   pickerOpen,
   onPickerOpenChange,
   onPatchConfig,
@@ -50,7 +51,6 @@ export function AgentModelFields({
   cliCatalog: AgentCliCatalogOption[]
   selectedCli: AgentCli
   selectedSpecialist: SpecialistAction | null
-  selectedPermissionPreset: SprintEngineCliPermissionPreset
   pickerOpen: boolean
   onPickerOpenChange: (open: boolean) => void
   onPatchConfig: (patch: Record<string, string>) => void
@@ -104,26 +104,12 @@ export function AgentModelFields({
             </button>
           )}
         >
-          <AgentComposerPopover
-            conversationAvailable={false}
-            initialSelection={
-              (config.specialistId
-                ? { kind: 'specialist', specialistId: config.specialistId as SpecialistActionId }
-                : { kind: 'general' }) as AgentComposerSelection
-            }
-            action={{
-              kind: 'select',
-              selectedSpecialistId: (config.specialistId as SpecialistActionId) || null,
-              cli: selectedCli,
-              model: config.cliModel || undefined,
-              onSelectSpecialist: (id, cli, model) =>
-                onPatchConfig({ specialistId: id, cli, cliModel: model ?? '' }),
-              onSelectGeneral: (cli, model) =>
-                onPatchConfig({ specialistId: '', cli, cliModel: model ?? '' }),
-              permissionPreset: selectedPermissionPreset,
-              onChangePermissionPreset: (preset) => onPatchConfig({ permissionPreset: preset }),
+          <RoleMenu
+            selectedSpecialistId={(config.specialistId as SpecialistActionId) || null}
+            onSelect={(id) => {
+              onPatchConfig({ specialistId: id ?? '' })
+              onPickerOpenChange(false)
             }}
-            onClose={() => onPickerOpenChange(false)}
           />
         </Popover>
       </div>
@@ -145,6 +131,41 @@ export function AgentModelFields({
           />
         </div>
       </div>
+    </div>
+  )
+}
+
+// The installed roles, plus the roleless run the automation defaults to. The
+// runtime is NOT set here — the Model field beside it owns that, so picking a
+// role can never quietly rebind which CLI the scheduled run launches.
+function RoleMenu({
+  selectedSpecialistId,
+  onSelect,
+}: {
+  selectedSpecialistId: SpecialistActionId | null
+  onSelect: (id: SpecialistActionId | null) => void
+}): JSX.Element {
+  const roles = useSpecialistRoster()
+  return (
+    <div className={`${MENU_LIST_CLASS} min-w-[220px]`}>
+      <MenuItem
+        selection="one-of"
+        checked={selectedSpecialistId === null}
+        onClick={() => onSelect(null)}
+      >
+        No role
+      </MenuItem>
+      {roles.map((role) => (
+        <MenuItem
+          key={role.id}
+          selection="one-of"
+          checked={role.id === selectedSpecialistId}
+          icon={<SpecialistActionIcon icon={role.icon} className="h-4 w-4 shrink-0" />}
+          onClick={() => onSelect(role.id)}
+        >
+          {role.shortLabel}
+        </MenuItem>
+      ))}
     </div>
   )
 }

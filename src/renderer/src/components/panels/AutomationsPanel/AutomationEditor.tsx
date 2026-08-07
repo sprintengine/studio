@@ -568,7 +568,6 @@ export function AutomationEditor({
                 cliCatalog={cliCatalog}
                 selectedCli={selectedCli}
                 selectedSpecialist={selectedSpecialist}
-                selectedPermissionPreset={selectedPermissionPreset}
                 pickerOpen={agentPickerOpen}
                 onPickerOpenChange={setAgentPickerOpen}
                 onPatchConfig={patchConfig}

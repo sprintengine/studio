@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import {
+  buildConversationProviderRows,
   buildConversationSpawnOptions,
   conversationAgentRuntimePatch,
   resolveDefaultConversationOption,
@@ -256,5 +257,55 @@ assert.equal(patch.cliStartRequested, false, 'no terminal start is requested')
 assert.equal('cliSessionId' in patch && patch.cliSessionId, undefined, 'no terminal session id is assigned')
 assert.equal(patch.cli, undefined, 'no CLI is selected for a conversation agent')
 assert.equal(patch.cliStartupPrompt, undefined, 'no startup prompt is queued')
+
+// ── The spawn picker's Conversation rail entry lists PROVIDERS (MC-2122) ─────
+// One row per provider that can start a session, opening on the remembered
+// model when that model is one of its own.
+const multiProvider = buildConversationSpawnOptions({
+  ok: true,
+  providers: [
+    provider({
+      id: 'anthropic',
+      displayName: 'Claude',
+      providerType: 'agent-harness',
+      models: [
+        { id: 'claude-sonnet-5', displayName: 'Sonnet 5' },
+        { id: 'claude-opus-5', displayName: 'Opus 5' },
+      ],
+    }),
+    provider({ models: [{ id: 'gpt-4o', displayName: 'GPT-4o' }] }),
+    provider({ id: 'broken', displayName: 'Broken', unavailable: 'no key', models: [{ id: 'x', displayName: 'X' }] }),
+  ],
+})
+
+assert.deepEqual(
+  buildConversationProviderRows(multiProvider, null),
+  [
+    { providerId: 'anthropic', providerLabel: 'Claude', modelId: 'claude-sonnet-5', modelLabel: 'Sonnet 5' },
+    {
+      providerId: 'openai-compatible',
+      providerLabel: 'OpenAI Compatible API',
+      modelId: 'gpt-4o',
+      modelLabel: 'GPT-4o',
+    },
+  ],
+  'one row per available provider, on its first model; an unavailable provider is not a way in',
+)
+
+assert.deepEqual(
+  buildConversationProviderRows(multiProvider, { providerId: 'anthropic', modelId: 'claude-opus-5' }),
+  [
+    { providerId: 'anthropic', providerLabel: 'Claude', modelId: 'claude-opus-5', modelLabel: 'Opus 5' },
+    {
+      providerId: 'openai-compatible',
+      providerLabel: 'OpenAI Compatible API',
+      modelId: 'gpt-4o',
+      modelLabel: 'GPT-4o',
+    },
+  ],
+  'the remembered model opens its own provider and never leaks onto another',
+)
+
+assert.deepEqual(buildConversationProviderRows([], null), [], 'no providers, no rows')
 
 console.log('conversationSpawnOptions tests passed')

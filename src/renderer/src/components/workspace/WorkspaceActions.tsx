@@ -22,8 +22,9 @@ import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import CliIcon from '../CliIcon'
 import { AGENT_SPAWN_PERMISSION_OPTIONS, TerminalSessionIcon } from './agentComposer/agentSpawnShared'
-import AgentComposerPopover from './agentComposer/AgentComposerPopover'
-import { type AgentComposerConfirm, type AgentComposerSelection } from './agentComposer/AgentComposer'
+import SpawnPicker from './agentComposer/SpawnPicker'
+import { type AgentComposerConfirm } from './agentComposer/AgentComposer'
+import type { ConversationProviderRow } from './conversationSpawnOptions'
 import {
   GENERAL_AGENT_ENGINE_KEY,
   getSpecialistAction,
@@ -443,12 +444,10 @@ export type WorkspaceActionsProps = {
   // half spawns General with the trigger CLI instead of a specialist.
   addNewGeneralAgent: (cli: AgentCli) => void | Promise<void>
   standardSpawnIsGeneral: boolean
-  // The dropdown renders the shared AgentComposerPopover. `conversationAvailable`
-  // gates its Conversation row; `composerInitialSelection` preselects the
-  // remembered agent; `runComposerSpawn` maps a confirm to the real spawn into
-  // the active workspace.
-  conversationSpawnAvailable: boolean
-  composerInitialSelection: AgentComposerSelection
+  // The dropdown renders the shared spawn picker. `conversationSpawnRows` fills
+  // its Conversation rail entry (empty hides it); `runComposerSpawn` maps a
+  // confirm to the real spawn into the active workspace.
+  conversationSpawnRows: ConversationProviderRow[]
   runComposerSpawn: (confirm: AgentComposerConfirm) => void
 }
 
@@ -517,8 +516,7 @@ export function WorkspaceActions({
   addNewSpecialist,
   addNewGeneralAgent,
   standardSpawnIsGeneral,
-  conversationSpawnAvailable,
-  composerInitialSelection,
+  conversationSpawnRows,
   runComposerSpawn,
 }: WorkspaceActionsProps) {
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
@@ -880,17 +878,13 @@ export function WorkspaceActions({
                   </Tooltip>
                 )}
               >
-                <AgentComposerPopover
-                  conversationAvailable={conversationSpawnAvailable}
-                  initialSelection={composerInitialSelection}
-                  action={{
-                    kind: 'spawn',
-                    onSpawn: runComposerSpawn,
-                    permissionPreset: agentSpawnPermissionPreset,
-                    onChangePermissionPreset: setAgentSpawnPermissionPreset,
-                    debugMode: agentSpawnDebugMode,
-                    onChangeDebugMode: setAgentSpawnDebugMode,
-                  }}
+                <SpawnPicker
+                  conversationRows={conversationSpawnRows}
+                  onSpawn={runComposerSpawn}
+                  permissionPreset={agentSpawnPermissionPreset}
+                  onChangePermissionPreset={setAgentSpawnPermissionPreset}
+                  debugMode={agentSpawnDebugMode}
+                  onChangeDebugMode={setAgentSpawnDebugMode}
                   onClose={() => setSpecialistMenuOpen(false)}
                 />
               </Popover>

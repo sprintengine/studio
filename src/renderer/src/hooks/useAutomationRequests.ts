@@ -21,6 +21,7 @@ import {
   DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
   DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
   NO_ROLES_ROSTER_ID,
+  activeSprintEngineRoleIds,
   findSavedSprintEngineRoster,
   isNoRolesRosterRef,
   resolveInitialSprintEngineRoster,
@@ -40,11 +41,18 @@ import { CLOSED_EPIC_CHILD_STATUSES, isBacklogEpicPath } from '../utils/backlogE
 import { buildBacklogSelectionSourcePlan } from '../components/backlog/backlogSelectionSourcePlan'
 import { buildSprintEngineRunLink } from '../utils/sprintengineBacklogLinks'
 import type {
+  SprintEngineRoleCounts,
+  SprintEngineRoleModelOverrides,
+  SprintEngineRoleReasoningOverrides,
   SprintEngineSourceBundleItem,
   SprintEngineSourcePlanKind,
 } from '../types/workspace'
 import { normalizeCliPermissionPreset } from '../store/slices/settingsSlice'
-import { sprintEngineCoordinatorSeatForRoleCounts, sprintEngineRoleKey } from '../utils/sprintengine'
+import {
+  SPRINT_ENGINE_ROLELESS_KEY,
+  sprintEngineCoordinatorSeatForRoleCounts,
+  sprintEngineRoleKey,
+} from '../utils/sprintengine'
 import {
   sprintEngineAutomationInitialStateForMode,
   sprintEngineAutomationModeForRunOptions,
@@ -231,6 +239,97 @@ function resolveRequestedRoster(
   }
 }
 
+// The run's execution runtime as the caller asked for it (MC-2120), resolved
+// against the roster that will actually staff the run. Three maps out, exactly
+// the ones `buildSprintEngineRoleRuntimes` unions into run.yaml `roleRuntimes`:
+//
+//   `runtime`  → the ROLELESS seat, and the fallback for every staffed role the
+//                per-role maps do not name. A roleless run has no role ids at
+//                all, so without this its one seat is unpinnable — the gap this
+//                exists to close.
+//   `roleClis` / `roleModels` / `roleEfforts` → per role, winning over `runtime`.
+//
+// A role id neither staffed nor the roleless seat is a LOUD failure, matching
+// the unknown-`rosterName` precedent: a typo'd role that silently did nothing
+// would launch a run on models the caller never chose and never be told.
+type RuntimeResolution =
+  | {
+      ok: true
+      roleCliDefaults: ReturnType<typeof resolveInitialSprintEngineRoster>['roleCliDefaults']
+      roleModelOverrides: SprintEngineRoleModelOverrides
+      roleReasoningOverrides: SprintEngineRoleReasoningOverrides
+    }
+  | { ok: false; response: AutomationRendererResponse }
+
+function resolveRequestedRuntime(
+  request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>,
+  roster: ReturnType<typeof resolveInitialSprintEngineRoster>,
+  launchRoleCounts: SprintEngineRoleCounts
+): RuntimeResolution {
+  const roleCliDefaults = { ...roster.roleCliDefaults }
+  const roleModelOverrides: SprintEngineRoleModelOverrides = { ...roster.roleModelOverrides }
+  const roleReasoningOverrides: SprintEngineRoleReasoningOverrides = {}
+
+  // Staffed roles, plus the roleless seat when nothing is staffed — the two
+  // shapes a run can take, and the only keys a caller may address.
+  const staffed = activeSprintEngineRoleIds(launchRoleCounts).map((role) => String(role))
+  const addressable = staffed.length > 0 ? staffed : [SPRINT_ENGINE_ROLELESS_KEY]
+
+  for (const [field, map] of [
+    ['roleClis', request.roleClis],
+    ['roleModels', request.roleModels],
+    ['roleEfforts', request.roleEfforts],
+  ] as const) {
+    for (const role of Object.keys(map ?? {})) {
+      if (addressable.includes(role)) continue
+      return {
+        ok: false,
+        response: {
+          ok: false,
+          code: 'sprint_unknown_role',
+          message: staffed.length > 0
+            ? `"${field}" names role "${role}", which this run does not staff. Staffed roles: ${staffed.join(', ')}.`
+            : `"${field}" names role "${role}", but this run staffs no roles. Use "runtime" to pin its agents' model and effort.`,
+        },
+      }
+    }
+  }
+
+  // The run-level runtime first, so a per-role pick below overrides it. It
+  // reaches the roleless seat AND every staffed role: an explicit request field
+  // is a more specific intent than whatever a saved roster stored.
+  for (const role of addressable) {
+    if (request.runtime?.cli) roleCliDefaults[role] = request.runtime.cli
+    if (request.runtime?.model) roleModelOverrides[role] = request.runtime.model
+    if (request.runtime?.effort) roleReasoningOverrides[role] = request.runtime.effort
+  }
+  // A null CLI means "no per-role pick", which is the run-level runtime (or the
+  // role's stock default) — never a role recorded with no CLI at all, which
+  // hard-fails the roster runner at spawn.
+  for (const [role, cli] of Object.entries(request.roleClis ?? {})) {
+    if (cli) roleCliDefaults[role] = cli
+  }
+  for (const [role, model] of Object.entries(request.roleModels ?? {})) {
+    roleModelOverrides[role] = model
+  }
+  for (const [role, effort] of Object.entries(request.roleEfforts ?? {})) {
+    roleReasoningOverrides[role] = effort
+  }
+  return { ok: true, roleCliDefaults, roleModelOverrides, roleReasoningOverrides }
+}
+
+// The run's agent ceiling: the caller's value when it sent one (the dialog's
+// *Max concurrent agents*), else the default every other creation path takes.
+// Clamping is the controller's job — it holds the one clamp both wizard and
+// automation launches go through.
+function requestedMaxConcurrentAgents(
+  request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>
+): number {
+  return typeof request.maxConcurrentAgents === 'number' && Number.isFinite(request.maxConcurrentAgents)
+    ? request.maxConcurrentAgents
+    : SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS
+}
+
 async function createSprint(
   request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>
 ): Promise<AutomationRendererResponse> {
@@ -255,6 +354,8 @@ async function createSprint(
   // created goal-sourced would silently staff the specialist defaults and seat
   // an architect, which is the exact thing "no roles" excludes.
   const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.selectedRosterId, roster.roleCounts)
+  const runtime = resolveRequestedRuntime(request, roster, launchRoleCounts)
+  if (!runtime.ok) return runtime.response
 
   let args: OnCreateArgs
   try {
@@ -265,9 +366,10 @@ async function createSprint(
         goal: request.goal,
         roleCounts: launchRoleCounts,
         visibleRoleCounts: launchRoleCounts,
-        maxParallelAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
-        roleCliDefaults: roster.roleCliDefaults,
-        roleModelOverrides: roster.roleModelOverrides,
+        maxParallelAgents: requestedMaxConcurrentAgents(request),
+        roleCliDefaults: runtime.roleCliDefaults,
+        roleModelOverrides: runtime.roleModelOverrides,
+        roleReasoningOverrides: runtime.roleReasoningOverrides,
         // Only a non-manual run carries a start-at-launch intent; a manual run
         // deliberately sits idle until a person opens it. The coordinator seat
         // follows the staffed counts rather than being hardcoded to `architect`:
@@ -473,6 +575,8 @@ async function createPlanSourcedSprint(
   // max-concurrency setting — NOT the specialist counts the resolver may still
   // be carrying as the wizard's seeded rows.
   const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.selectedRosterId, roster.roleCounts)
+  const runtime = resolveRequestedRuntime(request, roster, launchRoleCounts)
+  if (!runtime.ok) return runtime.response
 
   // The multi-selection resolves every ref through one backlog scan; failure is
   // loud (MC-2077). The single-source path keeps its direct file read.
@@ -554,8 +658,9 @@ async function createPlanSourcedSprint(
       // restating it here.
       ...(request.intake ? { intake: request.intake } : {}),
       roleCounts: launchRoleCounts,
-      roleCliDefaults: roster.roleCliDefaults,
-      roleModelOverrides: roster.roleModelOverrides,
+      roleCliDefaults: runtime.roleCliDefaults,
+      roleModelOverrides: runtime.roleModelOverrides,
+      roleReasoningOverrides: runtime.roleReasoningOverrides,
       // `sprintEngineCoordinatorSeatForRoleCounts` already answers the seat from
       // the counts, so pool mode needs no special case here once the counts are
       // right — pinned by a test rather than assumed.
@@ -572,7 +677,7 @@ async function createPlanSourcedSprint(
         //
         // Spawn-time only (MC-1808): this is the run's one chance to be bypass.
         cliPermissionPreset: normalizeCliPermissionPreset(request.permissionPreset ?? 'bypass_all'),
-        maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
+        maxConcurrentAgents: requestedMaxConcurrentAgents(request),
       },
       workspaceWindowId: 'primary',
       useWorktrees: request.useWorktrees === true,

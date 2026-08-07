@@ -73,8 +73,8 @@ import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
-import { type AgentComposerConfirm, type AgentComposerConnector, type AgentComposerSelection } from './agentComposer/AgentComposer'
-import AgentComposerPopover from './agentComposer/AgentComposerPopover'
+import { type AgentComposerConfirm, type AgentComposerConnector } from './agentComposer/AgentComposer'
+import SpawnPicker from './agentComposer/SpawnPicker'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
 import SprintEnginePullRequestPollSupervisor from './SprintEnginePullRequestPollSupervisor'
 // Always-on observer of background automation run events (raises run
@@ -138,6 +138,7 @@ import {
   type WorkspaceNavigationHistory,
 } from '../../utils/workspaceNavigationHistory'
 import {
+  buildConversationProviderRows,
   buildConversationSpawnOptions,
   conversationAgentRuntimePatch,
   resolveDefaultConversationOption,
@@ -1073,6 +1074,16 @@ export default function WorkspaceManager() {
     [conversationSpawnOptions, rememberedConversationModel, conversationDynamicProviderIds],
   )
   const conversationSpawnAvailable = conversationSpawnEnabled && conversationDefaultOption !== null
+  // The spawn picker's Conversation rail entry lists PROVIDERS, one row each
+  // (MC-2122); the model stays switchable in the chat composer until the first
+  // message, so a row only needs the pair it opens on.
+  const conversationSpawnRows = useMemo(
+    () =>
+      conversationSpawnEnabled
+        ? buildConversationProviderRows(conversationSpawnOptions, rememberedConversationModel)
+        : [],
+    [conversationSpawnEnabled, conversationSpawnOptions, rememberedConversationModel],
+  )
 
   // Create a fresh single-agent "solo chat" workspace. `folderPath === undefined`
   // inherits the active workspace's folder (the plain New chat default); an
@@ -2263,7 +2274,12 @@ export default function WorkspaceManager() {
     requestedName = '',
     selectedCli?: AgentCli,
     skill?: WorkspaceSkill,
-    worktree?: { name: string }
+    worktree?: { name: string },
+    // The model this spawn must launch, when the caller picked one in the same
+    // event that persisted it (the spawn picker clicks a model row). Reading it
+    // back off `specialistModelDefaults` here would read the value from before
+    // that write; `undefined` keeps the remembered default.
+    selectedModel?: string | null
   ) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
@@ -2297,7 +2313,10 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: cliForSpawn,
-      cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
+      cliModel:
+        selectedModel !== undefined
+          ? selectedModel ?? undefined
+          : resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
       cliReasoning: resolveCliReasoning(cliForSpawn, specialistModelDefaults[specialist.id]),
       ...(execution ? { execution } : {}),
       cliPermissionPreset: agentSpawnPermissionPreset,
@@ -2316,7 +2335,14 @@ export default function WorkspaceManager() {
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
-  const addNewCliAgent = async (cli: AgentCli, skill?: WorkspaceSkill, worktree?: { name: string }) => {
+  const addNewCliAgent = async (
+    cli: AgentCli,
+    skill?: WorkspaceSkill,
+    worktree?: { name: string },
+    // See addNewSpecialist: the model the caller just picked, when it cannot be
+    // read back from the defaults yet.
+    selectedModel?: string | null
+  ) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
@@ -2346,7 +2372,10 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: spawnCli,
-      cliModel: resolveSurfaceModel(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
+      cliModel:
+        selectedModel !== undefined
+          ? selectedModel ?? undefined
+          : resolveSurfaceModel(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
       cliReasoning: resolveCliReasoning(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
       ...(execution ? { execution } : {}),
       cliPermissionPreset: agentSpawnPermissionPreset,
@@ -2406,14 +2435,13 @@ export default function WorkspaceManager() {
 
   // Single spawn-menu entry: open a conversation agent with the resolved default
   // model. No-op when no provider/model is available (entry stays hidden).
-  const spawnConversationAgent = (skill?: WorkspaceSkill) => {
-    if (!conversationDefaultOption) return
-    addNewConversationAgent(
-      conversationDefaultOption.providerId,
-      conversationDefaultOption.modelId,
-      conversationDefaultOption.modelLabel,
-      skill,
-    )
+  const spawnConversationAgent = (
+    skill?: WorkspaceSkill,
+    provider?: { providerId: string; modelId: string; modelLabel: string },
+  ) => {
+    const target = provider ?? conversationDefaultOption
+    if (!target) return
+    addNewConversationAgent(target.providerId, target.modelId, target.modelLabel, skill)
   }
 
   const addNewTerminal = () => {
@@ -3038,22 +3066,16 @@ export default function WorkspaceManager() {
     selectedCli?: AgentCli,
     skill?: WorkspaceSkill,
     worktree?: { name: string },
+    selectedModel?: string | null,
   ) => {
     setLastSelectedSpecialist(specialistId)
     setLastSpawnWasGeneral(false)
     setSpecialistMenuOpen(false)
-    void addNewSpecialist(specialistId, '', selectedCli, skill, worktree)
+    void addNewSpecialist(specialistId, '', selectedCli, skill, worktree, selectedModel)
   }
 
-  // The agent a picker opens preselected — the remembered specialist (standard
-  // workspaces). The composer falls back to its first roster row if this is
-  // absent.
-  const composerInitialSelection: AgentComposerSelection = lastSpawnWasGeneral
-    ? { kind: 'general' }
-    : { kind: 'specialist', specialistId: lastSelectedSpecialist }
-
   // Map a composer confirm to the real spawn into the active workspace.
-  // Shared by every AgentComposerPopover host (top bar, launcher); fresh chats
+  // Shared by every spawn-picker host (top bar, launcher); fresh chats
   // are the New Chat panel's job.
   const runComposerSpawn = (confirm: AgentComposerConfirm) => {
     switch (confirm.kind) {
@@ -3062,32 +3084,28 @@ export default function WorkspaceManager() {
         break
       case 'general':
         setLastSpawnWasGeneral(true)
-        void addNewCliAgent(confirm.cli, confirm.skill, confirm.worktree)
+        void addNewCliAgent(confirm.cli, confirm.skill, confirm.worktree, confirm.model)
         break
       case 'conversation':
-        spawnConversationAgent(confirm.skill)
+        spawnConversationAgent(confirm.skill, confirm.provider)
         break
       case 'specialist':
-        handleSelectSpecialist(confirm.specialistId, confirm.cli, confirm.skill, confirm.worktree)
+        handleSelectSpecialist(confirm.specialistId, confirm.cli, confirm.skill, confirm.worktree, confirm.model)
         break
     }
   }
 
-  // The empty-workspace launcher's "Specialist agent" row renders the shared
-  // AgentComposerPopover anchored to the row. It spawns into the launcher's own
-  // (active) workspace — a single `here` destination, no new-chat toggle.
+  // The empty-workspace launcher's agent row renders the shared spawn picker
+  // anchored to the row. It spawns into the launcher's own (active) workspace —
+  // a single `here` destination, no new-chat toggle.
   const renderSpecialistPicker = (close: () => void) => (
-    <AgentComposerPopover
-      conversationAvailable={conversationSpawnAvailable}
-      initialSelection={composerInitialSelection}
-      action={{
-        kind: 'spawn',
-        onSpawn: runComposerSpawn,
-        permissionPreset: agentSpawnPermissionPreset,
-        onChangePermissionPreset: setAgentSpawnPermissionPreset,
-        debugMode: agentSpawnDebugMode,
-        onChangeDebugMode: setAgentSpawnDebugMode,
-      }}
+    <SpawnPicker
+      conversationRows={conversationSpawnAvailable ? conversationSpawnRows : []}
+      onSpawn={runComposerSpawn}
+      permissionPreset={agentSpawnPermissionPreset}
+      onChangePermissionPreset={setAgentSpawnPermissionPreset}
+      debugMode={agentSpawnDebugMode}
+      onChangeDebugMode={setAgentSpawnDebugMode}
       onClose={close}
     />
   )
@@ -3455,8 +3473,7 @@ export default function WorkspaceManager() {
             addNewSpecialist={(cli) => addNewSpecialist(lastSelectedSpecialist, '', cli)}
             addNewGeneralAgent={(cli) => void addNewCliAgent(cli)}
             standardSpawnIsGeneral={lastSpawnWasGeneral}
-            conversationSpawnAvailable={conversationSpawnAvailable}
-            composerInitialSelection={composerInitialSelection}
+            conversationSpawnRows={conversationSpawnAvailable ? conversationSpawnRows : []}
             runComposerSpawn={runComposerSpawn}
           />
         }
