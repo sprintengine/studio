@@ -26,6 +26,7 @@ import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerMarketplacePluginIpc } from './ipc/marketplace-plugin-ipc'
 import { registerMarketplaceRegistryIpc } from './ipc/marketplace-registry-ipc'
 import { registerModuleEnablementIpc, type ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
+import { registerModuleRegistryIpc } from './ipc/module-registry-ipc'
 import { registerPluginIpc } from './ipc/plugins-ipc'
 import { registerSkillsIpc } from './ipc/skills-ipc'
 import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
@@ -125,6 +126,7 @@ export function registerCoreIpc(
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain, { applyLive: options.applyModuleEnablementLive })
+  registerModuleRegistryIpc(ipcMain, services.moduleRegistryMirror)
   registerAppearanceIpc(ipcMain)
   registerMarketplaceRegistryIpc(ipcMain)
   registerMarketplacePluginIpc(ipcMain, services)

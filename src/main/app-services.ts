@@ -9,6 +9,12 @@ import { createAutomationTools } from './automation/automation-tools'
 import { createStudioGatewayTools } from './automation/studio-gateway-tools'
 import type { McpToolContribution } from './module-host/main-host'
 import { createRendererAutomationDelegate } from './automation/renderer-delegate'
+import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
+import { toThirdPartyModuleView } from './ipc/third-party-module-ipc'
+import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
+import { createModuleRegistryMirror } from './modules/registry-mirror'
+import { readTrustedModulesSync } from './modules/trust-store'
+import { defaultUserModuleRoot, discoverUserModules } from './modules/user-module-registry'
 import { AutomationsStore } from './automations/store'
 import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
 import type { RoadmapAppFrontDoor } from './roadmap-orchestrator'
@@ -251,6 +257,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // reads empty — and because the tool set is evaluated per request, module
   // tools appear on the very next call once modules are up.
   let resolveModuleMcpTools: () => ReadonlyArray<McpToolContribution> = () => []
+  // The renderer's module registry, mirrored here (MC-2078). Empty until a
+  // window pushes one; consumers report "not yet known" rather than "no
+  // modules", the same rule the enablement mirror follows.
+  const moduleRegistryMirror = createModuleRegistryMirror()
+  // The marketplace index reader the `marketplace.list` tool answers from —
+  // same client, same on-disk cache, same bundled-first policy as the
+  // Extensions storefront's IPC.
+  const marketplaceRegistryReader = createDefaultMarketplaceRegistryClient()
 
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
@@ -603,6 +617,23 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
           return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
         },
+        // module.*/marketplace.* (MC-2078). The registry snapshot is the
+        // renderer's mirror — main's own module list omits every renderer-only
+        // module, so reporting from it would be wrong by construction. Trust
+        // and launch readiness stay main-owned (signature verification and the
+        // trust store live here), and the marketplace read goes through the
+        // same client the Extensions storefront's IPC uses, cache included.
+        getModuleRegistrySnapshot: () => moduleRegistryMirror.read(),
+        listInstalledThirdPartyModules: async () => {
+          const { modules, rejected } = await discoverUserModules(defaultUserModuleRoot(), {
+            trustedModules: readTrustedModulesSync(app.getPath('userData')),
+            trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
+          })
+          return { modules: modules.map((module) => toThirdPartyModuleView(module)), rejected }
+        },
+        listModuleContributedTools: () =>
+          resolveModuleMcpTools().map((tool) => ({ moduleId: tool.moduleId, toolName: tool.registration.name })),
+        readMarketplaceRegistry: (input) => marketplaceRegistryReader.read(input),
         // backlog.work composes the target CLI's native skill invocation from the
         // loaded plugin manifests.
         listPlugins: () => getPluginRegistry().loaded(),
@@ -651,6 +682,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     setModuleMcpToolsResolver(resolver: () => ReadonlyArray<McpToolContribution>): void {
       resolveModuleMcpTools = resolver
     },
+    moduleRegistryMirror,
     builtinSkillManager,
     conversationRuntime,
     githubTokenStore,

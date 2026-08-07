@@ -1446,6 +1446,48 @@ async function testUpdateSignedByDifferentPublisherReprompts(): Promise<void> {
     assert.equal(modules.modules[0]?.manifest.version, 2)
     assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'signed')
   })
+
+  // Same walk with the trust store wired: re-approving the re-keyed update at
+  // the prompt IS the trust decision for the NEW manifest, so the module ends
+  // trusted — bound to the new fingerprint, never inheriting the old grant.
+  await withTempDir(async (temp) => {
+    const originalSigner = generateKeyPairSync('ed25519')
+    const differentSigner = generateKeyPairSync('ed25519')
+    const components: BundleComponents = { module: { path: 'module', id: 'update-module' } }
+    const bundleV1 = await writeBundle(temp, 'rekey-plugin-v1', components, originalSigner, 1)
+    const bundleV2 = await writeBundle(temp, 'rekey-plugin-v2', components, differentSigner, 2)
+    const folders = new Map([
+      ['rekey-plugin-v1', bundleV1.files],
+      ['rekey-plugin-v2', bundleV2.files],
+    ])
+    const { services, workspaceRoot, moduleRoot } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map() }
+    )
+    const userDataDir = join(temp, 'userdata')
+    useRealTrustStore(services, userDataDir)
+    // Only the original publisher key is trusted, so v1 installs verified.
+    services.trustContext = () => ({
+      trustedModules: readTrustedModulesSync(userDataDir),
+      trustedKeyFingerprints: new Set([bundleV1.fingerprint]),
+    })
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const installed = await lifecycle.installFromRegistry({ entry: bundleV1.entry, workspaceRoot })
+    assert.equal(installed.ok, true, JSON.stringify(installed))
+    // A verified install grants nothing: it is already load-eligible.
+    assert.equal(readTrustedModulesSync(userDataDir).has('update-module'), false)
+
+    const granted = await lifecycle.updateFromRegistry({ entry: bundleV2.entry, workspaceRoot, trustGranted: true })
+    assert.equal(granted.ok, true, JSON.stringify(granted))
+    if (!granted.ok) return
+    const component = granted.installed.find((installedComponent) => installedComponent.kind === 'module')
+    assert.equal(readTrustedModulesSync(userDataDir).get('update-module'), component?.manifestFp)
+    const modules = await discoverUserModules(moduleRoot, services.trustContext())
+    assert.equal(modules.modules[0]?.manifest.version, 2)
+    assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'trusted')
+  })
 }
 
 // Wire the REAL trust store (the one the Settings toggle writes) behind the

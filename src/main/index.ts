@@ -26,6 +26,12 @@ import { registerThirdPartyRendererEntryIpc } from './modules/third-party-render
 import { defaultUserModuleRoot, discoverUserModules, discoverUserModulesSync } from './modules/user-module-registry'
 import { registerCoreIpc } from './register-core-ipc'
 import { registerWorkflowIpc } from './register-workflow-ipc'
+import { attachStartupTimeline, markStartup } from './startup-timeline'
+
+// Boot measurement (MC-2075), off unless MULTICODE_STARTUP_TIMELINE=1 or the
+// diagnostics flag is set. Attached before anything else registers so the
+// renderer's marks have somewhere to land the moment it starts sending them.
+attachStartupTimeline(ipcMain)
 
 configureDevUserData()
 
@@ -244,6 +250,12 @@ function configureDevUserData(): void {
 
   app.setPath('userData', userDataDir)
 }
+
+// Everything above ran synchronously during entry evaluation: module
+// construction, sync user-module discovery, IPC registration. This mark closes
+// that phase, so a slow module registration shows up as its own segment rather
+// than hiding inside "app ready".
+markStartup('main.module-evaluated')
 
 registerAppLifecycle({
   diagnosticsEnabled: MULTICODE_DIAGNOSTICS,

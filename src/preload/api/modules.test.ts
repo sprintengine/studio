@@ -7,6 +7,12 @@ import type {
   ThirdPartyModuleListResult,
   ThirdPartyModuleTrustResult,
 } from '../../shared/modules/manifest'
+import {
+  EMPTY_MODULE_SURFACES,
+  MODULE_REGISTRY_SNAPSHOT_CHANNEL,
+  type ModuleRegistrySnapshot,
+  type ModuleRegistrySnapshotWriteResult,
+} from '../../shared/modules/registry-snapshot'
 
 async function main(): Promise<void> {
   const calls: Array<{ channel: string; args: unknown[] }> = []
@@ -34,6 +40,21 @@ async function main(): Promise<void> {
   const installResponse: ThirdPartyModuleInstallResult = { ok: true, id: 'trusted-main', trust: 'unsigned' }
   const trustResponse: ThirdPartyModuleTrustResult = { ok: true }
   const enablementResponse: ModuleEnablementWriteResult = { ok: true }
+  const registrySnapshot: ModuleRegistrySnapshot = {
+    capturedAt: 1_700_000_000_000,
+    channel: 'development',
+    modules: [
+      {
+        id: 'trusted-main',
+        manifest: listResponse.modules[0].manifest,
+        source: 'third-party',
+        enabled: true,
+        absence: null,
+        surfaces: { ...EMPTY_MODULE_SURFACES },
+      },
+    ],
+  }
+  const registryResponse: ModuleRegistrySnapshotWriteResult = { ok: true }
 
   const api = createModulesApi({
     async invoke(channel: string, ...args: unknown[]) {
@@ -42,6 +63,7 @@ async function main(): Promise<void> {
       if (channel === 'modules:third-party:install-folder') return installResponse
       if (channel === 'modules:third-party:set-trust') return trustResponse
       if (channel === 'modules:set-enablement') return enablementResponse
+      if (channel === MODULE_REGISTRY_SNAPSHOT_CHANNEL) return registryResponse
       throw new Error(`unexpected channel ${channel}`)
     },
   } as Parameters<typeof createModulesApi>[0])
@@ -50,11 +72,13 @@ async function main(): Promise<void> {
   assert.deepEqual(await api.installThirdPartyModuleFolder('/tmp/module'), installResponse)
   assert.deepEqual(await api.setThirdPartyModuleTrust('trusted-main', true), trustResponse)
   assert.deepEqual(await api.setModuleEnablement({ 'trusted-main': true }), enablementResponse)
+  assert.deepEqual(await api.setModuleRegistrySnapshot(registrySnapshot), registryResponse)
   assert.deepEqual(calls, [
     { channel: 'modules:third-party:list', args: [] },
     { channel: 'modules:third-party:install-folder', args: ['/tmp/module'] },
     { channel: 'modules:third-party:set-trust', args: [{ id: 'trusted-main', trusted: true }] },
     { channel: 'modules:set-enablement', args: [{ 'trusted-main': true }] },
+    { channel: MODULE_REGISTRY_SNAPSHOT_CHANNEL, args: [registrySnapshot] },
   ])
 
   console.log('modules-preload tests passed')
