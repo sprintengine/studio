@@ -3471,6 +3471,153 @@ async function testModuleToolsReportTheRegistryTheUserSees(): Promise<void> {
   assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_module')
 }
 
+// MC-2078 x MC-1855, the seam neither item owns: the gateway serves a module's
+// tools and `module.*` DESCRIBES that same module, from what should be one
+// source of truth (`app-services.ts` hands the same `resolveModuleMcpTools()` to
+// both). `testModuleContributedToolIsLiveOnAConnectedSession` above proves the
+// tool is listed, callable and enablement-gated; this proves the description
+// agrees with it — over one live session, cross-checked against the wire rather
+// than against a literal, so a `module.status` reading some other registry fails
+// here instead of misreporting the app to an agent.
+async function testModuleStatusAgreesWithTheToolsTheGatewayServes(): Promise<void> {
+  const socketPath = join(mkdtempSync(join(tmpdir(), 'multicode-module-agree-')), 'automation.sock')
+  const forecastTool: McpToolRegistration = {
+    name: 'weather_deck_forecast',
+    description: 'Forecast from the fixture module.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => ({ content: [{ type: 'text', text: 'ok' }], structuredContent: { sky: 'clear' } }),
+  }
+  const manifest = {
+    id: 'weather-deck',
+    displayName: 'Weather Deck',
+    version: 1,
+    publisher: 'example-author',
+    summary: 'fixture module',
+    defaultEnabled: true,
+    source: 'third-party' as const,
+  }
+  const fixtureModule: CapabilityModule = { manifest, registerMain: (host) => host.registerMcpTools([forecastTool]) }
+  const { kernel } = loadMainModules({ ipcMain: createFakeIpcMain().ipcMain, modules: [fixtureModule] })
+
+  // The one resolver, behind both surfaces — the production wiring. Feeding the
+  // gateway and `module.status` separate literals would agree by construction.
+  let moduleEnabled = true
+  const appTools = createAutomationTools(
+    backendsOf({
+      getModuleRegistrySnapshot: () =>
+        registrySnapshot([
+          registryEntry(
+            manifest,
+            moduleEnabled
+              ? {}
+              : { enabled: false, absence: { reason: 'disabled', message: 'Module "weather-deck" is not enabled (Settings -> Modules).' } }
+          ),
+        ]),
+      listModuleContributedTools: () =>
+        kernel.mcpToolRegistrations().map((entry) => ({ moduleId: entry.moduleId, toolName: entry.registration.name })),
+    })
+  )
+  const server = createMcpSocketServer({
+    socketPath,
+    serverName: 'sprintengine-studio',
+    serverVersion: '0.0.0-test',
+    resolveTools: createStudioGatewayTools({
+      appTools,
+      sprintEngineMcpHub: { callRunTool: async () => ({}) },
+      resolveModuleTools: () => kernel.mcpToolRegistrations(),
+      isModuleEnabled: () => moduleEnabled,
+    }),
+  })
+  await server.start()
+  const socket = connect(socketPath)
+  socket.setEncoding('utf8')
+  try {
+    await new Promise<void>((resolve, reject) => {
+      socket.once('connect', () => resolve())
+      socket.once('error', reject)
+    })
+    const responses = new Map<number, Record<string, unknown>>()
+    let buffer = ''
+    socket.on('data', (chunk: string) => {
+      buffer += chunk
+      let newline = buffer.indexOf('\n')
+      while (newline !== -1) {
+        const line = buffer.slice(0, newline).trim()
+        buffer = buffer.slice(newline + 1)
+        if (line) {
+          const message = JSON.parse(line) as { id?: number }
+          if (typeof message.id === 'number') responses.set(message.id, message)
+        }
+        newline = buffer.indexOf('\n')
+      }
+    })
+    let nextId = 0
+    const rpc = async (method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      nextId += 1
+      const id = nextId
+      socket.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, ...(params ? { params } : {}) })}\n`)
+      const deadline = Date.now() + 5_000
+      while (!responses.has(id)) {
+        if (Date.now() > deadline) throw new Error(`timed out waiting for ${method}`)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      return responses.get(id) as Record<string, unknown>
+    }
+    const callTool = async (name: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
+      const response = await rpc('tools/call', { name, arguments: args })
+      const result = (response as { result?: { structuredContent?: Record<string, unknown> } }).result
+      assert.ok(result, `tools/call ${name} errored: ${JSON.stringify(response)}`)
+      return result.structuredContent ?? {}
+    }
+
+    await rpc('initialize', { protocolVersion: '2025-03-26' })
+    socket.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
+
+    // What the session is actually served, minus everything core owns: whatever
+    // is left is this module's, and is what module.status must name.
+    const coreNames = new Set(createAutomationTools(backendsOf()).map((entry) => entry.name))
+    const servedByModule = (
+      (await rpc('tools/list')) as { result: { tools: Array<{ name: string }> } }
+    ).result.tools
+      .map((entry) => entry.name)
+      .filter((name) => !coreNames.has(name) && !SPRINTENGINE_TOOL_NAMES.includes(name))
+    assert.deepEqual(servedByModule, ['weather_deck_forecast'], 'the session is served exactly one module tool')
+
+    const status = (await callTool('module.status', { id: 'weather-deck' })) as {
+      module: { contributedTools: string[]; absence: { reason: string } | null }
+    }
+    assert.deepEqual(
+      status.module.contributedTools,
+      servedByModule,
+      'module.status names the tools the gateway is really serving, read off this session'
+    )
+    assert.equal(status.module.absence, null, 'and reports the module as present while it is serving them')
+
+    // Switching it off in Settings is ONE change with one meaning. The gateway
+    // keeps advertising the tool (a caller learns why), and the description
+    // surface must flip with it — the failure this guards is module.status
+    // reporting an enabled module whose tools every call refuses.
+    moduleEnabled = false
+    const refused = (await callTool('weather_deck_forecast')) as { error?: { code: string } }
+    assert.equal(refused.error?.code, 'weather-deck_module_disabled')
+    const disabled = (await callTool('module.status', { id: 'weather-deck' })) as {
+      module: { absence: { reason: string } | null }
+    }
+    assert.equal(
+      disabled.module.absence?.reason,
+      'disabled',
+      'module.status and the gateway agree about enablement at the same instant'
+    )
+    const listedRow = (
+      (await callTool('module.list')) as { modules: Array<{ id: string; enabled: boolean }> }
+    ).modules.find((entry) => entry.id === 'weather-deck')
+    assert.equal(listedRow?.enabled, false, 'module.list shows the same switched-off module Settings does')
+  } finally {
+    socket.destroy()
+    await server.stop()
+  }
+}
+
 async function testDevOnlyModulesAreAbsentFromAPackagedBuild(): Promise<void> {
   // A packaged build's renderer registry never carries the dev-only modules —
   // `activeForChannel` drops them — so the tools must report absence, never a
@@ -3674,6 +3821,7 @@ const tests = [
   testReviewToolsRejectUnknownTargetAndStripAbsolutePaths,
   testReviewToolsRefuseWhileTheModuleIsDisabled,
   testModuleToolsReportTheRegistryTheUserSees,
+  testModuleStatusAgreesWithTheToolsTheGatewayServes,
   testDevOnlyModulesAreAbsentFromAPackagedBuild,
   testModuleToolsRefuseBeforeTheRegistryArrives,
   testMarketplaceListReadsTheSameIndexTheDoorReads,

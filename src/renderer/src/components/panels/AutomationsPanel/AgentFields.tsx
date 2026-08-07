@@ -160,7 +160,7 @@ function RoleMenu({
           key={role.id}
           selection="one-of"
           checked={role.id === selectedSpecialistId}
-          icon={<SpecialistActionIcon icon={role.icon} className="h-4 w-4 shrink-0" />}
+          icon={<SpecialistActionIcon icon={role.icon} className="icon-sm shrink-0" />}
           onClick={() => onSelect(role.id)}
         >
           {role.shortLabel}
