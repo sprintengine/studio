@@ -190,6 +190,16 @@ const MEASURE = `(() => {
     childrenMeterRect: meterRect,
     childrenMeterLabel: meter ? meter.getAttribute('aria-label') : null,
     childrenHeadingAndMeterShareARow: sameBand(headingRect, meterRect),
+    // The blocked readout rides the SAME heading row as the meter, or the
+    // condense just moved a band instead of removing one.
+    childrenBlockedReadout: (() => {
+      if (!childrenSection) return null
+      const el = Array.from(childrenSection.querySelectorAll('span')).find((s) =>
+        / remaining blocked$/.test((s.textContent || '').trim()),
+      )
+      if (!laidOut(el)) return null
+      return { text: (el.textContent || '').trim(), onHeadingRow: sameBand(headingRect, rect(el)) }
+    })(),
     childrenSectionBandsAboveFirstRow: (() => {
       if (!childrenSection || !firstChildRow) return null
       const top = firstChildRow.getBoundingClientRect().top
@@ -245,12 +255,18 @@ async function seed() {
       + '# Post-merge hardening: July 15–20 landings\n\n'
       + 'The owner’s screenshot: a horizon step that is an epic with a large child set.\n',
   )
-  // 29 children, 3 completed — the exact roll-up the screenshot shows.
+  // 29 children, 3 completed — the exact roll-up the screenshot shows. Two of
+  // the remaining ones depend on an unfinished sibling, so the roll-up's
+  // "N of M remaining blocked" readout is EXERCISED: it now shares the heading
+  // row with the meter, and a branch that only renders when something is
+  // blocked is exactly the one a happy-path seed would never reach.
+  const slugOf = (i) => `2026-07-1${i % 10}-hardening-${i}`
   for (let i = 0; i < CHILD_COUNT; i += 1) {
     const status = i < DONE_COUNT ? 'completed' : 'ready'
+    const blocks = i === 5 || i === 6 ? `dependsOn: ${slugOf(4)}\n` : ''
     await writeFile(
-      join(workspaceDir, `backlog/2026-07-1${i % 10}-hardening-${i}.md`),
-      `---\nstatus: ${status}\nepic: ${EPIC_SLUG}\n---\n\n# Hardening item ${i + 1}\n\nSeeded child for the MC-2067 chrome-row pass.\n`,
+      join(workspaceDir, `backlog/${slugOf(i)}.md`),
+      `---\nstatus: ${status}\nepic: ${EPIC_SLUG}\n${blocks}---\n\n# Hardening item ${i + 1}\n\nSeeded child for the MC-2067 chrome-row pass.\n`,
     )
   }
   // The plan: one track holding the epic as its single step. `status: idea` is a
@@ -495,6 +511,11 @@ async function main() {
       'the roll-up says done/total once — no count chip, no “N of M done” sentence, no second bar',
       m.saysDoneSentence === false && m.childrenSectionBandsAboveFirstRow === 1,
       `saysDoneSentence=${m.saysDoneSentence} bandsAboveFirstChild=${m.childrenSectionBandsAboveFirstRow} meter=${m.childrenMeterLabel}`,
+    )
+    check(
+      'the blocked readout rides the same heading row, not a band of its own',
+      m.childrenBlockedReadout !== null && m.childrenBlockedReadout.onHeadingRow === true,
+      JSON.stringify(m.childrenBlockedReadout),
     )
     check(
       'the save state is still announced (a live region), not merely condensed away',
