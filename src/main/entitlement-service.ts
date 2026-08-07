@@ -27,6 +27,12 @@ export type CachedEntitlementSnapshot = {
 // `cache` is the last one it persisted, which is what the offline grace window is
 // measured from. When the adapter has no persisted cache, `lastRefreshAt` dates
 // the live snapshot instead.
+//
+// An adapter MUST report `lastRefreshAt` whenever it reports a snapshot. It is
+// the only evidence of when we last reached the provider, and the staleness
+// ceiling below is enforced on it: a snapshot the adapter cannot date is treated
+// as expired, however live the snapshot itself claims to be. Refusing is the
+// deliberate direction — an undatable entitlement is not a verified one.
 export type EntitlementReading = {
   authenticated: boolean
   snapshot: EntitlementSnapshot | null

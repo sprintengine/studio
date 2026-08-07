@@ -292,15 +292,22 @@ async function main(): Promise<void> {
   }
 
   // With no persisted cache, the live snapshot is dated by lastRefreshAt — an
-  // absent lastRefreshAt dates it to the epoch, which is outside any grace
-  // window, so an expired snapshot cannot coast on a missing timestamp.
+  // absent one dates it to the epoch, which is past the staleness ceiling. An
+  // adapter that cannot say when it last reached the provider is refused, and
+  // deliberately so: this holds for a snapshot that is still unexpired too, so
+  // the port's contract (report lastRefreshAt with every snapshot) is enforced
+  // rather than assumed. Both cases are pinned, because the second is the one a
+  // future provider adapter is most likely to trip.
   {
-    const expired = snapshot({ expiresAt: new Date(Date.now() - HOUR_MS).toISOString(), features: { [LOCAL_KEY]: true } })
-    const decision = await check(
-      { authenticated: true, snapshot: expired, cache: null, lastRefreshAt: null },
-      LOCAL_KEY
-    )
-    assert.equal(decision.status, 'expired')
+    for (const expiresAt of [Date.now() - HOUR_MS, Date.now() + HOUR_MS]) {
+      const undatable = snapshot({ expiresAt: new Date(expiresAt).toISOString(), features: { [LOCAL_KEY]: true } })
+      const decision = await check(
+        { authenticated: true, snapshot: undatable, cache: null, lastRefreshAt: null },
+        LOCAL_KEY
+      )
+      assert.equal(decision.status, 'expired')
+      assert.equal(decision.allowed, false)
+    }
   }
 
   // hasFeature is the boolean face of the same decision.
