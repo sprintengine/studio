@@ -2891,6 +2891,12 @@ async function testModuleContributedToolIsLiveOnAConnectedSession(): Promise<voi
     assert.ok(contributed, 'the module tool is listed to a live session alongside the core tools')
     assert.equal(contributed.description, 'Forecast from the fixture module.')
     assert.ok(names.some((entry) => entry.name === 'workspace.list'), 'core tools are still served')
+    // The discovery tool is only useful if a connected agent can actually see
+    // it, so prove it on the same live listing rather than in isolation.
+    assert.ok(
+      names.some((entry) => entry.name === 'cli.runtime.list'),
+      'cli.runtime.list reaches the connected session that needs it'
+    )
 
     const answered = await call(2, 'tools/call', { name: 'weather_deck_forecast', arguments: { city: 'Dublin' } })
     assert.deepEqual(

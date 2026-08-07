@@ -3084,13 +3084,32 @@ export default function WorkspaceManager() {
         break
       case 'general':
         setLastSpawnWasGeneral(true)
-        void addNewCliAgent(confirm.cli, confirm.skill, confirm.worktree, confirm.model)
+        // A "+ Connector" attachment routes through the connector-chat runtime
+        // (isolated worktree, single-server MCP) exactly as the New-chat path
+        // does — the attachment is the whole point of the control, and a spawn
+        // that dropped it would report success while ignoring what was asked.
+        if (confirm.connector) {
+          void launchConnectorChat(confirm.connector.id, { cli: confirm.cli, skill: confirm.skill })
+        } else {
+          void addNewCliAgent(confirm.cli, confirm.skill, confirm.worktree, confirm.model)
+        }
         break
       case 'conversation':
         spawnConversationAgent(confirm.skill, confirm.provider)
         break
       case 'specialist':
-        handleSelectSpecialist(confirm.specialistId, confirm.cli, confirm.skill, confirm.worktree, confirm.model)
+        if (confirm.connector) {
+          setLastSelectedSpecialist(confirm.specialistId)
+          setLastSpawnWasGeneral(false)
+          setSpecialistMenuOpen(false)
+          void launchConnectorChat(confirm.connector.id, {
+            cli: confirm.cli,
+            specialistId: confirm.specialistId,
+            skill: confirm.skill,
+          })
+        } else {
+          handleSelectSpecialist(confirm.specialistId, confirm.cli, confirm.skill, confirm.worktree, confirm.model)
+        }
         break
     }
   }

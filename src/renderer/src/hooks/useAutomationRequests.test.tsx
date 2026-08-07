@@ -149,6 +149,25 @@ const pendingResponses = new Map<string, (response: AutomationRendererResponse) 
   readBacklogObjectStore: async () => ({ ok: false, message: 'not in this test' }),
   initializeSprintEngineState: async (input: InitCall) => {
     initCalls.push(input)
+    // The GOAL-only path re-reads the projection the engine just wrote and
+    // fails `invalid-projection` without one; the plan-sourced path does not
+    // read it at all. Answer it only for that shape, so every existing
+    // plan-sourced check keeps exercising the bare `{ok:true}` it always did.
+    if (input.source === undefined) {
+      return {
+        ok: true,
+        data: {
+          projectionContent: JSON.stringify({
+            name: input.name,
+            goal: input.goal,
+            agents: [],
+            tasks: [],
+            events: [],
+            artifacts: [],
+          }),
+        },
+      }
+    }
     return { ok: true }
   },
   addOrUpdateBacklogLink: async (input: LinkCall) => {
@@ -627,6 +646,47 @@ async function main(): Promise<void> {
     assert.equal(roleRuntimes['(roleless)']?.model ?? null, null, 'no model flag unless one was asked for')
     assert.equal('reasoning' in (roleRuntimes['(roleless)'] ?? {}), false, 'no effort flag either')
     assert.equal(workspaceById(response.workspaceId).sprintEngineAutoState?.maxConcurrentAgents, 3)
+  })
+
+  // The goal-only run is the OTHER creation function (no source, no backlog
+  // link), and it wires the runtime through a different controller — so the
+  // pins have to be proven there too, not inferred from the plan-sourced path.
+  await check('a goal-only run carries the same runtime', async () => {
+    const response = await send({
+      kind: 'sprint.create',
+      folderPath: ROOT,
+      goal: 'Ship checkout',
+      runtime: { cli: 'claude-code', model: 'claude-opus-5', effort: 'high' },
+      maxConcurrentAgents: 5,
+    })
+    assert.equal(response.ok, true, response.message)
+    assert.equal(initCalls.length, 1, 'a goal-only request creates through the new-team path')
+    assert.equal(initCalls[0].source, undefined, 'and records no source')
+    const roleRuntimes = initCalls[0].roleRuntimes as Record<string, Record<string, unknown>>
+    assert.deepEqual(roleRuntimes['(roleless)'], { model: 'claude-opus-5', cli: 'claude-code', reasoning: 'high' })
+    assert.equal(workspaceById(response.workspaceId).sprintEngineAutoState?.maxConcurrentAgents, 5)
+  })
+
+  await check('an out-of-range agent ceiling is clamped, not written raw', async () => {
+    // The MCP tool boundary refuses these, but a horizon step or automation
+    // reaches this same request type without passing through it, and the
+    // plan-sourced path writes the auto-state straight through.
+    for (const [asked, expected] of [[99, 10], [0, 3], [2.7, 2]] as const) {
+      initCalls.length = 0
+      const response = await send({
+        kind: 'sprint.create',
+        folderPath: ROOT,
+        goal: '',
+        sourceRelativePath: LOOSE_REF,
+        maxConcurrentAgents: asked,
+      })
+      assert.equal(response.ok, true, response.message)
+      assert.equal(
+        workspaceById(response.workspaceId).sprintEngineAutoState?.maxConcurrentAgents,
+        expected,
+        `${asked} clamps to ${expected}`,
+      )
+    }
   })
 
   await check('a traversing or absolute ref fails as an invalid source', async () => {

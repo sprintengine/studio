@@ -15,6 +15,7 @@ import { resolveConnectorLaunch } from '../utils/connectorLaunch'
 import {
   SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
   SprintEngineNewTeamCreationError,
+  clampSprintEngineMaxParallelAgents,
   runSprintEngineNewTeamCreation,
 } from '../components/workspace/newWorkspace/controllers/sprintEngineController'
 import {
@@ -320,14 +321,18 @@ function resolveRequestedRuntime(
 
 // The run's agent ceiling: the caller's value when it sent one (the dialog's
 // *Max concurrent agents*), else the default every other creation path takes.
-// Clamping is the controller's job — it holds the one clamp both wizard and
-// automation launches go through.
+//
+// Clamped HERE, through the wizard's own clamp, because the two paths below do
+// not share one: the goal-sourced path clamps inside the new-team controller,
+// but the plan-sourced path writes `sprintEngineAutoState` straight through, so
+// a value clamped only by the MCP tool boundary would arrive raw from any other
+// renderer caller (a horizon step, an automation).
 function requestedMaxConcurrentAgents(
   request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>
 ): number {
-  return typeof request.maxConcurrentAgents === 'number' && Number.isFinite(request.maxConcurrentAgents)
-    ? request.maxConcurrentAgents
-    : SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS
+  return request.maxConcurrentAgents === undefined
+    ? SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS
+    : clampSprintEngineMaxParallelAgents(request.maxConcurrentAgents)
 }
 
 async function createSprint(
