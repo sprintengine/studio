@@ -1,19 +1,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import { CliModelPickerButton, DefinitionList, Field, GhostButton, INLINE_TITLE_EDIT_CLASS, InlineNotice, Input, Popover, PrimaryButton, Select, type SelectItem, Switch, Textarea } from '../../ui'
-import { SkillPickerPopover } from '../../ui/SkillPickerPopover'
-import type { WorkspaceSkill } from '../../../../../shared/electron-api'
+import { DefinitionList, Field, GhostButton, INLINE_TITLE_EDIT_CLASS, InlineNotice, Input, PrimaryButton, Select, type SelectItem, Switch, Textarea } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { selectAgentCliCatalog } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import { orderSpecialistActions } from '../../../specialists/specialistActions'
 import { listSpecialistPacks, resolveEnabledSpecialists } from '../../../specialists/specialistPacks'
-import AgentComposerPopover from '../../workspace/agentComposer/AgentComposerPopover'
-import type { AgentComposerSelection } from '../../workspace/agentComposer/AgentComposer'
-import { SpecialistActionIcon } from '../../AppIcons'
 import { AutomationTypeGlyph } from './AutomationTypeGlyph'
-import type { AgentCli, McpCatalogServer, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
-import { launchableConnectors } from '../ConnectorsPanel/connectorsFacets'
+import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../../../../shared/automations/contracts'
 import type {
   AutomationDefinition,
@@ -48,10 +42,10 @@ import {
   type SprintLandedForm,
   type WebhookForm,
 } from './automationsFormat'
+import { AgentModelFields, PermissionField } from './AgentFields'
+import { AttachmentFields } from './AttachmentFields'
+import { SprintStartFields } from './SprintStartFields'
 import { TriggerFields, selectedFamilyUnavailableReason } from './TriggerFields'
-import { BacklogItemSearchPicker, type BacklogItemSearchOption } from '../../backlog/BacklogItemSearchPicker'
-import { useBacklogScan } from '../../workspace/newWorkspace/useBacklogScan'
-import type { SprintEngineRoster } from '../../../types/workspace'
 
 // Composes ScheduleCadenceForm (the authoritative cadence sub-state shape in
 // automationsFormat.ts) so a new cadence field is declared exactly once.
@@ -83,11 +77,6 @@ const INTERNAL_CONFIG_KEYS = new Set(['workspaceId', 'folderPath', 'requiredInte
 // rendered by their picker rather than as generic free-text string fields.
 const PICKER_CONFIG_KEYS = new Set(['cliModel', 'permissionPreset', 'specialistId', 'connectorId', 'spawnSkillId'])
 
-// Sentinel option value for "target no connector" — the Select emits a string, so
-// the cleared choice is a real item rather than null, and it maps back to removing
-// the connectorId key from the action config on submit.
-const NO_CONNECTOR = ''
-
 const CONFIG_FIELD_LABEL: Record<string, string> = {
   prompt: 'Prompt',
   cli: 'CLI',
@@ -97,19 +86,6 @@ const CONFIG_FIELD_LABEL: Record<string, string> = {
   sprintName: 'Sprint name',
   team: 'Team',
 }
-
-// The permission field's options. Each label states the preset and what it means
-// for a run nobody is watching — the control text is the state, so an automation
-// on the unattended default reads "Bypass all — runs unattended" without a
-// caption explaining it. Bypass carries the warn tone, as it does everywhere else.
-const PERMISSION_PRESET_ITEMS: SelectItem<SprintEngineCliPermissionPreset>[] = [
-  { value: 'default', label: 'Default — asks before acting' },
-  { value: 'auto_workspace', label: 'Auto in workspace — fewer prompts' },
-  { value: 'bypass_all', label: 'Bypass all — runs unattended', tone: 'warn' },
-]
-
-// Stable empty fallback so the saved-teams selector doesn't churn refs per render.
-const EMPTY_SAVED_TEAMS: SprintEngineRoster[] = []
 
 // The control box is `ui/Input`, not a constant here. This file used to declare
 // `CONTROL_BASE` and `TriggerFields.tsx` declared a literal duplicate of it,
@@ -175,19 +151,6 @@ function schemaHasStringProp(schema: AutomationsProviderView['configSchema'], ke
   const prop = properties?.[key]
   return Boolean(prop) && typeof prop === 'object' && (prop as { type?: unknown }).type === 'string'
 }
-
-// A launchable connector follows connectorsFacets.connectorCanLaunch — a
-// catalog entry carrying a `skill` link, or any server installed (enabled) in
-// MCP settings; the picker population comes from the shared
-// launchableConnectors so it cannot drift from the Connectors surface. The
-// load carries the raw catalog so the installed merge happens reactively in
-// the picker memo; it is undefined-free so a catalog failure renders an
-// explicit notice (installed servers still list — they launch without the
-// catalog) rather than a silently empty picker.
-type ConnectorLoad =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; connectors: McpCatalogServer[] }
 
 const EMPTY_FORM: EditorFormState = {
   name: '', enabled: true, runInWorktree: true, disableAfterRun: false, actionKind: '', triggerKind: 'schedule',
@@ -291,10 +254,9 @@ export function AutomationEditor({
   const configKeys = actionProvider ? schemaStringKeys(actionProvider.configSchema) : []
   const requiredKeys = actionProvider ? schemaRequiredKeys(actionProvider.configSchema) : new Set<string>()
 
-  // The agent block reuses the shared AgentComposerPopover (select mode) for the
-  // specialist + permission preset, and CliModelPickerButton for the runtime —
-  // the same components every spawn surface uses — so the picker never drifts.
-  // The choice is persisted into the action config so a scheduled run reproduces it.
+  // What the agent group (AgentFields.tsx) renders from, resolved here because
+  // the submit and the aside's Every-run facts read the same values: a group
+  // holding its own copy could disagree with what actually gets saved.
   // Resolve the specialist descriptor from the SAME enabled-pack roster the
   // embedded picker offers, so a custom-pack specialist the picker can select
   // also labels correctly on the trigger row (not just the built-in set).
@@ -320,38 +282,6 @@ export function AutomationEditor({
   const selectedPermissionPreset =
     (form.config.permissionPreset as SprintEngineCliPermissionPreset) || AUTOMATION_DEFAULT_PERMISSION_PRESET
 
-  // Connector target — a spawn-agent run can be pinned to a connector (its
-  // isolated worktree + MCP, plus the driving skill when the catalog pairs one).
-  // The picker is populated from the real MCP catalog and the installed MCP
-  // settings, never a placeholder list, and shown only for an action whose
-  // schema consumes `connectorId`.
-  const showConnectorPicker =
-    !actionUnavailableReason && actionProvider != null && schemaHasStringProp(actionProvider.configSchema, 'connectorId')
-  const [connectorLoad, setConnectorLoad] = useState<ConnectorLoad>({ status: 'loading' })
-  useEffect(() => {
-    let cancelled = false
-    if (typeof window.api.mcpListCatalog !== 'function') {
-      setConnectorLoad({ status: 'error', message: 'Connectors need an app restart before they are available.' })
-      return () => { cancelled = true }
-    }
-    void window.api.mcpListCatalog().then((result) => {
-      if (cancelled) return
-      if (result.ok) {
-        setConnectorLoad({ status: 'ready', connectors: result.servers })
-      } else {
-        setConnectorLoad({ status: 'error', message: result.message })
-      }
-    }).catch((error) => {
-      if (!cancelled) {
-        setConnectorLoad({
-          status: 'error',
-          message: error instanceof Error ? error.message : 'Unable to load the connector catalog.',
-        })
-      }
-    })
-    return () => { cancelled = true }
-  }, [])
-
   // A run-landed → sprint-start chain defaults "Run once, then pause" ON: left
   // firing forever, an A↔B pair of these ping-pongs unbounded (each landed run
   // re-fires the other). The default follows the selected pair only until the user
@@ -366,100 +296,17 @@ export function AutomationEditor({
     setForm((prev) => (prev.disableAfterRun === isChainPair ? prev : { ...prev, disableAfterRun: isChainPair }))
   }, [editor.mode, form.triggerKind, form.actionKind])
 
-  const selectedConnectorId = form.config.connectorId ?? NO_CONNECTOR
-  const installedMcpServers = useWorkspaceStore((s) => s.appSettings.mcp?.servers)
-  const connectorItems: SelectItem[] = useMemo(() => {
-    const items: SelectItem[] = [{ value: NO_CONNECTOR, label: 'No connector' }]
-    if (connectorLoad.status !== 'loading') {
-      // A failed catalog load still lists the installed servers — they launch
-      // without the catalog.
-      const catalog = connectorLoad.status === 'ready' ? connectorLoad.connectors : []
-      for (const server of launchableConnectors(catalog, installedMcpServers)) {
-        items.push({ value: server.id, label: server.name })
-      }
-    }
-    // A stored connector no longer in the catalog still round-trips and is shown
-    // as unavailable (once the catalog has resolved) rather than silently dropped.
-    if (selectedConnectorId && !items.some((item) => item.value === selectedConnectorId)) {
-      const resolved = connectorLoad.status === 'ready'
-      items.push({
-        value: selectedConnectorId,
-        label: resolved ? `${selectedConnectorId} — unavailable` : selectedConnectorId,
-        tone: resolved ? 'warn' : undefined,
-      })
-    }
-    return items
-  }, [connectorLoad, selectedConnectorId, installedMcpServers])
-
-  const onSelectConnector = useCallback((value: string) => {
-    setForm((prev) => {
-      const config = { ...prev.config }
-      if (value) config.connectorId = value
-      else delete config.connectorId
-      return { ...prev, config }
-    })
-  }, [])
-
-  // Skill attachment — a spawn-agent run can attach a built-in skill (e.g.
-  // `backlog`) that the terminal spawn installs into the run's worktree before
-  // the CLI starts. Only built-in skills are offered: they are the ones that
-  // install into the per-run worktree (a pack/custom skill would not follow the
-  // agent there). Shown only for an action whose schema consumes `spawnSkillId`.
+  // The two attachments a run can carry, each shown only for an action whose
+  // schema consumes it — and each persisted by the submit below, which is why
+  // the flags live here rather than inside the group that renders them.
   const showSkillPicker =
     !actionUnavailableReason && actionProvider != null && schemaHasStringProp(actionProvider.configSchema, 'spawnSkillId')
-  const [skillPickerOpen, setSkillPickerOpen] = useState(false)
-  // The selected skill's human name for display; config only stores the id, so
-  // this is seeded on pick and falls back to the id when editing a saved run.
-  const [pickedSkillLabel, setPickedSkillLabel] = useState<string | null>(null)
-  const selectedSkillId = form.config.spawnSkillId?.trim() || ''
-  const onPickSkill = useCallback((skill: WorkspaceSkill) => {
-    setPickedSkillLabel(skill.name)
-    setForm((prev) => ({ ...prev, config: { ...prev.config, spawnSkillId: skill.id } }))
-  }, [])
-  const onClearSkill = useCallback(() => {
-    setPickedSkillLabel(null)
-    setForm((prev) => {
-      const config = { ...prev.config }
-      delete config.spawnSkillId
-      return { ...prev, config }
-    })
-  }, [])
-  const onlyBuiltinSkills = useCallback((skill: WorkspaceSkill) => skill.source === 'builtin', [])
-
+  const showConnectorPicker =
+    !actionUnavailableReason && actionProvider != null && schemaHasStringProp(actionProvider.configSchema, 'connectorId')
   // Sprint chaining action (sprint-engine-start): the backlog item and roster
   // fields get dedicated pickers — the shared Backlog search picker and a plain
   // Select over the saved teams — instead of the generic free-text inputs.
   const isSprintStartAction = form.actionKind === 'sprint-engine-start'
-  const backlogScan = useBacklogScan(isSprintStartAction ? workspaceRoot : null)
-  const backlogOptions = useMemo((): BacklogItemSearchOption[] =>
-    backlogScan.result.items
-      // The action chains from leaf items (epic launches bundle children — a
-      // wizard flow), so epics are not offered.
-      .filter((item) => !item.relativePath.startsWith('backlog/epics/'))
-      .map((item) => ({
-        id: item.id,
-        value: item.relativePath,
-        title: item.title,
-        displayId: item.displayId,
-        searchText: item.relativePath,
-      })),
-  [backlogScan.result.items])
-  const sprintSavedTeams = useWorkspaceStore(
-    (s) => s.appSettings.sprintEngineRoleSettings?.savedRosters ?? EMPTY_SAVED_TEAMS,
-  )
-  const sprintTeamItems: SelectItem[] = useMemo(() => {
-    // The empty option resolves like the sprint wizard does (the last team you
-    // used there, else the built-in default) — the label must say so, not
-    // promise a fixed "default roster" the resolver doesn't deliver.
-    const items: SelectItem[] = [{ value: '', label: 'Last used team' }]
-    for (const team of sprintSavedTeams) items.push({ value: team.name, label: team.name })
-    const stored = form.config.team?.trim()
-    if (stored && !items.some((item) => item.value === stored)) {
-      items.push({ value: stored, label: `${stored} — missing`, tone: 'warn' })
-    }
-    return items
-  }, [sprintSavedTeams, form.config.team])
-
   // Provenance, stamped once by the install and never editable here (MC-2030):
   // the shelf entry this automation came from and who published it. It is how a
   // person tells a starter they added from something they wrote themselves.
@@ -513,6 +360,21 @@ export function AutomationEditor({
 
   const update = useCallback(<K extends keyof EditorFormState>(key: K, value: EditorFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }, [])
+
+  // How a field group reports a choice: the editor stays the one owner of the
+  // form, so a group never holds a copy of the config it edits.
+  const patchConfig = useCallback((patch: Record<string, string>) => {
+    setForm((prev) => ({ ...prev, config: { ...prev.config, ...patch } }))
+  }, [])
+  // Cleared, not blanked: the key leaves the config so the run falls back to its
+  // default rather than carrying an empty string the submit would have to strip.
+  const clearConfigKey = useCallback((key: string) => {
+    setForm((prev) => {
+      const config = { ...prev.config }
+      delete config[key]
+      return { ...prev, config }
+    })
   }, [])
 
   const builtTrigger = useMemo(
@@ -700,102 +562,17 @@ export function AutomationEditor({
             <InlineNotice tone="warn">{actionUnavailableReason}</InlineNotice>
           ) : (
             <>
-              {/* Agent and Model (§.duo): who runs it, and on what. Both resolve
-                  to something real on an automation with neither set — the
-                  agent reads "No role", the runtime reads the CLI the launch
-                  would actually fall back to — because an enabled automation
-                  showing an empty picker reads broken. */}
-              {showAgentPicker ? (
-                <div className="grid gap-3 @[520px]:grid-cols-2 @[520px]:items-start">
-                  <div className="flex min-w-0 flex-col gap-1.5">
-                    <span className="text-meta font-medium text-[color:var(--text-default)]">Agent</span>
-                    <Popover
-                      open={agentPickerOpen}
-                      onOpenChange={setAgentPickerOpen}
-                      ariaLabel="Choose agent"
-                      popupRole="menu"
-                      placement="bottom-start"
-                      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                        <button
-                          ref={ref}
-                          type="button"
-                          aria-label="Choose agent"
-                          onClick={togglePopover}
-                          className="grid w-full grid-cols-[24px_1fr_auto] items-center gap-2.5 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2 text-left transition-colors hover:border-[color:var(--border-strong)]"
-                          {...triggerProps}
-                        >
-                          <span className="flex h-6 w-6 items-center justify-center text-[color:var(--text-muted)]">
-                            {selectedSpecialist ? (
-                              <SpecialistActionIcon icon={selectedSpecialist.icon} className="h-4 w-4" />
-                            ) : (
-                              <svg className="icon-md" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                <circle cx="12" cy="8" r="3.4" stroke="currentColor" strokeWidth="1.7" />
-                                <path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-                              </svg>
-                            )}
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block truncate text-meta font-medium text-[color:var(--text-strong)]">
-                              {selectedSpecialist ? selectedSpecialist.shortLabel : 'No role'}
-                            </span>
-                            {/* A role's own description; a roleless agent gets
-                                no second line, because the aside's Agent fact
-                                already says what it is. */}
-                            {selectedSpecialist ? (
-                              <span className="block truncate text-micro text-[color:var(--text-subtle)]">
-                                {selectedSpecialist.description}
-                              </span>
-                            ) : null}
-                          </span>
-                          <svg className="icon-sm shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                            <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
-                      )}
-                    >
-                      <AgentComposerPopover
-                        conversationAvailable={false}
-                        initialSelection={
-                          (form.config.specialistId
-                            ? { kind: 'specialist', specialistId: form.config.specialistId as SpecialistActionId }
-                            : { kind: 'general' }) as AgentComposerSelection
-                        }
-                        action={{
-                          kind: 'select',
-                          selectedSpecialistId: (form.config.specialistId as SpecialistActionId) || null,
-                          cli: selectedCli,
-                          model: form.config.cliModel || undefined,
-                          onSelectSpecialist: (id, cli, model) =>
-                            setForm((prev) => ({ ...prev, config: { ...prev.config, specialistId: id, cli, cliModel: model ?? '' } })),
-                          onSelectGeneral: (cli, model) =>
-                            setForm((prev) => ({ ...prev, config: { ...prev.config, specialistId: '', cli, cliModel: model ?? '' } })),
-                          permissionPreset: selectedPermissionPreset,
-                          onChangePermissionPreset: (preset) => update('config', { ...form.config, permissionPreset: preset }),
-                        }}
-                        onClose={() => setAgentPickerOpen(false)}
-                      />
-                    </Popover>
-                  </div>
-                  <div className="flex min-w-0 flex-col gap-1.5">
-                    <span className="text-meta font-medium text-[color:var(--text-default)]">Model</span>
-                    {/* The picker names the model and leaves it unpinned by
-                        default, so the runtime's own default is what runs. It
-                        brings its own control box — a second one around it would
-                        be two borders for one control — so the row only holds it
-                        at the height of the Agent field beside it. */}
-                    <div className="flex h-[38px] items-center">
-                      <CliModelPickerButton
-                        ariaLabel="Agent runtime and model"
-                        options={cliCatalog}
-                        cli={selectedCli}
-                        effectiveModelFor={(candidate) => (candidate === selectedCli ? form.config.cliModel || undefined : undefined)}
-                        onSelectCli={(cli) => update('config', { ...form.config, cli, cliModel: '' })}
-                        onSelectModel={(cli, model) => update('config', { ...form.config, cli, cliModel: model ?? '' })}
-                      />
-                    </div>
-                  </div>
-                </div>
-              ) : null}
+              <AgentModelFields
+                show={showAgentPicker}
+                config={form.config}
+                cliCatalog={cliCatalog}
+                selectedCli={selectedCli}
+                selectedSpecialist={selectedSpecialist}
+                selectedPermissionPreset={selectedPermissionPreset}
+                pickerOpen={agentPickerOpen}
+                onPickerOpenChange={setAgentPickerOpen}
+                onPatchConfig={patchConfig}
+              />
 
               {/* Runs and Permission (§.duo): when it fires, and what it may do
                   while nobody is watching. */}
@@ -807,77 +584,22 @@ export function AutomationEditor({
                   value={form}
                   onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
                 />
-                {showAgentPicker ? (
-                  <div className="flex min-w-0 flex-col gap-1.5">
-                    <span className="text-meta font-medium text-[color:var(--text-default)]">Permission</span>
-                    <Select
-                      ariaLabel="Permission"
-                      value={selectedPermissionPreset}
-                      onChange={(preset) => update('config', { ...form.config, permissionPreset: preset })}
-                      items={PERMISSION_PRESET_ITEMS}
-                    />
-                  </div>
-                ) : null}
+                <PermissionField
+                  show={showAgentPicker}
+                  value={selectedPermissionPreset}
+                  onChange={(preset) => patchConfig({ permissionPreset: preset })}
+                />
               </div>
 
               {/* Sprint chaining fields — dedicated pickers for the backlog item
                   and the saved-team roster; the generic loop below skips both keys. */}
-              {isSprintStartAction ? (
-                <>
-                  {/* No `htmlFor`: the row is a composite — the chosen item with a
-                      Clear button, above a search picker — not one labellable
-                      control, and the picker names itself. Passing one put the id
-                      on the wrapper div, where a `<label for>` cannot reach. */}
-                  <Field
-                    label="Start from backlog item"
-                    required
-                    help="The chained sprint plans and works this item on the refreshed base branch."
-                  >
-                    <div className="flex flex-col gap-1.5">
-                      {form.config.backlogItem ? (
-                        <div className="flex items-center gap-1.5">
-                          <code className="min-w-0 flex-1 truncate font-mono text-micro text-[color:var(--text-muted)]">
-                            {form.config.backlogItem}
-                          </code>
-                          <GhostButton
-                            type="button"
-                            onClick={() => update('config', { ...form.config, backlogItem: '' })}
-                            className="h-6 shrink-0 px-2 text-micro"
-                          >
-                            Clear
-                          </GhostButton>
-                        </div>
-                      ) : null}
-                      <BacklogItemSearchPicker
-                        options={backlogOptions}
-                        selectedValues={form.config.backlogItem ? [form.config.backlogItem] : []}
-                        onSelect={(option) => update('config', { ...form.config, backlogItem: option.value })}
-                        ariaLabel="Backlog item to start the next sprint from"
-                        noOptionsMessage={backlogScan.isScanning ? 'Scanning the backlog…' : 'No backlog items found.'}
-                        resultRole="listbox"
-                      />
-                    </div>
-                  </Field>
-                  <Field
-                    label="Team"
-                    htmlFor="automation-sprint-start-team"
-                    help="Saved team that staffs the chained sprint. “Last used team” resolves like the sprint wizard: the team you last picked there, else the built-in default."
-                  >
-                    <Select
-                      ariaLabel="Saved team for the chained sprint"
-                      value={form.config.team?.trim() || ''}
-                      onChange={(value) => update('config', { ...form.config, team: value })}
-                      items={sprintTeamItems}
-                    />
-                  </Field>
-                  <p className="text-micro leading-relaxed text-[color:var(--text-subtle)]">
-                    Starts a new sprint each time the watched sprint finishes and lands. Deleting
-                    and recreating the watched sprint counts as a fresh landing, so it starts again.
-                    To stop two chained automations from restarting each other, chains default to
-                    “Run once, then pause” — turn that off below to keep it firing.
-                  </p>
-                </>
-              ) : null}
+              <SprintStartFields
+                active={isSprintStartAction}
+                workspaceRoot={workspaceRoot}
+                backlogItem={form.config.backlogItem}
+                team={form.config.team}
+                onPatchConfig={patchConfig}
+              />
 
               {/* The action's own fields (§.field prompt). The prompt is where
                   reviewer-vs-fixer intent lives now that the autonomy control is
@@ -921,67 +643,15 @@ export function AutomationEditor({
             <DefinitionList items={everyRunFacts} />
           </div>
 
-          {showSkillPicker || showConnectorPicker ? (
-            <div className="flex flex-col gap-2">
-              <h3 className="text-meta text-[color:var(--text-subtle)]">Attachments</h3>
-              {showSkillPicker ? (
-                <div className="flex flex-col gap-1.5">
-                  {selectedSkillId ? (
-                    <div className="flex items-center gap-1.5">
-                      <code className="min-w-0 flex-1 truncate rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 font-mono text-micro text-[color:var(--text-muted)]">
-                        {pickedSkillLabel ?? selectedSkillId}
-                      </code>
-                      <GhostButton type="button" onClick={onClearSkill} className="h-6 shrink-0 px-2 text-micro">
-                        Clear
-                      </GhostButton>
-                    </div>
-                  ) : (
-                    <SkillPickerPopover
-                      open={skillPickerOpen}
-                      onOpenChange={setSkillPickerOpen}
-                      workspaceRoot={workspaceRoot || null}
-                      onPick={onPickSkill}
-                      filterSkill={onlyBuiltinSkills}
-                      placement="bottom-start"
-                      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                        <button
-                          ref={ref}
-                          type="button"
-                          onClick={togglePopover}
-                          className="flex h-7 w-full items-center justify-between rounded-[5px] border border-dashed border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)]"
-                          {...triggerProps}
-                        >
-                          Add a skill
-                          <svg className="icon-xs shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                          </svg>
-                        </button>
-                      )}
-                    />
-                  )}
-                </div>
-              ) : null}
-              {showConnectorPicker ? (
-                <div className="flex flex-col gap-1.5">
-                  <Select
-                    ariaLabel="Connector"
-                    value={selectedConnectorId}
-                    onChange={onSelectConnector}
-                    items={connectorItems}
-                    disabled={connectorLoad.status === 'loading'}
-                    placeholder={connectorLoad.status === 'loading' ? 'Loading connectors…' : 'Add a connector'}
-                  />
-                  {connectorLoad.status === 'error' ? (
-                    <InlineNotice tone="warn">Connectors are unavailable: {connectorLoad.message}</InlineNotice>
-                  ) : connectorLoad.status === 'ready' && connectorItems.length === 1 ? (
-                    <span className="text-micro text-[color:var(--text-subtle)]">
-                      No connectors installed — the run uses the workspace defaults.
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+          <AttachmentFields
+            showSkillPicker={showSkillPicker}
+            showConnectorPicker={showConnectorPicker}
+            workspaceRoot={workspaceRoot}
+            spawnSkillId={form.config.spawnSkillId}
+            connectorId={form.config.connectorId}
+            onPatchConfig={patchConfig}
+            onClearConfigKey={clearConfigKey}
+          />
 
           <div className="flex flex-col gap-2.5">
             <label htmlFor="automation-worktree" className="flex items-center gap-2.5 text-meta text-[color:var(--text-default)]">
