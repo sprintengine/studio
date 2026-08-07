@@ -4,7 +4,11 @@ import http from 'http'
 import { resolve } from 'path'
 import { findSprintEngineRuntimeRoot } from './mcp-config-service'
 import { getManagedPython, managedPythonSpawnEnv } from './managed-runtime'
+import { DEFAULT_MCP_PROTOCOL_VERSION } from '../shared/mcp/protocol'
 import { STUDIO_PRODUCT_NAME } from '../shared/product-identity'
+
+const MCP_TOOL_CALL_METHOD = 'tools/call'
+const MCP_CLIENT_INFO = { name: 'multicode-main', version: '1' } as const
 
 export type SprintEngineMcpHubInfo = {
   url: string
@@ -210,37 +214,37 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
     if (!info) throw new Error('Sprint Engine MCP hub is not ready.')
     if (!registration) throw new Error(`Sprint Engine MCP run ${input.runId} is not registered.`)
 
-    const initialize = await postMcpJsonRpc(info.url, registration.runToken, {
+    // One stateless POST per tool call (item 2141). The 2026-07-28 revision removed
+    // the handshake and the session id, so the initialize → tools/call → DELETE
+    // round trip this used to do bought nothing: the run token already carries the
+    // actor and request context a session would only have copied off it.
+    const body = await postMcpJsonRpc(info.url, registration.runToken, {
       jsonrpc: '2.0',
-      id: `init-${Date.now()}`,
-      method: 'initialize',
+      id: `call-${Date.now()}`,
+      method: MCP_TOOL_CALL_METHOD,
       params: {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'multicode-main', version: '1' },
-      },
-    })
-    const sessionId = initialize.sessionId
-    if (!sessionId) throw new Error('Sprint Engine MCP initialize did not return a session id.')
-    try {
-      const called = await postMcpJsonRpc(info.url, registration.runToken, {
-        jsonrpc: '2.0',
-        id: `call-${Date.now()}`,
-        method: 'tools/call',
-        params: {
-          name: input.toolName,
-          arguments: input.arguments ?? {},
+        name: input.toolName,
+        arguments: input.arguments ?? {},
+        _meta: {
+          protocolVersion: DEFAULT_MCP_PROTOCOL_VERSION,
+          clientInfo: MCP_CLIENT_INFO,
         },
-      }, sessionId)
-      if (called.body && typeof called.body === 'object' && 'error' in called.body) {
-        throw new Error(formatJsonRpcFailure(input.toolName, called.body))
-      }
-      return called.body && typeof called.body === 'object' && 'result' in called.body
-        ? (called.body as { result?: unknown }).result
-        : called.body
-    } finally {
-      void deleteMcpSession(info.url, registration.runToken, sessionId).catch(() => {})
+      },
+    }, {
+      // Declared twice on purpose: the header is what the transport routes on,
+      // `_meta.protocolVersion` is what a body-only reader sees. `Mcp-Method` /
+      // `Mcp-Name` (SEP-2243) are mandatory at this version and the server
+      // rejects any disagreement with the body.
+      'MCP-Protocol-Version': DEFAULT_MCP_PROTOCOL_VERSION,
+      'Mcp-Method': MCP_TOOL_CALL_METHOD,
+      'Mcp-Name': input.toolName,
+    })
+    if (body && typeof body === 'object' && 'error' in body) {
+      throw new Error(formatJsonRpcFailure(input.toolName, body))
     }
+    return body && typeof body === 'object' && 'result' in body
+      ? (body as { result?: unknown }).result
+      : body
   }
 
   async function start(): Promise<SprintEngineMcpHubInfo> {
@@ -523,8 +527,8 @@ function postMcpJsonRpc(
   url: string,
   runToken: string,
   payload: Record<string, unknown>,
-  sessionId?: string
-): Promise<{ body: unknown; sessionId?: string }> {
+  protocolHeaders: Record<string, string> = {}
+): Promise<unknown> {
   const body = JSON.stringify(payload)
   const target = new URL(url)
   return new Promise((resolve, reject) => {
@@ -535,7 +539,7 @@ function postMcpJsonRpc(
       method: 'POST',
       headers: {
         Authorization: `Bearer ${runToken}`,
-        ...(sessionId ? { 'Mcp-Session-Id': sessionId } : {}),
+        ...protocolHeaders,
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
       },
@@ -551,10 +555,7 @@ function postMcpJsonRpc(
           return
         }
         try {
-          resolve({
-            body: raw ? JSON.parse(raw) : null,
-            sessionId: response.headers['mcp-session-id']?.toString(),
-          })
+          resolve(raw ? JSON.parse(raw) : null)
         } catch (error) {
           reject(error)
         }
@@ -562,33 +563,6 @@ function postMcpJsonRpc(
     })
     request.on('error', reject)
     request.end(body)
-  })
-}
-
-function deleteMcpSession(url: string, runToken: string, sessionId: string): Promise<void> {
-  const target = new URL(url)
-  return new Promise((resolve, reject) => {
-    const request = http.request({
-      hostname: target.hostname,
-      port: target.port,
-      path: `${target.pathname}${target.search}`,
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${runToken}`,
-        'Mcp-Session-Id': sessionId,
-      },
-    }, (response) => {
-      response.resume()
-      response.on('end', () => {
-        if ((response.statusCode ?? 500) < 200 || (response.statusCode ?? 500) >= 300) {
-          reject(new Error(`Sprint Engine MCP session cleanup failed with HTTP ${response.statusCode ?? 'unknown'}.`))
-          return
-        }
-        resolve()
-      })
-    })
-    request.on('error', reject)
-    request.end()
   })
 }
 
