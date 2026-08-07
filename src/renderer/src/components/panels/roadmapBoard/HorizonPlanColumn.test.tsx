@@ -170,11 +170,14 @@ run('a row is 26px and says title only — no id, no status word', () => {
 // bar. Reading it must never again require pointing at the row.
 run('the team rests on every step, never hover-revealed', () => {
   const markup = render({ lanes: SIMPLE })
-  assert.doesNotMatch(
-    markup,
-    /opacity-0[^"]*group-hover\/step:opacity-100[^"]*focus-visible:opacity-100/,
-    'the inherited chip is no longer hidden until hover',
-  )
+  // The chip's OWN class list, not the row's: the drag grip and the delivered
+  // row's PR link are hover-revealed on purpose, so a document-wide search for
+  // `opacity-0` would pass or fail for reasons that have nothing to do with the
+  // team.
+  const chipClass = /aria-label="Team for [^"]*"\s+class="([^"]*)"/.exec(markup)?.[1]
+  assert.ok(chipClass, 'the step carries a team chip at all')
+  assert.doesNotMatch(chipClass, /opacity-0/, 'the inherited chip is no longer hidden until hover')
+  assert.doesNotMatch(chipClass, /group-hover\/step:/, 'and nothing about it waits on a hover')
   assert.match(
     markup,
     /aria-label="Team for Terminal links open a chooser: No roles \(inherited from this horizon\)"/,
