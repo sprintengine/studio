@@ -43,33 +43,31 @@ export interface EntitlementProvider {
 
 export type EntitlementCacheStatus = 'fresh' | 'offline_grace' | 'expired'
 
-// Offline policy of record: a snapshot stays usable for this long past both its
-// own expiry and the last successful refresh, whichever runs out first.
-//
-// Both defaults below are carried over verbatim from the Multiauth adapter so
-// this extraction changes no decision. Both are also KNOWN WRONG, and are fixed
-// under `backlog/2026-08-07-offline-entitlement-grace-fix.md`, not here: the
-// `min` collapses the window to zero for a default-TTL snapshot, and the
-// allowlist names a key that stopped gating anything in `e60c241d6`. They are a
-// constant and a constructor option rather than inline arithmetic and a
-// hardcoded predicate precisely so that fix is local to this file.
+// Offline policy of record: a snapshot stays usable for this long past its own
+// expiry. Measured from `snapshot.expiresAt` and nothing else (MC-2187) — the
+// window used to be `min(expiresAt + graceMs, lastRefreshAt + graceMs)`, and
+// since the server issues `expiresAt = issuedAt + 72h` while the desktop stamps
+// `lastRefreshAt` at fetch time, that `min` always landed back on `expiresAt`:
+// grace was the latency of the original fetch, and `offline_grace` was
+// unreachable for any default-TTL snapshot.
 export const ENTITLEMENT_GRACE_MS = 72 * 60 * 60 * 1000
 
-// Feature keys that survive the offline grace window. A key is here only when
-// the feature it unlocks is entirely local — nothing that spends hosted budget
-// may run on a stale snapshot, and `hostedCost` requests are refused regardless.
-export const DESKTOP_GRACE_FEATURE_KEYS: readonly string[] = ['multicode.sprintengine']
+// The staleness ceiling that `min` was reaching for, kept as an INDEPENDENT hard
+// stop: a cache this old expires whatever the snapshot arithmetic says. Folding
+// it back into a `min` with the grace window above is exactly how MC-2187
+// happened, so the two are combined by the status ladder, never by arithmetic.
+export const ENTITLEMENT_MAX_CACHE_AGE_MS = 14 * 24 * 60 * 60 * 1000
 
 export type EntitlementServiceOptions = {
   product: EntitlementSnapshot['product']
   graceMs?: number
-  graceFeatureKeys?: readonly string[]
+  maxCacheAgeMs?: number
 }
 
 export class EntitlementService {
   private readonly product: EntitlementSnapshot['product']
   private readonly graceMs: number
-  private readonly graceFeatureKeys: readonly string[]
+  private readonly maxCacheAgeMs: number
 
   constructor(
     private readonly provider: EntitlementProvider,
@@ -77,7 +75,7 @@ export class EntitlementService {
   ) {
     this.product = options.product
     this.graceMs = options.graceMs ?? ENTITLEMENT_GRACE_MS
-    this.graceFeatureKeys = options.graceFeatureKeys ?? DESKTOP_GRACE_FEATURE_KEYS
+    this.maxCacheAgeMs = options.maxCacheAgeMs ?? ENTITLEMENT_MAX_CACHE_AGE_MS
   }
 
   // The plain gate: is this key unlocked right now, on whatever snapshot we
@@ -112,7 +110,7 @@ export class EntitlementService {
       snapshot,
       lastRefreshAt: reading.lastRefreshAt ?? new Date(0).toISOString(),
     }
-    const cacheStatus = entitlementCacheStatus(cache, this.graceMs)
+    const cacheStatus = entitlementCacheStatus(cache, this.graceMs, this.maxCacheAgeMs)
     const graceExpiresAt = entitlementGraceExpiresAt(cache, this.graceMs)
     const value = entitlementValue(snapshot, request.featureKey)
     const limit = typeof value === 'number' ? value : undefined
@@ -127,17 +125,19 @@ export class EntitlementService {
       )
     }
 
-    if (cacheStatus === 'offline_grace') {
-      if (request.hostedCost || !this.graceFeatureKeys.includes(request.featureKey)) {
-        return denied(
-          request.featureKey,
-          value,
-          'offline_grace',
-          'This premium action needs online entitlement verification.',
-          limit,
-          graceExpiresAt
-        )
-      }
+    // Grace permissions are decided on the `hostedCost` axis alone: a stale
+    // snapshot must never authorize spending someone else's budget, but a
+    // purely local premium feature keeps working offline. No feature-key
+    // allowlist — the old one named a key that stopped gating anything.
+    if (cacheStatus === 'offline_grace' && request.hostedCost) {
+      return denied(
+        request.featureKey,
+        value,
+        'offline_grace',
+        'This premium action needs online entitlement verification.',
+        limit,
+        graceExpiresAt
+      )
     }
 
     if (typeof value === 'boolean' && value) {
@@ -198,21 +198,41 @@ export function isEntitlementSnapshotFresh(snapshot: EntitlementSnapshot): boole
   return Number.isFinite(expiresAt) && expiresAt > Date.now()
 }
 
+// When offline access runs out: the snapshot's own expiry plus the grace span.
+// The cache's age does not enter this — it is a separate stop, below.
 export function entitlementGraceExpiresAt(
   cache: CachedEntitlementSnapshot,
   graceMs: number = ENTITLEMENT_GRACE_MS
 ): string | null {
   const snapshotExpiresAt = Date.parse(cache.snapshot.expiresAt)
-  const lastRefreshAt = Date.parse(cache.lastRefreshAt)
-  if (!Number.isFinite(snapshotExpiresAt) || !Number.isFinite(lastRefreshAt)) return null
+  if (!Number.isFinite(snapshotExpiresAt)) return null
 
-  return new Date(Math.min(snapshotExpiresAt + graceMs, lastRefreshAt + graceMs)).toISOString()
+  return new Date(snapshotExpiresAt + graceMs).toISOString()
+}
+
+// The independent hard stop. A cache we have not managed to refresh in this
+// long is not trustworthy however long-lived the snapshot inside it claims to
+// be. An unreadable `lastRefreshAt` counts as stale: an undatable cache is not
+// evidence of a recent check.
+export function isEntitlementCacheTooStale(
+  cache: CachedEntitlementSnapshot,
+  maxCacheAgeMs: number = ENTITLEMENT_MAX_CACHE_AGE_MS
+): boolean {
+  const lastRefreshAt = Date.parse(cache.lastRefreshAt)
+  if (!Number.isFinite(lastRefreshAt)) return true
+
+  return lastRefreshAt + maxCacheAgeMs <= Date.now()
 }
 
 export function entitlementCacheStatus(
   cache: CachedEntitlementSnapshot,
-  graceMs: number = ENTITLEMENT_GRACE_MS
+  graceMs: number = ENTITLEMENT_GRACE_MS,
+  maxCacheAgeMs: number = ENTITLEMENT_MAX_CACHE_AGE_MS
 ): EntitlementCacheStatus {
+  // The ceiling is checked first so it holds regardless of snapshot expiry —
+  // a long-lived grant cannot coast forever on one successful fetch.
+  if (isEntitlementCacheTooStale(cache, maxCacheAgeMs)) return 'expired'
+
   if (isEntitlementSnapshotFresh(cache.snapshot)) return 'fresh'
 
   const graceExpiresAt = entitlementGraceExpiresAt(cache, graceMs)
@@ -221,6 +241,19 @@ export function entitlementCacheStatus(
   }
 
   return 'expired'
+}
+
+// The one grace-state message, shared by the decisions this service returns and
+// the auth state the adapter publishes. It carries the deadline so a user
+// running offline sees when access runs out rather than being cut off without
+// warning; an unreadable deadline is omitted rather than invented.
+export function offlineGraceMessage(graceExpiresAt: string | null | undefined): string {
+  const expiresAt = graceExpiresAt ? new Date(graceExpiresAt) : null
+  if (!expiresAt || Number.isNaN(expiresAt.getTime())) {
+    return 'Using cached Multicode access while offline.'
+  }
+
+  return `Using cached Multicode access while offline. Access expires ${expiresAt.toLocaleString()}.`
 }
 
 // Shape check for a snapshot read back off disk. A cache file that fails this is
@@ -273,7 +306,7 @@ function allowed(
     value,
     status,
     message: status === 'offline_grace'
-      ? 'Using cached Multicode access while offline.'
+      ? offlineGraceMessage(graceExpiresAt)
       : 'Access granted.',
     ...(limit !== undefined ? { limit } : {}),
     ...(graceExpiresAt ? { graceExpiresAt } : {}),
