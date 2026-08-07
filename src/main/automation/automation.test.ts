@@ -25,6 +25,7 @@ import { createReviewGatewayTools } from '../review/gateway-tools'
 import { reviewChangeSetDir } from '../review/changeset-service'
 import type { BriefRunEvent } from '../review/brief-run-service'
 import { validateReviewBrief, type ReviewBrief, type ReviewChangeSet } from '../../shared/review'
+import { DEFAULT_MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from '../../shared/mcp/protocol'
 import { SPRINTENGINE_TOOL_NAMES } from '../../shared/sprintengineToolNames.generated'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type {
@@ -790,6 +791,75 @@ async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
     /ENOENT|ECONNREFUSED/,
     'no listener after stop'
   )
+}
+
+async function testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt(): Promise<void> {
+  // The gateway used to answer initialize with whatever protocolVersion the client
+  // asked for, which told a 2026-era client we speak a spec we do not implement.
+  // Supported → itself; unsupported, malformed, or absent → our default.
+  const unsupported = '2026-07-28'
+  assert.ok(
+    !SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(unsupported),
+    'this test needs a version we do NOT serve'
+  )
+  // The Python engine pins the same literal (tests/sprintengine_tool/test_mcp_server.py);
+  // that pair is what keeps the two servers' declared maximum from drifting apart again.
+  assert.equal(DEFAULT_MCP_PROTOCOL_VERSION, '2025-06-18', 'both servers must answer the same default/maximum')
+
+  const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-negotiate-'))
+  const socketPath = join(dir, 'automation.sock')
+  const server = createMcpSocketServer({
+    socketPath,
+    serverName: 'multicode-automation',
+    serverVersion: '0.0.0-test',
+    resolveTools: () => [],
+  })
+  await server.start()
+  try {
+    const socket = connect(socketPath)
+    socket.setEncoding('utf8')
+    await new Promise<void>((resolve, reject) => {
+      socket.once('connect', () => resolve())
+      socket.once('error', reject)
+    })
+    const responses: Array<Record<string, unknown>> = []
+    let raw = ''
+    let buffer = ''
+    socket.on('data', (chunk: string) => {
+      raw += chunk
+      buffer += chunk
+      let newline = buffer.indexOf('\n')
+      while (newline !== -1) {
+        const line = buffer.slice(0, newline).trim()
+        buffer = buffer.slice(newline + 1)
+        if (line) responses.push(JSON.parse(line))
+        newline = buffer.indexOf('\n')
+      }
+    })
+
+    const initialize = (id: number, params: Record<string, unknown>): void => {
+      socket.write(`${JSON.stringify({ jsonrpc: '2.0', id, method: 'initialize', params })}\n`)
+    }
+    initialize(1, { protocolVersion: '2025-03-26' })
+    initialize(2, { protocolVersion: unsupported })
+    initialize(3, {})
+    initialize(4, { protocolVersion: 20260728 })
+    await waitUntil('four initialize responses', () => responses.length >= 4)
+
+    const answered = new Map(
+      responses.map((response) => [response.id, (response.result as { protocolVersion: string }).protocolVersion])
+    )
+    assert.equal(answered.get(1), '2025-03-26', 'a supported version is answered with itself')
+    assert.equal(answered.get(2), DEFAULT_MCP_PROTOCOL_VERSION, 'an unsupported version downgrades, never errors')
+    assert.equal(answered.get(3), DEFAULT_MCP_PROTOCOL_VERSION, 'an absent version answers the default')
+    assert.equal(answered.get(4), DEFAULT_MCP_PROTOCOL_VERSION, 'a non-string version answers the default')
+    assert.ok(!raw.includes(unsupported), 'the requested version must never come back to the caller')
+
+    socket.destroy()
+  } finally {
+    await server.stop()
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 async function testStaleSocketFileIsReplacedOnStart(): Promise<void> {
@@ -3806,6 +3876,7 @@ const tests = [
   testDelegateFailurePassesThrough,
   testDelegatePreservesWorkspaceModeOnSuccess,
   testSocketServerSpeaksMcpAndOnlyWhenStarted,
+  testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt,
   testStaleSocketFileIsReplacedOnStart,
   testBridgePipesStdioToSocketAndExitsOnServerStop,
   testConcurrentBridgesKeepResponsesAndAttributionIsolated,

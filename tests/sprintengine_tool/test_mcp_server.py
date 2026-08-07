@@ -15,6 +15,7 @@ from sprintengine_mcp import McpRequestContext, SprintEngineMcpServer
 from sprintengine_mcp.auth import ActorContext
 from sprintengine_mcp.http_server import SESSION_HEADER, SprintEngineHttpMcpServer
 from sprintengine_mcp.payloads import command_payload_to_namespace
+from sprintengine_mcp.protocol import DEFAULT_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS
 from sprintengine_mcp.schemas import MCP_V1_CONTRACT_SCHEMAS, TOOL_SCHEMAS
 from sprintengine_mcp.tool_contracts import MCP_TOOL_CONTRACTS
 
@@ -1686,6 +1687,48 @@ def test_stdio_transport_exercises_initialize_read_and_mutating_tool(tmp_path) -
     state = read_state(fixture.state_path)
     assert get_task(state, "T1")["ownerAgentId"] == "developer-stdio"
     assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == ["sprintengine.task.next"]
+
+
+def test_stdio_transport_negotiates_the_protocol_version_instead_of_echoing_it(tmp_path) -> None:
+    # The engine used to answer initialize with whatever protocolVersion the client
+    # asked for, which told a 2026-era client we speak a spec we do not implement.
+    # Supported → itself; unsupported, malformed, or absent → our default.
+    unsupported = "2026-07-28"
+    assert unsupported not in SUPPORTED_PROTOCOL_VERSIONS, "this test needs a version we do NOT serve"
+    messages = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-03-26"}},
+        {"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {"protocolVersion": unsupported}},
+        {"jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {}},
+        {"jsonrpc": "2.0", "id": 4, "method": "initialize", "params": {"protocolVersion": 20260728}},
+    ]
+    completed = subprocess.run(
+        [sys.executable, "-m", "sprintengine_mcp", "--allowed-root", str(tmp_path)],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "SPRINTENGINE_MCP_USER_ID": "workspace-user",
+            "SPRINTENGINE_MCP_USER_AUTHORIZED": "1",
+        },
+        input="\n".join(json.dumps(message) for message in messages) + "\n",
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=10,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+    answered = {response["id"]: response["result"]["protocolVersion"] for response in responses}
+    assert answered == {
+        1: "2025-03-26",
+        2: DEFAULT_PROTOCOL_VERSION,
+        3: DEFAULT_PROTOCOL_VERSION,
+        4: DEFAULT_PROTOCOL_VERSION,
+    }
+    assert unsupported not in completed.stdout, "the requested version must never come back to the caller"
+    # The TypeScript gateway pins the same literal (automation.test.ts); that pair is
+    # what keeps the two servers' declared maximum from drifting apart again.
+    assert DEFAULT_PROTOCOL_VERSION == "2025-06-18", "both servers must answer the same default/maximum"
 
 
 def test_stdio_transport_silently_accepts_jsonrpc_notifications(tmp_path) -> None:

@@ -1,6 +1,7 @@
 import { createServer, type Server, type Socket } from 'net'
 import { chmodSync, existsSync, unlinkSync } from 'fs'
 
+import { negotiateMcpProtocolVersion } from '../../shared/mcp/protocol'
 import type {
   McpConnectionContext,
   McpConnectionMetadata,
@@ -25,8 +26,6 @@ const JSONRPC_INTERNAL_ERROR = -32603
 // One inbound frame may not exceed this; a client that streams an unbounded
 // line gets an explicit error and a closed connection, never silent buffering.
 const MAX_LINE_BYTES = 1024 * 1024
-
-const FALLBACK_PROTOCOL_VERSION = '2025-03-26'
 
 // Canonical MCP tool/connection shapes moved to src/shared/modules/mcp-tools
 // (MC-1855) so the module host and SDK can share them; re-exported here for
@@ -201,11 +200,12 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
         context.metadata = connectionMetadata(params)
         return { kind: 'no_response' }
       case 'initialize': {
-        const requested = typeof params.protocolVersion === 'string' ? params.protocolVersion : FALLBACK_PROTOCOL_VERSION
+        // Negotiate, never echo: a client asking for a version we do not
+        // implement is answered with the newest one we do (shared/mcp/protocol).
         return {
           kind: 'result',
           value: {
-            protocolVersion: requested,
+            protocolVersion: negotiateMcpProtocolVersion(params.protocolVersion),
             capabilities: { tools: { listChanged: true } },
             serverInfo: { name: options.serverName, version: options.serverVersion },
           },

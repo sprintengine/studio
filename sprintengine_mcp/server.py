@@ -72,6 +72,7 @@ from .capabilities import (
     permitted_alternative,
 )
 from .payloads import command_payload_to_namespace
+from .protocol import negotiate_protocol_version
 from .response_shapes import shape_tool_result
 from .schemas import TOOL_SCHEMAS, list_tool_schemas
 from .tool_contracts import MCP_TOOL_CONTRACTS
@@ -1146,11 +1147,13 @@ def _handle_jsonrpc_message(
     request_id = message.get("id")
     if method == "initialize":
         params = message.get("params") or {}
+        # Negotiate, never echo: a client asking for a version we do not implement
+        # is answered with the newest one we do (sprintengine_mcp/protocol.py).
         return {
             "jsonrpc": "2.0",
             "id": request_id,
             "result": {
-                "protocolVersion": params.get("protocolVersion", "2024-11-05"),
+                "protocolVersion": negotiate_protocol_version(params.get("protocolVersion")),
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": "sprintengine-mcp", "version": "0.1.0"},
             },
