@@ -104,6 +104,8 @@ import {
   formatTaskSourceLabel,
   formatTimestamp,
   getMobileArtifactDecision,
+  getSprintEngineDocumentedArtifacts,
+  sprintEngineArtifactHasDocument,
   sprintEngineInboxRowSupporting,
   sprintEngineInboxRowLifecycle,
   taskActivitySparkline,
@@ -313,6 +315,42 @@ export function SprintEngineBlockedByRow({
   )
 }
 
+/**
+ * The outcome of an artifact action, in the app's one error-card idiom.
+ *
+ * A failure renders through InlineNotice — plain sentence, what-it-means line,
+ * and the raw string (an absolute path, an IPC body) folded behind "Show
+ * details". Pasting that path inline is what this replaces: four wrapped lines
+ * of red monospace for a state that is usually just "not written yet".
+ * Success stays a quiet line, because success is the state the screen already
+ * shows (see the notice vocabulary in `ui/InlineNotice.tsx`).
+ */
+function ArtifactActionOutcome({
+  action,
+  className,
+}: {
+  action: ArtifactActionState
+  className?: string
+}) {
+  if (action.status === 'pending') return null
+  if (action.status === 'error') {
+    return (
+      <InlineNotice
+        tone="error"
+        title={action.message}
+        hint={action.hint}
+        detail={action.detail}
+        className={className}
+      />
+    )
+  }
+  return (
+    <p role="status" className={`text-meta leading-5 text-[color:var(--text-muted)] ${className ?? ''}`}>
+      {action.message}
+    </p>
+  )
+}
+
 function SprintEngineArtifactInspector({
   artifact,
   task,
@@ -345,7 +383,9 @@ function SprintEngineArtifactInspector({
   const confidencePct = getArtifactConfidencePct(artifact, task)
   const mobileDecision = getMobileArtifactDecision(artifact)
   const autoApproval = getSprintEngineArtifactAutoApprovalEligibility(artifact)
-  const canOpenArtifact = Boolean(artifact.path.trim())
+  // Same rule as the list row: a record whose file has not been written has no
+  // Open, and the File row below says so rather than an error saying it after.
+  const canOpenArtifact = sprintEngineArtifactHasDocument(artifact)
   const readyForReview = artifact.status === 'ready_for_review'
   const pending = actionState?.status === 'pending'
 
@@ -386,7 +426,12 @@ function SprintEngineArtifactInspector({
   items.push({
     term: 'File',
     description: artifact.path ? (
-      <span className="break-all font-mono text-meta text-[color:var(--text-strong)]">{artifact.path}</span>
+      <span className="break-all font-mono text-meta text-[color:var(--text-strong)]">
+        {artifact.path}
+        {canOpenArtifact ? null : (
+          <span className="ml-1.5 font-sans text-[color:var(--text-muted)]">Not written yet.</span>
+        )}
+      </span>
     ) : (
       <span className="text-[color:var(--text-disabled)]">No file path recorded.</span>
     ),
@@ -488,13 +533,7 @@ function SprintEngineArtifactInspector({
         {actionState && actionState.status !== 'pending' ? (
           <div>
             <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Last action</div>
-            <div
-              className={`text-meta leading-5 ${
-                actionState.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-good)]'
-              }`}
-            >
-              {actionState.message}
-            </div>
+            <ArtifactActionOutcome action={actionState} />
           </div>
         ) : null}
       </div>
@@ -553,7 +592,10 @@ export function SprintEngineArtifactList({
             const action = actions[artifact.id]
             const pending = action?.status === 'pending'
             const readyForReview = artifact.status === 'ready_for_review'
-            const canOpenArtifact = Boolean(artifact.path.trim())
+            // Open is offered for a document that exists. A draft placeholder
+            // registered ahead of its file has nothing to open, and offering the
+            // action anyway is what turned a normal state into a red error.
+            const canOpenArtifact = sprintEngineArtifactHasDocument(artifact)
             const autoApprovalEligibility = getSprintEngineArtifactAutoApprovalEligibility(artifact)
             const mobileDecision = getMobileArtifactDecision(artifact)
             const confidencePct = getArtifactConfidencePct(artifact, task)
@@ -603,9 +645,7 @@ export function SprintEngineArtifactList({
                     ) : null}
                   </div>
                   {action && action.status !== 'pending' ? (
-                    <div className={`text-micro ${action.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-good)]'}`}>
-                      {action.message}
-                    </div>
+                    <ArtifactActionOutcome action={action} className="mt-1.5" />
                   ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5 justify-self-end">
@@ -914,13 +954,21 @@ function TaskReviewPrompt({
           {relative ? <span> · {relative}</span> : null}
         </div>
       ) : null}
+      {/* Already inside a notice — a nested card would be a box in a box, so the
+          outcome reads as two lines here: the sentence, then what it means. The
+          raw detail stays reachable in the artifact detail pane. */}
       {action && action.status !== 'pending' ? (
-        <div
-          className={`mt-2 text-meta leading-5 ${
-            action.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-good)]'
-          }`}
-        >
-          {action.message}
+        <div className="mt-2 text-meta leading-5">
+          <div
+            className={
+              action.status === 'error'
+                ? 'text-[color:var(--tone-error)]'
+                : 'text-[color:var(--text-muted)]'
+            }
+          >
+            {action.message}
+          </div>
+          {action.hint ? <div className="text-[color:var(--text-muted)]">{action.hint}</div> : null}
         </div>
       ) : null}
     </InlineNotice>
@@ -2943,6 +2991,16 @@ function SprintEngineTaskBody({
     () => buildTaskTimeline(selectedTask, runEvents),
     [selectedTask, runEvents],
   )
+  // The Artifacts section lists the task's documents. An artifact record whose
+  // file has not been written — the plan/requirements gate seeded at run
+  // creation, an agent that registered before writing — is a promise, not an
+  // output, and listing it invented a document the person cannot read. The
+  // timeline below still gets the full set, so the registration itself stays
+  // visible where it belongs: as an event, in order.
+  const documentedArtifacts = useMemo(
+    () => getSprintEngineDocumentedArtifacts(selectedTaskArtifacts),
+    [selectedTaskArtifacts],
+  )
   const findingsAnchorRef = useRef<HTMLDivElement | null>(null)
   const changedFilesRef = useRef<HTMLDivElement | null>(null)
   const diffCount = selectedTask.evidence.diffs?.length ?? 0
@@ -3021,9 +3079,9 @@ function SprintEngineTaskBody({
       {/* MC-1469: artifacts are the task's outputs, not reference metadata —
           they render first-class rather than inside the collapsed More section.
           Hidden entirely when a task has none so artifact-less tasks stay quiet. */}
-      {selectedTaskArtifacts.length > 0 ? (
+      {documentedArtifacts.length > 0 ? (
         <SprintEngineArtifactList
-          artifacts={selectedTaskArtifacts}
+          artifacts={documentedArtifacts}
           tasksById={tasksById}
           actions={artifactActions}
           title="Artifacts"

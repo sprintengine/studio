@@ -3,8 +3,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   SOURCE_HANDOFF_ARTIFACT_ID,
+  getSprintEngineDocumentedArtifacts,
   getSprintEngineInboxArtifacts,
   getSprintEngineInboxBadgeCount,
+  sprintEngineArtifactHasDocument,
 } from '../sprintEngineInspector'
 import type { SprintEngineArtifact } from '../../../types/workspace'
 
@@ -13,8 +15,10 @@ import type { SprintEngineArtifact } from '../../../types/workspace'
 //   1. draft artifacts never appear in the Inbox list;
 //   2. the Inbox tab badge counts only decision-actionable artifacts
 //      (ready_for_review + changes_requested), so a draft-only sprint reads 0;
-//   3. a per-artifact open failure routes to the inline action state only, and
-//      never flips the board sync banner to "Refresh failed".
+//   3. a per-artifact open failure routes to the inline action state only, never
+//      flips the board sync banner to "Refresh failed", and reads as a sentence
+//      with the raw path behind a disclosure rather than pasted into the row;
+//   4. a registered-but-unwritten artifact is not listed as a document.
 // (1)+(2) are proven directly against the pure filters; (3) is pinned as a
 // source contract on the open-artifact error path, which has no headless
 // React harness to drive.
@@ -119,12 +123,56 @@ function artifact(
   const catchBody = openBody.slice(catchStart)
 
   assert.ok(
-    catchBody.includes("setArtifactAction(artifact.id, { kind: 'open', status: 'error'"),
+    catchBody.includes("kind: 'open',") && catchBody.includes("status: 'error',"),
     'open failure sets the inline per-artifact error action',
   )
   assert.ok(
     !catchBody.includes('setSyncState'),
     'open failure must not drive the board sync banner (setSyncState)',
+  )
+
+  // 3b. The failure is presented, not dumped: the row gets a plain sentence and
+  // the absolute path rides as `detail`, which only InlineNotice's "Show
+  // details" disclosure renders. A raw `Artifact file does not exist: /abs/…`
+  // as the message is what this replaces.
+  assert.ok(
+    !openBody.includes('Artifact file does not exist'),
+    'the missing-file failure no longer pastes a raw path-prefixed string into the row',
+  )
+  assert.ok(
+    openBody.includes('has not been written yet.') && openBody.includes('detail: artifactPath'),
+    'the missing-file failure says what happened and keeps the path as detail',
+  )
+}
+
+// 4. A registered-but-unwritten artifact is not a document. The task detail
+// lists outputs a person can open, so a `draft` with no fingerprint (the plan
+// gate seeded at run creation, an agent that registered ahead of writing) is
+// held out — while every written artifact, whatever its status, stays.
+{
+  const written = artifact('A-written', 'draft', { fingerprint: 'abc123' })
+  const unwritten = artifact('A-unwritten', 'draft')
+  const pathless = artifact('A-pathless', 'draft', { path: '  ', fingerprint: 'abc123' })
+  const ready = artifact('A-ready', 'ready_for_review')
+  const approved = artifact('A-approved', 'approved')
+
+  assert.equal(sprintEngineArtifactHasDocument(written), true, 'a written draft is a document')
+  assert.equal(sprintEngineArtifactHasDocument(unwritten), false, 'an unwritten draft is not')
+  assert.equal(sprintEngineArtifactHasDocument(pathless), false, 'no path, no document')
+  // Every post-draft status is file-backed by the engine (`artifact.ready`
+  // resolves with require_file=True), so a null fingerprint there — the
+  // in-place reference handoff carries one — must not hide a real file.
+  assert.equal(sprintEngineArtifactHasDocument(ready), true, 'ready_for_review always shows')
+  assert.equal(
+    sprintEngineArtifactHasDocument({ ...approved, fingerprint: null }),
+    true,
+    'an approved artifact with no recorded fingerprint still shows',
+  )
+
+  assert.deepEqual(
+    getSprintEngineDocumentedArtifacts([written, unwritten, pathless, ready, approved]).map((a) => a.id),
+    ['A-written', 'A-ready', 'A-approved'],
+    'the documented list keeps written artifacts in order and drops the placeholders',
   )
 }
 

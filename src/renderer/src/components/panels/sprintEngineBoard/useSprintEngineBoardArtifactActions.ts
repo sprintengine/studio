@@ -247,15 +247,27 @@ export function useSprintEngineBoardArtifactActions(
       if (!ensuredStatePath) return
 
       setArtifactAction(artifact.id, { kind: 'open', status: 'pending', message: 'Opening...' })
+      const artifactPath = resolveSprintEngineArtifactEditorPath(
+        ensuredStatePath,
+        artifact.path,
+        artifactEditorPathHelpers,
+      )
+      const fileName = basename(artifactPath) || artifact.path
       try {
-        const artifactPath = resolveSprintEngineArtifactEditorPath(
-          ensuredStatePath,
-          artifact.path,
-          artifactEditorPathHelpers,
-        )
         const exists = await api.pathExists(artifactPath)
         if (!exists) {
-          throw new Error(`Artifact file does not exist: ${artifactPath}`)
+          // Expected, not exceptional: the record can exist before its file does
+          // (a gate seeded at run creation, an agent that registered ahead of
+          // writing). Say that in the user's words and keep the path behind the
+          // details disclosure rather than pasting an absolute path into the row.
+          setArtifactAction(artifact.id, {
+            kind: 'open',
+            status: 'error',
+            message: `${fileName} has not been written yet.`,
+            hint: 'The agent registered this artifact before creating the file. It opens once the file lands.',
+            detail: artifactPath,
+          })
+          return
         }
         const content = await api.readfile(artifactPath)
         setPreviewedArtifact({
@@ -271,11 +283,18 @@ export function useSprintEngineBoardArtifactActions(
           message: 'Opened in preview.',
         })
       } catch (error) {
-        // A per-artifact open failure (e.g. a missing file) is an inline action
-        // error, not a board-sync failure — route it only to this artifact's
-        // actionState so it does not flip the board banner to "Refresh failed".
-        const message = error instanceof Error ? error.message : 'Failed to open artifact.'
-        setArtifactAction(artifact.id, { kind: 'open', status: 'error', message })
+        // A per-artifact open failure (e.g. an unreadable file) is an inline
+        // action error, not a board-sync failure — route it only to this
+        // artifact's actionState so it does not flip the board banner to
+        // "Refresh failed". The raw string rides along as `detail`.
+        const raw = error instanceof Error ? error.message : String(error)
+        setArtifactAction(artifact.id, {
+          kind: 'open',
+          status: 'error',
+          message: `${fileName} could not be opened.`,
+          hint: 'The file may have moved since the agent wrote it. Refresh the board, then try again.',
+          detail: raw,
+        })
       }
     },
     [requireArtifactStatePath, setArtifactAction, setPreviewedArtifact, api],

@@ -252,8 +252,8 @@ assert.equal(sprintEngineSeedKindLabel({ kind: 'unknown', isEpicRoot: false }), 
     'the artifact list renders above the More disclosure, not inside it',
   )
   assert.ok(
-    inspectorSource.includes('selectedTaskArtifacts.length > 0 ? ('),
-    'the Artifacts section hides entirely for tasks with no artifacts',
+    inspectorSource.includes('documentedArtifacts.length > 0 ? ('),
+    'the Artifacts section hides entirely for tasks with no written artifacts',
   )
   assert.ok(
     inspectorSource.includes('title="Artifacts"'),

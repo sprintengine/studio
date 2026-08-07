@@ -66,7 +66,19 @@ export type ArtifactActionKind = 'open' | 'approve' | 'requestChanges'
 export type ArtifactActionState = {
   kind: ArtifactActionKind
   status: 'pending' | 'success' | 'error'
+  /**
+   * The plain sentence. On a failure this is the error card's `title` — what
+   * happened, in the user's words — never a raw ENOENT/IPC string.
+   */
   message: string
+  /** What it means / the one next step. Failures only (errorPresentation's `hint`). */
+  hint?: string
+  /**
+   * The raw technical string (absolute path, IPC error body). Rendered only
+   * behind InlineNotice's "Show details" disclosure — never inline, per the
+   * shared error-card contract in `ui/errorPresentation.ts`.
+   */
+  detail?: string
 }
 
 // Per-task transient state for resolving a `needs_input` blocker from the
@@ -167,6 +179,38 @@ export function artifactTimestampMs(artifact: SprintEngineArtifact): number {
 }
 
 export const SOURCE_HANDOFF_ARTIFACT_ID = 'source-handoff'
+
+/**
+ * Has this artifact's document actually been written?
+ *
+ * An artifact record and the file it names are minted at different moments: the
+ * engine registers the plan/requirements approval gate at run creation, and an
+ * agent registers its own artifact with `artifact.add` — both before anything is
+ * on disk. `fingerprint` is the sha256 of the file at registration, so a `draft`
+ * with no fingerprint is a promise of a document, not a document. Every later
+ * status is written-file-backed: `artifact.ready` resolves the path with
+ * `require_file=True` and re-stamps the fingerprint, so only `draft` can be empty.
+ *
+ * Surfaces that list a person's readable outputs use this to show documents that
+ * exist rather than placeholders that error when opened.
+ */
+export function sprintEngineArtifactHasDocument(artifact: SprintEngineArtifact): boolean {
+  if (!artifact.path.trim()) return false
+  if (artifact.status !== 'draft') return true
+  return Boolean(artifact.fingerprint)
+}
+
+/**
+ * The artifacts of a task that are real documents, newest first. Drops the
+ * not-yet-written draft placeholders (see `sprintEngineArtifactHasDocument`),
+ * which is what the task detail's Artifacts section lists — the timeline keeps
+ * the full set so the registration event itself is never erased.
+ */
+export function getSprintEngineDocumentedArtifacts(
+  artifacts: SprintEngineArtifact[],
+): SprintEngineArtifact[] {
+  return artifacts.filter(sprintEngineArtifactHasDocument)
+}
 
 // Artifact statuses that represent a pending human decision. These are the
 // only statuses the Inbox tab badge counts: a fresh sprint whose sole artifact
