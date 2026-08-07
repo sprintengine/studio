@@ -850,7 +850,8 @@ async function testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt(): P
     initialize(2, { protocolVersion: unsupported })
     initialize(3, {})
     initialize(4, { protocolVersion: 20260728 })
-    await waitUntil('four initialize responses', () => responses.length >= 4)
+    initialize(5, { protocolVersion: '2026-07-28' })
+    await waitUntil('five initialize responses', () => responses.length >= 5)
 
     const answered = new Map(
       responses.map((response) => [response.id, (response.result as { protocolVersion: string }).protocolVersion])
@@ -859,6 +860,7 @@ async function testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt(): P
     assert.equal(answered.get(2), DEFAULT_MCP_PROTOCOL_VERSION, 'an unsupported version downgrades, never errors')
     assert.equal(answered.get(3), DEFAULT_MCP_PROTOCOL_VERSION, 'an absent version answers the default')
     assert.equal(answered.get(4), DEFAULT_MCP_PROTOCOL_VERSION, 'a non-string version answers the default')
+    assert.equal(answered.get(5), '2026-07-28', 'the version this gateway now implements is answered with itself')
     assert.ok(!raw.includes(unsupported), 'the requested version must never come back to the caller')
 
     socket.destroy()
@@ -975,7 +977,13 @@ async function testPerRequestProtocolVersionDeclarationIsValidated(): Promise<vo
       method: 'tools/call',
       params: { name: 'workspace.list', arguments: {}, ...meta(unsupported) },
     })
-    await waitUntil('five responses', () => client.responses.length >= 5)
+    client.send({
+      jsonrpc: '2.0',
+      id: 6,
+      method: 'tools/call',
+      params: { name: 'workspace.list', arguments: {}, ...meta(DEFAULT_MCP_PROTOCOL_VERSION) },
+    })
+    await waitUntil('six responses', () => client.responses.length >= 6)
 
     const byId = new Map(client.responses.map((response) => [response.id, response]))
     const served = (id: number, why: string): void => {
@@ -997,6 +1005,7 @@ async function testPerRequestProtocolVersionDeclarationIsValidated(): Promise<vo
     served(3, 'no declaration at all is served normally')
     refused(4, 'a non-string declaration is a claim we cannot honour, not an absent one')
     refused(5, 'the check covers tools/call, not just tools/list')
+    served(6, 'a supported declaration does not stop the tool running')
   } finally {
     await client.close()
   }
