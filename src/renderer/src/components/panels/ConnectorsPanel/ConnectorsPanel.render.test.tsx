@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { renderToStaticMarkup } from 'react-dom/server'
 
@@ -560,6 +561,38 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
   )
   const markup = renderToStaticMarkup(<PluginIcon iconUrl={dataUri} name="Stripe" size={32} />)
   assert.match(markup, /src="data:image\/svg\+xml;base64,PHN2Zy8\+"/)
+}
+
+// --- one canvas, kind-specific weight in a kind-specific file (item 2042) ----
+
+// Source-read, because it is about where code LIVES: a mounted canvas renders
+// identically whether the automation half sits in it or beside it, which is
+// exactly why the split needs a guard that a render cannot give. The three kinds
+// share the canvas; the automation machinery is the shelf's.
+{
+  const canvasSource = readFileSync(
+    join(process.cwd(), 'src/renderer/src/components/panels/ConnectorsPanel/ExtensionKindCanvas.tsx'),
+    'utf8',
+  )
+  const shelfSource = readFileSync(
+    join(process.cwd(), 'src/renderer/src/components/panels/ConnectorsPanel/AutomationShelf.tsx'),
+    'utf8',
+  )
+  // The machinery only automations have: the project read that answers
+  // added-or-not, the install a Get performs, and the cadence the row states.
+  for (const machinery of [
+    /listInstanceAutomations/,
+    /installMarketplacePluginFromRegistry/,
+    /installMarketplacePluginFolder/,
+    /cadenceSummary/,
+  ] as const) {
+    assert.match(shelfSource, machinery, `the shelf owns ${machinery}`)
+    assert.doesNotMatch(canvasSource, machinery, `the shared canvas does not reach for ${machinery}`)
+  }
+  // And it is still ONE canvas: the shelf is entered through the canvas, not
+  // routed to as a second canvas of its own.
+  assert.match(canvasSource, /useAutomationShelf\(/, 'the canvas enters the shelf through one hook call')
+  assert.doesNotMatch(shelfSource, /InboxSearchInput/, 'search stays shared, not duplicated per kind')
 }
 
 console.log('connectors-panel render guard passed')
