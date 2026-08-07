@@ -47,7 +47,15 @@ function watchWithSpies(mainCommit: string | null = MAIN) {
   assert.equal(notices.length, 1, 'the operator is told once')
   assert.equal(lines.filter((line) => line.includes('build_skew_detected')).length, 1)
   assert.ok(lines.some((line) => line.includes('aaaaaaa') && line.includes('bbbbbbb')))
-  assert.deepEqual(watch.lastVerdict, { status: 'skew' })
+}
+
+// Two commits sharing a short prefix are two incidents, not one: the dedup key
+// is the full sha, while the messages print the abbreviation.
+{
+  const { watch, notices } = watchWithSpies()
+  watch.recordRendererStamp(stamp('bbbbbbb' + '1'.repeat(33)))
+  watch.recordRendererStamp(stamp('bbbbbbb' + '2'.repeat(33)))
+  assert.equal(notices.length, 2)
 }
 
 // A third commit appearing later is new information — one more announcement,
@@ -60,8 +68,8 @@ function watchWithSpies(mainCommit: string | null = MAIN) {
   assert.equal(notices.length, 2)
 }
 
-// A window matching main after a skew was reported still returns `match`: the
-// verdict tracks the reporter, and nothing is sticky except the announcement.
+// A window matching main after a skew was reported still reads `match`: each
+// report is judged on its own, and nothing is sticky except the announcement.
 {
   const { watch, notices } = watchWithSpies()
   watch.recordRendererStamp(stamp(OTHER))
@@ -89,7 +97,6 @@ function watchWithSpies(mainCommit: string | null = MAIN) {
   assert.equal(watch.recordReportedPayload(undefined), null)
   assert.deepEqual(notices, [])
   assert.equal(lines.filter((line) => line.includes('build_stamp_report_rejected')).length, 2)
-  assert.equal(watch.lastVerdict, null, 'a rejected payload leaves no verdict behind')
 }
 
 // A well-formed payload over the wire behaves exactly like a direct report.

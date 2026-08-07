@@ -47,10 +47,15 @@ attachBuildSkewWatch(
     announce: ({ headline, detail }) => {
       // Swallowed on purpose, and only here: the skew is already on the log by
       // the time this runs, so a dialog that cannot open must not become a
-      // second failure on top of the one it was reporting.
-      void dialog
-        .showMessageBox({ type: 'warning', message: headline, detail, buttons: ['Close'] })
-        .catch(() => {})
+      // second failure on top of the one it was reporting. Both throw shapes are
+      // covered — `dialog` refuses synchronously before the app is ready.
+      try {
+        void dialog
+          .showMessageBox({ type: 'warning', message: headline, detail, buttons: ['Close'] })
+          .catch(() => {})
+      } catch {
+        // Already logged.
+      }
     },
   })
 )
