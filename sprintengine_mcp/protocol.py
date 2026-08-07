@@ -33,14 +33,28 @@ def is_supported_protocol_version(value: object) -> bool:
 
 
 def negotiate_protocol_version(requested: object) -> str:
-    """Answer a supported request with itself, anything else with the default.
+    """Answer a supported request with itself, an unknown one with the newest
+    version we serve that is no NEWER than the ask.
 
     Never raises. The spec's rule for an unsupported `initialize` is to respond
     with a version the server does support and let the client decide whether to
     continue; an error here would break clients that would have accepted our
     answer. `requested` is deliberately `object`: it arrives straight off the
     wire, so a missing key, `None`, or a non-string all land in the same branch.
+
+    Answering the unknown ask with our MAXIMUM is what broke Claude Code: it
+    offers a revision between `2025-06-18` and `2026-07-28`, so handing back
+    `2026-07-28` names a version the client cannot parse and it rejects the
+    handshake outright. Downgrading lands on `2025-06-18`, which both speak.
+    Versions are ISO dates, so lexicographic order is chronological order.
     """
     if is_supported_protocol_version(requested):
         return cast(str, requested)
-    return DEFAULT_PROTOCOL_VERSION
+    if not isinstance(requested, str) or not requested:
+        return DEFAULT_PROTOCOL_VERSION
+    # Newest-first, so the first entry at or below the ask is the best downgrade.
+    for version in SUPPORTED_PROTOCOL_VERSIONS:
+        if version <= requested:
+            return version
+    # Older than anything we serve: answer our oldest, never our newest.
+    return SUPPORTED_PROTOCOL_VERSIONS[-1]

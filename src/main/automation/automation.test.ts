@@ -851,7 +851,13 @@ async function testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt(): P
     initialize(3, {})
     initialize(4, { protocolVersion: 20260728 })
     initialize(5, { protocolVersion: '2026-07-28' })
-    await waitUntil('five initialize responses', () => responses.length >= 5)
+    // A revision we do not know that sits BETWEEN two we do serve. Answering
+    // our maximum here named a version the client could not parse and it
+    // rejected the handshake, so every spawned agent came up with no tools.
+    initialize(6, { protocolVersion: '2025-11-25' })
+    // Older than anything we serve: answer our oldest, still never our newest.
+    initialize(7, { protocolVersion: '2024-01-01' })
+    await waitUntil('seven initialize responses', () => responses.length >= 7)
 
     const answered = new Map(
       responses.map((response) => [response.id, (response.result as { protocolVersion: string }).protocolVersion])
@@ -861,6 +867,8 @@ async function testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt(): P
     assert.equal(answered.get(3), DEFAULT_MCP_PROTOCOL_VERSION, 'an absent version answers the default')
     assert.equal(answered.get(4), DEFAULT_MCP_PROTOCOL_VERSION, 'a non-string version answers the default')
     assert.equal(answered.get(5), '2026-07-28', 'the version this gateway now implements is answered with itself')
+    assert.equal(answered.get(6), '2025-06-18', 'an unknown version downgrades to the newest we serve at or below it')
+    assert.equal(answered.get(7), '2024-11-05', 'a client older than everything we serve gets our oldest, not our newest')
     assert.ok(!raw.includes(unsupported), 'the requested version must never come back to the caller')
 
     socket.destroy()

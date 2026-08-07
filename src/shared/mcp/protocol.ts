@@ -30,14 +30,28 @@ export function isSupportedMcpProtocolVersion(value: unknown): value is string {
 }
 
 /**
- * Answer a supported request with itself, anything else with the default.
+ * Answer a supported request with itself, an unknown one with the newest
+ * version we serve that is no NEWER than the ask.
  *
  * Never throws. The spec's rule for an unsupported `initialize` is to respond
  * with a version the server does support and let the client decide whether to
  * continue; an error here would break clients that would have accepted our
  * answer. `requested` is `unknown` because it arrives straight off the wire, so
  * an absent field, `null`, or a non-string all land in the same branch.
+ *
+ * Answering the unknown ask with our MAXIMUM is what broke Claude Code: it
+ * offers a revision between `2025-06-18` and `2026-07-28`, so handing back
+ * `2026-07-28` names a version newer than the client can parse and the
+ * handshake is rejected outright — every agent the sprint spawned lost its
+ * tools. Downgrading instead lands on `2025-06-18`, which both sides speak.
+ * Versions are ISO dates, so lexicographic order is chronological order.
  */
 export function negotiateMcpProtocolVersion(requested: unknown): string {
-  return isSupportedMcpProtocolVersion(requested) ? requested : DEFAULT_MCP_PROTOCOL_VERSION
+  if (isSupportedMcpProtocolVersion(requested)) return requested
+  if (typeof requested !== 'string' || requested === '') return DEFAULT_MCP_PROTOCOL_VERSION
+  // Newest-first, so the first entry at or below the ask is the best downgrade.
+  const downgrade = SUPPORTED_MCP_PROTOCOL_VERSIONS.find((version) => version <= requested)
+  // No entry at or below means the client is older than anything we serve;
+  // answer our oldest and let it decide, rather than our newest.
+  return downgrade ?? SUPPORTED_MCP_PROTOCOL_VERSIONS[SUPPORTED_MCP_PROTOCOL_VERSIONS.length - 1]
 }
