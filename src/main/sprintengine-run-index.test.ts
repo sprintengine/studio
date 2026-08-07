@@ -7,6 +7,7 @@ import {
   invalidateSprintRunSummary,
   listSprintRuns,
   readSprintRunSummary,
+  readSprintRunVcs,
   watchSprintRunProjections,
   watchedSprintRunProjectionPaths,
 } from './sprintengine-run-index'
@@ -17,6 +18,7 @@ void main()
 async function main(): Promise<void> {
   await assertStatesAcrossRootsAndTeams()
   await assertCompletedButUnmergedRollup()
+  await assertRunVcsIsNullWhenUnreadable()
   await assertDeletedTeamDisappearsCorruptShowsUnknown()
   await assertUnsupportedSchemaRejected()
   await assertMemoKeyedOnMtimeAndSize()
@@ -183,6 +185,33 @@ async function assertCompletedButUnmergedRollup(): Promise<void> {
     // dropped/altered runtimeState.
     assert.equal(summary.runtimeState, 'completed')
     assert.deepEqual(summary.repoRollup, { declared: 3, merged: 2, open: 1 })
+
+    // The merge poller reads the same memo the summary came from (MC-2155), so
+    // asking for both costs one disk read. The rollup alone cannot answer its
+    // question — it counts a committed-but-un-PR'd repo as unmerged too.
+    const vcs = await readSprintRunVcs(summary.statePath)
+    assert.equal(vcs?.mode, 'run_worktree')
+    assert.deepEqual(
+      vcs?.repos.map((repo) => [repo.id, repo.pullRequestState]),
+      [['primary', 'merged'], ['repo-two', 'merged'], ['repo-three', 'open']],
+    )
+  })
+}
+
+async function assertRunVcsIsNullWhenUnreadable(): Promise<void> {
+  await withRoot(async (root) => {
+    // A projection that is missing, malformed, or of an unsupported schema reads
+    // as no vcs — "could not be read" and "nothing to merge" are the same answer
+    // for the poller, which must never probe a run it could not inspect.
+    const missing = writeRun(root, 'no-projection', { noProjection: true })
+    const corrupt = writeRun(root, 'corrupt', { rawProjection: '{not json' })
+    const noWorktree = writeRun(root, 'shared-mode', {
+      projection: projectionWith({}, [{ id: 'T1', status: 'done' }]),
+    })
+
+    assert.equal(await readSprintRunVcs(missing.statePath), null)
+    assert.equal(await readSprintRunVcs(corrupt.statePath), null)
+    assert.equal(await readSprintRunVcs(noWorktree.statePath), null, 'a run with no run worktree has no branch to merge')
   })
 }
 

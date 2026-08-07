@@ -13,6 +13,7 @@ import {
   SprintEngineAutomationServiceToken,
   SprintEngineLaunchSettingsToken,
   SprintEngineMcpHubToken,
+  SprintPullRequestMergePollerToken,
   SprintRuntimeToken,
   TerminalRuntimeToken,
   WorkspaceContextToken,
@@ -73,6 +74,7 @@ export function createAgentRuntimeModule(
       host.provideService(SprintEngineAutomationServiceToken, () => services.sprintEngineAutomation)
       host.provideService(SprintEngineLaunchSettingsToken, () => services.sprintEngineLaunchSettings)
       host.provideService(SprintRuntimeToken, () => services.sprintRuntime)
+      host.provideService(SprintPullRequestMergePollerToken, () => services.sprintPullRequestMergePoller)
       host.provideService(MulticodeAuthToken, () => services.multicodeAuth)
       host.provideService(SprintEngineMcpHubToken, () => services.sprintEngineMcpHub)
       host.provideService(AutomationDelegateToken, () => services.automationDelegate)

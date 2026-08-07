@@ -196,6 +196,9 @@ const LAUNCH_SETTINGS: SprintEngineLaunchSettings = {
     },
   },
   projectKnowledgeRoots: {},
+  lastSelectedCli: null,
+  lastAgentSpawnPermissionPreset: null,
+  sprintEngineRoleSettings: { enabled: {} },
 }
 
 type Harness = {

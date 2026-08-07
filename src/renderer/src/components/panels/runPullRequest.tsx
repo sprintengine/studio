@@ -40,10 +40,10 @@ export function shouldProbePullRequestOnOpen(input: {
 
 // Refresh the PR's merge state once when the run surface opens, so a merge that
 // happened while the board was closed shows the moment the user lands on it.
-// Periodic background polling is owned by SprintEnginePullRequestPollSupervisor
-// (window-level, exponential backoff, surface-independent), so this holds no
-// interval — one `gh` probe on open and nothing more. Keyed on stable primitives;
-// the projection refresh mutates `vcs`, so depending on it would re-fire.
+// Periodic background polling is owned by MAIN (`sprintengine-pr-merge-poller.ts`,
+// exponential backoff, window-independent), so this holds no interval — one `gh`
+// probe on open and nothing more. Keyed on stable primitives; the projection
+// refresh mutates `vcs`, so depending on it would re-fire.
 export function useRunPullRequestMergePoll(input: {
   workspaceId: string
   statePath: string | null

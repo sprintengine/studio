@@ -15,7 +15,7 @@ type SprintEngineAutomationIpcDependencies = {
     SprintEngineAutomationService,
     'readAutomationMode' | 'setAutomationMode' | 'hydrateAutomationMode' | 'setCliPermissionPreset'
   >
-  launchSettings: Pick<SprintEngineLaunchSettingsMirror, 'set'>
+  launchSettings: Pick<SprintEngineLaunchSettingsMirror, 'set' | 'hydrate'>
 }
 
 export function registerSprintEngineAutomationIpc(
@@ -47,11 +47,19 @@ export function registerSprintEngineAutomationIpc(
     },
   )
 
-  // Phase 2: the renderer mirrors its agent-launch settings (cliRuntimes, mcp,
-  // knowledge roots) so the main scheduler spawns with the same inputs the
-  // renderer supervisor used. Payload is normalized fail-soft.
+  // MC-2154: the renderer pushes the launch settings it authors (cliRuntimes,
+  // mcp, knowledge roots, last-selected CLI, spawn permission preset, rosters)
+  // so main can compose a launch with no window open. Payload is normalized
+  // fail-soft; the returned revision is what the pusher reconciles against.
   ipcMain.handle('sprintengine:launch-settings:sync', (_event, payload: unknown) => {
-    deps.launchSettings.set(payload)
-    return { ok: true as const }
+    const result = deps.launchSettings.set(payload)
+    return { ok: true as const, record: result.record, changed: result.changed }
+  })
+
+  // First-boot seed: adopted only when main holds no record yet, so a restart
+  // never lets a window re-assert settings over main's own.
+  ipcMain.handle('sprintengine:launch-settings:hydrate', (_event, payload: unknown) => {
+    const result = deps.launchSettings.hydrate(payload)
+    return { ok: true as const, record: result.record, changed: result.changed }
   })
 }

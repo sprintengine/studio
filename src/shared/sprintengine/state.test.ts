@@ -6,6 +6,8 @@ import {
   buildSprintEngineAgentRosterForState,
   deriveSprintEngineRepoMergeRollup,
   isCompletedSprintEngineRun,
+  isPullRequestWatchable,
+  isRunPullRequestWatchable,
   isSprintEngineCoordinationTask,
   isSprintEngineCoordinatorAgent,
   normalizeSprintEngineProjection,
@@ -395,6 +397,57 @@ function testMergeRollupRunThatDeliveredNothingStaysUnlanded(): void {
   assert.equal(rollup.allMerged, false, 'a run with nothing to merge never reads all-merged')
 }
 
+function testPullRequestWatchability(): void {
+  // The rule main's merge poller (`main/sprintengine-pr-merge-poller.ts`) filters
+  // its target set with, and the board describes. It moved here from the retired
+  // renderer supervisor when main took ownership of the probe (MC-2155).
+  assert.equal(isPullRequestWatchable({ hasVcs: true, prState: 'open', hasPrUrl: true }), true)
+  // State not yet known but a PR exists → watch it.
+  assert.equal(isPullRequestWatchable({ hasVcs: true, prState: null, hasPrUrl: true }), true)
+  // Null state with no PR yet → nothing to watch.
+  assert.equal(isPullRequestWatchable({ hasVcs: true, prState: null, hasPrUrl: false }), false)
+  // Terminal states → done.
+  assert.equal(isPullRequestWatchable({ hasVcs: true, prState: 'merged', hasPrUrl: true }), false)
+  assert.equal(isPullRequestWatchable({ hasVcs: true, prState: 'closed', hasPrUrl: true }), false)
+  // No vcs → no branch/PR.
+  assert.equal(isPullRequestWatchable({ hasVcs: false, prState: 'open', hasPrUrl: true }), false)
+
+  assert.equal(isRunPullRequestWatchable(undefined), false)
+  assert.equal(isRunPullRequestWatchable(null), false)
+
+  const openPrimary = { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', pullRequestState: 'open', pullRequestUrl: 'https://pr' }
+  assert.equal(isRunPullRequestWatchable(mergeRollupState([openPrimary])?.vcs), true)
+
+  // Every project terminal → the whole run is settled.
+  assert.equal(
+    isRunPullRequestWatchable(mergeRollupState([
+      { ...openPrimary, pullRequestState: 'merged' },
+      { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', pullRequestState: 'closed', pullRequestUrl: 'https://pr2' },
+    ])?.vcs),
+    false,
+  )
+  // The failure this closes (MC-1612): the desktop PR merged, the mobile one is
+  // still open. Watching the primary alone would freeze mobile's state here.
+  assert.equal(
+    isRunPullRequestWatchable(mergeRollupState([
+      { ...openPrimary, pullRequestState: 'merged' },
+      { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', pullRequestState: 'open', pullRequestUrl: 'https://pr2' },
+    ])?.vcs),
+    true,
+  )
+  // A project the run never delivered keeps nothing alive — and neither does a
+  // repo with commits but no pull request, which the merge ROLLUP counts as
+  // unmerged. That difference is why the poller reads this rule and not the
+  // rollup: an un-PR'd branch has nothing to probe.
+  assert.equal(
+    isRunPullRequestWatchable(mergeRollupState([
+      { ...openPrimary, pullRequestState: 'merged' },
+      { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', lastCommitSha: 'abc123' },
+    ])?.vcs),
+    false,
+  )
+}
+
 function testMergeRollupSingleRepoAndNullVcs(): void {
   // A single-repo run rolls up to total 1 — the flat field's answer.
   const single = mergeRollupState([
@@ -586,6 +639,7 @@ testMergeRollupOpenSiblingHoldsAllMergedFalse()
 testMergeRollupZeroCommitSiblingHasNoBranchToMerge()
 testMergeRollupRunThatDeliveredNothingStaysUnlanded()
 testMergeRollupSingleRepoAndNullVcs()
+testPullRequestWatchability()
 console.log('sprintengine state tests passed')
 
 // --- MC-1885: the seat reasoning-effort level ------------------------------

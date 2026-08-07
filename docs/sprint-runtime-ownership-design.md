@@ -243,6 +243,15 @@ Core moves:
   Phase 1 mode sync. Launch settings mirror through
   `sprintengine:launch-settings:sync` into a userData-persisted store so main
   spawns with the renderer's configured runtimes headlessly.
+  - **Generalized by MC-2154** (backlog `2026-08-06-main-owned-app-settings-store.md`):
+    the mirror became the main-owned app settings store — it now also carries
+    `lastSelectedCli`, `lastAgentSpawnPermissionPreset` and the Sprint Engine
+    role settings (saved rosters + last-selected roster), persists a versioned
+    record with a monotonic revision and write provenance, and seeds itself
+    exactly once through `sprintengine:launch-settings:hydrate` (no-op once a
+    record exists, so a window never re-asserts over main's own value). The
+    renderer remains the only writer, so there is no apply-back into
+    `appSettings`.
 
 ## Phase 3 — Session model → main; renderer pure view
 
@@ -283,6 +292,11 @@ Moves:
   window opens and registers the run (the epic's "headless" acceptance is
   window-closed-app-alive; boot-time run discovery with no window ever opened
   is a follow-on, not in scope).
+  - **Closed by MC-2153** (backlog `2026-08-06-boot-time-sprint-run-discovery.md`):
+    `src/main/sprintengine-boot-discovery.ts` registers every non-manual,
+    non-terminal run found under main's known project roots at app ready, so a
+    restart resumes scheduling with no window ever opened. Renderer registration
+    became a reconcile against main's registry rather than its source.
 
 ## Verification bar
 

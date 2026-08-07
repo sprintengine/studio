@@ -245,6 +245,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void
   setGuidedBriefConversationSessions: (enabled: boolean) => void
+  /** Keep the app (and its sprint runs) alive after the last window closes. */
+  setKeepRunningInBackground: (enabled: boolean) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void

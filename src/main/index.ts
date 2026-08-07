@@ -271,6 +271,10 @@ registerAppLifecycle({
   sprintRuntime: services.sprintRuntime,
   moduleKernel: moduleLoad.kernel,
   updateService: services.updateService,
+  backgroundMode: {
+    isEnabled: () => services.backgroundModeStore.isEnabled(),
+    readStatus: () => services.readBackgroundStatus(),
+  },
   handleAuthCallback: (argv) => {
     void parseAuthCallbackFromArgv(services.multicodeAuth, argv)
   },

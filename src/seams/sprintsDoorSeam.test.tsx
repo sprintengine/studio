@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { installJsdomEnvironment, withInertPreloadFallback } from './jsdomEnvironment'
+import type { SprintEngineLaunchSettingsWriteResult } from '../main/sprintengine-launch-settings-mirror'
+import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
 
 // ── Seam: the Sprints door's run configuration (T1 → T2 → T3, items 1799/1800) ─
 //
@@ -33,6 +35,22 @@ const dom = installJsdomEnvironment()
 const domWindow = dom.window as unknown as Record<string, unknown>
 
 type RunSummary = Record<string, unknown>
+
+// The launch-settings store's write acknowledgement, stubbed: this seam proves
+// the Sprints door, which never reads or writes launch settings.
+function stubLaunchSettingsWrite(): SprintEngineLaunchSettingsWriteResult {
+  return {
+    record: {
+      schemaVersion: 1,
+      revision: 1,
+      settings: emptySprintEngineLaunchSettings(),
+      changedAt: 0,
+      lastWrite: { actor: 'system', at: '' },
+    },
+    changed: false,
+    persisted: Promise.resolve(),
+  }
+}
 
 async function main(): Promise<void> {
   const projectRoot = mkdtempSync(join(tmpdir(), 'multicode-seam-sprints-door-'))
@@ -92,7 +110,9 @@ async function run(projectRoot: string): Promise<void> {
         return automationService.setCliPermissionPreset(input)
       },
     },
-    launchSettings: { set: () => {} },
+    // The door never touches launch settings; the store is stubbed to the
+    // acknowledgement shape its IPC handlers return.
+    launchSettings: { set: stubLaunchSettingsWrite, hydrate: stubLaunchSettingsWrite },
   })
 
   // The run's projected state, as `sprintengine:projection:read` hands it back.

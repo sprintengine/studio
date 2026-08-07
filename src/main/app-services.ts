@@ -46,6 +46,8 @@ import {
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { createSprintEngineAutomationService } from './sprintengine-automation-service'
 import { createSprintEngineLaunchSettingsMirror } from './sprintengine-launch-settings-mirror'
+import { createBackgroundModeStore } from './background-mode-store'
+import type { BackgroundStatus } from '../shared/background-mode'
 import { createSprintPowerManager } from './sprint-power-manager'
 import { createSprintRuntime, type SprintRuntime } from './sprint-runtime'
 import { createTrackerWriteBackRuntime } from './tracker/writeback'
@@ -59,16 +61,21 @@ import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL } from './ipc/sprintengine-automation-ipc'
 import { SPRINT_RUNTIME_OP_CHANNEL } from '../shared/sprintengine/runtime-bridge'
 import { SPRINT_RUNS_CHANGED_CHANNEL, type SprintRunsChangedEvent } from '../shared/sprintengine/runSummary'
-import { invalidateSprintRunSummary, watchSprintRunProjections } from './sprintengine-run-index'
+import {
+  invalidateSprintRunSummary,
+  listSprintRuns,
+  readSprintRunVcs,
+  watchSprintRunProjections,
+} from './sprintengine-run-index'
+import { createSprintPullRequestMergePoller } from './sprintengine-pr-merge-poller'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
 import { createGitWorktree, excludeMcpConfigFromWorktree } from './git'
 import { agentWorktreePaths } from '../shared/worktree-paths'
-import { cliResumeCapabilities, createTerminalRuntime } from './terminal-runtime'
+import { cliResumeCapabilities, createTerminalRuntime, resolveSpawnEventSink } from './terminal-runtime'
 import { ConversationRuntime } from './conversation-runtime'
 import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
-import { createHeadlessTerminalSender } from './terminal-session'
 import { MulticodeUpdateService } from './update-service'
 import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
@@ -226,6 +233,16 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
+  // Renderer-pushed "keep running in the background" setting (MC-2156). Read
+  // synchronously inside `window-all-closed`, which is precisely when no
+  // renderer is left to ask.
+  const backgroundModeStore = createBackgroundModeStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+
   // Renderer-pushed agent-launch settings (cliRuntimes/mcp/knowledge/model
   // catalog) for main-side sprint agent spawns; persisted under userData.
   const sprintEngineLaunchSettings = createSprintEngineLaunchSettingsMirror({
@@ -363,8 +380,23 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // writes that happen with no registered runtime (non-resident cancel), and —
   // via the run index's per-run directory watch below — for projection writes
   // by the engine that no runtime op accompanies (MC-1801).
+  // MC-2155: the main-owned PR merge poller. Constructed here (it needs the
+  // artifact front door and the runs-changed funnel below), STARTED by the Sprint
+  // Engine capability module at app ready — so a disabled module never probes,
+  // and until then `noteRunChanged` is inert.
+  const sprintPullRequestMergePoller = createSprintPullRequestMergePoller({
+    listRuns: (roots) => listSprintRuns([...roots]),
+    readRunVcs: (statePath) => readSprintRunVcs(statePath),
+    probe: async (statePath) => sprintEngineArtifacts.refreshPullRequestStatus({ statePath }),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'sprintengine' })
+    },
+  })
   const notifySprintRunsChanged = (statePath: string): void => {
     invalidateSprintRunSummary(statePath)
+    // The run moved on disk: it may have just opened a pull request (arm) or had
+    // its last one merge (disarm). Runs already under watch keep their schedule.
+    sprintPullRequestMergePoller.noteRunChanged(statePath)
     const changed: SprintRunsChangedEvent = { statePath }
     for (const window of BrowserWindow.getAllWindows()) {
       if (window.isDestroyed() || window.webContents.isDestroyed()) continue
@@ -386,15 +418,15 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         // immediately; with every window closed (Phase 3 headless auto-run)
         // spawn against the headless sender — the PTY runs and buffers, and a
         // reopened window's TerminalView reattaches with scrollback.
-        const sender = BrowserWindow.getAllWindows()
-          .find((window) => !window.isDestroyed() && !window.webContents.isDestroyed())
-          ?.webContents
-          ?? createHeadlessTerminalSender()
+        const sender = resolveSpawnEventSink()
         // The spawn payload is flat; `metadata` is the renderer-side bag that
         // preload spreads into it (`...metadata`). An in-process spawn must
         // flatten it the same way or every field in it — permission preset,
         // model, agent binding, MCP settings, reveal policy — is dropped.
         return terminalRuntime.ipcHandlers.spawnTerminal(sender, { ...args, ...metadata })
+      },
+      adoptWorkspaceId: (input) => {
+        terminalRuntime.adoptSprintRunWorkspaceId(input)
       },
     },
     artifacts: {
@@ -661,11 +693,29 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
+  // Background mode (MC-2156): what the tray reports with no window open. Read
+  // straight from the live main-process owners — the scheduler's own run map,
+  // the terminal runtime's session list, the gateway's own status — because a
+  // presence that reported a renderer projection would go stale the moment the
+  // last window it came from closed.
+  function readBackgroundStatus(): BackgroundStatus {
+    const sessions = terminalRuntime.ipcHandlers
+      .listTerminals()
+      .filter((session) => session.kind === 'agent' && session.processAlive && !session.suspended)
+    return {
+      runs: sprintRuntime.listRuns().map((run) => ({ name: run.name, autoRunning: run.autoRunning })),
+      agentSessions: sessions.length,
+      gateway: { running: automationService.getStatus().running },
+    }
+  }
+
   return {
     agentConfigImportService,
     agentStateService,
     automationDelegate,
     automationService,
+    backgroundModeStore,
+    readBackgroundStatus,
     setAutomationsAppFrontDoorResolver(resolver: () => AutomationsAppFrontDoor | null): void {
       resolveAutomationsAppFrontDoor = resolver
     },
@@ -695,6 +745,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     sprintEngineLaunchSettings,
     sprintEngineMcpHub,
     sprintPowerManager,
+    sprintPullRequestMergePoller,
     sprintRuntime,
     trackerWriteBack,
     terminalRuntime,

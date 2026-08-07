@@ -144,7 +144,7 @@ import { SprintEngineInboxView } from './sprintEngineBoard/SprintEngineInboxView
 import { SprintEngineRosterView } from './sprintEngineBoard/SprintEngineRosterView'
 import { SprintEngineTasksKanbanView } from './sprintEngineBoard/SprintEngineTasksKanbanView'
 import { RunCompletePullRequestAction, RunPullRequestViewChip, useRunPullRequestMergePoll } from './runPullRequest'
-import { isRunPullRequestWatchable } from '../workspace/SprintEnginePullRequestPollSupervisor'
+import { isRunPullRequestWatchable } from '../../../../shared/sprintengine/vcs'
 import { useSprintEngineBoardModel } from './sprintEngineBoard/useSprintEngineBoardModel'
 import {
   useSprintEngineBoardArtifactActions,

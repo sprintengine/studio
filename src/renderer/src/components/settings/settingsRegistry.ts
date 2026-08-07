@@ -146,6 +146,18 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
     storeSetter: 'setAppearanceTheme',
   },
 
+  // Background mode — whether the process outlives its last window (MC-2156).
+  {
+    id: 'keep-running-in-background',
+    label: 'Keep running when the last window closes',
+    help: 'Sprint runs, the scheduler and the Studio gateway keep working with no window open. Quit from the menu bar to stop for real.',
+    scope: 'app',
+    group: 'background',
+    field: { type: 'switch' },
+    storePath: 'appSettings.keepRunningInBackground',
+    storeSetter: 'setKeepRunningInBackground',
+  },
+
   // Telemetry — anonymous usage + crash diagnostics.
   {
     id: 'usage-telemetry-send-data',

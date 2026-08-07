@@ -7,6 +7,10 @@ import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow
 import { markStartup } from './startup-timeline'
 import { releaseAllWorkspaceRunnerLocks } from './workspace-runner-lock'
 import { currentRuntimeEnv, getManagedPython, reportManagedPythonResolution } from './managed-runtime'
+import { createBackgroundPresence } from './background-presence'
+import { buildElectronBackgroundMenu, createElectronBackgroundTray } from './background-tray-electron'
+import { emptyBackgroundStatus, type BackgroundStatus } from '../shared/background-mode'
+import { writeDiagnosticLog } from './diagnostics-service'
 import type { MulticodeUpdateService } from './update-service'
 
 type RegisterAppLifecycleOptions = {
@@ -52,6 +56,12 @@ type RegisterAppLifecycleOptions = {
   }
   updateService: MulticodeUpdateService
   handleAuthCallback(argv: string[]): void
+  // Background mode (MC-2156). Absent means the setting can never read on, so
+  // the last-window-close rule collapses to exactly its pre-MC-2156 form.
+  backgroundMode?: {
+    isEnabled(): boolean
+    readStatus(): BackgroundStatus
+  }
 }
 
 export function registerAppLifecycle({
@@ -66,7 +76,41 @@ export function registerAppLifecycle({
   moduleKernel,
   updateService,
   handleAuthCallback,
+  backgroundMode,
 }: RegisterAppLifecycleOptions): void {
+  // Background mode (MC-2156): the last window closing stops being the end of
+  // the process. Everything below the window layer — the scheduler, the Studio
+  // gateway, the automations engine, the mobile bridge, the power-save blocker
+  // held for active runs — is untouched by any of this on purpose; window close
+  // is a presentation event.
+  const backgroundPresence = createBackgroundPresence({
+    platform: process.platform,
+    isBackgroundModeEnabled: () => backgroundMode?.isEnabled() ?? false,
+    readStatus: () => backgroundMode?.readStatus() ?? emptyBackgroundStatus(),
+    createTray: createElectronBackgroundTray,
+    buildMenu: buildElectronBackgroundMenu,
+    actions: {
+      open: () => openWindowFromBackground(),
+      quit: () => app.quit(),
+    },
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+
+  // Reopening from the tray (or a second launch of the app) has to work on
+  // Windows and Linux, where there is no `activate` event to fall back on.
+  function openWindowFromBackground(): void {
+    const existing = BrowserWindow.getAllWindows()[0]
+    if (existing) {
+      if (existing.isMinimized()) existing.restore()
+      existing.focus()
+    } else {
+      createMainWindow({ diagnosticsEnabled })
+    }
+    backgroundPresence.onWindowOpened()
+  }
+
   if (!allowMultipleInstances) {
     const singleInstanceLock = app.requestSingleInstanceLock()
     if (!singleInstanceLock) {
@@ -75,11 +119,10 @@ export function registerAppLifecycle({
     }
 
     app.on('second-instance', (_, argv) => {
-      const win = BrowserWindow.getAllWindows()[0]
-      if (win) {
-        if (win.isMinimized()) win.restore()
-        win.focus()
-      }
+      // Relaunching the app while it is backgrounded must produce a window:
+      // without this the second launch silently did nothing, which on Windows
+      // and Linux left the tray as the only way back in.
+      openWindowFromBackground()
       handleAuthCallback(argv)
     })
   }
@@ -159,11 +202,14 @@ export function registerAppLifecycle({
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow({ diagnosticsEnabled })
+      // The tray stands in for a window; with one on screen it goes away, so a
+      // backgrounded app never shows two ways in at once.
+      backgroundPresence.onWindowOpened()
     })
   })
 
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit()
+    if (backgroundPresence.onWindowAllClosed() === 'quit') app.quit()
   })
 
   let isShuttingDown = false
@@ -171,6 +217,10 @@ export function registerAppLifecycle({
     if (isShuttingDown) return
     event.preventDefault()
     isShuttingDown = true
+    // Drop the tray before the shutdown legs run: quit from the tray is the
+    // same graceful path as any other quit (sidecar snapshots, gateway
+    // discovery file removed), and the icon must not outlive the decision.
+    backgroundPresence.onBeforeQuit()
     markAppQuitInProgressForWindowClose()
     const shutdown = async () => {
       // Module begin hooks run first (registration order): they stop

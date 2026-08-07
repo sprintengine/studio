@@ -615,6 +615,15 @@ export type AppSettings = {
    * normalizeAppSettings.
    */
   guidedBriefConversationSessionsOptInReset: boolean
+  /**
+   * Keep the app running when its last window closes, on every platform
+   * (MC-2156). Off by default, which is byte-for-byte the pre-MC-2156 rule:
+   * quit on Windows/Linux, survive on macOS. On, the process stays up with a
+   * tray presence, so sprint runs, the scheduler and the Studio gateway keep
+   * working with no window open. Mirrored to main (`setBackgroundMode`), which
+   * reads it at last-window-close when no renderer is left to ask.
+   */
+  keepRunningInBackground: boolean
 }
 
 /**

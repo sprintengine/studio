@@ -6,9 +6,12 @@ import { registerSprintEngineAutomationIpc } from '../ipc/sprintengine-automatio
 import { registerSprintRuntimeIpc } from '../ipc/sprint-runtime-ipc'
 import { computeSprintEngineTokenUsageReport, tokenLedgerVersion } from '../sprintengine-token-usage'
 import { listSprintRuns } from '../sprintengine-run-index'
+import { discoverSprintRunsAtBoot } from '../sprintengine-boot-discovery'
+import { listKnownWorkspaceRoots } from '../workspace-roots'
+import { writeDiagnosticLog } from '../diagnostics-service'
 import { sprintTokenUsageDeps } from '../sprintengine-token-sampling'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
-import { RoadmapAppFrontDoorToken, SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineLaunchSettingsToken, SprintEngineMcpHubToken, SprintRuntimeToken } from '../module-host/service-tokens'
+import { RoadmapAppFrontDoorToken, SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineLaunchSettingsToken, SprintEngineMcpHubToken, SprintPullRequestMergePollerToken, SprintRuntimeToken, WorkspaceSyncServiceToken } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { SidecarRunState } from '../module-host/main-host'
 import type { SprintEngineMcpHubStatus } from '../sprintengine-mcp-hub'
@@ -44,6 +47,17 @@ export const sprintEngineModule: CapabilityModule = {
     const automation = host.requireService(SprintEngineAutomationServiceToken)
     const mcpHub = host.requireService(SprintEngineMcpHubToken)
     const sprintRuntime = host.requireService(SprintRuntimeToken)
+    const workspaceSync = host.requireService(WorkspaceSyncServiceToken)
+    const prMergePoller = host.requireService(SprintPullRequestMergePollerToken)
+
+    // Every main-side scan for runs unions the roadmap's home project with the
+    // roots it was given, so a run the orchestrator started in a project that is
+    // not an open workspace is still found — the Sprints door must show every run
+    // this Multicode is driving, and boot discovery must resume every one of them.
+    const withRoadmapHomeProject = (roots: string[]): string[] => {
+      const home = readRoadmapHomeProjectPath(app.getPath('userData'))
+      return home && !roots.includes(home) ? [...roots, home] : roots
+    }
 
     host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
       setRunnerMode: artifacts.setRunnerMode,
@@ -127,14 +141,9 @@ export const sprintEngineModule: CapabilityModule = {
       readRegistryRole: artifacts.readRegistryRole,
       summarizeFeedback: artifacts.summarizeFeedback,
       readTokenUsage: ({ statePath }) => readTokenUsageCached(statePath),
-      // The renderer sends its OPEN-workspace roots; union in the roadmap's home
-      // project so a run the roadmap orchestrator started there is listed even
-      // when that project is not an open workspace (the Sprints door must show
-      // every run this Multicode is driving).
-      listRuns: ({ roots }) => {
-        const home = readRoadmapHomeProjectPath(app.getPath('userData'))
-        return listSprintRuns(home && !roots.includes(home) ? [...roots, home] : roots)
-      },
+      // The renderer sends its OPEN-workspace roots; the roadmap's home project
+      // is unioned in for the reason above.
+      listRuns: ({ roots }) => listSprintRuns(withRoadmapHomeProject(roots)),
     })
 
     // MC-1567: the main-owned automation mode intent (read / set / one-time
@@ -150,6 +159,80 @@ export const sprintEngineModule: CapabilityModule = {
     // `sprintengine:runtime-op`.
     registerSprintRuntimeIpc(host.ipcMain, {
       sprintRuntime,
+    })
+
+    // MC-2153: registration no longer waits for a window. At app ready, scan the
+    // project roots main already knows (restored from the persisted routing
+    // snapshot) and register every run the user left auto-running, so a machine
+    // that reboots into Studio resumes scheduling with no window ever opened.
+    // Never awaited by startup and never fatal — a failed scan costs the
+    // headless resume, not the app.
+    host.onStartup(async () => {
+      try {
+        const report = await discoverSprintRunsAtBoot({
+          listWorkspaceRoots: () => withRoadmapHomeProject(listKnownWorkspaceRoots(workspaceSync.getSnapshot())),
+          readAutomationMode: async (statePath) => {
+            const result = await automation.readAutomationMode({ statePath })
+            return result.ok ? result.record : null
+          },
+          isRunRegistered: (statePath) => sprintRuntime.inspectRun(statePath) !== null,
+          registerRun: (registration) => sprintRuntime.registerRun(registration),
+        })
+        if (report.registered.length === 0) return
+        void writeDiagnosticLog({
+          level: 'info',
+          source: 'sprintengine',
+          title: 'Sprint runs resumed at startup',
+          message: `${report.registered.length} of ${report.discovered} discovered sprint runs resumed scheduling before any window opened.`,
+          details: report.registered.join('\n'),
+        })
+      } catch (error) {
+        void writeDiagnosticLog({
+          level: 'warning',
+          source: 'sprintengine',
+          title: 'Boot-time sprint run discovery failed',
+          message: 'Sprint runs left auto-running will resume when a window opens instead.',
+          details: error instanceof Error ? error.stack ?? error.message : String(error),
+        })
+      }
+    })
+
+    // MC-2155: main owns the pull-request merge probe, so a run's merge state
+    // self-heals with no window open (the renderer supervisor that used to do it
+    // is retired). Started here rather than in app-services so a disabled Sprint
+    // Engine module never spawns a `gh` probe. Scans the same roots as boot
+    // discovery — a PR is opened as a run FINISHES, and the finished runs whose
+    // merge state goes stale are exactly the ones the scheduler stops tracking.
+    host.onStartup(async () => {
+      try {
+        const report = await prMergePoller.start({
+          listWorkspaceRoots: () => withRoadmapHomeProject(listKnownWorkspaceRoots(workspaceSync.getSnapshot())),
+        })
+        if (report.watching.length === 0 && report.skippedStale.length === 0) return
+        void writeDiagnosticLog({
+          level: 'info',
+          source: 'sprintengine',
+          title: 'Sprint pull-request merge polling armed',
+          message:
+            `${report.watching.length} of ${report.discovered} sprint runs have an open pull request and are `
+            + `being re-probed without a window${report.skippedStale.length > 0 ? `; ${report.skippedStale.length} untouched for over a month were left alone` : ''}.`,
+          details: report.watching.join('\n'),
+        })
+      } catch (error) {
+        void writeDiagnosticLog({
+          level: 'warning',
+          source: 'sprintengine',
+          title: 'Sprint pull-request merge polling failed to start',
+          message: 'Run merge state will refresh when a run changes or the app restarts.',
+          details: error instanceof Error ? error.stack ?? error.message : String(error),
+        })
+      }
+    })
+    // Stop probing before shared infrastructure tears down: an in-flight `gh`
+    // subprocess spawned into a quitting app is exactly what the begin phase is
+    // for.
+    host.onShutdownBegin(() => {
+      prMergePoller.dispose()
     })
   },
 }

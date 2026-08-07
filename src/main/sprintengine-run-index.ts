@@ -5,6 +5,7 @@ import { pathExists } from './filesystem-workspace'
 import { normalizeSprintEngineProjection } from '../shared/sprintengine/state'
 import { describeUnsupportedSprintEngineStore } from '../shared/sprintengine/store-schema'
 import { deriveSprintRunSummary, type SprintRunSummary } from '../shared/sprintengine/runSummary'
+import type { SprintEngineVcs } from '../shared/sprintengine/run-types'
 
 // The main-process index answering "what sprint runs exist in this Multicode —
 // live AND historical — across every known project root", without a resident
@@ -95,7 +96,18 @@ async function readSprintEngineUpdatedAtMs(statePath: string, projectionPath: st
 // when the projection is actually rewritten (or when a change notification
 // invalidates the entry). `absent` is the key for a run whose projection has not
 // been written yet, so a later write flips the key and forces a reread.
-type SprintRunSummaryCacheEntry = { key: string; summary: SprintRunSummary }
+//
+// The entry also carries the normalized `vcs` block the same read produced. The
+// summary keeps only the merge ROLLUP (counts), which cannot answer "does this
+// run still have a pull request worth probing" — a repo with commits but no PR
+// counts as unmerged there yet must never be probed. Keeping `vcs` beside the
+// summary means the PR merge poller (`sprintengine-pr-merge-poller.ts`) shares
+// this read instead of opening a second one over the same file.
+type SprintRunSummaryCacheEntry = {
+  key: string
+  summary: SprintRunSummary
+  vcs: SprintEngineVcs | null
+}
 const summaryCache = new Map<string, SprintRunSummaryCacheEntry>()
 
 /** Drop a run's cached summary so the next read re-derives it from disk. */
@@ -137,17 +149,32 @@ function lastPathSegment(path: string): string {
  * dropped row (Fallback Discipline).
  */
 export async function readSprintRunSummary(statePath: string): Promise<SprintRunSummary> {
+  return (await readSprintRunRecord(statePath)).summary
+}
+
+/**
+ * The run's normalized `vcs` block, or null for a run with no worktree branch (or
+ * a projection that could not be read — indistinguishable from "nothing to
+ * merge" here, and both mean "nothing to probe"). Shares the summary memo above,
+ * so asking for both costs one read.
+ */
+export async function readSprintRunVcs(statePath: string): Promise<SprintEngineVcs | null> {
+  return (await readSprintRunRecord(statePath)).vcs
+}
+
+async function readSprintRunRecord(statePath: string): Promise<SprintRunSummaryCacheEntry> {
   const identity = resolveRunIdentity(statePath)
   const projectionPath = join(identity.teamDirectory, PROJECTION_FILE_NAME)
 
   const stats = await stat(projectionPath).catch(() => null)
   const cacheKey = stats ? `${stats.mtimeMs}:${stats.size}` : 'absent'
   const cached = summaryCache.get(statePath)
-  if (cached && cached.key === cacheKey) return cached.summary
+  if (cached && cached.key === cacheKey) return cached
 
-  const summary = await deriveSummaryFromDisk(statePath, projectionPath, identity, stats?.mtime ?? null)
-  summaryCache.set(statePath, { key: cacheKey, summary })
-  return summary
+  const derived = await deriveSummaryFromDisk(statePath, projectionPath, identity, stats?.mtime ?? null)
+  const entry: SprintRunSummaryCacheEntry = { key: cacheKey, ...derived }
+  summaryCache.set(statePath, entry)
+  return entry
 }
 
 async function deriveSummaryFromDisk(
@@ -155,7 +182,7 @@ async function deriveSummaryFromDisk(
   projectionPath: string,
   identity: ReturnType<typeof resolveRunIdentity>,
   projectionMtime: Date | null,
-): Promise<SprintRunSummary> {
+): Promise<{ summary: SprintRunSummary; vcs: SprintEngineVcs | null }> {
   const base = {
     statePath,
     teamSlug: identity.teamSlug,
@@ -164,42 +191,46 @@ async function deriveSummaryFromDisk(
     updatedAtFallback: projectionMtime ? projectionMtime.toISOString() : null,
   }
 
+  // Every unreadable-projection exit carries no vcs: "could not be read" and
+  // "nothing to merge" are the same answer for the merge poller, which must not
+  // probe a run it cannot inspect.
+  const unreadable = (unknownReason: string, unknownKind?: 'unsupported_store') => ({
+    summary: deriveSprintRunSummary({
+      ...base,
+      state: null,
+      unknownReason,
+      ...(unknownKind ? { unknownKind } : {}),
+    }),
+    vcs: null,
+  })
+
   let raw: string
   try {
     raw = await readFile(projectionPath, 'utf8')
   } catch {
-    return deriveSprintRunSummary({
-      ...base,
-      state: null,
-      unknownReason: 'Run projection has not been written yet.',
-    })
+    return unreadable('Run projection has not been written yet.')
   }
 
   let projection: unknown
   try {
     projection = JSON.parse(raw)
   } catch {
-    return deriveSprintRunSummary({ ...base, state: null, unknownReason: 'Run projection is not valid JSON.' })
+    return unreadable('Run projection is not valid JSON.')
   }
 
   const rejection = describeUnsupportedSprintEngineStore(projection, identity.teamDirectory)
   if (rejection) {
     // Permanent, not "could not be read just now": the store predates this build
     // and is never migrated, so the surfaces render the remedy, not a retry.
-    return deriveSprintRunSummary({
-      ...base,
-      state: null,
-      unknownReason: rejection,
-      unknownKind: 'unsupported_store',
-    })
+    return unreadable(rejection, 'unsupported_store')
   }
 
   const state = normalizeSprintEngineProjection(projection, identity.teamSlug)
   if (!state) {
-    return deriveSprintRunSummary({ ...base, state: null, unknownReason: 'Run projection is malformed.' })
+    return unreadable('Run projection is malformed.')
   }
 
-  return deriveSprintRunSummary({ ...base, state })
+  return { summary: deriveSprintRunSummary({ ...base, state }), vcs: state.vcs ?? null }
 }
 
 /**

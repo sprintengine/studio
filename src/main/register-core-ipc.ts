@@ -1,6 +1,7 @@
 import type { IpcMain } from 'electron'
 import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
 import { registerAppearanceIpc } from './ipc/appearance-ipc'
+import { registerBackgroundModeIpc } from './ipc/background-mode-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerAutomationIpc } from './ipc/automation-ipc'
 import { registerAppMenuIpc } from './app-menu'
@@ -128,6 +129,7 @@ export function registerCoreIpc(
   registerModuleEnablementIpc(ipcMain, { applyLive: options.applyModuleEnablementLive })
   registerModuleRegistryIpc(ipcMain, services.moduleRegistryMirror)
   registerAppearanceIpc(ipcMain)
+  registerBackgroundModeIpc(ipcMain, services.backgroundModeStore)
   registerMarketplaceRegistryIpc(ipcMain)
   registerMarketplacePluginIpc(ipcMain, services)
   registerPluginIpc(ipcMain)

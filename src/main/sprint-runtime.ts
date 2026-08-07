@@ -137,6 +137,13 @@ export type SprintRuntimeDeps = {
     status(sessionId: string): Promise<{ processAlive: boolean }>
     /** In-process spawn; fails cleanly when no window can host the terminal view (Phase 2 limit). */
     spawn(args: TerminalSpawnArgs): Promise<TerminalSpawnResult>
+    /**
+     * Move a run's live sessions onto a new workspace id (MC-2153): a
+     * boot-discovered run spawns under a placeholder id and adopts the window's
+     * real one, and every workspace-keyed session lookup outside the scheduler
+     * — the board roster, duplicate-session disposal — must follow it.
+     */
+    adoptWorkspaceId?(input: { statePath: string; workspaceId: string }): void
   }
   artifacts: {
     readProjection(input: { statePath: string; knownToken?: string }): Promise<SprintEngineProjectionReadResult>
@@ -885,6 +892,16 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
     return { recorded, removedAgent: false, removedTab: false, closedSessionId }
   }
 
+  /** Move `<oldWorkspaceId>:<agentId>` spawn-in-flight keys onto the new id. */
+  function rekeyInFlightSpawns(entry: RunEntry, fromWorkspaceId: string, toWorkspaceId: string): void {
+    const inFlight = entry.refs.inFlightSpawns.current
+    for (const key of [...inFlight]) {
+      if (!key.startsWith(`${fromWorkspaceId}:`)) continue
+      inFlight.delete(key)
+      inFlight.add(`${toWorkspaceId}:${key.slice(fromWorkspaceId.length + 1)}`)
+    }
+  }
+
   async function tick(): Promise<void> {
     if (tickInProgress || disposed) return
     tickInProgress = true
@@ -1006,6 +1023,18 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       const existing = runsByStatePath.get(registration.statePath)
       const teamDirectoryPath = dirname(registration.statePath)
       const teamSlug = basename(teamDirectoryPath)
+      // A boot-discovered run (MC-2153) holds a PLACEHOLDER workspace id until
+      // the window that owns it registers, and it can have spawned agents under
+      // it already. Move that run's sessions onto the announced id — the
+      // workspace-keyed lookups outside the scheduler (the board's "is this
+      // agent live?", duplicate-session disposal) would otherwise miss a live
+      // agent and start a second one. Unconditional and idempotent, so it also
+      // catches a session minted by a spawn that was still in flight during an
+      // earlier hand-off.
+      deps.terminal.adoptWorkspaceId?.({
+        statePath: registration.statePath,
+        workspaceId: registration.workspaceId,
+      })
       if (existing) {
         // Context refresh: identity + run configuration follow the renderer;
         // scheduler-owned runtime residue (delivered keys, runtimeState) stays
@@ -1014,6 +1043,10 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
           if (runsByWorkspaceId.get(existing.view.id) === existing) {
             runsByWorkspaceId.delete(existing.view.id)
           }
+          // The in-flight spawn ledger is keyed `<workspaceId>:<agentId>`: carry
+          // its entries too, or a spawn already in flight looks absent and the
+          // next tick spawns the same agent twice.
+          rekeyInFlightSpawns(existing, existing.view.id, registration.workspaceId)
           existing.view.id = registration.workspaceId
         }
         // Unconditional re-insert (newest registration wins) heals a mapping
@@ -1219,6 +1252,20 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       if (current.desiredMode === record.desiredMode) return
       applyAutomationEventToView(entry, { type: 'user_set_mode', mode: record.desiredMode })
       if (sprintEngineAutomationShouldRun(entry.view.sprintEngineAutoState)) void tick()
+    },
+
+    /**
+     * Every run the scheduler holds, with whether it is actively auto-running
+     * (MC-2156). Read by the background tray, which must answer "what is still
+     * going?" with no window open — so it reads the scheduler's own map rather
+     * than a renderer projection.
+     */
+    listRuns(): Array<{ statePath: string; name: string; autoRunning: boolean }> {
+      return [...runsByStatePath.values()].map((entry) => ({
+        statePath: entry.statePath,
+        name: entry.view.name || entry.workspaceName,
+        autoRunning: sprintEngineAutomationShouldRun(currentAutoState(entry)),
+      }))
     },
 
     /** Introspection for diagnostics/tests. */

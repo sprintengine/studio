@@ -67,6 +67,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
 import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAutomationModeSync'
 import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
+import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
 import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, jsonModelHasComponent, removeNewAgentTab, revealNavRailComponent, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
@@ -80,7 +81,7 @@ import {
 } from './agentComposer/AgentComposer'
 import SpawnPicker from './agentComposer/SpawnPicker'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
-import SprintEnginePullRequestPollSupervisor from './SprintEnginePullRequestPollSupervisor'
+import SprintEngineRunChangeSubscriber from './SprintEngineRunChangeSubscriber'
 // Always-on observer of background automation run events (raises run
 // notifications). Automations is no longer a workspace type, so the shell mounts
 // its global supervisor directly, gated on the automations module + primary
@@ -361,6 +362,9 @@ export default function WorkspaceManager() {
   // the agent-launch settings to main, register sprint runs with the
   // scheduler, and apply its runtime-op broadcasts into this window's store.
   useEffect(() => initSprintEngineLaunchSettingsSync(), [])
+  // Background mode is read by main at last-window-close, so it is mirrored the
+  // same way the launch settings are (MC-2156).
+  useEffect(() => initBackgroundModeSync(), [])
   // Safe-mode kill switch: not registering runs is what stops the main
   // scheduler from spawning (it only schedules registered runs) — the same
   // recovery lever the retired renderer supervisor honoured.
@@ -3532,16 +3536,14 @@ export default function WorkspaceManager() {
           workspaceIds={workspaces.map((workspace) => workspace.id)}
         />
       ) : null}
-      {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC && ownsGlobalSupervisors ? (
-        // Background GitHub merge-state polling (exponential backoff) so a run's
-        // sidebar glyph flips to merged after the PR is merged, without the board
-        // being open. Unlike the disk-cheap projection sync above, each tick spawns
-        // a `gh` subprocess, so it runs as a single global-owner singleton (like
-        // AutomationsRunSupervisor) — one poll per workspace, not one per window.
-        <SprintEnginePullRequestPollSupervisor
-          activeWorkspaceId={windowActiveWorkspaceId}
-          workspaceIds={workspaces.map((workspace) => workspace.id)}
-        />
+      {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC ? (
+        // Merge-state polling itself is MAIN's (MC-2155): it spawns a `gh`
+        // subprocess, must run with no window open, and having one owner in main
+        // is what keeps a second window from doubling the probes. What is left
+        // here is display — pulling a run main re-probed into THIS window's store
+        // when the projection poll above has already quiesced on it. Per window,
+        // not a global-owner singleton: every window's store needs the read.
+        <SprintEngineRunChangeSubscriber workspaceIds={workspaces.map((workspace) => workspace.id)} />
       ) : null}
       {workspaceTypeSupervisors.map((supervisor) => (
         <WorkspaceTypeSupervisorHost key={supervisor.key} supervisor={supervisor} />

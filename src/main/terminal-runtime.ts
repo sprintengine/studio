@@ -30,6 +30,7 @@ import {
 } from './terminal-launch'
 import { existsSync } from 'node:fs'
 import { basename, dirname } from 'node:path'
+import { samePath } from '../shared/paths'
 import { getSharedCredentialStore } from './secret-store'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
@@ -49,6 +50,7 @@ import {
   clearAgentStallTimer,
   clearTerminalIdleTimer,
   createFailedTerminalSession,
+  createHeadlessTerminalSender,
   createInitialTerminalActivity,
   createSuspendedPlaceholderSession,
   getTerminalLastSeenAt,
@@ -204,6 +206,8 @@ type TerminalRuntime = {
   shutdown(): Promise<void>
   getLiveAgentExecutionIds(): LiveAgentExecution[]
   resolveAgentExecutionId(input: { workspaceId: string; agentId: string }): string | undefined
+  /** Move a sprint run's sessions onto the workspace id that owns them; returns how many moved. */
+  adoptSprintRunWorkspaceId(input: { statePath: string; workspaceId: string }): number
   registerAgentSessionExitListener(listener: AgentSessionExitListener): () => void
   // Fires on every accepted agent-state phase transition (see ingestAgentStateFrame):
   // frames for a dead pty and stale frames never reach a listener.
@@ -434,6 +438,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     shutdown: shutdownTerminalRuntime,
     getLiveAgentExecutionIds,
     resolveAgentExecutionId,
+    adoptSprintRunWorkspaceId: adoptSprintRunSessionWorkspaceId,
     registerAgentSessionExitListener,
     registerAgentPhaseListener,
     killAgentSession: killAgentSessionByExecutionId,
@@ -584,6 +589,23 @@ const terminalOutput = createTerminalOutputBuffer({
     terminalDiagnostics.recordDataBatch(session, cause, chunkCount, byteCount)
   },
 })
+
+/**
+ * The event sink for a main-process spawn. A live window streams output to the
+ * UI immediately; with every window closed the headless sender stands in — the
+ * sender is an event sink, not a capability, so the pty still runs and buffers,
+ * and a window opened later reattaches through `spawnTerminalFromIpc`'s
+ * existing-session branch, adopting the real WebContents and replaying
+ * scrollback. The one definition for every main-process spawn: the descriptor
+ * and mobile `task.start` spawns below, and the sprint scheduler's spawn port
+ * in `src/main/app-services.ts`.
+ */
+export function resolveSpawnEventSink(): WebContents {
+  return BrowserWindow.getAllWindows()
+    .find((win) => !win.isDestroyed() && !win.webContents.isDestroyed())
+    ?.webContents
+    ?? createHeadlessTerminalSender()
+}
 
 function broadcastTerminalSessionsChanged(): void {
   const snapshots = [...terminals.values()]
@@ -1540,6 +1562,34 @@ function resolveAgentExecutionId(input: { workspaceId: string; agentId: string }
   return undefined
 }
 
+/**
+ * Re-home a sprint run's sessions onto the workspace id that finally owns them,
+ * and report how many moved.
+ *
+ * A run discovered at boot (`sprintengine-boot-discovery.ts`) is registered with
+ * a PLACEHOLDER workspace id and can spawn agents before any window exists. When
+ * a window registers the run, the scheduler adopts the real workspace id — and
+ * every session that placeholder minted has to move with it, or the
+ * workspace-keyed lookups miss the live agent and start a second one: the board's
+ * roster ("is this agent's terminal live?"), `disposeOtherAgentSessions`, and
+ * `resolveAgentExecutionId`.
+ *
+ * Sessions are matched on the run, never on the old id — statePath is the run's
+ * identity. Suspended sessions move too (an idle-reaped agent is still the run's).
+ */
+function adoptSprintRunSessionWorkspaceId(input: { statePath: string; workspaceId: string }): number {
+  let moved = 0
+  for (const session of terminals.values()) {
+    if (session.isDisposed) continue
+    if (!samePath(session.sprintEngineStatePath ?? null, input.statePath)) continue
+    if (session.workspaceId === input.workspaceId) continue
+    session.workspaceId = input.workspaceId
+    if (session.agentSession) session.agentSession.workspaceId = input.workspaceId
+    moved += 1
+  }
+  return moved
+}
+
 function registerAgentSessionExitListener(listener: AgentSessionExitListener): () => void {
   agentSessionExitListeners.add(listener)
   return () => {
@@ -2199,34 +2249,7 @@ async function spawnAgentSessionFromDescriptor(input: {
   descriptor: AgentSpawnDescriptor
   mcpSettings?: McpSettings
 }): Promise<TerminalSpawnResult> {
-  const sender = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed())?.webContents
-  if (!sender) {
-    retainFailedTerminalSession({
-      sessionId: input.descriptor.executionId,
-      message: 'No desktop window is available to host the agent terminal.',
-      kind: 'agent',
-      workspaceId: input.workspaceId,
-      agentId: input.descriptor.executionId,
-      cli: input.descriptor.cli,
-      cwd: input.descriptor.cwd,
-      agentSession: {
-        sessionId: input.descriptor.executionId,
-        executionId: input.descriptor.executionId,
-        system: input.descriptor.system,
-        workspaceId: input.workspaceId ?? '',
-        workspaceRoot: input.workspaceRoot,
-        workId: input.descriptor.workId,
-        role: input.descriptor.role,
-        displayName: input.descriptor.displayName,
-      },
-    })
-    return {
-      ok: false,
-      sessionId: input.descriptor.executionId,
-      message: 'No desktop window is available to host the agent terminal.',
-      exitCode: 1,
-    }
-  }
+  const sender = resolveSpawnEventSink()
 
   const [command, ...args] = input.descriptor.command
   if (!command) {
@@ -2450,22 +2473,7 @@ async function spawnMobileAgentTerminal(input: {
   worktreeId?: string
   worktreePath?: string
 }): Promise<{ ok: true; sessionId: string } | { ok: false; message: string }> {
-  const sender = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed())?.webContents
-  if (!sender) {
-    retainFailedTerminalSession({
-      sessionId: input.sessionId,
-      message: 'No desktop window is available to host a mobile-started agent terminal.',
-      kind: 'agent',
-      agentId: input.agentId,
-      cli: input.cli,
-      cwd: input.cwd,
-      sprintEngineStatePath: input.sprintEngineStatePath,
-      executionMode: input.executionMode,
-      worktreeId: input.worktreeId,
-      worktreePath: input.worktreePath,
-    })
-    return { ok: false, message: 'No desktop window is available to host a mobile-started agent terminal.' }
-  }
+  const sender = resolveSpawnEventSink()
 
   try {
     requireAuthenticatedUser('Sign in to launch sprint workflows from the app.')
@@ -2650,6 +2658,14 @@ async function spawnMobileAgentTerminal(input: {
     return { ok: false, message }
   }
 }
+
+/**
+ * Test seam for the mobile `task.start` spawn. In production it is reachable
+ * only as the mobile command service's `spawnAgentTerminal` adapter, whose
+ * dispatch path needs a paired device, a scoped workspace root, and a real run
+ * projection — none of which the spawn behavior under test depends on.
+ */
+export const __spawnMobileAgentTerminalForTest = spawnMobileAgentTerminal
 
 async function spawnTerminalFromIpc(
   sender: WebContents,

@@ -87,6 +87,7 @@ import {
   sprintEngineAwaitingMergeLabel,
 } from './vcs'
 export { deriveSprintEngineRepoMergeRollup, normalizeSprintEngineVcs }
+export { isPullRequestWatchable, isRunPullRequestWatchable } from './vcs'
 export type { SprintEngineRepoMergeRollup } from './vcs'
 import type {
   SprintEngineAutoState,

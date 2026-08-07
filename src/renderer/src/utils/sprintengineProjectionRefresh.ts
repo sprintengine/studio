@@ -188,8 +188,10 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
       //
       // A MERGE is the other dormant-only transition (MC-2017). A pull request
       // merges on GitHub long after the run finished and went dormant, and the
-      // only thing that observes it is `SprintEnginePullRequestPollSupervisor`,
-      // which probes `gh` and then forces a refresh straight into this branch.
+      // only thing that observes it is main's PR merge poller
+      // (`main/sprintengine-pr-merge-poller.ts`, MC-2155), whose `gh` probe
+      // rewrites the projection; `SprintEngineRunChangeSubscriber` hears main's
+      // runs-changed broadcast and forces a refresh straight into this branch.
       // Without this arm an epic's children would sit `in_progress` forever after
       // their sprint merged. Scoped to a WORKTREE run that has landed: a run with
       // no branch to merge has no post-completion transition to catch, so its

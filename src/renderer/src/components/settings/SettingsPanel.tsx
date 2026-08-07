@@ -1139,6 +1139,8 @@ export default function SettingsPanel({
   const setAppearanceWindowMaterial = useWorkspaceStore((s) => s.setAppearanceWindowMaterial)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
+  const keepRunningInBackground = useWorkspaceStore((s) => s.appSettings.keepRunningInBackground)
+  const setKeepRunningInBackground = useWorkspaceStore((s) => s.setKeepRunningInBackground)
   const setSprintEngineRoleEnabled = useWorkspaceStore((s) => s.setSprintEngineRoleEnabled)
   const activeKnowledgeConfig = resolveProjectKnowledgeConfig(
     activeWorkspace?.folderPath,
@@ -1479,6 +1481,7 @@ export default function SettingsPanel({
 
   const idleSuspendDescriptor = getSettingDescriptor('terminal-idle-suspend-minutes')
   const keepRecentAliveDescriptor = getSettingDescriptor('terminal-keep-recent-alive')
+  const backgroundModeDescriptor = getSettingDescriptor('keep-running-in-background')
   const telemetrySendDescriptor = getSettingDescriptor('usage-telemetry-send-data')
   const telemetryLocalDescriptor = getSettingDescriptor('usage-telemetry-local-export')
   const telemetryDiagnosticsDescriptor = getSettingDescriptor('usage-telemetry-export-diagnostics')
@@ -1999,6 +2002,19 @@ export default function SettingsPanel({
                 />
               </div>
             ) : null}
+          </section>
+
+          <section className="space-y-4">
+            <SettingsSectionTitle>Background</SettingsSectionTitle>
+            <div className="divide-y divide-[color:var(--border-subtle)]">
+              {backgroundModeDescriptor ? (
+                <RegistrySwitchRow
+                  descriptor={backgroundModeDescriptor}
+                  checked={keepRunningInBackground}
+                  onChange={(enabled) => setKeepRunningInBackground(enabled)}
+                />
+              ) : null}
+            </div>
           </section>
 
           <section className="space-y-4">

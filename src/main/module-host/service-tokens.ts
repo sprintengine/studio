@@ -35,6 +35,9 @@ export const SprintEngineLaunchSettingsToken = createServiceToken<AppServices['s
 export const SprintRuntimeToken = createServiceToken<AppServices['sprintRuntime']>(
   'core.sprint-runtime'
 )
+export const SprintPullRequestMergePollerToken = createServiceToken<AppServices['sprintPullRequestMergePoller']>(
+  'core.sprint-pull-request-merge-poller'
+)
 export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth']>(
   'core.multicode-auth'
 )

@@ -411,6 +411,24 @@ export function enterDormancyIfRunComplete(
   return true
 }
 
+/**
+ * Does this session belong to the run/workspace under supervision?
+ *
+ * For a sprint workspace the RUN is the identity: `sprintEngineStatePath` is
+ * unique per run, so it decides on its own. The workspace id deliberately does
+ * NOT have to match — a run discovered at boot (`main/sprintengine-boot-discovery.ts`)
+ * spawns under a placeholder workspace id and adopts the real one when a window
+ * finally registers it, and requiring both would orphan every session that
+ * hand-off crosses: an orphaned session reads as "the agent is not running" and
+ * the supervisor spawns a duplicate. A non-sprint workspace has no run to key on
+ * and still matches by workspace id.
+ */
+function sessionBelongsToWorkspaceRun(session: TerminalSessionSnapshot, workspace: Workspace): boolean {
+  const statePath = workspace.sprintEngineContext?.statePath
+  if (statePath) return session.sprintEngineStatePath === statePath
+  return session.workspaceId === workspace.id
+}
+
 export function isMatchingWorkspaceAgentSession(
   session: TerminalSessionSnapshot,
   workspace: Workspace,
@@ -419,9 +437,8 @@ export function isMatchingWorkspaceAgentSession(
   if (
     !session.processAlive
     || session.kind !== 'agent'
-    || session.workspaceId !== workspace.id
     || session.agentId !== agentId
-    || (workspace.sprintEngineContext && session.sprintEngineStatePath !== workspace.sprintEngineContext.statePath)
+    || !sessionBelongsToWorkspaceRun(session, workspace)
   ) {
     return false
   }
@@ -763,8 +780,7 @@ function sessionBelongsToWorkspaceSprintEngine(
   return Boolean(
     session.processAlive
     && session.kind === 'agent'
-    && session.workspaceId === workspace.id
-    && (!workspace.sprintEngineContext || session.sprintEngineStatePath === workspace.sprintEngineContext.statePath)
+    && sessionBelongsToWorkspaceRun(session, workspace)
   )
 }
 

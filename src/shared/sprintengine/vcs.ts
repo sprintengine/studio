@@ -175,3 +175,49 @@ export function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | unde
     declaredRepoCount: Math.max(countDeclaredSprintEngineRepos(record), repos.length),
   }
 }
+
+// --- Merge-state watchability ------------------------------------------------
+//
+// A PR merges on GitHub, outside the app, long after the run finished. Whoever
+// re-probes `vcs pr-status` needs one rule for "is this run's merge state still
+// worth a probe", and it is the same rule for main's poller
+// (`main/sprintengine-pr-merge-poller.ts`, the owner since MC-2155) and for the
+// board surfaces that describe what the poller is doing. It lives here, beside
+// the normalizer that fills the `repos` list it reads.
+
+/**
+ * One repo worth re-probing: it has a branch/PR and the PR is not already in a
+ * terminal state. `open` is the live case; `null` with a URL is a PR whose state
+ * is not yet known (just created). Merged/closed are terminal — the state is
+ * already correct, nothing left to watch.
+ */
+export function isPullRequestWatchable(input: {
+  hasVcs: boolean
+  prState: SprintEnginePullRequestState
+  hasPrUrl: boolean
+}): boolean {
+  const { hasVcs, prState, hasPrUrl } = input
+  if (!hasVcs) return false
+  if (prState === 'merged' || prState === 'closed') return false
+  return prState === 'open' || ((prState === null || prState === undefined) && hasPrUrl)
+}
+
+/**
+ * A run spanning projects has one pull request per project, each merging on its own
+ * schedule (MC-1612). One probe covers the whole run — `vcs pr-status` refreshes
+ * every project in one call — so the question here is only whether ANY project is
+ * still worth probing. Watching the primary alone would stop polling the moment the
+ * desktop PR merged, freezing every other project's state at whatever the last poll
+ * happened to see. `vcs.repos` always carries the primary at entry zero, including
+ * for runs stored before the list existed, so single-repo runs are unchanged.
+ */
+export function isRunPullRequestWatchable(vcs: SprintEngineVcs | null | undefined): boolean {
+  if (!vcs) return false
+  return (vcs.repos ?? []).some((repo) =>
+    isPullRequestWatchable({
+      hasVcs: true,
+      prState: repo.pullRequestState ?? null,
+      hasPrUrl: !!repo.pullRequestUrl,
+    }),
+  )
+}

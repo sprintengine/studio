@@ -42,7 +42,10 @@ export type {
 } from './skills'
 import type { SprintEngineAutomationIntentRecord } from './sprintengine/automation-intent'
 import type { SprintEngineAutomationMode as SprintEngineAutomationIntentMode } from './sprintengine/automation-types'
-import type { SprintEngineLaunchSettings } from './sprintengine/launch-settings'
+import type {
+  SprintEngineLaunchSettings,
+  SprintEngineLaunchSettingsRecord,
+} from './sprintengine/launch-settings'
 import type { RoadmapStateView } from './sprintengine/roadmap-surface'
 import type { SprintRunSummary, SprintRunsChangedEvent } from './sprintengine/runSummary'
 import type {
@@ -2192,6 +2195,17 @@ export type SprintEngineAutomationWriteResult =
   | { ok: true; record: SprintEngineAutomationIntentRecord; changed: boolean }
   | { ok: false; message: string }
 
+/**
+ * Acknowledgement of a launch-settings push: the authoritative record main now
+ * holds (the pusher reconciles its revision floor against it) and whether the
+ * push actually changed anything — an unchanged blob is not a new revision.
+ */
+export type SprintEngineLaunchSettingsWriteAck = {
+  ok: true
+  record: SprintEngineLaunchSettingsRecord
+  changed: boolean
+}
+
 export type SprintEngineAutomationChangedEvent = {
   statePath: string
   record: SprintEngineAutomationIntentRecord
@@ -3254,8 +3268,14 @@ export type ElectronApi = {
   setSprintEngineCliPermissionPreset: (input: SprintEngineCliPermissionPresetSetInput) => Promise<SprintEngineAutomationWriteResult>
   /** Authoritative automation-intent changes pushed from main (any writer: UI, phone, system). */
   onSprintEngineAutomationChanged: (cb: (event: SprintEngineAutomationChangedEvent) => void) => () => void
-  /** Mirror the renderer's agent-launch settings to main for scheduler spawns (Phase 2). */
-  syncSprintEngineLaunchSettings: (input: SprintEngineLaunchSettings) => Promise<{ ok: boolean }>
+  /** Push the renderer-authored launch settings to main's store so it can spawn headless (MC-2154). */
+  syncSprintEngineLaunchSettings: (
+    input: SprintEngineLaunchSettings
+  ) => Promise<SprintEngineLaunchSettingsWriteAck>
+  /** One-time seed of main's launch-settings store; no-op once a record exists. */
+  hydrateSprintEngineLaunchSettings: (
+    input: SprintEngineLaunchSettings
+  ) => Promise<SprintEngineLaunchSettingsWriteAck>
   /** Announce/refresh a sprint run's context to the main scheduler (Phase 2). */
   registerSprintRuntimeRun: (input: SprintRuntimeRunRegistration) => Promise<{ ok: boolean }>
   /** Stop tracking a run in the main scheduler (workspace removed). */
@@ -3490,6 +3510,9 @@ export type ElectronApi = {
   setModuleRegistrySnapshot: (snapshot: ModuleRegistrySnapshot) => Promise<ModuleRegistrySnapshotWriteResult>
   setColorScheme: (scheme: ColorScheme) => Promise<void>
   setWindowMaterial: (material: WindowMaterial) => Promise<void>
+  // Renderer → main mirror of `appSettings.keepRunningInBackground` (MC-2156).
+  // Main reads it inside `window-all-closed`, when no renderer is left to ask.
+  setBackgroundMode: (enabled: boolean) => Promise<void>
   readBacklogObjectStore: (workspaceRoot: string) => Promise<BacklogReadResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>
   ensureBacklogItemIds: (input: BacklogEnsureIdsInput) => Promise<BacklogEnsureIdsResult>

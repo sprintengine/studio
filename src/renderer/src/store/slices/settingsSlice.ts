@@ -1007,6 +1007,9 @@ export const defaultAppSettings = (): AppSettings => ({
   // A fresh profile has no pre-opt-in `true` to reset, so it starts stamped:
   // the first opt-in it records is explicit and survives every hydration.
   guidedBriefConversationSessionsOptInReset: true,
+  // Off is the pre-MC-2156 rule exactly; keeping a process alive is a choice
+  // the user has to make, never one an upgrade makes for them.
+  keepRunningInBackground: false,
 })
 
 // `onboardingStep` is a RETIRED key: the wizard wrote it, nothing writes it now,
@@ -1109,6 +1112,9 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
       settings?.guidedBriefConversationSessionsOptInReset === true
       && settings?.guidedBriefConversationSessions === true,
     guidedBriefConversationSessionsOptInReset: true,
+    // Only an explicit stored `true` keeps the app alive past its last window;
+    // anything else (fresh profile, corrupt value) reads as off.
+    keepRunningInBackground: settings?.keepRunningInBackground === true,
   }
 }
 
@@ -1270,6 +1276,8 @@ export interface SettingsSliceActions {
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void
   setGuidedBriefConversationSessions: (enabled: boolean) => void
+  /** Keep the app (and its sprint runs) alive after the last window closes. */
+  setKeepRunningInBackground: (enabled: boolean) => void
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setLearningShowTipsOnStartup: (enabled: boolean) => void
@@ -1869,6 +1877,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         // is written on purpose rather than inherited from the old default.
         state.appSettings.guidedBriefConversationSessions = enabled === true
         state.appSettings.guidedBriefConversationSessionsOptInReset = true
+      }),
+
+    setKeepRunningInBackground: (enabled) =>
+      set((state) => {
+        state.appSettings.keepRunningInBackground = enabled === true
       }),
 
     setUsageTelemetrySettings: (update) =>

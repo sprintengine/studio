@@ -10,6 +10,7 @@ import type {
   SprintEngineAutomationSetModeInput,
   SprintEngineAutomationWriteResult,
   SprintEngineCliPermissionPresetSetInput,
+  SprintEngineLaunchSettingsWriteAck,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
   RoadmapActivateInput,
@@ -185,8 +186,12 @@ export const sprintEngineApi = {
   },
   syncSprintEngineLaunchSettings: (
     input: SprintEngineLaunchSettings
-  ): Promise<{ ok: boolean }> =>
+  ): Promise<SprintEngineLaunchSettingsWriteAck> =>
     ipcRenderer.invoke('sprintengine:launch-settings:sync', input),
+  hydrateSprintEngineLaunchSettings: (
+    input: SprintEngineLaunchSettings
+  ): Promise<SprintEngineLaunchSettingsWriteAck> =>
+    ipcRenderer.invoke('sprintengine:launch-settings:hydrate', input),
   registerSprintRuntimeRun: (
     input: SprintRuntimeRunRegistration
   ): Promise<{ ok: boolean }> =>
@@ -263,6 +268,7 @@ export const sprintEngineApi = {
   | 'setSprintEngineCliPermissionPreset'
   | 'onSprintEngineAutomationChanged'
   | 'syncSprintEngineLaunchSettings'
+  | 'hydrateSprintEngineLaunchSettings'
   | 'registerSprintRuntimeRun'
   | 'unregisterSprintRuntimeRun'
   | 'pushSprintRuntimeStopReason'

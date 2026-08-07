@@ -2,7 +2,8 @@ import { registerMobileBridgeIpc } from '../ipc/mobile-bridge-ipc'
 import { discoverMobileSprintEngineStatePaths } from '../mobile-sprintengine-discovery'
 import { MobileBridge } from '../mobile/bridge'
 import { MobileSprintEngineSnapshotService } from '../mobile/sprintengine/snapshot'
-import { MulticodeAuthToken, TerminalRuntimeToken } from '../module-host/service-tokens'
+import { MulticodeAuthToken, TerminalRuntimeToken, WorkspaceSyncServiceToken } from '../module-host/service-tokens'
+import { listKnownWorkspaceRoots, uniqueResolvedRoots } from '../workspace-roots'
 import type { CapabilityModule } from '../module-host/load-modules'
 
 // Mobile relay as a capability module. The bridge pairs the desktop app with a
@@ -31,15 +32,23 @@ export const mobileRelayModule: CapabilityModule = {
   registerMain(host) {
     const terminalRuntime = host.requireService(TerminalRuntimeToken)
     const multicodeAuth = host.requireService(MulticodeAuthToken)
+    const workspaceSync = host.requireService(WorkspaceSyncServiceToken)
 
     let mobileWorkspaceRoots: string[] = []
+    // The phone's scope no longer depends on a renderer push (MC-2153): a window
+    // that pushed its open-workspace roots still wins by being first in the
+    // union, but with no window ever opened the same roots are read from main's
+    // own workspace snapshot — restored from the persisted routing snapshot at
+    // boot — so a paired phone sees this Multicode's runs headlessly.
+    const resolveWorkspaceRoots = (): string[] =>
+      uniqueResolvedRoots([...mobileWorkspaceRoots, ...listKnownWorkspaceRoots(workspaceSync.getSnapshot())])
     const snapshotService = new MobileSprintEngineSnapshotService()
     const bridge = new MobileBridge(() => multicodeAuth.getSession(), {
       accessTokenProvider: () => multicodeAuth.getRelayAccessToken(),
       commandService: terminalRuntime.commandService,
       snapshotService,
-      statePathsProvider: () => discoverMobileSprintEngineStatePaths(mobileWorkspaceRoots),
-      workspaceRootsProvider: async () => mobileWorkspaceRoots,
+      statePathsProvider: () => discoverMobileSprintEngineStatePaths(resolveWorkspaceRoots()),
+      workspaceRootsProvider: async () => resolveWorkspaceRoots(),
     })
 
     host.registerSidecar({
