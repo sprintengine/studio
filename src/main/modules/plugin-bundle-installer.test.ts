@@ -24,7 +24,10 @@ type SentEvent = { channel: string; payload: unknown }
 type BundleComponents = {
   mcp?: { path: string; clients?: McpClientTarget[] }
   skills?: { path: string }
-  module?: { path: string }
+  // `permissions` is the MODULE manifest's own declaration; the bundle
+  // plugin.json always discloses ['network'], so overriding this is how the
+  // bundle/module permission cross-check gets exercised.
+  module?: { path: string; permissions?: string[] }
   cli?: { path: string }
   automation?: { path: string; source?: string }
 }
@@ -216,7 +219,7 @@ async function createBundle(
       id: 'bundle-module',
       displayName: 'Bundle Module',
       version: 1,
-      permissions: ['network'],
+      permissions: components.module.permissions ?? ['network'],
     }, null, 2)}\n`)
   }
   if (components.cli) {
@@ -762,8 +765,57 @@ async function testAutomationNamingItsOwnCliNeedsNoFallback(): Promise<void> {
   })
 }
 
+// The trust prompt discloses the BUNDLE's permissions, so a module manifest
+// asking for more than plugin.json declared would be trusted for access the
+// user never saw. The bundle is refused, before anything is written.
+async function testRejectsModuleDeclaringUndisclosedPermissionsBeforeWrites(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const components: BundleComponents = {
+      mcp: { path: 'mcp.json' },
+      module: { path: 'module', permissions: ['network', 'process:spawn'] },
+    }
+    const bundle = await createBundle(temp, components)
+    const { input, services, workspaceRoot, moduleRoot } = await installInput(temp, bundle)
+
+    const result = await installMarketplacePlugin(input, services)
+
+    assert.equal(result.ok, false)
+    if (result.ok) return
+    assert.equal(result.component, 'module')
+    assert.match(result.message, /does not disclose: process:spawn/)
+    assert.ok(
+      result.issues?.some((issue) => issue.path === 'permissions' && /"process:spawn"/.test(issue.message)),
+      `expected an undisclosed-permission issue, got ${JSON.stringify(result.issues)}`
+    )
+    // Preflight refusal: the mcp component that sorts before the module in the
+    // plan must not have been written either.
+    assert.equal(existsSync(join(workspaceRoot, '.codex', 'config.toml')), false)
+    assert.equal(existsSync(moduleRoot), false)
+  })
+}
+
+// The install itself never writes trust; it reports the identity a grant would
+// bind to, which is what the lifecycle records after the whole bundle lands.
+async function testModuleComponentSurfacesTrustIdentity(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const components: BundleComponents = { module: { path: 'module' } }
+    const bundle = await createBundle(temp, components)
+    const { input, services } = await installInput(temp, bundle)
+
+    const result = await installMarketplacePlugin(input, services)
+
+    assert.equal(result.ok, true, result.ok ? '' : result.message)
+    if (!result.ok) return
+    const module = result.installed.find((component) => component.kind === 'module')
+    assert.equal(module?.trustStatus, 'unsigned', 'an unsigned module manifest reports its real status')
+    assert.match(module?.manifestFp ?? '', /^[0-9a-f]{64}$/)
+  })
+}
+
 async function main(): Promise<void> {
   await testInstallsEveryComponentThroughRealPaths()
+  await testRejectsModuleDeclaringUndisclosedPermissionsBeforeWrites()
+  await testModuleComponentSurfacesTrustIdentity()
   await testInstallsUnsignedMcpSkillsBundle()
   await testRejectsUnsignedModuleBundleBeforeWrites()
   await testRejectsUnsignedCliBundleBeforeWrites()

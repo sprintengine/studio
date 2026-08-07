@@ -1341,6 +1341,216 @@ async function main(): Promise<void> {
     }
   })
 
+  // ── the "Connectors" row (MC-2124) ────────────────────────────────────────
+  //
+  // Starting a sprint stopped configuring MCP at all when the wizard's Tools
+  // panel was deleted with it. These pin the three halves of the fix: the
+  // selection is reachable where a sprint is started, creating a sprint WRITES
+  // the enabled servers into the project (on any folder, wizard or not), and a
+  // write failure fails closed instead of producing a toolless run.
+
+  const connectorsTrigger = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector('button[aria-label^="Connectors"]')
+
+  const setConnectors = async (
+    servers: Array<{ id: string; name: string; enabled: boolean }>,
+    syncEnabled = true,
+  ): Promise<void> => {
+    await act(async () => {
+      useWorkspaceStore.setState((state) => ({
+        appSettings: {
+          ...state.appSettings,
+          mcp: {
+            syncEnabled,
+            servers: Object.fromEntries(
+              servers.map((entry) => [
+                entry.id,
+                {
+                  id: entry.id,
+                  name: entry.name,
+                  transport: 'stdio' as const,
+                  command: 'node',
+                  args: ['server.js'],
+                  enabled: entry.enabled,
+                  clients: ['claude-code' as const],
+                  scope: 'workspace' as const,
+                  source: 'bundled' as const,
+                  riskLevel: 'low' as const,
+                },
+              ]),
+            ),
+          },
+        },
+      }))
+    })
+  }
+
+  const clearConnectors = async (): Promise<void> => {
+    await act(async () => {
+      useWorkspaceStore.setState((state) => ({
+        appSettings: { ...state.appSettings, mcp: { syncEnabled: false, servers: {} } },
+      }))
+    })
+  }
+
+  await check('the team card offers the sprint’s connectors, and the picker toggles them', async () => {
+    await setConnectors([
+      { id: 'github', name: 'GitHub', enabled: true },
+      { id: 'linear', name: 'Linear', enabled: false },
+    ])
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      const trigger = connectorsTrigger(container)
+      assert.ok(trigger, 'the team card carries the Connectors row')
+      assert.match(trigger!.textContent ?? '', /1 active/, 'the row states what the sprint gets')
+
+      await click(trigger)
+      const rows = Array.from(
+        dom.window.document.body.querySelectorAll('[role="menuitemcheckbox"]'),
+      ) as HTMLElement[]
+      assert.equal(rows.length, 2, 'the picker lists every installed connector')
+      assert.equal(rows[0]?.getAttribute('aria-checked'), 'true', 'the active one leads, ticked')
+
+      // Toggling ON edits the app-level selection (the ruled behaviour) and the
+      // picker stays open, because a run picks a SET.
+      await click(rows[1])
+      assert.equal(
+        useWorkspaceStore.getState().appSettings.mcp?.servers.linear?.enabled,
+        true,
+        'the toggle writes the one app-level selection',
+      )
+      assert.equal(
+        dom.window.document.body.querySelectorAll('[role="menuitemcheckbox"]').length,
+        2,
+        'a pick does not close the picker',
+      )
+      assert.match(connectorsTrigger(container)!.textContent ?? '', /2 active/)
+
+      // Toggling OFF keeps the server installed — never a silent uninstall.
+      await click(dom.window.document.body.querySelectorAll('[role="menuitemcheckbox"]')[1])
+      const linear = useWorkspaceStore.getState().appSettings.mcp?.servers.linear
+      assert.ok(linear, 'the server survives being switched off')
+      assert.equal(linear!.enabled, false, 'it is simply inactive')
+    } finally {
+      unmount()
+      await clearConnectors()
+    }
+  })
+
+  await check('starting a sprint writes the enabled connectors into the project', async () => {
+    // The regression the acceptance names: a folder that never went through the
+    // new-workspace wizard still gets its MCP servers synced at creation.
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const order: string[] = []
+    const syncCalls: Array<{ workspaceRoot: string; enabledIds: string[] }> = []
+    apiRecord.mcpSync = async (input: {
+      workspaceRoot: string
+      settings: { servers: Record<string, { id: string; enabled: boolean }> }
+    }) => {
+      order.push('mcpSync')
+      syncCalls.push({
+        workspaceRoot: input.workspaceRoot,
+        enabledIds: Object.values(input.settings.servers)
+          .filter((server) => server.enabled)
+          .map((server) => server.id),
+      })
+      return { ok: true, targets: [], issues: [] }
+    }
+    apiRecord.initializeSprintEngineState = async () => {
+      order.push('init')
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    await setConnectors([
+      { id: 'github', name: 'GitHub', enabled: true },
+      { id: 'linear', name: 'Linear', enabled: false },
+    ])
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.deepEqual(
+        syncCalls,
+        [{ workspaceRoot: ROOT, enabledIds: ['github'] }],
+        'the enabled server is written into the project the sprint runs in',
+      )
+      assert.deepEqual(order, ['mcpSync', 'init'], 'and written before the run is created')
+    } finally {
+      delete apiRecord.mcpSync
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+      await clearConnectors()
+    }
+  })
+
+  await check('a connector write that fails aborts the start with its own message', async () => {
+    const apiRecord = (dom.window as unknown as { api: Record<string, unknown> }).api
+    let initialized = false
+    apiRecord.mcpSync = async () => ({ ok: false, message: 'Workspace root does not exist.' })
+    apiRecord.initializeSprintEngineState = async () => {
+      initialized = true
+      return { ok: true, data: {} }
+    }
+    apiRecord.addOrUpdateBacklogLink = async () => ({ ok: true })
+    await setConnectors([{ id: 'github', name: 'GitHub', enabled: true }])
+    let closes = 0
+    const { container, unmount } = await mountDialog(preloadedSource, () => {
+      closes += 1
+    })
+    try {
+      await click(
+        Array.from(container.querySelectorAll('button')).find((element) =>
+          element.textContent?.includes('Start sprint'),
+        ),
+      )
+      await flush()
+      assert.equal(initialized, false, 'no run is created when the tools cannot be written')
+      assert.equal(closes, 0, 'the dialog stays open on the failure')
+      assert.match(
+        container.textContent ?? '',
+        /Tool integration setup failed: Workspace root does not exist\./,
+        'and shows the actionable message rather than a toolless run',
+      )
+    } finally {
+      delete apiRecord.mcpSync
+      delete apiRecord.initializeSprintEngineState
+      delete apiRecord.addOrUpdateBacklogLink
+      unmount()
+      await clearConnectors()
+    }
+  })
+
+  await check('a staffed roster carries the Connectors row too', async () => {
+    let rosterId: string | null = null
+    await act(async () => {
+      rosterId = useWorkspaceStore.getState().saveSprintEngineRoster({
+        name: 'Connector crew',
+        roleCounts: { developer: 1 },
+        roleCliDefaults: {},
+        roleModelOverrides: {},
+      })
+    })
+    assert.ok(rosterId, 'the fixture roster saves')
+    await selectRoster(rosterId)
+    await setConnectors([{ id: 'github', name: 'GitHub', enabled: true }])
+    const { container, unmount } = await mountDialog(preloadedSource)
+    try {
+      assert.match(container.textContent ?? '', /Connector crew/, 'the staffed card is showing')
+      const trigger = connectorsTrigger(container)
+      assert.ok(trigger, 'the staffed roster card carries the row too')
+      assert.match(trigger!.textContent ?? '', /1 active/, 'with the same value')
+    } finally {
+      await selectRoster(NO_ROLES_ROSTER_ID)
+      unmount()
+      await clearConnectors()
+    }
+  })
+
   if (failures > 0) {
     console.error(`\n${failures} NewSprintDialog checks failed`)
     process.exit(1)

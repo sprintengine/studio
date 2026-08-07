@@ -10,11 +10,37 @@ import type { AgentCli } from '../../types/workspace'
 // is the empty model part). Ids, not labels: a catalog that relabels a model
 // keeps the star, and a model that leaves the catalog simply stops matching
 // any row rather than resurrecting as a ghost entry.
+//
+// A star can also capture a COMPOSITION — a model plus the role it spawns as
+// ("Fable 5 · Architect") — and that key carries a `:role:<id>` suffix on the
+// plain key it composes. Suffix, not a separate store: the base key is the same
+// string either way, so a combo and its plain model are two independent entries
+// that cannot be confused for one another, and every key written before
+// compositions existed still parses as the plain model it always was.
 
 const STORAGE_KEY = 'multicode.model-favourites'
 
-export function modelFavouriteKey(cli: AgentCli, model: string | null | undefined): string {
-  return `${cli}:${model ?? ''}`
+const ROLE_MARKER = ':role:'
+
+export function modelFavouriteKey(
+  cli: AgentCli,
+  model: string | null | undefined,
+  role?: string | null,
+): string {
+  const base = `${cli}:${model ?? ''}`
+  return role ? `${base}${ROLE_MARKER}${role}` : base
+}
+
+/**
+ * Split a stored key back into the plain model key and the role it composes.
+ * Anchored on the LAST marker so a model id that itself contained one could
+ * not steal the role component; a key with no marker is a plain model star.
+ */
+export function parseModelFavouriteKey(key: string): { baseKey: string; role: string | null } {
+  const at = key.lastIndexOf(ROLE_MARKER)
+  if (at < 0) return { baseKey: key, role: null }
+  const role = key.slice(at + ROLE_MARKER.length)
+  return role.length > 0 ? { baseKey: key.slice(0, at), role } : { baseKey: key, role: null }
 }
 
 function read(): string[] {

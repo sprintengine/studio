@@ -83,8 +83,8 @@ run('renders on the real server surface with the DEBUG label and aria-pressed', 
 // (not inside) the preset group, and WorkspaceManager carries the value into the
 // spawn payload + launch input and resets it per spawn. Mirrors the
 // source-contract style of BacklogRow.test.tsx.
-const composerPopoverSource = readFileSync(
-  join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/AgentComposerPopover.tsx'),
+const spawnPickerSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/SpawnPicker.tsx'),
   'utf8',
 )
 const composerPanelSource = readFileSync(
@@ -104,11 +104,14 @@ const terminalSource = readFileSync(
   'utf8',
 )
 
-run('both composer surfaces render the toggle as a controlled sibling of the preset group', () => {
+run('both spawn surfaces offer the toggle as a controlled sibling of the permission control', () => {
+  // The spawn picker's footer is Role / ⋯ / Permissions (MC-2122), so Debug
+  // rides the ⋯ menu rather than a chip row — still a controlled toggle beside
+  // the permission control, never folded into the presets themselves.
   assert.match(
-    composerPopoverSource,
-    /<SpawnDebugToggle active=\{action\.debugMode\} onChange=\{action\.onChangeDebugMode\} \/>/,
-    'the popover picker renders the toggle beside its preset buttons',
+    spawnPickerSource,
+    /checked=\{debugMode\}[\s\S]{0,160}onClick=\{\(\) => onChangeDebugMode\(!debugMode\)\}/,
+    'the spawn picker offers the toggle in its footer menu',
   )
   assert.match(
     composerPanelSource,

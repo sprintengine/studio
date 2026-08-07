@@ -59,17 +59,22 @@ async function persist(userDataDir: string, trusted: Map<string, string>): Promi
 // (each call re-reads the on-disk state after the previous write completes).
 let writeChain: Promise<unknown> = Promise.resolve()
 
+// `previous` is what this id mapped to before the write (null when it was not
+// trusted). It is what a caller restores when the work the grant belongs to
+// fails afterwards — the marketplace install grants trust before writing its
+// receipt, and a failed receipt write has to put the entry back as it was.
 export async function setModuleTrust(
   userDataDir: string,
   id: string,
   fingerprint: string | null
-): Promise<{ result: TrustWriteResult; trustedModules: Map<string, string> }> {
+): Promise<{ result: TrustWriteResult; trustedModules: Map<string, string>; previous: string | null }> {
   const run = writeChain.then(async () => {
     const current = readTrustedModulesSync(userDataDir)
+    const previous = current.get(id) ?? null
     if (fingerprint) current.set(id, fingerprint)
     else current.delete(id)
     const result = await persist(userDataDir, current)
-    return { result, trustedModules: current }
+    return { result, trustedModules: current, previous }
   })
   // Keep the chain alive even if this link rejects, so a failure doesn't wedge it.
   writeChain = run.catch(() => undefined)

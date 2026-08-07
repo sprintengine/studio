@@ -4,6 +4,7 @@ import { createBootReveal } from './boot-reveal'
 import { runBootDiscovery } from './boot-discovery'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
 import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow } from './window-factory'
+import { markStartup } from './startup-timeline'
 import { releaseAllWorkspaceRunnerLocks } from './workspace-runner-lock'
 import { currentRuntimeEnv, getManagedPython, reportManagedPythonResolution } from './managed-runtime'
 import type { MulticodeUpdateService } from './update-service'
@@ -89,6 +90,7 @@ export function registerAppLifecycle({
   })
 
   app.whenReady().then(async () => {
+    markStartup('main.app-ready')
     app.setAppLogsPath()
 
     // Surface which Python the app resolved; warns when a packaged build missed
@@ -109,7 +111,9 @@ export function registerAppLifecycle({
     // The plate goes up BEFORE the main window is created: from here until the
     // reveal there is always something on screen.
     createSplashWindow()
+    markStartup('main.splash-shown')
     const mainWindow = createMainWindow({ diagnosticsEnabled, deferShow: true })
+    markStartup('main.window-created')
 
     const bootReveal = createBootReveal({
       reveal: () => {
@@ -118,6 +122,7 @@ export function registerAppLifecycle({
         // do.
         closeSplashWindow()
         revealMainWindow(mainWindow)
+        markStartup('main.reveal')
       },
     })
     // `once`: a renderer that reloads mid-boot (dev HMR) must not re-arm a
@@ -134,6 +139,9 @@ export function registerAppLifecycle({
     // probe delays a warmed cache and never the app.
     void runBootDiscovery({
       onProgress: sendSplashProgress,
+      // Not awaited, so this mark can (and usually does) land after the reveal —
+      // which is the point: it shows how much of the boot the user never waits
+      // for, and how much of the CLI probe the splash actually covered.
       // The one update check at boot. It MOVED here rather than being
       // duplicated; the packaged guard rides with it, since checkForUpdates
       // records an error state in an unpackaged build.
@@ -141,7 +149,7 @@ export function registerAppLifecycle({
         if (!app.isPackaged) return
         await updateService.checkForUpdates(false)
       },
-    })
+    }).finally(() => markStartup('main.discovery-settled'))
 
     // Always-on: start the agent-state reporter socket so launches that follow
     // can install the hook against a live endpoint.

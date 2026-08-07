@@ -242,6 +242,10 @@ import type {
   ThirdPartyRendererEntriesResult,
 } from './modules/manifest'
 import type {
+  ModuleRegistrySnapshot,
+  ModuleRegistrySnapshotWriteResult,
+} from './modules/registry-snapshot'
+import type {
   WorkspaceSyncCommand,
   WorkspaceSyncCommandResult,
   WorkspaceSyncEvent,
@@ -605,6 +609,11 @@ export type MarketplacePluginInstalledComponent = {
   servers?: McpServerConfig[]
   harnesses?: SkillHarness[]
   installedDirName?: string
+  // Module components only: the trust classification at install and the
+  // installed manifest's content fingerprint — what the lifecycle's
+  // post-success marketplace trust grant binds to (and what uninstall revokes).
+  trustStatus?: ModuleTrustStatus
+  manifestFp?: string
 }
 
 export type MarketplacePluginInstallResult =
@@ -2938,6 +2947,13 @@ export type ElectronApi = {
   // never gets there cannot strand a hidden main window).
   onSplashProgress: (cb: (update: SplashProgress) => void) => () => void
   notifyBootComplete: () => void
+  // Boot measurement (MC-2075), off unless asked for. The flag is resolved in
+  // preload from the same environment main reads, so the renderer never reports
+  // marks into a main process that is not collecting them. A mark is an epoch
+  // millisecond because the two processes have different `performance.now()`
+  // origins — see src/shared/startup-timeline.ts.
+  startupTimelineEnabled: boolean
+  reportStartupMark: (id: string, atEpochMs: number) => void
   workspaceSyncDispatch: (command: WorkspaceSyncCommand) => Promise<WorkspaceSyncCommandResult>
   workspaceSyncGetSnapshot: () => Promise<WorkspaceSyncSnapshot>
   workspaceSyncGetEventsAfter: (sequence: number) => Promise<WorkspaceSyncEvent[]>
@@ -3418,6 +3434,10 @@ export type ElectronApi = {
   terminalResize: (sessionId: string, cols: number, rows: number) => Promise<void>
   terminalStatus: (sessionId: string) => Promise<{ processAlive: boolean; suspended: boolean }>
   terminalList: () => Promise<TerminalSessionSnapshot[]>
+  // The name of the shell a plain terminal session launches on this machine
+  // ('zsh', 'bash', 'powershell'), resolved by the launcher itself so a surface
+  // that names it cannot advertise one shell and start another.
+  terminalDefaultShellName: () => Promise<string>
   terminalSetVisible: (sessionId: string, visible: boolean) => Promise<void>
   // Freeze-the-view: suspend kills the agent process but keeps the painted,
   // resumable session; resume relaunches it (mirrors terminalSpawn's payload,
@@ -3465,6 +3485,9 @@ export type ElectronApi = {
   workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<WorkspaceBackupWriteResult>
   workspaceBackupRead: () => Promise<WorkspaceBackupReadResult>
   setModuleEnablement: (overrides: ModuleEnablementOverrides) => Promise<ModuleEnablementWriteResult>
+  // Renderer → main mirror of the module registry the user sees (MC-2078); main
+  // caches the last push in memory for its own read surfaces.
+  setModuleRegistrySnapshot: (snapshot: ModuleRegistrySnapshot) => Promise<ModuleRegistrySnapshotWriteResult>
   setColorScheme: (scheme: ColorScheme) => Promise<void>
   setWindowMaterial: (material: WindowMaterial) => Promise<void>
   readBacklogObjectStore: (workspaceRoot: string) => Promise<BacklogReadResult>

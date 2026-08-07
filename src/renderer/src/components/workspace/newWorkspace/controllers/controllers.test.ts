@@ -1124,6 +1124,78 @@ async function testSprintEngineEpicSourcedLinksEpicAndFlagsChildren(): Promise<v
   )
 }
 
+// MC-2124: the plan-sourced path gained the advanced-setup seam the guided-brief
+// path already had, on the same contract. Two things are pinned here, and they
+// are the two the acceptance names: it runs BEFORE any mutation, and a failure
+// aborts creation with the seam's own actionable message rather than producing a
+// run whose agents lack the tools app settings declare.
+async function testSprintEnginePlanSourcedAdvancedSetupFailsClosed(): Promise<void> {
+  const baseInput = {
+    folderPath: '/p',
+    teamName: 'Tools Run',
+    goal: 'goal',
+    sourcePlanPath: '/p/backlog/plan.md',
+    sourcePlanRelativePath: 'backlog/plan.md',
+    sourcePlanContent: '# Plan',
+    sourcePlanKind: 'unknown' as const,
+    sourceBundle: null,
+    visibleRoleCounts: { architect: 1, product: 0, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+    maxParallelAgents: 2,
+    roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' } as const,
+    startRunner: false,
+    autoApproveArtifacts: false,
+    cliPermissionPreset: 'default' as const,
+  }
+
+  let initialized = false
+  let linked = false
+  await assert.rejects(
+    () => runSprintEnginePlanSourcedCreation(baseInput, {
+      pathExists: async (path) => path === '/p/backlog/plan.md',
+      persistAdvancedSetup: async () => 'Tool integration setup failed: mcp sync error',
+      initializeSprintEngineState: async () => {
+        initialized = true
+        return { ok: true, data: {} }
+      },
+      recordBacklogExecutionLink: async () => {
+        linked = true
+      },
+    }),
+    (error) =>
+      error instanceof SprintEnginePlanSourcedError
+      && error.code === 'advanced-setup-failed'
+      && error.message === 'Tool integration setup failed: mcp sync error',
+    'advanced-setup failure rejects with the actionable message, not a code',
+  )
+  assert.equal(initialized, false, 'no run state is initialized when Advanced setup fails')
+  assert.equal(linked, false, 'no backlog execution link is written either')
+
+  // The happy path: the seam runs first, then the run is created.
+  const order: string[] = []
+  await runSprintEnginePlanSourcedCreation(
+    { ...baseInput, teamName: 'Tools Run Ok' },
+    {
+      pathExists: async (path) => path === '/p/backlog/plan.md',
+      persistAdvancedSetup: async (workspaceRoot) => {
+        order.push(`setup:${workspaceRoot}`)
+        return null
+      },
+      initializeSprintEngineState: async () => {
+        order.push('init')
+        return { ok: true, data: {} }
+      },
+      recordBacklogExecutionLink: async () => {
+        order.push('link')
+      },
+    },
+  )
+  assert.deepEqual(
+    order,
+    ['setup:/p', 'init', 'link'],
+    'the connectors are written into the project before anything is created',
+  )
+}
+
 async function testGuidedBriefScaffoldValidation(): Promise<void> {
   const ports: GuidedBriefScaffoldPorts = {
     filesystem: createMemoryFilesystem(),
@@ -1974,6 +2046,7 @@ async function main(): Promise<void> {
   await testSprintEnginePlanSourcedWorkflowKeysFlowToInit()
   await testSprintEnginePlanSourcedSkipsNonBacklogLink()
   await testSprintEngineEpicSourcedLinksEpicAndFlagsChildren()
+  await testSprintEnginePlanSourcedAdvancedSetupFailsClosed()
   await testGuidedBriefScaffoldValidation()
   await testGuidedBriefScaffoldHappyPath()
   await testGuidedBriefScaffoldSurvivesBaselineFailure()

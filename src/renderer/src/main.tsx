@@ -8,6 +8,14 @@ import { loadThirdPartyRendererModules } from './modules'
 import { runBundledSpecialistPackMigration } from './utils/bundledSpecialistPackMigration'
 import { bindElectronClipboardPasteBridge } from './utils/clipboardPasteBridge'
 import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
+import { markStartup, markStartupAt } from './utils/startupTimeline'
+
+// Boot measurement (MC-2075). `timeOrigin` is this document's navigation start,
+// so the pair below brackets everything that happens before a line of app code
+// runs: HTML parse, eager chunk fetch, compile and evaluate — the cost the
+// bundle-size ceiling stands in for.
+markStartupAt('renderer.navigation-start', performance.timeOrigin)
+markStartup('renderer.script-start')
 
 // The diagnostics window's content (process/IPC/memory panels + report
 // formatter) is heavy and only mounts in the `?view=diagnostics` window, so keep
@@ -89,6 +97,7 @@ function signalBootComplete(): void {
   bootCompleteSignalled = true
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
+      markStartup('renderer.first-paint')
       if (typeof window.api?.notifyBootComplete !== 'function') return
       window.api.notifyBootComplete()
     })
@@ -120,11 +129,13 @@ if (isDiagnosticsWindow) {
   )
 } else {
   void bootThirdPartyRendererModules().then(() => {
+    markStartup('renderer.third-party-modules-settled')
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <ConfirmDialogProvider>
         <WorkspaceManager />
       </ConfirmDialogProvider>
     )
+    markStartup('renderer.root-rendered')
     // Only the primary workspace window reveals itself. The diagnostics and aux
     // branches above share this bundle but are opened by user action long after
     // boot — a boot-complete from one of them would be answering for a window

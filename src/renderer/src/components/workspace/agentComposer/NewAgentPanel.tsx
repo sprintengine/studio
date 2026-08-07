@@ -10,6 +10,7 @@ import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
   CliModelPopoverSurface,
   FOCUS_RING_CLASS,
+  FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   InlineSkillPicker,
   Popover,
   SkillPickerPopover,
@@ -329,7 +330,15 @@ export default function NewAgentPanel({
 
         {/* The composer, on the terminal's own ground — this box becomes the
             terminal, so it is already shaped like one. */}
-        <div className="relative mt-5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-3 pb-2 pt-2.5 focus-within:border-[color:var(--accent-primary)]">
+        <div
+          className={[
+            'relative mt-5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-3 pb-2 pt-2.5',
+            // Focus is the ring, and only the ring (MC-2118). Swapping the
+            // border to the accent was a second, weaker signal for the same
+            // state — and spent the accent on something nobody chose.
+            FOCUS_RING_WITHIN_TEXTAREA_CLASS,
+          ].join(' ')}
+        >
           {mentionQuery !== null ? (
             <InlineSkillPicker
               ref={mentionRef}
@@ -380,8 +389,10 @@ export default function NewAgentPanel({
               />
             </Popover>
 
-            {/* The caret: this is a terminal line, not a message field. */}
+            {/* The caret: this is a terminal line, not a message field. An SVG
+                chevron in its place would read as an affordance to click. */}
             <span aria-hidden="true" className="mt-0.5 select-none font-mono text-body text-[color:var(--accent-primary)]">
+              {/* design-tokens-allow: shell prompt caret, not an icon — a mono glyph typeset with the command line it introduces */}
               ❯
             </span>
 

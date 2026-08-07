@@ -149,6 +149,25 @@ const pendingResponses = new Map<string, (response: AutomationRendererResponse) 
   readBacklogObjectStore: async () => ({ ok: false, message: 'not in this test' }),
   initializeSprintEngineState: async (input: InitCall) => {
     initCalls.push(input)
+    // The GOAL-only path re-reads the projection the engine just wrote and
+    // fails `invalid-projection` without one; the plan-sourced path does not
+    // read it at all. Answer it only for that shape, so every existing
+    // plan-sourced check keeps exercising the bare `{ok:true}` it always did.
+    if (input.source === undefined) {
+      return {
+        ok: true,
+        data: {
+          projectionContent: JSON.stringify({
+            name: input.name,
+            goal: input.goal,
+            agents: [],
+            tasks: [],
+            events: [],
+            artifacts: [],
+          }),
+        },
+      }
+    }
     return { ok: true }
   },
   addOrUpdateBacklogLink: async (input: LinkCall) => {
@@ -502,6 +521,172 @@ async function main(): Promise<void> {
     assert.equal(named.code, 'sprint_unknown_roster')
     assert.equal(initCalls.length, 0, 'nothing was initialized')
     assert.equal(linkCalls.length, 0, 'nothing was linked')
+  })
+
+  // MC-2120 — the run's execution runtime. `roleRuntimes` is what init writes
+  // into run.yaml and what every spawn and claim-time model stamp reads, so it
+  // is the only honest assertion that a requested model actually reached the
+  // run: a pinned run that records `{cli, model: null}` is the exact bug the
+  // item reported.
+  await check('a roleless run pins its pool seat through `runtime`', async () => {
+    const response = await send({
+      kind: 'sprint.create',
+      folderPath: ROOT,
+      goal: '',
+      sourceRelativePath: LOOSE_REF,
+      runtime: { cli: 'claude-code', model: 'claude-opus-5', effort: 'high' },
+      maxConcurrentAgents: 6,
+    })
+    assert.equal(response.ok, true, response.message)
+    const roleRuntimes = initCalls[0].roleRuntimes as Record<string, Record<string, unknown>>
+    assert.deepEqual(
+      roleRuntimes['(roleless)'],
+      { model: 'claude-opus-5', cli: 'claude-code', reasoning: 'high' },
+      'the roleless seat is the ONLY seat a no-roles run has, and role-keyed maps cannot reach it',
+    )
+    assert.deepEqual(initCalls[0].enabledRoles, [], 'pinning a runtime never staffs a role')
+    assert.equal(
+      workspaceById(response.workspaceId).sprintEngineAutoState?.maxConcurrentAgents,
+      6,
+      'the caller\'s ceiling reaches the run, instead of silently inheriting the default',
+    )
+  })
+
+  await check('a staffed roster takes per-role models and efforts, with `runtime` as the fallback', async () => {
+    const response = await send({
+      kind: 'sprint.create',
+      folderPath: ROOT,
+      goal: '',
+      sourceRelativePath: LOOSE_REF,
+      roster: { architect: 1, developer: 1 },
+      runtime: { model: 'claude-sonnet-5', effort: 'medium' },
+      roleClis: { architect: 'codex' },
+      roleModels: { architect: 'claude-opus-5' },
+      roleEfforts: { architect: 'high' },
+    })
+    assert.equal(response.ok, true, response.message)
+    const roleRuntimes = initCalls[0].roleRuntimes as Record<string, Record<string, unknown>>
+    assert.deepEqual(roleRuntimes.architect, { model: 'claude-opus-5', cli: 'codex', reasoning: 'high' })
+    assert.deepEqual(
+      roleRuntimes.developer,
+      { model: 'claude-sonnet-5', cli: 'claude-code', reasoning: 'medium' },
+      'a role the maps do not name falls back to the run-level runtime',
+    )
+    assert.deepEqual(
+      (initCalls[0].enabledRoles as string[]).sort(),
+      ['architect', 'developer'],
+      'the runtime rides the roster the caller staffed, and does not change it',
+    )
+  })
+
+  // The item's headline acceptance, in one call: several sources into ONE run,
+  // with every staffed role pinned. The two halves are independent code paths
+  // (the selection scan, the runtime resolution) and this is the only check
+  // that proves they compose.
+  await check('one call starts a multi-source run with every staffed role pinned', async () => {
+    const response = await send({
+      kind: 'sprint.create',
+      folderPath: ROOT,
+      goal: '',
+      sourceRelativePaths: [EPIC_REF, UNPLANNED_EPIC_REF, LOOSE_REF],
+      roster: { architect: 1, developer: 1 },
+      roleModels: { architect: 'claude-opus-5', developer: 'claude-opus-5' },
+      roleEfforts: { architect: 'high', developer: 'high' },
+    })
+    assert.equal(response.ok, true, response.message)
+    assert.equal((initCalls[0].source as { planKind: string }).planKind, 'selection')
+    assert.equal(
+      bundleRefs().includes(LOOSE_REF) && bundleRefs().includes(OPEN_CHILD_REF),
+      true,
+      'the selection bundle carries the picked items and the epics\' children',
+    )
+    const roleRuntimes = initCalls[0].roleRuntimes as Record<string, Record<string, unknown>>
+    for (const role of ['architect', 'developer']) {
+      assert.deepEqual(
+        roleRuntimes[role],
+        { model: 'claude-opus-5', cli: 'claude-code', reasoning: 'high' },
+        `${role} runs on the model and effort the one call asked for`,
+      )
+    }
+  })
+
+  await check('a role the run does not staff fails loudly instead of doing nothing', async () => {
+    const unstaffed = await send({
+      kind: 'sprint.create',
+      folderPath: ROOT,
+      goal: '',
+      sourceRelativePath: LOOSE_REF,
+      roster: { architect: 1 },
+      roleModels: { developr: 'claude-opus-5' },
+    })
+    assert.equal(unstaffed.ok, false, 'a typo\'d role must not silently launch on models nobody chose')
+    assert.equal(unstaffed.code, 'sprint_unknown_role')
+    assert.match(unstaffed.message ?? '', /architect/, 'the failure names what the run does staff')
+    assert.equal(initCalls.length, 0, 'nothing was initialized')
+
+    // A roleless run has no role ids at all, so ANY role-keyed entry is wrong —
+    // and the message must say where the pin actually belongs.
+    const roleless = await send({
+      kind: 'sprint.create',
+      folderPath: ROOT,
+      goal: '',
+      sourceRelativePath: LOOSE_REF,
+      roleEfforts: { architect: 'high' },
+    })
+    assert.equal(roleless.ok, false)
+    assert.equal(roleless.code, 'sprint_unknown_role')
+    assert.match(roleless.message ?? '', /"runtime"/)
+    assert.equal(initCalls.length, 0, 'nothing was initialized')
+  })
+
+  await check('an unset runtime leaves the run exactly as it was before MC-2120', async () => {
+    const response = await send({ kind: 'sprint.create', folderPath: ROOT, goal: '', sourceRelativePath: LOOSE_REF })
+    assert.equal(response.ok, true, response.message)
+    const roleRuntimes = initCalls[0].roleRuntimes as Record<string, Record<string, unknown>>
+    assert.equal(roleRuntimes['(roleless)']?.model ?? null, null, 'no model flag unless one was asked for')
+    assert.equal('reasoning' in (roleRuntimes['(roleless)'] ?? {}), false, 'no effort flag either')
+    assert.equal(workspaceById(response.workspaceId).sprintEngineAutoState?.maxConcurrentAgents, 3)
+  })
+
+  // The goal-only run is the OTHER creation function (no source, no backlog
+  // link), and it wires the runtime through a different controller — so the
+  // pins have to be proven there too, not inferred from the plan-sourced path.
+  await check('a goal-only run carries the same runtime', async () => {
+    const response = await send({
+      kind: 'sprint.create',
+      folderPath: ROOT,
+      goal: 'Ship checkout',
+      runtime: { cli: 'claude-code', model: 'claude-opus-5', effort: 'high' },
+      maxConcurrentAgents: 5,
+    })
+    assert.equal(response.ok, true, response.message)
+    assert.equal(initCalls.length, 1, 'a goal-only request creates through the new-team path')
+    assert.equal(initCalls[0].source, undefined, 'and records no source')
+    const roleRuntimes = initCalls[0].roleRuntimes as Record<string, Record<string, unknown>>
+    assert.deepEqual(roleRuntimes['(roleless)'], { model: 'claude-opus-5', cli: 'claude-code', reasoning: 'high' })
+    assert.equal(workspaceById(response.workspaceId).sprintEngineAutoState?.maxConcurrentAgents, 5)
+  })
+
+  await check('an out-of-range agent ceiling is clamped, not written raw', async () => {
+    // The MCP tool boundary refuses these, but a horizon step or automation
+    // reaches this same request type without passing through it, and the
+    // plan-sourced path writes the auto-state straight through.
+    for (const [asked, expected] of [[99, 10], [0, 3], [2.7, 2]] as const) {
+      initCalls.length = 0
+      const response = await send({
+        kind: 'sprint.create',
+        folderPath: ROOT,
+        goal: '',
+        sourceRelativePath: LOOSE_REF,
+        maxConcurrentAgents: asked,
+      })
+      assert.equal(response.ok, true, response.message)
+      assert.equal(
+        workspaceById(response.workspaceId).sprintEngineAutoState?.maxConcurrentAgents,
+        expected,
+        `${asked} clamps to ${expected}`,
+      )
+    }
   })
 
   await check('a traversing or absolute ref fails as an invalid source', async () => {

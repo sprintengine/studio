@@ -5,7 +5,7 @@ import { basename, join } from 'path'
 
 import { BUNDLED_MODULE_IDS, type CapabilityManifest } from '../../shared/modules/manifest'
 import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
-import { classifyModuleTrust, isSignedByTrustedPublisher, type ModuleTrust, type ModuleTrustContext } from './module-signature'
+import { classifyModuleTrust, isSignedByTrustedPublisher, manifestFingerprint, type ModuleTrust, type ModuleTrustContext } from './module-signature'
 
 // Discovery + install for third-party capability modules under
 // ~/.multicode/modules/<id>/manifest.json. Mirrors the BYO-CLI plugin-registry
@@ -38,7 +38,10 @@ export type UserModuleListResult = {
 }
 
 export type InstallModuleResult =
-  | { ok: true; id: string; trust: ModuleTrust }
+  // `manifestFp` is the fingerprint of the manifest that was just installed —
+  // the identity a trust grant binds to, so a later install of different bytes
+  // under the same id cannot inherit it (see module-signature.ts).
+  | { ok: true; id: string; trust: ModuleTrust; manifestFp: string }
   | { ok: false; rejected: ModuleRejection; message: string }
 
 const RESERVED_IDS = new Set(BUNDLED_MODULE_IDS)
@@ -221,7 +224,12 @@ export async function installModuleFolder(
   // Copy the folder by content; force overwrites a prior install of this id.
   await cp(srcDir, destination, { recursive: true, force: true })
 
-  return { ok: true, id: result.manifest.id, trust: classifyModuleTrust(result.manifest, ctx) }
+  return {
+    ok: true,
+    id: result.manifest.id,
+    trust: classifyModuleTrust(result.manifest, ctx),
+    manifestFp: manifestFingerprint(result.manifest),
+  }
 }
 
 // Exported for tests / callers that need the install destination of an id.

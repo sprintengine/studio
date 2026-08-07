@@ -135,6 +135,12 @@ import {
   type SprintIsolation,
 } from './newSprintModel'
 import { SprintIsolationRowView } from './SprintIsolationRow'
+import { SprintConnectorsRowView } from './SprintConnectorsRow'
+import {
+  listSprintConnectors,
+  syncSprintConnectors,
+  toggledSprintConnector,
+} from './sprintConnectors'
 import type { SprintEngineIntake } from '../../../../../shared/sprintengine/run-types'
 import { sourcePlanKindSupportsDirectIntake } from '../../../../../shared/sprintengine/run-types'
 
@@ -251,6 +257,30 @@ export default function NewSprintDialog({
     (s) => s.appSettings.lastAgentSpawnPermissionPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
   )
   const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
+
+  // --- connectors (MC-2124) -------------------------------------------------
+  // App-level by design: this is the ONE selection the agent-launch path reads
+  // (`sprintengineLaunchSettingsSync` → `sprint-runtime`), so the row reflects
+  // and edits it rather than carrying a second, run-scoped copy. See
+  // sprintConnectors.ts for the ruling.
+  const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
+  const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
+  const connectors = useMemo(() => listSprintConnectors(mcpSettings), [mcpSettings])
+  const toggleConnector = useCallback(
+    (serverId: string) => {
+      const next = toggledSprintConnector(mcpSettings, serverId)
+      if (next) upsertMcpServer(next)
+    },
+    [mcpSettings, upsertMcpServer],
+  )
+  const connectorsRow = useMemo(
+    () => ({
+      connectors,
+      syncEnabled: mcpSettings?.syncEnabled === true,
+      onToggle: toggleConnector,
+    }),
+    [connectors, mcpSettings?.syncEnabled, toggleConnector],
+  )
 
   const cliOptions = useMemo(
     () =>
@@ -752,6 +782,16 @@ export default function NewSprintDialog({
         },
         {
           pathExists: window.api.pathExists,
+          // Advanced setup (MC-2124): write the enabled connectors into the
+          // project before anything is created, and abort on failure. Runs on
+          // EVERY start, not only a folder the wizard once configured — that
+          // gap is what left a hand-started sprint's tools to chance.
+          persistAdvancedSetup: (workspaceRoot) =>
+            syncSprintConnectors({
+              workspaceRoot,
+              settings: mcpSettings,
+              mcpSync: window.api.mcpSync,
+            }),
           initializeSprintEngineState: window.api.initializeSprintEngineState,
           recordBacklogExecutionLink: async ({
             workspaceRoot,
@@ -820,6 +860,7 @@ export default function NewSprintDialog({
     intake,
     isolation,
     items,
+    mcpSettings,
     lastSpawnPermissionPreset,
     workspaceWindowId,
     onClose,
@@ -1184,6 +1225,7 @@ export default function NewSprintDialog({
                     }
                     planningAgent={planningAgentRow}
                     isolation={{ value: isolation, onChange: setIsolation }}
+                    connectors={connectorsRow}
                   />
                 ) : (
                   <div className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
@@ -1236,6 +1278,7 @@ export default function NewSprintDialog({
                         both worlds, never present here and absent there. */}
                     <PlanningAgentRowView row={planningAgentRow} cliOptions={cliOptions} />
                     <SprintIsolationRowView row={{ value: isolation, onChange: setIsolation }} />
+                    <SprintConnectorsRowView row={connectorsRow} />
                   </div>
                 )}
 

@@ -178,6 +178,39 @@ export type AutomationRendererRequest =
        * the plain branch name. Only meaningful alongside `useWorktrees`.
        */
       baseStartPoint?: string
+      /**
+       * The run-level execution runtime (MC-2120), i.e. the dialog's pool
+       * runtime picker: the CLI/model/effort the ROLELESS seat launches on, and
+       * the fallback for any staffed role the maps below do not name.
+       *
+       * A roleless run — now the default sprint kind — has no role ids at all,
+       * so the role-keyed maps cannot reach its one seat. Lands in the same
+       * `roleRuntimes` entry the wizard writes, under the reserved
+       * `(roleless)` key. An absent member keeps today's behaviour: the CLI's
+       * stock default for `cli`, and no `--model` / no effort flag.
+       */
+      runtime?: { cli?: string; model?: string; effort?: string }
+      /**
+       * Per-role agent CLI, role id -> CLI plugin id (null = fall back to
+       * `runtime.cli`, else the role's stock default). The roster editor's
+       * per-role CLI column.
+       */
+      roleClis?: Record<string, string | null>
+      /**
+       * Per-role explicit launch model, role id -> model id (null = CLI
+       * default). Applied over the resolved roster, so a role named here that
+       * the run does not staff is a loud failure, never a silent no-op.
+       */
+      roleModels?: Record<string, string | null>
+      /** Per-role reasoning-effort level (MC-1885), same contract as `roleModels`. */
+      roleEfforts?: Record<string, string | null>
+      /**
+       * The run's ceiling on concurrent agent sessions (the dialog's *Max
+       * concurrent agents*), clamped 1-10 by the controller. Absent keeps the
+       * default of 3. On a roleless run this is also the effective agent count:
+       * agents are minted per task up to this ceiling.
+       */
+      maxConcurrentAgents?: number
     }
 
 export type AutomationRendererResponse =

@@ -17,6 +17,7 @@ export { RefreshIcon } from './RefreshIcon'
 export { ConfirmDialog, ConfirmDialogProvider, useConfirmDialog } from './ConfirmDialog'
 export type { ConfirmDialogOptions, ConfirmDialogProps, PromptDialogOptions } from './ConfirmDialog'
 export { CliModelPickerButton, CliModelPopoverSurface, buildModelRows, meaningfulModelId } from './CliModelPicker'
+export type { PickerComposition, PickerExtraRow, PickerRailExtra } from './CliModelPicker'
 export { ReasoningSelector, costliestReasoningLevel, hasReasoningAxes, reasoningTriggerLabel } from './ReasoningSelector'
 export type { ReasoningAxes } from './ReasoningSelector'
 export {
@@ -26,7 +27,7 @@ export {
   windowVariantLabel,
 } from './cliRuntimeCatalog'
 export type { CliModelFamily, CliRuntimeOption, ModelWindowVariant } from './cliRuntimeCatalog'
-export { modelFavouriteKey, toggleModelFavourite, useModelFavourites } from './modelFavourites'
+export { modelFavouriteKey, parseModelFavouriteKey, toggleModelFavourite, useModelFavourites } from './modelFavourites'
 export { Popover } from './Popover'
 export { FilterMenu } from './FilterMenu'
 export type { FilterMenuGroup } from './FilterMenu'

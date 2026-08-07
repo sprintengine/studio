@@ -196,40 +196,31 @@ run('an unlabelled model keeps its id, and an unknown CLI keeps its own', () => 
   )
 })
 
-// Source-contract: the wiring a pure test cannot reach — that each surface
-// names the roleless row from THAT row's engine. The icon already did this; the
-// label was a constant, so picking a model repainted the icon and not the text.
-const popoverSource = readFileSync(
-  join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/AgentComposerPopover.tsx'),
-  'utf8',
-)
+// Source-contract: the wiring a pure test cannot reach — that the panel names
+// the roleless row from THAT row's engine. The icon already did this; the label
+// was a constant, so picking a model repainted the icon and not the text.
+//
+// The popover-density sibling that shared this contract is gone: the spawn
+// surface has no roster and therefore no roleless row (MC-2122). What replaced
+// it is driven for real in `src/seams/spawnPickerSeam.test.tsx`.
 const panelSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/AgentComposer.tsx'),
   'utf8',
 )
 
-run('both composer surfaces label the roleless row from its own engine, never a constant', () => {
-  for (const [name, source] of [['popover', popoverSource], ['panel', panelSource]] as const) {
-    assert.match(
-      source,
-      /composer\.engineNamesFor\(\{ kind: 'general' \}\)/,
-      `${name}: the roleless row's name is resolved against its own engine key, not the highlighted row's`,
-    )
-  }
+run('the composer panel labels the roleless row from its own engine, never a constant', () => {
   assert.match(
-    popoverSource,
-    /const label = rowLabel\(row, rolelessLabel\)/,
-    'the popover passes that one resolved name into every row it renders',
+    panelSource,
+    /composer\.engineNamesFor\(\{ kind: 'general' \}\)/,
+    "the roleless row's name is resolved against its own engine key, not the highlighted row's",
   )
-  for (const [name, source] of [['popover', popoverSource], ['panel', panelSource]] as const) {
-    assert.equal(source.includes('General agent'), false, `${name}: "General agent" is not a name the app uses`)
-    assert.equal(
-      source.includes('general-purpose agent'),
-      false,
-      `${name}: the roleless agent is not described as general-purpose`,
-    )
-    assert.match(source, /Runs your instructions as written\./, `${name}: keeps the description that is actually true`)
-  }
+  assert.equal(panelSource.includes('General agent'), false, '"General agent" is not a name the app uses')
+  assert.equal(
+    panelSource.includes('general-purpose agent'),
+    false,
+    'the roleless agent is not described as general-purpose',
+  )
+  assert.match(panelSource, /Runs your instructions as written\./, 'keeps the description that is actually true')
 })
 
 // Source-contract for the wiring the pure roster cannot reach: the hook only
@@ -243,7 +234,13 @@ run('the zero-CLI state is derived from a ready catalog and answered with the in
     /noAgentCliInstalled\s*=\s*pluginCatalogStatus === 'ready' && agentCliOptions\.length === 0/,
     'the flag is "ready and nothing installed", never "the list looks empty"',
   )
-  for (const [name, source] of [['popover', popoverSource], ['panel', panelSource]] as const) {
+  // The spawn picker answers the same state; it is not a roster, so it says so
+  // in its own module rather than through this roster's shape.
+  const spawnPickerSource = readFileSync(
+    join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/SpawnPicker.tsx'),
+    'utf8',
+  )
+  for (const [name, source] of [['panel', panelSource], ['spawn picker', spawnPickerSource]] as const) {
     assert.match(source, /composer\.noAgentCliInstalled/, `${name}: reads the zero-CLI state`)
     assert.match(source, /<CliInstallRosterRow/, `${name}: offers the shared install route in its place`)
     assert.match(source, /No agent CLI is installed\./, `${name}: says what the machine reported`)

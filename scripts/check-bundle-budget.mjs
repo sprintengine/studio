@@ -10,6 +10,12 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ASSETS_DIR = 'out/renderer/assets'
+// 2048 is a round number, not a measurement, and MC-2075 measured what it stands
+// in for: the whole 2072 KB eager chunk costs ~14 ms to compile (33 ms with every
+// function eagerly compiled) inside a 603–710 ms boot, so ~0.7 ms per 100 KB
+// trimmed. The FORBIDDEN list below is what actually earns its keep here.
+// Re-baseline this number deliberately, with `node scripts/measure-startup.mjs`
+// output attached — never as a quiet bump to make a red build green.
 const CEILING_KB = 2048
 
 // Signatures of heavy deps that must only ever appear in lazy chunks.

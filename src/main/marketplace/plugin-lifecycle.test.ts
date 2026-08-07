@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { IpcMain } from 'electron'
@@ -21,6 +21,7 @@ import type { MarketplaceAutomationInstaller } from '../modules/plugin-bundle-in
 import { loadMainModules } from '../module-host/load-modules'
 import { classifyModuleTrust, verifyModuleSignature, type ModuleTrustContext } from '../modules/module-signature'
 import { planThirdPartyMainModules } from '../modules/third-party-main-loader'
+import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
 import { discoverUserModules } from '../modules/user-module-registry'
 import type { InstallPluginResult } from '../plugin-install'
 import { createMarketplacePluginLifecycleService, readMarketplacePluginInstallReceipts, type MarketplacePluginLifecycleServices } from './plugin-lifecycle'
@@ -1445,11 +1446,256 @@ async function testUpdateSignedByDifferentPublisherReprompts(): Promise<void> {
     assert.equal(modules.modules[0]?.manifest.version, 2)
     assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'signed')
   })
+
+  // Same walk with the trust store wired: re-approving the re-keyed update at
+  // the prompt IS the trust decision for the NEW manifest, so the module ends
+  // trusted — bound to the new fingerprint, never inheriting the old grant.
+  await withTempDir(async (temp) => {
+    const originalSigner = generateKeyPairSync('ed25519')
+    const differentSigner = generateKeyPairSync('ed25519')
+    const components: BundleComponents = { module: { path: 'module', id: 'update-module' } }
+    const bundleV1 = await writeBundle(temp, 'rekey-plugin-v1', components, originalSigner, 1)
+    const bundleV2 = await writeBundle(temp, 'rekey-plugin-v2', components, differentSigner, 2)
+    const folders = new Map([
+      ['rekey-plugin-v1', bundleV1.files],
+      ['rekey-plugin-v2', bundleV2.files],
+    ])
+    const { services, workspaceRoot, moduleRoot } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map() }
+    )
+    const userDataDir = join(temp, 'userdata')
+    useRealTrustStore(services, userDataDir)
+    // Only the original publisher key is trusted, so v1 installs verified.
+    services.trustContext = () => ({
+      trustedModules: readTrustedModulesSync(userDataDir),
+      trustedKeyFingerprints: new Set([bundleV1.fingerprint]),
+    })
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const installed = await lifecycle.installFromRegistry({ entry: bundleV1.entry, workspaceRoot })
+    assert.equal(installed.ok, true, JSON.stringify(installed))
+    // A verified install grants nothing: it is already load-eligible.
+    assert.equal(readTrustedModulesSync(userDataDir).has('update-module'), false)
+
+    const granted = await lifecycle.updateFromRegistry({ entry: bundleV2.entry, workspaceRoot, trustGranted: true })
+    assert.equal(granted.ok, true, JSON.stringify(granted))
+    if (!granted.ok) return
+    const component = granted.installed.find((installedComponent) => installedComponent.kind === 'module')
+    assert.equal(readTrustedModulesSync(userDataDir).get('update-module'), component?.manifestFp)
+    const modules = await discoverUserModules(moduleRoot, services.trustContext())
+    assert.equal(modules.modules[0]?.manifest.version, 2)
+    assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'trusted')
+  })
+}
+
+// Wire the REAL trust store (the one the Settings toggle writes) behind the
+// lifecycle's trust seam, and read trust back the way the app does — so these
+// tests prove the grant against the file module loading actually consults.
+function useRealTrustStore(services: MarketplacePluginLifecycleServices, userDataDir: string): void {
+  services.trustContext = () => ({ trustedModules: readTrustedModulesSync(userDataDir) })
+  services.setModuleTrust = async (id, manifestFp) => {
+    const { result, previous } = await setModuleTrust(userDataDir, id, manifestFp)
+    return { ...result, previous }
+  }
+}
+
+// The install prompt's trust decision IS the module trust decision: a signed
+// module installed from a community bundle loads without a second, identical
+// toggle in Settings → Modules, and uninstalling takes the grant back with it.
+async function testCommunityModuleInstallGrantsTrustAndUninstallRevokes(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const components: BundleComponents = { module: { path: 'module', id: 'granted-module' } }
+    const bundle = await writeBundle(temp, 'granted-plugin', components, signer, 1)
+    bundle.entry.publisher.verified = false
+    const folders = new Map([[ 'granted-plugin', bundle.files ]])
+    const { services, workspaceRoot, moduleRoot } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map() }
+    )
+    const userDataDir = join(temp, 'userdata')
+    useRealTrustStore(services, userDataDir)
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const result = await lifecycle.installFromRegistry({ entry: bundle.entry, workspaceRoot, trustGranted: true })
+
+    assert.equal(result.ok, true, JSON.stringify(result))
+    if (!result.ok) return
+    assert.equal(result.classification, 'community')
+    const component = result.installed.find((installed) => installed.kind === 'module')
+    assert.equal(component?.trustStatus, 'signed')
+    assert.match(component?.message ?? '', /Installed and trusted/)
+    // Fingerprint-bound: the entry is the installed manifest's identity, not a
+    // blanket grant for the id.
+    assert.equal(readTrustedModulesSync(userDataDir).get('granted-module'), component?.manifestFp)
+
+    // The real load path, not just the store: discovery classifies the module
+    // trusted and the main-process loader takes it.
+    const modules = await discoverUserModules(moduleRoot, services.trustContext())
+    assert.equal(modules.modules[0]?.manifest.id, 'granted-module')
+    assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'trusted')
+    const planned = planThirdPartyMainModules(modules)
+    const { ipcMain } = createFakeIpcMain()
+    const loaded = loadMainModules({
+      ipcMain,
+      modules: planned.modules,
+      ineligible: planned.ineligible,
+      launchErrors: planned.launchErrors,
+    })
+    assert.deepEqual(loaded.report.loaded, ['granted-module'])
+
+    const uninstalled = await lifecycle.uninstall({ pluginId: bundle.entry.id, workspaceRoot })
+    assert.equal(uninstalled.ok, true, JSON.stringify(uninstalled))
+    assert.equal(existsSync(join(moduleRoot, 'granted-module')), false)
+    // An orphaned grant would silently re-trust the same bytes later.
+    assert.equal(readTrustedModulesSync(userDataDir).has('granted-module'), false)
+  })
+}
+
+// The grant is transactional with the receipt: if the receipt cannot be
+// written, the files roll back and the trust store ends exactly as it started,
+// including a fingerprint the user had trusted before this install.
+async function testFailedReceiptWriteLeavesTrustStoreUnchanged(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const components: BundleComponents = { module: { path: 'module', id: 'granted-module' } }
+    const bundle = await writeBundle(temp, 'granted-plugin', components, signer, 1)
+    bundle.entry.publisher.verified = false
+    const folders = new Map([[ 'granted-plugin', bundle.files ]])
+    const { services, workspaceRoot, moduleRoot } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map() }
+    )
+    const userDataDir = join(temp, 'userdata')
+    useRealTrustStore(services, userDataDir)
+    // A grant this install must not clobber: some other manifest under the
+    // same id that the user trusted earlier.
+    await setModuleTrust(userDataDir, 'granted-module', 'a'.repeat(64))
+
+    // Make only the receipt write fail: the store file is missing (an empty
+    // store, as on a first install) inside a directory nothing may write to.
+    const receiptDir = join(temp, 'read-only-receipts')
+    await mkdir(receiptDir, { recursive: true })
+    services.receiptStorePath = join(receiptDir, 'marketplace-installs.json')
+    await chmod(receiptDir, 0o500)
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    try {
+      const result = await lifecycle.installFromRegistry({ entry: bundle.entry, workspaceRoot, trustGranted: true })
+
+      assert.equal(result.ok, false, JSON.stringify(result))
+      if (result.ok) return
+      assert.match(result.message, /Could not write marketplace plugin install receipt/)
+      assert.equal(existsSync(join(moduleRoot, 'granted-module')), false, 'the rolled-back install left no module')
+      assert.equal(readTrustedModulesSync(userDataDir).get('granted-module'), 'a'.repeat(64))
+    } finally {
+      await chmod(receiptDir, 0o700)
+    }
+  })
+}
+
+// Undoing a failed update is not an uninstall: the snapshot puts the trusted
+// module back, so the trust its files still match must survive the rollback.
+async function testFailedUpdateKeepsThePreviousModuleTrust(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const v1: BundleComponents = { module: { path: 'module', id: 'granted-module' } }
+    const bundleV1 = await writeBundle(temp, 'granted-plugin-v1', v1, signer, 1)
+    bundleV1.entry.publisher.verified = false
+    // v2 adds an automation component, which installs AFTER the module and is
+    // refused because automations are switched off — so the update fails with
+    // the replacement module already written.
+    const v2: BundleComponents = {
+      module: { path: 'module', id: 'granted-module' },
+      automation: { path: 'automation/automation.json', name: 'Nightly sweep' },
+    }
+    const bundleV2 = await writeBundle(temp, 'granted-plugin-v2', v2, signer, 2)
+    bundleV2.entry.publisher.verified = false
+    const folders = new Map([
+      ['granted-plugin-v1', bundleV1.files],
+      ['granted-plugin-v2', bundleV2.files],
+    ])
+    const { services, workspaceRoot, moduleRoot } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map() }
+    )
+    const userDataDir = join(temp, 'userdata')
+    useRealTrustStore(services, userDataDir)
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const first = await lifecycle.installFromRegistry({ entry: bundleV1.entry, workspaceRoot, trustGranted: true })
+    assert.equal(first.ok, true, JSON.stringify(first))
+    const trustedFingerprint = readTrustedModulesSync(userDataDir).get('granted-module')
+    assert.ok(trustedFingerprint, 'the first install granted trust')
+
+    services.installAutomationDefinition = undefined
+    const failed = await lifecycle.updateFromRegistry({
+      entry: bundleV2.entry,
+      workspaceRoot,
+      trustGranted: true,
+      // Satisfies the automation preflight, so the update gets far enough to
+      // install the replacement module and fail on the component AFTER it.
+      automationDefaultCli: 'codex',
+    })
+
+    assert.equal(failed.ok, false, JSON.stringify(failed))
+    if (failed.ok) return
+    assert.equal(failed.component, 'automation')
+    assert.deepEqual(failed.installed?.map((component) => component.kind), ['module'], 'the module was installed, then rolled back')
+    const modules = await discoverUserModules(moduleRoot, services.trustContext())
+    assert.equal(modules.modules[0]?.manifest.version, 1, 'the previous module was restored')
+    assert.equal(readTrustedModulesSync(userDataDir).get('granted-module'), trustedFingerprint)
+    assert.equal(classifyModuleTrust(modules.modules[0].manifest, services.trustContext()).status, 'trusted')
+  })
+}
+
+// A trust store that will not write is never reported as a clean trust
+// decision: the install says so on the component, and an uninstall that cannot
+// withdraw the grant fails loudly instead of leaving an entry that would
+// silently re-trust the same bytes later.
+async function testTrustWriteFailuresAreSurfacedNotSwallowed(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const components: BundleComponents = { module: { path: 'module', id: 'granted-module' } }
+    const bundle = await writeBundle(temp, 'granted-plugin', components, signer, 1)
+    bundle.entry.publisher.verified = false
+    const folders = new Map([[ 'granted-plugin', bundle.files ]])
+    const { services, workspaceRoot, receiptStorePath } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map() }
+    )
+    services.setModuleTrust = async () => ({ ok: false, message: 'disk is full' })
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const result = await lifecycle.installFromRegistry({ entry: bundle.entry, workspaceRoot, trustGranted: true })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    if (!result.ok) return
+    const component = result.installed.find((installed) => installed.kind === 'module')
+    assert.match(component?.message ?? '', /recording trust failed \(disk is full\)/)
+
+    const uninstalled = await lifecycle.uninstall({ pluginId: bundle.entry.id, workspaceRoot })
+    assert.equal(uninstalled.ok, false)
+    if (uninstalled.ok) return
+    assert.match(uninstalled.message, /could not withdraw its trust: disk is full/)
+    // The receipt survives a failed uninstall, so retrying it is possible.
+    const receipts = JSON.parse(await readFile(receiptStorePath, 'utf8')) as { plugins: Record<string, unknown> }
+    assert.ok(receipts.plugins['registry-plugin'])
+  })
 }
 
 async function main(): Promise<void> {
   await testVerifiedRegistryInstallFansOutAndRecordsReceipt()
+  await testTrustWriteFailuresAreSurfacedNotSwallowed()
   await testCommunityBundleRequiresTrustGrant()
+  await testCommunityModuleInstallGrantsTrustAndUninstallRevokes()
+  await testFailedReceiptWriteLeavesTrustStoreUnchanged()
+  await testFailedUpdateKeepsThePreviousModuleTrust()
   await testUnsignedMcpSkillsBundleRoutesThroughTrust()
   await testUnsignedSkillsOnlyBundleRoutesThroughTrust()
   await testUnsignedModuleBearingBundleHardBlocksEvenWithTrust()

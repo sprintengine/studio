@@ -27,6 +27,7 @@ import { skillsApi } from './api/skills'
 import { mobileBridgeApi } from './api/mobile-bridge'
 import { soulsApi } from './api/souls'
 import { splashApi } from './api/splash'
+import { startupApi } from './api/startup'
 import { sprintEngineApi } from './api/sprintengine'
 import { switchboardApi } from './api/switchboard'
 import { terminalApi } from './api/terminal'
@@ -49,6 +50,7 @@ const api = {
   ...agentConfigImportApi,
   ...windowApi,
   ...splashApi,
+  ...startupApi,
   ...appearanceApi,
   ...authApi,
   ...automationApi,

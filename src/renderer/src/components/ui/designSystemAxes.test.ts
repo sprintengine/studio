@@ -131,8 +131,14 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // height — the kit's `WorkspacePanel` and `FilePreviewPane`, the
   // knowledge-graph drawer, both guided-brief bands — gave up their local
   // buttons for `ui/PanelHeader` and the kit primitives inside it.
+  // The 2026-08-06 radius drop — workspace 174 → 169 — is MC-2122's spawn
+  // consolidation: `AgentComposerPopover` was deleted outright and its
+  // replacement, `agentComposer/SpawnPicker.tsx`, hangs off the model picker's
+  // own popover surface instead of hand-rolling a second one, so five
+  // `rounded-*` spellings left the tree with it. Locked in here rather than
+  // left as headroom, which is what lets the next regression show up as one.
   radius: {
-    'components/workspace': 174,
+    'components/workspace': 169,
     'components/panels': 145,
     'components/settings': 30,
     'components/backlog': 19,
@@ -184,8 +190,11 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     utils: 6,
     'components/diagnostics': 2,
   },
+  // icon workspace 43 → 38 is the same MC-2122 consolidation as the radius drop
+  // above: the deleted composer popover spelled its own icon boxes, and
+  // `SpawnPicker` takes the ramp classes the picker surface already uses.
   icon: {
-    'components/workspace': 43,
+    'components/workspace': 38,
     'components/panels': 29,
     'components/ui': 21,
     'components/backlog': 8,
