@@ -18,7 +18,7 @@ export const SUPPORTED_MCP_PROTOCOL_VERSIONS: readonly string[] = ['2025-06-18',
 
 export const DEFAULT_MCP_PROTOCOL_VERSION: string = SUPPORTED_MCP_PROTOCOL_VERSIONS[0]
 
-export function isSupportedMcpProtocolVersion(value: unknown): boolean {
+export function isSupportedMcpProtocolVersion(value: unknown): value is string {
   return typeof value === 'string' && SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(value)
 }
 
@@ -32,5 +32,5 @@ export function isSupportedMcpProtocolVersion(value: unknown): boolean {
  * an absent field, `null`, or a non-string all land in the same branch.
  */
 export function negotiateMcpProtocolVersion(requested: unknown): string {
-  return isSupportedMcpProtocolVersion(requested) ? (requested as string) : DEFAULT_MCP_PROTOCOL_VERSION
+  return isSupportedMcpProtocolVersion(requested) ? requested : DEFAULT_MCP_PROTOCOL_VERSION
 }

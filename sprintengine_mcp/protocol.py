@@ -13,6 +13,8 @@ carries the same set.
 
 from __future__ import annotations
 
+from typing import cast
+
 # Newest-first. The head is what we answer when the client's ask is not on the list.
 SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = ("2025-06-18", "2025-03-26", "2024-11-05")
 
@@ -36,5 +38,5 @@ def negotiate_protocol_version(requested: object) -> str:
     wire, so a missing key, `None`, or a non-string all land in the same branch.
     """
     if is_supported_protocol_version(requested):
-        return str(requested)
+        return cast(str, requested)
     return DEFAULT_PROTOCOL_VERSION

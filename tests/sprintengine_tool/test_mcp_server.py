@@ -1691,9 +1691,13 @@ def test_stdio_transport_exercises_initialize_read_and_mutating_tool(tmp_path) -
 
 def test_stdio_transport_negotiates_the_protocol_version_instead_of_echoing_it(tmp_path) -> None:
     # The engine used to answer initialize with whatever protocolVersion the client
-    # asked for, which told a 2026-era client we speak a spec we do not implement.
+    # asked for, which told a spec-tracking client (one asking for 2026-07-28 today)
+    # that we speak a spec we do not implement.
     # Supported → itself; unsupported, malformed, or absent → our default.
-    unsupported = "2026-07-28"
+    # The probe is a far-future date deliberately: a real upcoming spec version would
+    # have to be re-pointed here the moment we start serving it, and the subject of
+    # this test is the downgrade rule, not any one version.
+    unsupported = "2099-01-01"
     assert unsupported not in SUPPORTED_PROTOCOL_VERSIONS, "this test needs a version we do NOT serve"
     messages = [
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-03-26"}},

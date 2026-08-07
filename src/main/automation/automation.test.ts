@@ -795,9 +795,13 @@ async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
 
 async function testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt(): Promise<void> {
   // The gateway used to answer initialize with whatever protocolVersion the client
-  // asked for, which told a 2026-era client we speak a spec we do not implement.
+  // asked for, which told a spec-tracking client (one asking for 2026-07-28 today)
+  // that we speak a spec we do not implement.
   // Supported → itself; unsupported, malformed, or absent → our default.
-  const unsupported = '2026-07-28'
+  // The probe is a far-future date deliberately: a real upcoming spec version would
+  // have to be re-pointed here the moment we start serving it, and the subject of
+  // this test is the downgrade rule, not any one version.
+  const unsupported = '2099-01-01'
   assert.ok(
     !SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(unsupported),
     'this test needs a version we do NOT serve'
