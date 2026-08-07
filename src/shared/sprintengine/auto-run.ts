@@ -2081,10 +2081,11 @@ export type SprintEngineBootstrapDecision =
   | { kind: 'none' }
 
 /**
- * Run-start bootstrap decision. Before a plan exists there are no tasks, so
- * `pickNextAutoRuns` has nothing to select — the run's COORDINATOR SEAT (the
- * architect on a role-based run, the roleless `coordinator` otherwise) is
- * spawned here, carrying its stored handoff prompt when one exists. Every other
+ * Run-start bootstrap decision, and it applies to exactly one state: a run with
+ * NO tasks. There `pickNextAutoRuns` has nothing to select, so the run's
+ * COORDINATOR SEAT (the architect on a role-based run, the roleless
+ * `coordinator` otherwise) is spawned here, carrying its stored handoff prompt
+ * when one exists. Once any task exists this decides `none` (MC-2179) and every
  * spawn is work-driven: ready tasks flow through `pickNextAutoRuns` under the
  * concurrency cap, notification targets through notification delivery, and
  * needs-input triage through the architect triage path.
@@ -2122,26 +2123,27 @@ export function pickSprintEngineBootstrapCandidate(
     return runHasTasks ? { kind: 'none' } : { kind: 'stall', reason: 'no_planner' }
   }
 
+  // RUN STATE alone decides whether anything is left to plan, and an undelivered
+  // handoff prompt no longer overrides it (MC-2179). A run that arrives
+  // PRE-PLANNED — an epic or selection whose graph the engine mints at init,
+  // before any agent exists — has no planning left to do, but creation composes
+  // a handoff prompt onto the coordinator seat regardless. The old
+  // `&& !hasUndeliveredStartupPrompt` read that as "tasks exist, but the prompt
+  // is still undelivered" and spawned a planner that booted, read a complete
+  // task list, and exited: a wasted CLI launch and model session per
+  // epic-sourced sprint (once per horizon step), and on the board
+  // indistinguishable from an agent that crashed.
+  //
+  // Neither case that needs the prompt loses it. A goal-only run has no tasks
+  // and bootstraps below, unchanged. A run that must still be planned by an
+  // agent opens with its plan-gate task, which `pickNextAutoRuns` routes to this
+  // same seat work-driven, and `spawnAutoRunCandidate` spawns it with the stored
+  // prompt in place of the generated one.
+  if (runHasTasks) return { kind: 'none' }
+
   const currentAgent = workspace.agents[planner.id]
   const hasUndeliveredStartupPrompt =
     Boolean(currentAgent?.cliStartupPrompt?.trim()) && !currentAgent?.cliOnboardingPromptSent
-  // RUN STATE decides, and an undelivered handoff prompt no longer overrides it
-  // (MC-2179). A run that arrives PRE-PLANNED — an epic or selection whose graph
-  // the engine mints at init, before any agent exists — has no planning left to
-  // do, but creation composes a handoff prompt onto the coordinator seat
-  // regardless. The old `&& !hasUndeliveredStartupPrompt` read that as "tasks
-  // exist, but the prompt is still undelivered" and spawned a planner that
-  // booted, read a complete task list, and exited: a wasted CLI launch and model
-  // session per epic-sourced sprint (once per horizon step), and on the board
-  // indistinguishable from an agent that crashed.
-  //
-  // The prompt still reaches the two seats where delivering it is the point.
-  // A goal-only run has no tasks and bootstraps below, unchanged. A run planned
-  // by an agent opens with its plan-gate task, which `pickNextAutoRuns` routes
-  // to the same coordinator seat work-driven, and `spawnAutoRunCandidate` sends
-  // the stored prompt with it.
-  if (runHasTasks) return { kind: 'none' }
-
   const runtimeAgent = sprintEngineState.sprintEngineAgents[planner.id]
   if (runtimeAgent?.status === 'retired') return { kind: 'none' }
   if (options.runningAgentIds.has(planner.id)) return { kind: 'none' }
