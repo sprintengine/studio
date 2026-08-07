@@ -302,14 +302,14 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
     plugins: MarketplacePluginEntry[]
   }
   const seedClis = seed.plugins.filter((plugin) => plugin.provides.includes('cli'))
-  assert.equal(seedClis.length, 12, 'the packaged seed carries the twelve bundled agent CLIs')
+  assert.equal(seedClis.length, 13, 'the packaged seed carries the thirteen bundled agent CLIs')
 
   const catalogEntry = (id: string, binary: string) =>
     ({ id, displayName: id, source: 'bundled', version: 1, binary, resumeSession: false, sessionIdFromCaller: false }) as never
-  // The nine runtime-installable CLI plugins; the provider trio (claude-agent,
+  // The ten runtime-installable CLI plugins; the provider trio (claude-agent,
   // openrouter, xai) is deliberately absent — no binary, nothing to install.
   const runtimeCatalog = [
-    'claude-code', 'codex', 'cursor', 'generic-shell', 'grok', 'kimi-claude', 'kimi-code', 'opencode', 'zai',
+    'claude-code', 'codex', 'cursor', 'generic-shell', 'grok', 'kimi-claude', 'kimi-code', 'muse', 'opencode', 'zai',
   ].map((id) => catalogEntry(id, id === 'claude-code' ? 'claude' : id === 'cursor' ? 'cursor-agent' : id))
 
   const runtime = {
@@ -339,9 +339,10 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
     />,
   )
 
-  // All twelve bundled entries render as rows — each disclosable row carries
-  // exactly one "<name> details" chevron button.
-  assert.equal((markup.match(/ details"/g) ?? []).length, 12, 'all 12 bundled CLI entries render')
+  // Every bundled entry renders as a row — each disclosable row carries exactly
+  // one "<name> details" chevron button. Counted off the seed, not a literal, so
+  // adding a plugin cannot leave this assertion quietly stale.
+  assert.equal((markup.match(/ details"/g) ?? []).length, seedClis.length, 'all bundled CLI entries render')
 
   // Installed: probe version in the mono slot, the shared Ready vocabulary,
   // and the resolved binary path as the state line's identifier.
@@ -376,7 +377,7 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
     />,
   )
   assert.match(probeDown, /Agent CLIs could not be checked: no shell/)
-  assert.equal((probeDown.match(/ details"/g) ?? []).length, 12, 'rows still render under a failed probe')
+  assert.equal((probeDown.match(/ details"/g) ?? []).length, seedClis.length, 'rows still render under a failed probe')
   assert.doesNotMatch(probeDown, />Install</)
 }
 
