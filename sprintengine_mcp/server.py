@@ -1123,6 +1123,10 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+# Cache lifetime advertised on `tools/list` results (`result.ttlMs`).
+TOOLS_LIST_TTL_MS = 3_600_000
+
+
 def _handle_stdio_message(server: SprintEngineMcpServer, line: str) -> dict[str, Any] | None:
     try:
         message = json.loads(line)
@@ -1159,7 +1163,11 @@ def _handle_jsonrpc_message(
             },
         }
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": server.list_tools(context)}}
+        # SEP-2549: how long a client may reuse this listing instead of re-fetching
+        # it. A session's role-filtered surface is fixed at registration and cannot
+        # change under it, so an hour is conservative rather than optimistic — and
+        # this payload lands in every agent context, so not re-fetching it is real.
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": server.list_tools(context), "ttlMs": TOOLS_LIST_TTL_MS}}
     if method == "tools/call":
         params = message.get("params") or {}
         raw = server.call_tool(params.get("name", ""), params.get("arguments") or {}, actor, context=context)

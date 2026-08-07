@@ -16,7 +16,11 @@ from __future__ import annotations
 from typing import cast
 
 # Newest-first. The head is what we answer when the client's ask is not on the list.
-SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = ("2025-06-18", "2025-03-26", "2024-11-05")
+# `2026-07-28` is earned by the HTTP transport, not assumed: session-less requests
+# (SEP-2575/SEP-2567), the per-request version declaration, the `Mcp-Method`/`Mcp-Name`
+# headers (SEP-2243), and `ttlMs` on `tools/list` (SEP-2549) all land in `http_server.py`
+# and `server.py` in the same commit that prepends it here.
+SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = ("2026-07-28", "2025-06-18", "2025-03-26", "2024-11-05")
 
 DEFAULT_PROTOCOL_VERSION: str = SUPPORTED_PROTOCOL_VERSIONS[0]
 

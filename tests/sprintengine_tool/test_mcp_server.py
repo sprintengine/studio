@@ -13,7 +13,14 @@ from helpers import REPO_ROOT, create_team, create_workspace_team, get_task, rea
 from sprintengine_core.tool.constants import FEEDBACK_COUNT_FIELDS, FEEDBACK_SCORE_FIELDS, FEEDBACK_TEXT_FIELDS
 from sprintengine_mcp import McpRequestContext, SprintEngineMcpServer
 from sprintengine_mcp.auth import ActorContext
-from sprintengine_mcp.http_server import SESSION_HEADER, SprintEngineHttpMcpServer
+from sprintengine_mcp.http_server import (
+    METHOD_HEADER,
+    NAME_HEADER,
+    PROTOCOL_VERSION_HEADER,
+    SESSION_HEADER,
+    STATELESS_PROTOCOL_VERSION,
+    SprintEngineHttpMcpServer,
+)
 from sprintengine_mcp.payloads import command_payload_to_namespace
 from sprintengine_mcp.protocol import DEFAULT_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS
 from sprintengine_mcp.schemas import MCP_V1_CONTRACT_SCHEMAS, TOOL_SCHEMAS
@@ -83,6 +90,7 @@ def http_post(
     payload: dict,
     session_id: str | None = None,
     origin: str | None = None,
+    extra_headers: dict[str, str | None] | None = None,
     expect_error: bool = False,
 ) -> tuple[int, dict[str, str], dict]:
     data = json.dumps(payload).encode("utf-8")
@@ -94,6 +102,13 @@ def http_post(
         headers[SESSION_HEADER] = session_id
     if origin:
         headers["Origin"] = origin
+    # Merged last so a test can override any built-in header, or drop one with a
+    # None value: half the stateless contract is about which headers are ABSENT.
+    for name, value in (extra_headers or {}).items():
+        if value is None:
+            headers.pop(name, None)
+        else:
+            headers[name] = value
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=5) as response:
@@ -1731,8 +1746,10 @@ def test_stdio_transport_negotiates_the_protocol_version_instead_of_echoing_it(t
     }
     assert unsupported not in completed.stdout, "the requested version must never come back to the caller"
     # The TypeScript gateway pins the same literal (automation.test.ts); that pair is
-    # what keeps the two servers' declared maximum from drifting apart again.
-    assert DEFAULT_PROTOCOL_VERSION == "2025-06-18", "both servers must answer the same default/maximum"
+    # what keeps the two servers' declared maximum from drifting apart again. It rose
+    # to 2026-07-28 when the HTTP transport started serving session-less requests —
+    # the version is claimed by the commit that implements it, never before.
+    assert DEFAULT_PROTOCOL_VERSION == "2026-07-28", "both servers must answer the same default/maximum"
 
 
 def test_stdio_transport_silently_accepts_jsonrpc_notifications(tmp_path) -> None:
@@ -2158,15 +2175,71 @@ def test_http_transport_get_requires_bearer_token_before_method_rejection(tmp_pa
     assert rejected_body == {"error": "sse_not_supported"}
 
 
-def test_http_transport_requires_session_after_initialize(tmp_path) -> None:
-    fixture = create_team(tmp_path, "mcp-http-session-required", [task("T1", "HTTP task", "developer")])
+def test_http_transport_serves_a_session_less_tool_call_at_the_stateless_version(tmp_path) -> None:
+    # The whole point of 2026-07-28 (SEP-2575/SEP-2567): no initialize, no session,
+    # one round trip. Everything a session held — actor and McpRequestContext — was
+    # already copied from the registered run, so the bearer token resolves it.
+    fixture = create_team(tmp_path, "mcp-http-stateless", [task("T1", "HTTP task", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     with run_http_mcp_server(server, token="secret-token") as base_url:
         run = register_http_run(
             base_url,
             token="secret-token",
-            run_id="launch-session-required",
+            run_id="launch-stateless",
+            workspace_root=tmp_path,
+            state_path=fixture.state_path,
+            allowed_roots=[tmp_path],
+        )
+        # No initialize call precedes this: no session exists on this run to send.
+        status, headers, body = http_post(
+            base_url,
+            token=run["runToken"],
+            payload={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "sprintengine.task.list",
+                    "arguments": {"role": "developer"},
+                    "_meta": {"clientInfo": {"name": "pytest", "version": "0"}, "capabilities": {}},
+                },
+            },
+            extra_headers={
+                PROTOCOL_VERSION_HEADER: STATELESS_PROTOCOL_VERSION,
+                METHOD_HEADER: "tools/call",
+                NAME_HEADER: "sprintengine.task.list",
+                # Stated, not merely omitted: the request must carry no session id.
+                SESSION_HEADER: None,
+            },
+        )
+
+    wrapper = body["result"]
+    result = json.loads(wrapper["content"][0]["text"])
+    # Proof the session-less path ran, not a session one: this run never called
+    # initialize, so it owns no session — and any session id this request had
+    # carried would have been rejected as invalid_session (pinned by
+    # test_http_transport_rejects_an_unknown_or_foreign_session_instead_of_falling_back)
+    # rather than answered 200.
+    assert status == 200
+    assert wrapper["isError"] is False
+    assert result["ok"] is True
+    # The real tool ran against the registered run's state, not a stub.
+    assert [entry["id"] for entry in result["result"]["readyTasks"]] == ["T1"]
+    assert SESSION_HEADER not in headers, "a session-less request must not be answered with a session"
+
+
+def test_http_tools_list_declares_a_cache_ttl(tmp_path) -> None:
+    # SEP-2549. The listing is byte-budgeted precisely because it rides into every
+    # agent context; telling the client how long it may keep it is the cheap half.
+    fixture = create_team(tmp_path, "mcp-http-ttl", [task("T1", "HTTP task", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        run = register_http_run(
+            base_url,
+            token="secret-token",
+            run_id="launch-ttl",
             workspace_root=tmp_path,
             state_path=fixture.state_path,
             allowed_roots=[tmp_path],
@@ -2174,12 +2247,203 @@ def test_http_transport_requires_session_after_initialize(tmp_path) -> None:
         status, _, body = http_post(
             base_url,
             token=run["runToken"],
+            payload={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            extra_headers={PROTOCOL_VERSION_HEADER: STATELESS_PROTOCOL_VERSION, METHOD_HEADER: "tools/list"},
+        )
+
+    assert status == 200
+    assert body["result"]["ttlMs"] == 3_600_000
+    assert any(tool["name"] == "sprintengine.task.list" for tool in body["result"]["tools"])
+
+
+def test_http_transport_rejects_an_unknown_or_foreign_session_instead_of_falling_back(tmp_path) -> None:
+    # Sessions became OPTIONAL, not ignored: a client that sends one is asserting the
+    # session exists. Serving it at run scope would hide a real client bug.
+    first = create_workspace_team(tmp_path, "workspace-a", "team-a", [task("T1", "First task", "developer")])
+    second = create_workspace_team(tmp_path, "workspace-b", "team-b", [task("T2", "Second task", "developer")])
+    server = SprintEngineMcpServer()
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        first_run = register_http_run(
+            base_url,
+            token="secret-token",
+            run_id="launch-a",
+            workspace_root=tmp_path / "workspace-a",
+            state_path=first.state_path,
+            allowed_roots=[tmp_path / "workspace-a"],
+        )
+        second_run = register_http_run(
+            base_url,
+            token="secret-token",
+            run_id="launch-b",
+            workspace_root=tmp_path / "workspace-b",
+            state_path=second.state_path,
+            allowed_roots=[tmp_path / "workspace-b"],
+        )
+        _, first_headers, _ = http_post(
+            base_url,
+            token=first_run["runToken"],
+            payload={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        )
+        unknown_status, _, unknown_body = http_post(
+            base_url,
+            token=first_run["runToken"],
+            session_id="not-a-live-session",
             payload={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
             expect_error=True,
         )
+        foreign_status, _, foreign_body = http_post(
+            base_url,
+            token=second_run["runToken"],
+            session_id=first_headers[SESSION_HEADER],
+            payload={"jsonrpc": "2.0", "id": 3, "method": "tools/list"},
+            expect_error=True,
+        )
 
-    assert status == 400
-    assert body["error"]["code"] == "invalid_session"
+    assert unknown_status == 400
+    assert unknown_body["error"]["code"] == "invalid_session"
+    assert foreign_status == 400
+    assert foreign_body["error"]["code"] == "invalid_session"
+
+
+def test_http_transport_rejects_a_protocol_version_it_does_not_serve(tmp_path) -> None:
+    # Over HTTP the client has already committed to the version it declares, so the
+    # initialize-time downgrade is not available: the honest answer is a refusal.
+    fixture = create_team(tmp_path, "mcp-http-version", [task("T1", "HTTP task", "developer")])
+    unsupported = "2099-01-01"
+    assert unsupported not in SUPPORTED_PROTOCOL_VERSIONS, "this test needs a version we do NOT serve"
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        run = register_http_run(
+            base_url,
+            token="secret-token",
+            run_id="launch-version",
+            workspace_root=tmp_path,
+            state_path=fixture.state_path,
+            allowed_roots=[tmp_path],
+        )
+        header_status, _, header_body = http_post(
+            base_url,
+            token=run["runToken"],
+            payload={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            extra_headers={PROTOCOL_VERSION_HEADER: unsupported},
+            expect_error=True,
+        )
+        meta_status, _, meta_body = http_post(
+            base_url,
+            token=run["runToken"],
+            payload={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"_meta": {"protocolVersion": unsupported}}},
+            expect_error=True,
+        )
+        # Declaring nothing is not the same as declaring something we do not serve:
+        # the spec reads a version-less HTTP request as the legacy assumption.
+        legacy_status, _, legacy_body = http_post(
+            base_url,
+            token=run["runToken"],
+            payload={"jsonrpc": "2.0", "id": 3, "method": "tools/list"},
+        )
+
+    assert header_status == 400
+    assert header_body["error"] == "unsupported_protocol_version"
+    assert meta_status == 400
+    assert meta_body["error"] == "unsupported_protocol_version"
+    assert legacy_status == 200
+    assert legacy_body["result"]["tools"]
+
+
+def test_http_transport_rejects_routing_headers_that_contradict_the_body(tmp_path) -> None:
+    # SEP-2243's headers exist so an intermediary can route without parsing the body.
+    # A header that disagrees with the body would make routing and execution diverge.
+    fixture = create_team(tmp_path, "mcp-http-headers", [task("T1", "HTTP task", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    call = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "sprintengine.task.list", "arguments": {"role": "developer"}},
+    }
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        run = register_http_run(
+            base_url,
+            token="secret-token",
+            run_id="launch-headers",
+            workspace_root=tmp_path,
+            state_path=fixture.state_path,
+            allowed_roots=[tmp_path],
+        )
+        method_status, _, method_body = http_post(
+            base_url,
+            token=run["runToken"],
+            payload=call,
+            extra_headers={METHOD_HEADER: "tools/list", NAME_HEADER: "sprintengine.task.list"},
+            expect_error=True,
+        )
+        name_status, _, name_body = http_post(
+            base_url,
+            token=run["runToken"],
+            payload=call,
+            extra_headers={METHOD_HEADER: "tools/call", NAME_HEADER: "sprintengine.task.claim"},
+            expect_error=True,
+        )
+
+    assert method_status == 400
+    assert method_body["error"] == "header_body_mismatch"
+    assert name_status == 400
+    assert name_body["error"] == "header_body_mismatch"
+
+
+def test_http_transport_requires_routing_headers_only_at_the_stateless_version(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-http-required-headers", [task("T1", "HTTP task", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    call = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "sprintengine.task.list", "arguments": {"role": "developer"}},
+    }
+    stateless = {PROTOCOL_VERSION_HEADER: STATELESS_PROTOCOL_VERSION}
+
+    with run_http_mcp_server(server, token="secret-token") as base_url:
+        run = register_http_run(
+            base_url,
+            token="secret-token",
+            run_id="launch-required-headers",
+            workspace_root=tmp_path,
+            state_path=fixture.state_path,
+            allowed_roots=[tmp_path],
+        )
+        no_method_status, _, no_method_body = http_post(
+            base_url,
+            token=run["runToken"],
+            payload=call,
+            extra_headers=stateless,
+            expect_error=True,
+        )
+        no_name_status, _, no_name_body = http_post(
+            base_url,
+            token=run["runToken"],
+            payload=call,
+            extra_headers={**stateless, METHOD_HEADER: "tools/call"},
+            expect_error=True,
+        )
+        # `Mcp-Name` is required only where the method names a target.
+        list_status, _, _ = http_post(
+            base_url,
+            token=run["runToken"],
+            payload={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+            extra_headers={**stateless, METHOD_HEADER: "tools/list"},
+        )
+        # Below 2026-07-28 the same headerless request is still legal.
+        legacy_status, _, _ = http_post(base_url, token=run["runToken"], payload=call)
+
+    assert no_method_status == 400
+    assert no_method_body["error"] == "missing_required_header"
+    assert no_name_status == 400
+    assert no_name_body["error"] == "missing_required_header"
+    assert list_status == 200
+    assert legacy_status == 200
 
 
 def test_http_transport_requires_registered_run_token_for_initialize(tmp_path) -> None:

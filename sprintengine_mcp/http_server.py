@@ -13,11 +13,23 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .auth import ActorContext
+from .protocol import LEGACY_HTTP_ASSUMED_VERSION, is_supported_protocol_version
 from .server import McpRequestContext, SprintEngineMcpServer, _handle_jsonrpc_message
 
 SESSION_HEADER = "Mcp-Session-Id"
 PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
+METHOD_HEADER = "Mcp-Method"
+NAME_HEADER = "Mcp-Name"
 MULTICODE_RUN_HEADER = "X-Multicode-Run-Id"
+
+# The revision that removed the handshake and the session id (SEP-2575, SEP-2567)
+# and made the routing headers mandatory (SEP-2243). Declaring it is what obliges
+# a request to carry `Mcp-Method` (and `Mcp-Name` where the method names a target);
+# below it the headers stay optional, and are still validated when sent.
+STATELESS_PROTOCOL_VERSION = "2026-07-28"
+
+# Methods that name their target in `params.name`, and therefore carry `Mcp-Name`.
+NAMED_TARGET_METHODS = frozenset({"tools/call"})
 
 
 @dataclass(frozen=True)
@@ -113,9 +125,18 @@ class HttpMcpRunRegistry:
         if run is None:
             raise KeyError("registered run token is required.")
         session_id = secrets.token_urlsafe(24)
-        session = HttpMcpSession(id=session_id, run_token=run.token, actor=run.context.actor or self._actor, context=run.context)
+        session = HttpMcpSession(id=session_id, run_token=run.token, actor=self.actor_for(run), context=run.context)
         self._sessions[session_id] = session
         return session
+
+    def actor_for(self, run: HttpMcpRegisteredRun) -> ActorContext | None:
+        """The actor a request on this run speaks as, with or without a session.
+
+        A session copies exactly this (see `create`) and nothing else that is not
+        already on the run, which is why a session-less request can resolve the
+        same identity straight off the bearer run token.
+        """
+        return run.context.actor or self._actor
 
     def get_run(self, run_token: str | None) -> HttpMcpRegisteredRun | None:
         if not run_token:
@@ -184,7 +205,8 @@ class SprintEngineHttpMcpRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.FORBIDDEN, {"error": "origin_not_allowed"})
             return
         run_token = self._bearer_token()
-        if self.server.runs.get_run(run_token) is None:
+        run = self.server.runs.get_run(run_token)
+        if run is None:
             self._write_json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
             return
         try:
@@ -200,6 +222,25 @@ class SprintEngineHttpMcpRequestHandler(BaseHTTPRequestHandler):
             return
         if not isinstance(message, dict):
             self._write_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_jsonrpc_message"})
+            return
+
+        # The request contract, in order (item 2141): auth (above) -> declared version ->
+        # routing headers -> context. Everything below the auth check is per-request, so a
+        # client that never handshakes is answered exactly like one that did.
+        params = message.get("params") if isinstance(message.get("params"), dict) else {}
+        declared_version = self._declared_protocol_version(params)
+        if not is_supported_protocol_version(declared_version):
+            # Not a downgrade: over HTTP the client has already committed to this
+            # version for this request, so answering it as if we agreed would be
+            # the version lie this work exists to remove.
+            self._write_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "unsupported_protocol_version", "message": f"This server does not serve MCP protocol version {declared_version!r}."},
+            )
+            return
+        header_error = self._routing_header_error(message, params, declared_version)
+        if header_error is not None:
+            self._write_json(HTTPStatus.BAD_REQUEST, header_error)
             return
 
         method = message.get("method")
@@ -223,23 +264,36 @@ class SprintEngineHttpMcpRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.OK, response, session.id)
             return
 
-        session = self.server.runs.get(self.headers.get(SESSION_HEADER), run_token)
-        if session is None:
-            self._write_json(
-                HTTPStatus.BAD_REQUEST,
-                {
-                    "jsonrpc": "2.0",
-                    "id": message.get("id"),
-                    "error": {"code": "invalid_session", "message": f"{SESSION_HEADER} is required."},
-                },
-            )
-            return
+        session_header = self.headers.get(SESSION_HEADER)
+        if session_header:
+            session = self.server.runs.get(session_header, run_token)
+            if session is None:
+                # A session id we do not know, or one belonging to another run, is a
+                # client bug. Quietly serving it at run scope instead would be the
+                # swallowed-error pattern: the caller believes it is talking to a
+                # session that no longer exists.
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": message.get("id"),
+                        "error": {"code": "invalid_session", "message": f"{SESSION_HEADER} is not a live session for this run."},
+                    },
+                )
+                return
+            actor, context, session_id = session.actor, session.context, session.id
+        else:
+            # Session-less (2026-07-28): the bearer run token already carries the
+            # actor and `McpRequestContext` a session would only have copied from it,
+            # so there is nothing a handshake would have established. The response
+            # carries no session header, because no session was created.
+            actor, context, session_id = self.server.runs.actor_for(run), run.context, None
 
-        response = _handle_jsonrpc_message(self.server.mcp_server, message, session.actor, context=session.context)
+        response = _handle_jsonrpc_message(self.server.mcp_server, message, actor, context=context)
         if response is None:
-            self._write_empty(HTTPStatus.ACCEPTED, session.id)
+            self._write_empty(HTTPStatus.ACCEPTED, session_id)
             return
-        self._write_json(HTTPStatus.OK, response, session.id)
+        self._write_json(HTTPStatus.OK, response, session_id)
 
     def do_GET(self) -> None:
         if self.path.split("?", 1)[0] != "/mcp":
@@ -277,6 +331,47 @@ class SprintEngineHttpMcpRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:
         return
+
+    def _declared_protocol_version(self, params: dict[str, Any]) -> object:
+        """What version this request says it speaks.
+
+        Header first, then `params._meta.protocolVersion`, then the spec's rule for
+        a request that declares nothing. A present but malformed declaration is
+        returned as-is rather than treated as absent, so it fails the supported
+        check instead of being silently read as the legacy assumption.
+        """
+        header = self.headers.get(PROTOCOL_VERSION_HEADER)
+        if header is not None and header.strip():
+            return header.strip()
+        meta = params.get("_meta")
+        if isinstance(meta, dict) and "protocolVersion" in meta:
+            declared = meta.get("protocolVersion")
+            return declared.strip() if isinstance(declared, str) else declared
+        return LEGACY_HTTP_ASSUMED_VERSION
+
+    def _routing_header_error(self, message: dict[str, Any], params: dict[str, Any], declared_version: object) -> dict[str, Any] | None:
+        """Validate `Mcp-Method`/`Mcp-Name` against the body (SEP-2243).
+
+        Sent, they must agree with the body — a proxy routing on the header while
+        the server executes the body is the failure these headers exist to make
+        impossible. Required only once the request declares the version that made
+        them mandatory; `Mcp-Name` only where the method names a target.
+        """
+        method = message.get("method")
+        required = declared_version == STATELESS_PROTOCOL_VERSION
+        declared_method = (self.headers.get(METHOD_HEADER) or "").strip()
+        if not declared_method:
+            if required:
+                return {"error": "missing_required_header", "message": f"{METHOD_HEADER} is required at MCP protocol version {STATELESS_PROTOCOL_VERSION}."}
+        elif declared_method != method:
+            return {"error": "header_body_mismatch", "message": f"{METHOD_HEADER} {declared_method!r} does not match the request method {method!r}."}
+        declared_name = (self.headers.get(NAME_HEADER) or "").strip()
+        if not declared_name:
+            if required and method in NAMED_TARGET_METHODS:
+                return {"error": "missing_required_header", "message": f"{NAME_HEADER} is required on {method} at MCP protocol version {STATELESS_PROTOCOL_VERSION}."}
+        elif declared_name != params.get("name"):
+            return {"error": "header_body_mismatch", "message": f"{NAME_HEADER} {declared_name!r} does not match the request target {params.get('name')!r}."}
+        return None
 
     def _bearer_token(self) -> str:
         header = self.headers.get("Authorization") or ""
