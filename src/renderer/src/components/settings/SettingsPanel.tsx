@@ -86,7 +86,7 @@ import {
   LearnSettingsIcon,
   PlusIcon,
 } from '../AppIcons'
-import { hasActiveProPlan } from '../workspace/workspaceManagerHelpers'
+import { hasPaidEntitlement, planDisplayTier } from '../workspace/accountEntitlements'
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
@@ -2807,7 +2807,8 @@ function profileInitials(user: MulticodeAuthState['user']): string {
 }
 
 // Human plan label for the Profile meta grid ("Pro plan" / "Free plan" / a
-// non-active entitlement status).
+// non-active entitlement status). Presentation only: it reads the plan's name
+// to print it, and nothing may branch on what it returns.
 function profilePlanLabel(authState: MulticodeAuthState): string {
   const plan = authState.entitlements?.plan ?? null
   if (!plan) return 'Free plan'
@@ -2853,7 +2854,11 @@ function ProfileSection({
     )
   }
 
-  const pro = hasActiveProPlan(authState)
+  // Two questions, deliberately not one: the Plan cell's tone is presentation
+  // (it colours the plan's own name), and the upgrade button is an access
+  // decision, which is asked of feature keys rather than the plan's name.
+  const planTone = planDisplayTier(authState) === 'pro' ? 'positive' : undefined
+  const offerUpgrade = !hasPaidEntitlement(authState)
   const name = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
   const email = authState.user?.displayName ? authState.user?.email : null
   const orgName = authState.selectedOrganization?.name ?? null
@@ -2876,14 +2881,14 @@ function ProfileSection({
       </div>
 
       <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-body sm:grid-cols-2">
-        <MetaCell label="Plan" value={profilePlanLabel(authState)} tone={pro ? 'positive' : undefined} />
+        <MetaCell label="Plan" value={profilePlanLabel(authState)} tone={planTone} />
         {orgName ? <MetaCell label="Organization" value={orgName} /> : null}
       </div>
 
       {message ? <p className="text-body leading-5 text-[color:var(--text-muted)]">{message}</p> : null}
 
       <div className="flex flex-wrap items-center gap-3 border-t border-[color:var(--border-subtle)] pt-4">
-        {!pro ? (
+        {offerUpgrade ? (
           <PrimaryButton size="md" onClick={onUpgrade} disabled={pending}>
             Upgrade to Pro
           </PrimaryButton>

@@ -7,8 +7,6 @@ import type {
   PremiumAccessDecision,
   PremiumAccessRequest,
   SessionSnapshot,
-  UsageRequest,
-  UsageResult,
 } from '../../shared/electron-api'
 
 export const authApi = {
@@ -28,12 +26,6 @@ export const authApi = {
     ipcRenderer.invoke('auth:get-entitlements', options),
   authRequireEntitlement: (input: string | PremiumAccessRequest): Promise<FeatureValue> =>
     ipcRenderer.invoke('auth:require-entitlement', input),
-  authCheckUsage: (input: UsageRequest): Promise<UsageResult> =>
-    ipcRenderer.invoke('auth:check-usage', input),
-  authConsumeUsage: (input: UsageRequest): Promise<UsageResult> =>
-    ipcRenderer.invoke('auth:consume-usage', input),
-  authReleaseUsage: (input: UsageRequest): Promise<UsageResult> =>
-    ipcRenderer.invoke('auth:release-usage', input),
   onAuthStateChanged: (cb: (state: MulticodeAuthState) => void): (() => void) => {
     const ch = 'auth:state-changed'
     const handler = (_: IpcRendererEvent, state: MulticodeAuthState) => cb(state)
@@ -58,9 +50,6 @@ export const authApi = {
   | 'authGetSession'
   | 'authGetEntitlements'
   | 'authRequireEntitlement'
-  | 'authCheckUsage'
-  | 'authConsumeUsage'
-  | 'authReleaseUsage'
   | 'onAuthStateChanged'
   | 'onAuthCallbackError'
 >

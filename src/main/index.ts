@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { buildStamp as mainBuildStamp } from 'virtual:multicode-build-stamp'
 import { MODULE_EVENTS_CHANNEL } from '../shared/modules/events'
 import { MODULE_NOTIFICATIONS_EVENT_CHANNEL } from '../shared/modules/notifications'
 import { parseAuthCallbackFromArgv } from './auth-service'
@@ -24,6 +25,7 @@ import { readTrustedModulesSync } from './modules/trust-store'
 import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './modules/third-party-main-loader'
 import { registerThirdPartyRendererEntryIpc } from './modules/third-party-renderer-entries'
 import { defaultUserModuleRoot, discoverUserModules, discoverUserModulesSync } from './modules/user-module-registry'
+import { attachBuildSkewWatch, createBuildSkewWatch } from './build-skew'
 import { registerCoreIpc } from './register-core-ipc'
 import { registerWorkflowIpc } from './register-workflow-ipc'
 import { attachStartupTimeline, markStartup } from './startup-timeline'
@@ -32,6 +34,31 @@ import { attachStartupTimeline, markStartup } from './startup-timeline'
 // diagnostics flag is set. Attached before anything else registers so the
 // renderer's marks have somewhere to land the moment it starts sending them.
 attachStartupTimeline(ipcMain)
+
+// Build-identity check (MC-2182). Registered next to the startup marks and for
+// the same reason: a window reports the moment it starts, and the listener has
+// to already be there. `showMessageBox` with no parent is a standalone window,
+// so an unattended run is told without anything being blocked on a person
+// dismissing it.
+attachBuildSkewWatch(
+  ipcMain,
+  createBuildSkewWatch({
+    mainStamp: mainBuildStamp,
+    announce: ({ headline, detail }) => {
+      // Swallowed on purpose, and only here: the skew is already on the log by
+      // the time this runs, so a dialog that cannot open must not become a
+      // second failure on top of the one it was reporting. Both throw shapes are
+      // covered — `dialog` refuses synchronously before the app is ready.
+      try {
+        void dialog
+          .showMessageBox({ type: 'warning', message: headline, detail, buttons: ['Close'] })
+          .catch(() => {})
+      } catch {
+        // Already logged.
+      }
+    },
+  })
+)
 
 configureDevUserData()
 

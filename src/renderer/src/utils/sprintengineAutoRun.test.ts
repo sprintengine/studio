@@ -88,7 +88,8 @@ async function main(): Promise<void> {
   testGetAutoApprovalIntentArtifactsExcludesSameFileDuplicateVeto()
   testGetPendingAgentNotificationEventsFiltersDeliveredAndSent()
   testBootstrapSpawnsArchitectForFreshRunWithoutTasks()
-  testBootstrapDeliversUndeliveredArchitectStartupPromptEvenWithTasks()
+  testBootstrapPlansGoalOnlyRunsAndNeverPrePlannedOnes()
+  testBootstrapDoesNotPlanARolelessEpicSourcedRun()
   testBootstrapDoesNothingOncePlanTasksExist()
   testBootstrapSkipsRunningInFlightAndRetiredArchitect()
   testBootstrapStallsInsteadOfSpawningWithoutArchitectOrAfterPrePlanExit()
@@ -5723,14 +5724,36 @@ function testBootstrapSpawnsArchitectForFreshRunWithoutTasks(): void {
   }
 }
 
-function testBootstrapDeliversUndeliveredArchitectStartupPromptEvenWithTasks(): void {
+/**
+ * MC-2179, both directions of the same guard. Creation composes a handoff prompt
+ * onto the coordinator seat whether or not the run needs planning, so the prompt
+ * alone cannot decide: an epic- or selection-sourced run opens with its graph
+ * already minted and must spawn NO planning agent, while a goal-only run opens
+ * with nothing to execute and must spawn exactly one.
+ */
+function testBootstrapPlansGoalOnlyRunsAndNeverPrePlannedOnes(): void {
+  const undeliveredArchitect = {
+    architect: { ...sprintAgent('architect', 'Ari'), cliStartupPrompt: 'handoff', cliOnboardingPromptSent: false },
+  }
   const tasks = [task({ id: 'T1', status: 'todo', boardColumn: 'ready', role: 'developer', ownerAgentId: null })]
-  const undelivered = pickSprintEngineBootstrapCandidate(
-    bootstrapWorkspace({ architect: { ...sprintAgent('architect', 'Ari'), cliStartupPrompt: 'handoff', cliOnboardingPromptSent: false } }),
+
+  const goalOnly = pickSprintEngineBootstrapCandidate(
+    bootstrapWorkspace(undeliveredArchitect),
+    bootstrapState(),
+    bootstrapOptions()
+  )
+  assert.equal(goalOnly.kind, 'spawn', 'a goal-only run has nothing to execute until someone plans, so it still bootstraps')
+
+  const prePlanned = pickSprintEngineBootstrapCandidate(
+    bootstrapWorkspace(undeliveredArchitect),
     bootstrapState({ tasks }),
     bootstrapOptions()
   )
-  assert.equal(undelivered.kind, 'spawn', 'an undelivered stored handoff prompt still bootstraps after tasks exist')
+  assert.equal(
+    prePlanned.kind,
+    'none',
+    'a run whose graph arrived with it spawns no planner — an undelivered handoff prompt no longer overrides run state'
+  )
 
   const delivered = pickSprintEngineBootstrapCandidate(
     bootstrapWorkspace({ architect: { ...sprintAgent('architect', 'Ari'), cliStartupPrompt: 'handoff', cliOnboardingPromptSent: true } }),
@@ -5738,6 +5761,29 @@ function testBootstrapDeliversUndeliveredArchitectStartupPromptEvenWithTasks(): 
     bootstrapOptions()
   )
   assert.equal(delivered.kind, 'none', 'a delivered handoff prompt does not re-bootstrap')
+}
+
+/**
+ * The shape actually observed (MC-2179): a ROLELESS epic-sourced run, whose
+ * coordinator seat carries the undelivered handoff prompt and whose tasks were
+ * imported from the epic's children before any agent existed.
+ */
+function testBootstrapDoesNotPlanARolelessEpicSourcedRun(): void {
+  const decision = pickSprintEngineBootstrapCandidate(
+    bootstrapWorkspace({
+      coordinator: { ...sprintAgent('coordinator', 'Coordinator'), cliStartupPrompt: 'handoff', cliOnboardingPromptSent: false },
+    }),
+    sprintEngineStateFixture({
+      configuredRoles: [],
+      sprintEngineAgents: { coordinator: runtimeAgent(undefined) },
+      tasks: [
+        task({ id: 'T1', role: undefined, status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
+        task({ id: 'T2', role: undefined, status: 'todo', boardColumn: 'ready', ownerAgentId: null, dependsOn: ['T1'] }),
+      ],
+    }),
+    bootstrapOptions()
+  )
+  assert.equal(decision.kind, 'none', 'the imported epic IS the plan, so the coordinator seat is not spawned to re-plan it')
 }
 
 function testBootstrapDoesNothingOncePlanTasksExist(): void {

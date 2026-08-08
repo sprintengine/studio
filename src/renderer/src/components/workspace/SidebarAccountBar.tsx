@@ -2,7 +2,7 @@ import React from 'react'
 import { FOCUS_RING_CLASS, Popover, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
 import { MENU_ITEM_CLASS } from '../ui/menuClasses'
 import type { SessionUser } from '../../../../shared/electron-api'
-import { hasActiveProPlan } from './workspaceManagerHelpers'
+import { hasPaidEntitlement, planDisplayTier, type PlanDisplayTier } from './accountEntitlements'
 
 // The account + Settings cluster lives at the sidebar bottom (Cursor-parity
 // layout), relocated from WorkspaceTopBar. The account menu, its trigger, and
@@ -16,15 +16,10 @@ function accountInitials(user: SessionUser | null): string {
   return source[0].toUpperCase()
 }
 
-type AccountTier = 'free' | 'pro'
-
 // Tier drives the colour of the account glyph: gold for an active Pro plan,
-// green otherwise (free, trial, or entitlements not yet resolved).
-function accountTier(authState: MulticodeAuthState): AccountTier {
-  return hasActiveProPlan(authState) ? 'pro' : 'free'
-}
-
-const ACCOUNT_TIER_STYLE: Record<AccountTier, { color: string; soft: string; label: string }> = {
+// green otherwise (free, trial, or entitlements not yet resolved). Presentation
+// only — what the account may do is `hasPaidEntitlement`.
+const ACCOUNT_TIER_STYLE: Record<PlanDisplayTier, { color: string; soft: string; label: string }> = {
   free: { color: TONE_COLOR_VAR.good, soft: TONE_SOFT_VAR.good, label: 'Free' },
   pro: { color: TONE_COLOR_VAR.warn, soft: TONE_SOFT_VAR.warn, label: 'Pro' },
 }
@@ -72,13 +67,19 @@ function formatShortDate(value: string | null): string {
   return new Date(value).toLocaleString()
 }
 
-// Human plan label for the account row's secondary line ("Pro plan" / "Free").
+// The plan's own name, for printing: "Pro plan" while active, else the status
+// ("Past due"). Null when there is no plan to name. Presentation only — it
+// reads the plan code to SHOW it, and nothing may branch on what it returns.
+function planLabel(authState: MulticodeAuthState): string | null {
+  const plan = authState.entitlements?.plan
+  if (!plan) return null
+  return plan.status === 'active' ? `${sentenceCase(plan.code)} plan` : sentenceCase(plan.status)
+}
+
+// The account row's secondary line, which always shows something: the plan's
+// name when there is one, else the tier word.
 function accountPlanLabel(authState: MulticodeAuthState): string {
-  const plan = authState.entitlements?.plan ?? null
-  if (plan) {
-    return plan.status === 'active' ? `${sentenceCase(plan.code)} plan` : sentenceCase(plan.status)
-  }
-  return ACCOUNT_TIER_STYLE[accountTier(authState)].label
+  return planLabel(authState) ?? ACCOUNT_TIER_STYLE[planDisplayTier(authState)].label
 }
 
 function AccountMenuItem({ onSelect, children }: { onSelect: () => void; children: React.ReactNode }) {
@@ -126,16 +127,16 @@ function AccountPopover({
   onLogout: () => void
   onUpgrade: () => void
 }) {
-  const plan = authState.entitlements?.plan ?? null
-  const planLabel = plan
-    ? plan.status === 'active' ? `${sentenceCase(plan.code)} plan` : sentenceCase(plan.status)
-    : null
-  const metaLine = [planLabel, authState.selectedOrganization?.name]
+  const metaLine = [planLabel(authState), authState.selectedOrganization?.name]
     .filter(Boolean)
     .join(' · ')
   const primaryLine = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
   const email = authState.user?.displayName ? authState.user?.email : null
   const accessStale = Boolean(message) || authState.entitlementStatus !== 'fresh'
+  // Two independent questions that happen to share a section: whether to offer
+  // the upgrade (an access question — does this account already hold paid
+  // capability) and whether to offer a re-check (a freshness question).
+  const offerUpgrade = !hasPaidEntitlement(authState)
 
   return (
     <div data-account-menu="true" className="w-64 overflow-hidden">
@@ -167,9 +168,9 @@ function AccountPopover({
         </div>
       ) : null}
 
-      {!hasActiveProPlan(authState) || accessStale ? (
+      {offerUpgrade || accessStale ? (
         <div className="border-t border-[color:var(--border-subtle)] py-1">
-          {!hasActiveProPlan(authState) ? (
+          {offerUpgrade ? (
             <AccountMenuItem onSelect={onUpgrade}>Upgrade to Pro</AccountMenuItem>
           ) : null}
           {accessStale ? (
@@ -212,8 +213,7 @@ export default function SidebarAccountBar({
   openSettings,
   settingsOpen,
 }: SidebarAccountBarProps) {
-  const tier = accountTier(authState)
-  const tierStyle = ACCOUNT_TIER_STYLE[tier]
+  const tierStyle = ACCOUNT_TIER_STYLE[planDisplayTier(authState)]
   const initials = accountInitials(authState.user)
   const accountName = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
 

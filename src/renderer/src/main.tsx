@@ -6,6 +6,7 @@ import AuxWindowApp from './components/auxWindows/AuxWindowApp'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
 import { loadThirdPartyRendererModules } from './modules'
 import { runBundledSpecialistPackMigration } from './utils/bundledSpecialistPackMigration'
+import { reportBuildStamp } from './utils/buildStamp'
 import { bindElectronClipboardPasteBridge } from './utils/clipboardPasteBridge'
 import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
 import { markStartup, markStartupAt } from './utils/startupTimeline'
@@ -21,6 +22,11 @@ markStartup('renderer.script-start')
 // formatter) is heavy and only mounts in the `?view=diagnostics` window, so keep
 // it out of the eager boot chunk and fetch it when that window opens.
 const DiagnosticsWindowApp = React.lazy(() => import('./components/diagnostics/DiagnosticsWindowApp'))
+
+// Build identity (MC-2182), reported before anything else runs: if this document
+// and main are on different commits, every IPC below is suspect, and the point
+// is to say so rather than let each route fail its own way.
+reportBuildStamp()
 
 bindElectronClipboardPasteBridge()
 

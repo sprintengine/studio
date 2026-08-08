@@ -95,8 +95,6 @@ import type {
   TerminalSessionSnapshot as SharedTerminalSessionSnapshot,
   TerminalSpawnMetadata as SharedTerminalSpawnMetadata,
   TerminalSpawnResult as SharedTerminalSpawnResult,
-  UsageRequest as SharedUsageRequest,
-  UsageResult as SharedUsageResult,
   WindowState as SharedWindowState,
   WorkspaceFolderCheckResult as SharedWorkspaceFolderCheckResult,
 } from '../shared/electron-api'
@@ -217,8 +215,6 @@ declare global {
   type MulticodeAuthState = SharedMulticodeAuthState
   type PremiumAccessRequest = SharedPremiumAccessRequest
   type PremiumAccessDecision = SharedPremiumAccessDecision
-  type UsageRequest = SharedUsageRequest
-  type UsageResult = SharedUsageResult
   type SessionSnapshot = SharedSessionSnapshot
   type MobileControlCommandType = SharedMobileControlCommandType
   type MobileControlCapability = SharedMobileControlCapability

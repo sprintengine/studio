@@ -7,20 +7,41 @@
 import assert from 'node:assert/strict'
 import type { EntitlementSnapshot, PremiumAccessDecision } from '../shared/electron-api'
 import {
-  DESKTOP_GRACE_FEATURE_KEYS,
   ENTITLEMENT_GRACE_MS,
+  ENTITLEMENT_MAX_CACHE_AGE_MS,
   EntitlementService,
   entitlementCacheStatus,
   entitlementGraceExpiresAt,
+  isEntitlementCacheTooStale,
   isEntitlementSnapshot,
   isEntitlementSnapshotFresh,
+  offlineGraceMessage,
   type CachedEntitlementSnapshot,
   type EntitlementProvider,
   type EntitlementReading,
 } from './entitlement-service'
 
 const HOUR_MS = 60 * 60 * 1000
-const GRACE_KEY = DESKTOP_GRACE_FEATURE_KEYS[0]
+// A purely local premium feature: nothing server-side happens when it runs, so
+// it is the case offline grace exists to keep working. There is no allowlist —
+// this is an ordinary key, and that is the point.
+const LOCAL_KEY = 'multicode.local_premium'
+// What Multiauth actually issues: `expiresAt = issuedAt + 72h` (SNAPSHOT_TTL_MS
+// in `../multiauth/src/entitlements/resolver.ts`). The grace bug survived the
+// old suite because no fixture used this shape.
+const SNAPSHOT_TTL_MS = 72 * HOUR_MS
+
+// A default-TTL cache fetched `ageMs` ago: issued then, expiring 72h later, and
+// stamped `lastRefreshAt` at fetch time — the arithmetic the `min` collapsed.
+function defaultTtlCache(ageMs: number, features: EntitlementSnapshot['features'] = { [LOCAL_KEY]: true }): CachedEntitlementSnapshot {
+  const issuedAt = new Date(Date.now() - ageMs)
+  const snap = snapshot({
+    features,
+    issuedAt: issuedAt.toISOString(),
+    expiresAt: new Date(issuedAt.getTime() + SNAPSHOT_TTL_MS).toISOString(),
+  })
+  return { snapshot: snap, lastRefreshAt: issuedAt.toISOString() }
+}
 
 function snapshot(overrides: Partial<EntitlementSnapshot> = {}): EntitlementSnapshot {
   return {
@@ -100,7 +121,7 @@ async function main(): Promise<void> {
     signedIn(snapshot({ schemaVersion: 2 as unknown as 1 })),
     signedIn(snapshot({ product: 'other' as unknown as 'multicode' })),
   ] satisfies EntitlementReading[]) {
-    const decision = await check(bad, GRACE_KEY)
+    const decision = await check(bad, LOCAL_KEY)
     assert.equal(decision.allowed, false, 'an unusable snapshot must not grant anything')
     assert.equal(decision.status, 'missing')
   }
@@ -146,58 +167,147 @@ async function main(): Promise<void> {
     assert.equal(blank.allowed, false)
   }
 
-  // Offline grace. The snapshot has expired but the grace window is open.
+  // MC-2187 — the ladder walked on the snapshot the server actually issues: a
+  // 72h TTL stamped `lastRefreshAt` at fetch time. This is the case the old
+  // `min(expiresAt + grace, lastRefreshAt + grace)` collapsed to a zero-width
+  // window, so `offline_grace` was unreachable and premium died at the TTL.
   {
-    const expired = snapshot({
-      expiresAt: new Date(Date.now() - HOUR_MS).toISOString(),
-      features: { [GRACE_KEY]: true, 'multicode.other': true },
-    })
-    const cache: CachedEntitlementSnapshot = {
-      snapshot: expired,
-      lastRefreshAt: new Date(Date.now() - 2 * HOUR_MS).toISOString(),
+    const ladder: Array<[number, string]> = [
+      [71 * HOUR_MS, 'fresh'],
+      // Both boundaries: one minute either side of expiry, and of expiry+grace.
+      [SNAPSHOT_TTL_MS - 60_000, 'fresh'],
+      [SNAPSHOT_TTL_MS + 60_000, 'offline_grace'],
+      [SNAPSHOT_TTL_MS + 8 * HOUR_MS, 'offline_grace'],
+      [SNAPSHOT_TTL_MS + ENTITLEMENT_GRACE_MS - 60_000, 'offline_grace'],
+      [SNAPSHOT_TTL_MS + ENTITLEMENT_GRACE_MS + 60_000, 'expired'],
+    ]
+
+    for (const [age, expected] of ladder) {
+      const cache = defaultTtlCache(age)
+      assert.equal(
+        entitlementCacheStatus(cache),
+        expected,
+        `a default-TTL snapshot ${age / HOUR_MS}h after issue is ${expected}`
+      )
+
+      const decision = await check(signedIn(cache.snapshot, cache), LOCAL_KEY)
+      assert.equal(decision.status, expected)
+      assert.equal(decision.allowed, expected !== 'expired', `a local premium key is ${expected === 'expired' ? 'refused' : 'granted'} at ${expected}`)
     }
-    const reading = signedIn(expired, cache)
 
-    const allowlisted = await check(reading, GRACE_KEY)
-    assert.equal(allowlisted.allowed, true, `${GRACE_KEY} is local-only, so it survives offline`)
-    assert.equal(allowlisted.status, 'offline_grace')
-    assert.equal(allowlisted.graceExpiresAt, entitlementGraceExpiresAt(cache))
-
-    // Everything not on the allowlist needs a live check, even though the very
-    // same snapshot grants it.
-    const other = await check(reading, 'multicode.other')
-    assert.equal(other.allowed, false)
-    assert.equal(other.status, 'offline_grace')
-
-    // A hosted-cost request is refused even for an allowlisted key: stale
-    // entitlements must never authorize spending someone else's budget.
-    const hosted = await check(reading, GRACE_KEY, { hostedCost: true })
-    assert.equal(hosted.allowed, false)
-    assert.equal(hosted.status, 'offline_grace')
+    // The window is the full grace span past expiry, not the fetch latency.
+    const graced = defaultTtlCache(SNAPSHOT_TTL_MS + HOUR_MS)
+    assert.equal(
+      entitlementGraceExpiresAt(graced),
+      new Date(Date.parse(graced.snapshot.expiresAt) + ENTITLEMENT_GRACE_MS).toISOString(),
+      'grace runs from snapshot expiry alone'
+    )
   }
 
-  // Past the grace window nothing is granted, allowlisted or not.
+  // The staleness ceiling is an independent hard stop: a cache we have not
+  // refreshed in a fortnight expires even while its snapshot claims to be live.
+  // (A long-lived admin grant is the shape that gets here — a default TTL
+  // cannot outlive the ceiling.)
   {
-    const stale = snapshot({ expiresAt: new Date(Date.now() - 10 * 24 * HOUR_MS).toISOString(), features: { [GRACE_KEY]: true } })
+    const lastRefreshAt = new Date(Date.now() - ENTITLEMENT_MAX_CACHE_AGE_MS - HOUR_MS)
+    const longLived = snapshot({
+      expiresAt: new Date(Date.now() + 30 * 24 * HOUR_MS).toISOString(),
+      features: { [LOCAL_KEY]: true },
+    })
+    const cache: CachedEntitlementSnapshot = { snapshot: longLived, lastRefreshAt: lastRefreshAt.toISOString() }
+
+    assert.equal(isEntitlementSnapshotFresh(longLived), true, 'the snapshot itself has not expired')
+    assert.equal(isEntitlementCacheTooStale(cache), true)
+    assert.equal(entitlementCacheStatus(cache), 'expired', 'the ceiling wins over snapshot expiry')
+
+    const decision = await check(signedIn(longLived, cache), LOCAL_KEY)
+    assert.equal(decision.allowed, false)
+    assert.equal(decision.status, 'expired')
+
+    // An hour the other side of the ceiling, the same cache is still usable.
+    const withinCeiling: CachedEntitlementSnapshot = {
+      snapshot: longLived,
+      lastRefreshAt: new Date(Date.now() - ENTITLEMENT_MAX_CACHE_AGE_MS + HOUR_MS).toISOString(),
+    }
+    assert.equal(isEntitlementCacheTooStale(withinCeiling), false)
+    assert.equal(entitlementCacheStatus(withinCeiling), 'fresh')
+
+    // An undatable cache is not evidence of a recent check.
+    assert.equal(isEntitlementCacheTooStale({ snapshot: longLived, lastRefreshAt: 'not-a-date' }), true)
+  }
+
+  // Grace permissions are decided on `hostedCost` alone — no feature key is
+  // named anywhere in the decision. Anything with a server-side cost is refused
+  // while unverified; a purely local premium feature keeps working.
+  {
+    const cache = defaultTtlCache(SNAPSHOT_TTL_MS + HOUR_MS, {
+      [LOCAL_KEY]: true,
+      'multicode.other_local': true,
+    })
+    const reading = signedIn(cache.snapshot, cache)
+
+    for (const key of [LOCAL_KEY, 'multicode.other_local']) {
+      const decision = await check(reading, key)
+      assert.equal(decision.allowed, true, `${key} is local, so it survives offline with no allowlist`)
+      assert.equal(decision.status, 'offline_grace')
+      assert.equal(decision.graceExpiresAt, entitlementGraceExpiresAt(cache), 'the decision carries the deadline')
+    }
+
+    // Stale entitlements must never authorize spending someone else's budget.
+    const hosted = await check(reading, LOCAL_KEY, { hostedCost: true })
+    assert.equal(hosted.allowed, false)
+    assert.equal(hosted.status, 'offline_grace')
+    assert.equal(hosted.graceExpiresAt, entitlementGraceExpiresAt(cache))
+
+    // …but the same hosted request is fine while the snapshot is fresh.
+    const fresh = defaultTtlCache(HOUR_MS)
+    const online = await check(signedIn(fresh.snapshot, fresh), LOCAL_KEY, { hostedCost: true })
+    assert.equal(online.allowed, true)
+    assert.equal(online.status, 'fresh')
+
+    // The grace-state message names the deadline, so the user is warned rather
+    // than cut off. The adapter publishes this same string as the auth state's
+    // message, which is what the account surface renders.
+    const graceMessage = (await check(reading, LOCAL_KEY)).message
+    const deadline = entitlementGraceExpiresAt(cache)
+    assert.ok(deadline)
+    assert.equal(graceMessage, offlineGraceMessage(deadline))
+    assert.ok(graceMessage.includes(new Date(deadline).toLocaleString()), 'the deadline is in the message')
+
+    // An unreadable deadline drops the clause instead of inventing one.
+    assert.equal(offlineGraceMessage(null), 'Using cached Multicode access while offline.')
+    assert.equal(offlineGraceMessage('not-a-date'), 'Using cached Multicode access while offline.')
+  }
+
+  // Past the grace window nothing is granted.
+  {
+    const stale = snapshot({ expiresAt: new Date(Date.now() - 10 * 24 * HOUR_MS).toISOString(), features: { [LOCAL_KEY]: true } })
     const reading = signedIn(stale, {
       snapshot: stale,
       lastRefreshAt: new Date(Date.now() - 10 * 24 * HOUR_MS).toISOString(),
     })
-    const decision = await check(reading, GRACE_KEY)
+    const decision = await check(reading, LOCAL_KEY)
     assert.equal(decision.allowed, false)
     assert.equal(decision.status, 'expired')
   }
 
   // With no persisted cache, the live snapshot is dated by lastRefreshAt — an
-  // absent lastRefreshAt dates it to the epoch, which is outside any grace
-  // window, so an expired snapshot cannot coast on a missing timestamp.
+  // absent one dates it to the epoch, which is past the staleness ceiling. An
+  // adapter that cannot say when it last reached the provider is refused, and
+  // deliberately so: this holds for a snapshot that is still unexpired too, so
+  // the port's contract (report lastRefreshAt with every snapshot) is enforced
+  // rather than assumed. Both cases are pinned, because the second is the one a
+  // future provider adapter is most likely to trip.
   {
-    const expired = snapshot({ expiresAt: new Date(Date.now() - HOUR_MS).toISOString(), features: { [GRACE_KEY]: true } })
-    const decision = await check(
-      { authenticated: true, snapshot: expired, cache: null, lastRefreshAt: null },
-      GRACE_KEY
-    )
-    assert.equal(decision.status, 'expired')
+    for (const expiresAt of [Date.now() - HOUR_MS, Date.now() + HOUR_MS]) {
+      const undatable = snapshot({ expiresAt: new Date(expiresAt).toISOString(), features: { [LOCAL_KEY]: true } })
+      const decision = await check(
+        { authenticated: true, snapshot: undatable, cache: null, lastRefreshAt: null },
+        LOCAL_KEY
+      )
+      assert.equal(decision.status, 'expired')
+      assert.equal(decision.allowed, false)
+    }
   }
 
   // hasFeature is the boolean face of the same decision.
@@ -247,8 +357,8 @@ async function main(): Promise<void> {
   }
 
   // Grace policy is shared with the adapter, so the auth state it publishes and
-  // the decisions above can never disagree: the window closes at whichever of
-  // (snapshot expiry, last refresh) runs out first, plus the grace span.
+  // the decisions above can never disagree: the window closes a grace span past
+  // the snapshot's own expiry, and the cache's age is a separate stop.
   {
     const expiresAt = new Date(Date.now() - HOUR_MS)
     const lastRefreshAt = new Date(Date.now() - 5 * HOUR_MS)
@@ -258,8 +368,8 @@ async function main(): Promise<void> {
     }
     assert.equal(
       entitlementGraceExpiresAt(cache),
-      new Date(lastRefreshAt.getTime() + ENTITLEMENT_GRACE_MS).toISOString(),
-      'the earlier of the two anchors wins'
+      new Date(expiresAt.getTime() + ENTITLEMENT_GRACE_MS).toISOString(),
+      'snapshot expiry is the only anchor; an earlier lastRefreshAt does not shorten it'
     )
     assert.equal(entitlementCacheStatus(cache), 'offline_grace')
     assert.equal(entitlementCacheStatus({ snapshot: snapshot(), lastRefreshAt: new Date().toISOString() }), 'fresh')

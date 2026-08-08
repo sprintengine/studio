@@ -7,17 +7,16 @@ import type {
   EntitlementSnapshot,
   MulticodeAuthState,
   SessionSnapshot,
-  UsageRequest,
-  UsageResult,
 } from '../shared/electron-api'
 import {
-  DESKTOP_GRACE_FEATURE_KEYS,
   ENTITLEMENT_GRACE_MS,
+  ENTITLEMENT_MAX_CACHE_AGE_MS,
   EntitlementService,
   entitlementCacheStatus,
   entitlementGraceExpiresAt,
   isEntitlementSnapshot,
   isEntitlementSnapshotFresh,
+  offlineGraceMessage,
   type CachedEntitlementSnapshot,
 } from './entitlement-service'
 import { getErrorMessage } from './error-message'
@@ -157,18 +156,6 @@ class MulticodeMultiauthClient {
     return snapshot
   }
 
-  async checkUsage(input: UsageRequest): Promise<UsageResult> {
-    return this.usage('/api/usage/check', input)
-  }
-
-  async consumeUsage(input: UsageRequest): Promise<UsageResult> {
-    return this.usage('/api/usage/consume', input)
-  }
-
-  async releaseUsage(input: UsageRequest): Promise<UsageResult> {
-    return this.usage('/api/usage/release', input)
-  }
-
   async getAccessToken(clientId: typeof MULTICODE_CLIENT_ID = MULTICODE_CLIENT_ID): Promise<string> {
     if (!this.accessToken || this.accessTokenExpiresAt <= Date.now() + 60_000) {
       await this.refresh(clientId)
@@ -177,16 +164,6 @@ class MulticodeMultiauthClient {
       throw new Error('No desktop access token is available.')
     }
     return this.accessToken
-  }
-
-  private async usage(path: string, input: UsageRequest): Promise<UsageResult> {
-    return this.request<UsageResult>(path, {
-      method: 'POST',
-      body: JSON.stringify({
-        product: MULTICODE_PRODUCT,
-        ...input,
-      }),
-    })
   }
 
   private async request<T>(path: string, init: RequestInit): Promise<T> {
@@ -281,7 +258,7 @@ export class MulticodeAuthBridge {
     {
       product: MULTICODE_PRODUCT,
       graceMs: ENTITLEMENT_GRACE_MS,
-      graceFeatureKeys: DESKTOP_GRACE_FEATURE_KEYS,
+      maxCacheAgeMs: ENTITLEMENT_MAX_CACHE_AGE_MS,
     }
   )
 
@@ -296,6 +273,7 @@ export class MulticodeAuthBridge {
       this.cachedEntitlements = cache
       if (cache) {
         const entitlementStatus = entitlementCacheStatus(cache)
+        const graceExpiresAt = entitlementGraceExpiresAt(cache)
         this.setState({
           ...this.state,
           status: 'signed_in',
@@ -303,10 +281,10 @@ export class MulticodeAuthBridge {
           entitlements: cache.snapshot,
           entitlementStatus,
           message: entitlementStatus === 'offline_grace'
-            ? 'Using cached Multicode access while offline.'
+            ? offlineGraceMessage(graceExpiresAt)
             : 'Sign in again to refresh Multicode access.',
           lastRefreshAt: cache.lastRefreshAt,
-          graceExpiresAt: entitlementGraceExpiresAt(cache),
+          graceExpiresAt,
         })
         return this.state
       }
@@ -444,22 +422,28 @@ export class MulticodeAuthBridge {
 
       this.cachedEntitlements = cache
       await this.writeCachedEntitlements(cache)
+      // Same ladder the seam gates on, so a snapshot that arrives already past
+      // its expiry is published as `offline_grace` here and read as
+      // `offline_grace` there — the state and the decisions cannot disagree.
+      const entitlementStatus = entitlementCacheStatus(cache)
+      const graceExpiresAt = entitlementGraceExpiresAt(cache)
       this.setState({
         authenticated: true,
         user: session.user,
         selectedOrganization: session.selectedOrganization,
         entitlements,
         status: 'signed_in',
-        entitlementStatus: isEntitlementSnapshotFresh(entitlements) ? 'fresh' : 'expired',
-        message: null,
+        entitlementStatus,
+        message: entitlementStatus === 'offline_grace' ? offlineGraceMessage(graceExpiresAt) : null,
         lastRefreshAt: cache.lastRefreshAt,
-        graceExpiresAt: entitlementGraceExpiresAt(cache),
+        graceExpiresAt,
       })
     } catch (error) {
       const cache = this.cachedEntitlements ?? await this.readCachedEntitlements()
       this.cachedEntitlements = cache
       if (cache) {
         const entitlementStatus = entitlementCacheStatus(cache)
+        const graceExpiresAt = entitlementGraceExpiresAt(cache)
         this.setState({
           ...this.state,
           authenticated: true,
@@ -467,10 +451,10 @@ export class MulticodeAuthBridge {
           status: 'signed_in',
           entitlementStatus,
           message: entitlementStatus === 'offline_grace'
-            ? 'Using cached Multicode access while offline.'
+            ? offlineGraceMessage(graceExpiresAt)
             : getErrorMessage(error),
           lastRefreshAt: cache.lastRefreshAt,
-          graceExpiresAt: entitlementGraceExpiresAt(cache),
+          graceExpiresAt,
         })
         return this.state
       }
@@ -506,18 +490,6 @@ export class MulticodeAuthBridge {
     } catch {
       return null
     }
-  }
-
-  async checkUsage(input: UsageRequest): Promise<UsageResult> {
-    return this.client.checkUsage(input)
-  }
-
-  async consumeUsage(input: UsageRequest): Promise<UsageResult> {
-    return this.client.consumeUsage(input)
-  }
-
-  async releaseUsage(input: UsageRequest): Promise<UsageResult> {
-    return this.client.releaseUsage(input)
   }
 
   async openUpgrade(reason?: string): Promise<{ opened: true; url: string }> {

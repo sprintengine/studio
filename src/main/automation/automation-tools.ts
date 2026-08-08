@@ -81,11 +81,13 @@ import type { WorkspaceMutationActor } from '../workspace-sync-service'
 
 // The automation tool surface. v1: workspace.create / workspace.list /
 // workspace.status / agent.launch / agent.status; the read expansion adds
-// backlog.list / backlog.read / automation.list / automation.runs. Reads
-// answer from main's authoritative stores and never touch the renderer.
-// Mutations are delegated to the primary renderer (same store actions the UI
-// runs) and are confirmed against the workspace-sync bus before success is
-// reported.
+// backlog.list / backlog.read / automation.list / automation.runs. Reads and
+// mutations alike answer from main's own services — there is one lane, and it is
+// main's (MC-2161). No tool on this surface needs a window, and the renderer
+// delegate that used to carry mutations, along with its `no_primary_window` /
+// `renderer_timeout` error class, is gone. Mutations that have to be observed
+// before success is reported are confirmed against the state main itself minted
+// (the workspace-sync bus, the live terminal session).
 
 const LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const CONFIRM_POLL_INTERVAL_MS = 150
@@ -489,11 +491,11 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   }
 
   // Create the isolation worktree (when requested or forced by a connector),
-  // delegate agent.launch to the renderer, and confirm the launch by a live
-  // terminal session — the shared execution path for agent.launch and
-  // backlog.work. Returns the confirmed workspace + agent id (and worktree
-  // path), or a failure McpToolResult. The caller is expected to have validated
-  // args and confirmed the workspace exists.
+  // compose and spawn the agent in main, and confirm the launch by the live
+  // terminal session main itself minted — the shared execution path for
+  // agent.launch and backlog.work. Returns the confirmed workspace + agent id
+  // (and worktree path), or a failure McpToolResult. The caller is expected to
+  // have validated args and confirmed the workspace exists.
   async function launchConfiguredAgent(plan: {
     workspaceId: string
     cli?: string

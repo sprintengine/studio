@@ -9,6 +9,7 @@ import { automationApi } from './api/automation'
 import { fleetApi } from './api/fleet'
 import { automationsApi } from './api/automations'
 import { backlogApi } from './api/backlog'
+import { buildStampApi } from './api/build-stamp'
 import { builtinSkillsApi } from './api/builtinSkills'
 import { cliRuntimeApi } from './api/cli-runtime'
 import { clipboardApi } from './api/clipboard'
@@ -52,6 +53,7 @@ const api = {
   ...windowApi,
   ...splashApi,
   ...startupApi,
+  ...buildStampApi,
   ...appearanceApi,
   ...authApi,
   ...automationApi,

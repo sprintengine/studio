@@ -3,6 +3,10 @@ import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './vo
 // permission-preset vocabulary), so the cycle erases at compile time and no
 // runtime import exists in either direction.
 import type { AgentLaunchRecord } from './agent-launch'
+// The build-identity shape a window reports; re-exported because it is part of
+// this IPC contract like the rest of the surface below.
+import type { BuildStamp } from './build-stamp'
+export type { BuildStamp } from './build-stamp'
 import type {
   FolderOpenRequest,
   FolderOpenResult,
@@ -2322,29 +2326,6 @@ export type PremiumAccessDecision = {
   graceExpiresAt?: string
 }
 
-export type UsageRequest = {
-  featureKey: string
-  amount?: number
-  actorType?: 'user' | 'organization' | 'api_key'
-  actorId?: string
-  idempotencyKey: string
-  window?: 'day' | 'month'
-}
-
-export type UsageResult = {
-  allowed: boolean
-  featureKey: string
-  amount: number
-  used: number
-  remaining: number | null
-  limit: number | null
-  idempotencyKey: string
-  windowStart: string
-  windowEnd: string
-  replayed: boolean
-  reason: 'allowed' | 'missing_entitlement' | 'limit_exceeded' | 'released'
-}
-
 export type SessionSnapshot =
   | {
       authenticated: true
@@ -2996,6 +2977,10 @@ export type ElectronApi = {
   // origins — see src/shared/startup-timeline.ts.
   startupTimelineEnabled: boolean
   reportStartupMark: (id: string, atEpochMs: number) => void
+  // Build identity (MC-2182). Every window reports the commit its bundle was
+  // built from; main compares it against its own and says so once when the two
+  // halves have diverged — see src/shared/build-stamp.ts.
+  reportBuildStamp: (stamp: BuildStamp) => void
   workspaceSyncDispatch: (command: WorkspaceSyncCommand) => Promise<WorkspaceSyncCommandResult>
   workspaceSyncGetSnapshot: () => Promise<WorkspaceSyncSnapshot>
   workspaceSyncGetEventsAfter: (sequence: number) => Promise<WorkspaceSyncEvent[]>
@@ -3096,9 +3081,6 @@ export type ElectronApi = {
   authGetSession: () => Promise<SessionSnapshot>
   authGetEntitlements: (options?: { forceRefresh?: boolean }) => Promise<EntitlementSnapshot>
   authRequireEntitlement: (input: string | PremiumAccessRequest) => Promise<FeatureValue>
-  authCheckUsage: (input: UsageRequest) => Promise<UsageResult>
-  authConsumeUsage: (input: UsageRequest) => Promise<UsageResult>
-  authReleaseUsage: (input: UsageRequest) => Promise<UsageResult>
   onAuthStateChanged: (cb: (state: MulticodeAuthState) => void) => () => void
   onAuthCallbackError: (cb: (message: string) => void) => () => void
   mobileBridgeGetState: () => Promise<MobileBridgeState>
