@@ -4,6 +4,7 @@ import {
 } from '../../shared/sprintengineToolNames.generated'
 import type { SprintEngineMcpHubService } from '../sprintengine-mcp-hub'
 import type { McpToolContribution } from '../module-host/main-host'
+import { TAILNET_MUTATION_TOOL_NAMES } from './tailnet/tailnet-tools'
 import {
   isMcpToolResult,
   isRecord,
@@ -44,6 +45,12 @@ const APP_MUTATION_TOOLS = new Set([
   'sprint.task.resolve_input',
   'sprint.task.set_status',
   'sprint.task.update',
+  // Configuring who may drive this machine. Classified as mutations so every
+  // one of them is audited — minting a pairing code is the most consequential
+  // write on this surface. The tailnet listener never serves them at all
+  // (`isLocalOnlyGatewayTool`), so unlike every other entry here their scope
+  // mapping is never consulted.
+  ...TAILNET_MUTATION_TOOL_NAMES,
   // Opening a terminal on this machine (MC-2166). Classified here and nowhere
   // else: the tailnet scope mapping reads this same classification, so being a
   // mutation is what makes `terminal.create` require `terminal:control` rather

@@ -18,16 +18,18 @@ import {
 // the pairing response and never again, so a stolen store file cannot be
 // replayed against the listener.
 //
-// The outstanding pairing offer is stored the same way and for the same reason:
-// only its SHA-256 reaches disk, so the file holds no bearer credential — a hash
-// cannot be presented to `redeemPairing`, which hashes what it is given and
-// compares. An earlier version kept the offer in memory only, on the stated
-// grounds of "not leaving a bearer credential on disk"; that reasoning did not
-// hold, because the plaintext code was already gone by the time the offer
-// existed. What memory-only actually bought was incidental: a restart swept up
-// offers the user had forgotten. Codes now run to 30 days, so that sweep was
-// discarding live codes far more often than stale ones — the offer is persisted,
-// and cancelling one is an explicit action in Settings.
+// The outstanding pairing OFFER, by contrast, never reaches disk at all: it is
+// in-memory state on this store, so an app restart invalidates an unredeemed
+// pairing rather than leaving one live across a reboot nobody connected it to.
+//
+// That cost is real now that codes run to 30 days rather than 10 minutes: the
+// restart sweep discards live codes far more often than stale ones, and the
+// stated 30-day window is only ever as long as this process runs. Persisting the
+// offer's hash the way the device tokens are persisted would fix it and would
+// leak no credential — a hash cannot be presented to `redeemPairing`, which
+// hashes what it is given and compares. It is deliberately not done yet; the
+// window it would widen is how long a forgotten offer stays redeemable, which is
+// a decision about the product and not about this file.
 
 export const TAILNET_DEVICES_FILENAME = 'tailnet-remote-devices.json'
 
@@ -39,6 +41,9 @@ export const TAILNET_DEVICES_FILENAME = 'tailnet-remote-devices.json'
  * note above), so an app restart invalidates it well before 30 days on any
  * machine that is not left running. What the long TTL buys is that the code
  * lives as long as the app does, rather than lapsing under a still-open window.
+ * Anything minting a code — Settings, or `tailnet.offer_pairing` on the gateway
+ * — says so, because "30 days" and "until this app restarts" are not the same
+ * promise and only one of them is kept.
  *
  * A longer window is not a longer guessing window: the token is 24 random bytes
  * (192 bits), so it is unguessable at any TTL. What it does widen is how long an

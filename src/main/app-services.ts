@@ -6,6 +6,7 @@ import { createAgentConfigImportService } from './agent-config-import'
 import { createAgentStateService } from './agent-state-service'
 import { createAutomationService } from './automation/automation-service'
 import { createAutomationTools } from './automation/automation-tools'
+import { createTailnetTools, type TailnetToolsFrontDoor } from './automation/tailnet/tailnet-tools'
 import { createStudioGatewayTools } from './automation/studio-gateway-tools'
 import type { McpToolContribution } from './module-host/main-host'
 import { createDefaultMarketplaceRegistryClient } from './ipc/marketplace-registry-ipc'
@@ -650,6 +651,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .state.workspaces.map((workspace) => workspace.folderPath)
         .filter((folderPath): folderPath is string => typeof folderPath === 'string' && folderPath.length > 0),
   })
+  // The `tailnet.*` tools configure the service that (transitively) owns them,
+  // so the tool set cannot capture it at construction. Assigned immediately
+  // below; until then those tools answer that they are not wired up yet.
+  let tailnetToolsFrontDoor: TailnetToolsFrontDoor | null = null
   // Instance-global SprintEngine Studio MCP surface: reads come from the workspace-sync snapshot
   // and terminal runtime, and mutations go straight to the main services that
   // own them — one lane, no window required (MC-2161). The gateway starts with
@@ -811,12 +816,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             return false
           }
         },
-      }),
+      }).concat(
+        // Remote-control configuration, local socket only: the listener refuses
+        // this whole family regardless of a device's scopes (tailnet-scopes.ts).
+        createTailnetTools({ resolveTailnet: () => tailnetToolsFrontDoor })
+      ),
     }),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
     },
   })
+  tailnetToolsFrontDoor = automationService
 
   // Background mode (MC-2156): what the tray reports with no window open. Read
   // straight from the live main-process owners — the scheduler's own run map,

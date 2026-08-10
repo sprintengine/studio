@@ -26,7 +26,8 @@ import {
   resolveTailnetInterface,
 } from './tailnet/tailnet-interface'
 import { createTailnetPeerResolver, normalizeAddress, peerNameFromWhois } from './tailnet/tailnet-peer-identity'
-import { requiredScopeForTool } from './tailnet/tailnet-scopes'
+import { isLocalOnlyGatewayTool, requiredScopeForTool } from './tailnet/tailnet-scopes'
+import { createTailnetTools, type TailnetToolsFrontDoor } from './tailnet/tailnet-tools'
 import { createTailnetRemoteService, formatEndpoint, pairingUrl } from './tailnet/tailnet-service'
 import { DEFAULT_TAILNET_LISTENER_PORT, readTailnetSettings } from './tailnet/tailnet-settings'
 import {
@@ -37,10 +38,16 @@ import {
 } from './tailnet/websocket-frames'
 import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from '../../shared/mcp/protocol'
 import { STUDIO_MCP_SERVER_NAME } from '../../shared/product-identity'
-import { tailnetScopeGrantsAccess, TAILNET_STRUCTURED_SCOPES, type TailnetScope } from '../../shared/tailnet'
+import {
+  tailnetScopeGrantsAccess,
+  TAILNET_SCOPES,
+  TAILNET_STRUCTURED_SCOPES,
+  type TailnetRemoteStatus,
+  type TailnetScope,
+} from '../../shared/tailnet'
 import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import type { TerminalAttachTransport, TerminalRemoteHost } from '../terminal-remote-attach'
-import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import { toolSuccess, type McpToolRegistration, type McpToolResult } from '../../shared/modules/mcp-tools'
 import type { AgentLaunchRequest } from '../../shared/agent-launch'
 import type { SprintEngineCliPermissionPreset } from '../../shared/electron-api'
 import { createAutomationTools } from './automation-tools'
@@ -49,7 +56,7 @@ import { createAutomationTools } from './automation-tools'
 // real TCP socket on loopback — the transport, the auth, and the audit are the
 // thing under test, so a fake would prove nothing about any of them.
 
-const MUTATIONS = new Set(['sprint.cancel', 'backlog.update', 'terminal.create'])
+const MUTATIONS = new Set(['sprint.cancel', 'backlog.update', 'terminal.create', 'tailnet.offer_pairing'])
 
 function testTools(calls: string[] = []): McpToolRegistration[] {
   const tool = (name: string): McpToolRegistration => ({
@@ -730,6 +737,158 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
   } finally {
     await harness.close()
   }
+}
+
+// ── The tailnet.* configuration family ───────────────────────────────────────
+
+export async function testTailnetConfigurationToolsAreNeverServedOverTheTailnet(): Promise<void> {
+  // The prefix rule is the guarantee, so pin that the whole family answers to
+  // it — a tool added later that did not would be served remotely by default.
+  const names = createTailnetTools({ resolveTailnet: () => null }).map((tool) => tool.name)
+  assert.ok(names.length > 0)
+  assert.deepEqual(names.filter((name) => !isLocalOnlyGatewayTool(name)), [])
+  assert.equal(isLocalOnlyGatewayTool('sprint.status'), false)
+
+  const calls: string[] = []
+  const stubs: McpToolRegistration[] = names.map((name) => ({
+    name,
+    description: `Test tool ${name}`,
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => {
+      calls.push(name)
+      return toolSuccess({ ok: true })
+    },
+  }))
+  const harness = await startHarness({ tools: [...testTools(calls), ...stubs] })
+  try {
+    // Every scope the vocabulary has, including the terminal tier — this is the
+    // most-trusted device that can exist, and it still may not see the family.
+    const device = await pairDevice(harness, { scopes: [...TAILNET_SCOPES] })
+    const listed = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+      token: device.deviceToken,
+      body: rpc(1, 'tools/list'),
+    })
+    const served = (listed.body as { result: { tools: Array<{ name: string }> } }).result.tools.map((tool) => tool.name)
+    assert.deepEqual(served.filter((name) => name.startsWith('tailnet.')), [], 'the family is invisible to a paired device')
+    assert.ok(served.includes('sprint.cancel'), 'everything else a full grant covers is still served')
+
+    const refused = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+      token: device.deviceToken,
+      body: rpc(2, 'tools/call', { name: 'tailnet.offer_pairing', arguments: {} }),
+    })
+    assert.equal(refused.status, 200, 'a local-only refusal is a tool result, not a transport failure')
+    const result = (refused.body as { result: { isError: boolean; structuredContent: { error: { code: string } } } }).result
+    assert.equal(result.isError, true)
+    assert.equal(result.structuredContent.error.code, 'tailnet_local_only')
+    assert.deepEqual(calls, [], 'the refused handler never ran, so no code was minted')
+
+    // A device manufacturing another grant is the attempt this rule exists to
+    // stop; it is audited with the device that made it, like any mutation.
+    const audited = harness.auditRecords()
+    assert.equal(audited.length, 1)
+    assert.equal(audited[0].tool, 'tailnet.offer_pairing')
+    assert.equal(audited[0].outcome, 'failure')
+    assert.equal(audited[0].errorCode, 'tailnet_local_only')
+  } finally {
+    await harness.close()
+  }
+}
+
+export async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothing(): Promise<void> {
+  const base: TailnetRemoteStatus = {
+    enabled: false,
+    running: false,
+    endpoint: null,
+    port: 8787,
+    tailnetAddress: null,
+    lastError: null,
+    devices: [],
+    pairing: null,
+  }
+  let status: TailnetRemoteStatus = { ...base }
+  const minted: Array<{ scopes?: unknown }> = []
+  const front: TailnetToolsFrontDoor = {
+    getTailnetStatus: () => status,
+    setTailnetEnabled: async (enabled) => {
+      status = { ...status, enabled, running: false, lastError: enabled ? 'Tailscale is not running on this machine.' : null }
+      return status
+    },
+    offerTailnetPairing: (input) => {
+      minted.push(input ?? {})
+      return {
+        token: 'mcpair_test',
+        scopes: [...TAILNET_STRUCTURED_SCOPES],
+        expiresAt: '2026-09-09T00:00:00.000Z',
+        pairingUrl: 'multicode-tailnet://pair?endpoint=100.64.0.1%3A8787&token=mcpair_test',
+      }
+    },
+    cancelTailnetPairing: () => status,
+    revokeTailnetDevice: () => status,
+    listTailnetPeers: async () => ({
+      tailscaleAvailable: false,
+      unavailableReason: 'The Tailscale CLI was not found on this machine.',
+      probedPort: 8787,
+      peers: [],
+    }),
+  }
+  const tools = new Map(createTailnetTools({ resolveTailnet: () => front }).map((tool) => [tool.name, tool]))
+  const run = (name: string, args: Record<string, unknown> = {}): Promise<McpToolResult> => {
+    const tool = tools.get(name)
+    assert.ok(tool, `${name} is registered`)
+    return tool.handler(args)
+  }
+  const errorCode = (result: McpToolResult): string =>
+    (result.structuredContent as { error?: { code?: string } } | undefined)?.error?.code ?? ''
+
+  // Nothing listening: a code is a URL pointing at a listener, so minting one
+  // here would hand back a credential that cannot be redeemed anywhere. Same
+  // rule the Settings panel enforces (tailnetPanelModel).
+  const offered = await run('tailnet.offer_pairing')
+  assert.equal(offered.isError, true)
+  assert.equal(errorCode(offered), 'tailnet_not_running')
+  assert.deepEqual(minted, [], 'the refusal is before the mint, not a discarded code')
+
+  // Enabling with no Tailscale is a failed request, not a partial success: the
+  // caller must not go on believing there is something to pair against.
+  const enabled = await run('tailnet.set_enabled', { enabled: true })
+  assert.equal(enabled.isError, true)
+  assert.equal(errorCode(enabled), 'tailnet_listener_not_running')
+  assert.match(enabled.content[0].text, /Tailscale is not running/)
+  assert.equal(status.enabled, true, 'the setting still persisted, and the message says so')
+
+  assert.equal(errorCode(await run('tailnet.set_enabled', { enabled: 'yes' })), 'invalid_enabled')
+
+  status = { ...status, running: true, endpoint: '100.64.0.1:8787', tailnetAddress: '100.64.0.1', lastError: null }
+
+  // A misspelled scope is refused with the vocabulary rather than silently
+  // falling back to the default grant, which is what normalization would do.
+  const badScopes = await run('tailnet.offer_pairing', { scopes: ['sprint:read', 'terminal:full'] })
+  assert.equal(errorCode(badScopes), 'invalid_scopes')
+  assert.match(badScopes.content[0].text, /terminal:full/)
+  assert.match(badScopes.content[0].text, /terminal:control/)
+  assert.deepEqual(minted, [])
+
+  const ok = await run('tailnet.offer_pairing', { scopes: ['sprint:read'] })
+  assert.notEqual(ok.isError, true)
+  assert.deepEqual(minted, [{ scopes: ['sprint:read'] }])
+  const pairing = (ok.structuredContent as { pairing: { token: string; pairingUrl: string } }).pairing
+  assert.equal(pairing.token, 'mcpair_test')
+  assert.match(pairing.pairingUrl, /^multicode-tailnet:\/\/pair\?/)
+
+  // Revoking an id nobody is paired under is reported, not absorbed: the store
+  // is idempotent, so a silent success would read as "that device is gone".
+  assert.equal(errorCode(await run('tailnet.revoke_device', { deviceId: 'tnd_nope' })), 'unknown_device')
+  assert.equal(errorCode(await run('tailnet.revoke_device', { deviceId: '  ' })), 'invalid_device_id')
+
+  // Status carries the offer's scopes and expiry, never anything redeemable.
+  status = { ...status, pairing: { scopes: ['sprint:read'], expiresAt: '2026-09-09T00:00:00.000Z' } }
+  const read = await run('tailnet.status')
+  assert.notEqual(read.isError, true)
+  assert.ok(!read.content[0].text.includes('mcpair_'), 'no pairing code is re-readable from status')
+
+  // Before the service exists the family answers rather than throwing.
+  const early = createTailnetTools({ resolveTailnet: () => null })
+  assert.equal(errorCode(await early[0].handler({})), 'tailnet_unavailable')
 }
 
 // ── Audit ────────────────────────────────────────────────────────────────────
@@ -1567,6 +1726,8 @@ const tests = [
   testOversizedAndMalformedBodiesAreRefusedExplicitly,
   testHealthEndpointLeaksNothingBeyondProductAndProtocol,
   testScopesNarrowWhatADeviceSeesAndMayCall,
+  testTailnetConfigurationToolsAreNeverServedOverTheTailnet,
+  testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothing,
   testRemoteMutationsAreAuditedWithDeviceAndPeerIdentity,
   testADeclaredIdentityCannotOverwriteTheProvenDeviceIdentity,
   testPeerIdentityIsNullRatherThanInventedWhenWhoisIsUnavailable,

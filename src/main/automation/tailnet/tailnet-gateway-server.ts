@@ -38,7 +38,7 @@ import type { TailnetDeviceStore } from './tailnet-devices'
 import type { TailnetPeerResolver } from './tailnet-peer-identity'
 import { normalizeAddress } from './tailnet-peer-identity'
 import { tailnetScopeGrantsAccess, type TailnetDevice, type TailnetScope } from '../../../shared/tailnet'
-import { requiredScopeForTool } from './tailnet-scopes'
+import { isLocalOnlyGatewayTool, requiredScopeForTool } from './tailnet-scopes'
 import {
   computeWebSocketAcceptKey,
   createWebSocketFrameDecoder,
@@ -365,17 +365,26 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   /** The device's scopes, applied to what it may see and what it may run. */
   function gateFor(device: TailnetDevice): McpDispatchGate {
     const granted = new Set<TailnetScope>(device.scopes)
-    const allows = (toolName: string): boolean =>
+    const scopeAllows = (toolName: string): boolean =>
       tailnetScopeGrantsAccess(granted, requiredScopeForTool(toolName, options.isMutation(toolName)))
     return {
-      filterTools: (tools) => tools.filter((tool) => allows(tool.name)),
-      authorizeToolCall: (toolName) =>
-        allows(toolName)
+      // Local-only first, and independent of scopes: the `tailnet.*` family is
+      // not something a wider grant unlocks, it is off this transport entirely.
+      filterTools: (tools) => tools.filter((tool) => !isLocalOnlyGatewayTool(tool.name) && scopeAllows(tool.name)),
+      authorizeToolCall: (toolName) => {
+        if (isLocalOnlyGatewayTool(toolName)) {
+          return toolError(
+            'tailnet_local_only',
+            `"${toolName}" configures who may drive this machine and is served only on its owner-only local socket, never over the tailnet. Run it from an agent on that machine.`
+          )
+        }
+        return scopeAllows(toolName)
           ? null
           : toolError(
               'tailnet_scope_required',
               `This device is not granted "${requiredScopeForTool(toolName, options.isMutation(toolName))}", which "${toolName}" requires. Re-pair the device with that scope in Settings.`
-            ),
+            )
+      },
     }
   }
 
