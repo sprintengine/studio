@@ -108,8 +108,15 @@ check('enabled but running with no endpoint is still not pairable', () => {
   assert.equal(readiness.canPair, false)
 })
 
-check('a pairing code’s remaining life reads in minutes, then seconds, then expired', () => {
+check('a pairing code’s remaining life reads in days, hours, minutes, then seconds, then expired', () => {
   const now = Date.parse('2026-08-07T12:00:00Z')
+  // Codes run to 30 days, so the unit climbs with the remainder rather than
+  // reporting a month in minutes.
+  assert.equal(pairingExpiry('2026-09-06T12:00:00Z', now), 'Expires in 30 days')
+  assert.equal(pairingExpiry('2026-08-08T18:00:00Z', now), 'Expires in 1 day')
+  // Each step floors into its own unit: 23h59m is not "1 day".
+  assert.equal(pairingExpiry('2026-08-08T11:59:00Z', now), 'Expires in 23 hours')
+  assert.equal(pairingExpiry('2026-08-07T13:00:00Z', now), 'Expires in 1 hour')
   assert.equal(pairingExpiry('2026-08-07T12:09:30Z', now), 'Expires in 9 min')
   assert.equal(pairingExpiry('2026-08-07T12:00:45Z', now), 'Expires in 45s')
   assert.equal(pairingExpiry('2026-08-07T11:59:00Z', now), 'Expired')

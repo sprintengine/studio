@@ -18,14 +18,34 @@ import {
 // the pairing response and never again, so a stolen store file cannot be
 // replayed against the listener.
 //
-// The pairing token itself is never persisted at all. It is short-lived
-// in-memory state; an app restart invalidates an unredeemed pairing rather
-// than leaving a bearer credential on disk waiting to be found.
+// The outstanding pairing offer is stored the same way and for the same reason:
+// only its SHA-256 reaches disk, so the file holds no bearer credential — a hash
+// cannot be presented to `redeemPairing`, which hashes what it is given and
+// compares. An earlier version kept the offer in memory only, on the stated
+// grounds of "not leaving a bearer credential on disk"; that reasoning did not
+// hold, because the plaintext code was already gone by the time the offer
+// existed. What memory-only actually bought was incidental: a restart swept up
+// offers the user had forgotten. Codes now run to 30 days, so that sweep was
+// discarding live codes far more often than stale ones — the offer is persisted,
+// and cancelling one is an explicit action in Settings.
 
 export const TAILNET_DEVICES_FILENAME = 'tailnet-remote-devices.json'
 
-/** Long enough that a pairing survives walking to the other machine, short enough to not linger. */
-export const DEFAULT_PAIRING_TTL_MS = 10 * 60 * 1000
+/**
+ * Long enough that a code minted once stays usable across a working month, so
+ * pairing a new machine is never a race against a countdown.
+ *
+ * The ceiling is not really this number: the offer is in-memory only (see the
+ * note above), so an app restart invalidates it well before 30 days on any
+ * machine that is not left running. What the long TTL buys is that the code
+ * lives as long as the app does, rather than lapsing under a still-open window.
+ *
+ * A longer window is not a longer guessing window: the token is 24 random bytes
+ * (192 bits), so it is unguessable at any TTL. What it does widen is how long an
+ * unredeemed offer lingers — hence "works once", the Settings cancel action, and
+ * the fact that a wrong guess never burns the outstanding offer.
+ */
+export const DEFAULT_PAIRING_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 /** How often a device's last-seen reaches disk. In memory it is always current. */
 const LAST_SEEN_PERSIST_INTERVAL_MS = 60 * 1000

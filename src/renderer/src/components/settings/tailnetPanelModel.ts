@@ -91,10 +91,21 @@ export function tailnetReadiness(status: TailnetRemoteStatus | null): TailnetRea
   }
 }
 
-/** How long an outstanding pairing code has left, in words. */
+/**
+ * How long an outstanding pairing code has left, in words.
+ *
+ * Codes run to 30 days, so the unit has to climb with the remainder: "Expires
+ * in 43200 min" is technically true and useless. Each step floors to its own
+ * unit rather than rounding up into the next, so the words never claim more
+ * time than the code has.
+ */
 export function pairingExpiry(expiresAt: string, now: number): string {
   const remainingMs = Date.parse(expiresAt) - now
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) return 'Expired'
+  const days = Math.floor(remainingMs / 86_400_000)
+  if (days >= 1) return `Expires in ${days} ${days === 1 ? 'day' : 'days'}`
+  const hours = Math.floor(remainingMs / 3_600_000)
+  if (hours >= 1) return `Expires in ${hours} ${hours === 1 ? 'hour' : 'hours'}`
   const minutes = Math.floor(remainingMs / 60_000)
   if (minutes >= 1) return `Expires in ${minutes} min`
   return `Expires in ${Math.max(1, Math.ceil(remainingMs / 1000))}s`

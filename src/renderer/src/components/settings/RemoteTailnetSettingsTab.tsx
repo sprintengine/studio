@@ -212,7 +212,7 @@ export function RemoteTailnetSettingsTab() {
         ) : (
           <p className="text-body leading-5 text-[color:var(--text-muted)]">
             {readiness.canPair
-              ? 'Create a code, then scan it from the other machine. The code works once and lapses in ten minutes.'
+              ? 'Create a code, then scan it from the other machine. The code works once and lapses in 30 days, or when this app restarts.'
               : 'A pairing code points at this listener, so it can only be created while the listener is running.'}
           </p>
         )}
