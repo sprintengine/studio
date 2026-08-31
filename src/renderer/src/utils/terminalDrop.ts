@@ -359,6 +359,7 @@ export function backlogSlashCommandForDrop(
       binary: 'claude',
       resumeSession: true,
       sessionIdFromCaller: true,
+      agentStateCapable: true,
       skillIntegration: {
         support: 'native',
         harnessId: 'claude',
@@ -374,6 +375,7 @@ export function backlogSlashCommandForDrop(
       binary: 'claude',
       resumeSession: true,
       sessionIdFromCaller: true,
+      agentStateCapable: true,
       skillIntegration: {
         support: 'native',
         harnessId: 'claude',
@@ -389,6 +391,7 @@ export function backlogSlashCommandForDrop(
       binary: 'codex',
       resumeSession: true,
       sessionIdFromCaller: false,
+      agentStateCapable: true,
       skillIntegration: {
         support: 'native',
         harnessId: 'codex',

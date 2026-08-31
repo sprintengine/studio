@@ -30,8 +30,8 @@ const okApi = {
   pluginsList: async () => ({
     ok: true as const,
     plugins: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled' as const, version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false },
-      { id: 'opencode', displayName: 'OpenCode', source: 'user' as const, version: 1, binary: 'opencode', resumeSession: false, sessionIdFromCaller: false },
+      { id: 'codex', displayName: 'Codex', source: 'bundled' as const, version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
+      { id: 'opencode', displayName: 'OpenCode', source: 'user' as const, version: 1, binary: 'opencode', resumeSession: false, sessionIdFromCaller: false, agentStateCapable: true },
     ],
   }),
 }
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
   useWorkspaceStore.setState((state) => ({
     ...state,
     pluginCatalogEntries: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false },
+      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
     ],
     pluginCatalogStatus: 'ready',
     pluginCatalogError: null,
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   // catalog on a transient failure.
   const bgCarrier: PluginsSliceState = {
     pluginCatalogEntries: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false },
+      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
     ],
     pluginCatalogStatus: 'ready',
     pluginCatalogError: null,
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
   const modeResolvers: Array<(value: { ok: false; message: string }) => void> = []
   const modeCarrier: PluginsSliceState = {
     pluginCatalogEntries: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false },
+      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
     ],
     pluginCatalogStatus: 'ready',
     pluginCatalogError: null,
@@ -233,9 +233,9 @@ async function main(): Promise<void> {
   // resumeCapabilitiesForCli resolves a cli to its projected caps (cli id ==
   // plugin id). Unknown or undefined cli → undefined (predicates then read off).
   const catalog: PluginCatalogEntry[] = [
-    { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude', resumeSession: true, sessionIdFromCaller: true },
-    { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false },
-    { id: 'generic-shell', displayName: 'Shell', source: 'bundled', version: 1, binary: 'sh', resumeSession: false, sessionIdFromCaller: false },
+    { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude', resumeSession: true, sessionIdFromCaller: true, agentStateCapable: true },
+    { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
+    { id: 'generic-shell', displayName: 'Shell', source: 'bundled', version: 1, binary: 'sh', resumeSession: false, sessionIdFromCaller: false, agentStateCapable: true },
   ]
   assert.deepEqual(resumeCapabilitiesForCli('claude-code', catalog), { resumeSession: true, sessionIdFromCaller: true })
   assert.deepEqual(resumeCapabilitiesForCli('codex', catalog), { resumeSession: true, sessionIdFromCaller: false })

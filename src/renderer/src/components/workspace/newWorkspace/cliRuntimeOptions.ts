@@ -58,15 +58,26 @@ export type CliAvailabilityFilter = {
 const CLAUDE_CODE_PLUGIN_ID = 'claude-code'
 
 // Plugin ids that exist in the main-process registry but must never appear as a
-// selectable agent CLI in spawn pickers. `generic-shell` is a bare `sh` pipe
-// with no tool use or resume — it duplicates the Terminal quick row and reads as
-// noise in the agent/specialist CLI lists, so it is hidden from the picker
-// catalog while staying available to the registry for direct terminal launch.
-// Both catalog paths — the plugin-registry path in `buildAgentCliCatalog` and
-// the bundled/legacy fallback in `legacyCliRuntimeOptions` — must apply this, or
-// a persisted `cliRuntimes` key could leak a hidden id into the loading/error
-// fallback catalog.
-const AGENT_PICKER_HIDDEN_CLI_IDS = new Set<AgentCli>(['generic-shell'])
+// selectable agent CLI in spawn pickers. The AUTHORITATIVE gate is the
+// manifest-projected `agentStateCapable` flag on each registry entry (hooks are
+// the only supported status mechanism — decision of record 2026-08-31; a CLI
+// without an agentStateSpec cannot report agent state and is not offered as an
+// agent), applied in `buildAgentCliCatalog`'s registry path and enforced again
+// main-side at launch. This static set is the manifest-LESS fallback mirror of
+// that rule for the two contexts that cannot read manifests — the
+// loading/error fallback catalog in `legacyCliRuntimeOptions` (where a
+// persisted `cliRuntimes` key could otherwise leak a hidden id) and the
+// id-only `isSelectableAgentCli` — and must list exactly the bundled plugins
+// that declare no agentStateSpec (pinned by test against the shipped
+// manifests):
+//   - `generic-shell`: a bare `sh` pipe with no tool use, resume, or hooks —
+//     it duplicates the Terminal quick row and stays registry-available for
+//     direct terminal launch.
+//   - `muse`: Muse Code's beta ignores its own documented hooks config
+//     (.muse/hooks.json is silently dropped as of 0.2.1), so it cannot report
+//     agent state; it stays installable/detectable and returns to the picker
+//     when its hooks GA and its manifest gains an agentStateSpec.
+const AGENT_PICKER_HIDDEN_CLI_IDS = new Set<AgentCli>(['generic-shell', 'muse'])
 
 // Whether this plugin id is one the agent surfaces offer at all. Exported
 // because "does this machine have an agent CLI?" is a question about these ids
@@ -292,6 +303,12 @@ export function buildAgentCliCatalog(
   for (const plugin of ordered) {
     const id = plugin.id.trim()
     if (!id || seen.has(id) || AGENT_PICKER_HIDDEN_CLI_IDS.has(id)) continue
+    // The manifest-driven gate: a plugin whose manifest declares no
+    // agentStateSpec cannot report authoritative agent state and is not
+    // offered as an agent. `=== false` (not `!== true`) so a stale persisted
+    // snapshot from an older main process — which lacks the field — keeps its
+    // catalog until the live registry refreshes it, rather than emptying.
+    if (plugin.agentStateCapable === false) continue
     seen.add(id)
     const modelSelection = mergeModelCatalog(
       plugin.modelSelection ?? BUNDLED_AGENT_MODEL_CATALOGS[id],

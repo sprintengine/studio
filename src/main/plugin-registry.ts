@@ -524,6 +524,11 @@ export function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEnt
     // resume synchronously (see PluginRegistryListEntry / agent-cli-resume.ts).
     resumeSession: plugin.manifest.capabilities.resumeSession,
     sessionIdFromCaller: plugin.manifest.capabilities.sessionIdFromCaller,
+    // Hooks are the only supported status mechanism (decision of record,
+    // 2026-08-31): a CLI without an agentStateSpec cannot report authoritative
+    // agent state and is not offered as an agent. Projected as a boolean so
+    // every picker gates on the manifest without reaching the main process.
+    agentStateCapable: Boolean(plugin.manifest.agentStateSpec),
     // Only the label crosses to the renderer; the secret value never does.
     ...(auth ? { auth: { label: auth.label } } : {}),
     ...(hostedVia ? { hostedVia } : {}),

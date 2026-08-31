@@ -533,6 +533,11 @@ export type PluginRegistryListEntry = {
   // agent-cli-resume.ts (ResumeCapabilities) and resumeCapabilitiesForCli.
   resumeSession: boolean
   sessionIdFromCaller: boolean
+  // Projected from `agentStateSpec` presence: whether this CLI can report
+  // authoritative agent state via lifecycle hooks. Hooks are the only
+  // supported status mechanism, so a false here means the CLI is not offered
+  // as an agent (pickers filter on it; the main process refuses launches).
+  agentStateCapable: boolean
   modelSelection?: PluginModelCatalog
   reasoningSelection?: PluginReasoningCatalog
   // Set when this runtime is another CLI's binary redirected at an alternate

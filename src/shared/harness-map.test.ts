@@ -12,6 +12,7 @@ function entry(id: string, skillIntegration?: PluginSkillCatalog): PluginRegistr
     binary: id,
     resumeSession: false,
     sessionIdFromCaller: false,
+    agentStateCapable: true,
     ...(skillIntegration ? { skillIntegration } : {}),
   }
 }

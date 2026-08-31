@@ -2978,6 +2978,22 @@ async function spawnTerminalFromIpc(
         exitCode: 1,
       } satisfies TerminalSpawnResult
     }
+    // Hooks-only selectability (decision of record 2026-08-31): a KNOWN plugin
+    // whose manifest declares no agentStateSpec cannot report agent status and
+    // is refused as an agent — never silently substituted. This is the last
+    // door, so every launch path (renderer picker fallback, persisted
+    // defaults, MCP, automations) is covered even if an upstream gate missed.
+    // An id the registry doesn't know at all falls through — the launch render
+    // rejects it with its own unknown-plugin error, and refusing here would
+    // also refuse during a registry reload window.
+    if (!shellOnly && cli && getPluginById(pluginIdForCli(cli)) && !agentStateSupportsCli(cli)) {
+      return {
+        ok: false,
+        sessionId,
+        message: `Agent CLI "${cli}" cannot report agent status (its plugin declares no lifecycle-hook support), so it is not selectable as an agent.`,
+        exitCode: 1,
+      } satisfies TerminalSpawnResult
+    }
     // Non-null on every path that reads it: a fresh agent spawn with no CLI
     // returned above, and shell-only spawns never reach an agent-CLI consumer.
     const agentCli = cli as AgentCli

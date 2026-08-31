@@ -116,6 +116,15 @@ export type AgentLaunchServiceDeps = {
   /** Main's own connector catalog (`mcpConfigService.listCatalog`). */
   listConnectorCatalog: () => McpCatalogResult
   /**
+   * Whether this CLI may launch as an agent: true exactly when its plugin
+   * manifest declares an `agentStateSpec` (hooks are the only supported status
+   * mechanism — decision of record 2026-08-31). This service is the shared door
+   * for `agent.launch`, `backlog.work`, `terminal.create`, and automation
+   * spawns, so gating here covers them all. Optional so bare test harnesses
+   * keep working; production wiring always provides it.
+   */
+  isAgentSelectableCli?: (cli: string) => boolean
+  /**
    * Resolve a project's Knowledge Graph root on disk (`memory-graph.ts`'s
    * `resolveMemoryRoot`, the same call the renderer makes over IPC). Optional:
    * a host that cannot resolve one launches without the graph rather than
@@ -176,6 +185,16 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
         ok: false,
         code: 'no_cli_selected',
         message: 'No CLI was requested and no last-selected CLI is configured.',
+      }
+    }
+    // Never silently substitute another CLI for an ineligible one — surface it
+    // and let the caller pick. Covers a stale persisted selection (a
+    // lastSelectedCli or automation config naming a CLI that lost eligibility).
+    if (deps.isAgentSelectableCli && !deps.isAgentSelectableCli(cli)) {
+      return {
+        ok: false,
+        code: 'cli_not_agent_selectable',
+        message: `Agent CLI "${cli}" cannot report agent status (its plugin declares no lifecycle-hook support), so it is not selectable as an agent. Pick another CLI.`,
       }
     }
 

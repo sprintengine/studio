@@ -609,6 +609,7 @@ const CLAUDE_CATALOG_ENTRY: PluginRegistryListEntry = {
   binary: 'claude',
   resumeSession: true,
   sessionIdFromCaller: true,
+  agentStateCapable: true,
 }
 
 // (9) Resume-capability stamping: dispatchAssignTerminalSession stamps the

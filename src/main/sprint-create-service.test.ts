@@ -541,6 +541,40 @@ async function main(): Promise<void> {
     assert.equal(h.initCalls.length, 0, 'nothing was initialized')
   })
 
+  await check('a saved roster pinned to an unlaunchable CLI fails the start loudly too', async () => {
+    // The roster path seeds roleCliDefaults the request never typed, so it used
+    // to bypass the requested-CLI check entirely and hard-fail at spawn. A
+    // roster pinned to a CLI that is gone — or that cannot report agent status
+    // under the hooks-only rule — must fail at create, with the roster named.
+    const h = harness({
+      getLaunchSettings: () => ({
+        ...emptySprintEngineLaunchSettings(),
+        sprintEngineRoleSettings: {
+          enabled: {},
+          savedRosters: [
+            {
+              id: 'roster-muse',
+              name: 'muse-team',
+              roleCounts: { architect: 1 },
+              roleCliDefaults: { architect: 'muse' },
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          ],
+        },
+      }),
+    })
+    const result = await h.service.createSprint(request({
+      sourceRelativePath: LOOSE_REF,
+      rosterName: 'muse-team',
+    }))
+    assert.equal(result.ok, false)
+    assert.equal(!result.ok && result.code, 'sprint_unknown_runtime')
+    assert.match(!result.ok ? result.message : '', /"muse"/)
+    assert.match(!result.ok ? result.message : '', /roster/i, 'the failure must name the roster as the source')
+    assert.equal(h.initCalls.length, 0, 'nothing was initialized')
+  })
+
   // The item's headline acceptance, in one call: several sources into ONE run,
   // with every staffed role pinned. The two halves are independent code paths
   // (the selection scan, the runtime resolution) and this is the only check

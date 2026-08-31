@@ -8,8 +8,8 @@ async function main(): Promise<void> {
   const listResponse: PluginRegistryListResult = {
     ok: true,
     plugins: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false },
-      { id: 'opencode', displayName: 'OpenCode', source: 'user', version: 1, binary: 'opencode', resumeSession: false, sessionIdFromCaller: false },
+      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
+      { id: 'opencode', displayName: 'OpenCode', source: 'user', version: 1, binary: 'opencode', resumeSession: false, sessionIdFromCaller: false, agentStateCapable: true },
     ],
   }
   const installResponse: PluginInstallResult = { ok: true, id: 'opencode', kind: 'cli', displayName: 'OpenCode' }

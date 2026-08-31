@@ -59,6 +59,7 @@ function harness(options: {
   sessions?: TerminalSessionSnapshot[]
   spawnResult?: TerminalSpawnResult
   resolveKnowledgeRoot?: AgentLaunchServiceDeps['resolveKnowledgeRoot']
+  isAgentSelectableCli?: AgentLaunchServiceDeps['isAgentSelectableCli']
 } = {}) {
   const spawns: TerminalSpawnPayload[] = []
   const kills: string[] = []
@@ -67,6 +68,7 @@ function harness(options: {
     listWorkspaces: () => options.workspaces ?? [workspace()],
     getLaunchSettings: () => options.settings ?? settings(),
     listConnectorCatalog: () => options.catalog ?? { ok: true, servers: [] },
+    ...(options.isAgentSelectableCli ? { isAgentSelectableCli: options.isAgentSelectableCli } : {}),
     ...(options.resolveKnowledgeRoot ? { resolveKnowledgeRoot: options.resolveKnowledgeRoot } : {}),
     terminal: {
       list: () => sessions,
@@ -143,6 +145,28 @@ run('no CLI anywhere refuses instead of guessing one', async () => {
   assert.equal(launched.ok, false)
   assert.equal(!launched.ok && launched.code, 'no_cli_selected')
   assert.equal(app.spawns.length, 0)
+})
+
+run('a CLI that cannot report agent state is refused, never substituted', async () => {
+  // Hooks-only selectability: the predicate is manifest-derived in prod
+  // (agentStateSpec presence); here it bans 'muse'. The refusal must cover a
+  // stale persisted lastSelectedCli too — the caller typed nothing.
+  const banned = harness({
+    settings: settings({ lastSelectedCli: 'muse' }),
+    isAgentSelectableCli: (cli) => cli !== 'muse',
+  })
+  const refused = await banned.service.launch({ workspaceId: 'ws-1' })
+  assert.equal(!refused.ok && refused.code, 'cli_not_agent_selectable')
+  assert.match(!refused.ok ? refused.message : '', /"muse"/)
+  assert.equal(banned.spawns.length, 0, 'nothing may spawn on a refused CLI')
+
+  // An eligible CLI passes the same gate untouched.
+  const allowed = harness({
+    settings: settings({ lastSelectedCli: 'claude-code' }),
+    isAgentSelectableCli: (cli) => cli !== 'muse',
+  })
+  const launchedOk = await allowed.service.launch({ workspaceId: 'ws-1' })
+  assert.equal(launchedOk.ok, true, !launchedOk.ok ? launchedOk.message : '')
 })
 
 run('an unknown or unsupported workspace refuses before spawning', async () => {

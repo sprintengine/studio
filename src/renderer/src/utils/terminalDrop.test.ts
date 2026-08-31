@@ -155,6 +155,7 @@ const pluginEntries: PluginRegistryListEntry[] = [
     binary: 'claude',
     resumeSession: true,
     sessionIdFromCaller: true,
+  agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'claude',
@@ -170,6 +171,7 @@ const pluginEntries: PluginRegistryListEntry[] = [
     binary: 'codex',
     resumeSession: true,
     sessionIdFromCaller: false,
+  agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'codex',
@@ -185,6 +187,7 @@ const pluginEntries: PluginRegistryListEntry[] = [
     binary: 'pi',
     resumeSession: false,
     sessionIdFromCaller: false,
+  agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'pi',
@@ -200,6 +203,7 @@ const pluginEntries: PluginRegistryListEntry[] = [
     binary: 'sh',
     resumeSession: false,
     sessionIdFromCaller: false,
+  agentStateCapable: true,
     skillIntegration: {
       support: 'unsupported',
       harnessId: 'generic-shell',
@@ -589,6 +593,7 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
     binary: 'claude',
     resumeSession: true,
     sessionIdFromCaller: true,
+  agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'claude',
@@ -604,6 +609,7 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
     binary: 'grok',
     resumeSession: true,
     sessionIdFromCaller: false,
+  agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'grok',
@@ -619,6 +625,7 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
     binary: 'codex',
     resumeSession: true,
     sessionIdFromCaller: false,
+  agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'codex',
@@ -634,6 +641,7 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
     binary: 'opencode',
     resumeSession: true,
     sessionIdFromCaller: false,
+  agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'opencode',
@@ -655,6 +663,7 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
     binary: 'cursor-agent',
     resumeSession: true,
     sessionIdFromCaller: false,
+  agentStateCapable: true,
   },
   {
     id: 'generic-shell',
@@ -664,6 +673,7 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
     binary: 'sh',
     resumeSession: false,
     sessionIdFromCaller: false,
+  agentStateCapable: true,
     skillIntegration: { support: 'unsupported', harnessId: 'generic-shell', installTargets: [] },
   },
 ]

@@ -192,6 +192,25 @@ async function testResumeCapabilitiesProjectedAndConsistent(): Promise<void> {
     muse: { resumeSession: false, sessionIdFromCaller: false },
   }
 
+  // Hooks-only selectability pins (decision of record 2026-08-31): the entry
+  // boolean mirrors agentStateSpec presence, and exactly these two bundled
+  // plugins lack one — generic-shell (a bare sh pipe) and muse (its beta
+  // ignores its own hooks config; returns to eligibility when hooks GA and its
+  // manifest gains a spec). A drift here silently changes which CLIs every
+  // agent surface offers.
+  const expectedAgentStateCapable: Record<string, boolean> = {
+    'claude-code': true,
+    zai: true,
+    'kimi-claude': true,
+    codex: true,
+    opencode: true,
+    grok: true,
+    cursor: true,
+    'kimi-code': true,
+    'generic-shell': false,
+    muse: false,
+  }
+
   for (const entry of registry.list()) {
     const plugin = registry.get(entry.id)
     assert.ok(plugin, `${entry.id} should be retrievable`)
@@ -200,6 +219,16 @@ async function testResumeCapabilitiesProjectedAndConsistent(): Promise<void> {
     // Projection (Approach B): the list entry mirrors the manifest capabilities.
     assert.equal(entry.resumeSession, caps.resumeSession, `${entry.id} projected resumeSession`)
     assert.equal(entry.sessionIdFromCaller, caps.sessionIdFromCaller, `${entry.id} projected sessionIdFromCaller`)
+    assert.equal(
+      entry.agentStateCapable,
+      Boolean(plugin!.manifest.agentStateSpec),
+      `${entry.id} projected agentStateCapable`
+    )
+    assert.equal(
+      entry.agentStateCapable,
+      expectedAgentStateCapable[entry.id],
+      `${entry.id}: agentStateCapable pin (update the pin AND the epic's gate rationale together)`
+    )
 
     // Predicate ⟺ declared capability (resolved from the projected entry).
     const resolved = { resumeSession: entry.resumeSession, sessionIdFromCaller: entry.sessionIdFromCaller }

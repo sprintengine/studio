@@ -181,6 +181,7 @@ async function main(): Promise<void> {
     await assertAgentPhaseListenerFiresOnlyForAcceptedFrames(runtimeModule)
     await assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(runtimeModule)
     await assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(runtimeModule)
+    await assertSpawnRefusesAgentCliWithoutAgentStateSpec(runtimeModule)
   } finally {
     moduleWithLoad._load = originalLoad
   }
@@ -207,6 +208,7 @@ function pinAgentCliPreflight(
           binary: 'claude',
           resumeSession: true,
           sessionIdFromCaller: true,
+          agentStateCapable: true,
         },
       ],
       detect: async (cli) => ({
@@ -3731,6 +3733,49 @@ async function assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(
     assert.equal(shell.ok, true, JSON.stringify(shell))
     assert.equal(mockPty.spawnCalls.length, 1)
     runtime.ipcHandlers.killTerminal('session-plain-shell')
+  } finally {
+    await runtime.shutdown()
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// Hooks-only selectability (decision of record 2026-08-31): the terminal spawn
+// is the LAST door, so a known plugin without an agentStateSpec (muse — its
+// beta cannot deliver hooks) is refused here even if every upstream gate
+// missed. An id the registry does not know at all still falls through to the
+// launch render's own unknown-plugin error.
+async function assertSpawnRefusesAgentCliWithoutAgentStateSpec(
+  runtimeModule: RuntimeModule
+): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-nohooks-'))
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+  mockPty.spawnCalls = []
+
+  try {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session-muse-agent',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'muse',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-muse',
+      agentId: 'session-muse-agent',
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, false, 'a hook-incapable CLI must not spawn as an agent')
+    assert.match(
+      !result.ok ? result.message ?? '' : '',
+      /cannot report agent status/,
+      'the refusal names the reason, never silently substitutes'
+    )
+    assert.equal(mockPty.spawnCalls.length, 0, 'nothing is spawned for a refused CLI')
   } finally {
     await runtime.shutdown()
     await rm(workspaceRoot, { recursive: true, force: true })

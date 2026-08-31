@@ -27,12 +27,15 @@ function availabilityMap(map: Record<string, boolean>): AgentCliAvailabilityMap 
   return out
 }
 
-// Registry entries always carry the resume capabilities projected from the
-// manifest. Catalog building never reads them, so fixtures declare the
-// no-resume pair once here instead of at every entry.
+// Registry entries always carry the resume capabilities and the agent-state
+// eligibility projected from the manifest. Catalog building never reads the
+// resume pair, so fixtures declare it once here; `agentStateCapable` defaults
+// true (an ordinary agent CLI) and is overridden where a test exercises the
+// hooks-only gate.
 const cliEntry = (
-  entry: Omit<PluginCatalogEntry, 'resumeSession' | 'sessionIdFromCaller'>
-): PluginCatalogEntry => ({ resumeSession: false, sessionIdFromCaller: false, ...entry })
+  entry: Omit<PluginCatalogEntry, 'resumeSession' | 'sessionIdFromCaller' | 'agentStateCapable'> &
+    Partial<Pick<PluginCatalogEntry, 'agentStateCapable'>>
+): PluginCatalogEntry => ({ resumeSession: false, sessionIdFromCaller: false, agentStateCapable: true, ...entry })
 
 const plugins: PluginCatalogEntry[] = [
   cliEntry({ id: 'opencode', displayName: 'OpenCode', source: 'user', version: 1, binary: 'opencode' }),
@@ -96,6 +99,49 @@ assert.deepEqual(
   ]).map(({ value, label, source }) => ({ value, label, source })),
   [{ value: 'claude-code', label: 'Claude Code', source: 'bundled' }],
   'generic-shell is hidden from the agent CLI picker catalog',
+)
+
+// Hooks-only selectability (decision of record 2026-08-31): the catalog gates
+// on the manifest-projected agentStateCapable flag, so a CLI that cannot
+// report agent state is not offered — by capability, not by name.
+assert.deepEqual(
+  buildAgentCliCatalog([
+    cliEntry({ id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude' }),
+    cliEntry({ id: 'no-hooks-cli', displayName: 'No Hooks', source: 'user', version: 1, binary: 'nh', agentStateCapable: false }),
+    cliEntry({ id: 'muse', displayName: 'Muse Code', source: 'bundled', version: 1, binary: 'muse', agentStateCapable: false }),
+  ]).map(({ value }) => value),
+  ['claude-code'],
+  'a CLI without agent-state capability is not offered as an agent',
+)
+// The zero-core-edit proof: a future CLI whose manifest declares an
+// agentStateSpec becomes selectable with no code change anywhere — the
+// projected boolean is the whole gate.
+assert.deepEqual(
+  buildAgentCliCatalog([
+    cliEntry({ id: 'future-cli', displayName: 'Future CLI', source: 'user', version: 1, binary: 'future' }),
+  ]).map(({ value }) => value),
+  ['future-cli'],
+  'a hook-capable future CLI is selectable purely from its manifest projection',
+)
+// A stale persisted snapshot from an older main process lacks the field
+// entirely; the catalog must keep it (fail-open on skew) until the live
+// registry refreshes, rather than emptying every picker.
+assert.deepEqual(
+  buildAgentCliCatalog([
+    { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: false, sessionIdFromCaller: false } as unknown as PluginCatalogEntry,
+  ]).map(({ value }) => value),
+  ['codex'],
+  'an entry missing the flag (older snapshot) stays offered until refreshed',
+)
+// muse is also pinned in the manifest-less fallback set: a persisted
+// cliRuntimes key cannot leak it into the loading/error fallback catalog.
+assert.deepEqual(
+  buildAgentCliCatalog(null, {
+    muse: { command: 'muse', useWsl: false },
+    'generic-shell': { command: 'sh', useWsl: false },
+  }).map(({ value }) => value),
+  ['codex', 'claude-code', 'opencode'],
+  'hidden ids never leak into the legacy fallback catalog via cliRuntimes keys',
 )
 
 const catalog = buildAgentCliCatalog(plugins)

@@ -297,17 +297,17 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
     // matching the unknown-`rosterName` precedent — a silent fallback would
     // launch a horizon's every step on an agent the author never picked and
     // never be told.
+    const launchable = new Set(deps.listLaunchableClis())
     const requestedClis = [request.runtime?.cli, ...Object.values(request.roleClis ?? {})]
       .filter((cli): cli is string => Boolean(cli))
     if (requestedClis.length > 0) {
-      const launchable = new Set(deps.listLaunchableClis())
       const unknown = requestedClis.find((cli) => !launchable.has(cli))
       if (unknown) {
         return {
           ok: false,
           response: failure(
             'sprint_unknown_runtime',
-            `Agent CLI "${unknown}" is not installed or not known, so this sprint cannot start on it. Install it, or pick another agent.`,
+            `Agent CLI "${unknown}" is not installed, not known, or cannot report agent status, so this sprint cannot start on it. Install a hook-capable CLI, or pick another agent.`,
           ),
         }
       }
@@ -359,6 +359,22 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
     }
     for (const [role, effort] of Object.entries(request.roleEfforts ?? {})) {
       roleReasoningOverrides[role] = effort
+    }
+    // Validate the RESOLVED per-role set too, not only what the request typed:
+    // a saved roster seeds roleCliDefaults the caller never mentioned, so a
+    // roster pinned to a since-retired or hook-incapable CLI would otherwise
+    // bypass the loud-failure trap above and hard-fail at spawn instead.
+    const unlaunchable = Object.entries(roleCliDefaults).find(
+      ([, cli]) => typeof cli === 'string' && cli.length > 0 && !launchable.has(cli)
+    )
+    if (unlaunchable) {
+      return {
+        ok: false,
+        response: failure(
+          'sprint_unknown_runtime',
+          `The saved roster pins role "${unlaunchable[0]}" to agent CLI "${unlaunchable[1]}", which is not installed, not known, or cannot report agent status. Update the roster, or pick another agent.`,
+        ),
+      }
     }
     return { ok: true, roleCliDefaults, roleModelOverrides, roleReasoningOverrides }
   }
