@@ -19,11 +19,14 @@ import {
   MAX_WAKEUP_DELAY_SECONDS,
   mergeAgentStateHooks,
   mergeTomlAgentStateHooks,
+  mergeTomlArrayAgentStateHooks,
   parseAgentStateFrame,
   registeredAgentStateEvents,
   renderAgentStatePluginTemplate,
   renderOwnedJsonAgentStateHooksConfig,
   renderTomlAgentStateHooksBlock,
+  renderTomlArrayAgentStateHooksBlock,
+  unmergeTomlAgentStateHooks,
   resolveAgentStateEvent,
   selectAgentStateTarget,
   uninstallAgentStateReporter,
@@ -793,6 +796,75 @@ async function run(): Promise<void> {
   cursorFile = JSON.parse(await readFile(cursorHooksPath, 'utf8')) as FlatFile
   assert.ok(cursorFile.hooks?.stop?.some((e) => e.command === 'notify-send done'), 'user hook lost on uninstall')
   assert.equal(cursorFile.hooks?.sessionStart, undefined, 'emptied event key must be pruned')
+
+  // --- Kimi Code: manifest-driven mapping ----------------------------------
+  const kimiSpec = await loadBundledSpec('kimi-code')
+  assert.equal(resolvePhase(kimiSpec, 'SessionStart'), 'starting')
+  assert.equal(resolvePhase(kimiSpec, 'UserPromptSubmit'), 'thinking')
+  assert.equal(resolvePhase(kimiSpec, 'PostToolUse'), 'thinking')
+  assert.equal(resolvePhase(kimiSpec, 'PostToolUseFailure'), 'thinking')
+  // The awaiting-input pair: PermissionRequest lights it, PermissionResult is
+  // the mid-turn clearer (the Kimi analogue of Claude's PostToolUse role).
+  assert.equal(resolvePhase(kimiSpec, 'PermissionRequest'), 'awaiting_input')
+  assert.equal(resolvePhase(kimiSpec, 'PermissionResult'), 'thinking')
+  assert.equal(resolvePhase(kimiSpec, 'SessionEnd'), 'exited')
+  assert.deepEqual(flags(kimiSpec, 'Stop'), { turnEnd: true, turnFailure: false })
+  // StopFailure shares Stop's idle phase but is a crashed turn — only the flag
+  // keeps an automation from finalizing it as completed.
+  assert.deepEqual(flags(kimiSpec, 'StopFailure'), { turnEnd: false, turnFailure: true })
+  // Unregistered/high-frequency events (heartbeats, compaction) stay unmapped.
+  assert.equal(resolvePhase(kimiSpec, 'SessionHeartbeat'), null)
+  assert.equal(resolvePhase(kimiSpec, 'TurnStarted'), null)
+  // User-global config: the registration must be user-scoped or the write
+  // lands in the workspace where kimi never reads it.
+  assert.equal(kimiSpec.registration.scope, 'user')
+  assert.equal(kimiSpec.registration.kind, 'toml-array-block')
+
+  // --- toml-array-block render / merge (kimi spec) -------------------------
+  const kimiRegistered = registeredAgentStateEvents(kimiSpec)
+  const kimiBlock = renderTomlArrayAgentStateHooksBlock('node "/abs/agent-state.mjs" --socket "/s.sock"', kimiRegistered)
+  assert.ok(kimiBlock.startsWith('# >>> multicode agent-state hooks managed'))
+  assert.ok(kimiBlock.includes('[[hooks]]\nevent = "PermissionRequest"'), kimiBlock)
+  assert.ok(!kimiBlock.includes('[[hooks.'), 'array-of-tables shape, never the Codex nesting')
+  assert.equal((kimiBlock.match(/^\[\[hooks\]\]$/gmu) ?? []).length, kimiRegistered.length)
+
+  const kimiUserToml = 'default_model = "kimi-k3"\n\n[[hooks]]\nevent = "PostToolUse"\ncommand = "prettier --write"\n'
+  const kimiMergedOnce = mergeTomlArrayAgentStateHooks(kimiUserToml, 'node "/x.mjs" --socket "/s.sock"', kimiRegistered)
+  assert.ok(kimiMergedOnce.includes('default_model = "kimi-k3"'), 'user config dropped')
+  assert.ok(kimiMergedOnce.includes('command = "prettier --write"'), 'user hook dropped')
+  const kimiMergedTwice = mergeTomlArrayAgentStateHooks(kimiMergedOnce, 'node "/x.mjs" --socket "/s.sock"', kimiRegistered)
+  assert.equal(
+    (kimiMergedTwice.match(/# >>> multicode agent-state hooks managed/gu) ?? []).length,
+    1,
+    'kimi block duplicated on re-merge'
+  )
+  assert.ok(unmergeTomlAgentStateHooks(kimiMergedOnce).includes('prettier --write'), 'unmerge dropped user hook')
+  assert.ok(!unmergeTomlAgentStateHooks(kimiMergedOnce).includes('agent-state.mjs'), 'unmerge left our block')
+
+  // --- user-scoped install resolves against homeDir, not the workspace -----
+  const kimiWorkspace = await mkdtemp(join(tmpdir(), 'multicode-agent-state-kimi-ws-'))
+  const kimiHome = await mkdtemp(join(tmpdir(), 'multicode-agent-state-kimi-home-'))
+  const kimiReporter = join(kimiWorkspace, 'reporter-src.mjs')
+  await writeFile(kimiReporter, '// reporter\n', 'utf8')
+
+  const kimiInstalled = await installAgentStateReporter(kimiWorkspace, kimiSpec, {
+    sourceScriptPath: kimiReporter,
+    socketPath: join(kimiWorkspace, 'agent.sock'),
+    homeDir: kimiHome,
+  })
+  assert.equal(kimiInstalled.ok, true)
+  const kimiConfigPath = join(kimiHome, '.kimi-code', 'config.toml')
+  assert.ok(existsSync(kimiConfigPath), 'user-scoped registration must land under homeDir')
+  assert.ok(!existsSync(join(kimiWorkspace, '.kimi-code')), 'user-scoped registration must not touch the workspace')
+  const kimiConfig = await readFile(kimiConfigPath, 'utf8')
+  assert.ok(kimiConfig.includes('event = "Stop"'))
+  // The reporter script itself still lives in the WORKSPACE (per-workspace
+  // socket identity), referenced absolutely from the user-global config.
+  assert.ok(kimiConfig.includes(join(kimiWorkspace, '.multicode', 'hooks', 'agent-state.mjs').split('\\').join('/')))
+
+  const kimiRemoved = await uninstallAgentStateReporter(kimiWorkspace, kimiSpec, { homeDir: kimiHome })
+  assert.equal(kimiRemoved.ok, true)
+  assert.ok(!(await readFile(kimiConfigPath, 'utf8')).includes('agent-state.mjs'), 'uninstall left the kimi block')
 
   console.log('agent-state.test.ts: all assertions passed')
 }

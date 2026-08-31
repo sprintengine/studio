@@ -59,6 +59,21 @@
   "completion": {
     "mode": "process-exit"
   },
+  "agentStateSpec": {
+    "$comment": "Kimi Code hooks (Beta), verified 2026-08-31 against kimi-code 0.28.1 and the official docs: user-global ~/.kimi-code/config.toml is the ONLY hook config (`kimi doctor` names it; no project-level file exists), hence scope: user — the registration fires for every kimi session on the machine, and the reporter exits silently without the MULTICODE_* launch env. TOML shape is [[hooks]] array-of-tables with an event key per entry (toml-array-block), not Codex's nesting. Payload is snake_case (hook_event_name / session_id / prompt on UserPromptSubmit), so the shared reporter applies unchanged. PermissionRequest is the awaiting-input event and PermissionResult the mid-turn clearer; StopFailure marks a failed turn (\"after the current turn fails due to an error\") so a crash never reads as a clean finish. Beta caveat: event names may churn; the install is best-effort and the reporter never blocks the agent (always exits 0, and hook failures fail open in Kimi).",
+    "registration": { "kind": "toml-array-block", "path": ".kimi-code/config.toml", "scope": "user" },
+    "events": [
+      { "event": "SessionStart", "phase": "starting" },
+      { "event": "UserPromptSubmit", "phase": "thinking" },
+      { "event": "PostToolUse", "phase": "thinking" },
+      { "event": "PostToolUseFailure", "phase": "thinking" },
+      { "event": "PermissionRequest", "phase": "awaiting_input" },
+      { "event": "PermissionResult", "phase": "thinking" },
+      { "event": "Stop", "phase": "idle", "turnEnd": true },
+      { "event": "StopFailure", "phase": "idle", "failure": true },
+      { "event": "SessionEnd", "phase": "exited" }
+    ]
+  },
   "detect": {
     "versionArgs": ["--version"]
   },

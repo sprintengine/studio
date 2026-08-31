@@ -255,9 +255,17 @@ export type PluginAgentStateEventSpec = {
   failure?: boolean
 }
 
-// Where and how the reporter is registered. Paths are workspace-relative,
+// Where `registration.path` resolves from: the workspace root (default) or the
+// user's home directory — for CLIs whose only hook config is user-global
+// (Kimi Code's ~/.kimi-code/config.toml). A user-scoped registration fires for
+// every session of that CLI on the machine; the reporter exits silently when
+// the MULTICODE_* launch env is absent, so outside-app sessions cost one
+// short-lived no-op process per event and report nothing.
+export type PluginAgentStateRegistrationScope = 'workspace' | 'user'
+
+// Where and how the reporter is registered. Paths are scope-relative,
 // forward-slashed.
-export type PluginAgentStateRegistrationSpec =
+export type PluginAgentStateRegistrationSpec = (
   // Merge tagged entries into a Claude-style shared settings JSON
   // (hooks.<Event>[].hooks[]), preserving everything else in the file.
   | { kind: 'settings-json'; path: string }
@@ -266,9 +274,13 @@ export type PluginAgentStateRegistrationSpec =
   // own entries. No vendor-foreign tag key is written — ours are recognized by
   // the reporter command's shape alone.
   | { kind: 'flat-hooks-json'; path: string }
-  // Marker-delimited managed block in a TOML config ([[hooks.<Event>]]),
-  // preserving the rest of the file (Codex).
+  // Marker-delimited managed block in a TOML config, [[hooks.<Event>]] shape
+  // (Codex), preserving the rest of the file.
   | { kind: 'toml-block'; path: string }
+  // Marker-delimited managed block in a TOML config, [[hooks]] array-of-tables
+  // shape with an `event` key per entry (Kimi Code), preserving the rest of
+  // the file.
+  | { kind: 'toml-array-block'; path: string }
   // A standalone hook-config JSON file we own outright — plain write/remove,
   // no merge bookkeeping (Grok's per-file discovery).
   | { kind: 'owned-json'; path: string }
@@ -278,6 +290,7 @@ export type PluginAgentStateRegistrationSpec =
   // the manifest's `events` table remains the canonical mapping the main
   // process applies.
   | { kind: 'plugin-file'; path: string; template: string }
+) & { scope?: PluginAgentStateRegistrationScope }
 
 export type PluginAgentStateSpec = {
   registration: PluginAgentStateRegistrationSpec

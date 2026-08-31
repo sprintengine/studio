@@ -1,5 +1,6 @@
 import { existsSync } from 'fs'
 import { copyFile, mkdir, readFile, rm, writeFile } from 'fs/promises'
+import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import type { AgentPhase, AgentState, AgentStateSource, SessionActivity } from '../shared/electron-api'
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
@@ -655,6 +656,36 @@ export function unmergeTomlAgentStateHooks(previous: string): string {
   return replaceTomlAgentStateBlock(previous, '')
 }
 
+// The array-of-tables variant (registration kind 'toml-array-block'): Kimi
+// Code's hooks are `[[hooks]]` entries with an `event` key per table, not
+// Codex's `[[hooks.<Event>]]` nesting. Same marker discipline (and the same
+// marker literals — the two kinds never share a file, since each CLI names its
+// own config path).
+export function renderTomlArrayAgentStateHooksBlock(
+  command: string,
+  events: ReadonlyArray<{ event: string; matcher?: string }>
+): string {
+  const lines: string[] = [
+    AGENT_STATE_TOML_START,
+    '# Generated for authoritative agent-state reporting. Remove this block to disable.',
+  ]
+  for (const { event, matcher } of events) {
+    lines.push('', '[[hooks]]', `event = ${tomlBasicString(event)}`)
+    if (matcher !== undefined) lines.push(`matcher = ${tomlBasicString(matcher)}`)
+    lines.push(`command = ${tomlBasicString(command)}`)
+  }
+  lines.push(AGENT_STATE_TOML_END)
+  return lines.join('\n')
+}
+
+export function mergeTomlArrayAgentStateHooks(
+  previous: string,
+  command: string,
+  events: ReadonlyArray<{ event: string; matcher?: string }>
+): string {
+  return replaceTomlAgentStateBlock(previous, renderTomlArrayAgentStateHooksBlock(command, events))
+}
+
 async function readTextIfExists(path: string): Promise<string | null> {
   try {
     return await readFile(path, 'utf8')
@@ -732,14 +763,22 @@ export type AgentStateInstallResult =
   | { ok: true; settingsPath: string; hookScriptPath: string }
   | { ok: false; message: string }
 
-function resolveRegistrationPath(workspaceRoot: string, relPath: string): string {
-  return resolve(workspaceRoot, ...relPath.split('/'))
+// A user-scoped registration (Kimi Code's user-global config.toml) resolves
+// against the home directory instead of the workspace. `homeDir` is injectable
+// so tests never touch the real home.
+function resolveRegistrationPath(
+  workspaceRoot: string,
+  registration: PluginAgentStateSpec['registration'],
+  homeDir: string
+): string {
+  const base = registration.scope === 'user' ? homeDir : workspaceRoot
+  return resolve(base, ...registration.path.split('/'))
 }
 
 export async function installAgentStateReporter(
   workspaceRoot: string,
   spec: PluginAgentStateSpec,
-  options: { sourceScriptPath: string; socketPath: string }
+  options: { sourceScriptPath: string; socketPath: string; homeDir?: string }
 ): Promise<AgentStateInstallResult> {
   if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
   if (!options.socketPath?.trim()) return { ok: false, message: 'Agent-state socket path is required.' }
@@ -749,7 +788,7 @@ export async function installAgentStateReporter(
 
   const registration = spec.registration
   try {
-    const targetPath = resolveRegistrationPath(workspaceRoot, registration.path)
+    const targetPath = resolveRegistrationPath(workspaceRoot, registration, options.homeDir ?? homedir())
     await mkdir(resolve(targetPath, '..'), { recursive: true })
 
     if (registration.kind === 'plugin-file') {
@@ -780,6 +819,11 @@ export async function installAgentStateReporter(
         await writeFile(targetPath, mergeTomlAgentStateHooks(previous, command, events), 'utf8')
         break
       }
+      case 'toml-array-block': {
+        const previous = (await readTextIfExists(targetPath)) ?? ''
+        await writeFile(targetPath, mergeTomlArrayAgentStateHooks(previous, command, events), 'utf8')
+        break
+      }
       case 'owned-json':
         await writeFile(targetPath, renderOwnedJsonAgentStateHooksConfig(command, events), 'utf8')
         break
@@ -795,12 +839,13 @@ export async function installAgentStateReporter(
 
 export async function uninstallAgentStateReporter(
   workspaceRoot: string,
-  spec: PluginAgentStateSpec
+  spec: PluginAgentStateSpec,
+  options: { homeDir?: string } = {}
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
   const registration = spec.registration
   try {
-    const targetPath = resolveRegistrationPath(workspaceRoot, registration.path)
+    const targetPath = resolveRegistrationPath(workspaceRoot, registration, options.homeDir ?? homedir())
     switch (registration.kind) {
       case 'settings-json': {
         if (existsSync(targetPath)) await unmergeAgentStateHooks(targetPath)
@@ -814,7 +859,8 @@ export async function uninstallAgentStateReporter(
       case 'flat-hooks-json':
         if (existsSync(targetPath)) await unmergeFlatAgentStateHooks(targetPath)
         break
-      case 'toml-block': {
+      case 'toml-block':
+      case 'toml-array-block': {
         const previous = await readTextIfExists(targetPath)
         if (previous !== null) await writeFile(targetPath, unmergeTomlAgentStateHooks(previous), 'utf8')
         break

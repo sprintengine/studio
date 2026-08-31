@@ -213,12 +213,17 @@ export type CliAgentStateEventSpec = {
   failure?: boolean
 }
 
-export type CliAgentStateRegistrationSpec =
+/** Where `path` resolves from: the workspace root (default) or the user's home. */
+export type CliAgentStateRegistrationScope = 'workspace' | 'user'
+
+export type CliAgentStateRegistrationSpec = (
   | { kind: 'settings-json'; path: string }
   | { kind: 'flat-hooks-json'; path: string }
   | { kind: 'toml-block'; path: string }
+  | { kind: 'toml-array-block'; path: string }
   | { kind: 'owned-json'; path: string }
   | { kind: 'plugin-file'; path: string; template: string }
+) & { scope?: CliAgentStateRegistrationScope }
 
 export type CliAgentStateSpec = {
   registration: CliAgentStateRegistrationSpec
@@ -514,7 +519,8 @@ const AGENT_STATE_PHASES: CliAgentStatePhase[] = [
   'idle',
   'exited',
 ]
-const AGENT_STATE_REGISTRATION_KINDS = ['settings-json', 'flat-hooks-json', 'toml-block', 'owned-json', 'plugin-file'] as const
+const AGENT_STATE_REGISTRATION_KINDS = ['settings-json', 'flat-hooks-json', 'toml-block', 'toml-array-block', 'owned-json', 'plugin-file'] as const
+const AGENT_STATE_REGISTRATION_SCOPES = ['workspace', 'user'] as const
 
 // Registration paths are written inside the workspace at install time, so they
 // must stay strictly relative — no traversal, no absolute paths, no backslashes,
@@ -562,6 +568,15 @@ function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): voi
       issues.push({
         path: 'agentStateSpec.registration.template',
         message: 'registration.template is only valid for plugin-file registrations.',
+      })
+    }
+    if (
+      registration.scope !== undefined
+      && !(AGENT_STATE_REGISTRATION_SCOPES as readonly string[]).includes(registration.scope as string)
+    ) {
+      issues.push({
+        path: 'agentStateSpec.registration.scope',
+        message: `registration.scope must be one of: ${AGENT_STATE_REGISTRATION_SCOPES.join(', ')}.`,
       })
     }
   }

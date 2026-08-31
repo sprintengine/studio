@@ -177,7 +177,7 @@ test('requires a template for plugin-file registrations and events to be non-emp
 })
 
 test('accepts the bundled claude-code and opencode plugin.json agentStateSpecs', () => {
-  for (const id of ['claude-code', 'opencode', 'grok', 'zai', 'kimi-claude', 'cursor']) {
+  for (const id of ['claude-code', 'opencode', 'grok', 'zai', 'kimi-claude', 'cursor', 'codex', 'kimi-code']) {
     const source = readFileSync(join(process.cwd(), 'resources', 'plugins', id, 'plugin.json'), 'utf8')
     const result = parseCliPluginManifest(source)
     assert.equal(result.ok, true, result.ok ? id : `${id}: ${JSON.stringify(result.issues)}`)
@@ -195,4 +195,26 @@ test('rejects drive-relative registration paths (Windows escape)', () => {
   assert.equal(result.ok, false)
   if (result.ok) return
   assert.ok(result.issues.some((issue) => issue.path === 'agentStateSpec.registration.path'))
+})
+
+test('accepts a user-scoped toml-array-block registration and rejects a bad scope', () => {
+  const ok = validateCliPluginManifest({
+    ...VALID,
+    agentStateSpec: {
+      registration: { kind: 'toml-array-block', path: '.kimi-code/config.toml', scope: 'user' },
+      events: [{ event: 'Stop', phase: 'idle', turnEnd: true }],
+    },
+  })
+  assert.equal(ok.ok, true, ok.ok ? '' : JSON.stringify(ok.issues))
+
+  const bad = validateCliPluginManifest({
+    ...VALID,
+    agentStateSpec: {
+      registration: { kind: 'toml-array-block', path: '.kimi-code/config.toml', scope: 'global' },
+      events: [{ event: 'Stop', phase: 'idle' }],
+    },
+  })
+  assert.equal(bad.ok, false)
+  if (bad.ok) return
+  assert.ok(bad.issues.some((issue) => issue.path === 'agentStateSpec.registration.scope'))
 })
