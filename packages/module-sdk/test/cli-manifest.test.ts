@@ -183,3 +183,16 @@ test('accepts the bundled claude-code and opencode plugin.json agentStateSpecs',
     assert.equal(result.ok, true, result.ok ? id : `${id}: ${JSON.stringify(result.issues)}`)
   }
 })
+
+test('rejects drive-relative registration paths (Windows escape)', () => {
+  const result = validateCliPluginManifest({
+    ...VALID,
+    agentStateSpec: {
+      registration: { kind: 'owned-json', path: 'C:/evil/hooks.json' },
+      events: [{ event: 'Stop', phase: 'idle' }],
+    },
+  })
+  assert.equal(result.ok, false)
+  if (result.ok) return
+  assert.ok(result.issues.some((issue) => issue.path === 'agentStateSpec.registration.path'))
+})

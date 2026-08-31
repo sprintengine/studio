@@ -184,8 +184,7 @@ export type CliSoulsSpec = {
  * Authoritative agent-state integration: how the CLI's lifecycle hooks are
  * registered and how its native event names map to Multicode's shared agent
  * phase vocabulary. A manifest without this spec declares that the CLI cannot
- * report agent state, and it is not offered as an agent (pickers, sprints,
- * automations). Mirrors the app's `PluginAgentStateSpec`.
+ * report authoritative agent state. Mirrors the app's `PluginAgentStateSpec`.
  */
 export type CliAgentStatePhase =
   | 'starting'
@@ -517,10 +516,12 @@ const AGENT_STATE_PHASES: CliAgentStatePhase[] = [
 const AGENT_STATE_REGISTRATION_KINDS = ['settings-json', 'toml-block', 'owned-json', 'plugin-file'] as const
 
 // Registration paths are written inside the workspace at install time, so they
-// must stay strictly relative — no traversal, no absolute paths, no backslashes.
+// must stay strictly relative — no traversal, no absolute paths, no backslashes,
+// and no `:` in any segment: on Windows a `C:`-style segment makes
+// path.resolve() drive-relative and escapes the workspace root entirely.
 function isSafeWorkspaceRelativePath(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0) return false
-  if (value.includes('\0') || value.includes('\\') || value.startsWith('/')) return false
+  if (value.includes('\0') || value.includes('\\') || value.includes(':') || value.startsWith('/')) return false
   const segments = value.split('/')
   return !segments.some((segment) => segment === '..' || segment === '.' || segment.length === 0)
 }

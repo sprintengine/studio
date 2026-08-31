@@ -156,6 +156,28 @@ async function run(): Promise<void> {
   assert.equal(resolvePhase(grokSpec, 'Notification', 'permission_prompt'), 'awaiting_input')
   assert.equal(resolvePhase(grokSpec, 'Notification', 'idle_prompt'), null)
 
+  // --- stale-reporter compatibility on discriminated events ----------------
+  // A reporter copy from before the dumb-forwarder change filtered Notification
+  // CLIENT-side: it sent {phase: 'awaiting_input', event: 'Notification'} with
+  // no notificationType field at all. Until the next successful install
+  // replaces it, its own filtering is honored — but ONLY when the asserted
+  // phase matches the entry's mapped phase; anything else stays dropped.
+  assert.deepEqual(
+    resolveAgentStateEvent(claudeSpec, { event: 'Notification', phase: 'awaiting_input' }),
+    { action: 'apply', phase: 'awaiting_input', turnEnd: false, turnFailure: false },
+    'a stale reporter’s pre-filtered Notification must still light awaiting_input'
+  )
+  // A dumb-forwarder frame (no phase) with an untyped Notification still drops.
+  assert.deepEqual(resolveAgentStateEvent(claudeSpec, { event: 'Notification' }), { action: 'drop' })
+  // A mismatched asserted phase does not ride the compat path.
+  assert.deepEqual(resolveAgentStateEvent(claudeSpec, { event: 'Notification', phase: 'idle' }), { action: 'drop' })
+  // A PRESENT-but-unlisted discriminator drops even when the phase matches:
+  // the new reporter forwarded the type and the allow-list rejected it.
+  assert.deepEqual(
+    resolveAgentStateEvent(claudeSpec, { event: 'Notification', phase: 'awaiting_input', notificationType: 'idle_prompt' }),
+    { action: 'drop' }
+  )
+
   // --- fallback for spec-less frames --------------------------------------
   // No spec (a CLI outside the manifest capability whose reporter still emits
   // frames): the reporter-asserted phase is trusted, with no turn semantics.

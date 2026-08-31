@@ -3088,9 +3088,9 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
 
     // …but the working frame that fires when the approved tool completes
     // (PostToolUse → thinking) DOES clear awaiting_input. This is the only
-    // mid-turn clearer, which is why PostToolUse stays registered (see
-    // AGENT_STATE_HOOK_EVENTS); without it the "needs input" signal would stay
-    // lit until Stop.
+    // mid-turn clearer, which is why PostToolUse stays registered (see the
+    // claude-code manifest's agentStateSpec); without it the "needs input"
+    // signal would stay lit until Stop.
     runtime.ingestAgentStateFrame(frame('thinking', 3001))
     snap = snapshotFor('sess-ingest')
     assert.equal(snap?.agentState?.phase, 'thinking', 'a post-approval working frame must clear awaiting_input')

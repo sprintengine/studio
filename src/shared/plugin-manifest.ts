@@ -209,10 +209,9 @@ export type PluginThemeSelectionSpec = {
 //
 // Declares how a CLI's lifecycle hooks are registered and how its native event
 // names map to the shared AgentPhase vocabulary. A manifest WITHOUT this spec
-// declares that the CLI cannot report authoritative agent state — such a CLI is
-// not offered as an agent (pickers, sprints, automations). The install writers,
-// the event→phase mapping, and the turn-end predicates all read this data; no
-// per-CLI knowledge lives in core code.
+// declares that the CLI cannot report authoritative agent state. The install
+// writers, the event→phase mapping, and the turn-end flags all read this data;
+// no per-CLI knowledge lives in core code.
 // =============================================================================
 
 // The phases an event may drive. `failed`/`stalled` are runtime-derived (pty
@@ -301,7 +300,7 @@ export type PluginManifest = {
   themeSelection?: PluginThemeSelectionSpec
   skillIntegration?: PluginSkillIntegration
   // Authoritative agent-state integration (see the section above). Absent ⇒
-  // the CLI cannot report agent state and is not offered as an agent.
+  // the CLI cannot report authoritative agent state.
   agentStateSpec?: PluginAgentStateSpec
   // Optional credential the CLI needs to reach an authenticated endpoint (e.g.
   // the Z.AI runtime, which redirects the `claude` binary at Z.AI via

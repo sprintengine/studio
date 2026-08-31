@@ -67,8 +67,27 @@ export function resolveAgentStateEvent(
       // and `awaiting_input` is sticky for a dormant agent, so an unlisted or
       // absent value must drop (falsely "needs input" parks a session forever;
       // a false idle is recoverable — the 2026-07-07 parked-agents incident).
-      const value = frame.notificationType
-      if (!value || !entry.when.oneOf.includes(value)) return { action: 'drop' }
+      // Read the field the spec NAMES, never a hardcoded one, so a widened
+      // field enum can't silently misread.
+      const value = entry.when.field === 'notificationType' ? frame.notificationType : undefined
+      if (!value || !entry.when.oneOf.includes(value)) {
+        // Stale-reporter compatibility: a reporter copy from before the
+        // dumb-forwarder change filtered discriminated events CLIENT-side and
+        // asserted the mapped phase without forwarding the discriminator
+        // field. Until the next successful install replaces it (install is
+        // best-effort and can fail on e.g. a read-only tree), honor its own
+        // filtering: no discriminator + the exact phase this entry maps to
+        // means the old allow-list already passed. Anything else drops.
+        if (!value && frame.phase === entry.phase) {
+          return {
+            action: 'apply',
+            phase: entry.phase,
+            turnEnd: entry.turnEnd === true,
+            turnFailure: entry.failure === true,
+          }
+        }
+        return { action: 'drop' }
+      }
     }
     return {
       action: 'apply',
