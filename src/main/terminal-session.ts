@@ -75,9 +75,10 @@ export type TerminalSession = {
   // is flipped to an inferred `stalled` phase. See scheduleAgentStallCheck.
   agentStallTimer?: ReturnType<typeof setTimeout>
   activity: SessionActivity
-  // Authoritative phase from the agent's lifecycle hooks, when the session's CLI
-  // reports it. Layered on top of `activity` (which stays the inference floor);
-  // absent until the first hook frame arrives. See agent-state.ts.
+  // The agent's phase. Lifecycle-stamped `starting` (inferred) at spawn, then
+  // authoritative from the CLI's hook frames; the stall watchdog and the pty
+  // exit path stamp `stalled`/`exited`/`failed`. Never derived from output
+  // timing. Absent for plain terminals. See agent-state.ts.
   agentState?: AgentState
   // The last prompt the person submitted to this session, from the reporter's
   // `UserPromptSubmit` frame. Drives the terminal tab's hover preview ("what was
@@ -150,9 +151,11 @@ export type TerminalSession = {
 
 const TERMINAL_REPLAY_COMPACT_THRESHOLD = 1024
 
+// Working/idle bolding for PLAIN terminals only: agent sessions' activity is
+// bridged from their hook-reported phases (ingestAgentStateFrame), never from
+// output timing — the agent idle-flip variant died with the status inference.
 export const DEFAULT_IDLE_POLICY = {
   flipToIdleAfterMs: 3_000,
-  agentFlipToIdleAfterMs: 4_000,
 } as const
 
 export function getTerminalSize(cols: number, rows: number): TerminalSize {
@@ -181,29 +184,20 @@ export function clearAgentStallTimer(session: TerminalSession): void {
   session.agentStallTimer = undefined
 }
 
-// Derives an `inferred`-provenance AgentState from the legacy output-timing
-// activity, for agent sessions whose CLI never reported a hook frame. This keeps
-// every agent session exposing an AgentState with honest provenance (the spec's
-// "agents without hook support keep today's behavior, marked inferred"); it can
-// never produce `awaiting_input`, which is exactly why output-scraping needs the
-// hooks. Used as the snapshot fallback when no hook/stall state is present.
-export function inferAgentStateFromActivity(activity: SessionActivity): AgentState {
-  switch (activity.kind) {
-    case 'working':
-      return { phase: 'thinking', since: activity.since, source: 'inferred' }
-    case 'idle':
-      return { phase: 'idle', since: activity.since, source: 'inferred' }
-    case 'exited':
-      return { phase: 'exited', since: activity.at, source: 'inferred' }
-    case 'failed':
-      return { phase: 'failed', since: activity.at, source: 'inferred' }
-  }
+// The lifecycle stamp an agent session is born with: `starting`, inferred —
+// the one phase a fresh spawn can substantiate without a hook frame. The first
+// reporter frame replaces it with authoritative state; a session whose hooks
+// never fire (a broken install) converts to `stalled` via the stall watch
+// instead of parking as working forever. Output-timing NEVER guesses a phase:
+// the old inference (`inferAgentStateFromActivity`) was deleted outright —
+// hooks are the only status mechanism (decision of record 2026-08-31), and
+// every selectable agent CLI now reports them.
+export function createInitialAgentState(kind: TerminalKind, startedAt: number): AgentState | undefined {
+  return kind === 'agent' ? { phase: 'starting', since: startedAt, source: 'inferred' } : undefined
 }
 
-export function getTerminalIdleTimeoutMs(session: TerminalSession): number {
-  return session.kind === 'agent'
-    ? DEFAULT_IDLE_POLICY.agentFlipToIdleAfterMs
-    : DEFAULT_IDLE_POLICY.flipToIdleAfterMs
+export function getTerminalIdleTimeoutMs(_session: TerminalSession): number {
+  return DEFAULT_IDLE_POLICY.flipToIdleAfterMs
 }
 
 export function createInitialTerminalActivity(startedAt: number): SessionActivity {
@@ -224,13 +218,6 @@ export function transitionTerminalActivity(session: TerminalSession, next: Sessi
   if (sessionActivitiesEqual(session.activity, next)) return false
   session.activity = next
   return true
-}
-
-export function markTerminalWorking(session: TerminalSession, at = Date.now()): boolean {
-  if (!isTerminalProcessAlive(session)) return false
-  session.lastOutputAt = at
-  if (session.activity.kind === 'working') return false
-  return transitionTerminalActivity(session, { kind: 'working', since: at })
 }
 
 export function recordTerminalInput(session: TerminalSession, at = Date.now()): void {
@@ -280,11 +267,6 @@ export function isTerminalSessionStale(
   return now - getTerminalLastSeenAt(session) > maxUnseenMs
 }
 
-export function markTerminalIdle(session: TerminalSession, at = Date.now()): boolean {
-  if (session.activity.kind !== 'working') return false
-  return transitionTerminalActivity(session, { kind: 'idle', since: at })
-}
-
 export function markTerminalExited(session: TerminalSession, exitCode: number, at = Date.now()): void {
   transitionTerminalActivity(session, { kind: 'exited', at, exitCode })
 }
@@ -302,6 +284,7 @@ export function markTerminalFailed(
 
 export function createFailedTerminalSession(input: FailedTerminalSessionInput): TerminalSession {
   const at = input.at ?? Date.now()
+  const kind = input.kind ?? 'agent'
   return {
     sessionId: input.sessionId,
     process: createInactiveTerminalProcess(),
@@ -317,6 +300,8 @@ export function createFailedTerminalSession(input: FailedTerminalSessionInput): 
       exitCode: input.exitCode ?? 1,
       message: input.message,
     },
+    // Lifecycle stamp, not inference: a retained failure IS the failed phase.
+    ...(kind === 'agent' ? { agentState: { phase: 'failed' as const, since: at, source: 'inferred' as const } } : {}),
     outputChunks: [],
     outputChunkBytes: [],
     outputChunkStart: 0,
@@ -387,6 +372,12 @@ export function createSuspendedPlaceholderSession(
     isDisposed: false,
     suspended: true,
     activity: { kind: 'idle', since: input.savedAt },
+    // A frozen view is at rest by construction — stamped, not guessed from
+    // output timing (an in-process suspend keeps the live phase; this is the
+    // restart-rehydration path, where no phase survived).
+    ...((input.kind ?? 'agent') === 'agent'
+      ? { agentState: { phase: 'idle' as const, since: input.savedAt, source: 'inferred' as const } }
+      : {}),
     outputChunks: [],
     outputChunkBytes: [],
     outputChunkStart: 0,
@@ -493,11 +484,11 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     lastInputAt: session.lastInputAt,
     lastVisibleAt: session.lastVisibleAt,
     activity: session.activity,
-    // Hook/stall state when present; otherwise an inferred fallback so every
-    // agent session carries provenance. Plain terminals carry none.
-    agentState:
-      session.agentState
-      ?? (session.kind === 'agent' ? inferAgentStateFromActivity(session.activity) : undefined),
+    // Verbatim: agents carry lifecycle-stamped state from birth (`starting`
+    // at spawn, hook frames thereafter, `stalled`/`exited`/`failed` from the
+    // watchdog and pty lifecycle). Nothing is guessed from output timing, and
+    // plain terminals carry none.
+    agentState: session.agentState,
     lastPrompt: session.lastPrompt,
     exitedAt: session.exitedAt,
     outputBufferLength: session.outputLength,

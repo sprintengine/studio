@@ -21,14 +21,14 @@ import type {
 export type WorkspaceActivity = 'needs-input' | 'working' | 'failed' | 'idle'
 export type SessionStatus = 'needs-input' | 'working' | 'idle' | 'failed'
 
-// Honest per-session status for the session manager, merged from the
-// authoritative lifecycle-hook phase (`session.agentState`, when present) with
-// the legacy output-timing heuristic as the floor. See
-// backlog/2026-06-10-truthful-agent-activity.md.
+// Honest per-session status for the session manager, from the session's
+// lifecycle/hook phase (`session.agentState` — every agent carries one from
+// birth; output-timing status inference was deleted, decision of record
+// 2026-08-31). See backlog/2026-06-10-truthful-agent-activity.md.
 export type SessionStatusInfo = {
   status: SessionStatus
   // Provenance of the signal: 'hook' when an authoritative lifecycle-hook frame
-  // drove it, 'inferred' when it fell back to output-timing recency.
+  // drove it, 'inferred' for a lifecycle stamp (spawn/watchdog/pty).
   source: AgentStateSource
   // When the current status began (ms epoch) — drives "active 2m" / "waiting 4m".
   activitySince: number

@@ -3272,8 +3272,9 @@ function terminalSessionProjection(session: TerminalSessionSnapshot): Record<str
     startedAt: session.startedAt,
     lastOutputAt: session.lastOutputAt,
     activity: session.activity.kind,
-    // The hook-reported phase where the CLI reports one, marked with its
-    // provenance so a caller can tell an authoritative `awaiting_input` from an
+    // The agent's phase, marked with its provenance so a caller can tell an
+    // authoritative hook frame from a lifecycle stamp (`starting` at spawn,
+    // `stalled`/`exited`/`failed` from the watchdog and pty). Never an
     // output-timing guess. Absent for plain shells.
     agentState: session.agentState
       ? { phase: session.agentState.phase, source: session.agentState.source, since: session.agentState.since }

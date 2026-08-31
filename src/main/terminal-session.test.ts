@@ -9,8 +9,6 @@ import {
   isTerminalSessionStale,
   markTerminalExited,
   markTerminalFailed,
-  markTerminalIdle,
-  markTerminalWorking,
   materializeTerminalReplay,
   recordTerminalInput,
   recordTerminalVisibility,
@@ -60,9 +58,10 @@ function assertOutputWhileWorkingUpdatesRecencyWithoutStateTransition(): void {
   const session = createSession({ startedAt: 100 })
 
   appendTerminalOutput(session, 'first output', 150)
-  const changedToWorking = markTerminalWorking(session, 150)
-
-  assert.equal(changedToWorking, false)
+  // Output advances recency; the activity transition is the runtime's call
+  // (plain terminals only — agent activity is hook-bridged), and re-asserting
+  // the same working state is a no-op.
+  assert.equal(transitionTerminalActivity(session, { kind: 'working', since: 100 }), false)
   assert.equal(session.lastOutputAt, 150)
   assert.deepEqual(session.activity, { kind: 'working', since: 100 })
 }
@@ -70,11 +69,11 @@ function assertOutputWhileWorkingUpdatesRecencyWithoutStateTransition(): void {
 function assertSilenceAndLaterOutputTransitionBetweenIdleAndWorking(): void {
   const session = createSession({ startedAt: 100 })
 
-  assert.equal(markTerminalIdle(session, 3_200), true)
+  assert.equal(transitionTerminalActivity(session, { kind: 'idle', since: 3_200 }), true)
   assert.deepEqual(session.activity, { kind: 'idle', since: 3_200 })
 
   appendTerminalOutput(session, 'later output', 4_000)
-  assert.equal(markTerminalWorking(session, 4_000), true)
+  assert.equal(transitionTerminalActivity(session, { kind: 'working', since: 4_000 }), true)
   assert.equal(session.lastOutputAt, 4_000)
   assert.deepEqual(session.activity, { kind: 'working', since: 4_000 })
 }

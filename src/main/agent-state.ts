@@ -2,7 +2,7 @@ import { existsSync } from 'fs'
 import { copyFile, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
-import type { AgentPhase, AgentState, AgentStateSource, SessionActivity } from '../shared/electron-api'
+import type { AgentPhase, AgentStateSource, SessionActivity } from '../shared/electron-api'
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 
 // =============================================================================
@@ -128,14 +128,6 @@ export function registeredAgentStateEvents(
 // a hook frame does not — we never synthesize an exit from a hook.
 // =============================================================================
 
-// True when an authoritative hook phase says the agent is actively working, so
-// the legacy output idle-timer must NOT override it to idle — the Stop hook
-// reports the real idle transition and the stall watch catches a genuine hang.
-// Inferred or absent state never qualifies, so non-hook sessions are unaffected.
-export function isAuthoritativeWorkingPhase(state: AgentState | undefined): boolean {
-  return state?.source === 'hook' && (state.phase === 'tool_use' || state.phase === 'thinking')
-}
-
 // At-rest phases the idle reaper may reclaim once rested past its threshold:
 // 'idle' (authoritative turn end) and 'stalled' (inferred quiet ≥90s). Stalled
 // counts as rest deliberately — a lost Stop frame lands a genuinely-finished
@@ -190,12 +182,16 @@ export function evaluateAgentStall(input: {
   now: number
   thresholdMs: number
 }): StallEvaluation {
-  // Only a hook-driven working phase can stall; anything else means the agent is
-  // responsive (idle/awaiting), already terminal, or running on inference.
-  if (input.source !== 'hook') return { action: 'clear' }
   if (input.phase !== 'starting' && input.phase !== 'thinking' && input.phase !== 'tool_use') {
     return { action: 'clear' }
   }
+  // A hook-driven working phase can stall, and so can the INFERRED `starting`
+  // every agent is lifecycle-stamped with at spawn: a session whose hooks
+  // never fire at all (a broken or failed install — there is no output-timing
+  // fallback any more) must convert to `stalled` and expire via the reap
+  // policy rather than reading as working, and being reaper-protected,
+  // forever. Inferred thinking/tool_use no longer exist to be evaluated.
+  if (input.source !== 'hook' && input.phase !== 'starting') return { action: 'clear' }
   const lastActivityAt = Math.max(input.phaseSince, input.lastOutputAt ?? 0)
   const quietForMs = input.now - lastActivityAt
   if (quietForMs >= input.thresholdMs) return { action: 'stalled' }

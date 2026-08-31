@@ -19,7 +19,7 @@ import type {
   LiveAgentExecution,
 } from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
-import { deriveActivityFromPhase, evaluateAgentStall, isAtRestAgentPhase, isAuthoritativeWorkingPhase, resolveAgentStateEvent, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
+import { deriveActivityFromPhase, evaluateAgentStall, isAtRestAgentPhase, resolveAgentStateEvent, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -51,6 +51,7 @@ import {
   clearTerminalIdleTimer,
   createFailedTerminalSession,
   createHeadlessTerminalSender,
+  createInitialAgentState,
   createInitialTerminalActivity,
   createSuspendedPlaceholderSession,
   getTerminalLastSeenAt,
@@ -1382,13 +1383,12 @@ function buildReapCandidates(): ReapCandidate[] {
     kind: session.kind,
     cli: session.cli ?? null,
     processAlive: isTerminalProcessAlive(session),
-    // Authoritative hook/stall phase ONLY (never the snapshot's inferred
-    // output-timing fallback): inferred 'working' flips on every alt-screen
-    // repaint, so feeding it to the reaper would reintroduce the repaint
-    // masquerade this policy is built to avoid. When no authoritative phase
-    // exists (hookless CLI, or before the first frame), agentPhase stays null and
-    // the keystroke-recency floor decides. At-rest phases — 'idle', and
-    // 'stalled' after its own full rest threshold — are reapable;
+    // The session's lifecycle/hook phase. An agent carries one from birth (the
+    // spawn stamp `starting`, held as working until the first frame or the
+    // stall watchdog); output timing never guesses a phase, so an alt-screen
+    // repaint can no longer masquerade as work. Null only for non-agent
+    // sessions, where the keystroke-recency floor decides. At-rest phases —
+    // 'idle', and 'stalled' after its own full rest threshold — are reapable;
     // working/awaiting_input are protected.
     agentPhase: session.agentState?.phase ?? null,
     lastInteractionAt: terminalLastInteractionAt(session),
@@ -1829,14 +1829,15 @@ function disposeOtherAgentSessions(
 function scheduleTerminalIdleTransition(session: TerminalSession): void {
   clearTerminalIdleTimer(session)
   if (!isTerminalProcessAlive(session)) return
+  // Agents carry no output idle-timer at all: their activity is bridged from
+  // hook-reported phases in ingestAgentStateFrame (Stop reports the real idle;
+  // the stall watchdog catches a genuine hang). The timer is plain-terminal
+  // working/idle bolding only — output-timing status inference for agents was
+  // deleted (decision of record 2026-08-31).
+  if (session.kind === 'agent') return
 
   session.idleTimer = setTimeout(() => {
     session.idleTimer = undefined
-    // Heuristic cutover: when an authoritative hook says the agent is mid-work,
-    // the output idle-timer must not override it to idle — the Stop hook reports
-    // the real idle, and scheduleAgentStallCheck catches a genuine hang. Without
-    // this, a silent-but-working tool call flickers to idle every few seconds.
-    if (isAuthoritativeWorkingPhase(session.agentState)) return
     setTerminalActivity(session, { kind: 'idle', since: Date.now() })
   }, getTerminalIdleTimeoutMs(session))
 }
@@ -1886,13 +1887,18 @@ function scheduleAgentStallCheck(session: TerminalSession): void {
   clearAgentStallTimer(session)
   if (!isTerminalProcessAlive(session)) return
   const state = session.agentState
-  // Only arm for a hook-driven working phase; idle/awaiting/terminal/inferred
-  // phases are not "stuck mid-work". 'starting' is armed too: a resumed session
-  // that never receives a prompt has SessionStart as its ONLY frame (no Stop
-  // ever follows), so without conversion to 'stalled' it would read as working
-  // — and be protected from the idle reaper — forever.
-  if (!state || state.source !== 'hook') return
+  if (!state) return
+  // Arm for a hook-driven working phase — idle/awaiting/terminal phases are
+  // not "stuck mid-work" — and for `starting` regardless of source:
+  //   * hook 'starting': a resumed session that never receives a prompt has
+  //     SessionStart as its ONLY frame (no Stop ever follows);
+  //   * inferred 'starting': the lifecycle stamp every agent spawns with — a
+  //     session whose hooks never fire at all (broken install) has no other
+  //     path off "working".
+  // Without conversion to 'stalled' either would read as working — and be
+  // protected from the idle reaper — forever.
   if (state.phase !== 'starting' && state.phase !== 'thinking' && state.phase !== 'tool_use') return
+  if (state.source !== 'hook' && state.phase !== 'starting') return
   session.agentStallTimer = setTimeout(() => runAgentStallCheck(session), AGENT_STALL_THRESHOLD_MS)
 }
 
@@ -2338,6 +2344,9 @@ function attachTerminalSession(
   terminals.set(sessionId, terminalSession)
   startSprintEngineAgentHeartbeat(terminalSession)
   scheduleTerminalIdleTransition(terminalSession)
+  // Arms for the spawn-stamped `starting` phase, so an agent whose hooks never
+  // report converts to `stalled` (and becomes reclaimable) instead of parking.
+  scheduleAgentStallCheck(terminalSession)
   broadcastTerminalSessionsChanged()
 
   terminalSession.process.onData((data) => {
@@ -2353,19 +2362,15 @@ function attachTerminalSession(
     const isRepaint = now < (terminalSession.repaintGraceUntil ?? 0)
     appendTerminalOutput(terminalSession, data, now, !isRepaint)
     if (!isRepaint) {
-      // For hook-reporting agents the hooks are the SOLE driver of activity:
-      // output must not flip to "working" here, or the prompt/result text that an
-      // authoritative awaiting_input/idle phase prints would override it back to
-      // working (a transient spinner-vs-needs-input fight). This mirrors the idle
-      // guard in scheduleTerminalIdleTransition, making hook agents fully
-      // hook-driven in BOTH directions. lastOutputAt was already advanced by
-      // appendTerminalOutput above and still feeds stall detection, so output
-      // stays a liveness co-signal without owning activity. Non-hook/inferred
-      // sessions keep the output-driven behavior verbatim.
-      if (
-        terminalSession.activity.kind !== 'working'
-        && terminalSession.agentState?.source !== 'hook'
-      ) {
+      // For AGENTS the hooks are the sole driver of activity in both
+      // directions: output must not flip to "working" here, or the
+      // prompt/result text that an authoritative awaiting_input/idle phase
+      // prints would override it back to working (a transient
+      // spinner-vs-needs-input fight). lastOutputAt was already advanced by
+      // appendTerminalOutput above and still feeds the stall watchdog, so
+      // output stays a liveness co-signal without owning status. Plain
+      // terminals keep the output-driven working/idle bolding.
+      if (terminalSession.kind !== 'agent' && terminalSession.activity.kind !== 'working') {
         setTerminalActivity(
           terminalSession,
           { kind: 'working', since: terminalSession.lastOutputAt ?? now }
@@ -2418,11 +2423,15 @@ function attachTerminalSession(
       })
     }
     terminalDiagnostics.clear(sessionId)
-    // Clear the hook phase so a stale `awaiting_input` (or any working phase) does
-    // not outlive the process — the snapshot then infers `exited` from activity.
+    // Lifecycle stamp: the pty exit OWNS the terminal phase (it carries the
+    // exit code no hook frame does), and stamping `exited` here is what clears
+    // a stale `awaiting_input`/working phase so it cannot outlive the process.
     // Only on a real exit: the suspend branch above returns early so a frozen,
     // resumable view keeps its phase.
-    terminalSession.agentState = undefined
+    terminalSession.agentState =
+      terminalSession.kind === 'agent'
+        ? { phase: 'exited', since: Date.now(), source: 'inferred' }
+        : undefined
     setTerminalActivity(terminalSession, { kind: 'exited', at: Date.now(), exitCode: event.exitCode })
     const agentSession = terminalSession.agentSession
     if (agentSession?.executionId && agentSessionExitListeners.size > 0) {
@@ -2567,6 +2576,7 @@ async function spawnAgentSessionFromDescriptor(input: {
       exitedAt: null,
       isDisposed: false,
       activity: createInitialTerminalActivity(startedAt),
+      agentState: createInitialAgentState('agent', startedAt),
       outputChunks: [],
       outputChunkBytes: [],
       outputChunkStart: 0,
@@ -2816,6 +2826,7 @@ async function spawnMobileAgentTerminal(input: {
       exitedAt: null,
       isDisposed: false,
       activity: createInitialTerminalActivity(startedAt),
+      agentState: createInitialAgentState('agent', startedAt),
       outputChunks: [],
       outputChunkBytes: [],
       outputChunkStart: 0,
@@ -3306,6 +3317,7 @@ async function spawnTerminalFromIpc(
         exitedAt: null,
         isDisposed: false,
         activity: createInitialTerminalActivity(startedAt),
+        agentState: createInitialAgentState(kind ?? (shellOnly ? 'terminal' : 'agent'), startedAt),
         outputChunks: [],
         outputChunkBytes: [],
         outputChunkStart: 0,

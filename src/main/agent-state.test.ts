@@ -14,7 +14,6 @@ import {
   evaluateAgentStall,
   installAgentStateReporter,
   isAtRestAgentPhase,
-  isAuthoritativeWorkingPhase,
   MAX_TRANSCRIPT_PATH_LENGTH,
   MAX_WAKEUP_DELAY_SECONDS,
   mergeAgentStateHooks,
@@ -405,7 +404,8 @@ async function run(): Promise<void> {
 
   // --- stall evaluation ---------------------------------------------------
   const stallBase = { phaseSince: 0, lastOutputAt: null, now: 100_000, thresholdMs: 90_000 }
-  // Inferred or non-working phases never stall.
+  // Non-working phases never stall, and inferred thinking/tool_use no longer
+  // exist as inputs (output-timing inference was deleted) — cleared if seen.
   assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'tool_use', source: 'inferred' }), { action: 'clear' })
   assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'idle', source: 'hook' }), { action: 'clear' })
   assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'awaiting_input', source: 'hook' }), { action: 'clear' })
@@ -416,6 +416,10 @@ async function run(): Promise<void> {
   // SessionStart as its only frame (no Stop follows), so it must convert to
   // stalled — and then expire via the reap policy — instead of parking forever.
   assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'starting', source: 'hook' }), { action: 'stalled' })
+  // The INFERRED 'starting' every agent is lifecycle-stamped with at spawn
+  // arms as well: a session whose hooks never fire (broken install — there is
+  // no output-timing fallback any more) has no other path off "working".
+  assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'starting', source: 'inferred' }), { action: 'stalled' })
   assert.deepEqual(
     evaluateAgentStall({ phase: 'starting', source: 'hook', phaseSince: 80_000, lastOutputAt: null, now: 100_000, thresholdMs: 90_000 }),
     { action: 'recheck', afterMs: 70_000 }
@@ -441,16 +445,6 @@ async function run(): Promise<void> {
   }
   assert.equal(isAtRestAgentPhase(null), false)
   assert.equal(isAtRestAgentPhase(undefined), false)
-
-  // --- heuristic cutover guard --------------------------------------------
-  // Only a hook-driven working phase suppresses the legacy idle-timer flip.
-  assert.equal(isAuthoritativeWorkingPhase({ phase: 'tool_use', since: 1, source: 'hook' }), true)
-  assert.equal(isAuthoritativeWorkingPhase({ phase: 'thinking', since: 1, source: 'hook' }), true)
-  assert.equal(isAuthoritativeWorkingPhase({ phase: 'awaiting_input', since: 1, source: 'hook' }), false)
-  assert.equal(isAuthoritativeWorkingPhase({ phase: 'idle', since: 1, source: 'hook' }), false)
-  // Inferred working never suppresses (no hook to trust), nor does absent state.
-  assert.equal(isAuthoritativeWorkingPhase({ phase: 'thinking', since: 1, source: 'inferred' }), false)
-  assert.equal(isAuthoritativeWorkingPhase(undefined), false)
 
   // --- command builder ----------------------------------------------------
   // The reporter is referenced by its ABSOLUTE path (hook cwd is not guaranteed),

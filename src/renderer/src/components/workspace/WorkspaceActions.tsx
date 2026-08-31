@@ -76,7 +76,8 @@ export type SessionItem = {
   cli: AgentCli
   status: 'needs-input' | 'working' | 'idle' | 'failed'
   // Provenance of `status`: 'hook' = authoritative lifecycle-hook frame,
-  // 'inferred' = output-timing fallback.
+  // 'inferred' = a lifecycle stamp (spawn `starting`, watchdog `stalled`,
+  // pty `exited`/`failed`) — never an output-timing guess.
   source: AgentStateSource
   // When the current status began (ms epoch); drives "active 2m" / "waiting 4m".
   activitySince: number

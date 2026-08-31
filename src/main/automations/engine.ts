@@ -189,10 +189,14 @@ const DEFAULT_POLL_INTERVAL_MS = 60_000
 // long and any working-phase frame in the window disarms it.
 const DEFAULT_TURN_SETTLE_MS = 15_000
 
-// Bounded backstop for runs whose agent never reports a turn end: a CLI outside
-// the reporter set (see agentStateSupportsCli) emits no frame at all, and a
-// frame can be lost. Past this age a pending run is failed rather than left
-// Running forever — the bug this whole path exists to fix.
+// Bounded backstop for runs whose agent never reports a turn end. Every
+// selectable agent CLI reports via lifecycle hooks now (the hook-capable gate),
+// so this is no longer "the hookless-CLI path" — it survives because frame
+// delivery is best-effort over a local socket: a lost Stop frame, a reporter
+// install that failed on a read-only tree, or a hook system the CLI vendor
+// broke in an update all leave a run with no turn end. Past this age a pending
+// run is failed rather than left Running forever — the bug this whole path
+// exists to fix.
 const DEFAULT_MAX_AGENT_RUN_MS = 6 * 60 * 60 * 1000
 
 export class AutomationsEngine {

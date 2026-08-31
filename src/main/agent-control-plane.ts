@@ -48,9 +48,10 @@ export type ControlPlaneSession = {
   cwd?: string
   cli?: string
   /**
-   * Authoritative phase where the CLI reports lifecycle hooks, the inferred
-   * output-timing phase otherwise (see `agent-state.ts`). Absent for plain
-   * shell terminals, which have no agent to be idle or working.
+   * The agent's lifecycle phase: hook-reported once frames arrive, lifecycle-
+   * stamped (`starting`/`stalled`/`exited`/`failed`) otherwise — never guessed
+   * from output timing (see `agent-state.ts`). Absent for plain shell
+   * terminals, which have no agent to be idle or working.
    */
   phase?: AgentPhase
   lastOutputAt?: number | null

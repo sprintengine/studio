@@ -901,6 +901,8 @@ async function assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule:
   try {
     const busyProcess = await spawnHiddenAgent('session-bg-shell', 'ws-guard-busy')
     await spawnHiddenAgent('session-guard-quiet', 'ws-guard-quiet')
+    markAgentAtRest(runtime, 'session-bg-shell', 'ws-guard-busy')
+    markAgentAtRest(runtime, 'session-guard-quiet', 'ws-guard-quiet')
 
     const wellPastIdle = Date.now() + 30 * 60 * 1000 + 1_000
     // ps tree: the busy agent's pty root has a Claude tool-shell child (a
@@ -981,11 +983,13 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
   }
 
   try {
-    // Three hidden idle agents (no hook frames → recency floor) and one that is
-    // authoritatively awaiting user input (a hook frame protects it).
+    // Two agents authoritatively at rest (Stop frames) and one that is
+    // authoritatively awaiting user input (its hook frame protects it).
     const oldProcess = await spawnHiddenAgent('session-old', 'ws-old')
     await spawnHiddenAgent('session-idle-b', 'ws-b')
     await spawnHiddenAgent('session-awaiting', 'ws-awaiting')
+    markAgentAtRest(runtime, 'session-old', 'ws-old')
+    markAgentAtRest(runtime, 'session-idle-b', 'ws-b')
 
     // Mark the protected agent as awaiting_input via an authoritative hook frame.
     runtime.ingestAgentStateFrame({
@@ -1099,6 +1103,22 @@ async function assertIdleSweepRecencyFloorSparesMostRecent(runtimeModule: Runtim
     await delay(5)
     runtime.ipcHandlers.writeTerminal('floor-new', 'x')
 
+    // At rest the hook way: every selectable CLI reports lifecycle frames now
+    // (the spawn stamp `starting` is a protected working phase), so the sweep
+    // only sees rest as an authoritative idle. Stagger to keep the resting
+    // order unambiguous: oldest first.
+    for (const id of ['floor-old', 'floor-mid', 'floor-new']) {
+      runtime.ingestAgentStateFrame({
+        type: 'agent_state',
+        agentId: id,
+        workspaceId: `ws-${id}`,
+        sessionId: null,
+        event: 'Stop',
+        ts: Date.now(),
+      })
+      await delay(5)
+    }
+
     // All three are idle past the threshold, but the floor of 2 spares the two
     // most recently used — only the oldest is suspended.
     const wellPastIdle = Date.now() + 30 * 60 * 1000 + 1_000
@@ -1164,6 +1184,8 @@ async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(
     mockPty.spawnCalls[0]?.process.emitData('painted output a\r\n')
     mockPty.spawnCalls[1]?.process.emitData('painted output b\r\n')
     await delay(20)
+    markAgentAtRest(runtime, 'session-lock-a', 'ws-session-lock-a')
+    markAgentAtRest(runtime, 'session-lock-b', 'ws-session-lock-b')
 
     runtime.ipcHandlers.setTerminalReapExempt('session-lock-a', true)
     assert.equal(
@@ -3014,12 +3036,16 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
     })
     assert.equal(spawn.ok, true, JSON.stringify(spawn))
 
-    // Before any hook frame, an agent session exposes an inferred AgentState
-    // derived from its activity (spawns working → inferred thinking).
+    // Before any hook frame, an agent session exposes its lifecycle stamp —
+    // `starting`, inferred — the one phase a fresh spawn can substantiate.
+    // Nothing is guessed from output timing any more.
     const initial = snapshotFor('sess-ingest')
     assert.equal(initial?.agentState?.source, 'inferred')
-    assert.equal(initial?.agentState?.phase, 'thinking')
+    assert.equal(initial?.agentState?.phase, 'starting')
 
+    // Timestamps are offsets on the spawn moment: the lifecycle stamp
+    // (`starting`, since = spawn time) makes anything older a stale frame.
+    const base = Date.now()
     const frame = (phase: string, ts: number) => ({
       type: 'agent_state' as const,
       agentId: 'agent-ingest',
@@ -3027,7 +3053,7 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
       sessionId: null,
       phase: phase as Parameters<typeof runtime.ingestAgentStateFrame>[0]['phase'],
       event: null,
-      ts,
+      ts: base + ts,
     })
 
     // awaiting_input → recorded as hook phase, bridged activity reads idle.
@@ -3035,7 +3061,7 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
     let snap = snapshotFor('sess-ingest')
     assert.equal(snap?.agentState?.phase, 'awaiting_input')
     assert.equal(snap?.agentState?.source, 'hook')
-    assert.equal(snap?.agentState?.since, 1000)
+    assert.equal(snap?.agentState?.since, base + 1000)
     assert.equal(snap?.activity.kind, 'idle')
 
     // A stale (older-ts) frame must not roll the phase backward.
@@ -3050,7 +3076,7 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
     assert.equal(snap?.activity.kind, 'working')
     assert.equal(
       snap?.activity.kind === 'working' ? snap.activity.since : -1,
-      2000,
+      base + 2000,
       'working since anchors to the first working frame',
     )
 
@@ -3065,10 +3091,10 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
     runtime.ingestAgentStateFrame(frame('thinking', 2003))
     snap = snapshotFor('sess-ingest')
     assert.equal(snap?.agentState?.phase, 'thinking', 'phase tracks the latest within-working frame')
-    assert.equal(snap?.agentState?.since, 2003)
+    assert.equal(snap?.agentState?.since, base + 2003)
     assert.equal(
       snap?.activity.kind === 'working' ? snap.activity.since : -1,
-      2000,
+      base + 2000,
       'working since must be preserved across thinking ↔ tool_use churn',
     )
     const broadcastsAfter = mockSender.sent.filter((e) => e.channel === 'terminal:sessions-changed').length
@@ -3106,7 +3132,7 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
       sessionId: null,
       phase: 'idle',
       event: null,
-      ts: 3000,
+      ts: base + 3000,
     })
     snap = snapshotFor('sess-ingest')
     assert.equal(snap?.agentState?.phase, 'thinking', 'unknown-agent frame must not touch other sessions')
@@ -3123,7 +3149,7 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
       sessionId: 'codex-conv-abc123',
       phase: 'thinking',
       event: null,
-      ts: 4000,
+      ts: base + 4000,
     })
     snap = snapshotFor('sess-ingest')
     assert.equal(snap?.cliSessionId, 'codex-conv-abc123', 'hook session_id is captured for resume')
@@ -3467,6 +3493,18 @@ function createMockPtyProcess(): MockPtyProcess {
       for (const callback of exitCallbacks) callback(event)
     },
   }
+}
+
+// Every selectable agent CLI reports lifecycle hooks now, and the spawn stamp
+// `starting` is a reaper-protected working phase — so tests put an agent at
+// rest the way production does: with an authoritative Stop frame.
+function markAgentAtRest(
+  runtime: { ingestAgentStateFrame: (frame: AgentStateFrame) => void },
+  agentId: string,
+  workspaceId: string,
+  ts = Date.now()
+): void {
+  runtime.ingestAgentStateFrame({ type: 'agent_state', agentId, workspaceId, sessionId: null, event: 'Stop', ts })
 }
 
 function delay(ms: number): Promise<void> {
