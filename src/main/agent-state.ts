@@ -564,7 +564,10 @@ export async function mergeFlatAgentStateHooks(
   const existing = (await readJsonIfExists<FlatHooksFile>(hooksPath)) ?? {}
   const file: FlatHooksFile = { ...existing }
   if (typeof file.version !== 'number') file.version = 1
-  if (!file.hooks || typeof file.hooks !== 'object') file.hooks = {}
+  // An array-shaped `hooks` (malformed — the vendor schema wants an object)
+  // would silently swallow string-keyed event assignments; replace it so the
+  // registration actually lands rather than reporting ok and installing nothing.
+  if (!file.hooks || typeof file.hooks !== 'object' || Array.isArray(file.hooks)) file.hooks = {}
 
   // Clean up first (all event keys, incl. ones we no longer register), then add
   // the current set — install is both idempotent and a migration.
@@ -581,8 +584,11 @@ export async function mergeFlatAgentStateHooks(
 
 export async function unmergeFlatAgentStateHooks(hooksPath: string): Promise<void> {
   const existing = await readJsonIfExists<FlatHooksFile>(hooksPath)
-  if (!existing?.hooks || typeof existing.hooks !== 'object') return
+  if (!existing?.hooks || typeof existing.hooks !== 'object' || Array.isArray(existing.hooks)) return
   stripFlatAgentStateEntries(existing.hooks)
+  // Match the settings-json unmerge: an emptied hooks map is deleted rather
+  // than left as a `"hooks": {}` stub.
+  if (Object.keys(existing.hooks).length === 0) delete existing.hooks
   await writeFile(hooksPath, JSON.stringify(existing, null, 2) + '\n', 'utf8')
 }
 

@@ -1925,11 +1925,20 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const session = resolveSessionForAgentStateFrame(frame)
   if (!session) return
 
-  // Token accounting flush: SessionEnd fires while the CLI shuts down and can
-  // race the pty exit (and the stale-frame guard below), so snapshot the
-  // session's cumulative usage BEFORE the liveness/ordering guards — this is
-  // the warm-source moment and must never be dropped. Fire-and-forget.
-  if (session.sprintEngineStatePath && frame.event === 'SessionEnd') {
+  // Map the raw reporter event to a phase via the resolving plugin's
+  // manifest-declared agentStateSpec — the reporter forwards vocabulary, the
+  // manifest owns meaning. Resolved FIRST (it is pure) because the phase, not
+  // the event name, is what the session-lifecycle bookkeeping below keys on:
+  // each CLI spells its events its own way ('SessionEnd' vs 'sessionEnd'), and
+  // the manifest already normalizes that into the phase vocabulary.
+  const resolution = resolveAgentStateEvent(agentStateSpecForSession(session), frame)
+
+  // Token accounting flush: a session-end frame (phase `exited`) fires while
+  // the CLI shuts down and can race the pty exit (and the stale-frame guard
+  // below), so snapshot the session's cumulative usage BEFORE the
+  // liveness/ordering guards — this is the warm-source moment and must never
+  // be dropped. Fire-and-forget.
+  if (session.sprintEngineStatePath && resolution.action === 'apply' && resolution.phase === 'exited') {
     void sampleSprintSessionTokenUsage(session, 'session-end')
   }
 
@@ -1939,13 +1948,10 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // out-of-order socket delivery can't roll the phase backward.
   if (session.agentState && session.agentState.since > frame.ts) return
 
-  // Map the raw reporter event to a phase via the resolving plugin's
-  // manifest-declared agentStateSpec — the reporter forwards vocabulary, the
-  // manifest owns meaning. A frame whose event the spec does not name (or
-  // whose discriminator value is not allow-listed — Claude's informational
-  // Notification types) drops here: the prior phase stands, exactly as when
-  // the reporter used to filter these client-side.
-  const resolution = resolveAgentStateEvent(agentStateSpecForSession(session), frame)
+  // A frame whose event the spec does not name (or whose discriminator value
+  // is not allow-listed — Claude's informational Notification types) drops
+  // here: the prior phase stands, exactly as when the reporter used to filter
+  // these client-side.
   if (resolution.action !== 'apply') return
 
   const previousPhase = session.agentState?.phase
@@ -1959,11 +1965,12 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   if (frame.prompt) session.lastPrompt = { text: frame.prompt, at: frame.ts }
 
   // Self-scheduled wakeup bookkeeping: a schedule frame arms the reap hold, a
-  // stop frame disarms it, and SessionStart clears — a fresh or resumed CLI
-  // process carries no timer from its previous life, so a stale hold would
-  // park the session for nothing. Expiry needs no handling here: the policy
-  // compares pendingWakeupAt against `now`.
-  if (frame.event === 'SessionStart') session.pendingWakeupAt = null
+  // stop frame disarms it, and a session-start frame (phase `starting`, however
+  // the CLI spells the event) clears — a fresh or resumed CLI process carries
+  // no timer from its previous life, so a stale hold would park the session
+  // for nothing. Expiry needs no handling here: the policy compares
+  // pendingWakeupAt against `now`.
+  if (resolution.phase === 'starting') session.pendingWakeupAt = null
   if (frame.wakeup) {
     session.pendingWakeupAt = 'stop' in frame.wakeup ? null : frame.ts + frame.wakeup.delaySeconds * 1000
   }
@@ -1981,12 +1988,13 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // Token accounting (sprint-managed agents only): every captured session id
   // is appended to the run's durable token ledger — a resume mints a new id
   // whose cumulative counter restarts at zero, so all ids must be kept. The
-  // SessionStart trigger covers resume-seeded sessions whose id was already
-  // known at spawn (cliSessionIdChanged never fires for those); the reader
-  // folds repeated records. Fire-and-forget, never affects the transition.
+  // session-start trigger (phase `starting`) covers resume-seeded sessions
+  // whose id was already known at spawn (cliSessionIdChanged never fires for
+  // those); the reader folds repeated records. Fire-and-forget, never affects
+  // the transition.
   if (
     session.sprintEngineStatePath
-    && (cliSessionIdChanged || frame.event === 'SessionStart')
+    && (cliSessionIdChanged || resolution.phase === 'starting')
   ) {
     recordSprintSessionForTokenLedger(session)
   }
