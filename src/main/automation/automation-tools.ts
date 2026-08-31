@@ -270,6 +270,30 @@ export type AutomationBackends = {
    * — one source of truth, not a second fetch path.
    */
   readMarketplaceRegistry(input?: MarketplaceRegistryReadInput): Promise<MarketplaceRegistryReadResult>
+  /**
+   * The mobile companion's read model and command lane, served over the
+   * gateway so a tailnet-paired phone works without the relay
+   * (tailnet-mobile-transport, self-hosted-relay epic). Snapshots come back
+   * in the same path-token form the relay serves — the phone round-trips
+   * `ws_` tokens, never local paths — and commands run through the same
+   * MobileSprintEngineCommandService the relay bridge dispatches to, so the
+   * two transports cannot drift in behaviour.
+   */
+  mobileControl: {
+    readSnapshot(input: { include?: string[]; knownSnapshotVersion?: string }): Promise<
+      { unchanged: true; snapshotVersion: string } | { unchanged: false; snapshot: Record<string, unknown> }
+    >
+    dispatchCommand(input: {
+      type: string
+      payload: Record<string, unknown>
+      deviceId: string
+      idempotencyKey: string
+      expectedSnapshotVersion?: string
+    }): Promise<
+      | { ok: true; commandId: string; commandType: string; executedAt: string; data: unknown }
+      | { ok: false; code: string; message: string }
+    >
+  }
   now?: () => number
   sleep?: (ms: number) => Promise<void>
 }
@@ -593,6 +617,105 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
+  // ── Mobile companion over the gateway ────────────────────────────────────
+  // tailnet-mobile-transport (self-hosted-relay epic): the phone's snapshot
+  // and command lane without the relay. v1 deliberately serves the epic's
+  // acceptance set and nothing more; widening the command allowlist is a
+  // decision, not a default.
+  const MOBILE_GATEWAY_COMMAND_TYPES = ['backlog.update', 'sprintengine.create'] as const
+
+  const workspaceSnapshot: McpToolRegistration = {
+    name: 'workspace.snapshot',
+    description:
+      'The mobile companion snapshot: sprint engines, backlog, automations, and workspaces as one versioned '
+      + 'document, in the same path-token form the relay serves (ws_ tokens round-trip; local paths never leave '
+      + 'the desktop). Pass knownSnapshotVersion from the previous read to get an {unchanged: true} marker '
+      + 'instead of the full document when nothing moved.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        include: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Collections to include (sprintEngines, backlog, roleCatalogs, automations, desktopWorkspaces). '
+            + 'Defaults to the standard mobile set.',
+        },
+        knownSnapshotVersion: { type: 'string', description: 'The snapshotVersion returned by the previous read.' },
+      },
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const invalidArray = firstInvalidStringArray(args, ['include'])
+      if (invalidArray) return invalidArray
+      const invalidString = firstInvalidOptionalString(args, ['knownSnapshotVersion'])
+      if (invalidString) return invalidString
+      const result = await backends.mobileControl.readSnapshot({
+        include: optionalStringArray(args.include),
+        knownSnapshotVersion: optionalString(args.knownSnapshotVersion),
+      })
+      return success(result)
+    },
+  }
+
+  const workspaceMobileCommand: McpToolRegistration = {
+    name: 'workspace.mobile_command',
+    description:
+      'Dispatch one mobile-control command envelope from a paired companion device — the same commands the phone '
+      + `sends over the relay, over this transport instead. Served types: ${MOBILE_GATEWAY_COMMAND_TYPES.join(', ')}. `
+      + 'The device identity comes from the transport, never from the arguments.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', description: `One of: ${MOBILE_GATEWAY_COMMAND_TYPES.join(', ')}.` },
+        payload: { type: 'object', description: 'The command payload, exactly as the mobile-control protocol defines it.' },
+        idempotencyKey: { type: 'string', description: 'Client-chosen key; replays return the recorded result.' },
+        expectedSnapshotVersion: { type: 'string' },
+      },
+      required: ['type', 'payload', 'idempotencyKey'],
+      additionalProperties: false,
+    },
+    handler: async (args, context) => {
+      const type = requireString(args, 'type')
+      if (typeof type !== 'string') return type
+      const idempotencyKey = requireString(args, 'idempotencyKey')
+      if (typeof idempotencyKey !== 'string') return idempotencyKey
+      const invalidString = firstInvalidOptionalString(args, ['expectedSnapshotVersion'])
+      if (invalidString) return invalidString
+      if (!(MOBILE_GATEWAY_COMMAND_TYPES as readonly string[]).includes(type)) {
+        return failure(
+          'command_not_supported',
+          `Mobile command "${type}" is not served over the gateway (served: ${MOBILE_GATEWAY_COMMAND_TYPES.join(', ')}).`
+        )
+      }
+      const payload = args.payload
+      if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+        return failure('invalid_arguments', '"payload" must be an object.')
+      }
+      // The transport proved which paired device is calling (remote-tailnet
+      // metadata is set server-side); a local-socket caller is the owner's own
+      // machine and is labelled as such rather than trusted to name a device.
+      const metadata = context?.metadata
+      const deviceId =
+        metadata?.kind === 'remote-tailnet' && metadata.deviceId ? metadata.deviceId : `local:${metadata?.kind ?? 'unknown'}`
+      const result = await backends.mobileControl.dispatchCommand({
+        type,
+        payload: payload as Record<string, unknown>,
+        deviceId,
+        idempotencyKey,
+        expectedSnapshotVersion: optionalString(args.expectedSnapshotVersion),
+      })
+      if (!result.ok) return failure(result.code, result.message)
+      return success({
+        ok: true,
+        commandId: result.commandId,
+        commandType: result.commandType,
+        executedAt: result.executedAt,
+        data: (result.data ?? null) as Record<string, unknown> | null,
+      })
+    },
+  }
+
   const workspaceStatus: McpToolRegistration = {
     name: 'workspace.status',
     description: 'Read one workspace from the main process store, including its agents and their terminal liveness.',
@@ -739,10 +862,12 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     description:
       'List the agent CLIs this app can launch, with the model ids and reasoning-effort levels each one '
       + 'declares. Read it before passing `cli`/`cliModel` to agent.launch, or `runtime`/`roleModels`/'
-      + '`roleEfforts` to sprint.create — those are otherwise blind strings. A CLI whose `allowCustomModelId` '
-      + 'is true accepts model ids outside its listed options (the list is a seed, not a closed set); a level '
-      + 'outside `reasoningLevels` is refused by the CLI itself. This reports what the registry HOLDS, not '
-      + 'what is installed on this machine — it never probes for binaries.',
+      + '`roleEfforts` to sprint.create — those are otherwise blind strings. Only rows with `agentSelectable: '
+      + 'true` may be launched as agents or staff sprints (the CLI reports agent state via lifecycle hooks); '
+      + 'a false row is registry-held for install/detect only and every launch door refuses it. A CLI whose '
+      + '`allowCustomModelId` is true accepts model ids outside its listed options (the list is a seed, not a '
+      + 'closed set); a level outside `reasoningLevels` is refused by the CLI itself. This reports what the '
+      + 'registry HOLDS, not what is installed on this machine — it never probes for binaries.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3085,6 +3210,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     roadmapResume,
     workspaceCreate,
     workspaceList,
+    workspaceMobileCommand,
+    workspaceSnapshot,
     workspaceStatus,
     agentLaunch,
     agentStatus,
@@ -3165,6 +3292,11 @@ function cliRuntimeProjection(plugin: LoadedPlugin): Record<string, unknown> {
     displayName: manifest.displayName,
     source: plugin.source,
     binary: manifest.binary,
+    // Hooks-only selectability (decision of record 2026-08-31): declared, not
+    // probed — true exactly when the manifest carries an agentStateSpec. Rows
+    // are marked rather than omitted so a remote caller holding a stale id
+    // learns WHY it is refused instead of seeing the CLI vanish.
+    agentSelectable: Boolean(manifest.agentStateSpec),
     supportsModelSelection: Boolean(manifest.modelSelection),
     models: (manifest.modelSelection?.options ?? []).map((option) => ({
       id: option.id,

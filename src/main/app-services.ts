@@ -1,6 +1,8 @@
 import { app, BrowserWindow, powerSaveBlocker, shell } from 'electron'
+import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import { access, readdir, readFile, stat } from 'fs/promises'
+import { hostname } from 'os'
 import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
 import { createAgentStateService } from './agent-state-service'
@@ -34,6 +36,17 @@ import { installMulticodeCliTools } from './cli-install'
 import { MulticodeAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
 import { discoverMobileSprintEngineStatePaths } from './mobile-sprintengine-discovery'
+import { MobileSprintEngineSnapshotService, sanitizeMobileSnapshotForRelay } from './mobile/sprintengine/snapshot'
+import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
+import { validateSprintEngineStatePath } from './mobile/sprintengine/state-path'
+import { deepRedactLocalPaths } from './mobile/sprintengine/relay-path-safety'
+import { listKnownWorkspaceRoots, uniqueResolvedRoots } from './workspace-roots'
+import {
+  mobileControlProtocolVersion,
+  mobileSnapshotCollections,
+  type MobileControlCommandType,
+  type MobileSnapshotCollection,
+} from '../shared/mobile-control/protocol'
 import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
@@ -584,6 +597,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     listWorkspaces: () => workspaceSyncService.getSnapshot().state.workspaces,
     getLaunchSettings: () => sprintEngineLaunchSettings.get(),
     listConnectorCatalog: () => mcpConfigService.listCatalog(),
+    // Hooks-only selectability (decision of record 2026-08-31): a CLI whose
+    // manifest declares no agentStateSpec is refused as an agent.
+    isAgentSelectableCli: (cli) =>
+      getPluginRegistry()
+        .loaded()
+        .some((plugin) => plugin.manifest.id === cli && Boolean(plugin.manifest.agentStateSpec)),
     // The same resolver the renderer reaches over `memory:resolve-root`, so a
     // headless launch carries the project's Knowledge Graph exactly like an
     // interactively-spawned agent does.
@@ -606,7 +625,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     getLaunchSettings: () => sprintEngineLaunchSettings.get(),
     // What the registry HOLDS, which is what main can spawn — the same set
     // `cli.runtime.list` reports.
-    listLaunchableClis: () => getPluginRegistry().loaded().map((plugin) => plugin.manifest.id),
+    // Only hook-capable CLIs (manifest agentStateSpec) may staff a sprint —
+    // hooks are the only supported status mechanism, and a sprint on a CLI
+    // that cannot report state would run blind (decision of record 2026-08-31).
+    listLaunchableClis: () =>
+      getPluginRegistry()
+        .loaded()
+        .filter((plugin) => Boolean(plugin.manifest.agentStateSpec))
+        .map((plugin) => plugin.manifest.id),
     initializeSprintEngineState: (input) => sprintEngineArtifacts.initializeSprintEngineState(input),
     fs: {
       pathExists: (path) => pathExists(path),
@@ -720,6 +746,82 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         getRoadmapFrontDoor: () => resolveRoadmapAppFrontDoor(),
         listSprintRunStatePaths: (workspaceRoot) => discoverMobileSprintEngineStatePaths([workspaceRoot]),
         readSprintEngineProjection: (statePath) => sprintEngineArtifacts.readProjection({ statePath }),
+        // The mobile companion over the gateway (tailnet-mobile-transport):
+        // the SAME snapshot builder and command service the relay bridge uses,
+        // wired to the same root/state-path discovery, so the two transports
+        // serve one behaviour. Both services are stateless enough to own here;
+        // the relay bridge keeps its own instances (it also publishes pushes).
+        mobileControl: (() => {
+          const snapshotService = new MobileSprintEngineSnapshotService()
+          const commandService = new MobileSprintEngineCommandService()
+          // Stable for the app's lifetime; the phone treats it as an opaque id.
+          const desktopSessionId = `tailnet:${hostname()}`
+          // The commands the gateway transport actually serves: snapshot reads
+          // via workspace.snapshot, mutations via workspace.mobile_command's
+          // allowlist. Advertised in the snapshot so the phone's affordance
+          // gate shows exactly what will work over this transport.
+          const gatewayCommands: MobileControlCommandType[] = ['snapshot.request', 'backlog.update', 'sprintengine.create']
+          const workspaceRoots = () => uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot()))
+          return {
+            async readSnapshot(input: { include?: string[]; knownSnapshotVersion?: string }) {
+              const roots = workspaceRoots()
+              const include = input.include?.filter((entry): entry is MobileSnapshotCollection =>
+                (mobileSnapshotCollections as readonly string[]).includes(entry)
+              )
+              const snapshot = await snapshotService.readSnapshot({
+                desktopSessionId,
+                statePaths: await discoverMobileSprintEngineStatePaths(roots),
+                workspaceRoots: roots,
+                commands: gatewayCommands,
+                ...(include && include.length > 0 ? { include } : {}),
+              })
+              const safe = sanitizeMobileSnapshotForRelay(snapshot)
+              if (input.knownSnapshotVersion && input.knownSnapshotVersion === safe.snapshotVersion) {
+                return { unchanged: true as const, snapshotVersion: safe.snapshotVersion }
+              }
+              return { unchanged: false as const, snapshot: safe as unknown as Record<string, unknown> }
+            },
+            async dispatchCommand(input: {
+              type: string
+              payload: Record<string, unknown>
+              deviceId: string
+              idempotencyKey: string
+              expectedSnapshotVersion?: string
+            }) {
+              const statePaths = await discoverMobileSprintEngineStatePaths(workspaceRoots())
+              // Mirror the relay bridge's scope split exactly: sprint-engine
+              // mutations resolve roots from run state paths; workspace-level
+              // mutations (backlog.*) also accept the open workspace roots.
+              const stateRoots = statePaths.map((statePath) => validateSprintEngineStatePath(statePath).workspaceRoot)
+              const allowedWorkspaceRoots =
+                input.type === 'sprintengine.create' ? stateRoots : [...stateRoots, ...workspaceRoots()]
+              const result = await commandService.dispatch(
+                {
+                  protocolVersion: mobileControlProtocolVersion,
+                  commandId: `tnc_${randomUUID()}`,
+                  type: input.type,
+                  payload: input.payload,
+                  deviceId: input.deviceId,
+                  issuedAt: new Date().toISOString(),
+                  idempotencyKey: input.idempotencyKey,
+                  ...(input.expectedSnapshotVersion ? { expectedSnapshotVersion: input.expectedSnapshotVersion } : {}),
+                },
+                { statePaths, allowedWorkspaceRoots }
+              )
+              if (!result.ok) {
+                return { ok: false as const, code: result.error.code, message: result.error.message }
+              }
+              return {
+                ok: true as const,
+                commandId: result.commandId,
+                commandType: result.commandType,
+                executedAt: result.executedAt,
+                // The result crosses to another device: local paths never do.
+                data: deepRedactLocalPaths(result.data),
+              }
+            },
+          }
+        })(),
         // Sprint lifecycle control (MC-1653): mode writes go through the main-owned
         // intent service (same lane as the mobile relay/sprint.status), never the
         // renderer delegate. Cancel is the composed op the IPC channel uses — the

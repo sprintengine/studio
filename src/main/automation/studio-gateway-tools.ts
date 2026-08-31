@@ -58,6 +58,13 @@ const APP_MUTATION_TOOLS = new Set([
   // including a refused one, land in the audit with the device that made it.
   'terminal.create',
   'workspace.create',
+  // The mobile companion's command envelope over the gateway
+  // (tailnet-mobile-transport). A mutation for both of its consequences: a
+  // paired phone needs `workspace:operate` to drive it, and every dispatch —
+  // including a refused one — lands in the audit with the device identity.
+  // `workspace.snapshot` deliberately is NOT here: it is the phone's read
+  // model and maps to `workspace:read` like every other read.
+  'workspace.mobile_command',
   // The one review tool that writes: it persists brief.json. The three review
   // reads (list/get-changeset/get-brief) are not mutations.
   'review_submit_brief',

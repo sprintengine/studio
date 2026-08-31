@@ -117,6 +117,7 @@ type BackendsOverrides = {
   getAutomationsFrontDoor?: AutomationBackends['getAutomationsFrontDoor']
   getRoadmapFrontDoor?: AutomationBackends['getRoadmapFrontDoor']
   listSprintRunStatePaths?: AutomationBackends['listSprintRunStatePaths']
+  mobileControl?: AutomationBackends['mobileControl']
   readSprintEngineProjection?: AutomationBackends['readSprintEngineProjection']
   readSprintAutomationMode?: AutomationBackends['readSprintAutomationMode']
   setSprintAutomationMode?: AutomationBackends['setSprintAutomationMode']
@@ -171,6 +172,18 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
     // A machine where nobody has chosen a preset yet — the honest starting
     // state, so a case that depends on a default has to say so.
     getAgentSpawnPermissionDefault: overrides.getAgentSpawnPermissionDefault ?? (() => null),
+    // Default: the mobile lane is unwired. A test that exercises the mobile
+    // tools stubs this; anything else that reaches it fails loudly.
+    mobileControl:
+      overrides.mobileControl
+      ?? {
+        readSnapshot: async () => {
+          throw new Error('unexpected mobileControl.readSnapshot call')
+        },
+        dispatchCommand: async () => {
+          throw new Error('unexpected mobileControl.dispatchCommand call')
+        },
+      },
     listBacklogItems: overrides.listBacklogItems ?? (async () => ({ ok: true, key: null, items: [] })),
     readBacklogItem:
       overrides.readBacklogItem ?? (async (_root, relativePath) => ({ ok: false, message: `no item ${relativePath}` })),
@@ -404,6 +417,8 @@ async function testToolListNamesTheToolSurface(): Promise<void> {
       'terminal.list',
       'workspace.create',
       'workspace.list',
+      'workspace.mobile_command',
+      'workspace.snapshot',
       'workspace.status',
     ]
   )
@@ -4200,6 +4215,98 @@ async function testModuleAndMarketplaceToolsAreReadOnly(): Promise<void> {
   )
 }
 
+// ── Mobile companion over the gateway (tailnet-mobile-transport) ───────────
+
+async function testMobileSnapshotToolServesTheCompanionReadModel(): Promise<void> {
+  const reads: Array<{ include?: string[]; knownSnapshotVersion?: string }> = []
+  const tools = createAutomationTools(
+    backendsOf({
+      mobileControl: {
+        readSnapshot: async (input) => {
+          reads.push(input)
+          if (input.knownSnapshotVersion === 'snap_current') {
+            return { unchanged: true as const, snapshotVersion: 'snap_current' }
+          }
+          return {
+            unchanged: false as const,
+            snapshot: { protocolVersion: 2, snapshotVersion: 'snap_current', sprintEngines: [] },
+          }
+        },
+        dispatchCommand: async () => {
+          throw new Error('not under test')
+        },
+      },
+    })
+  )
+
+  const full = await tool(tools, 'workspace.snapshot').handler({ include: ['sprintEngines', 'backlog'] })
+  assert.equal(full.isError, undefined)
+  const fullBody = full.structuredContent as { unchanged: boolean; snapshot: { snapshotVersion: string } }
+  assert.equal(fullBody.unchanged, false)
+  assert.equal(fullBody.snapshot.snapshotVersion, 'snap_current')
+  assert.deepEqual(reads[0]?.include, ['sprintEngines', 'backlog'])
+
+  const short = await tool(tools, 'workspace.snapshot').handler({ knownSnapshotVersion: 'snap_current' })
+  assert.deepEqual(short.structuredContent, { unchanged: true, snapshotVersion: 'snap_current' })
+
+  const badInclude = await tool(tools, 'workspace.snapshot').handler({ include: [''] })
+  assert.equal(badInclude.isError, true)
+}
+
+async function testMobileCommandToolDispatchesOnlyTheServedEnvelopes(): Promise<void> {
+  const dispatched: Array<{ type: string; deviceId: string; idempotencyKey: string }> = []
+  const tools = createAutomationTools(
+    backendsOf({
+      mobileControl: {
+        readSnapshot: async () => {
+          throw new Error('not under test')
+        },
+        dispatchCommand: async (input) => {
+          dispatched.push({ type: input.type, deviceId: input.deviceId, idempotencyKey: input.idempotencyKey })
+          if (input.type === 'sprintengine.create') {
+            return { ok: false as const, code: 'path_not_allowed', message: 'workspace token matched no root' }
+          }
+          return {
+            ok: true as const,
+            commandId: 'tnc_1',
+            commandType: input.type,
+            executedAt: '2026-08-31T00:00:00.000Z',
+            data: { relativePath: 'backlog/x.md' },
+          }
+        },
+      },
+    })
+  )
+  const reg = tool(tools, 'workspace.mobile_command')
+
+  // The device identity comes from the transport metadata, never the args.
+  const ok = await reg.handler(
+    {
+      type: 'backlog.update',
+      payload: { workspacePath: 'ws_abc123', relativePath: 'backlog/x.md', status: 'ready' },
+      idempotencyKey: 'idem-1',
+    },
+    { metadata: { kind: 'remote-tailnet', deviceId: 'tnd_phone' } }
+  )
+  assert.equal(ok.isError, undefined)
+  assert.equal((ok.structuredContent as { ok: boolean }).ok, true)
+  assert.deepEqual(dispatched[0], { type: 'backlog.update', deviceId: 'tnd_phone', idempotencyKey: 'idem-1' })
+
+  // Backend refusals surface as tool errors with the backend's own code.
+  const refusedByBackend = await reg.handler(
+    { type: 'sprintengine.create', payload: { workspacePath: 'ws_zzz', productPrompt: 'x' }, idempotencyKey: 'idem-2' },
+    { metadata: { kind: 'remote-tailnet', deviceId: 'tnd_phone' } }
+  )
+  assert.equal(refusedByBackend.isError, true)
+  assert.match(JSON.stringify(refusedByBackend.structuredContent), /path_not_allowed/u)
+
+  // A command type outside the served set never reaches the backend.
+  const refusedByTool = await reg.handler({ type: 'device.revoke', payload: {}, idempotencyKey: 'idem-3' })
+  assert.equal(refusedByTool.isError, true)
+  assert.match(JSON.stringify(refusedByTool.structuredContent), /command_not_supported/u)
+  assert.equal(dispatched.length, 2)
+}
+
 const tests = [
   testSettingsDefaultOnAndRoundTrip,
   testStudioGatewayStartsDespiteLegacyDisabledSetting,
@@ -4209,6 +4316,8 @@ const tests = [
   testReadToolsAnswerFromSnapshot,
   testReadToolsResolveWorkspaceRootThroughSnapshot,
   testReadToolsPassServiceFailuresThrough,
+  testMobileSnapshotToolServesTheCompanionReadModel,
+  testMobileCommandToolDispatchesOnlyTheServedEnvelopes,
   testBacklogRepairRoutesOnlyValidatedIntegrityOperations,
   testBacklogUpdateAppliesInOrderAndStopsOnFailure,
   testBacklogUpdateCarriesTheEpicOrderingMark,

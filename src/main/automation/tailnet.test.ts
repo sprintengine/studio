@@ -27,6 +27,7 @@ import {
 } from './tailnet/tailnet-interface'
 import { createTailnetPeerResolver, normalizeAddress, peerNameFromWhois } from './tailnet/tailnet-peer-identity'
 import { isLocalOnlyGatewayTool, requiredScopeForTool } from './tailnet/tailnet-scopes'
+import { isStudioGatewayMutation } from './studio-gateway-tools'
 import { createTailnetTools, type TailnetToolsFrontDoor } from './tailnet/tailnet-tools'
 import { createTailnetRemoteService, formatEndpoint, pairingUrl } from './tailnet/tailnet-service'
 import { DEFAULT_TAILNET_LISTENER_PORT, readTailnetSettings } from './tailnet/tailnet-settings'
@@ -696,6 +697,14 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
   // The catch-all family, including a tool this mapping has never seen.
   assert.equal(requiredScopeForTool('review_submit_brief', true), 'workspace:operate')
   assert.equal(requiredScopeForTool('some.future.tool', true), 'workspace:operate')
+  // The mobile companion lane (tailnet-mobile-transport): the snapshot is a
+  // plain read; the command envelope is classified a mutation, so a paired
+  // phone needs workspace:operate to drive it and every dispatch is audited.
+  assert.equal(requiredScopeForTool('workspace.snapshot', isStudioGatewayMutation('workspace.snapshot')), 'workspace:read')
+  assert.equal(
+    requiredScopeForTool('workspace.mobile_command', isStudioGatewayMutation('workspace.mobile_command')),
+    'workspace:operate'
+  )
 
   const harness = await startHarness()
   try {
