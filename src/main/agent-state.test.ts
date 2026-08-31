@@ -6,38 +6,27 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 
+import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import {
-  AGENT_STATE_CODEX_HOOK_EVENTS,
-  AGENT_STATE_HOOK_EVENTS,
   AGENT_STATE_HOOK_TAG,
   buildAgentStateReporterCommand,
   deriveActivityFromPhase,
   evaluateAgentStall,
-  GROK_HOOKS_CONFIG_REL,
-  installAgentStateHook,
-  installCodexAgentStateHook,
-  installGrokAgentStateHook,
-  installOpencodeAgentStateHook,
-  isAgentTurnEndEvent,
-  isAgentTurnFailureEvent,
+  installAgentStateReporter,
   isAtRestAgentPhase,
   isAuthoritativeWorkingPhase,
-  mapHookEventToPhase,
-  mapOpencodeEventToPhase,
   MAX_TRANSCRIPT_PATH_LENGTH,
   MAX_WAKEUP_DELAY_SECONDS,
-  mergeCodexAgentStateHooks,
   mergeAgentStateHooks,
-  opencodeSessionIdFromEvent,
+  mergeTomlAgentStateHooks,
   parseAgentStateFrame,
-  renderCodexAgentStateHooksBlock,
-  renderGrokAgentStateHooksConfig,
-  renderOpencodeAgentStatePlugin,
+  registeredAgentStateEvents,
+  renderAgentStatePluginTemplate,
+  renderOwnedJsonAgentStateHooksConfig,
+  renderTomlAgentStateHooksBlock,
+  resolveAgentStateEvent,
   selectAgentStateTarget,
-  uninstallAgentStateHook,
-  uninstallCodexAgentStateHook,
-  uninstallGrokAgentStateHook,
-  uninstallOpencodeAgentStateHook,
+  uninstallAgentStateReporter,
 } from './agent-state'
 
 type Settings = {
@@ -60,13 +49,23 @@ function countOurEntries(settings: Settings): number {
   return n
 }
 
+// The mapping data under test is the REAL bundled manifest data — the manifests
+// are the single source of truth for each CLI's vocabulary now, so the fixtures
+// must be the shipped files, not hand-copied tables that could drift.
+async function loadBundledSpec(pluginId: string): Promise<PluginAgentStateSpec> {
+  const manifestPath = join(process.cwd(), 'resources', 'plugins', pluginId, 'plugin.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { agentStateSpec?: PluginAgentStateSpec }
+  assert.ok(manifest.agentStateSpec, `${pluginId} manifest must declare agentStateSpec`)
+  return manifest.agentStateSpec
+}
+
 // Run the bundled reporter for real: pipe a CLI hook payload into it over stdin
 // and capture the frame it writes to the agent-state socket. Resolves to null if
-// the reporter dropped the event (no frame).
+// the reporter dropped the payload (no frame).
 async function runReporter(event: string): Promise<Record<string, unknown> | null> {
   // The reporter always exits 0 and stays silent on failure, so a wrong path
-  // would read as "no frame" — i.e. as the SubagentStop assertion passing for
-  // the wrong reason. Fail loudly instead.
+  // would read as "no frame" — i.e. as a drop assertion passing for the wrong
+  // reason. Fail loudly instead.
   const reporterPath = join(process.cwd(), 'resources', 'hooks', 'multicode-agent-state.mjs')
   assert.ok(existsSync(reporterPath), `reporter script not found at ${reporterPath}`)
   const dir = await mkdtemp(join(tmpdir(), 'agent-state-reporter-'))
@@ -92,7 +91,7 @@ async function runReporter(event: string): Promise<Record<string, unknown> | nul
     // Every real payload for these events carries a transcript_path; forwarding
     // it is what the reporter must gate on the event, not on the field.
     child.stdin.end(
-      JSON.stringify({ hook_event_name: event, session_id: 's1', transcript_path: '/tmp/session.jsonl' })
+      JSON.stringify({ hook_event_name: event, session_id: 's1', transcript_path: '/tmp/session.jsonl', notification_type: 'permission_prompt' })
     )
     await new Promise<void>((res) => child.on('close', () => res()))
     const line = received.join('').trim()
@@ -103,38 +102,115 @@ async function runReporter(event: string): Promise<Record<string, unknown> | nul
 }
 
 async function run(): Promise<void> {
-  // --- event → phase mapping ---------------------------------------------
-  assert.equal(mapHookEventToPhase('SessionStart'), 'starting')
-  assert.equal(mapHookEventToPhase('UserPromptSubmit'), 'thinking')
-  assert.equal(mapHookEventToPhase('PreToolUse'), 'tool_use')
-  assert.equal(mapHookEventToPhase('PostToolUse'), 'thinking')
-  assert.equal(mapHookEventToPhase('PermissionRequest'), 'awaiting_input')
-  assert.equal(mapHookEventToPhase('Stop'), 'idle')
-  assert.equal(mapHookEventToPhase('SubagentStop'), 'idle')
-  assert.equal(mapHookEventToPhase('SessionEnd'), 'exited')
-  assert.equal(mapHookEventToPhase('NotAnEvent'), null)
+  const claudeSpec = await loadBundledSpec('claude-code')
+  const codexSpec = await loadBundledSpec('codex')
+  const grokSpec = await loadBundledSpec('grok')
+  const opencodeSpec = await loadBundledSpec('opencode')
+
+  // zai and kimi-claude run the same `claude` binary; their operative spec
+  // (registration + events; $comment aside) must stay identical to claude-code
+  // so the shared settings file carries one consistent registration.
+  const operative = (spec: PluginAgentStateSpec) => ({ registration: spec.registration, events: spec.events })
+  assert.deepEqual(operative(await loadBundledSpec('zai')), operative(claudeSpec))
+  assert.deepEqual(operative(await loadBundledSpec('kimi-claude')), operative(claudeSpec))
+
+  const resolvePhase = (spec: PluginAgentStateSpec, event: string, notificationType?: string) => {
+    const resolution = resolveAgentStateEvent(spec, { event, notificationType })
+    return resolution.action === 'apply' ? resolution.phase : null
+  }
+
+  // --- event → phase mapping (manifest-driven) ----------------------------
+  assert.equal(resolvePhase(claudeSpec, 'SessionStart'), 'starting')
+  assert.equal(resolvePhase(claudeSpec, 'UserPromptSubmit'), 'thinking')
+  assert.equal(resolvePhase(claudeSpec, 'PreToolUse'), 'tool_use')
+  assert.equal(resolvePhase(claudeSpec, 'PostToolUse'), 'thinking')
+  assert.equal(resolvePhase(claudeSpec, 'Stop'), 'idle')
+  assert.equal(resolvePhase(claudeSpec, 'SubagentStop'), 'idle')
+  assert.equal(resolvePhase(claudeSpec, 'SessionEnd'), 'exited')
+  assert.equal(resolvePhase(claudeSpec, 'NotAnEvent'), null)
+  assert.equal(resolvePhase(codexSpec, 'PermissionRequest'), 'awaiting_input')
+  // Codex has no SessionEnd (pty exit owns real exits) and no Notification.
+  assert.equal(resolvePhase(codexSpec, 'SessionEnd'), null)
+  assert.equal(resolvePhase(codexSpec, 'Notification', 'permission_prompt'), null)
 
   // --- Notification notification_type discrimination ----------------------
   // Only ALLOW-LISTED blocking types report awaiting_input. awaiting_input is
   // sticky for a dormant agent (no later frame clears it), so an unknown or
   // absent type must DROP — promoting it parked sessions as falsely
   // "needs input" and exempted them from the idle reaper forever (2026-07-07).
-  assert.equal(mapHookEventToPhase('Notification', 'permission_prompt'), 'awaiting_input')
-  assert.equal(mapHookEventToPhase('Notification', 'elicitation_dialog'), 'awaiting_input')
-  assert.equal(mapHookEventToPhase('Notification', 'agent_needs_input'), 'awaiting_input')
+  assert.equal(resolvePhase(claudeSpec, 'Notification', 'permission_prompt'), 'awaiting_input')
+  assert.equal(resolvePhase(claudeSpec, 'Notification', 'elicitation_dialog'), 'awaiting_input')
+  assert.equal(resolvePhase(claudeSpec, 'Notification', 'agent_needs_input'), 'awaiting_input')
   // Informational types drop.
-  assert.equal(mapHookEventToPhase('Notification', 'idle_prompt'), null)
-  assert.equal(mapHookEventToPhase('Notification', 'auth_success'), null)
-  assert.equal(mapHookEventToPhase('Notification', 'elicitation_complete'), null)
-  assert.equal(mapHookEventToPhase('Notification', 'elicitation_response'), null)
-  assert.equal(mapHookEventToPhase('Notification', 'agent_completed'), null)
+  assert.equal(resolvePhase(claudeSpec, 'Notification', 'idle_prompt'), null)
+  assert.equal(resolvePhase(claudeSpec, 'Notification', 'auth_success'), null)
+  assert.equal(resolvePhase(claudeSpec, 'Notification', 'elicitation_complete'), null)
+  assert.equal(resolvePhase(claudeSpec, 'Notification', 'elicitation_response'), null)
+  assert.equal(resolvePhase(claudeSpec, 'Notification', 'agent_completed'), null)
   // Unknown and untyped notifications drop too — the sticky-phase trap.
-  assert.equal(mapHookEventToPhase('Notification', 'some_future_type'), null)
-  assert.equal(mapHookEventToPhase('Notification', null), null)
-  assert.equal(mapHookEventToPhase('Notification', undefined), null)
-  assert.equal(mapHookEventToPhase('Notification'), null)
-  // notification_type is only consulted for Notification.
-  assert.equal(mapHookEventToPhase('PermissionRequest', 'idle_prompt'), 'awaiting_input')
+  assert.equal(resolvePhase(claudeSpec, 'Notification', 'some_future_type'), null)
+  assert.equal(resolvePhase(claudeSpec, 'Notification'), null)
+  // The discriminator is only consulted where declared.
+  assert.equal(resolvePhase(codexSpec, 'PermissionRequest', 'idle_prompt'), 'awaiting_input')
+  // Grok registers Claude's Notification with the same allow-list.
+  assert.equal(resolvePhase(grokSpec, 'Notification', 'permission_prompt'), 'awaiting_input')
+  assert.equal(resolvePhase(grokSpec, 'Notification', 'idle_prompt'), null)
+
+  // --- fallback for spec-less frames --------------------------------------
+  // No spec (a CLI outside the manifest capability whose reporter still emits
+  // frames): the reporter-asserted phase is trusted, with no turn semantics.
+  assert.deepEqual(resolveAgentStateEvent(null, { event: 'Whatever', phase: 'thinking' }), {
+    action: 'apply',
+    phase: 'thinking',
+    turnEnd: false,
+    turnFailure: false,
+  })
+  assert.deepEqual(resolveAgentStateEvent(null, { event: 'Whatever' }), { action: 'drop' })
+  // With a spec, an unknown event drops even when the frame asserts a phase —
+  // the manifest owns this CLI's vocabulary.
+  assert.deepEqual(resolveAgentStateEvent(claudeSpec, { event: 'NotAnEvent', phase: 'thinking' }), { action: 'drop' })
+  // An event-less legacy frame with a phase still applies.
+  assert.equal(resolveAgentStateEvent(claudeSpec, { event: null, phase: 'idle' }).action, 'apply')
+
+  // --- turn-end / turn-failure flags (manifest-declared) -------------------
+  // SubagentStop maps to the same `idle` phase as Stop but is a subagent
+  // finishing, and session.error also maps to `idle` but is a crash — either
+  // one read as a turn end finalizes work that isn't done.
+  const flags = (spec: PluginAgentStateSpec, event: string) => {
+    const r = resolveAgentStateEvent(spec, { event, notificationType: undefined })
+    return r.action === 'apply' ? { turnEnd: r.turnEnd, turnFailure: r.turnFailure } : null
+  }
+  assert.deepEqual(flags(claudeSpec, 'Stop'), { turnEnd: true, turnFailure: false })
+  assert.deepEqual(flags(claudeSpec, 'SubagentStop'), { turnEnd: false, turnFailure: false })
+  assert.deepEqual(flags(codexSpec, 'Stop'), { turnEnd: true, turnFailure: false })
+  assert.deepEqual(flags(opencodeSpec, 'session.idle'), { turnEnd: true, turnFailure: false })
+  assert.deepEqual(flags(opencodeSpec, 'session.error'), { turnEnd: false, turnFailure: true })
+  // Both turn ends land on `idle` — which is exactly why the flag exists.
+  assert.equal(resolvePhase(opencodeSpec, 'session.error'), resolvePhase(opencodeSpec, 'session.idle'))
+
+  // --- OpenCode mapping (manifest-driven) ----------------------------------
+  assert.equal(resolvePhase(opencodeSpec, 'session.created'), 'starting')
+  assert.equal(resolvePhase(opencodeSpec, 'message.updated'), 'thinking')
+  assert.equal(resolvePhase(opencodeSpec, 'permission.updated'), 'awaiting_input')
+  // The load-bearing transition: answering a prompt clears awaiting_input.
+  assert.equal(resolvePhase(opencodeSpec, 'permission.replied'), 'thinking')
+  assert.equal(resolvePhase(opencodeSpec, 'tool.execute.before'), 'tool_use')
+  assert.equal(resolvePhase(opencodeSpec, 'tool.execute.after'), 'thinking')
+  // No event synthesizes an exit (pty exit listener owns that), and unknown
+  // events are dropped rather than guessed.
+  assert.equal(resolvePhase(opencodeSpec, 'session.deleted'), null)
+  assert.equal(resolvePhase(opencodeSpec, 'file.edited'), null)
+
+  // --- registered event subsets --------------------------------------------
+  // PreToolUse is declared map-only (register: false): it must be mapped when a
+  // stale registration fires it, but never registered anew.
+  const claudeRegistered = registeredAgentStateEvents(claudeSpec)
+  assert.ok(!claudeRegistered.some((e) => e.event === 'PreToolUse'), 'PreToolUse must not be registered')
+  assert.ok(claudeRegistered.some((e) => e.event === 'PostToolUse' && e.matcher === '*'), 'PostToolUse * missing')
+  assert.equal(claudeRegistered.length, claudeSpec.events.length - 1)
+  const codexRegistered = registeredAgentStateEvents(codexSpec)
+  assert.ok(!codexRegistered.some((e) => e.event === 'PreToolUse'))
+  assert.ok(codexRegistered.some((e) => e.event === 'PermissionRequest'))
 
   // --- phase → activity bridge -------------------------------------------
   assert.deepEqual(deriveActivityFromPhase('thinking', 5), { kind: 'working', since: 5 })
@@ -161,12 +237,30 @@ async function run(): Promise<void> {
     event: 'PreToolUse',
     ts: 123,
   })
+  // A phase-less frame (the dumb-forwarder reporter) is valid with an event…
+  const forwarded = parseAgentStateFrame(
+    { type: 'agent_state', agentId: 'a1', event: 'Notification', notificationType: 'permission_prompt', ts: 5 },
+    999
+  )
+  assert.equal(forwarded?.phase, undefined)
+  assert.equal(forwarded?.event, 'Notification')
+  assert.equal(forwarded?.notificationType, 'permission_prompt')
+  // …an oversized discriminator value drops the field, not the frame…
+  assert.equal(
+    parseAgentStateFrame(
+      { type: 'agent_state', agentId: 'a1', event: 'Notification', notificationType: 'x'.repeat(500), ts: 5 },
+      999
+    )?.notificationType,
+    undefined
+  )
+  // …and a frame with neither event nor a valid phase carries nothing to apply.
+  assert.equal(parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', ts: 5 }, 999), null)
+  assert.equal(parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', phase: 'nope' }, 1), null)
   // ts defaults to `now` when absent or non-finite.
   assert.equal(parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', phase: 'idle' }, 999)?.ts, 999)
-  // rejects: wrong type, missing agentId, bad phase, non-object.
+  // rejects: wrong type, missing agentId, non-object.
   assert.equal(parseAgentStateFrame({ type: 'other', agentId: 'a1', phase: 'idle' }, 1), null)
   assert.equal(parseAgentStateFrame({ type: 'agent_state', phase: 'idle' }, 1), null)
-  assert.equal(parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', phase: 'nope' }, 1), null)
   assert.equal(parseAgentStateFrame('not-json-object', 1), null)
   assert.equal(parseAgentStateFrame(null, 1), null)
 
@@ -201,42 +295,31 @@ async function run(): Promise<void> {
     assert.equal(frame?.transcriptPath, undefined, `bad transcriptPath must drop: ${JSON.stringify(bad)}`)
   }
 
-  // --- turn-end / turn-failure predicates ---------------------------------
-  // Shared vocabulary for "the agent's turn ended". Both reporters' raw event
-  // names, and nothing else: SubagentStop maps to the same `idle` phase as Stop
-  // but is a subagent finishing, and session.error also maps to `idle` but is a
-  // crash — either one read as a turn end finalizes work that isn't done.
-  assert.equal(isAgentTurnEndEvent('Stop'), true)
-  assert.equal(isAgentTurnEndEvent('session.idle'), true)
-  assert.equal(isAgentTurnEndEvent('SubagentStop'), false)
-  assert.equal(isAgentTurnEndEvent('session.error'), false)
-  for (const other of ['PostToolUse', 'SessionEnd', 'stop', '', 'Unknown', null, undefined]) {
-    assert.equal(isAgentTurnEndEvent(other), false, `not a turn end: ${String(other)}`)
-  }
-  assert.equal(isAgentTurnFailureEvent('session.error'), true)
-  for (const other of ['Stop', 'session.idle', 'SubagentStop', '', null, undefined]) {
-    assert.equal(isAgentTurnFailureEvent(other), false, `not a turn failure: ${String(other)}`)
-  }
-  // The predicates speak for the phases the mappers actually produce: both
-  // reporters land a turn end on `idle`, which is why the phase alone is not it.
-  assert.equal(mapHookEventToPhase('SubagentStop'), mapHookEventToPhase('Stop'))
-  assert.equal(mapOpencodeEventToPhase('session.error'), mapOpencodeEventToPhase('session.idle'))
-
-  // --- reporter forwards transcript_path on Stop ONLY ---------------------
+  // --- reporter forwards raw events, transcript_path on Stop ONLY ---------
   // Driven as a real subprocess against a real socket: the reporter is the only
   // producer of transcriptPath, and SubagentStop carries a transcript_path of
-  // its own that must never be forwarded.
+  // its own that must never be forwarded. The reporter asserts NO phase — the
+  // manifest mapping in main owns that — and forwards the discriminator field.
   {
     const stopFrame = await runReporter('Stop')
-    assert.equal(stopFrame?.phase, 'idle')
+    assert.equal(stopFrame?.phase, undefined, 'the reporter must not assert a phase')
+    assert.equal(stopFrame?.event, 'Stop')
     assert.equal(stopFrame?.transcriptPath, '/tmp/session.jsonl', 'Stop must forward transcript_path')
 
     const subagentFrame = await runReporter('SubagentStop')
-    assert.equal(subagentFrame?.phase, 'idle', 'SubagentStop still reports its phase')
+    assert.equal(subagentFrame?.event, 'SubagentStop', 'SubagentStop still reports its event')
     assert.equal(subagentFrame?.transcriptPath, undefined, 'SubagentStop must NOT forward transcript_path')
 
     const toolFrame = await runReporter('PostToolUse')
     assert.equal(toolFrame?.transcriptPath, undefined, 'only a turn end forwards transcript_path')
+
+    const notificationFrame = await runReporter('Notification')
+    assert.equal(notificationFrame?.notificationType, 'permission_prompt', 'Notification must forward notification_type')
+
+    // Even an event outside every manifest is forwarded — filtering is main's
+    // job (the spec drops unknown events), not the reporter's.
+    const unknownFrame = await runReporter('SomeFutureEvent')
+    assert.equal(unknownFrame?.event, 'SomeFutureEvent')
   }
 
   // --- future-dated ts is clamped to server arrival (phase-freeze bug) ----
@@ -325,8 +408,7 @@ async function run(): Promise<void> {
 
   // --- at-rest vocabulary (reaper) ----------------------------------------
   // 'idle' and 'stalled' are the reapable rest states; everything else —
-  // including null/undefined (hookless) — is not "at rest" (the reaper's
-  // keystroke floor handles hookless separately).
+  // including null/undefined (no frame yet) — is not "at rest".
   assert.equal(isAtRestAgentPhase('idle'), true)
   assert.equal(isAtRestAgentPhase('stalled'), true)
   for (const phase of ['starting', 'thinking', 'tool_use', 'awaiting_input', 'exited', 'failed'] as const) {
@@ -363,7 +445,7 @@ async function run(): Promise<void> {
   const winCmd = buildAgentStateReporterCommand('/abs/.multicode/hooks/agent-state.mjs', '\\\\.\\pipe\\multicode-agent-state-abc')
   assert.ok(winCmd.includes('--socket "\\\\.\\pipe\\multicode-agent-state-abc"'), winCmd)
 
-  // --- install / uninstall round-trip ------------------------------------
+  // --- settings-json install / uninstall round-trip (claude spec) ---------
   const root = await mkdtemp(join(tmpdir(), 'multicode-agent-state-'))
   const sourceScriptPath = join(root, 'reporter-src.mjs')
   await writeFile(sourceScriptPath, '// reporter\n', 'utf8')
@@ -391,19 +473,20 @@ async function run(): Promise<void> {
     'utf8'
   )
 
-  const installed = await installAgentStateHook(root, { sourceScriptPath, socketPath: join(root, 'agent.sock') })
+  const installed = await installAgentStateReporter(root, claudeSpec, { sourceScriptPath, socketPath: join(root, 'agent.sock') })
   assert.equal(installed.ok, true)
 
+  const claudeRegisteredEvents = registeredAgentStateEvents(claudeSpec)
   let settings = await readSettings(settingsPath)
   // One entry per registered event.
-  assert.equal(countOurEntries(settings), AGENT_STATE_HOOK_EVENTS.length)
-  // Every event key is present.
-  for (const { event } of AGENT_STATE_HOOK_EVENTS) {
+  assert.equal(countOurEntries(settings), claudeRegisteredEvents.length)
+  // Every registered event key is present.
+  for (const { event } of claudeRegisteredEvents) {
     assert.ok(Array.isArray(settings.hooks?.[event]), `missing event ${event}`)
   }
-  // PreToolUse is dropped; PostToolUse is kept (it clears awaiting_input). So we
-  // add our own PostToolUse '*' block ALONGSIDE the user's 'Read' block (2 blocks
-  // total), and never register PreToolUse.
+  // PreToolUse is register:false; PostToolUse is kept (it clears awaiting_input).
+  // So we add our own PostToolUse '*' block ALONGSIDE the user's 'Read' block
+  // (2 blocks total), and never register PreToolUse.
   assert.equal(settings.hooks?.PreToolUse, undefined, 'PreToolUse must not be registered')
   assert.equal(settings.hooks?.PostToolUse?.length, 2, 'our PostToolUse block must coexist with the user block')
   assert.ok(settings.hooks?.PostToolUse?.some((b) => b.matcher === '*'), 'our PostToolUse * block is missing')
@@ -429,12 +512,16 @@ async function run(): Promise<void> {
   assert.ok(!ourEntry?.command.includes('node ".multicode'), 'must not embed a relative script path')
 
   // Idempotent: installing again does not duplicate entries.
-  await mergeAgentStateHooks(settingsPath, buildAgentStateReporterCommand(join(root, '.multicode', 'hooks', 'agent-state.mjs'), join(root, 'agent.sock')))
+  await mergeAgentStateHooks(
+    settingsPath,
+    buildAgentStateReporterCommand(join(root, '.multicode', 'hooks', 'agent-state.mjs'), join(root, 'agent.sock')),
+    claudeRegisteredEvents
+  )
   settings = await readSettings(settingsPath)
-  assert.equal(countOurEntries(settings), AGENT_STATE_HOOK_EVENTS.length)
+  assert.equal(countOurEntries(settings), claudeRegisteredEvents.length)
 
   // Uninstall removes ours, keeps the user's, prunes emptied event keys.
-  const removed = await uninstallAgentStateHook(root)
+  const removed = await uninstallAgentStateReporter(root, claudeSpec)
   assert.equal(removed.ok, true)
   settings = await readSettings(settingsPath)
   assert.equal(countOurEntries(settings), 0)
@@ -442,12 +529,12 @@ async function run(): Promise<void> {
   // SessionStart had only our entry, so the event key is pruned entirely.
   assert.equal(settings.hooks?.SessionStart, undefined)
 
-  // --- Codex (Phase 2): TOML managed-block install ------------------------
-  // Render: a single tagged block, one entry per Codex event, command quoted as
-  // a TOML basic string, PostToolUse carrying a matcher, and PermissionRequest
-  // (Codex's awaiting-input event) present rather than Claude's Notification.
-  // PreToolUse is trimmed, so its table is absent.
-  const codexBlock = renderCodexAgentStateHooksBlock('node "/abs/agent-state.mjs" --socket "/abs/agent-state.sock"')
+  // --- toml-block install (codex spec) ------------------------------------
+  // Render: a single tagged block, one entry per registered Codex event,
+  // command quoted as a TOML basic string, PostToolUse carrying a matcher, and
+  // PermissionRequest (Codex's awaiting-input event) present rather than
+  // Claude's Notification. PreToolUse is register:false, so its table is absent.
+  const codexBlock = renderTomlAgentStateHooksBlock('node "/abs/agent-state.mjs" --socket "/abs/agent-state.sock"', codexRegistered)
   assert.ok(codexBlock.startsWith('# >>> multicode agent-state hooks managed'))
   assert.ok(codexBlock.trimEnd().endsWith('# <<< multicode agent-state hooks managed'))
   assert.ok(codexBlock.includes('[[hooks.PermissionRequest]]'))
@@ -457,16 +544,16 @@ async function run(): Promise<void> {
   assert.ok(!codexBlock.includes('Notification'))
   // command is a valid TOML basic string (JSON-escaped quotes).
   assert.ok(codexBlock.includes('command = "node \\"/abs/agent-state.mjs\\" --socket \\"/abs/agent-state.sock\\""'))
-  // one [[hooks.<Event>]] table per declared event.
+  // one [[hooks.<Event>]] table per registered event.
   const tableCount = (codexBlock.match(/^\[\[hooks\.[A-Za-z]+\]\]$/gmu) ?? []).length
-  assert.equal(tableCount, AGENT_STATE_CODEX_HOOK_EVENTS.length)
+  assert.equal(tableCount, codexRegistered.length)
 
   // Merge preserves surrounding user config and is idempotent.
   const userToml = 'model = "gpt-5-codex"\n\n[mcp_servers.foo]\ncommand = "foo"\n'
-  const mergedOnce = mergeCodexAgentStateHooks(userToml, 'node "/x.mjs" --socket "/s.sock"')
+  const mergedOnce = mergeTomlAgentStateHooks(userToml, 'node "/x.mjs" --socket "/s.sock"', codexRegistered)
   assert.ok(mergedOnce.includes('model = "gpt-5-codex"'), 'user config dropped')
   assert.ok(mergedOnce.includes('[mcp_servers.foo]'), 'user MCP block dropped')
-  const mergedTwice = mergeCodexAgentStateHooks(mergedOnce, 'node "/x.mjs" --socket "/s.sock"')
+  const mergedTwice = mergeTomlAgentStateHooks(mergedOnce, 'node "/x.mjs" --socket "/s.sock"', codexRegistered)
   assert.equal(
     (mergedTwice.match(/# >>> multicode agent-state hooks managed/gu) ?? []).length,
     1,
@@ -481,7 +568,7 @@ async function run(): Promise<void> {
   await mkdir(join(codexRoot, '.codex'), { recursive: true })
   await writeFile(join(codexRoot, '.codex', 'config.toml'), 'approval_policy = "on-request"\n', 'utf8')
 
-  const codexInstalled = await installCodexAgentStateHook(codexRoot, {
+  const codexInstalled = await installAgentStateReporter(codexRoot, codexSpec, {
     sourceScriptPath: codexReporter,
     socketPath: join(codexRoot, 'agent-state.sock'),
   })
@@ -493,47 +580,23 @@ async function run(): Promise<void> {
   // guarantee) and the live socket.
   assert.ok(codexConfig.includes(join(codexRoot, '.multicode', 'hooks', 'agent-state.mjs').split('\\').join('/')))
 
-  const codexRemoved = await uninstallCodexAgentStateHook(codexRoot)
+  const codexRemoved = await uninstallAgentStateReporter(codexRoot, codexSpec)
   assert.equal(codexRemoved.ok, true)
   codexConfig = await readFile(join(codexRoot, '.codex', 'config.toml'), 'utf8')
   assert.ok(codexConfig.includes('approval_policy = "on-request"'), 'uninstall dropped user config')
   assert.ok(!codexConfig.includes('[[hooks.SessionStart]]'), 'uninstall left the hooks block')
 
-  // --- OpenCode: event → phase mapping ----------------------------------
-  assert.equal(mapOpencodeEventToPhase('session.created'), 'starting')
-  assert.equal(mapOpencodeEventToPhase('message.updated'), 'thinking')
-  assert.equal(mapOpencodeEventToPhase('permission.updated'), 'awaiting_input')
-  // The load-bearing transition: answering a prompt clears awaiting_input.
-  assert.equal(mapOpencodeEventToPhase('permission.replied'), 'thinking')
-  assert.equal(mapOpencodeEventToPhase('session.idle'), 'idle')
-  assert.equal(mapOpencodeEventToPhase('session.error'), 'idle')
-  // No event synthesizes an exit (pty exit listener owns that), and unknown
-  // events are dropped rather than guessed.
-  assert.equal(mapOpencodeEventToPhase('session.deleted'), null)
-  assert.equal(mapOpencodeEventToPhase('file.edited'), null)
-
-  // --- OpenCode: session id extraction across payload shapes ------------
-  assert.equal(opencodeSessionIdFromEvent({ type: 'session.idle', properties: { sessionID: 's1' } }), 's1')
-  assert.equal(opencodeSessionIdFromEvent({ type: 'permission.updated', properties: { sessionID: 's2', id: 'p1' } }), 's2')
-  // session.* lifecycle events carry a Session under properties.info (id).
-  assert.equal(opencodeSessionIdFromEvent({ type: 'session.created', properties: { info: { id: 's3' } } }), 's3')
-  // message.updated carries a Message under properties.info (sessionID).
-  assert.equal(opencodeSessionIdFromEvent({ type: 'message.updated', properties: { info: { sessionID: 's4' } } }), 's4')
-  assert.equal(opencodeSessionIdFromEvent({ type: 'session.idle', properties: {} }), null)
-  assert.equal(opencodeSessionIdFromEvent(null), null)
-  assert.equal(opencodeSessionIdFromEvent({ type: 'x' }), null)
-
-  // --- OpenCode: socket baking renders a valid JS string literal --------
+  // --- plugin-file: socket baking renders a valid JS string literal --------
   const ocTemplate = "const BAKED_SOCKET = '__MULTICODE_AGENT_STATE_SOCKET__'\n"
   // A Windows pipe path's backslashes must survive as data, not act as escapes.
   const winSocket = '\\\\.\\pipe\\multicode-agent-state-abc'
-  const renderedWin = renderOpencodeAgentStatePlugin(ocTemplate, winSocket)
+  const renderedWin = renderAgentStatePluginTemplate(ocTemplate, winSocket)
   assert.ok(renderedWin.includes(`const BAKED_SOCKET = ${JSON.stringify(winSocket)}`), renderedWin)
   assert.ok(!renderedWin.includes("'__MULTICODE_AGENT_STATE_SOCKET__'"), 'token left unsubstituted')
   // The rendered literal round-trips back to the exact path.
   assert.equal(JSON.parse(renderedWin.split('= ')[1].trim()), winSocket)
 
-  // --- OpenCode: install round-trip on disk -----------------------------
+  // --- plugin-file install round-trip on disk (opencode spec) --------------
   // Writes .opencode/plugin/multicode-agent-state.js with the socket baked in,
   // is idempotent, and uninstall removes the plugin file.
   const ocRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-opencode-'))
@@ -541,7 +604,7 @@ async function run(): Promise<void> {
   await writeFile(ocReporter, ocTemplate, 'utf8')
   const ocSocket = join(ocRoot, 'agent-state.sock')
 
-  const ocInstalled = await installOpencodeAgentStateHook(ocRoot, { sourceScriptPath: ocReporter, socketPath: ocSocket })
+  const ocInstalled = await installAgentStateReporter(ocRoot, opencodeSpec, { sourceScriptPath: ocReporter, socketPath: ocSocket })
   assert.equal(ocInstalled.ok, true)
   const ocPluginPath = join(ocRoot, '.opencode', 'plugin', 'multicode-agent-state.js')
   let ocPlugin = await readFile(ocPluginPath, 'utf8')
@@ -549,31 +612,32 @@ async function run(): Promise<void> {
   assert.ok(!ocPlugin.includes("'__MULTICODE_AGENT_STATE_SOCKET__'"), 'opencode socket token left unsubstituted')
 
   // Re-install is idempotent (overwrites in place, no second copy).
-  const ocReinstall = await installOpencodeAgentStateHook(ocRoot, { sourceScriptPath: ocReporter, socketPath: ocSocket })
+  const ocReinstall = await installAgentStateReporter(ocRoot, opencodeSpec, { sourceScriptPath: ocReporter, socketPath: ocSocket })
   assert.equal(ocReinstall.ok, true)
   ocPlugin = await readFile(ocPluginPath, 'utf8')
   assert.equal((ocPlugin.match(/const BAKED_SOCKET =/gu) ?? []).length, 1, 'opencode plugin duplicated on re-install')
 
-  const ocRemoved = await uninstallOpencodeAgentStateHook(ocRoot)
+  const ocRemoved = await uninstallAgentStateReporter(ocRoot, opencodeSpec)
   assert.equal(ocRemoved.ok, true)
   assert.equal(existsSync(ocPluginPath), false, 'uninstall left the opencode plugin file')
 
   // Missing source script is a safe, reported failure (never throws).
-  const ocMissing = await installOpencodeAgentStateHook(ocRoot, {
+  const ocMissing = await installAgentStateReporter(ocRoot, opencodeSpec, {
     sourceScriptPath: join(ocRoot, 'nope.mjs'),
     socketPath: ocSocket,
   })
   assert.equal(ocMissing.ok, false)
 
-  // --- Grok Build: whole-file JSON hook config ----------------------------
+  // --- owned-json: whole-file JSON hook config (grok spec) -----------------
   // Grok registers the same event set as Claude (shared reporter, camelCase
   // payload read by the same script), rendered as a standalone config file it
   // discovers from .grok/hooks/*.json — so the render is a full JSON document,
   // not a merge.
+  const grokRegistered = registeredAgentStateEvents(grokSpec)
   const grokCommand = 'node "/abs/agent-state.mjs" --socket "/abs/agent-state.sock"'
-  const grokConfig = JSON.parse(renderGrokAgentStateHooksConfig(grokCommand)) as Settings
-  assert.equal(Object.keys(grokConfig.hooks ?? {}).length, AGENT_STATE_HOOK_EVENTS.length)
-  for (const { event, matcher } of AGENT_STATE_HOOK_EVENTS) {
+  const grokConfig = JSON.parse(renderOwnedJsonAgentStateHooksConfig(grokCommand, grokRegistered)) as Settings
+  assert.equal(Object.keys(grokConfig.hooks ?? {}).length, grokRegistered.length)
+  for (const { event, matcher } of grokRegistered) {
     const blocks = grokConfig.hooks?.[event]
     assert.equal(blocks?.length, 1, `grok config missing event ${event}`)
     assert.equal(blocks?.[0]?.matcher, matcher, `grok ${event} matcher`)
@@ -582,7 +646,7 @@ async function run(): Promise<void> {
   assert.equal(grokConfig.hooks?.PreToolUse, undefined, 'PreToolUse must not be registered for grok')
   assert.ok(grokConfig.hooks?.Notification, 'Notification must be registered for grok')
 
-  // --- Grok Build: install round-trip on disk -----------------------------
+  // --- owned-json install round-trip on disk (grok spec) -------------------
   // Writes .grok/hooks/multicode-agent-state.json, copies the shared reporter,
   // references it by absolute path, and uninstall removes only our config file
   // (the reporter script is shared with the Claude/Codex installs).
@@ -591,12 +655,12 @@ async function run(): Promise<void> {
   await writeFile(grokReporter, '// reporter\n', 'utf8')
   const grokSocket = join(grokRoot, 'agent-state.sock')
 
-  const grokInstalled = await installGrokAgentStateHook(grokRoot, {
+  const grokInstalled = await installAgentStateReporter(grokRoot, grokSpec, {
     sourceScriptPath: grokReporter,
     socketPath: grokSocket,
   })
   assert.equal(grokInstalled.ok, true)
-  const grokConfigPath = join(grokRoot, GROK_HOOKS_CONFIG_REL)
+  const grokConfigPath = join(grokRoot, '.grok', 'hooks', 'multicode-agent-state.json')
   const grokOnDisk = JSON.parse(await readFile(grokConfigPath, 'utf8')) as Settings
   const grokEntry = grokOnDisk.hooks?.SessionStart?.[0]?.hooks?.[0]
   const grokScript = join(grokRoot, '.multicode', 'hooks', 'agent-state.mjs')
@@ -605,7 +669,7 @@ async function run(): Promise<void> {
   assert.ok(!grokEntry?.command.includes('node ".multicode'), 'must not embed a relative script path')
 
   // Re-install is idempotent (whole-file overwrite, no accumulation).
-  const grokReinstall = await installGrokAgentStateHook(grokRoot, {
+  const grokReinstall = await installAgentStateReporter(grokRoot, grokSpec, {
     sourceScriptPath: grokReporter,
     socketPath: grokSocket,
   })
@@ -613,13 +677,13 @@ async function run(): Promise<void> {
   const grokTwice = JSON.parse(await readFile(grokConfigPath, 'utf8')) as Settings
   assert.equal(grokTwice.hooks?.SessionStart?.length, 1, 'grok config duplicated on re-install')
 
-  const grokRemoved = await uninstallGrokAgentStateHook(grokRoot)
+  const grokRemoved = await uninstallAgentStateReporter(grokRoot, grokSpec)
   assert.equal(grokRemoved.ok, true)
   assert.equal(existsSync(grokConfigPath), false, 'uninstall left the grok hook config')
   assert.ok(existsSync(grokScript), 'grok uninstall must leave the shared reporter script')
 
   // Missing source script is a safe, reported failure (never throws).
-  const grokMissing = await installGrokAgentStateHook(grokRoot, {
+  const grokMissing = await installAgentStateReporter(grokRoot, grokSpec, {
     sourceScriptPath: join(grokRoot, 'nope.mjs'),
     socketPath: grokSocket,
   })

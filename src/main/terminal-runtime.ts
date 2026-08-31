@@ -19,7 +19,7 @@ import type {
   LiveAgentExecution,
 } from '../shared/agent-runtime'
 import { createAgentStreamWatcher } from './agent-stream-watcher'
-import { deriveActivityFromPhase, evaluateAgentStall, isAtRestAgentPhase, isAuthoritativeWorkingPhase, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
+import { deriveActivityFromPhase, evaluateAgentStall, isAtRestAgentPhase, isAuthoritativeWorkingPhase, resolveAgentStateEvent, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupTerminalStartupScript,
@@ -265,21 +265,22 @@ let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
 let setSprintEngineAutomationModeAdapter: TerminalRuntimeOptions['setSprintEngineAutomationMode']
 let resolveAutomationsFrontDoorAdapter: TerminalRuntimeOptions['resolveAutomationsFrontDoor']
 
-// CLIs the agent-state reporter can install into. Claude Code, Codex, and Grok
-// Build share a stdin-filter reporter (the same hook payload contract —
-// snake_case for Claude/Codex, camelCase for Grok, both read by one script;
-// only the install target differs). OpenCode has no command hooks, so it gets
-// an in-process plugin reporter instead — it still emits the same socket frame,
-// so runtime ingestion is identical. All install differences are handled in the
-// service; this gate and the service's installer dispatch MUST list the same
-// CLIs or the install path is silently dead for the missing one.
+// Whether a CLI can report authoritative agent state: true exactly when its
+// plugin manifest declares an `agentStateSpec` (the capability that also drives
+// the reporter install and the event→phase mapping — one lookup, no hand-kept
+// gate/installer lock-step). A CLI without the spec installs nothing and emits
+// no frames.
 function agentStateSupportsCli(cli: string | undefined): cli is string {
-  if (cli === 'claude-code' || cli === 'codex' || cli === 'opencode' || cli === 'grok') return true
   if (!cli) return false
-  // Any other CLI that runs on the Claude harness (e.g. zai: the same
-  // `claude` binary against a redirected endpoint) uses the same
-  // settings-hook reporter as claude-code, so install it for those too.
-  return getPluginById(pluginIdForCli(cli))?.manifest.skillIntegration?.harnessId === 'claude'
+  return Boolean(getPluginById(pluginIdForCli(cli))?.manifest.agentStateSpec)
+}
+
+// The resolving plugin's agentStateSpec for a live session, consulted per
+// frame to map the raw reporter event to a phase (see resolveAgentStateEvent).
+function agentStateSpecForSession(session: TerminalSession) {
+  const cli = session.cli
+  if (!cli) return null
+  return getPluginById(pluginIdForCli(cli))?.manifest.agentStateSpec ?? null
 }
 
 // Reads a CLI's conversation-resume capabilities from the plugin registry (the
@@ -1938,8 +1939,17 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // out-of-order socket delivery can't roll the phase backward.
   if (session.agentState && session.agentState.since > frame.ts) return
 
+  // Map the raw reporter event to a phase via the resolving plugin's
+  // manifest-declared agentStateSpec — the reporter forwards vocabulary, the
+  // manifest owns meaning. A frame whose event the spec does not name (or
+  // whose discriminator value is not allow-listed — Claude's informational
+  // Notification types) drops here: the prior phase stands, exactly as when
+  // the reporter used to filter these client-side.
+  const resolution = resolveAgentStateEvent(agentStateSpecForSession(session), frame)
+  if (resolution.action !== 'apply') return
+
   const previousPhase = session.agentState?.phase
-  session.agentState = { phase: frame.phase, since: frame.ts, source: 'hook' }
+  session.agentState = { phase: resolution.phase, since: frame.ts, source: 'hook' }
 
   // The person's own prompt, carried only on UserPromptSubmit. Retained on the
   // session so the terminal tab can show "what was I working on here?" and a new
@@ -1992,7 +2002,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // reads "changed" and broadcasts per frame — a storm — and the displayed
   // "working since" never accumulates. Mirrors the output path, which likewise
   // never bumps `since` while already working.
-  const derived = deriveActivityFromPhase(frame.phase, frame.ts)
+  const derived = deriveActivityFromPhase(resolution.phase, frame.ts)
   const bridged =
     derived && derived.kind === 'working' && session.activity.kind === 'working'
       ? { kind: 'working' as const, since: session.activity.since }
@@ -2008,7 +2018,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // the awaiting_input boundary. The frequent thinking ↔ tool_use churn within
   // "working" updates `agentState` in place but does not re-broadcast — matching
   // the renderer's dedupe signature and avoiding a snapshot IPC per tool call.
-  const attentionChanged = (previousPhase === 'awaiting_input') !== (frame.phase === 'awaiting_input')
+  const attentionChanged = (previousPhase === 'awaiting_input') !== (resolution.phase === 'awaiting_input')
   if (
     (activityChanged || attentionChanged || cliSessionIdChanged || promptChanged)
     && terminals.get(session.sessionId) === session
@@ -2016,7 +2026,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
     broadcastTerminalSessionsChanged()
   }
 
-  notifyAgentPhaseListeners(session, frame, previousPhase ?? null)
+  notifyAgentPhaseListeners(session, frame, resolution, previousPhase ?? null)
 }
 
 // Publish an ACCEPTED phase transition. Called last in ingestAgentStateFrame: past
@@ -2032,6 +2042,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
 function notifyAgentPhaseListeners(
   session: TerminalSession,
   frame: AgentStateFrame,
+  resolution: { phase: AgentPhase; turnEnd: boolean; turnFailure: boolean },
   previousPhase: AgentPhase | null
 ): void {
   if (agentPhaseListeners.size === 0) return
@@ -2042,9 +2053,14 @@ function notifyAgentPhaseListeners(
     // carries, so that id is still its correlation handle.
     agentId: session.agentId ?? frame.agentId,
     executionId: session.agentSession?.executionId ?? null,
-    phase: frame.phase,
+    phase: resolution.phase,
     previousPhase,
     event: frame.event,
+    // Turn semantics resolved from the CLI's manifest event table — consumers
+    // read these, never event names (several events share a phase, and only
+    // the manifest knows which one is the session's turn end).
+    turnEnd: resolution.turnEnd,
+    turnFailure: resolution.turnFailure,
     ts: frame.ts,
     pendingWakeupAt: session.pendingWakeupAt ?? null,
     ...(frame.transcriptPath === undefined ? {} : { transcriptPath: frame.transcriptPath }),

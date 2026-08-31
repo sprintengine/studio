@@ -80,6 +80,24 @@
       "mentionPrefix": "/"
     }
   },
+  "agentStateSpec": {
+    "$comment": "Grok Build ships Claude-style lifecycle hooks (same event vocabulary; stdin payload uses camelCase field names — hookEventName / sessionId — which the shared reporter reads alongside snake_case). Discovery is per-file: project hooks are standalone JSON files under .grok/hooks/, so we own our config file outright (owned-json). Project hooks only run once the folder is trusted — see the bypass_all $comment. Grok's Notification payload types are UNVERIFIED against the awaiting-input allow-list (its docs name no notification_type values), so until confirmed live a Grok permission prompt may read as idle — the deliberate fail-safe direction (a false needs-input parks a session forever; a false idle is recoverable).",
+    "registration": { "kind": "owned-json", "path": ".grok/hooks/multicode-agent-state.json" },
+    "events": [
+      { "event": "SessionStart", "phase": "starting" },
+      { "event": "UserPromptSubmit", "phase": "thinking" },
+      { "event": "PreToolUse", "phase": "tool_use", "register": false },
+      { "event": "PostToolUse", "matcher": "*", "phase": "thinking" },
+      {
+        "event": "Notification",
+        "phase": "awaiting_input",
+        "when": { "field": "notificationType", "oneOf": ["permission_prompt", "elicitation_dialog", "agent_needs_input"] }
+      },
+      { "event": "Stop", "phase": "idle", "turnEnd": true },
+      { "event": "SubagentStop", "phase": "idle" },
+      { "event": "SessionEnd", "phase": "exited" }
+    ]
+  },
   "detect": {
     "versionArgs": ["--version"]
   },

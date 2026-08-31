@@ -80,9 +80,10 @@ export type AgentSessionExitListener = (event: AgentSessionExitEvent) => void | 
 // `event` is the raw reporter event name (`Stop`, `SubagentStop`, `session.idle`,
 // …) and is deliberately not collapsed into `phase`: several distinct events map
 // to the same phase, so a phase-only signal cannot tell a session's turn end from
-// a subagent's, nor an OpenCode idle from an OpenCode crash. Read it through the
-// `isAgentTurnEndEvent` / `isAgentTurnFailureEvent` predicates in
-// `src/main/agent-state.ts`, never by comparing event names at the call site.
+// a subagent's, nor an OpenCode idle from an OpenCode crash. Consumers must read
+// the `turnEnd` / `turnFailure` booleans — resolved by the runtime from the
+// CLI's manifest-declared agentStateSpec event table — never compare event
+// names at the call site (a CLI's vocabulary is its manifest's business).
 export type AgentPhaseEvent = {
   workspaceId: string | null
   agentId: string
@@ -90,6 +91,11 @@ export type AgentPhaseEvent = {
   phase: AgentPhase
   previousPhase: AgentPhase | null
   event: string | null
+  // True when the manifest marks this event as the session's turn end (never a
+  // subagent's) / as a failed turn. A crash and a clean finish can share the
+  // phase `idle`; these flags are the only reliable way to tell them apart.
+  turnEnd: boolean
+  turnFailure: boolean
   ts: number
   // Epoch ms of a self-scheduled wakeup the agent intends to resume at, or null.
   pendingWakeupAt: number | null

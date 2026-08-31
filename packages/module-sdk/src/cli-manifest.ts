@@ -181,6 +181,51 @@ export type CliSoulsSpec = {
 }
 
 /**
+ * Authoritative agent-state integration: how the CLI's lifecycle hooks are
+ * registered and how its native event names map to Multicode's shared agent
+ * phase vocabulary. A manifest without this spec declares that the CLI cannot
+ * report agent state, and it is not offered as an agent (pickers, sprints,
+ * automations). Mirrors the app's `PluginAgentStateSpec`.
+ */
+export type CliAgentStatePhase =
+  | 'starting'
+  | 'thinking'
+  | 'tool_use'
+  | 'awaiting_input'
+  | 'idle'
+  | 'exited'
+
+export type CliAgentStateEventSpec = {
+  /** Native event name exactly as the CLI's hook payload names it. */
+  event: string
+  /** Registration matcher (Claude-style `matcher` key), when the CLI wants one. */
+  matcher?: string
+  phase: CliAgentStatePhase
+  /**
+   * Payload discriminator: the phase applies only when the named frame field's
+   * value is in `oneOf`; any other (or absent) value drops the frame.
+   */
+  when?: { field: 'notificationType'; oneOf: string[] }
+  /** Registered in the CLI's hook config (default true); false = map-only. */
+  register?: boolean
+  /** This event is the session's turn end. */
+  turnEnd?: boolean
+  /** This event signals a failed turn. */
+  failure?: boolean
+}
+
+export type CliAgentStateRegistrationSpec =
+  | { kind: 'settings-json'; path: string }
+  | { kind: 'toml-block'; path: string }
+  | { kind: 'owned-json'; path: string }
+  | { kind: 'plugin-file'; path: string; template: string }
+
+export type CliAgentStateSpec = {
+  registration: CliAgentStateRegistrationSpec
+  events: CliAgentStateEventSpec[]
+}
+
+/**
  * A credential the CLI needs to reach an authenticated endpoint. Multicode
  * stores the value in its shared, encrypted credential store and exposes it to
  * `launch.env` as `{{secret}}` at spawn time — the token never appears in argv
@@ -221,6 +266,7 @@ export type CliPluginManifest = {
   reasoningSelection?: CliReasoningSelectionSpec
   themeSelection?: CliThemeSelectionSpec
   skillIntegration?: CliSkillIntegration
+  agentStateSpec?: CliAgentStateSpec
   auth?: CliAuthSpec
 }
 
@@ -297,6 +343,7 @@ export function validateCliPluginManifest(value: unknown): CliManifestResult {
   if (value.reasoningSelection !== undefined) validateReasoningSelection(value.reasoningSelection, issues)
   if (value.themeSelection !== undefined) validateThemeSelection(value.themeSelection, issues)
   if (value.skillIntegration !== undefined) validateSkillIntegration(value.skillIntegration, issues)
+  if (value.agentStateSpec !== undefined) validateAgentStateSpec(value.agentStateSpec, issues)
   if (value.auth !== undefined) validateAuth(value.auth, issues)
 
   if (issues.length > 0) return { ok: false, issues }
@@ -457,6 +504,106 @@ function validateMcpConfig(value: unknown, issues: CliManifestIssue[]): void {
   if (typeof value.format !== 'string' || !MCP_FORMATS.includes(value.format as CliMcpConfigFormat)) {
     issues.push({ path: 'mcpConfig.format', message: `mcpConfig.format must be one of: ${MCP_FORMATS.join(', ')}.` })
   }
+}
+
+const AGENT_STATE_PHASES: CliAgentStatePhase[] = [
+  'starting',
+  'thinking',
+  'tool_use',
+  'awaiting_input',
+  'idle',
+  'exited',
+]
+const AGENT_STATE_REGISTRATION_KINDS = ['settings-json', 'toml-block', 'owned-json', 'plugin-file'] as const
+
+// Registration paths are written inside the workspace at install time, so they
+// must stay strictly relative — no traversal, no absolute paths, no backslashes.
+function isSafeWorkspaceRelativePath(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0) return false
+  if (value.includes('\0') || value.includes('\\') || value.startsWith('/')) return false
+  const segments = value.split('/')
+  return !segments.some((segment) => segment === '..' || segment === '.' || segment.length === 0)
+}
+
+function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'agentStateSpec', message: 'agentStateSpec must be an object when present.' })
+    return
+  }
+  const registration = value.registration
+  if (!isObject(registration)) {
+    issues.push({ path: 'agentStateSpec.registration', message: 'agentStateSpec.registration must be an object.' })
+  } else {
+    if (
+      typeof registration.kind !== 'string'
+      || !(AGENT_STATE_REGISTRATION_KINDS as readonly string[]).includes(registration.kind)
+    ) {
+      issues.push({
+        path: 'agentStateSpec.registration.kind',
+        message: `registration.kind must be one of: ${AGENT_STATE_REGISTRATION_KINDS.join(', ')}.`,
+      })
+    }
+    if (!isSafeWorkspaceRelativePath(registration.path)) {
+      issues.push({
+        path: 'agentStateSpec.registration.path',
+        message: 'registration.path must be a safe workspace-relative path (forward slashes, no traversal).',
+      })
+    }
+    if (registration.kind === 'plugin-file') {
+      if (typeof registration.template !== 'string' || registration.template.length === 0) {
+        issues.push({
+          path: 'agentStateSpec.registration.template',
+          message: 'plugin-file registration requires a bundled reporter template name.',
+        })
+      }
+    } else if (registration.template !== undefined) {
+      issues.push({
+        path: 'agentStateSpec.registration.template',
+        message: 'registration.template is only valid for plugin-file registrations.',
+      })
+    }
+  }
+  if (!Array.isArray(value.events) || value.events.length === 0) {
+    issues.push({ path: 'agentStateSpec.events', message: 'agentStateSpec.events must be a non-empty array.' })
+    return
+  }
+  const seen = new Set<string>()
+  value.events.forEach((entry, index) => {
+    const path = `agentStateSpec.events[${index}]`
+    if (!isObject(entry)) {
+      issues.push({ path, message: 'Event spec must be an object.' })
+      return
+    }
+    if (typeof entry.event !== 'string' || entry.event.length === 0) {
+      issues.push({ path: `${path}.event`, message: 'event must be a non-empty string.' })
+    } else if (seen.has(entry.event)) {
+      issues.push({ path: `${path}.event`, message: `duplicate event "${entry.event}".` })
+    } else {
+      seen.add(entry.event)
+    }
+    if (typeof entry.phase !== 'string' || !(AGENT_STATE_PHASES as readonly string[]).includes(entry.phase)) {
+      issues.push({ path: `${path}.phase`, message: `phase must be one of: ${AGENT_STATE_PHASES.join(', ')}.` })
+    }
+    if (entry.matcher !== undefined && typeof entry.matcher !== 'string') {
+      issues.push({ path: `${path}.matcher`, message: 'matcher must be a string when present.' })
+    }
+    for (const flag of ['register', 'turnEnd', 'failure'] as const) {
+      if (entry[flag] !== undefined && typeof entry[flag] !== 'boolean') {
+        issues.push({ path: `${path}.${flag}`, message: `${flag} must be a boolean when present.` })
+      }
+    }
+    if (entry.when !== undefined) {
+      if (!isObject(entry.when) || entry.when.field !== 'notificationType') {
+        issues.push({ path: `${path}.when.field`, message: 'when.field must be "notificationType".' })
+      } else if (
+        !Array.isArray(entry.when.oneOf)
+        || entry.when.oneOf.length === 0
+        || entry.when.oneOf.some((v: unknown) => typeof v !== 'string' || v.length === 0)
+      ) {
+        issues.push({ path: `${path}.when.oneOf`, message: 'when.oneOf must be a non-empty array of strings.' })
+      }
+    }
+  })
 }
 
 function validateCapabilities(value: unknown, issues: CliManifestIssue[]): void {

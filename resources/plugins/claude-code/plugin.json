@@ -97,6 +97,24 @@
       "mentionPrefix": "/"
     }
   },
+  "agentStateSpec": {
+    "$comment": "Authoritative agent-state via Claude Code lifecycle hooks, merged as tagged entries into the workspace settings. PreToolUse is register:false deliberately: PreToolUse and PostToolUse fire once per tool call each, and PostToolUse alone is load-bearing (its thinking frame is the only signal that clears awaiting_input after a permission is answered), so registering only PostToolUse halves the per-tool reporter spawns. The Notification allow-list keeps informational types (idle_prompt, auth_success, elicitation_complete/response, agent_completed — documented set as of 2026-07-08) from parking a session as falsely needs-input forever (the 2026-07-07 incident); if a future Claude build adds a new BLOCKING notification_type, extend oneOf here.",
+    "registration": { "kind": "settings-json", "path": ".claude/settings.local.json" },
+    "events": [
+      { "event": "SessionStart", "phase": "starting" },
+      { "event": "UserPromptSubmit", "phase": "thinking" },
+      { "event": "PreToolUse", "phase": "tool_use", "register": false },
+      { "event": "PostToolUse", "matcher": "*", "phase": "thinking" },
+      {
+        "event": "Notification",
+        "phase": "awaiting_input",
+        "when": { "field": "notificationType", "oneOf": ["permission_prompt", "elicitation_dialog", "agent_needs_input"] }
+      },
+      { "event": "Stop", "phase": "idle", "turnEnd": true },
+      { "event": "SubagentStop", "phase": "idle" },
+      { "event": "SessionEnd", "phase": "exited" }
+    ]
+  },
   "detect": {
     "versionArgs": ["--version"]
   },

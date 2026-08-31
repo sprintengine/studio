@@ -911,6 +911,8 @@ function phaseFrame(overrides: Partial<AgentPhaseEvent> = {}): AgentPhaseEvent {
     phase: 'thinking',
     previousPhase: null,
     event: 'PreToolUse',
+    turnEnd: false,
+    turnFailure: false,
     ts: 0,
     pendingWakeupAt: null,
     ...overrides,
@@ -922,11 +924,11 @@ function workingFrame(overrides: Partial<AgentPhaseEvent> = {}): AgentPhaseEvent
   return phaseFrame({ phase: 'thinking', event: 'PreToolUse', ...overrides })
 }
 
-// A Claude turn end. `SubagentStop` and `session.error` map to the same idle
-// phase, so only the raw event tells them apart — which is the whole point of
-// carrying it this far.
+// A turn end. `SubagentStop` and `session.error` map to the same idle phase,
+// so only the manifest-resolved turnEnd/turnFailure flags tell them apart —
+// which is the whole point of carrying them this far.
 function turnEndFrame(overrides: Partial<AgentPhaseEvent> = {}): AgentPhaseEvent {
-  return phaseFrame({ phase: 'idle', previousPhase: 'thinking', event: 'Stop', ...overrides })
+  return phaseFrame({ phase: 'idle', previousPhase: 'thinking', event: 'Stop', turnEnd: true, ...overrides })
 }
 
 async function readRunStatus(
@@ -1031,9 +1033,10 @@ async function assertSubagentStopNeverFinalizes(): Promise<void> {
   assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
 
   // A Task subagent finishing maps to the SAME idle phase as the session's own
-  // turn end. Finalizing here would open a PR from work still in progress.
+  // turn end, and its manifest entry carries no turnEnd flag. Finalizing here
+  // would open a PR from work still in progress.
   await engine.noteAgentPhase(workingFrame())
-  await engine.noteAgentPhase(turnEndFrame({ event: 'SubagentStop' }))
+  await engine.noteAgentPhase(turnEndFrame({ event: 'SubagentStop', turnEnd: false }))
   await settle()
 
   assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'SubagentStop does not end the run')
@@ -1117,9 +1120,9 @@ async function assertTurnFailureFinalizesRunAsFailed(): Promise<void> {
 
   // OpenCode maps session.error to the idle phase, exactly like session.idle — so
   // a phase-only signal would finalize a CRASHED session as completed and open a
-  // PR from it. The raw event is what keeps that from happening.
+  // PR from it. The manifest-resolved turnFailure flag keeps that from happening.
   await engine.noteAgentPhase(workingFrame())
-  await engine.noteAgentPhase(turnEndFrame({ event: 'session.error' }))
+  await engine.noteAgentPhase(turnEndFrame({ event: 'session.error', turnEnd: false, turnFailure: true }))
   await settle()
 
   const finalized = await store.getRun('nightly-review', 'run-agent')

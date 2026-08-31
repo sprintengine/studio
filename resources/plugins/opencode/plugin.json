@@ -74,6 +74,24 @@
       "implicitInvocation": true
     }
   },
+  "agentStateSpec": {
+    "$comment": "OpenCode has no command-hook mechanism; it auto-loads in-process JS plugins from .opencode/plugin/ and exposes a typed event stream, so the reporter is the named bundled plugin TEMPLATE with the socket path baked in at install (dest is .js because OpenCode's loader ignores .mjs, verified against v1.17.11). The events table below is the canonical event→phase mapping the main process applies to each frame; the plugin's internal copy only decides what it reports and dedups on. message.updated is the working signal (no discrete thinking-start event exists); permission.replied → thinking is load-bearing — it is the only signal that clears awaiting_input after the user answers a prompt; session.error maps to idle WITH failure:true because a crashed session must not read as a clean turn end; no event maps to exited — a real process exit is owned by the pty exit listener. register flags are meaningless here (the plugin subscribes itself).",
+    "registration": {
+      "kind": "plugin-file",
+      "path": ".opencode/plugin/multicode-agent-state.js",
+      "template": "opencode-agent-state.mjs"
+    },
+    "events": [
+      { "event": "session.created", "phase": "starting" },
+      { "event": "message.updated", "phase": "thinking" },
+      { "event": "permission.updated", "phase": "awaiting_input" },
+      { "event": "permission.replied", "phase": "thinking" },
+      { "event": "tool.execute.before", "phase": "tool_use" },
+      { "event": "tool.execute.after", "phase": "thinking" },
+      { "event": "session.idle", "phase": "idle", "turnEnd": true },
+      { "event": "session.error", "phase": "idle", "failure": true }
+    ]
+  },
   "detect": {
     "versionArgs": ["--version"]
   },

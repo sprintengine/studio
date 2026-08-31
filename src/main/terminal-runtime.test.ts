@@ -431,6 +431,10 @@ async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
         phase: 'idle',
         previousPhase: 'thinking',
         event: 'Stop',
+        // Resolved from the claude-code manifest's event table: Stop is the
+        // session's turn end.
+        turnEnd: true,
+        turnFailure: false,
         ts: scheduledAt + 1_000,
         pendingWakeupAt: wakeupAt,
         transcriptPath: '/tmp/transcript.jsonl',

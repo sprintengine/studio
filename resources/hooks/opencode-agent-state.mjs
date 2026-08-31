@@ -19,9 +19,12 @@
 // instances, so it may point at another (possibly dead) instance's socket.
 //
 // This file is loaded by OpenCode's runtime, so it stays dependency-free and
-// NEVER throws into the host. It MUST mirror mapOpencodeEventToPhase and
-// opencodeSessionIdFromEvent in src/main/agent-state.ts (the tested canonical
-// copies).
+// NEVER throws into the host. The CANONICAL event→phase mapping lives in the
+// opencode plugin manifest's agentStateSpec.events table, applied by the main
+// process to the raw `event` each frame carries; the mapping below only decides
+// which OpenCode events this plugin reports and dedups on, and the `phase` it
+// sends is consulted solely when no manifest entry resolves the event. Keep the
+// two aligned — drift here costs dedup granularity, not truth.
 
 import { connect } from 'node:net'
 
@@ -47,7 +50,8 @@ function resolveSocketPath() {
   return null
 }
 
-// Must mirror mapOpencodeEventToPhase in src/main/agent-state.ts.
+// See the canonical-mapping note in the header: this decides what is reported
+// and deduped, while the manifest's events table decides the applied phase.
 function mapEventToPhase(type) {
   switch (type) {
     case 'session.created':
@@ -66,7 +70,11 @@ function mapEventToPhase(type) {
   }
 }
 
-// Must mirror opencodeSessionIdFromEvent in src/main/agent-state.ts.
+// Extract the OpenCode session id from an event payload. Events carry it
+// differently: most as `properties.sessionID`; session.* lifecycle events as
+// `properties.info.id` (a Session); message.updated as `properties.info.sessionID`
+// (a Message). The id is optional for the runtime (frames resolve by agentId),
+// so an unknown shape returns null safely.
 function sessionIdFromEvent(event) {
   const props = event && event.properties
   if (!props || typeof props !== 'object') return null

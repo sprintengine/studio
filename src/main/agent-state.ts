@@ -2,16 +2,19 @@ import { existsSync } from 'fs'
 import { copyFile, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { join, resolve, sep } from 'path'
 import type { AgentPhase, AgentState, AgentStateSource, SessionActivity } from '../shared/electron-api'
+import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 
 // =============================================================================
 // Authoritative agent state — pure core (no Electron deps, fully unit-testable)
 //
 // This module owns three concerns that need no main-process runtime:
-//   1. The hook event → AgentPhase mapping (the detection vocabulary).
+//   1. Resolving a reporter frame against a CLI's manifest-declared
+//      `agentStateSpec` (event → AgentPhase, discriminators, turn-end flags).
+//      The per-CLI vocabulary is DATA on each plugin manifest, never code here.
 //   2. The AgentPhase → legacy SessionActivity bridge (so existing consumers
 //      keep working untouched while the richer phase rides alongside).
 //   3. Validating an untrusted reporter frame and (un)installing the reporter
-//      hook into a workspace's .claude/settings.local.json.
+//      into a workspace, dispatched by the spec's registration kind.
 //
 // The Electron-bound half (the socket listener + session resolution + renderer
 // broadcast + launch-time install) lives in a sibling service module so this
@@ -25,95 +28,74 @@ export const AGENT_STATE_HOOK_TAG = 'multicode-agent-state'
 // install always passes the socket via --socket, so it is not referenced here.
 export const AGENT_STATE_HOOK_SCRIPT_REL = join('.multicode', 'hooks', 'agent-state.mjs')
 
-const CLAUDE_LOCAL_SETTINGS_REL = join('.claude', 'settings.local.json')
-
-// The Claude Code lifecycle events we register the reporter for. One reporter
-// command is registered under every event — it reads `hook_event_name` from the
-// hook payload to know which phase to report.
-//
-// `PreToolUse` and `PostToolUse` each fire once per tool call — equal frequency.
-// We drop `PreToolUse` and keep `PostToolUse`, not because one is rarer, but
-// because of what each produces:
-//
-//   - `PreToolUse` is pure overhead here: its only product is the
-//     `thinking ↔ tool_use` distinction, which bridges to the same `working`
-//     activity, is deduped by the renderer, and is surfaced nowhere.
-//   - `PostToolUse` is load-bearing: after the user answers a permission prompt
-//     (`Notification` → awaiting_input), its `→ thinking` frame is the ONLY
-//     signal that clears `awaiting_input` mid-turn — the agent resumes with no
-//     other hook frame until `Stop`, and output never writes `agentState.phase`.
-//     Dropping it leaves the "needs input" indicator falsely lit until turn end.
-//
-// So this halves the per-tool reporter spawns (2 → 1) by dropping the one we
-// don't need; it does NOT eliminate them. The broadcast-storm guard in
-// `ingestAgentStateFrame` keeps the remaining PostToolUse churn from causing
-// snapshot IPCs. Eliminating the last per-tool spawn entirely needs a cheaper
-// reporter (native binary) or an output-based resume signal — separate backlog.
-export const AGENT_STATE_HOOK_EVENTS: ReadonlyArray<{ event: string; matcher?: string }> = [
-  { event: 'SessionStart' },
-  { event: 'UserPromptSubmit' },
-  { event: 'PostToolUse', matcher: '*' },
-  { event: 'Notification' },
-  { event: 'Stop' },
-  { event: 'SubagentStop' },
-  { event: 'SessionEnd' },
-]
-
 // =============================================================================
-// Event → phase mapping keeps runtime events in one shared vocabulary
+// Frame resolution against a manifest agentStateSpec
+//
+// The reporter forwards the RAW event name (plus the payload discriminator
+// fields the specs consult — today only `notificationType`); the mapping to a
+// phase happens HERE, from the resolving plugin's manifest data. That keeps
+// every CLI's vocabulary in one authored, validated place and out of the
+// reporter scripts, which used to carry a second copy that had to be mirrored
+// by hand.
+//
+// Turn-end and turn-failure ride the same table as per-event flags, raw-event-
+// level deliberately: several events share a phase (Claude's Stop and
+// SubagentStop both map to `idle`; OpenCode's session.error maps to `idle` like
+// its session.idle), so only the event name can tell a session's turn end from
+// a subagent's, or a crash from a clean finish. Consumers read the computed
+// flags off the phase event, never event names.
 // =============================================================================
 
-// Claude Code's `Notification` event is overloaded: it fires for a real
-// permission/elicitation prompt (the agent is genuinely blocked on the user) AND
-// for purely informational reasons — most importantly the `idle_prompt` "waiting
-// for your input" nudge that fires ~60s after the agent already Stopped (→ idle).
-// The documented, stable `notification_type` field distinguishes them
-// (https://code.claude.com/docs/en/hooks.md). We ALLOW-LIST the genuinely
-// blocking types rather than deny-listing informational ones: `awaiting_input`
-// is sticky for a dormant agent (only a later PostToolUse/Stop clears it, and a
-// stopped agent emits neither), so one unlisted informational type used to park
-// a session as falsely "needs input" forever — including exempting it from the
-// idle reaper (the 2026-07-07 parked-agents incident). An unknown/absent
-// `notification_type` now drops (prior phase stands); if a future Claude build
-// adds a new BLOCKING type, add it here — the failure mode until then is an
-// agent that reads idle while prompting, recoverable via resume-on-keystroke.
-// Documented types as of 2026-07-08: permission_prompt, idle_prompt,
-// auth_success, elicitation_dialog, elicitation_complete, elicitation_response,
-// agent_needs_input, agent_completed. The reporters (.mjs) MUST mirror this set.
-export const AWAITING_INPUT_NOTIFICATION_TYPES: ReadonlySet<string> = new Set([
-  'permission_prompt',
-  'elicitation_dialog',
-  'agent_needs_input',
-])
+export type AgentStateEventResolution =
+  | { action: 'drop' }
+  | { action: 'apply'; phase: AgentPhase; turnEnd: boolean; turnFailure: boolean }
 
-export function mapHookEventToPhase(event: string, notificationType?: string | null): AgentPhase | null {
-  switch (event) {
-    case 'SessionStart':
-      return 'starting'
-    case 'UserPromptSubmit':
-      return 'thinking'
-    case 'PreToolUse':
-      return 'tool_use'
-    case 'PostToolUse':
-      // No discrete "thinking-start" hook exists; the interval between a tool
-      // finishing and the next PreToolUse/Stop is the model thinking.
-      return 'thinking'
-    case 'Notification':
-      // Only a known-blocking notification is an attention request; anything
-      // else (informational, unknown, or untyped) drops so the prior phase
-      // stands — see the allow-list rationale above.
-      if (notificationType && AWAITING_INPUT_NOTIFICATION_TYPES.has(notificationType)) return 'awaiting_input'
-      return null
-    case 'PermissionRequest':
-      return 'awaiting_input'
-    case 'Stop':
-    case 'SubagentStop':
-      return 'idle'
-    case 'SessionEnd':
-      return 'exited'
-    default:
-      return null
+export function resolveAgentStateEvent(
+  spec: PluginAgentStateSpec | null | undefined,
+  frame: Pick<AgentStateFrame, 'event' | 'phase' | 'notificationType'>
+): AgentStateEventResolution {
+  if (spec && frame.event) {
+    const entry = spec.events.find((candidate) => candidate.event === frame.event)
+    // An event the spec does not name carries no phase for this CLI — the
+    // prior phase stands. (This is also what makes a discriminator allow-list
+    // fail SAFE: see below.)
+    if (!entry) return { action: 'drop' }
+    if (entry.when) {
+      // Discriminator: the phase applies only for allow-listed payload values.
+      // Claude's `Notification` is the canonical case — it fires for real
+      // permission/elicitation prompts AND informational nudges (idle_prompt),
+      // and `awaiting_input` is sticky for a dormant agent, so an unlisted or
+      // absent value must drop (falsely "needs input" parks a session forever;
+      // a false idle is recoverable — the 2026-07-07 parked-agents incident).
+      const value = frame.notificationType
+      if (!value || !entry.when.oneOf.includes(value)) return { action: 'drop' }
+    }
+    return {
+      action: 'apply',
+      phase: entry.phase,
+      turnEnd: entry.turnEnd === true,
+      turnFailure: entry.failure === true,
+    }
   }
+  // No spec (a CLI outside the manifest capability whose reporter still emits
+  // frames) or an event-less frame: trust the reporter-asserted phase, with no
+  // turn-end semantics — those are manifest data only.
+  if (frame.phase) return { action: 'apply', phase: frame.phase, turnEnd: false, turnFailure: false }
+  return { action: 'drop' }
+}
+
+// The registration subset of a spec's event table: what actually gets written
+// into the CLI's hook config. `register: false` entries are mapped if a frame
+// ever arrives (a stale registration from an older release) but never
+// registered anew — e.g. Claude's PreToolUse, dropped because PostToolUse alone
+// clears awaiting_input and halves the per-tool reporter spawns (the manifest
+// $comment on the claude-code plugin carries the full rationale).
+export function registeredAgentStateEvents(
+  spec: Pick<PluginAgentStateSpec, 'events'>
+): Array<{ event: string; matcher?: string }> {
+  return spec.events
+    .filter((entry) => entry.register !== false)
+    .map(({ event, matcher }) => (matcher === undefined ? { event } : { event, matcher }))
 }
 
 // =============================================================================
@@ -142,42 +124,6 @@ export function isAuthoritativeWorkingPhase(state: AgentState | undefined): bool
 // sprint-agent inactive-run guard so the two can't drift.
 export function isAtRestAgentPhase(phase: AgentPhase | null | undefined): boolean {
   return phase === 'idle' || phase === 'stalled'
-}
-
-// =============================================================================
-// Turn-end vocabulary (raw reporter event, not phase)
-//
-// The single source of truth for "this agent's turn ended", shared by every
-// reporter. It reads the RAW `frame.event`, and neither of the obvious
-// alternatives is correct:
-//
-//   - `event === 'Stop'` silently breaks OpenCode, whose plugin emits its own
-//     names (`session.idle`).
-//   - `phase === 'idle'` is worse: mapOpencodeEventToPhase maps `session.error`
-//     to `idle` too, so a CRASHED session would read as a clean turn end.
-//
-// `SubagentStop` is deliberately excluded: a Task subagent finishing is not the
-// session's turn end, yet it maps to `idle` exactly like `Stop` — which is
-// precisely why the event name has to survive as far as the consumer.
-//
-// CLIs outside the reporter set (see `agentStateSupportsCli`) emit no frame at
-// all, so a consumer must carry its own bounded backstop; these predicates only
-// speak for agents that report.
-// =============================================================================
-
-const TURN_END_EVENTS: ReadonlySet<string> = new Set(['Stop', 'session.idle'])
-
-export function isAgentTurnEndEvent(event: string | null | undefined): boolean {
-  return typeof event === 'string' && TURN_END_EVENTS.has(event)
-}
-
-// OpenCode's crash event. It maps to phase `idle` (above), so this is the only
-// way to tell a failed session from a finished one. Note the plugin drops
-// consecutive identical phases, so a `session.error` arriving after a
-// `session.idle` is suppressed — this is reachable only when the error is the
-// first at-rest frame.
-export function isAgentTurnFailureEvent(event: string | null | undefined): boolean {
-  return event === 'session.error'
 }
 
 export function deriveActivityFromPhase(phase: AgentPhase, since: number): SessionActivity | null {
@@ -271,8 +217,17 @@ export type AgentStateFrame = {
   agentId: string
   workspaceId: string | null
   sessionId: string | null
-  phase: AgentPhase
+  // The reporter-asserted phase. Optional: the stdin-filter reporter is a dumb
+  // forwarder (event + discriminator fields only; the phase is derived in main
+  // via the resolving plugin's agentStateSpec). Present on frames from the
+  // OpenCode plugin reporter (which maps internally for its dedup) and from
+  // stale reporter copies of older releases — consumed only when no spec entry
+  // resolves the event (see resolveAgentStateEvent).
+  phase?: AgentPhase
   event: string | null
+  // The payload discriminator field specs may consult (Claude's
+  // `notification_type`, forwarded under one spelling). Untrusted, capped.
+  notificationType?: string
   ts: number
   wakeup?: AgentStateFrameWakeup
   // The CLI's session transcript, forwarded by the reporter on a turn end only.
@@ -307,13 +262,25 @@ function optionalString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
+// Cap on the forwarded discriminator value: documented notification types are
+// short tokens; anything longer is a payload anomaly, and the value is compared
+// against manifest allow-lists so an oversized string is dropped, not truncated.
+export const MAX_NOTIFICATION_TYPE_LENGTH = 128
+
 export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame | null {
   if (!isRecord(raw)) return null
   if (raw.type !== 'agent_state') return null
   const agentId = optionalString(raw.agentId)
   if (!agentId) return null
-  const phase = raw.phase
-  if (typeof phase !== 'string' || !VALID_PHASES.has(phase as AgentPhase)) return null
+  // A frame must carry a raw event name (mapped in main via the resolving
+  // plugin's agentStateSpec), a reporter-asserted phase (the OpenCode plugin,
+  // stale reporter copies), or both. Neither ⇒ nothing to apply.
+  const event = optionalString(raw.event)
+  const phase =
+    typeof raw.phase === 'string' && VALID_PHASES.has(raw.phase as AgentPhase)
+      ? (raw.phase as AgentPhase)
+      : null
+  if (!event && !phase) return null
   // Clamp to server arrival time: raw.ts is reporter-supplied and compared
   // cross-clock against the main-process clock (terminal-runtime drops frames
   // where since > frame.ts, and since is written from Date.now()). A far-future
@@ -325,9 +292,13 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
     agentId,
     workspaceId: optionalString(raw.workspaceId),
     sessionId: optionalString(raw.sessionId),
-    phase: phase as AgentPhase,
-    event: optionalString(raw.event),
+    event,
     ts,
+  }
+  if (phase) frame.phase = phase
+  const notificationType = optionalString(raw.notificationType)
+  if (notificationType && notificationType.length <= MAX_NOTIFICATION_TYPE_LENGTH) {
+    frame.notificationType = notificationType
   }
   const wakeup = parseFrameWakeup(raw.wakeup)
   if (wakeup) frame.wakeup = wakeup
@@ -470,7 +441,7 @@ function ensureMatcherBlock(blocks: ClaudeMatcherBlock[], matcher: string | unde
 
 // Remove every Multicode-tagged reporter entry from ALL event keys, pruning
 // emptied matcher-blocks and then emptied event keys. Sweeping all keys — rather
-// than only the currently-registered AGENT_STATE_HOOK_EVENTS — self-heals an
+// than only the currently-registered event set — self-heals an
 // entry left behind by a prior release that registered an event we have since
 // dropped (e.g. PreToolUse). Without this, that stale hook would keep spawning
 // the reporter on every tool call and uninstall could never reach it.
@@ -488,7 +459,11 @@ function stripAgentStateEntries(hooks: Record<string, ClaudeMatcherBlock[]>): vo
   }
 }
 
-export async function mergeAgentStateHooks(settingsPath: string, command: string): Promise<void> {
+export async function mergeAgentStateHooks(
+  settingsPath: string,
+  command: string,
+  events: ReadonlyArray<{ event: string; matcher?: string }>
+): Promise<void> {
   const existing = (await readJsonIfExists<ClaudeSettings>(settingsPath)) ?? {}
   const settings: ClaudeSettings = { ...existing }
   if (!settings.hooks || typeof settings.hooks !== 'object') settings.hooks = {}
@@ -497,7 +472,7 @@ export async function mergeAgentStateHooks(settingsPath: string, command: string
   // current set — so install is both idempotent and a migration for stale hooks.
   stripAgentStateEntries(settings.hooks)
 
-  for (const { event, matcher } of AGENT_STATE_HOOK_EVENTS) {
+  for (const { event, matcher } of events) {
     if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = []
     const blocks = settings.hooks[event]
     const block = ensureMatcherBlock(blocks, matcher)
@@ -524,95 +499,18 @@ export async function unmergeAgentStateHooks(settingsPath: string): Promise<void
 }
 
 // =============================================================================
-// Install / uninstall
+// TOML managed block (registration kind 'toml-block')
 //
-// The caller (the Electron-bound service) resolves the bundled reporter script
-// path and the live socket path; this stays free of Electron so it is testable.
+// A single tagged managed block (own markers, never the MCP block's) so the
+// rest of the user's config file is preserved and the block is idempotently
+// replaceable — the same discipline the MCP writer uses, which avoids the known
+// footgun of an installer corrupting config.toml. The marker literals predate
+// this generic writer (they shipped with the Codex integration) and MUST stay
+// byte-identical so existing installed blocks are still recognized and replaced.
 // =============================================================================
 
-export type AgentStateInstallResult =
-  | { ok: true; settingsPath: string; hookScriptPath: string }
-  | { ok: false; message: string }
-
-export async function installAgentStateHook(
-  workspaceRoot: string,
-  options: { sourceScriptPath: string; socketPath: string }
-): Promise<AgentStateInstallResult> {
-  if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
-  if (!options.socketPath?.trim()) return { ok: false, message: 'Agent-state socket path is required.' }
-  if (!options.sourceScriptPath || !existsSync(options.sourceScriptPath)) {
-    return { ok: false, message: 'Agent-state reporter script is missing from this build.' }
-  }
-
-  try {
-    const hookDir = resolve(workspaceRoot, '.multicode', 'hooks')
-    await mkdir(hookDir, { recursive: true })
-    const destScript = resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
-    await copyFile(options.sourceScriptPath, destScript)
-
-    // Reference the reporter by its ABSOLUTE path (the dir we just copied it to),
-    // not a workspace-relative path: hook commands run with no guaranteed cwd, so
-    // a relative path breaks the moment the session's cwd drifts off the root.
-    // This mirrors the Codex install path below.
-    const settingsPath = resolve(workspaceRoot, CLAUDE_LOCAL_SETTINGS_REL)
-    await mergeAgentStateHooks(settingsPath, buildAgentStateReporterCommand(destScript, options.socketPath))
-
-    return { ok: true, settingsPath, hookScriptPath: destScript }
-  } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : 'Failed to install agent-state hook.',
-    }
-  }
-}
-
-export async function uninstallAgentStateHook(workspaceRoot: string): Promise<{ ok: true } | { ok: false; message: string }> {
-  if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
-  try {
-    const settingsPath = resolve(workspaceRoot, CLAUDE_LOCAL_SETTINGS_REL)
-    if (existsSync(settingsPath)) await unmergeAgentStateHooks(settingsPath)
-    const destScript = resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
-    if (existsSync(destScript)) await rm(destScript, { force: true })
-    return { ok: true }
-  } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : 'Failed to uninstall agent-state hook.',
-    }
-  }
-}
-
-// =============================================================================
-// Codex install path (Phase 2)
-//
-// Codex shipped lifecycle hooks with the same event schema + stdin payload as
-// Claude Code (hook_event_name / session_id), but configured as TOML in
-// .codex/config.toml rather than JSON. So the reporter script and the runtime
-// ingestion are unchanged — only the injection target differs. We write a single
-// tagged managed block (own markers, never the MCP block's) so the rest of the
-// user's config.toml is preserved and the block is idempotently replaceable —
-// the same discipline the MCP writer uses, which avoids the known footgun of an
-// installer corrupting config.toml.
-// =============================================================================
-
-const CODEX_CONFIG_REL = join('.codex', 'config.toml')
-const CODEX_AGENT_STATE_START = '# >>> multicode agent-state hooks managed'
-const CODEX_AGENT_STATE_END = '# <<< multicode agent-state hooks managed'
-
-// Codex uses `PermissionRequest` (not Claude's `Notification`) for the
-// awaiting-input case, and has no `SessionEnd` (process exit is owned by the pty
-// exit listener). The reporter already maps PermissionRequest → awaiting_input.
-// `PreToolUse` is dropped and `PostToolUse` kept for the same reasons as Claude
-// above — see AGENT_STATE_HOOK_EVENTS. PostToolUse → thinking is what clears
-// awaiting_input after a PermissionRequest is answered.
-export const AGENT_STATE_CODEX_HOOK_EVENTS: ReadonlyArray<{ event: string; matcher?: string }> = [
-  { event: 'SessionStart' },
-  { event: 'UserPromptSubmit' },
-  { event: 'PostToolUse', matcher: '*' },
-  { event: 'PermissionRequest' },
-  { event: 'Stop' },
-  { event: 'SubagentStop' },
-]
+const AGENT_STATE_TOML_START = '# >>> multicode agent-state hooks managed'
+const AGENT_STATE_TOML_END = '# <<< multicode agent-state hooks managed'
 
 // TOML basic strings share JSON's escaping (matches the repo's MCP writer), so
 // JSON.stringify yields a valid quoted value — and correctly escapes the Windows
@@ -625,35 +523,42 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-export function renderCodexAgentStateHooksBlock(command: string): string {
+export function renderTomlAgentStateHooksBlock(
+  command: string,
+  events: ReadonlyArray<{ event: string; matcher?: string }>
+): string {
   const lines: string[] = [
-    CODEX_AGENT_STATE_START,
+    AGENT_STATE_TOML_START,
     '# Generated for authoritative agent-state reporting. Remove this block to disable.',
   ]
-  for (const { event, matcher } of AGENT_STATE_CODEX_HOOK_EVENTS) {
+  for (const { event, matcher } of events) {
     lines.push('', `[[hooks.${event}]]`)
     if (matcher !== undefined) lines.push(`matcher = ${tomlBasicString(matcher)}`)
     lines.push(`[[hooks.${event}.hooks]]`, 'type = "command"', `command = ${tomlBasicString(command)}`)
   }
-  lines.push(CODEX_AGENT_STATE_END)
+  lines.push(AGENT_STATE_TOML_END)
   return lines.join('\n')
 }
 
 // Replace (or, with an empty block, remove) our managed hooks block, preserving
 // everything else in the file. Mirrors the MCP writer's replaceManagedBlock.
-function replaceCodexAgentStateBlock(previous: string, block: string): string {
-  const pattern = new RegExp(`${escapeRegExp(CODEX_AGENT_STATE_START)}[\\s\\S]*?${escapeRegExp(CODEX_AGENT_STATE_END)}\\n?`, 'm')
+function replaceTomlAgentStateBlock(previous: string, block: string): string {
+  const pattern = new RegExp(`${escapeRegExp(AGENT_STATE_TOML_START)}[\\s\\S]*?${escapeRegExp(AGENT_STATE_TOML_END)}\\n?`, 'm')
   const trimmed = previous.replace(pattern, '').trimEnd()
   if (!block) return trimmed ? `${trimmed}\n` : ''
   return `${trimmed}${trimmed ? '\n\n' : ''}${block}\n`
 }
 
-export function mergeCodexAgentStateHooks(previous: string, command: string): string {
-  return replaceCodexAgentStateBlock(previous, renderCodexAgentStateHooksBlock(command))
+export function mergeTomlAgentStateHooks(
+  previous: string,
+  command: string,
+  events: ReadonlyArray<{ event: string; matcher?: string }>
+): string {
+  return replaceTomlAgentStateBlock(previous, renderTomlAgentStateHooksBlock(command, events))
 }
 
-export function unmergeCodexAgentStateHooks(previous: string): string {
-  return replaceCodexAgentStateBlock(previous, '')
+export function unmergeTomlAgentStateHooks(previous: string): string {
+  return replaceTomlAgentStateBlock(previous, '')
 }
 
 async function readTextIfExists(path: string): Promise<string | null> {
@@ -665,91 +570,22 @@ async function readTextIfExists(path: string): Promise<string | null> {
   }
 }
 
-export async function installCodexAgentStateHook(
-  workspaceRoot: string,
-  options: { sourceScriptPath: string; socketPath: string }
-): Promise<AgentStateInstallResult> {
-  if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
-  if (!options.socketPath?.trim()) return { ok: false, message: 'Agent-state socket path is required.' }
-  if (!options.sourceScriptPath || !existsSync(options.sourceScriptPath)) {
-    return { ok: false, message: 'Agent-state reporter script is missing from this build.' }
-  }
-
-  try {
-    const hookDir = resolve(workspaceRoot, '.multicode', 'hooks')
-    await mkdir(hookDir, { recursive: true })
-    const destScript = resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
-    await copyFile(options.sourceScriptPath, destScript)
-
-    // Codex hook commands run without a guaranteed cwd, so reference the reporter
-    // by its absolute path (vs the workspace-relative path Claude uses).
-    const command = buildAgentStateReporterCommand(destScript, options.socketPath)
-    const configPath = resolve(workspaceRoot, CODEX_CONFIG_REL)
-    await mkdir(resolve(configPath, '..'), { recursive: true })
-    const previous = (await readTextIfExists(configPath)) ?? ''
-    await writeFile(configPath, mergeCodexAgentStateHooks(previous, command), 'utf8')
-
-    return { ok: true, settingsPath: configPath, hookScriptPath: destScript }
-  } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : 'Failed to install Codex agent-state hook.',
-    }
-  }
-}
-
-export async function uninstallCodexAgentStateHook(
-  workspaceRoot: string
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
-  try {
-    const configPath = resolve(workspaceRoot, CODEX_CONFIG_REL)
-    const previous = await readTextIfExists(configPath)
-    if (previous !== null) await writeFile(configPath, unmergeCodexAgentStateHooks(previous), 'utf8')
-    return { ok: true }
-  } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : 'Failed to uninstall Codex agent-state hook.',
-    }
-  }
-}
-
 // =============================================================================
-// Grok Build install path
+// Owned JSON hook config (registration kind 'owned-json')
 //
-// Grok Build (xAI's `grok` CLI) ships Claude Code-style lifecycle hooks with
-// the same event vocabulary and stdin-payload contract, with two differences:
-//   1. Discovery is per-file — project hooks live in standalone JSON files
-//      under .grok/hooks/*.json rather than merged into a shared settings
-//      file. We therefore own our config file outright: install is a plain
-//      write of .grok/hooks/multicode-agent-state.json, uninstall a plain
-//      remove — no merge/unmerge bookkeeping.
-//   2. The stdin payload names fields camelCase (hookEventName / sessionId /
-//      toolName); the shared reporter (multicode-agent-state.mjs) reads both
-//      spellings, so the reporter script and the socket ingestion are
-//      unchanged.
-// Project hooks only run once the folder is trusted; the bundled grok plugin
-// manifest passes --trust at launch for exactly this reason.
-//
-// Grok's `Notification` payload types are UNVERIFIED against the
-// awaiting-input allow-list (its docs name no notification_type values), so
-// until confirmed live a Grok permission prompt may read as idle — the
-// deliberate fail-safe direction (see AWAITING_INPUT_NOTIFICATION_TYPES: a
-// false "needs input" parks a session forever; a false idle is recoverable).
-// =============================================================================
-
-export const GROK_HOOKS_CONFIG_REL = join('.grok', 'hooks', 'multicode-agent-state.json')
-
-// The whole-file hook config Grok Build discovers from .grok/hooks/*.json. The
+// For CLIs whose hook discovery is per-file (Grok Build reads standalone JSON
+// files under .grok/hooks/*.json) we own our config file outright: install is a
+// plain write, uninstall a plain remove — no merge/unmerge bookkeeping. The
 // per-event structure ({ matcher?, hooks: [{ type: 'command', command }] })
-// matches Grok's documented format, which mirrors Claude Code's settings hooks.
-// The registration set is Claude's own AGENT_STATE_HOOK_EVENTS — Grok Build
-// fires all of those events, and PreToolUse is dropped / PostToolUse kept for
-// the same reasons.
-export function renderGrokAgentStateHooksConfig(command: string): string {
+// mirrors Claude Code's settings hooks, which is the format Grok documents.
+// =============================================================================
+
+export function renderOwnedJsonAgentStateHooksConfig(
+  command: string,
+  events: ReadonlyArray<{ event: string; matcher?: string }>
+): string {
   const hooks: Record<string, Array<Record<string, unknown>>> = {}
-  for (const { event, matcher } of AGENT_STATE_HOOK_EVENTS) {
+  for (const { event, matcher } of events) {
     const block: Record<string, unknown> = {}
     if (matcher !== undefined) block.matcher = matcher
     block.hooks = [{ type: 'command', command }]
@@ -758,135 +594,57 @@ export function renderGrokAgentStateHooksConfig(command: string): string {
   return JSON.stringify({ hooks }, null, 2) + '\n'
 }
 
-export async function installGrokAgentStateHook(
-  workspaceRoot: string,
-  options: { sourceScriptPath: string; socketPath: string }
-): Promise<AgentStateInstallResult> {
-  if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
-  if (!options.socketPath?.trim()) return { ok: false, message: 'Agent-state socket path is required.' }
-  if (!options.sourceScriptPath || !existsSync(options.sourceScriptPath)) {
-    return { ok: false, message: 'Agent-state reporter script is missing from this build.' }
-  }
-
-  try {
-    const hookDir = resolve(workspaceRoot, '.multicode', 'hooks')
-    await mkdir(hookDir, { recursive: true })
-    const destScript = resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
-    await copyFile(options.sourceScriptPath, destScript)
-
-    // Absolute reporter path for the same no-guaranteed-cwd reason as the
-    // Claude and Codex installs above.
-    const command = buildAgentStateReporterCommand(destScript, options.socketPath)
-    const configPath = resolve(workspaceRoot, GROK_HOOKS_CONFIG_REL)
-    await mkdir(resolve(configPath, '..'), { recursive: true })
-    await writeFile(configPath, renderGrokAgentStateHooksConfig(command), 'utf8')
-
-    return { ok: true, settingsPath: configPath, hookScriptPath: destScript }
-  } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : 'Failed to install Grok agent-state hook.',
-    }
-  }
-}
-
-export async function uninstallGrokAgentStateHook(
-  workspaceRoot: string
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
-  try {
-    // Remove only our own config file. The copied reporter script at
-    // AGENT_STATE_HOOK_SCRIPT_REL is shared with the Claude/Codex installs in
-    // the same workspace, so it is left for uninstallAgentStateHook to own.
-    const configPath = resolve(workspaceRoot, GROK_HOOKS_CONFIG_REL)
-    if (existsSync(configPath)) await rm(configPath, { force: true })
-    return { ok: true }
-  } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : 'Failed to uninstall Grok agent-state hook.',
-    }
-  }
-}
-
 // =============================================================================
-// OpenCode install path (Phase 3)
+// Plugin-file reporter (registration kind 'plugin-file')
 //
-// OpenCode has no command-hook mechanism like Claude/Codex (no per-event command
-// fed a JSON stdin payload). Instead it auto-loads in-process JS plugins from
-// .opencode/plugin/ and exposes a typed event stream. So the OpenCode reporter is
-// a *plugin* (resources/hooks/opencode-agent-state.mjs) that maps OpenCode events
-// to the same AgentPhase vocabulary and writes the same socket frame — the
-// runtime ingestion is unchanged. A plugin can't take a --socket arg, so the live
-// socket path is baked into the plugin file at install time (token substitution);
-// the plugin also honours MULTICODE_AGENT_STATE_SOCKET as a fallback.
+// For CLIs with no command-hook mechanism (OpenCode auto-loads in-process JS
+// plugins and exposes a typed event stream), the reporter is a bundled plugin
+// TEMPLATE named by the manifest's registration. It subscribes to the CLI's
+// events itself and emits the same socket frames; the manifest's `events` table
+// remains the canonical event→phase mapping the main process applies — the
+// template's internal mapping only decides which events it reports and dedups
+// on (frame `phase` is consulted solely when no spec entry resolves the event).
 //
-// The dest extension is .js, not .mjs: OpenCode's loader picks up .js/.ts from
-// .opencode/plugin but not .mjs (verified against opencode v1.17.11). The bundled
-// template ships as .mjs (the packaging filter is **/*.mjs) and is rewritten to
-// .js on install, so source and dest extensions intentionally differ.
+// A plugin can't take a --socket arg, so the live socket path is baked into the
+// file at install time (token substitution); the plugin also honours
+// MULTICODE_AGENT_STATE_SOCKET as a fallback. Note the OpenCode dest extension
+// is .js while the bundled template ships as .mjs (the packaging filter is
+// **/*.mjs; OpenCode's loader picks up .js/.ts but not .mjs, verified against
+// opencode v1.17.11) — the manifest declares both names, so the rename is data.
 // =============================================================================
 
-export const OPENCODE_PLUGIN_REL = join('.opencode', 'plugin', 'multicode-agent-state.js')
-
-// The quoted token in the plugin template that install replaces with the live
+// The quoted token in a plugin template that install replaces with the live
 // socket path. Replacing the WHOLE quoted literal with JSON.stringify(path) keeps
 // the value valid even for a Windows pipe path full of backslashes (splicing a
 // bare string back inside the quotes would let those backslashes act as JS
 // escapes and corrupt the path).
-const OPENCODE_SOCKET_PLACEHOLDER = "'__MULTICODE_AGENT_STATE_SOCKET__'"
+const PLUGIN_SOCKET_PLACEHOLDER = "'__MULTICODE_AGENT_STATE_SOCKET__'"
 
-// OpenCode's lifecycle events differ from Claude/Codex; map them to the same
-// AgentPhase vocabulary. The plugin reporter MUST mirror this.
-//   - `message.updated` is the working signal — OpenCode has no discrete
-//     thinking-start event; an updating message means the model is producing.
-//   - `permission.replied → thinking` is load-bearing: it's the only signal that
-//     clears awaiting_input mid-turn after the user answers a prompt (the analog
-//     of Claude's PostToolUse → thinking).
-//   - No event maps to `exited`: a real process exit is owned authoritatively by
-//     the pty exit listener (same as Codex).
-export function mapOpencodeEventToPhase(type: string): AgentPhase | null {
-  switch (type) {
-    case 'session.created':
-      return 'starting'
-    case 'message.updated':
-      return 'thinking'
-    case 'permission.updated':
-      return 'awaiting_input'
-    case 'permission.replied':
-      return 'thinking'
-    case 'session.idle':
-    case 'session.error':
-      return 'idle'
-    default:
-      return null
-  }
+export function renderAgentStatePluginTemplate(template: string, socketPath: string): string {
+  return template.split(PLUGIN_SOCKET_PLACEHOLDER).join(JSON.stringify(socketPath))
 }
 
-// Extract the OpenCode session id from an event payload. Events carry it
-// differently: most as `properties.sessionID`; session.* lifecycle events as
-// `properties.info.id` (a Session); message.updated as `properties.info.sessionID`
-// (a Message). The plugin reporter MUST mirror this. The id is optional for the
-// runtime (frames resolve by agentId), so an unknown shape returns null safely.
-export function opencodeSessionIdFromEvent(event: unknown): string | null {
-  if (!isRecord(event)) return null
-  const props = event.properties
-  if (!isRecord(props)) return null
-  if (typeof props.sessionID === 'string' && props.sessionID) return props.sessionID
-  const info = props.info
-  if (isRecord(info)) {
-    if (typeof info.sessionID === 'string' && info.sessionID) return info.sessionID
-    if (typeof info.id === 'string' && info.id) return info.id
-  }
-  return null
+// =============================================================================
+// Install / uninstall — one dispatcher over the spec's registration kind
+//
+// The caller (the Electron-bound service) resolves the bundled reporter script
+// (the shared stdin filter, or the plugin-file template the registration
+// names) and the live socket path; this stays free of Electron so it is
+// testable. Strictly best-effort at the call site: a failed install must never
+// block or break the launch that awaits it.
+// =============================================================================
+
+export type AgentStateInstallResult =
+  | { ok: true; settingsPath: string; hookScriptPath: string }
+  | { ok: false; message: string }
+
+function resolveRegistrationPath(workspaceRoot: string, relPath: string): string {
+  return resolve(workspaceRoot, ...relPath.split('/'))
 }
 
-export function renderOpencodeAgentStatePlugin(template: string, socketPath: string): string {
-  return template.split(OPENCODE_SOCKET_PLACEHOLDER).join(JSON.stringify(socketPath))
-}
-
-export async function installOpencodeAgentStateHook(
+export async function installAgentStateReporter(
   workspaceRoot: string,
+  spec: PluginAgentStateSpec,
   options: { sourceScriptPath: string; socketPath: string }
 ): Promise<AgentStateInstallResult> {
   if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
@@ -895,32 +653,82 @@ export async function installOpencodeAgentStateHook(
     return { ok: false, message: 'Agent-state reporter script is missing from this build.' }
   }
 
+  const registration = spec.registration
   try {
-    const destScript = resolve(workspaceRoot, OPENCODE_PLUGIN_REL)
+    const targetPath = resolveRegistrationPath(workspaceRoot, registration.path)
+    await mkdir(resolve(targetPath, '..'), { recursive: true })
+
+    if (registration.kind === 'plugin-file') {
+      const template = await readFile(options.sourceScriptPath, 'utf8')
+      await writeFile(targetPath, renderAgentStatePluginTemplate(template, options.socketPath), 'utf8')
+      return { ok: true, settingsPath: targetPath, hookScriptPath: targetPath }
+    }
+
+    // Command-hook kinds share the stdin-filter reporter, copied into the
+    // workspace and referenced by its ABSOLUTE path: hook commands run with no
+    // guaranteed cwd (the session's cwd can drift into a subdirectory mid-run),
+    // so a workspace-relative path would misresolve and fail.
+    const destScript = resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
     await mkdir(resolve(destScript, '..'), { recursive: true })
-    const template = await readFile(options.sourceScriptPath, 'utf8')
-    await writeFile(destScript, renderOpencodeAgentStatePlugin(template, options.socketPath), 'utf8')
-    return { ok: true, settingsPath: destScript, hookScriptPath: destScript }
+    await copyFile(options.sourceScriptPath, destScript)
+    const command = buildAgentStateReporterCommand(destScript, options.socketPath)
+    const events = registeredAgentStateEvents(spec)
+
+    switch (registration.kind) {
+      case 'settings-json':
+        await mergeAgentStateHooks(targetPath, command, events)
+        break
+      case 'toml-block': {
+        const previous = (await readTextIfExists(targetPath)) ?? ''
+        await writeFile(targetPath, mergeTomlAgentStateHooks(previous, command, events), 'utf8')
+        break
+      }
+      case 'owned-json':
+        await writeFile(targetPath, renderOwnedJsonAgentStateHooksConfig(command, events), 'utf8')
+        break
+    }
+    return { ok: true, settingsPath: targetPath, hookScriptPath: destScript }
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : 'Failed to install OpenCode agent-state hook.',
+      message: error instanceof Error ? error.message : 'Failed to install agent-state reporter.',
     }
   }
 }
 
-export async function uninstallOpencodeAgentStateHook(
-  workspaceRoot: string
+export async function uninstallAgentStateReporter(
+  workspaceRoot: string,
+  spec: PluginAgentStateSpec
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
+  const registration = spec.registration
   try {
-    const destScript = resolve(workspaceRoot, OPENCODE_PLUGIN_REL)
-    if (existsSync(destScript)) await rm(destScript, { force: true })
+    const targetPath = resolveRegistrationPath(workspaceRoot, registration.path)
+    switch (registration.kind) {
+      case 'settings-json': {
+        if (existsSync(targetPath)) await unmergeAgentStateHooks(targetPath)
+        // The copied stdin-filter reporter is shared by every command-hook
+        // registration in the workspace; the settings-json uninstall owns its
+        // removal (legacy behavior — the other kinds leave it in place).
+        const destScript = resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
+        if (existsSync(destScript)) await rm(destScript, { force: true })
+        break
+      }
+      case 'toml-block': {
+        const previous = await readTextIfExists(targetPath)
+        if (previous !== null) await writeFile(targetPath, unmergeTomlAgentStateHooks(previous), 'utf8')
+        break
+      }
+      case 'owned-json':
+      case 'plugin-file':
+        if (existsSync(targetPath)) await rm(targetPath, { force: true })
+        break
+    }
     return { ok: true }
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : 'Failed to uninstall OpenCode agent-state hook.',
+      message: error instanceof Error ? error.message : 'Failed to uninstall agent-state reporter.',
     }
   }
 }

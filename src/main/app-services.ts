@@ -162,8 +162,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // frame time, well after construction.
   const agentStateService = createAgentStateService({
     resolveUserDataDir: () => app.getPath('userData'),
+    resolveAgentStateSpec: (cli) =>
+      getPluginRegistry()
+        .loaded()
+        .find((plugin) => plugin.manifest.id === cli)?.manifest.agentStateSpec ?? null,
     resolveReporterScriptPath: getBundledAgentStateReporterPath,
-    resolveOpencodeReporterScriptPath: getBundledOpencodeAgentStateReporterPath,
+    resolveReporterTemplatePath: getBundledAgentStateReporterTemplatePath,
     onFrame: (frame) => terminalRuntime.ingestAgentStateFrame(frame),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
@@ -920,12 +924,16 @@ function getBundledHookReporterPath(filename: string): string | null {
   return candidates.find((candidate) => existsSync(candidate)) ?? null
 }
 
-// Claude Code + Codex share one stdin-filter reporter; OpenCode uses a separate
-// in-process plugin template (rewritten to .js on install).
+// Every command-hook registration shares one stdin-filter reporter; plugin-file
+// registrations name their own bundled template (e.g. OpenCode's in-process
+// plugin, rewritten to .js on install).
 function getBundledAgentStateReporterPath(): string | null {
   return getBundledHookReporterPath('multicode-agent-state.mjs')
 }
 
-function getBundledOpencodeAgentStateReporterPath(): string | null {
-  return getBundledHookReporterPath('opencode-agent-state.mjs')
+// The template name comes from a plugin manifest; constrain it to a bare
+// filename so a hostile manifest cannot path-traverse out of resources/hooks.
+function getBundledAgentStateReporterTemplatePath(template: string): string | null {
+  if (!template || template.includes('/') || template.includes('\\') || template.includes('..')) return null
+  return getBundledHookReporterPath(template)
 }

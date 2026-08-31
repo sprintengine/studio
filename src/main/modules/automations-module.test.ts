@@ -671,6 +671,8 @@ async function testAgentExitListenerRoutesExitsAndWiresLiveExecutions(): Promise
     phase: 'idle',
     previousPhase: 'thinking',
     event: 'Stop',
+    turnEnd: true,
+    turnFailure: false,
     ts: 1_700_000_000_000,
     pendingWakeupAt: null,
   }

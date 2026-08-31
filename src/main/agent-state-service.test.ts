@@ -5,8 +5,25 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import type { AgentStateFrame } from './agent-state'
 import { createAgentStateService, resolveAgentStateSocketPath } from './agent-state-service'
+
+// The service resolves a CLI's spec from its plugin manifest; the tests feed it
+// the REAL bundled manifest data so the install targets under test are the
+// shipped ones.
+const bundledSpecs = new Map<string, PluginAgentStateSpec>()
+
+async function loadBundledSpecs(): Promise<void> {
+  for (const id of ['claude-code', 'codex', 'grok', 'opencode']) {
+    const manifestPath = join(process.cwd(), 'resources', 'plugins', id, 'plugin.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { agentStateSpec?: PluginAgentStateSpec }
+    assert.ok(manifest.agentStateSpec, `${id} manifest must declare agentStateSpec`)
+    bundledSpecs.set(id, manifest.agentStateSpec)
+  }
+}
+
+const resolveSpec = (cli: string): PluginAgentStateSpec | null => bundledSpecs.get(cli) ?? null
 
 function writeLine(socketPath: string, line: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -28,6 +45,8 @@ async function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void
 }
 
 async function run(): Promise<void> {
+  await loadBundledSpecs()
+
   // --- socket path resolution --------------------------------------------
   if (process.platform !== 'win32') {
     assert.equal(resolveAgentStateSocketPath('/short/dir'), '/short/dir/agent-state.sock')
@@ -41,8 +60,9 @@ async function run(): Promise<void> {
   const received: AgentStateFrame[] = []
   const service = createAgentStateService({
     resolveUserDataDir: () => userDataDir,
+    resolveAgentStateSpec: resolveSpec,
     resolveReporterScriptPath: () => null,
-    resolveOpencodeReporterScriptPath: () => null,
+    resolveReporterTemplatePath: () => null,
     onFrame: (frame) => received.push(frame),
     now: () => 4242,
   })
@@ -80,19 +100,28 @@ async function run(): Promise<void> {
   await writeFile(opencodeReporterSrc, "const BAKED = '__MULTICODE_AGENT_STATE_SOCKET__'\n", 'utf8')
 
   let resolveCalls = 0
-  let opencodeResolveCalls = 0
+  let templateResolveCalls = 0
+  let lastTemplateName: string | null = null
   const installSvc = createAgentStateService({
     resolveUserDataDir: () => userDataDir,
+    resolveAgentStateSpec: resolveSpec,
     resolveReporterScriptPath: () => {
       resolveCalls += 1
       return reporterSrc
     },
-    resolveOpencodeReporterScriptPath: () => {
-      opencodeResolveCalls += 1
+    resolveReporterTemplatePath: (template) => {
+      templateResolveCalls += 1
+      lastTemplateName = template
       return opencodeReporterSrc
     },
     onFrame: () => {},
   })
+
+  // A CLI with no agentStateSpec installs nothing — it cannot report state.
+  await installSvc.installForWorkspace(workspaceRoot, 'muse')
+  await installSvc.installForWorkspace(workspaceRoot, 'generic-shell')
+  assert.equal(resolveCalls, 0, 'a spec-less CLI must not resolve a reporter')
+  assert.equal(templateResolveCalls, 0)
 
   // Two concurrent claude-code installs for the same workspace must collapse to
   // a single real install (serialized chain + install-once guard).
@@ -136,25 +165,27 @@ async function run(): Promise<void> {
   await installSvc.installForWorkspace(workspaceRoot, 'grok')
   assert.equal(resolveCalls, 3)
 
-  // OpenCode in the SAME workspace uses the separate opencode reporter resolver
-  // and writes an in-process plugin (.js) with the live socket baked in — not the
-  // claude/codex stdin reporter.
+  // OpenCode in the SAME workspace resolves the plugin-file TEMPLATE its
+  // manifest names and writes an in-process plugin (.js) with the live socket
+  // baked in — not the shared stdin reporter.
   await installSvc.installForWorkspace(workspaceRoot, 'opencode')
-  assert.equal(opencodeResolveCalls, 1)
-  assert.equal(resolveCalls, 3, 'opencode must not consume the claude/codex/grok reporter resolver')
+  assert.equal(templateResolveCalls, 1)
+  assert.equal(lastTemplateName, 'opencode-agent-state.mjs', 'template name comes from the manifest registration')
+  assert.equal(resolveCalls, 3, 'opencode must not consume the shared stdin reporter resolver')
   const opencodePlugin = await readFile(join(workspaceRoot, '.opencode', 'plugin', 'multicode-agent-state.js'), 'utf8')
   assert.ok(opencodePlugin.includes(JSON.stringify(installSvc.getSocketPath())), 'opencode plugin missing baked socket path')
   assert.ok(!opencodePlugin.includes("'__MULTICODE_AGENT_STATE_SOCKET__'"), 'opencode socket token left unsubstituted')
   // …and is install-once.
   await installSvc.installForWorkspace(workspaceRoot, 'opencode')
-  assert.equal(opencodeResolveCalls, 1)
+  assert.equal(templateResolveCalls, 1)
 
   // --- missing reporter script: safe no-op, never throws -----------------
   const noScriptWs = await mkdtemp(join(tmpdir(), 'multicode-agent-state-noscript-'))
   const noScriptSvc = createAgentStateService({
     resolveUserDataDir: () => userDataDir,
+    resolveAgentStateSpec: resolveSpec,
     resolveReporterScriptPath: () => null,
-    resolveOpencodeReporterScriptPath: () => null,
+    resolveReporterTemplatePath: () => null,
     onFrame: () => {},
   })
   await noScriptSvc.installForWorkspace(noScriptWs, 'claude-code') // must not throw
@@ -216,8 +247,9 @@ async function run(): Promise<void> {
     await runReporter(envSockPath, argSockPath)
     await waitFor(() => envFrames.length >= 1)
     assert.equal(argFrames.length, 0, 'env address set: baked --socket must receive nothing')
-    const envFrame = JSON.parse(envFrames[0]) as { phase?: string; agentId?: string }
-    assert.equal(envFrame.phase, 'idle', 'Stop maps to idle')
+    const envFrame = JSON.parse(envFrames[0]) as { phase?: string; event?: string; agentId?: string }
+    assert.equal(envFrame.phase, undefined, 'the reporter must not assert a phase (main maps via the manifest)')
+    assert.equal(envFrame.event, 'Stop')
     assert.equal(envFrame.agentId, 'prec-agent')
 
     await runReporter(undefined, argSockPath)
@@ -237,8 +269,8 @@ async function run(): Promise<void> {
     const lateServer = await listenLines(lateSockPath, lateFrames)
     await reporterRun
     await waitFor(() => lateFrames.length >= 1)
-    const lateFrame = JSON.parse(lateFrames[0]) as { phase?: string }
-    assert.equal(lateFrame.phase, 'idle', 'retry delivered the Stop frame once the listener appeared')
+    const lateFrame = JSON.parse(lateFrames[0]) as { event?: string }
+    assert.equal(lateFrame.event, 'Stop', 'retry delivered the Stop frame once the listener appeared')
     lateServer.close()
 
     // Permanently dead socket: still exits 0 (never throws into the CLI) and
@@ -261,10 +293,9 @@ async function run(): Promise<void> {
       cwd: '/tmp',
     })
     await waitFor(() => grokFrames.length >= 1)
-    const grokFrame = JSON.parse(grokFrames[0]) as { phase?: string; sessionId?: string; event?: string }
-    assert.equal(grokFrame.phase, 'thinking', 'camelCase hookEventName maps to the same phase')
+    const grokFrame = JSON.parse(grokFrames[0]) as { sessionId?: string; event?: string }
+    assert.equal(grokFrame.event, 'UserPromptSubmit', 'camelCase hookEventName carried as the raw event')
     assert.equal(grokFrame.sessionId, 'grok-session', 'camelCase sessionId carried into the frame')
-    assert.equal(grokFrame.event, 'UserPromptSubmit')
     grokServer.close()
   }
 

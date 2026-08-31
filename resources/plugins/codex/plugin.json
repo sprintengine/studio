@@ -101,6 +101,19 @@
       "mentionPrefix": "$"
     }
   },
+  "agentStateSpec": {
+    "$comment": "Codex ships Claude-style lifecycle hooks (same stdin payload contract: hook_event_name / session_id) but configured as TOML, written as a marker-delimited managed block so the rest of the user's config.toml is preserved. It uses PermissionRequest (not Claude's Notification) for awaiting-input, and has no SessionEnd — process exit is owned by the pty exit listener. PreToolUse is register:false and PostToolUse registered for the same spawn-halving reason as claude-code; PostToolUse → thinking is what clears awaiting_input after a PermissionRequest is answered.",
+    "registration": { "kind": "toml-block", "path": ".codex/config.toml" },
+    "events": [
+      { "event": "SessionStart", "phase": "starting" },
+      { "event": "UserPromptSubmit", "phase": "thinking" },
+      { "event": "PreToolUse", "phase": "tool_use", "register": false },
+      { "event": "PostToolUse", "matcher": "*", "phase": "thinking" },
+      { "event": "PermissionRequest", "phase": "awaiting_input" },
+      { "event": "Stop", "phase": "idle", "turnEnd": true },
+      { "event": "SubagentStop", "phase": "idle" }
+    ]
+  },
   "detect": {
     "versionArgs": ["--version"]
   },

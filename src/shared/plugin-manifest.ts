@@ -204,6 +204,82 @@ export type PluginThemeSelectionSpec = {
   schemes?: { light: string; dark: string }
 }
 
+// =============================================================================
+// Agent-state capability (authoritative lifecycle-hook reporting)
+//
+// Declares how a CLI's lifecycle hooks are registered and how its native event
+// names map to the shared AgentPhase vocabulary. A manifest WITHOUT this spec
+// declares that the CLI cannot report authoritative agent state — such a CLI is
+// not offered as an agent (pickers, sprints, automations). The install writers,
+// the event→phase mapping, and the turn-end predicates all read this data; no
+// per-CLI knowledge lives in core code.
+// =============================================================================
+
+// The phases an event may drive. `failed`/`stalled` are runtime-derived (pty
+// exit, stall watchdog) and never event-declared; `exited` is allowed for
+// SessionEnd-style events but a real process exit is still owned by the pty
+// exit listener.
+export type PluginAgentStatePhase =
+  | 'starting'
+  | 'thinking'
+  | 'tool_use'
+  | 'awaiting_input'
+  | 'idle'
+  | 'exited'
+
+export type PluginAgentStateEventSpec = {
+  // Native event name exactly as the CLI's hook payload / reporter frame names
+  // it (`Stop`, `session.idle`, …).
+  event: string
+  // Registration matcher (Claude-style hooks config `matcher` key). Only
+  // meaningful for registered command-hook events.
+  matcher?: string
+  // The phase this event drives.
+  phase: PluginAgentStatePhase
+  // Payload discriminator: the phase applies only when the named frame field's
+  // value is in `oneOf`; any other (or absent) value drops the frame so the
+  // prior phase stands. This is where Claude's Notification allow-list lives —
+  // as data on the Claude plugin, not code in the shared path.
+  when?: { field: 'notificationType'; oneOf: string[] }
+  // Whether the event is written into the CLI's hook registration (default
+  // true). `false` = mapped if a frame ever arrives (e.g. a stale registration
+  // from an older release) but never registered anew — Claude's PreToolUse.
+  // Ignored for plugin-file registrations (the plugin subscribes itself).
+  register?: boolean
+  // This event is the session's turn end (drives automation finalization).
+  // Raw-event-level deliberately: several events share a phase (Stop and
+  // SubagentStop both map to idle) and only the event name tells them apart.
+  turnEnd?: boolean
+  // This event signals a failed turn (OpenCode's session.error, which still
+  // maps to phase `idle` — the flag is the only way to tell a crash from a
+  // clean finish).
+  failure?: boolean
+}
+
+// Where and how the reporter is registered. Paths are workspace-relative,
+// forward-slashed.
+export type PluginAgentStateRegistrationSpec =
+  // Merge tagged entries into a Claude-style shared settings JSON
+  // (hooks.<Event>[].hooks[]), preserving everything else in the file.
+  | { kind: 'settings-json'; path: string }
+  // Marker-delimited managed block in a TOML config ([[hooks.<Event>]]),
+  // preserving the rest of the file (Codex).
+  | { kind: 'toml-block'; path: string }
+  // A standalone hook-config JSON file we own outright — plain write/remove,
+  // no merge bookkeeping (Grok's per-file discovery).
+  | { kind: 'owned-json'; path: string }
+  // An in-process JS plugin installed into the CLI's plugin directory, from a
+  // named bundled template with the socket path substituted at install time
+  // (OpenCode). The template still contains CLI-specific subscription logic;
+  // the manifest's `events` table remains the canonical mapping the main
+  // process applies.
+  | { kind: 'plugin-file'; path: string; template: string }
+
+export type PluginAgentStateSpec = {
+  registration: PluginAgentStateRegistrationSpec
+  events: PluginAgentStateEventSpec[]
+}
+
 export type PluginManifest = {
   kind?: 'cli'
   id: string
@@ -224,6 +300,9 @@ export type PluginManifest = {
   reasoningSelection?: PluginReasoningSelectionSpec
   themeSelection?: PluginThemeSelectionSpec
   skillIntegration?: PluginSkillIntegration
+  // Authoritative agent-state integration (see the section above). Absent ⇒
+  // the CLI cannot report agent state and is not offered as an agent.
+  agentStateSpec?: PluginAgentStateSpec
   // Optional credential the CLI needs to reach an authenticated endpoint (e.g.
   // the Z.AI runtime, which redirects the `claude` binary at Z.AI via
   // `launch.env`). Resolved by the shared credential store and exposed to

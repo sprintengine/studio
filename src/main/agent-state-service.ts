@@ -3,14 +3,9 @@ import { chmodSync, existsSync, unlinkSync } from 'fs'
 import { createServer, type Server, type Socket } from 'net'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import type { AgentStateFrame } from './agent-state'
-import {
-  installAgentStateHook,
-  installCodexAgentStateHook,
-  installGrokAgentStateHook,
-  installOpencodeAgentStateHook,
-  parseAgentStateFrame,
-} from './agent-state'
+import { installAgentStateReporter, parseAgentStateFrame } from './agent-state'
 
 // =============================================================================
 // Agent-state service — the Electron-bound half of authoritative agent state.
@@ -35,25 +30,21 @@ const MAX_POSIX_SOCKET_PATH = 90
 // newline is dropped rather than buffered without limit.
 const MAX_LINE_BYTES = 64 * 1024
 
-// Per-CLI hook installer dispatch. Keep in lock-step with terminal-runtime's
-// agentStateSupportsCli launch gate: a CLI the gate admits but this map (or the
-// Claude fallback) mishandles gets hooks written into a config its CLI never
-// reads — silent no-op reporting.
-const CLI_INSTALLERS: Record<string, typeof installAgentStateHook> = {
-  codex: installCodexAgentStateHook,
-  grok: installGrokAgentStateHook,
-  opencode: installOpencodeAgentStateHook,
-}
-
 export type AgentStateServiceOptions = {
   resolveUserDataDir: () => string
-  // Resolves the bundled reporter script to copy into a workspace. Returns null
-  // when the script is missing from the build (install then no-ops, safely).
-  // Used for Claude Code and Codex, which share one stdin-filter reporter.
+  // Resolves a CLI's manifest-declared agentStateSpec (null when the plugin is
+  // unknown or declares none — install is then a no-op: the CLI cannot report
+  // agent state). This single lookup replaced the old hardcoded launch gate +
+  // installer map pair, which had to be kept in lock-step by hand.
+  resolveAgentStateSpec: (cli: string) => PluginAgentStateSpec | null
+  // Resolves the bundled shared stdin-filter reporter to copy into a workspace
+  // (used by every command-hook registration kind). Returns null when the
+  // script is missing from the build (install then no-ops, safely).
   resolveReporterScriptPath: () => string | null
-  // OpenCode uses a different reporter (an in-process plugin, not a stdin
-  // filter), so it resolves its own bundled template. Returns null when missing.
-  resolveOpencodeReporterScriptPath: () => string | null
+  // Resolves a bundled plugin-file reporter TEMPLATE by the filename a
+  // manifest's plugin-file registration names (e.g. OpenCode's in-process
+  // plugin). Returns null when missing.
+  resolveReporterTemplatePath: (template: string) => string | null
   onFrame: (frame: AgentStateFrame) => void
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
   now?: () => number
@@ -181,13 +172,12 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     }
   }
 
-  // Install the reporter into a workspace before an agent launches, dispatching
-  // by CLI: Claude Code writes JSON into .claude/settings.local.json, Codex
-  // writes a TOML managed block into .codex/config.toml, Grok Build writes a
-  // standalone JSON config into .grok/hooks/, OpenCode writes an in-process
-  // plugin into .opencode/plugin/. Serialized + run once per (cli, workspace)
-  // per app run, and strictly best-effort: a failure is logged and swallowed so
-  // it can never block or break the launch that awaits it.
+  // Install the reporter into a workspace before an agent launches, entirely
+  // from the CLI's manifest-declared agentStateSpec (registration kind + path
+  // + event set). A CLI without a spec installs nothing — it cannot report
+  // agent state. Serialized + run once per (cli, workspace) per app run, and
+  // strictly best-effort: a failure is logged and swallowed so it can never
+  // block or break the launch that awaits it.
   async function installForWorkspace(workspaceRoot: string, cli: string): Promise<void> {
     const root = workspaceRoot.trim()
     if (!root) return
@@ -197,20 +187,17 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     const prior = installChains.get(key) ?? Promise.resolve()
     const next = prior.then(async () => {
       if (installed.has(key)) return
-      const isOpencode = cli === 'opencode'
-      const sourceScriptPath = isOpencode
-        ? options.resolveOpencodeReporterScriptPath()
-        : options.resolveReporterScriptPath()
+      const spec = options.resolveAgentStateSpec(cli)
+      if (!spec) return
+      const sourceScriptPath =
+        spec.registration.kind === 'plugin-file'
+          ? options.resolveReporterTemplatePath(spec.registration.template)
+          : options.resolveReporterScriptPath()
       if (!sourceScriptPath) {
-        warn('Agent-state reporter missing', 'Reporter script not found in this build; agent state falls back to inference.')
+        warn('Agent-state reporter missing', 'Reporter script not found in this build; agent state cannot be reported.')
         return
       }
-      // Unlisted CLIs fall back to the Claude installer deliberately: anything
-      // else on the Claude harness (e.g. zai — the claude binary against a
-      // redirected endpoint) uses the same settings-hook reporter.
-      const install =
-        CLI_INSTALLERS[cli] ?? installAgentStateHook
-      const result = await install(workspaceRoot, {
+      const result = await installAgentStateReporter(workspaceRoot, spec, {
         sourceScriptPath,
         socketPath: getSocketPath(),
       })

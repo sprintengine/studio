@@ -14,7 +14,7 @@ import type {
 } from '../../shared/automations/contracts'
 import type { AgentPhaseEvent } from '../../shared/agent-runtime'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import { deriveActivityFromPhase, isAgentTurnEndEvent, isAgentTurnFailureEvent } from '../agent-state'
+import { deriveActivityFromPhase } from '../agent-state'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
 import type { AutomationPullRequestResult } from './pull-request'
 import { computeNextRun, scheduleCadenceCanExhaust, validateScheduleTriggerConfig } from './schedule'
@@ -608,9 +608,9 @@ export class AutomationsEngine {
   // guards — each of which stands between a live agent and a destructive
   // finalize that opens a PR from half-finished work, removes the agent's cwd,
   // and kills it:
-  //   - the event is a real turn end, not a Task subagent's (the predicates own
-  //     this: SubagentStop maps to the same phase as Stop, so only the raw event
-  //     can tell them apart);
+  //   - the event is a real turn end, not a Task subagent's (the manifest-
+  //     resolved turnEnd flag owns this: SubagentStop maps to the same phase as
+  //     Stop, so the phase alone cannot tell them apart);
   //   - the run has been seen working, so a stray idle frame before the prompt
   //     lands cannot finalize instantly;
   //   - the agent has no wakeup armed — a self-paced (/loop) agent intends to
@@ -633,8 +633,8 @@ export class AutomationsEngine {
       return
     }
 
-    const failed = isAgentTurnFailureEvent(event.event)
-    if (!failed && !isAgentTurnEndEvent(event.event)) return
+    const failed = event.turnFailure
+    if (!failed && !event.turnEnd) return
     if (!pending.observedWorkingPhase) return
     if (event.pendingWakeupAt !== null && event.pendingWakeupAt > this.now()) return
     if (pending.armedTurnEnd) return
