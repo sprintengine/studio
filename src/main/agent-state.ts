@@ -788,7 +788,8 @@ export async function installAgentStateReporter(
 
   const registration = spec.registration
   try {
-    const targetPath = resolveRegistrationPath(workspaceRoot, registration, options.homeDir ?? homedir())
+    const homeDir = options.homeDir ?? homedir()
+    const targetPath = resolveRegistrationPath(workspaceRoot, registration, homeDir)
     await mkdir(resolve(targetPath, '..'), { recursive: true })
 
     if (registration.kind === 'plugin-file') {
@@ -797,11 +798,18 @@ export async function installAgentStateReporter(
       return { ok: true, settingsPath: targetPath, hookScriptPath: targetPath }
     }
 
-    // Command-hook kinds share the stdin-filter reporter, copied into the
-    // workspace and referenced by its ABSOLUTE path: hook commands run with no
-    // guaranteed cwd (the session's cwd can drift into a subdirectory mid-run),
-    // so a workspace-relative path would misresolve and fail.
-    const destScript = resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
+    // Command-hook kinds share the stdin-filter reporter, referenced by its
+    // ABSOLUTE path (hook commands run with no guaranteed cwd). The copy lives
+    // where the REGISTRATION lives: a workspace-scoped registration uses the
+    // workspace copy; a user-scoped one (a user-global config like Kimi's)
+    // gets a home-scoped copy (~/.multicode/hooks/) — pointing a user-global
+    // config into a workspace would dangle machine-wide the moment that
+    // workspace (or a sprint's finalize-deleted worktree) goes away, firing
+    // MODULE_NOT_FOUND for every session of that CLI until reinstalled.
+    const destScript =
+      registration.scope === 'user'
+        ? resolve(homeDir, AGENT_STATE_HOOK_SCRIPT_REL)
+        : resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
     await mkdir(resolve(destScript, '..'), { recursive: true })
     await copyFile(options.sourceScriptPath, destScript)
     const command = buildAgentStateReporterCommand(destScript, options.socketPath)

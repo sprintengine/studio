@@ -522,10 +522,11 @@ const AGENT_STATE_PHASES: CliAgentStatePhase[] = [
 const AGENT_STATE_REGISTRATION_KINDS = ['settings-json', 'flat-hooks-json', 'toml-block', 'toml-array-block', 'owned-json', 'plugin-file'] as const
 const AGENT_STATE_REGISTRATION_SCOPES = ['workspace', 'user'] as const
 
-// Registration paths are written inside the workspace at install time, so they
-// must stay strictly relative — no traversal, no absolute paths, no backslashes,
-// and no `:` in any segment: on Windows a `C:`-style segment makes
-// path.resolve() drive-relative and escapes the workspace root entirely.
+// Registration paths are written inside their scope root (the workspace, or
+// the user's home for scope: user) at install time, so they must stay strictly
+// relative — no traversal, no absolute paths, no backslashes, and no `:` in
+// any segment: on Windows a `C:`-style segment makes path.resolve()
+// drive-relative and escapes the scope root entirely.
 function isSafeWorkspaceRelativePath(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0) return false
   if (value.includes('\0') || value.includes('\\') || value.includes(':') || value.startsWith('/')) return false

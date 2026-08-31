@@ -15,7 +15,7 @@ import { createAgentStateService, resolveAgentStateSocketPath } from './agent-st
 const bundledSpecs = new Map<string, PluginAgentStateSpec>()
 
 async function loadBundledSpecs(): Promise<void> {
-  for (const id of ['claude-code', 'codex', 'grok', 'opencode']) {
+  for (const id of ['claude-code', 'codex', 'grok', 'opencode', 'kimi-code']) {
     const manifestPath = join(process.cwd(), 'resources', 'plugins', id, 'plugin.json')
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { agentStateSpec?: PluginAgentStateSpec }
     assert.ok(manifest.agentStateSpec, `${id} manifest must declare agentStateSpec`)
@@ -178,6 +178,33 @@ async function run(): Promise<void> {
   // …and is install-once.
   await installSvc.installForWorkspace(workspaceRoot, 'opencode')
   assert.equal(templateResolveCalls, 1)
+
+  // --- user-scoped registration: per-CLI install-once, injected home -------
+  // Kimi's config is user-global, so the install key is `${cli}::user`: the
+  // first workspace's launch writes it, a second workspace's launch is a
+  // no-op (the content is workspace-independent), and nothing touches the
+  // real home because the test injects resolveHomeDir.
+  const userScopeHome = await mkdtemp(join(tmpdir(), 'multicode-agent-state-home-'))
+  const wsA = await mkdtemp(join(tmpdir(), 'multicode-agent-state-wsA-'))
+  const wsB = await mkdtemp(join(tmpdir(), 'multicode-agent-state-wsB-'))
+  let userScopeResolves = 0
+  const userScopeSvc = createAgentStateService({
+    resolveUserDataDir: () => userDataDir,
+    resolveAgentStateSpec: resolveSpec,
+    resolveReporterScriptPath: () => {
+      userScopeResolves += 1
+      return reporterSrc
+    },
+    resolveReporterTemplatePath: () => null,
+    resolveHomeDir: () => userScopeHome,
+    onFrame: () => {},
+  })
+  await userScopeSvc.installForWorkspace(wsA, 'kimi-code')
+  assert.equal(userScopeResolves, 1)
+  const kimiConfigOnDisk = await readFile(join(userScopeHome, '.kimi-code', 'config.toml'), 'utf8')
+  assert.ok(kimiConfigOnDisk.includes('event = "Stop"'), 'kimi hooks block not installed under injected home')
+  await userScopeSvc.installForWorkspace(wsB, 'kimi-code')
+  assert.equal(userScopeResolves, 1, 'user-scoped install must be once per CLI, not per workspace')
 
   // --- missing reporter script: safe no-op, never throws -----------------
   const noScriptWs = await mkdtemp(join(tmpdir(), 'multicode-agent-state-noscript-'))

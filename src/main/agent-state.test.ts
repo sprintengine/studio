@@ -847,9 +847,12 @@ async function run(): Promise<void> {
   const kimiReporter = join(kimiWorkspace, 'reporter-src.mjs')
   await writeFile(kimiReporter, '// reporter\n', 'utf8')
 
+  // The socket path deliberately lives OUTSIDE the workspace (as in prod,
+  // where it is under userData): the assertion below is that no
+  // workspace-lifetime path reaches the user-global config.
   const kimiInstalled = await installAgentStateReporter(kimiWorkspace, kimiSpec, {
     sourceScriptPath: kimiReporter,
-    socketPath: join(kimiWorkspace, 'agent.sock'),
+    socketPath: join(kimiHome, 'agent.sock'),
     homeDir: kimiHome,
   })
   assert.equal(kimiInstalled.ok, true)
@@ -858,9 +861,17 @@ async function run(): Promise<void> {
   assert.ok(!existsSync(join(kimiWorkspace, '.kimi-code')), 'user-scoped registration must not touch the workspace')
   const kimiConfig = await readFile(kimiConfigPath, 'utf8')
   assert.ok(kimiConfig.includes('event = "Stop"'))
-  // The reporter script itself still lives in the WORKSPACE (per-workspace
-  // socket identity), referenced absolutely from the user-global config.
-  assert.ok(kimiConfig.includes(join(kimiWorkspace, '.multicode', 'hooks', 'agent-state.mjs').split('\\').join('/')))
+  // The reporter copy lives under HOME for a user-scoped registration: a
+  // user-global config pointing into a workspace would dangle machine-wide
+  // the moment that workspace (or a finalize-deleted sprint worktree) is
+  // removed, firing MODULE_NOT_FOUND on every event of every kimi session.
+  const kimiHomeScript = join(kimiHome, '.multicode', 'hooks', 'agent-state.mjs')
+  assert.ok(existsSync(kimiHomeScript), 'user-scoped registration must copy the reporter under homeDir')
+  assert.ok(kimiConfig.includes(kimiHomeScript.split('\\').join('/')), kimiConfig)
+  assert.ok(
+    !kimiConfig.includes(kimiWorkspace),
+    'a user-global config must not reference any workspace-lifetime path'
+  )
 
   const kimiRemoved = await uninstallAgentStateReporter(kimiWorkspace, kimiSpec, { homeDir: kimiHome })
   assert.equal(kimiRemoved.ok, true)

@@ -45,6 +45,9 @@ export type AgentStateServiceOptions = {
   // manifest's plugin-file registration names (e.g. OpenCode's in-process
   // plugin). Returns null when missing.
   resolveReporterTemplatePath: (template: string) => string | null
+  // Home directory a user-scoped registration resolves against. Injected so
+  // tests never write the real home; production omits it (os.homedir()).
+  resolveHomeDir?: () => string
   onFrame: (frame: AgentStateFrame) => void
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
   now?: () => number
@@ -181,14 +184,19 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
   async function installForWorkspace(workspaceRoot: string, cli: string): Promise<void> {
     const root = workspaceRoot.trim()
     if (!root) return
-    const key = `${cli}::${root}`
+    const spec = options.resolveAgentStateSpec(cli)
+    if (!spec) return
+    // A user-scoped registration writes one profile-global file whose content
+    // is workspace-independent (home-scoped reporter copy + profile socket),
+    // so its install-once key is per CLI, not per workspace — the first launch
+    // of any workspace heals a stale config, and later workspaces skip a write
+    // that would be byte-identical anyway.
+    const key = spec.registration.scope === 'user' ? `${cli}::user` : `${cli}::${root}`
     if (installed.has(key)) return
 
     const prior = installChains.get(key) ?? Promise.resolve()
     const next = prior.then(async () => {
       if (installed.has(key)) return
-      const spec = options.resolveAgentStateSpec(cli)
-      if (!spec) return
       const sourceScriptPath =
         spec.registration.kind === 'plugin-file'
           ? options.resolveReporterTemplatePath(spec.registration.template)
@@ -200,6 +208,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
       const result = await installAgentStateReporter(workspaceRoot, spec, {
         sourceScriptPath,
         socketPath: getSocketPath(),
+        ...(options.resolveHomeDir ? { homeDir: options.resolveHomeDir() } : {}),
       })
       if (result.ok) {
         installed.add(key)
