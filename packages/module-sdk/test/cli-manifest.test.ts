@@ -177,7 +177,7 @@ test('requires a template for plugin-file registrations and events to be non-emp
 })
 
 test('accepts the bundled claude-code and opencode plugin.json agentStateSpecs', () => {
-  for (const id of ['claude-code', 'opencode', 'grok', 'zai', 'kimi-claude']) {
+  for (const id of ['claude-code', 'opencode', 'grok', 'zai', 'kimi-claude', 'cursor']) {
     const source = readFileSync(join(process.cwd(), 'resources', 'plugins', id, 'plugin.json'), 'utf8')
     const result = parseCliPluginManifest(source)
     assert.equal(result.ok, true, result.ok ? id : `${id}: ${JSON.stringify(result.issues)}`)

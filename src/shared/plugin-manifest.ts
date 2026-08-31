@@ -261,6 +261,11 @@ export type PluginAgentStateRegistrationSpec =
   // Merge tagged entries into a Claude-style shared settings JSON
   // (hooks.<Event>[].hooks[]), preserving everything else in the file.
   | { kind: 'settings-json'; path: string }
+  // Merge signature-identified entries into a Cursor-style flat hooks JSON
+  // ({ version, hooks: { <event>: [{ command }] } }), preserving the user's
+  // own entries. No vendor-foreign tag key is written — ours are recognized by
+  // the reporter command's shape alone.
+  | { kind: 'flat-hooks-json'; path: string }
   // Marker-delimited managed block in a TOML config ([[hooks.<Event>]]),
   // preserving the rest of the file (Codex).
   | { kind: 'toml-block'; path: string }

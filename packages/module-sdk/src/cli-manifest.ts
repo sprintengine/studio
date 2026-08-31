@@ -215,6 +215,7 @@ export type CliAgentStateEventSpec = {
 
 export type CliAgentStateRegistrationSpec =
   | { kind: 'settings-json'; path: string }
+  | { kind: 'flat-hooks-json'; path: string }
   | { kind: 'toml-block'; path: string }
   | { kind: 'owned-json'; path: string }
   | { kind: 'plugin-file'; path: string; template: string }
@@ -513,7 +514,7 @@ const AGENT_STATE_PHASES: CliAgentStatePhase[] = [
   'idle',
   'exited',
 ]
-const AGENT_STATE_REGISTRATION_KINDS = ['settings-json', 'toml-block', 'owned-json', 'plugin-file'] as const
+const AGENT_STATE_REGISTRATION_KINDS = ['settings-json', 'flat-hooks-json', 'toml-block', 'owned-json', 'plugin-file'] as const
 
 // Registration paths are written inside the workspace at install time, so they
 // must stay strictly relative — no traversal, no absolute paths, no backslashes,

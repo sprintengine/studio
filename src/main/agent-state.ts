@@ -518,6 +518,75 @@ export async function unmergeAgentStateHooks(settingsPath: string): Promise<void
 }
 
 // =============================================================================
+// Flat hooks JSON (registration kind 'flat-hooks-json')
+//
+// Cursor's hooks.json: { "version": 1, "hooks": { "<event>": [ { "command",
+// "timeout"?, "matcher"? } ] } } — event keys map straight to entry arrays,
+// with no matcher-block nesting. The file is shared with the user's own hooks,
+// so this merges rather than owns. Unlike the Claude settings writer, NO
+// `_multicode` tag key is written: the entry schema is the vendor's, an
+// unknown key risks strict-validation rejection, and the command-shape
+// signature (the same one that reclaims tag-stripped Claude entries) is a
+// sufficient identity on its own.
+// =============================================================================
+
+type FlatHooksEntry = { command?: unknown; [key: string]: unknown }
+
+type FlatHooksFile = {
+  version?: unknown
+  hooks?: Record<string, FlatHooksEntry[]>
+  [key: string]: unknown
+}
+
+function isAgentStateFlatEntry(entry: FlatHooksEntry): boolean {
+  return (
+    typeof entry?.command === 'string' &&
+    entry.command.startsWith('node "') &&
+    entry.command.includes(AGENT_STATE_COMMAND_SIGNATURE)
+  )
+}
+
+function stripFlatAgentStateEntries(hooks: Record<string, FlatHooksEntry[]>): void {
+  for (const event of Object.keys(hooks)) {
+    const entries = hooks[event]
+    if (!Array.isArray(entries)) continue
+    const kept = entries.filter((entry) => !isAgentStateFlatEntry(entry))
+    if (kept.length === 0) delete hooks[event]
+    else hooks[event] = kept
+  }
+}
+
+export async function mergeFlatAgentStateHooks(
+  hooksPath: string,
+  command: string,
+  events: ReadonlyArray<{ event: string; matcher?: string }>
+): Promise<void> {
+  const existing = (await readJsonIfExists<FlatHooksFile>(hooksPath)) ?? {}
+  const file: FlatHooksFile = { ...existing }
+  if (typeof file.version !== 'number') file.version = 1
+  if (!file.hooks || typeof file.hooks !== 'object') file.hooks = {}
+
+  // Clean up first (all event keys, incl. ones we no longer register), then add
+  // the current set — install is both idempotent and a migration.
+  stripFlatAgentStateEntries(file.hooks)
+  for (const { event, matcher } of events) {
+    if (!Array.isArray(file.hooks[event])) file.hooks[event] = []
+    const entry: FlatHooksEntry = matcher === undefined ? { command } : { command, matcher }
+    file.hooks[event].push(entry)
+  }
+
+  await mkdir(resolve(hooksPath, '..'), { recursive: true })
+  await writeFile(hooksPath, JSON.stringify(file, null, 2) + '\n', 'utf8')
+}
+
+export async function unmergeFlatAgentStateHooks(hooksPath: string): Promise<void> {
+  const existing = await readJsonIfExists<FlatHooksFile>(hooksPath)
+  if (!existing?.hooks || typeof existing.hooks !== 'object') return
+  stripFlatAgentStateEntries(existing.hooks)
+  await writeFile(hooksPath, JSON.stringify(existing, null, 2) + '\n', 'utf8')
+}
+
+// =============================================================================
 // TOML managed block (registration kind 'toml-block')
 //
 // A single tagged managed block (own markers, never the MCP block's) so the
@@ -697,6 +766,9 @@ export async function installAgentStateReporter(
       case 'settings-json':
         await mergeAgentStateHooks(targetPath, command, events)
         break
+      case 'flat-hooks-json':
+        await mergeFlatAgentStateHooks(targetPath, command, events)
+        break
       case 'toml-block': {
         const previous = (await readTextIfExists(targetPath)) ?? ''
         await writeFile(targetPath, mergeTomlAgentStateHooks(previous, command, events), 'utf8')
@@ -733,6 +805,9 @@ export async function uninstallAgentStateReporter(
         if (existsSync(destScript)) await rm(destScript, { force: true })
         break
       }
+      case 'flat-hooks-json':
+        if (existsSync(targetPath)) await unmergeFlatAgentStateHooks(targetPath)
+        break
       case 'toml-block': {
         const previous = await readTextIfExists(targetPath)
         if (previous !== null) await writeFile(targetPath, unmergeTomlAgentStateHooks(previous), 'utf8')

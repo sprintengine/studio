@@ -711,6 +711,89 @@ async function run(): Promise<void> {
   })
   assert.equal(grokMissing.ok, false)
 
+  // --- Cursor: manifest-driven mapping -------------------------------------
+  const cursorSpec = await loadBundledSpec('cursor')
+  assert.equal(resolvePhase(cursorSpec, 'sessionStart'), 'starting')
+  assert.equal(resolvePhase(cursorSpec, 'beforeSubmitPrompt'), 'thinking')
+  assert.equal(resolvePhase(cursorSpec, 'postToolUse'), 'thinking')
+  assert.equal(resolvePhase(cursorSpec, 'postToolUseFailure'), 'thinking')
+  assert.equal(resolvePhase(cursorSpec, 'sessionEnd'), 'exited')
+  assert.deepEqual(flags(cursorSpec, 'stop'), { turnEnd: true, turnFailure: false })
+  // awaiting_input is deliberately unsupported (no Notification/PermissionRequest
+  // analogue; see the manifest $comment) — no event may map to it.
+  assert.ok(
+    cursorSpec.events.every((entry) => entry.phase !== 'awaiting_input'),
+    'cursor must not claim an awaiting_input signal it cannot substantiate'
+  )
+  // Permission-flow hooks must never be registered: they participate in
+  // Cursor's approval decisions, and the reporter has no opinion to offer.
+  for (const risky of ['beforeShellExecution', 'beforeMCPExecution']) {
+    assert.ok(!cursorSpec.events.some((entry) => entry.event === risky), `${risky} must not be registered`)
+  }
+
+  // --- flat-hooks-json merge / unmerge round-trip (cursor spec) ------------
+  const cursorRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-cursor-'))
+  const cursorReporter = join(cursorRoot, 'reporter-src.mjs')
+  await writeFile(cursorReporter, '// reporter\n', 'utf8')
+  const cursorHooksPath = join(cursorRoot, '.cursor', 'hooks.json')
+  await mkdir(join(cursorRoot, '.cursor'), { recursive: true })
+  // A user's own hook and a stale reporter entry from a moved workspace root:
+  // the user's survives install + uninstall untouched; the stale one is
+  // reclaimed by command shape (no _multicode tag exists in this format).
+  await writeFile(
+    cursorHooksPath,
+    JSON.stringify({
+      version: 1,
+      hooks: {
+        stop: [
+          { command: 'notify-send done' },
+          { command: 'node "/old/root/.multicode/hooks/agent-state.mjs" --socket "/old/agent.sock"' },
+        ],
+      },
+    }, null, 2),
+    'utf8'
+  )
+
+  const cursorInstalled = await installAgentStateReporter(cursorRoot, cursorSpec, {
+    sourceScriptPath: cursorReporter,
+    socketPath: join(cursorRoot, 'agent.sock'),
+  })
+  assert.equal(cursorInstalled.ok, true)
+  type FlatFile = { version?: number; hooks?: Record<string, Array<{ command?: string }>> }
+  let cursorFile = JSON.parse(await readFile(cursorHooksPath, 'utf8')) as FlatFile
+  assert.equal(cursorFile.version, 1, 'version preserved')
+  const cursorRegistered = registeredAgentStateEvents(cursorSpec)
+  for (const { event } of cursorRegistered) {
+    const entries = cursorFile.hooks?.[event] ?? []
+    assert.equal(entries.filter((e) => e.command?.includes('/.multicode/hooks/agent-state.mjs')).length, 1, `one reporter entry for ${event}`)
+  }
+  assert.ok(cursorFile.hooks?.stop?.some((e) => e.command === 'notify-send done'), 'user stop hook survived install')
+  assert.ok(
+    !JSON.stringify(cursorFile).includes('/old/root/'),
+    'stale reporter entry reclaimed by command shape'
+  )
+  assert.ok(!JSON.stringify(cursorFile).includes('_multicode'), 'no vendor-foreign tag key may be written')
+
+  // Idempotent re-install: no duplicates.
+  const cursorReinstall = await installAgentStateReporter(cursorRoot, cursorSpec, {
+    sourceScriptPath: cursorReporter,
+    socketPath: join(cursorRoot, 'agent.sock'),
+  })
+  assert.equal(cursorReinstall.ok, true)
+  cursorFile = JSON.parse(await readFile(cursorHooksPath, 'utf8')) as FlatFile
+  assert.equal(
+    cursorFile.hooks?.stop?.filter((e) => e.command?.includes('/.multicode/hooks/agent-state.mjs')).length,
+    1,
+    'reporter entry duplicated on re-install'
+  )
+
+  // Uninstall removes ours, keeps the user's, prunes emptied event keys.
+  const cursorRemoved = await uninstallAgentStateReporter(cursorRoot, cursorSpec)
+  assert.equal(cursorRemoved.ok, true)
+  cursorFile = JSON.parse(await readFile(cursorHooksPath, 'utf8')) as FlatFile
+  assert.ok(cursorFile.hooks?.stop?.some((e) => e.command === 'notify-send done'), 'user hook lost on uninstall')
+  assert.equal(cursorFile.hooks?.sessionStart, undefined, 'emptied event key must be pruned')
+
   console.log('agent-state.test.ts: all assertions passed')
 }
 

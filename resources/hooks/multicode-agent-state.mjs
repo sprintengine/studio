@@ -151,7 +151,10 @@ async function main() {
     type: 'agent_state',
     agentId,
     workspaceId: process.env.MULTICODE_WORKSPACE_ID ?? null,
-    sessionId: str(payload?.session_id) ?? str(payload?.sessionId),
+    // The CLI's own session identity, under its known spellings: session_id
+    // (Claude/Codex/Kimi), sessionId (Grok), conversation_id (Cursor — its
+    // chat id, which is what `--resume <chatId>` takes).
+    sessionId: str(payload?.session_id) ?? str(payload?.sessionId) ?? str(payload?.conversation_id),
     event,
     ts: Date.now(),
   }
@@ -183,11 +186,13 @@ async function main() {
 
   // The session transcript, forwarded on a turn end so the app can derive a
   // summary from the agent's closing message (an automation run's completion
-  // summary). ONLY on `Stop`: `SubagentStop` carries a transcript_path too, but
-  // it is a subagent's, and a subagent finishing is not this session's turn end.
-  // The path is passed through untouched: it is untrusted input, and the reader
-  // owns containment (see transcriptPath in src/main/agent-state.ts).
-  if (event === 'Stop') {
+  // summary). ONLY on the turn-end event (`Stop`; Cursor spells it `stop` and
+  // attaches transcript_path to every hook): `SubagentStop` carries a
+  // transcript_path too, but it is a subagent's, and a subagent finishing is
+  // not this session's turn end. The path is passed through untouched: it is
+  // untrusted input, and the reader owns containment (see transcriptPath in
+  // src/main/agent-state.ts).
+  if (event === 'Stop' || event === 'stop') {
     const transcriptPath = str(payload?.transcript_path) ?? str(payload?.transcriptPath)
     if (transcriptPath) frame.transcriptPath = transcriptPath
   }
