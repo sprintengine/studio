@@ -148,6 +148,12 @@ export default function NewAgentPanel({
     if (!folder) return null
     return projectOptions?.find((option) => option.path === folder)?.label ?? basename(folder) ?? folder
   }, [projectOptions, workspaceRoot])
+  // Can this surface change where the agent runs? True when the host gave us
+  // any way to — a folder browser, or projects to switch between. Deliberately
+  // NOT a function of whether a project is currently chosen: see the scope line
+  // below for why that inversion is the bug this replaces.
+  const canChooseProject =
+    Boolean(onBrowseProject) || Boolean(onSelectProject && projectOptions && projectOptions.length > 0)
   const activeBranch = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? resolveWorkspaceWorktree(ws)?.branch ?? null : null
@@ -389,23 +395,31 @@ export default function NewAgentPanel({
           <h1 className="mt-2.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
             {greeting}
           </h1>
-          {/* State, not decoration: where this agent will run. */}
-          {projectLabel ? (
-            projectOptions && projectOptions.length > 0 ? (
-              <ProjectScopePicker
-                label={projectLabel}
-                branch={branch}
-                options={projectOptions}
-                selectedPath={workspaceRoot}
-                onSelect={(path) => onSelectProject?.(path)}
-                onBrowse={onBrowseProject}
-              />
-            ) : (
-              <p className="mt-1 text-meta text-[color:var(--text-subtle)]">
-                {projectLabel}
-                {branch ? ` · ${branch}` : ''}
-              </p>
-            )
+          {/* State, not decoration: where this agent will run.
+              Whether this is a PICKER is decided by what the host can do, never
+              by what it currently has. Gating on `projectLabel` hid the control
+              outright when no project was set, and gating on a non-empty
+              `projectOptions` hid it when no other workspace happened to be
+              open — so the two moments a person most needs to choose a project
+              were the two moments the choice disappeared, taking the Browse
+              escape hatch with it. A host that passes no project handlers (the
+              tab strip's "+", which spawns into the workspace it was pressed
+              in) still gets the plain line, because there its project is a fact
+              rather than a choice. */}
+          {canChooseProject ? (
+            <ProjectScopePicker
+              label={projectLabel ?? 'Choose a project'}
+              branch={branch}
+              options={projectOptions ?? []}
+              selectedPath={workspaceRoot}
+              onSelect={(path) => onSelectProject?.(path)}
+              onBrowse={onBrowseProject}
+            />
+          ) : projectLabel ? (
+            <p className="mt-1 text-meta text-[color:var(--text-subtle)]">
+              {projectLabel}
+              {branch ? ` · ${branch}` : ''}
+            </p>
           ) : null}
         </div>
 

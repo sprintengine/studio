@@ -599,6 +599,50 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  // 8. The project choice is offered because the HOST can change it, never
+  // because a project already happens to be set or other workspaces happen to
+  // be open. Both of those were the old condition, and both hid the picker —
+  // and the Browse row inside it — at exactly the moment it was needed.
+  await check('a project can be chosen with nothing open and nothing selected', async () => {
+    seedStore()
+    // No folder at all: what the New chat door looks like on a fresh app.
+    const empty = await render({
+      folderPath: null,
+      projectOptions: [],
+      onSelectProject: () => {},
+      onBrowseProject: () => {},
+    })
+    const trigger = empty.find((el) => /choose a project/i.test(el.textContent ?? ''))
+    assert.ok(trigger, 'with no project set the surface still offers to pick one')
+    assert.equal(trigger?.tagName, 'BUTTON', 'and it is actionable, not a label')
+    empty.unmount()
+
+    // A folder, but no other workspace open — so no options to switch between.
+    // Browse alone still has to be reachable.
+    const soleProject = await render({
+      folderPath: '/tmp/proj',
+      projectOptions: [],
+      onSelectProject: () => {},
+      onBrowseProject: () => {},
+    })
+    const named = soleProject.find(
+      (el) => el.tagName === 'BUTTON' && /proj/.test(el.textContent ?? ''),
+    )
+    assert.ok(named, 'the sole project is still a picker, because Browse is the point')
+    soleProject.unmount()
+
+    // The tab strip's "+": the project is a fact, not a choice, so no handlers
+    // and no picker — the plain line is correct here and must not regress.
+    const fixed = await render({ folderPath: '/tmp/proj' })
+    assert.ok(fixed.text().includes('proj'), 'it still says where the agent will run')
+    assert.equal(
+      fixed.find((el) => el.tagName === 'BUTTON' && /choose a project/i.test(el.textContent ?? '')),
+      undefined,
+      'but offers no choice it cannot honour',
+    )
+    fixed.unmount()
+  })
+
   if (failures > 0) {
     console.error(`NewAgentPanel.test.tsx: ${failures} failing check(s)`)
     process.exit(1)
