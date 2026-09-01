@@ -1065,6 +1065,20 @@ async function resumeTerminal(
   // explicit payload value still wins.
   const cliSessionId = payload.cliSessionId ?? existing?.cliSessionId
   if (existing && existing.suspended) {
+    // Refuse BEFORE disposing: dispose deletes the snapshot sidecar, so a
+    // resume the spawn gate would reject (a suspended session on a CLI that
+    // lost agent eligibility — e.g. muse after the hooks-only rule, or a BYO
+    // plugin authored before agentStateSpec existed) must keep the frozen view
+    // intact instead of erasing it and then failing to spawn anything.
+    const resumeCli = payload.cli ?? existing.cli
+    if (!payload.shellOnly && resumeCli && getPluginById(pluginIdForCli(resumeCli)) && !agentStateSupportsCli(resumeCli)) {
+      return {
+        ok: false,
+        sessionId: payload.sessionId,
+        message: `Agent CLI "${resumeCli}" cannot report agent status (its plugin declares no lifecycle-hook support), so this session cannot be resumed as an agent. Its frozen view is kept.`,
+        exitCode: 1,
+      } satisfies TerminalSpawnResult
+    }
     disposeTerminal(payload.sessionId)
   }
   return spawnTerminalFromIpc(sender, { ...payload, resume: true, cliSessionId })
@@ -1093,6 +1107,11 @@ function disposeTerminal(sessionId: string): void {
   // a stale attachment would silently start narrating.
   endRemoteTerminalViewers(sessionId, 'This terminal was closed.')
   terminalDiagnostics.clear(sessionId)
+  // The spawn-armed stall timer would otherwise hold the session object alive
+  // up to 90s past dispose (its fire is a guaranteed no-op, but the reference
+  // is not free).
+  clearTerminalIdleTimer(session)
+  clearAgentStallTimer(session)
   session.isDisposed = true
   setTerminalActivity(session, { kind: 'exited', at: Date.now(), exitCode: session.exitCode ?? 0 }, { broadcast: false })
   terminals.delete(sessionId)
@@ -1399,11 +1418,11 @@ function buildReapCandidates(): ReapCandidate[] {
     // dispatch loop is actively running (the claim-aware 5-min AutoRun retirement
     // owns those — disposing from here would race the dispatch: flapping, or
     // dropping an in-flight claim + `--resume` conversation) OR its rest is not
-    // AUTHORITATIVELY known. `agentState.phase` comes from a lifecycle hook; a
-    // hookless/BYO sprint CLI (or the pre-first-frame window) has `phase === null`,
-    // which the policy's phase gate skips, falling to the keystroke floor — and a
-    // sprint agent on a long autonomous turn has no keystrokes, so that floor would
-    // dispose it mid-work. So we only reap a sprint agent that is BOTH in an
+    // AUTHORITATIVELY known. `agentState.phase` is lifecycle-stamped from birth
+    // (spawn `starting`, hook frames thereafter — output-timing inference is
+    // gone), so a sprint agent always carries one; a long autonomous turn has
+    // no keystrokes, which is exactly why the phase, never the keystroke
+    // floor, decides. So we only reap a sprint agent that is BOTH in an
     // inactive run AND authoritatively at rest: 'idle', or 'stalled' — a worker
     // whose Stop frame was lost lands in 'stalled', and it must expire like idle
     // or it parks until app quit (the 2026-07-07 incident). Those we DISPOSE
@@ -1465,7 +1484,7 @@ export function runIdleAgentReapSweep(
         message: `Idle sweep kept a rested agent: ${explanation.hold}`,
         details: [
           `Resting for ${Math.round(explanation.restingForMs / 60_000)}m (threshold ${Math.round(configuredSuspendIdleAfterMs / 60_000)}m)`,
-          `Phase: ${candidate.agentPhase ?? 'none (hookless)'}`,
+          `Phase: ${candidate.agentPhase ?? 'none (not an agent)'}`,
           `CLI: ${candidate.cli ?? 'unknown'}`,
         ].join('\n'),
         ...(candidate.workspaceId ? { workspaceId: candidate.workspaceId } : {}),
@@ -1552,7 +1571,7 @@ export function runIdleAgentReapSweep(
       message: reclaimByDispose ? 'Idle sweep disposed a sprint agent' : 'Idle sweep suspended an agent',
       details: [
         `Idle for ${Math.round(idleMs / 60_000)}m (threshold ${Math.round(configuredSuspendIdleAfterMs / 60_000)}m)`,
-        `Phase: ${session.agentState?.phase ?? 'none (hookless)'}`,
+        `Phase: ${session.agentState?.phase ?? 'none (not an agent)'}`,
         `CLI: ${session.cli ?? 'unknown'}`,
       ].join('\n'),
       ...(session.workspaceId ? { workspaceId: session.workspaceId } : {}),
@@ -1676,6 +1695,7 @@ async function disposeAllTerminals(): Promise<void> {
     endRemoteTerminalViewers(session.sessionId, 'SprintEngine Studio is shutting down on this machine.')
     terminalDiagnostics.clear(session.sessionId)
     clearTerminalIdleTimer(session)
+    clearAgentStallTimer(session)
     // Durable freeze-the-view, quit path: persist each agent terminal's painted
     // content before its process dies, so reopening the workspace after relaunch
     // shows it painted-and-paused instead of black. A suspended session's

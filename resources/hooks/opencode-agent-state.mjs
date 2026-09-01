@@ -131,21 +131,23 @@ async function writeFrame(socketPath, frame) {
 // resume target the wrong session. So we lock the FIRST session id we see (the
 // root) and stamp it on every frame thereafter.
 let lockedSessionId = null
-// Dedup consecutive identical phases — OpenCode emits `message.updated` on every
-// streamed delta (dozens/sec), all mapping to `thinking`, so without this a turn
-// would open one socket per delta. The session is fixed for the process, so the
-// phase alone is the key; a real transition (thinking→tool_use, →awaiting_input
-// after a permission, →idle) always differs and is sent. The runtime's stall
-// watch reads live output, not this cadence, so a quiet `thinking` is still caught.
-let lastPhase = null
+// Dedup consecutive identical EVENTS — OpenCode emits `message.updated` on
+// every streamed delta (dozens/sec), so without this a turn would open one
+// socket per delta. The key is the EVENT name, not the mapped phase: turn
+// semantics live on the event (the manifest flags `session.error` as a failed
+// turn while it shares `session.idle`'s phase), so a `session.idle` followed
+// by `session.error` must both reach main — a phase-keyed dedup would eat the
+// failure. The runtime's stall watch reads live output, not this cadence, so
+// a quiet `thinking` is still caught.
+let lastEvent = null
 
 async function report(phase, event, sessionId) {
   if (!phase) return
   // Seed the lock before the dedup early-return, so the root id is captured even
   // from a frame we suppress (the first frame, `starting`, is never a dup).
   if (sessionId && !lockedSessionId) lockedSessionId = sessionId
-  if (phase === lastPhase) return
-  lastPhase = phase
+  if (event === lastEvent) return
+  lastEvent = event
   const socketPath = resolveSocketPath()
   if (!socketPath) return
   const agentId = process.env.MULTICODE_AGENT_ID

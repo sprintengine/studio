@@ -158,9 +158,13 @@ async function main() {
     event,
     ts: Date.now(),
   }
-  // Payload discriminator the manifests consult (Claude's Notification
-  // allow-list). Forwarded verbatim under one spelling; the reader caps it.
+  // Payload discriminators the manifests consult: Claude's Notification
+  // allow-list, and a turn-outcome status (Cursor's stop payload carries
+  // status: completed|aborted|error). Forwarded verbatim under one spelling
+  // each; the reader caps them.
   if (notificationType) frame.notificationType = notificationType
+  const status = str(payload?.status)
+  if (status) frame.status = status
 
   // The prompt the person just sent, forwarded on `UserPromptSubmit` only. The
   // app uses it for two things: the hover preview on a terminal tab ("what was I
@@ -176,8 +180,10 @@ async function main() {
   // the app never titles a chat after an injection — but text the APP itself
   // pasted into the terminal (a dropped skill invocation, a file path) IS part
   // of it, and is stripped by the reader (see src/shared/workspace-title.ts).
-  if (event === 'UserPromptSubmit') {
-    const prompt = str(payload?.prompt) ?? str(payload?.userPrompt)
+  // `UserPromptSubmit` is Claude/Codex/Kimi vocabulary; Cursor spells the same
+  // moment `beforeSubmitPrompt`.
+  if (event === 'UserPromptSubmit' || event === 'beforeSubmitPrompt') {
+    const prompt = str(payload?.prompt) ?? str(payload?.userPrompt) ?? str(payload?.text)
     if (prompt) {
       const trimmed = prompt.trim()
       if (trimmed) frame.prompt = trimmed.slice(0, MAX_PROMPT_LENGTH)
@@ -186,13 +192,13 @@ async function main() {
 
   // The session transcript, forwarded on a turn end so the app can derive a
   // summary from the agent's closing message (an automation run's completion
-  // summary). ONLY on the turn-end event (`Stop`; Cursor spells it `stop` and
-  // attaches transcript_path to every hook): `SubagentStop` carries a
-  // transcript_path too, but it is a subagent's, and a subagent finishing is
-  // not this session's turn end. The path is passed through untouched: it is
-  // untrusted input, and the reader owns containment (see transcriptPath in
-  // src/main/agent-state.ts).
-  if (event === 'Stop' || event === 'stop') {
+  // summary). ONLY on turn-end events (`Stop`; Kimi's failed-turn
+  // `StopFailure`; Cursor spells it `stop` and attaches transcript_path to
+  // every hook): `SubagentStop` carries a transcript_path too, but it is a
+  // subagent's, and a subagent finishing is not this session's turn end. The
+  // path is passed through untouched: it is untrusted input, and the reader
+  // owns containment (see transcriptPath in src/main/agent-state.ts).
+  if (event === 'Stop' || event === 'stop' || event === 'StopFailure') {
     const transcriptPath = str(payload?.transcript_path) ?? str(payload?.transcriptPath)
     if (transcriptPath) frame.transcriptPath = transcriptPath
   }

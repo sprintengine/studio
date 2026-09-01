@@ -218,3 +218,32 @@ test('accepts a user-scoped toml-array-block registration and rejects a bad scop
   if (bad.ok) return
   assert.ok(bad.issues.some((issue) => issue.path === 'agentStateSpec.registration.scope'))
 })
+
+test('accepts a failureWhen discriminator and rejects an unknown discriminator field', () => {
+  const ok = validateCliPluginManifest({
+    ...VALID,
+    agentStateSpec: {
+      registration: { kind: 'flat-hooks-json', path: '.cursor/hooks.json' },
+      events: [
+        { event: 'stop', phase: 'idle', turnEnd: true, failureWhen: { field: 'status', oneOf: ['error', 'aborted'] } },
+      ],
+    },
+  })
+  assert.equal(ok.ok, true, ok.ok ? '' : JSON.stringify(ok.issues))
+
+  const bad = validateCliPluginManifest({
+    ...VALID,
+    agentStateSpec: {
+      registration: { kind: 'flat-hooks-json', path: '.cursor/hooks.json' },
+      events: [
+        { event: 'stop', phase: 'idle', failureWhen: { field: 'exitCode', oneOf: ['1'] } },
+        { event: 'go', phase: 'idle', failureWhen: { field: 'status', oneOf: [] } },
+      ],
+    },
+  })
+  assert.equal(bad.ok, false)
+  if (bad.ok) return
+  const paths = bad.issues.map((issue) => issue.path)
+  assert.ok(paths.includes('agentStateSpec.events[0].failureWhen.field'))
+  assert.ok(paths.includes('agentStateSpec.events[1].failureWhen.oneOf'))
+})

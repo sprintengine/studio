@@ -51,9 +51,18 @@ export type AgentStateEventResolution =
   | { action: 'drop' }
   | { action: 'apply'; phase: AgentPhase; turnEnd: boolean; turnFailure: boolean }
 
+// Read the frame field a discriminator NAMES, never a hardcoded one, so a
+// widened field enum can't silently misread.
+function discriminatorValue(
+  field: 'notificationType' | 'status',
+  frame: Pick<AgentStateFrame, 'notificationType' | 'status'>
+): string | undefined {
+  return field === 'notificationType' ? frame.notificationType : frame.status
+}
+
 export function resolveAgentStateEvent(
   spec: PluginAgentStateSpec | null | undefined,
-  frame: Pick<AgentStateFrame, 'event' | 'phase' | 'notificationType'>
+  frame: Pick<AgentStateFrame, 'event' | 'phase' | 'notificationType' | 'status'>
 ): AgentStateEventResolution {
   if (spec && frame.event) {
     const entry = spec.events.find((candidate) => candidate.event === frame.event)
@@ -61,6 +70,13 @@ export function resolveAgentStateEvent(
     // prior phase stands. (This is also what makes a discriminator allow-list
     // fail SAFE: see below.)
     if (!entry) return { action: 'drop' }
+    // Failure discriminator: a turn-end whose payload carries the outcome
+    // (Cursor's stop status error|aborted) counts as a failed turn — a crash
+    // finalized as completed opens a PR from failed work.
+    const failureValue = entry.failureWhen ? discriminatorValue(entry.failureWhen.field, frame) : undefined
+    const turnFailure =
+      entry.failure === true
+      || Boolean(entry.failureWhen && failureValue && entry.failureWhen.oneOf.includes(failureValue))
     if (entry.when) {
       // Discriminator: the phase applies only for allow-listed payload values.
       // Claude's `Notification` is the canonical case — it fires for real
@@ -68,9 +84,7 @@ export function resolveAgentStateEvent(
       // and `awaiting_input` is sticky for a dormant agent, so an unlisted or
       // absent value must drop (falsely "needs input" parks a session forever;
       // a false idle is recoverable — the 2026-07-07 parked-agents incident).
-      // Read the field the spec NAMES, never a hardcoded one, so a widened
-      // field enum can't silently misread.
-      const value = entry.when.field === 'notificationType' ? frame.notificationType : undefined
+      const value = discriminatorValue(entry.when.field, frame)
       if (!value || !entry.when.oneOf.includes(value)) {
         // Stale-reporter compatibility: a reporter copy from before the
         // dumb-forwarder change filtered discriminated events CLIENT-side and
@@ -84,7 +98,7 @@ export function resolveAgentStateEvent(
             action: 'apply',
             phase: entry.phase,
             turnEnd: entry.turnEnd === true,
-            turnFailure: entry.failure === true,
+            turnFailure,
           }
         }
         return { action: 'drop' }
@@ -94,7 +108,7 @@ export function resolveAgentStateEvent(
       action: 'apply',
       phase: entry.phase,
       turnEnd: entry.turnEnd === true,
-      turnFailure: entry.failure === true,
+      turnFailure,
     }
   }
   // No spec (a CLI outside the manifest capability whose reporter still emits
@@ -241,9 +255,11 @@ export type AgentStateFrame = {
   // resolves the event (see resolveAgentStateEvent).
   phase?: AgentPhase
   event: string | null
-  // The payload discriminator field specs may consult (Claude's
-  // `notification_type`, forwarded under one spelling). Untrusted, capped.
+  // The payload discriminator fields specs may consult (Claude's
+  // `notification_type`; Cursor's turn-outcome `status`), forwarded under one
+  // spelling each. Untrusted, capped.
   notificationType?: string
+  status?: string
   ts: number
   wakeup?: AgentStateFrameWakeup
   // The CLI's session transcript, forwarded by the reporter on a turn end only.
@@ -315,6 +331,10 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
   const notificationType = optionalString(raw.notificationType)
   if (notificationType && notificationType.length <= MAX_NOTIFICATION_TYPE_LENGTH) {
     frame.notificationType = notificationType
+  }
+  const status = optionalString(raw.status)
+  if (status && status.length <= MAX_NOTIFICATION_TYPE_LENGTH) {
+    frame.status = status
   }
   const wakeup = parseFrameWakeup(raw.wakeup)
   if (wakeup) frame.wakeup = wakeup

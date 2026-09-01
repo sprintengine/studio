@@ -1,21 +1,21 @@
 #!/usr/bin/env node
-// Multicode authoritative-agent-state reporter for Claude Code, Codex, and
-// Grok Build.
+// Multicode authoritative-agent-state reporter — the shared stdin filter for
+// every command-hook CLI (Claude Code, Codex, Grok Build, and any CLI whose
+// plugin manifest declares a command-hook agentStateSpec registration).
 //
-// Registered for the agent lifecycle events (SessionStart, UserPromptSubmit,
-// PostToolUse, Notification, Stop, SubagentStop, SessionEnd). The per-tool-call
-// PreToolUse event is intentionally NOT registered (see AGENT_STATE_HOOK_EVENTS
-// in src/main/agent-state.ts); PostToolUse is kept because its → thinking frame
-// clears the awaiting_input state after a permission is answered. The reporter
-// still maps PreToolUse if one ever arrives. Reads the CLI's hook JSON from
-// stdin — Claude Code and Codex name the fields snake_case (`hook_event_name`,
+// This script is a DUMB FORWARDER: it reads the CLI's hook JSON from stdin —
+// Claude Code and Codex name the fields snake_case (`hook_event_name`,
 // `session_id`); Grok Build ships the same hook contract with camelCase names
 // (`hookEventName`, `sessionId`), so every field is read under both spellings —
-// maps the event to an agent phase, and
-// writes a single newline-delimited JSON frame to the Multicode agent-state
-// socket so the app learns the agent's true phase instead of guessing from
-// output timing. The agent's identity comes from the MULTICODE_* env the app
-// injects at launch.
+// and writes a single newline-delimited JSON frame carrying the RAW event name
+// (plus the payload discriminator fields the manifests consult, e.g. Claude's
+// `notification_type`) to the Multicode agent-state socket. The event→phase
+// mapping happens in the main process from the resolving plugin manifest's
+// `agentStateSpec.events` table — no CLI vocabulary lives in this script, so
+// it never needs to change when a CLI's mapping does. Which events fire at all
+// is decided by the hook REGISTRATION the app writes from that same manifest
+// data. The agent's identity comes from the MULTICODE_* env the app injects at
+// launch.
 //
 // Socket address resolution — env FIRST, arg as fallback:
 //   MULTICODE_AGENT_STATE_SOCKET   Injected into the launch env by the app
@@ -71,46 +71,6 @@ function parseArgs(argv) {
     }
   }
   return args
-}
-
-// Must mirror AWAITING_INPUT_NOTIFICATION_TYPES in src/main/agent-state.ts.
-// Claude Code's `Notification` fires for both real prompts and informational
-// nudges; only the ALLOW-LISTED blocking types map to awaiting_input. Anything
-// else (informational, unknown, or untyped) is dropped: awaiting_input is
-// sticky for a dormant agent (no later frame clears it), so one unlisted
-// informational type used to park a session as falsely "needs input" — and
-// exempt it from the idle reaper — forever. If a future Claude build adds a
-// new BLOCKING notification type, extend BOTH copies of this set.
-const AWAITING_INPUT_NOTIFICATION_TYPES = new Set([
-  'permission_prompt',
-  'elicitation_dialog',
-  'agent_needs_input',
-])
-
-// Must mirror mapHookEventToPhase in src/main/agent-state.ts.
-function mapEventToPhase(event, notificationType) {
-  switch (event) {
-    case 'SessionStart':
-      return 'starting'
-    case 'UserPromptSubmit':
-      return 'thinking'
-    case 'PreToolUse':
-      return 'tool_use'
-    case 'PostToolUse':
-      return 'thinking'
-    case 'Notification':
-      if (notificationType && AWAITING_INPUT_NOTIFICATION_TYPES.has(notificationType)) return 'awaiting_input'
-      return null
-    case 'PermissionRequest':
-      return 'awaiting_input'
-    case 'Stop':
-    case 'SubagentStop':
-      return 'idle'
-    case 'SessionEnd':
-      return 'exited'
-    default:
-      return null
-  }
 }
 
 function writeFrameOnce(socketPath, frame) {
@@ -179,22 +139,32 @@ async function main() {
 
   // Claude Code / Codex use snake_case payload fields; Grok Build uses
   // camelCase for the same contract. Read both so one reporter serves all
-  // stdin-filter CLIs.
+  // stdin-filter CLIs. No phase is computed here — the frame carries the raw
+  // event name and the main process maps it via the resolving plugin
+  // manifest's agentStateSpec (an event the spec does not name simply drops).
   const str = (value) => (typeof value === 'string' ? value : null)
   const event = str(payload?.hook_event_name) ?? str(payload?.hookEventName)
+  if (!event) return
   const notificationType = str(payload?.notification_type) ?? str(payload?.notificationType)
-  const phase = event ? mapEventToPhase(event, notificationType) : null
-  if (!phase) return
 
   const frame = {
     type: 'agent_state',
     agentId,
     workspaceId: process.env.MULTICODE_WORKSPACE_ID ?? null,
-    sessionId: str(payload?.session_id) ?? str(payload?.sessionId),
-    phase,
+    // The CLI's own session identity, under its known spellings: session_id
+    // (Claude/Codex/Kimi), sessionId (Grok), conversation_id (Cursor — its
+    // chat id, which is what `--resume <chatId>` takes).
+    sessionId: str(payload?.session_id) ?? str(payload?.sessionId) ?? str(payload?.conversation_id),
     event,
     ts: Date.now(),
   }
+  // Payload discriminators the manifests consult: Claude's Notification
+  // allow-list, and a turn-outcome status (Cursor's stop payload carries
+  // status: completed|aborted|error). Forwarded verbatim under one spelling
+  // each; the reader caps them.
+  if (notificationType) frame.notificationType = notificationType
+  const status = str(payload?.status)
+  if (status) frame.status = status
 
   // The prompt the person just sent, forwarded on `UserPromptSubmit` only. The
   // app uses it for two things: the hover preview on a terminal tab ("what was I
@@ -210,8 +180,10 @@ async function main() {
   // the app never titles a chat after an injection — but text the APP itself
   // pasted into the terminal (a dropped skill invocation, a file path) IS part
   // of it, and is stripped by the reader (see src/shared/workspace-title.ts).
-  if (event === 'UserPromptSubmit') {
-    const prompt = str(payload?.prompt) ?? str(payload?.userPrompt)
+  // `UserPromptSubmit` is Claude/Codex/Kimi vocabulary; Cursor spells the same
+  // moment `beforeSubmitPrompt`.
+  if (event === 'UserPromptSubmit' || event === 'beforeSubmitPrompt') {
+    const prompt = str(payload?.prompt) ?? str(payload?.userPrompt) ?? str(payload?.text)
     if (prompt) {
       const trimmed = prompt.trim()
       if (trimmed) frame.prompt = trimmed.slice(0, MAX_PROMPT_LENGTH)
@@ -220,11 +192,13 @@ async function main() {
 
   // The session transcript, forwarded on a turn end so the app can derive a
   // summary from the agent's closing message (an automation run's completion
-  // summary). ONLY on `Stop`: `SubagentStop` carries a transcript_path too, but
-  // it is a subagent's, and a subagent finishing is not this session's turn end.
-  // The path is passed through untouched: it is untrusted input, and the reader
+  // summary). ONLY on turn-end events (`Stop`; Kimi's failed-turn
+  // `StopFailure`; Cursor spells it `stop` and attaches transcript_path to
+  // every hook): `SubagentStop` carries a transcript_path too, but it is a
+  // subagent's, and a subagent finishing is not this session's turn end. The
+  // path is passed through untouched: it is untrusted input, and the reader
   // owns containment (see transcriptPath in src/main/agent-state.ts).
-  if (event === 'Stop') {
+  if (event === 'Stop' || event === 'stop' || event === 'StopFailure') {
     const transcriptPath = str(payload?.transcript_path) ?? str(payload?.transcriptPath)
     if (transcriptPath) frame.transcriptPath = transcriptPath
   }

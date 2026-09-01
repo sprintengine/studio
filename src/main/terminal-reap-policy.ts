@@ -22,9 +22,11 @@ import type { AgentPhase } from '../shared/electron-api'
 //     them would abort a real command. (A 'starting' session that goes quiet
 //     converts to 'stalled' via the runtime stall watch, so a resumed-but-
 //     never-prompted agent expires instead of parking.) 'awaiting_input' is
-//     NEVER reaped: it needs the user, so freezing it is wrong. When no phase
-//     is known (a CLI with no hooks and no inferred state), we fall back to
-//     the recency floor below.
+//     NEVER reaped: it needs the user, so freezing it is wrong. Every agent
+//     carries a phase from birth (the spawn stamp; output-timing inference was
+//     deleted 2026-08-31), so a null phase means a non-agent candidate — the
+//     recency floor below is its only clock, and for agents the null branch is
+//     defensive dead code kept because ambiguity must hold a terminal ALIVE.
 //   * `lastInteractionAt` — real user input (keystrokes), repaint-immune. Combined
 //     with `idleSince` it forms the idle clock. (NOT last *output*, which alt-screen
 //     TUIs bump on every repaint.)

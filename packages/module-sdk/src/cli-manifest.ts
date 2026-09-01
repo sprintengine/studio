@@ -194,6 +194,9 @@ export type CliAgentStatePhase =
   | 'idle'
   | 'exited'
 
+/** Payload fields the reporter forwards for discriminators to consult. */
+export type CliAgentStateDiscriminatorField = 'notificationType' | 'status'
+
 export type CliAgentStateEventSpec = {
   /** Native event name exactly as the CLI's hook payload names it. */
   event: string
@@ -204,7 +207,13 @@ export type CliAgentStateEventSpec = {
    * Payload discriminator: the phase applies only when the named frame field's
    * value is in `oneOf`; any other (or absent) value drops the frame.
    */
-  when?: { field: 'notificationType'; oneOf: string[] }
+  when?: { field: CliAgentStateDiscriminatorField; oneOf: string[] }
+  /**
+   * Failure discriminator: the event additionally counts as a failed turn when
+   * the named frame field's value is in `oneOf` (a turn-end whose payload
+   * carries the outcome). Absent/unlisted values leave declared flags as-is.
+   */
+  failureWhen?: { field: CliAgentStateDiscriminatorField; oneOf: string[] }
   /** Registered in the CLI's hook config (default true); false = map-only. */
   register?: boolean
   /** This event is the session's turn end. */
@@ -521,6 +530,7 @@ const AGENT_STATE_PHASES: CliAgentStatePhase[] = [
 ]
 const AGENT_STATE_REGISTRATION_KINDS = ['settings-json', 'flat-hooks-json', 'toml-block', 'toml-array-block', 'owned-json', 'plugin-file'] as const
 const AGENT_STATE_REGISTRATION_SCOPES = ['workspace', 'user'] as const
+const AGENT_STATE_DISCRIMINATOR_FIELDS = ['notificationType', 'status'] as const
 
 // Registration paths are written inside their scope root (the workspace, or
 // the user's home for scope: user) at install time, so they must stay strictly
@@ -610,15 +620,23 @@ function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): voi
         issues.push({ path: `${path}.${flag}`, message: `${flag} must be a boolean when present.` })
       }
     }
-    if (entry.when !== undefined) {
-      if (!isObject(entry.when) || entry.when.field !== 'notificationType') {
-        issues.push({ path: `${path}.when.field`, message: 'when.field must be "notificationType".' })
-      } else if (
-        !Array.isArray(entry.when.oneOf)
-        || entry.when.oneOf.length === 0
-        || entry.when.oneOf.some((v: unknown) => typeof v !== 'string' || v.length === 0)
+    for (const clause of ['when', 'failureWhen'] as const) {
+      const value = entry[clause]
+      if (value === undefined) continue
+      if (
+        !isObject(value)
+        || !(AGENT_STATE_DISCRIMINATOR_FIELDS as readonly string[]).includes(value.field as string)
       ) {
-        issues.push({ path: `${path}.when.oneOf`, message: 'when.oneOf must be a non-empty array of strings.' })
+        issues.push({
+          path: `${path}.${clause}.field`,
+          message: `${clause}.field must be one of: ${AGENT_STATE_DISCRIMINATOR_FIELDS.join(', ')}.`,
+        })
+      } else if (
+        !Array.isArray(value.oneOf)
+        || value.oneOf.length === 0
+        || value.oneOf.some((v: unknown) => typeof v !== 'string' || v.length === 0)
+      ) {
+        issues.push({ path: `${path}.${clause}.oneOf`, message: `${clause}.oneOf must be a non-empty array of strings.` })
       }
     }
   })

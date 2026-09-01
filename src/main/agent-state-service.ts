@@ -13,9 +13,10 @@ import { installAgentStateReporter, parseAgentStateFrame } from './agent-state'
 // Owns a dedicated local socket the per-workspace reporter hook writes
 // newline-delimited JSON frames to, validates each frame, and hands the valid
 // ones to `onFrame` (the terminal runtime, which resolves the session and
-// updates its phase). Also owns installing the reporter into a workspace at
-// launch — serialized per workspace and run once per workspace per app run so
-// concurrent agent launches never race on .claude/settings.local.json.
+// updates its phase). Also owns installing the reporter at launch — serialized
+// per TARGET FILE (several CLIs can share one settings file) and run once per
+// CLI per scope root per app run, so concurrent agent launches never race a
+// config's read-modify-write.
 //
 // All Electron specifics (userData dir, bundled reporter path) are injected, so
 // this module stays free of `electron` and is unit-testable over a real socket.
@@ -61,7 +62,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
   const sockets = new Set<Socket>()
   let socketPath: string | null = null
 
-  // Per-workspace install state: a serialization chain so concurrent launches
+  // Install state: a per-target-file serialization chain so concurrent launches
   // in the same workspace don't race the settings.local.json read-modify-write,
   // and a set so we install at most once per workspace per app run.
   const installChains = new Map<string, Promise<void>>()
@@ -194,7 +195,16 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     const key = spec.registration.scope === 'user' ? `${cli}::user` : `${cli}::${root}`
     if (installed.has(key)) return
 
-    const prior = installChains.get(key) ?? Promise.resolve()
+    // Serialization is keyed by the TARGET FILE, not the CLI: claude-code, zai
+    // and kimi-claude all merge into the same .claude/settings.local.json, and
+    // two of them launching concurrently in one workspace must not interleave
+    // that file's read-modify-write. (Their specs are identical today, so the
+    // race would be benign — until the day one diverges.)
+    const chainKey =
+      spec.registration.scope === 'user'
+        ? `user:${spec.registration.path}`
+        : `${spec.registration.path}::${root}`
+    const prior = installChains.get(chainKey) ?? Promise.resolve()
     const next = prior.then(async () => {
       if (installed.has(key)) return
       const sourceScriptPath =
@@ -219,7 +229,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     // Keep the chain alive even if this link rejected, so a later launch retries
     // rather than inheriting a poisoned promise.
     installChains.set(
-      key,
+      chainKey,
       next.catch(() => {})
     )
     await next.catch((error) => warn('Agent-state hook install threw', message(error)))

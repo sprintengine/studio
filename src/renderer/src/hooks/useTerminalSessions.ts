@@ -164,8 +164,8 @@ export function deriveWorkspaceIdleSince(
 // the reason an awaiting agent surfaces as `needs-input` rather than `idle` (its
 // bridged `activity` is idle while it waits).
 //
-// Gated on `processAlive`: `onExit` clears `agentState`, but a dead session is
-// still snapshotted, and only a live agent can actually be waiting on the user —
+// Gated on `processAlive`: `onExit` stamps the phase `exited`, but a dead
+// session is still snapshotted, and only a live agent can actually be waiting on the user —
 // a stale `awaiting_input` from an exited/crashed agent must not keep the glyph
 // lit.
 export function workspaceTerminalAwaitingInput(

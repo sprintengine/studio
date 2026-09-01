@@ -277,6 +277,15 @@ async function run(): Promise<void> {
     )?.notificationType,
     undefined
   )
+  // …the status discriminator rides the same validation (capped, optional)…
+  assert.equal(
+    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'stop', status: 'error', ts: 5 }, 999)?.status,
+    'error'
+  )
+  assert.equal(
+    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'stop', status: 'x'.repeat(500), ts: 5 }, 999)?.status,
+    undefined
+  )
   // …and a frame with neither event nor a valid phase carries nothing to apply.
   assert.equal(parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', ts: 5 }, 999), null)
   assert.equal(parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', phase: 'nope' }, 1), null)
@@ -716,6 +725,15 @@ async function run(): Promise<void> {
   assert.equal(resolvePhase(cursorSpec, 'postToolUseFailure'), 'thinking')
   assert.equal(resolvePhase(cursorSpec, 'sessionEnd'), 'exited')
   assert.deepEqual(flags(cursorSpec, 'stop'), { turnEnd: true, turnFailure: false })
+  // Cursor's one turn-end event carries the outcome in its payload: error and
+  // aborted flag the turn FAILED via failureWhen (an automation must not open
+  // a PR from a crashed or interrupted turn), completed and an absent status
+  // (a stale reporter, an undocumented payload change) stay a clean finish.
+  const cursorStop = (status?: string) => resolveAgentStateEvent(cursorSpec, { event: 'stop', status })
+  assert.deepEqual(cursorStop('error'), { action: 'apply', phase: 'idle', turnEnd: true, turnFailure: true })
+  assert.deepEqual(cursorStop('aborted'), { action: 'apply', phase: 'idle', turnEnd: true, turnFailure: true })
+  assert.deepEqual(cursorStop('completed'), { action: 'apply', phase: 'idle', turnEnd: true, turnFailure: false })
+  assert.deepEqual(cursorStop(), { action: 'apply', phase: 'idle', turnEnd: true, turnFailure: false })
   // awaiting_input is deliberately unsupported (no Notification/PermissionRequest
   // analogue; see the manifest $comment) — no event may map to it.
   assert.ok(

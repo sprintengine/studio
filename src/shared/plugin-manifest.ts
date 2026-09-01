@@ -226,6 +226,11 @@ export type PluginAgentStatePhase =
   | 'idle'
   | 'exited'
 
+// Payload fields the reporter forwards for manifest discriminators to consult:
+// Claude's `notification_type`, and a turn-outcome `status` (Cursor's stop
+// payload). Adding a field here means teaching the reporter to forward it.
+export type PluginAgentStateDiscriminatorField = 'notificationType' | 'status'
+
 export type PluginAgentStateEventSpec = {
   // Native event name exactly as the CLI's hook payload / reporter frame names
   // it (`Stop`, `session.idle`, …).
@@ -239,7 +244,14 @@ export type PluginAgentStateEventSpec = {
   // value is in `oneOf`; any other (or absent) value drops the frame so the
   // prior phase stands. This is where Claude's Notification allow-list lives —
   // as data on the Claude plugin, not code in the shared path.
-  when?: { field: 'notificationType'; oneOf: string[] }
+  when?: { field: PluginAgentStateDiscriminatorField; oneOf: string[] }
+  // Failure discriminator: the event additionally counts as a FAILED turn when
+  // the named frame field's value is in `oneOf` — for CLIs whose one turn-end
+  // event carries the outcome in its payload (Cursor's stop
+  // status: completed|aborted|error) instead of a separate failure event
+  // (Kimi's StopFailure, OpenCode's session.error). An absent or unlisted
+  // value leaves the event's declared flags as-is.
+  failureWhen?: { field: PluginAgentStateDiscriminatorField; oneOf: string[] }
   // Whether the event is written into the CLI's hook registration (default
   // true). `false` = mapped if a frame ever arrives (e.g. a stale registration
   // from an older release) but never registered anew — Claude's PreToolUse.
