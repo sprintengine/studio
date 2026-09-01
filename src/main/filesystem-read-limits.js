@@ -1,2 +1,0 @@
-export const MAX_TEXT_FILE_READ_BYTES = 5 * 1024 * 1024;
-export const MAX_IMAGE_DATA_URL_BYTES = 8 * 1024 * 1024;
