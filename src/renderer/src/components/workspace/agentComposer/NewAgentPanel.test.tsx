@@ -571,7 +571,7 @@ async function main(): Promise<void> {
   await check('the greeting uses a first name only when there is one', async () => {
     seedStore()
     useWorkspaceStore.setState({
-      authState: { ...useWorkspaceStore.getState().authState, user: { id: 'u', email: 'c@example.com', displayName: 'Conal Smith' } },
+      authState: { ...useWorkspaceStore.getState().authState, user: { id: 'u', email: 'c@example.com', displayName: 'Conal Smith', photoUrl: null } },
     } as never)
     const named = await render()
     assert.ok(named.text().includes('Conal'), 'it greets by first name, not full name')

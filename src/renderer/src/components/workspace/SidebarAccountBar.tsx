@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react'
 import { FOCUS_RING_CLASS, Popover, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
 import { MENU_ITEM_CLASS } from '../ui/menuClasses'
-import type { SessionUser } from '../../../../shared/electron-api'
+import type { MulticodeAuthState } from '../../../../shared/electron-api'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { AccountAvatar, AccountUserGlyph } from './AccountAvatar'
 import { hasPaidEntitlement, planDisplayTier, type PlanDisplayTier } from './accountEntitlements'
 
 // The account + Settings cluster lives at the sidebar bottom (Cursor-parity
@@ -13,36 +14,12 @@ import { hasPaidEntitlement, planDisplayTier, type PlanDisplayTier } from './acc
 // (doors→modals, 2026-09-01): Plugins, Automations and Design left the top-nav
 // door band and open as modals from here, beside the gear.
 
-function accountInitials(user: SessionUser | null): string {
-  const source = user?.displayName?.trim() || user?.email?.trim() || ''
-  if (!source) return '?'
-  const words = source.split(/\s+/).filter(Boolean)
-  if (words.length >= 2) return `${words[0][0]}${words[1][0]}`.toUpperCase()
-  return source[0].toUpperCase()
-}
-
 // Tier drives the colour of the account glyph: gold for an active Pro plan,
 // green otherwise (free, trial, or entitlements not yet resolved). Presentation
 // only — what the account may do is `hasPaidEntitlement`.
 const ACCOUNT_TIER_STYLE: Record<PlanDisplayTier, { color: string; soft: string; label: string }> = {
   free: { color: TONE_COLOR_VAR.good, soft: TONE_SOFT_VAR.good, label: 'Free' },
   pro: { color: TONE_COLOR_VAR.warn, soft: TONE_SOFT_VAR.warn, label: 'Pro' },
-}
-
-// Neutral person glyph shown when no display name/email initials are available,
-// so a signed-in account still reads as a coloured tier badge rather than a "?".
-function AccountUserGlyph({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="8.4" r="3.5" stroke="currentColor" strokeWidth={1.7} />
-      <path
-        d="M5.6 19c0-3.3 2.9-5.4 6.4-5.4s6.4 2.1 6.4 5.4"
-        stroke="currentColor"
-        strokeWidth={1.7}
-        strokeLinecap="round"
-      />
-    </svg>
-  )
 }
 
 // Symmetric 8-lobe cog (lucide "settings" geometry), centered in the viewBox so
@@ -204,29 +181,40 @@ function AccountPopover({
   // the upgrade (an access question — does this account already hold paid
   // capability) and whether to offer a re-check (a freshness question).
   const offerUpgrade = !hasPaidEntitlement(authState)
+  const tierStyle = ACCOUNT_TIER_STYLE[planDisplayTier(authState)]
 
   return (
     <div data-account-menu="true" className="w-64 overflow-hidden">
-      <div className="px-2.5 pb-2.5 pt-3">
-        <TruncatedText
-          as="div"
-          text={primaryLine}
-          className="text-heading font-medium text-[color:var(--text-strong)]"
+      {/* The header carries the same identity disc as the footer badge, one
+          step larger, so the photo (or initials) sits beside the full name. */}
+      <div className="flex items-center gap-2.5 px-2.5 pb-2.5 pt-3">
+        <AccountAvatar
+          user={authState.user}
+          className="size-control-sm text-body"
+          style={{ borderColor: tierStyle.color, backgroundColor: tierStyle.soft, color: tierStyle.color }}
+          glyphClassName="icon-md"
         />
-        {email ? (
+        <div className="min-w-0 flex-1">
           <TruncatedText
             as="div"
-            text={email}
-            className="mt-0.5 text-body text-[color:var(--text-muted)]"
+            text={primaryLine}
+            className="text-heading font-medium text-[color:var(--text-strong)]"
           />
-        ) : null}
-        {metaLine ? (
-          <TruncatedText
-            as="div"
-            text={metaLine}
-            className="mt-1 text-meta text-[color:var(--text-subtle)]"
-          />
-        ) : null}
+          {email ? (
+            <TruncatedText
+              as="div"
+              text={email}
+              className="mt-0.5 text-body text-[color:var(--text-muted)]"
+            />
+          ) : null}
+          {metaLine ? (
+            <TruncatedText
+              as="div"
+              text={metaLine}
+              className="mt-1 text-meta text-[color:var(--text-subtle)]"
+            />
+          ) : null}
+        </div>
       </div>
 
       {message || authState.entitlementStatus === 'offline_grace' ? (
@@ -281,17 +269,17 @@ export default function SidebarAccountBar({
   settingsOpen,
 }: SidebarAccountBarProps) {
   const tierStyle = ACCOUNT_TIER_STYLE[planDisplayTier(authState)]
-  const initials = accountInitials(authState.user)
   const accountName = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
 
+  // The tier-coloured ring stays around the photo: the colour is the plan
+  // signal, and the photo replaces only the initials inside it.
   const avatar = (
-    <span
-      aria-hidden="true"
-      className="flex size-control-xs shrink-0 items-center justify-center rounded-full border text-meta font-semibold"
+    <AccountAvatar
+      user={authState.user}
+      className="size-control-xs text-meta"
       style={{ borderColor: tierStyle.color, backgroundColor: tierStyle.soft, color: tierStyle.color }}
-    >
-      {initials === '?' ? <AccountUserGlyph className="icon-sm" /> : initials}
-    </span>
+      glyphClassName="icon-sm"
+    />
   )
 
   const accountMenu = (
@@ -322,11 +310,10 @@ export default function SidebarAccountBar({
   )
 
   // Icon-only in BOTH sidebar states (owner, 2026-09-01): the footer spends no
-  // width on the account name or plan — the tier-coloured initials badge is
-  // the whole control, the hover tooltip carries name · plan, and the click
-  // popover keeps the full detail. (The badge shows initials; a provider
-  // profile photo needs the auth payload to carry one — SessionUser has no
-  // photo field today.)
+  // width on the account name or plan — the tier-coloured badge (provider
+  // photo when the session carries one, initials otherwise; MC-2220) is the
+  // whole control, the hover tooltip carries name · plan, and the click
+  // popover keeps the full detail.
   const accountControl = authState.authenticated ? (
     <Popover
       open={accountOpen}

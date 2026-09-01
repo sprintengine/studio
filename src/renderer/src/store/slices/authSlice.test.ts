@@ -10,6 +10,7 @@ function createAuthenticatedState(): MulticodeAuthState {
       id: 'user-1',
       email: 'user@example.com',
       displayName: 'User One',
+      photoUrl: null,
     },
     selectedOrganization: {
       id: 'org-1',

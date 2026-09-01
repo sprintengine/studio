@@ -6,8 +6,11 @@ import { dirname, join } from 'path'
 import type {
   EntitlementSnapshot,
   MulticodeAuthState,
+  SessionOrganization,
   SessionSnapshot,
+  SessionUser,
 } from '../shared/electron-api'
+import { AccountPhotoCache } from './account-photo-cache'
 import {
   ENTITLEMENT_GRACE_MS,
   ENTITLEMENT_MAX_CACHE_AGE_MS,
@@ -75,6 +78,19 @@ type DesktopCallbackServer = {
   close(): Promise<void>
 }
 
+// What `/api/auth/me` hands back: the account behind the desktop's bearer
+// token. `avatarUrl` is the provider's remote photo URL (MC-2220); it is
+// resolved through `AccountPhotoCache` before the renderer ever sees it.
+type AccountProfile = {
+  user: {
+    id: string
+    email: string | null
+    displayName: string | null
+    avatarUrl: string | null
+  }
+  selectedOrganization: SessionOrganization
+}
+
 class MulticodeMultiauthClient {
   private accessToken: string | null = null
   private accessTokenExpiresAt = 0
@@ -136,6 +152,15 @@ class MulticodeMultiauthClient {
     this.selectedOrganizationId = organizationId
     this.entitlementCache = null
     return { organizationId }
+  }
+
+  async getProfile(): Promise<AccountProfile> {
+    const payload = await this.request<unknown>('/api/auth/me', { method: 'GET' })
+    const profile = parseAccountProfile(payload)
+    if (!profile) {
+      throw new Error('Multiauth returned an unreadable account profile.')
+    }
+    return profile
   }
 
   async getEntitlements(options: { forceRefresh?: boolean } = {}): Promise<EntitlementSnapshot> {
@@ -238,6 +263,14 @@ export class MulticodeAuthBridge {
   private pendingLogin: PendingDesktopLogin | null = null
   private callbackServer: DesktopCallbackServer | null = null
   private cachedEntitlements: CachedEntitlementSnapshot | null = null
+  // The account profile (name, email, remote photo URL) behind the cached
+  // entitlements, so an offline boot shows who is signed in — and, through
+  // the photo cache, their photo — rather than a blank badge (MC-2220).
+  private cachedAccount: AccountProfile | null = null
+  private photoRefreshInFlight: string | null = null
+  private readonly photoCache = new AccountPhotoCache({
+    cachePath: () => join(app.getPath('userData'), 'multiauth-account-photo.json'),
+  })
 
   // This bridge is the Multiauth ADAPTER behind the entitlement seam. It answers
   // the two questions `EntitlementProvider` asks and knows nothing about how a
@@ -274,8 +307,10 @@ export class MulticodeAuthBridge {
       if (cache) {
         const entitlementStatus = entitlementCacheStatus(cache)
         const graceExpiresAt = entitlementGraceExpiresAt(cache)
+        const account = await this.readOfflineAccount(cache.snapshot)
         this.setState({
           ...this.state,
+          ...account,
           status: 'signed_in',
           authenticated: true,
           entitlements: cache.snapshot,
@@ -400,7 +435,10 @@ export class MulticodeAuthBridge {
     this.pendingLogin = null
     await this.closeCallbackServer()
     this.cachedEntitlements = null
+    this.cachedAccount = null
     await unlink(this.cachePath).catch(() => {})
+    await unlink(this.accountCachePath).catch(() => {})
+    await this.photoCache.clear()
     this.setState(signedOutAuthState(null))
     return result
   }
@@ -444,8 +482,10 @@ export class MulticodeAuthBridge {
       if (cache) {
         const entitlementStatus = entitlementCacheStatus(cache)
         const graceExpiresAt = entitlementGraceExpiresAt(cache)
+        const account = await this.readOfflineAccount(cache.snapshot)
         this.setState({
           ...this.state,
+          ...account,
           authenticated: true,
           entitlements: cache.snapshot,
           status: 'signed_in',
@@ -538,7 +578,31 @@ export class MulticodeAuthBridge {
   }
 
   private async readSessionFromEntitlements(entitlements: EntitlementSnapshot): Promise<ElectronRendererAuthState> {
-    if (this.state.authenticated && this.state.selectedOrganization?.id === entitlements.organizationId) {
+    // The entitlement snapshot names the user and organization by id only.
+    // Who they are — name, email, photo — comes from the profile call, made
+    // on every refresh so a changed photo or name follows the provider.
+    const account = await this.fetchAccount(entitlements)
+    if (account) {
+      // Publish with whatever the photo cache holds — the cached bytes, or
+      // nothing — and fetch on the side. The avatar host is not Multiauth:
+      // a blocked or stalled CDN must not hold the account state (or the
+      // browser's "sign-in complete" page) for the fetch timeout.
+      const photoUrl = await this.photoCache.resolve(account.user.avatarUrl, { allowNetwork: false })
+      if (await this.photoCache.needsFetch(account.user.avatarUrl)) {
+        this.refreshPhotoInBackground(account.user)
+      }
+      return {
+        authenticated: true,
+        user: toSessionUser(account.user, photoUrl),
+        selectedOrganization: account.selectedOrganization,
+        entitlements,
+      }
+    }
+
+    // No profile this time (a Multiauth without `/api/auth/me`, or a request
+    // that failed on its own): keep the identity already on screen, else the
+    // one cached from an earlier session, else the ids alone.
+    if (this.state.authenticated && this.state.user && this.state.selectedOrganization?.id === entitlements.organizationId) {
       return {
         authenticated: true,
         user: this.state.user,
@@ -549,10 +613,76 @@ export class MulticodeAuthBridge {
 
     return {
       authenticated: true,
+      ...(await this.readOfflineAccount(entitlements)),
+      entitlements,
+    }
+  }
+
+  // Fetches (or refreshes) the photo and re-publishes the state with it once
+  // it lands, if the same user is still signed in. One fetch per source URL
+  // at a time; a failure leaves the published photo as it was.
+  private refreshPhotoInBackground(user: AccountProfile['user']): void {
+    const sourceUrl = user.avatarUrl
+    if (!sourceUrl || this.photoRefreshInFlight === sourceUrl) return
+    this.photoRefreshInFlight = sourceUrl
+    void this.photoCache.resolve(sourceUrl)
+      .then((photoUrl) => {
+        const current = this.state.user
+        if (!photoUrl || !this.state.authenticated || !current || current.id !== user.id || current.photoUrl === photoUrl) {
+          return
+        }
+        this.setState({ ...this.state, user: { ...current, photoUrl } })
+      })
+      .catch((error) => {
+        console.warn('[auth] account-photo-refresh-failed', { message: getErrorMessage(error) })
+      })
+      .finally(() => {
+        if (this.photoRefreshInFlight === sourceUrl) this.photoRefreshInFlight = null
+      })
+  }
+
+  private async fetchAccount(entitlements: EntitlementSnapshot): Promise<AccountProfile | null> {
+    try {
+      const profile = await this.client.getProfile()
+      if (profile.user.id !== entitlements.userId || profile.selectedOrganization.id !== entitlements.organizationId) {
+        console.warn('[auth] account-profile-mismatch', {
+          profileUserId: profile.user.id,
+          entitlementUserId: entitlements.userId,
+        })
+        return null
+      }
+      this.cachedAccount = profile
+      await this.writeCachedAccount(profile)
+      return profile
+    } catch (error) {
+      console.info('[auth] account-profile-unavailable', { message: getErrorMessage(error) })
+      return null
+    }
+  }
+
+  // The user and organization to publish when the server cannot be asked:
+  // what is already on screen, else the cached profile (photo from the local
+  // cache only — no network), else the ids the entitlement snapshot carries.
+  private async readOfflineAccount(
+    entitlements: EntitlementSnapshot,
+  ): Promise<Pick<MulticodeAuthState, 'user' | 'selectedOrganization'>> {
+    if (this.state.user && this.state.selectedOrganization?.id === entitlements.organizationId) {
+      return { user: this.state.user, selectedOrganization: this.state.selectedOrganization }
+    }
+
+    const cached = this.cachedAccount ?? await this.readCachedAccount()
+    if (cached && cached.user.id === entitlements.userId && cached.selectedOrganization.id === entitlements.organizationId) {
+      this.cachedAccount = cached
+      const photoUrl = await this.photoCache.resolve(cached.user.avatarUrl, { allowNetwork: false })
+      return { user: toSessionUser(cached.user, photoUrl), selectedOrganization: cached.selectedOrganization }
+    }
+
+    return {
       user: {
         id: entitlements.userId,
         email: null,
         displayName: null,
+        photoUrl: null,
       },
       selectedOrganization: {
         id: entitlements.organizationId,
@@ -560,12 +690,32 @@ export class MulticodeAuthBridge {
         slug: entitlements.organizationId,
         type: 'team',
       },
-      entitlements,
     }
   }
 
   private get cachePath(): string {
     return join(app.getPath('userData'), 'multiauth-entitlements-cache.json')
+  }
+
+  private get accountCachePath(): string {
+    return join(app.getPath('userData'), 'multiauth-account-cache.json')
+  }
+
+  private async readCachedAccount(): Promise<AccountProfile | null> {
+    try {
+      return parseAccountProfile(JSON.parse(await readFile(this.accountCachePath, 'utf8')))
+    } catch {
+      return null
+    }
+  }
+
+  private async writeCachedAccount(profile: AccountProfile): Promise<void> {
+    try {
+      await mkdir(dirname(this.accountCachePath), { recursive: true })
+      await writeFile(this.accountCachePath, `${JSON.stringify(profile, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+    } catch (error) {
+      console.warn('[auth] account-cache-write-failed', { message: getErrorMessage(error) })
+    }
   }
 
   private async readCachedEntitlements(): Promise<CachedEntitlementSnapshot | null> {
@@ -669,6 +819,43 @@ function callbackErrorHtml(message: string): string {
     "'": '&#39;',
   }[char] ?? char))
   return `<!doctype html><meta charset="utf-8"><title>Multicode sign-in failed</title><body style="font:14px system-ui,sans-serif;background:#101012;color:#f4f4f5;padding:32px">Sign-in failed: ${escaped}</body>`
+}
+
+function toSessionUser(user: AccountProfile['user'], photoUrl: string | null): SessionUser {
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    photoUrl,
+  }
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+export function parseAccountProfile(payload: unknown): AccountProfile | null {
+  if (!payload || typeof payload !== 'object') return null
+  const { user, selectedOrganization } = payload as { user?: unknown; selectedOrganization?: unknown }
+  if (!user || typeof user !== 'object' || !selectedOrganization || typeof selectedOrganization !== 'object') return null
+  const u = user as Record<string, unknown>
+  const o = selectedOrganization as Record<string, unknown>
+  if (typeof u.id !== 'string' || !u.id || typeof o.id !== 'string' || !o.id) return null
+  const type = o.type === 'personal' || o.type === 'team' || o.type === 'enterprise' ? o.type : 'team'
+  return {
+    user: {
+      id: u.id,
+      email: optionalString(u.email),
+      displayName: optionalString(u.displayName),
+      avatarUrl: optionalString(u.avatarUrl),
+    },
+    selectedOrganization: {
+      id: o.id,
+      name: optionalString(o.name) ?? o.id,
+      slug: optionalString(o.slug) ?? o.id,
+      type,
+    },
+  }
 }
 
 function signedOutAuthState(message: string | null): MulticodeAuthState {

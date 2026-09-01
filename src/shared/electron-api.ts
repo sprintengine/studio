@@ -2296,6 +2296,13 @@ export type SessionUser = {
   id: string
   email: string | null
   displayName: string | null
+  /**
+   * The provider profile photo, ready to render: a `data:` URL served from the
+   * main process's on-disk cache (MC-2220), never the provider's remote URL.
+   * Null when the account has no photo or the bytes could not be fetched —
+   * the renderer falls back to initials either way.
+   */
+  photoUrl: string | null
 }
 
 export type SessionOrganization = {

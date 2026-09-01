@@ -85,6 +85,7 @@ import {
   LearnSettingsIcon,
   PlusIcon,
 } from '../AppIcons'
+import { AccountAvatar } from '../workspace/AccountAvatar'
 import { hasPaidEntitlement, planDisplayTier } from '../workspace/accountEntitlements'
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
@@ -2779,15 +2780,6 @@ export default function SettingsPanel({
   )
 }
 
-// Two-letter avatar initials from the account display name or email.
-function profileInitials(user: MulticodeAuthState['user']): string {
-  const source = user?.displayName?.trim() || user?.email?.trim() || ''
-  if (!source) return '?'
-  const words = source.split(/\s+/).filter(Boolean)
-  if (words.length >= 2) return `${words[0][0]}${words[1][0]}`.toUpperCase()
-  return source[0].toUpperCase()
-}
-
 // Human plan label for the Profile meta grid ("Pro plan" / "Free plan" / a
 // non-active entitlement status). Presentation only: it reads the plan's name
 // to print it, and nothing may branch on what it returns.
@@ -2850,12 +2842,11 @@ function ProfileSection({
     <div className="space-y-5">
       <SettingsSectionTitle>Account</SettingsSectionTitle>
       <div className="flex items-center gap-3">
-        <span
-          aria-hidden="true"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-title font-semibold text-[color:var(--text-strong)]"
-        >
-          {profileInitials(authState.user)}
-        </span>
+        <AccountAvatar
+          user={authState.user}
+          className="h-11 w-11 border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-title text-[color:var(--text-strong)]"
+          glyphClassName="icon-lg"
+        />
         <div className="min-w-0">
           <div className="truncate text-body font-medium text-[color:var(--text-strong)]">{name}</div>
           {email ? <div className="truncate text-body text-[color:var(--text-muted)]">{email}</div> : null}
