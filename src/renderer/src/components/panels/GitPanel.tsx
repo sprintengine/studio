@@ -14,7 +14,7 @@ import {
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { ContextMenu, FOCUS_RING_CLASS, GhostButton, IconButton, InboxRow, InlineNotice, MenuItem, PanelHeader, PrimaryButton, RefreshIcon, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
+import { ContextMenu, FOCUS_RING_CLASS, GhostButton, IconButton, InboxRow, InlineNotice, MenuDivider, MenuItem, OverflowMenu, PanelHeader, PrimaryButton, RefreshIcon, Select, Skeleton, Tooltip, type LifecycleState, type OverflowMenuItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
@@ -51,18 +51,17 @@ type GitChangeGroup = {
   // appears in both groups, so the group — not the entry — decides the scope.
   scope: 'staged' | 'unstaged'
   empty: string
-  actionTitle: string
-  actionIcon: GitActionIconKind
-  secondaryAction?: {
-    title: string
-    icon: GitActionIconKind
-  }
-  bulkActions?: GitBulkAction[]
+  // The verb a row's right-click menu leads with: Stage on unstaged rows,
+  // Unstage on staged rows. Discard is the same on both.
+  primaryVerb: 'Stage' | 'Unstage'
+  // Whole-group actions (stage all, stash, discard all). They sit behind the
+  // heading's one overflow control and at the foot of every row's menu — never
+  // as a button strip beside the title, which squeezed the heading to a wrap at
+  // sidebar widths and left the file paths truncated to nothing.
+  groupActions: GitGroupAction[]
   entries: GitStatusEntry[]
   omittedCount: number
 }
-
-type GitActionIconKind = 'stage' | 'unstage' | 'revert'
 
 // Selection key for a change row. A partially-staged file shows in both the
 // Staged and Unstaged groups, so path alone is ambiguous; the scope keeps the
@@ -71,9 +70,8 @@ function changeSelectionKey(scope: 'staged' | 'unstaged', path: string): string 
   return `${scope}\u0000${path}`
 }
 
-type GitBulkAction = {
+type GitGroupAction = {
   label: string
-  title: string
   danger?: boolean
   action: () => Promise<unknown>
 }
@@ -118,36 +116,6 @@ function SyncArrowIcon({ direction }: { direction: 'up' | 'down' }) {
         d={direction === 'down' ? 'M8 3.25v9.5m0 0 3.25-3.25M8 12.75 4.75 9.5' : 'M8 12.75v-9.5m0 0 3.25 3.25M8 3.25 4.75 6.5'}
         stroke="currentColor"
         strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function GitActionIcon({ kind }: { kind: GitActionIconKind }) {
-  if (kind === 'stage') {
-    return (
-      <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
-        <path d="M8 3.25V12.75M4.25 8H11.75" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" />
-      </svg>
-    )
-  }
-
-  if (kind === 'unstage') {
-    return (
-      <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
-        <path d="M4.25 8H11.75" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" />
-      </svg>
-    )
-  }
-
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
-      <path
-        d="M5.2 4.5H2.85V2.15M3.1 7.8A4.95 4.95 0 1 0 4.45 4.4L2.85 6"
-        stroke="currentColor"
-        strokeWidth="1.45"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -741,24 +709,24 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     if (unique.length === 0) return null
     const many = unique.length > 1
     const confirmed = await dialog.confirm({
-      title: many ? `Revert ${unique.length} files?` : `Revert ${unique[0].relativePath}?`,
+      title: many ? `Discard changes in ${unique.length} files?` : `Discard changes to ${unique[0].relativePath}?`,
       body: (
         <>
-          This reverts every change to{' '}
+          This throws away every change to{' '}
           {many ? `these ${unique.length} files` : unique[0].relativePath} in {activeScopeLabel}. The action
           cannot be undone from here.
           <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
-      confirmLabel: many ? 'Revert files' : 'Revert file',
+      confirmLabel: 'Discard changes',
       tone: 'danger',
     })
     if (!confirmed) return null
 
     return runAction(
-      'Reverting files',
+      'Discarding changes',
       () => window.api.revertGitPaths(repoRoot!, unique.map((entry) => entry.path)),
-      many ? `Reverted ${unique.length} files.` : 'Reverted file.'
+      many ? `Discarded changes in ${unique.length} files.` : 'Discarded changes.'
     )
   }
   const discardUnstagedChanges = async () => {
@@ -787,16 +755,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       title: `Staged (${stagedEntries.length})`,
       scope: 'staged',
       empty: 'No staged changes',
-      actionTitle: 'Unstage this file',
-      actionIcon: 'unstage',
-      secondaryAction: {
-        title: 'Revert this file',
-        icon: 'revert',
-      },
-      bulkActions: [
+      primaryVerb: 'Unstage',
+      groupActions: [
         {
-          label: 'Unstage All',
-          title: 'Unstage all staged changes',
+          label: 'Unstage all',
           action: () => runAction('Unstaging all', () => window.api.unstageGitPaths(repoRoot!, []), 'Unstaged all files.'),
         },
       ],
@@ -807,26 +769,19 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       title: `Unstaged (${unstagedEntries.length})`,
       scope: 'unstaged',
       empty: 'No unstaged changes',
-      actionTitle: 'Stage this file',
-      actionIcon: 'stage',
-      secondaryAction: {
-        title: 'Revert this file',
-        icon: 'revert',
-      },
-      bulkActions: [
+      primaryVerb: 'Stage',
+      groupActions: [
         {
-          label: 'Stage All',
-          title: 'Stage all changes',
+          label: 'Stage all',
           action: () => runAction('Staging all', () => window.api.stageGitPaths(repoRoot!, []), 'Staged all changes.'),
         },
         {
-          label: 'Stash',
-          title: 'Stash all changes (staged, unstaged, and untracked)',
+          // Stashes everything: staged, unstaged, and untracked.
+          label: 'Stash all changes',
           action: () => handleStashPush(),
         },
         {
-          label: 'Discard',
-          title: 'Roll back all unstaged changes',
+          label: 'Discard all unstaged changes',
           danger: true,
           action: discardUnstagedChanges,
         },
@@ -949,6 +904,16 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const registerChangeRowNode = (key: string, node: HTMLElement | null) => {
     if (node) changeRowNodesRef.current[key] = node
     else delete changeRowNodesRef.current[key]
+  }
+
+  // A right-click on a row outside the current selection makes that row the
+  // selection first, so the menu's batch labels describe exactly the rows the
+  // actions will touch. A right-click inside the selection leaves it alone.
+  const handleChangeRowContextSelect = (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
+    const key = changeSelectionKey(scope, entry.path)
+    if (selectedChangeKeys.has(key)) return
+    selectionAnchorKeyRef.current = key
+    setSelectedChangeKeys(new Set([key]))
   }
 
   // Primary action (stage on unstaged rows, unstage on staged rows). Batches
@@ -1786,6 +1751,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                       onOpenFileInEditor={handleOpenFileInEditor}
                       selectedKeys={selectedChangeKeys}
                       onRowSelect={handleChangeRowSelect}
+                      onRowContextSelect={handleChangeRowContextSelect}
                       onRowPrimaryAction={handleChangeRowPrimary}
                       onRowRevert={handleChangeRowRevert}
                       registerRowNode={registerChangeRowNode}
@@ -2049,7 +2015,7 @@ function StashList({
   if (stashes.length === 0) {
     return (
       <div className="py-2 text-meta text-[color:var(--text-subtle)]">
-        No stashes — park the working tree with Stash on the Changes tab.
+        No stashes — park the working tree with “Stash all changes” from the Unstaged menu on the Changes tab.
       </div>
     )
   }
@@ -2107,6 +2073,12 @@ function StashList({
 // popup, which put two menu systems inside one panel: change rows opened an
 // OS-drawn, Title-Cased menu while the log rows next door opened the in-app
 // `OverflowMenu`. Same panel, same kind of row, two registers.
+//
+// It is also where stage and discard live now. They used to be a strip of
+// three ghost buttons beside the group title plus a pair of hover icons on
+// every row — at sidebar width the strip wrapped the heading and the icons ate
+// the path column, so every file read as `…l/ConnectorRow.tsx`. A row is a
+// file; what you can do to it is asked for, not paraded (design-system menu).
 type ChangeRowMenuState = { x: number; y: number; entry: GitStatusEntry; scope: 'staged' | 'unstaged' }
 
 function ChangeGroup({
@@ -2116,6 +2088,7 @@ function ChangeGroup({
   onOpenFileInEditor,
   selectedKeys,
   onRowSelect,
+  onRowContextSelect,
   onRowPrimaryAction,
   onRowRevert,
   registerRowNode,
@@ -2126,6 +2099,7 @@ function ChangeGroup({
   onOpenFileInEditor: (entry: GitStatusEntry) => Promise<void>
   selectedKeys: Set<string>
   onRowSelect: (entry: GitStatusEntry, scope: 'staged' | 'unstaged', event: React.MouseEvent) => boolean
+  onRowContextSelect: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => void
   onRowPrimaryAction: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => void
   onRowRevert: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => void
   registerRowNode: (key: string, node: HTMLElement | null) => void
@@ -2136,27 +2110,38 @@ function ChangeGroup({
     0
   )
   const selectedTotal = selectedKeys.size
+  const disabled = Boolean(busy)
+
+  // The heading's one trailing control (design-system section: a ceiling of
+  // one). The same actions close every row menu, so a reader who only ever
+  // right-clicks still finds them.
+  const headingMenuItems: OverflowMenuItem[] = group.groupActions.map((action) => ({
+    id: action.label,
+    label: action.label,
+    destructive: action.danger,
+    disabled,
+    onSelect: () => void action.action(),
+  }))
+
+  // Batch labels describe the rows the menu will act on. The primary verb
+  // batches within this group; discard batches across both groups, because a
+  // partially-staged file is one file however many rows it occupies.
+  const menuRowSelected = rowMenu ? selectedKeys.has(changeSelectionKey(group.scope, rowMenu.entry.path)) : false
+  const primaryCount = menuRowSelected && selectedInGroup > 1 ? selectedInGroup : 1
+  const discardCount = menuRowSelected && selectedTotal > 1 ? selectedTotal : 1
+  const primaryLabel = primaryCount > 1 ? `${group.primaryVerb} ${primaryCount} selected files` : `${group.primaryVerb} file`
+  const discardLabel = discardCount > 1 ? `Discard changes in ${discardCount} selected files` : 'Discard changes'
+
   return (
     <section className="mb-4">
       <div className="mb-1 flex h-6 items-center justify-between gap-2">
-        <div className="text-meta font-semibold text-[color:var(--text-strong)]">{group.title}</div>
-        {group.bulkActions && group.entries.length > 0 ? (
-          <div className="flex shrink-0 items-center gap-1">
-            {group.bulkActions.map((bulkAction) => (
-              <Tooltip key={bulkAction.title} content={bulkAction.title}>
-                <GhostButton
-                  size="xs"
-                  tone={bulkAction.danger ? 'danger' : 'neutral'}
-                  onClick={() => void bulkAction.action()}
-                  disabled={Boolean(busy)}
-                  className="shrink-0"
-                  aria-label={bulkAction.title}
-                >
-                  {bulkAction.label}
-                </GhostButton>
-              </Tooltip>
-            ))}
-          </div>
+        <div className="min-w-0 truncate text-meta font-semibold text-[color:var(--text-strong)]">{group.title}</div>
+        {group.entries.length > 0 ? (
+          <OverflowMenu
+            ariaLabel={`${group.scope === 'staged' ? 'Staged' : 'Unstaged'} changes actions`}
+            triggerTooltip="More actions"
+            items={headingMenuItems}
+          />
         ) : null}
       </div>
       {group.entries.length === 0 ? (
@@ -2191,75 +2176,47 @@ function ChangeGroup({
               ) : null
               const rowKey = changeSelectionKey(group.scope, entry.path)
               const rowSelected = selectedKeys.has(rowKey)
-              // A batch fires when the clicked row is part of a multi-selection.
-              // Primary batches within this scope; revert batches across scopes.
-              const primaryBatch = rowSelected && selectedInGroup > 1
-              const revertBatch = rowSelected && selectedTotal > 1
-              const primaryTitle = primaryBatch ? `${group.actionTitle.split(' ')[0]} ${selectedInGroup} selected files` : group.actionTitle
-              const revertTitle = revertBatch ? `Revert ${selectedTotal} selected files` : group.secondaryAction?.title
-              // Keep the actions hidden until the row is hovered, focused, or part
-              // of the current selection — so a resting list stays calm, but every
-              // selected row still advertises the batch it will act on.
-              // Base button classes already carry `focus:opacity-100`, so a
-              // keyboard-focused action stays revealed in every state.
-              const actionVisibility = rowSelected ? 'opacity-100' : 'opacity-0 group-hover/row:opacity-100'
               return (
                 <div
                   key={`${group.title}:${entry.path}`}
                   ref={(node) => registerRowNode(rowKey, node)}
                   data-git-change-row="true"
-                  className="group/row flex items-center gap-1"
                   onContextMenu={(event) => {
                     event.preventDefault()
                     event.stopPropagation()
-                    setRowMenu({ x: event.clientX, y: event.clientY, entry, scope: group.scope })
+                    onRowContextSelect(entry, group.scope)
+                    // A keyboard-summoned menu (Shift+F10, the Menu key) carries
+                    // no pointer; open it on the row rather than at the viewport
+                    // corner.
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    setRowMenu({
+                      x: event.clientX || rect.left,
+                      y: event.clientY || rect.bottom,
+                      entry,
+                      scope: group.scope,
+                    })
                   }}
                 >
-                  <div className="min-w-0 flex-1">
-                    <InboxRow
-                      hideDot
-                      title={title}
-                      trailing={trailing}
-                      selected={rowSelected}
-                      onSelect={(event) => {
-                        // Modifier/marquee clicks are consumed for selection; a
-                        // plain click selects the single row and opens its diff.
-                        if (onRowSelect(entry, group.scope, event)) return
-                        void onOpenFile(entry, group.scope)
-                      }}
-                      ariaLabel={statusWord ? `Open ${entry.relativePath}, ${statusWord}` : `Open ${entry.relativePath}`}
-                    />
-                  </div>
-                  <Tooltip content={primaryTitle}>
-                    <IconButton
-                      onClick={() => void onRowPrimaryAction(entry, group.scope)}
-                      disabled={Boolean(busy)}
-                      className={`shrink-0 focus:opacity-100 ${actionVisibility}`}
-                      aria-label={`${primaryTitle}: ${entry.relativePath}`}
-                    >
-                      <GitActionIcon kind={group.actionIcon} />
-                    </IconButton>
-                  </Tooltip>
-                  {group.secondaryAction ? (
-                    <Tooltip content={revertTitle ?? group.secondaryAction.title}>
-                      <IconButton
-                        tone="danger"
-                        onClick={() => void onRowRevert(entry, group.scope)}
-                        disabled={Boolean(busy)}
-                        className={`shrink-0 focus:opacity-100 ${actionVisibility}`}
-                        aria-label={`${revertTitle ?? group.secondaryAction.title}: ${entry.relativePath}`}
-                      >
-                        <GitActionIcon kind={group.secondaryAction.icon} />
-                      </IconButton>
-                    </Tooltip>
-                  ) : null}
+                  <InboxRow
+                    hideDot
+                    title={title}
+                    trailing={trailing}
+                    selected={rowSelected}
+                    onSelect={(event) => {
+                      // Modifier/marquee clicks are consumed for selection; a
+                      // plain click selects the single row and opens its diff.
+                      if (onRowSelect(entry, group.scope, event)) return
+                      void onOpenFile(entry, group.scope)
+                    }}
+                    ariaLabel={statusWord ? `Open ${entry.relativePath}, ${statusWord}` : `Open ${entry.relativePath}`}
+                  />
                 </div>
               )
             })}
           </div>
           {group.omittedCount > 0 ? (
             <div className="mt-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2 py-1.5 text-micro text-[color:var(--text-subtle)]">
-              {group.omittedCount} more changes hidden to keep the panel responsive. Use Git CLI or stage/discard all for bulk actions.
+              {group.omittedCount} more changes hidden to keep the panel responsive. Use the heading menu or the Git CLI for bulk actions.
             </div>
           ) : null}
         </>
@@ -2270,8 +2227,30 @@ function ChangeGroup({
           y={rowMenu.y}
           ariaLabel={`Actions for ${rowMenu.entry.relativePath}`}
           onClose={() => setRowMenu(null)}
-          surfaceClassName="min-w-[188px]"
+          surfaceClassName="min-w-[220px]"
         >
+          <MenuItem
+            disabled={disabled}
+            onClick={() => {
+              const { entry, scope } = rowMenu
+              setRowMenu(null)
+              void onRowPrimaryAction(entry, scope)
+            }}
+          >
+            {primaryLabel}
+          </MenuItem>
+          <MenuItem
+            variant="danger"
+            disabled={disabled}
+            onClick={() => {
+              const { entry, scope } = rowMenu
+              setRowMenu(null)
+              void onRowRevert(entry, scope)
+            }}
+          >
+            {discardLabel}
+          </MenuItem>
+          <MenuDivider />
           <MenuItem
             onClick={() => {
               const { entry, scope } = rowMenu
@@ -2290,6 +2269,20 @@ function ChangeGroup({
           >
             Open file in editor
           </MenuItem>
+          <MenuDivider />
+          {group.groupActions.map((action) => (
+            <MenuItem
+              key={action.label}
+              variant={action.danger ? 'danger' : undefined}
+              disabled={disabled}
+              onClick={() => {
+                setRowMenu(null)
+                void action.action()
+              }}
+            >
+              {action.label}
+            </MenuItem>
+          ))}
         </ContextMenu>
       ) : null}
     </section>
