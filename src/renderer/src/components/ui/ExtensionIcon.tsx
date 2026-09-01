@@ -10,6 +10,7 @@
 
 import React, { useState } from 'react'
 
+import { iconHasOwnPlate } from './iconPlate'
 import { mcpMonogram } from './mcpMonogram'
 
 export function ExtensionIcon({
@@ -33,10 +34,28 @@ export function ExtensionIcon({
   size?: number
 }): JSX.Element {
   const [failed, setFailed] = useState(false)
-  // Per-entry icon (data URI or https URL) wins; else the brand-color Simple
-  // Icons glyph (no tint segment — a baked tint is invisible on the opposite
-  // theme); else the monogram. All three sit on the same neutral chip so brand
-  // colors stay readable on every theme.
+  // Per-entry icon (data URI or https URL) wins. When it brings its own plate
+  // — an app icon — it wears no chip: a white plate behind a framed thing is a
+  // second frame (owner ruling 2026-09-01). Everything else keeps the chip
+  // because it needs a ground: a flat brand mark (the catalogue's near-black
+  // GitHub would vanish bare on dark), a shipped `mark` whose ink is fixed for
+  // a light plate, the Simple Icons CDN glyph (no tint segment — a baked tint
+  // is invisible on the opposite theme), and the monogram, which is a letter.
+  if (icon && !failed && iconHasOwnPlate(icon)) {
+    return (
+      <img
+        src={icon}
+        alt=""
+        aria-hidden
+        width={size}
+        height={size}
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(true)}
+        className="pointer-events-none shrink-0 select-none rounded-lg object-contain"
+      />
+    )
+  }
   const src = failed ? null : icon || (slug ? `https://cdn.simpleicons.org/${slug}` : null)
   return (
     <span

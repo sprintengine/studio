@@ -5,6 +5,7 @@ import type { CapabilityPermission } from '../../../../shared/modules/permission
 import type { McpServerConfig, McpSettings } from '../../types/workspace'
 import { CloseIconButton, FOCUS_RING_CLASS, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
 import { mcpMonogram } from './McpCatalog'
+import { iconHasOwnPlate } from '../ui/iconPlate'
 import { PermissionChips } from './ThirdPartyModuleList'
 import { componentKindLabels, externalSourceHref } from './storefrontView'
 import {
@@ -498,8 +499,27 @@ export function resolveIconUrl(registryUrl: string | null, icon: string): string
 
 export function PluginIcon({ iconUrl, name, size = 36 }: { iconUrl: string | null; name: string; size?: number }) {
   const [failed, setFailed] = useState(false)
-  // Same neutral chip as McpBrandIcon so catalog and registry entries read as
-  // one system, and low-contrast brand art stays visible on every theme.
+  // Artwork that brings its own plate — every app icon in the marketplace —
+  // wears it bare, filling the slot. It used to sit shrunk inside the light
+  // chip, which put a white frame behind every CLI, automation and module in
+  // the door, the installed inventory and the automations shelf (owner ruling
+  // 2026-09-01). A flat brand mark keeps the chip because it needs the ground;
+  // `iconHasOwnPlate` is what tells the two apart. Same rule as `ExtensionIcon`.
+  if (iconUrl && !failed && iconHasOwnPlate(iconUrl)) {
+    return (
+      <img
+        src={iconUrl}
+        alt=""
+        aria-hidden
+        width={size}
+        height={size}
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(true)}
+        className="pointer-events-none shrink-0 select-none rounded-lg object-contain"
+      />
+    )
+  }
   return (
     <span
       aria-hidden
