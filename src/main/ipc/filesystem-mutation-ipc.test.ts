@@ -69,6 +69,29 @@ async function main(): Promise<void> {
     await deletePath(null, guardedStatePath)
     assert.equal(guardCalls.length, guardCountBeforeDelete, 'delete does not block manual Sprint Engine state cleanup')
 
+    const saveDroppedImage = ipcMain.handlers.get('fs:save-dropped-image')
+    assert.ok(saveDroppedImage, 'dropped-image handler should be registered')
+    const savedPath = (await saveDroppedImage(null, {
+      mediaType: 'image/png',
+      dataBase64: pngBytes.toString('base64'),
+    })) as string
+    try {
+      assert.ok(savedPath.endsWith('.png'), 'saved image wears the extension of its media type')
+      assert.deepEqual(await readFile(savedPath), pngBytes, 'saved image holds the decoded bytes')
+    } finally {
+      await rm(savedPath, { force: true })
+    }
+    await assert.rejects(
+      () => saveDroppedImage(null, { mediaType: 'image/svg+xml', dataBase64: pngBytes.toString('base64') }),
+      /Only PNG, JPEG, WebP, and GIF/,
+      'non-attachable media types are refused',
+    )
+    await assert.rejects(
+      () => saveDroppedImage(null, { mediaType: 'image/png', dataBase64: '' }),
+      /could not be read/,
+      'an empty payload is refused rather than written as a zero-byte file',
+    )
+
     const sourceRoot = join(tempRoot, 'registry')
     const sourceRolesDir = join(sourceRoot, 'roles')
     const sourceSkillsDir = join(sourceRoot, 'skills')

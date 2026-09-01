@@ -33,6 +33,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetChips } from '../workspace/agentComposer/agentSpawnShared'
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
+import { dataTransferHasFiles, imageFilesFromDataTransfer } from '../../utils/imageFileTransfer'
 import { renderMarkdown } from '../../utils/markdown'
 import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, InlineNotice, InlineSkillPicker, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
@@ -999,24 +1000,10 @@ export function attachmentPreviewUrl(attachment: ConversationImageAttachment): s
   return `data:${attachment.mediaType};base64,${attachment.dataBase64}`
 }
 
-// Pull the image files out of a paste or drop. `DataTransfer.files` is empty
-// for a screenshot pasted from the clipboard, where the image only exists as an
-// `item` — both shapes have to be read or paste silently does nothing.
-export function imageFilesFromDataTransfer(data: DataTransfer | null): File[] {
-  if (!data) return []
-  const files: File[] = []
-  for (const item of Array.from(data.items ?? [])) {
-    if (item.kind !== 'file') continue
-    const file = item.getAsFile()
-    if (file && isAttachableImageType(file.type)) files.push(file)
-  }
-  if (files.length === 0) {
-    for (const file of Array.from(data.files ?? [])) {
-      if (isAttachableImageType(file.type)) files.push(file)
-    }
-  }
-  return files
-}
+// The DataTransfer plumbing lives in utils/imageFileTransfer (shared with the
+// new-chat launch surface); re-exported here because this module declared it
+// first and the tests and seam read it from here.
+export { dataTransferHasFiles, imageFilesFromDataTransfer }
 
 // Fold a commit made while the turn was locked into the waiting queued turn
 // (D6/1776): text appends, images concatenate. Reports how many images the
@@ -1046,16 +1033,6 @@ export function queuedTurnLabel(text: string, attachmentCount: number): string {
   if (attachmentCount === 0) return text
   const images = attachmentCountLabel(attachmentCount)
   return text ? `${text} · ${images}` : images
-}
-
-// Whether a drag/drop payload carries files at all. Mid-drag the payload itself
-// is unreadable — only the item kinds are — so this is what the drop target and
-// the preventDefault gate can key off. A drag of selected text reports no files
-// and is left entirely to the textarea's native handling.
-export function dataTransferHasFiles(data: DataTransfer | null): boolean {
-  if (!data) return false
-  if (Array.from(data.types ?? []).includes('Files')) return true
-  return Array.from(data.items ?? []).some((item) => item.kind === 'file')
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {

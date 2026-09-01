@@ -1,5 +1,7 @@
 import type { IpcMain } from 'electron'
+import { randomUUID } from 'crypto'
 import { cp, mkdir, rename, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
 
 type FilesystemMutationIpcDependencies = {
@@ -43,6 +45,20 @@ function normalizeRenamedFileSystemEntryName(rawName: string): string {
   return name
 }
 
+// The same image set the conversation composer stages
+// (shared/conversation-attachments.ts), keyed to the extension the saved file
+// wears — agents and previewers alike read the type off the name.
+const DROPPED_IMAGE_EXTENSIONS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+}
+
+// Not a vision-model budget — the file goes to disk and is read by path. This
+// only bounds a runaway IPC payload; a real screenshot is far under it.
+const MAX_DROPPED_IMAGE_BYTES = 32 * 1024 * 1024
+
 function isPathInsideOrEqual(childPath: string, parentPath: string): boolean {
   const child = resolve(childPath)
   const parent = resolve(parentPath)
@@ -60,6 +76,27 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
     await deps.assertNotDirectSprintEngineStateMutation(filePath)
     await writeFile(filePath, Buffer.from(base64Content, 'base64'))
   })
+
+  ipcMain.handle(
+    'fs:save-dropped-image',
+    async (_, input: { mediaType?: unknown; dataBase64?: unknown }): Promise<string> => {
+      const mediaType = typeof input?.mediaType === 'string' ? input.mediaType : ''
+      const extension = DROPPED_IMAGE_EXTENSIONS[mediaType]
+      if (!extension) throw new Error('Only PNG, JPEG, WebP, and GIF images can be attached.')
+      if (typeof input.dataBase64 !== 'string') throw new Error('That image could not be read.')
+      const bytes = Buffer.from(input.dataBase64, 'base64')
+      if (bytes.length === 0) throw new Error('That image could not be read.')
+      if (bytes.length > MAX_DROPPED_IMAGE_BYTES) throw new Error('That image is too large to attach.')
+
+      const directory = join(tmpdir(), 'multicode-images')
+      await mkdir(directory, { recursive: true })
+      // `wx` + a random tail: two pastes in the same instant are two files,
+      // never one silently overwriting the other.
+      const filePath = join(directory, `pasted-${randomUUID().slice(0, 8)}.${extension}`)
+      await writeFile(filePath, bytes, { flag: 'wx' })
+      return filePath
+    }
+  )
 
   ipcMain.handle('fs:create-file', async (_, parentDir: string, name: string): Promise<string> => {
     const filePath = join(parentDir, name)

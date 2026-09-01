@@ -62,6 +62,8 @@ export const filesystemApi = {
     ipcRenderer.invoke('diagnostics:open-window'),
   writefile: (path: string, content: string) => ipcRenderer.invoke('fs:writefile', path, content),
   writeBinaryFile: (path: string, base64Content: string) => ipcRenderer.invoke('fs:write-binary-file', path, base64Content),
+  saveDroppedImage: (input: { mediaType: string; dataBase64: string }): Promise<string> =>
+    ipcRenderer.invoke('fs:save-dropped-image', input),
   createFile: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-file', parentDir, name),
   createDir: (parentDir: string, name: string) => ipcRenderer.invoke('fs:create-dir', parentDir, name),
   ensureDir: (parentDir: string, name: string) => ipcRenderer.invoke('fs:ensure-dir', parentDir, name),
@@ -123,6 +125,7 @@ export const filesystemApi = {
   | 'diagnosticsOpenWindow'
   | 'writefile'
   | 'writeBinaryFile'
+  | 'saveDroppedImage'
   | 'createFile'
   | 'createDir'
   | 'ensureDir'

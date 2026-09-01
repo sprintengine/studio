@@ -6,6 +6,12 @@ import type {
 } from '../../../../../shared/electron-api'
 import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
+import {
+  dataTransferHasFiles,
+  filesFromDataTransfer,
+  imageFilesFromDataTransfer,
+  readFileAsBase64,
+} from '../../../utils/imageFileTransfer'
 import { basename } from '../../../utils/paths'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
@@ -174,6 +180,45 @@ export default function NewAgentPanel({
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
   const [seed] = React.useState(() => newSuggestionSeed())
   const promptRef = React.useRef<HTMLTextAreaElement>(null)
+
+  // ── Images pasted or dropped into the prompt box ──────────────────────────
+  // The prompt becomes text — retyped into a CLI agent's terminal, or a
+  // conversation's first message — so an image travels as a file path the agent
+  // opens itself, the same shape as a drop onto a running terminal. A file
+  // dropped from the OS already has a path; a pasted screenshot (or an image
+  // dragged out of a browser) exists only as bytes and is saved to a temp file
+  // first.
+  const [dropActive, setDropActive] = React.useState(false)
+  const dragDepthRef = React.useRef(0)
+  const [attachNote, setAttachNote] = React.useState<string | null>(null)
+
+  const insertPromptPath = (path: string) => {
+    // Quoted only when the path needs it, matching the terminal drop idiom.
+    const quoted = /\s/.test(path) ? `'${path}'` : path
+    setPrompt((current) =>
+      current.length === 0 || /\s$/.test(current) ? `${current}${quoted} ` : `${current} ${quoted} `
+    )
+    promptRef.current?.focus()
+  }
+
+  const attachDroppedFiles = async (files: File[]) => {
+    setAttachNote(null)
+    for (const file of files) {
+      const existingPath = window.api.getPathForFile(file)
+      if (existingPath) {
+        insertPromptPath(existingPath)
+        continue
+      }
+      try {
+        const { mediaType, dataBase64 } = await readFileAsBase64(file)
+        insertPromptPath(await window.api.saveDroppedImage({ mediaType, dataBase64 }))
+      } catch (error) {
+        // Shown verbatim under the box — a non-image with no path lands here
+        // too, refused by the save rather than silently swallowed.
+        setAttachNote(error instanceof Error ? error.message : 'Could not attach that image.')
+      }
+    }
+  }
 
   // The name is a greeting, not an identity claim: an email local-part reads
   // worse than no name at all, so only a real display name is used.
@@ -423,7 +468,41 @@ export default function NewAgentPanel({
           ) : null}
         </div>
 
-        <div className="relative mt-5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-3 pb-2 pt-2.5 focus-within:border-[color:var(--accent-primary)]">
+        <div
+          className={`relative mt-5 rounded-md border bg-[color:var(--bg-app)] px-3 pb-2 pt-2.5 focus-within:border-[color:var(--accent-primary)] ${
+            dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
+          }`}
+          onDragEnter={(event) => {
+            if (isTerminalLaunch || !dataTransferHasFiles(event.dataTransfer)) return
+            dragDepthRef.current += 1
+            setDropActive(true)
+          }}
+          onDragOver={(event) => {
+            // Claiming the drag is what stops the window from navigating to the
+            // dropped file, so it has to happen on every dragover.
+            if (isTerminalLaunch || !dataTransferHasFiles(event.dataTransfer)) return
+            event.preventDefault()
+          }}
+          onDragLeave={(event) => {
+            if (isTerminalLaunch || !dataTransferHasFiles(event.dataTransfer)) return
+            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+            if (dragDepthRef.current === 0) setDropActive(false)
+          }}
+          onDrop={(event) => {
+            if (isTerminalLaunch || !dataTransferHasFiles(event.dataTransfer)) return
+            event.preventDefault()
+            dragDepthRef.current = 0
+            setDropActive(false)
+            void attachDroppedFiles(filesFromDataTransfer(event.dataTransfer))
+          }}
+        >
+          {/* Opaque, not a scrim: the field's own text ghosting through the
+              drop state reads as a rendering artifact rather than a state. */}
+          {dropActive && !isTerminalLaunch ? (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-md bg-[color:var(--bg-app)] text-meta font-medium text-[color:var(--accent-primary)]">
+              Drop to attach
+            </div>
+          ) : null}
           {mentionQuery !== null ? (
             <InlineSkillPicker
               ref={mentionRef}
@@ -446,6 +525,14 @@ export default function NewAgentPanel({
               ref={promptRef}
               value={prompt}
               rows={2}
+              onPaste={(event) => {
+                // A pasted screenshot only exists as a clipboard item; a text
+                // paste reports no image and falls through to the default.
+                const files = imageFilesFromDataTransfer(event.clipboardData)
+                if (files.length === 0) return
+                event.preventDefault()
+                void attachDroppedFiles(files)
+              }}
               onChange={(event) => {
                 setPrompt(event.currentTarget.value)
                 setMentionDismissed(false)
@@ -718,6 +805,12 @@ export default function NewAgentPanel({
             </Tooltip>
           </div>
         </div>
+
+        {attachNote ? (
+          <p role="status" className="mt-1.5 text-meta leading-5 text-[color:var(--tone-error)]">
+            {attachNote}
+          </p>
+        ) : null}
 
         {isTerminalLaunch ? null : (
           <div className="mt-4 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
