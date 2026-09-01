@@ -18,6 +18,7 @@ import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-
 import { registerFleetIpc } from './ipc/fleet-ipc'
 import { createFolderOpenIpcDependencies, registerFolderOpenIpc } from './ipc/folder-open-ipc'
 import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
+import { registerGitHubReposIpc } from './ipc/github-repos-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerDesignSystemIpc } from './ipc/design-system-ipc'
 import { registerLayoutTemplateRegistryIpc } from './ipc/layout-template-registry-ipc'
@@ -129,6 +130,7 @@ export function registerCoreIpc(
   })
   registerVersionControlIpc(ipcMain)
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
+  registerGitHubReposIpc(ipcMain, services.githubTokenStore)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain, { applyLive: options.applyModuleEnablementLive })
   registerModuleRegistryIpc(ipcMain, services.moduleRegistryMirror)

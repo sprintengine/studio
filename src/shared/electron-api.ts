@@ -1309,10 +1309,6 @@ export type AgentPhase =
   | 'failed'
   | 'stalled'
 
-// Provenance for an AgentState. `hook` means the phase came from an authoritative
-// lifecycle-hook frame; `inferred` means it was derived from the legacy
-// output-timing heuristic. The UI uses this to signal confidence and we run both
-// detection paths side by side before cutting over.
 /** Main's answer to a window's one-time registry hydration offer. */
 export type WorkspaceRegistryHydrateResult = {
   changed: boolean
@@ -1322,6 +1318,11 @@ export type WorkspaceRegistryHydrateResult = {
   droppedRecordIds?: string[]
 }
 
+// Provenance for an AgentState. `hook` means the phase came from an
+// authoritative lifecycle-hook frame; `inferred` means a lifecycle stamp —
+// `starting` at spawn, `stalled` from the watchdog, `exited`/`failed` from the
+// pty. Output-timing status inference was deleted (decision of record
+// 2026-08-31): nothing ever guesses a phase from output recency.
 export type AgentStateSource = 'hook' | 'inferred'
 
 export type AgentState = {
@@ -1733,6 +1734,31 @@ export type GitHubTokenStatus = {
   source: 'settings' | 'environment' | 'none'
   encryptionAvailable: boolean
 }
+
+export type GitHubRepoSummary = {
+  fullName: string
+  name: string
+  owner: string
+  isPrivate: boolean
+  description: string | null
+  cloneUrl: string
+  defaultBranch: string | null
+  pushedAt: string | null
+}
+
+export type GitHubRepoListResult =
+  | { ok: true; repos: GitHubRepoSummary[] }
+  | { ok: false; reason: 'no_token' | 'unauthorized' | 'network'; message: string }
+
+export type GitHubCloneInput = {
+  url: string
+  parentDir: string
+  folderName: string
+}
+
+export type GitHubCloneResult =
+  | { ok: true; path: string }
+  | { ok: false; message: string }
 
 export type GitConflictFile = {
   path: string
@@ -3276,6 +3302,8 @@ export type ElectronApi = {
   getGitHubTokenStatus: () => Promise<GitHubTokenStatus>
   setGitHubToken: (token: string) => Promise<GitHubTokenStatus>
   clearGitHubToken: () => Promise<GitHubTokenStatus>
+  listGitHubRepos: () => Promise<GitHubRepoListResult>
+  cloneGitHubRepo: (input: GitHubCloneInput) => Promise<GitHubCloneResult>
   detectExistingAgentConfig: (input?: AgentConfigDetectInput) => Promise<AgentConfigDetectResult>
   adoptAgentConfig: (input: AgentConfigAdoptInput) => Promise<AgentConfigAdoptResult>
   mcpListCatalog: () => Promise<McpCatalogResult>

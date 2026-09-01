@@ -59,6 +59,10 @@ import {
   defaultWorkspaceFolderPath,
   resolveDefaultParentPath,
 } from './newWorkspace/folderCreation'
+import { GitHubRepoPicker, toRepoListState, type GitHubRepoListState } from './newWorkspace/GitHubRepoPicker'
+import { resolveCloneSource } from './newWorkspace/githubClone'
+import type { GitHubRepoSummary } from '../../../../shared/electron-api'
+import { pathJoin } from '../../utils/paths'
 import { CreationRail } from './newWorkspace/CreationRail'
 import { STANDARD_MODE_MODEL, buildModeModels } from './newWorkspace/modeModels'
 import AgentComposer, {
@@ -165,6 +169,8 @@ const initialGuidedBriefRoleCliDefaults: GuidedBriefRoleCliDefaults = {
   frontend: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS.frontend ?? 'claude-code',
 }
 
+type WorkspaceFolderSource = 'folder' | 'github'
+
 export type NewWorkspacePanelInitialState = {
   mode?: CreationMode
   folderPath?: string | null
@@ -263,6 +269,23 @@ export default function NewWorkspacePanel({
   const [folderPathPinned, setFolderPathPinned] = useState<boolean>(Boolean(initialFolderPath))
   const [folderDraftExists, setFolderDraftExists] = useState<boolean | null>(null)
   const [folderError, setFolderError] = useState<string | null>(null)
+  // Where the workspace folder comes from: an empty folder (created/opened as
+  // today), or a repository cloned from GitHub into the same folder field.
+  const [folderSource, setFolderSource] = useState<WorkspaceFolderSource>('folder')
+  // null = never fetched; fetched once per hub life on first switch to the
+  // GitHub source, with an explicit Retry in the picker on failure.
+  const [githubListState, setGithubListState] = useState<GitHubRepoListState | null>(null)
+  const [githubFilter, setGithubFilter] = useState('')
+  const [githubSelectedRepo, setGithubSelectedRepo] = useState<GitHubRepoSummary | null>(null)
+  const [githubUrlDraft, setGithubUrlDraft] = useState('')
+  const [isCloning, setIsCloning] = useState(false)
+  // The one clone this hub actually performed (target path + source URL). It
+  // is the re-entry pass for a create that aborted AFTER a successful clone —
+  // and never a licence to skip cloning a DIFFERENT source to the same path.
+  const cloneAdoptionRef = useRef<{ path: string; url: string } | null>(null)
+  // The last folder path derived FROM a clone source, so URL typing only
+  // retargets a leaf the user hasn't since edited by hand.
+  const cloneAutoPathRef = useRef<string | null>(null)
   // Whether the knowledge step applies to the chosen folder, snapshotted when the
   // folder is selected. Reading it live would let setting a knowledge folder (which
   // configures the project) drop the step out from under the user mid-step.
@@ -744,8 +767,11 @@ export default function NewWorkspacePanel({
   // and detection happen on continue). Debounced so typing stays responsive.
   useEffect(() => {
     const target = folderDraftPath.trim()
+    // Reset on every change: a stale true/false from the PREVIOUS path must
+    // not gate readiness (clone mode blocks on `exists === true`) or flash
+    // the wrong status line while the debounced check is in flight.
+    setFolderDraftExists(null)
     if (!target) {
-      setFolderDraftExists(null)
       return
     }
     let active = true
@@ -763,6 +789,25 @@ export default function NewWorkspacePanel({
       window.clearTimeout(id)
     }
   }, [folderDraftPath])
+
+  // The repo listing is fetched once per hub life, on the first switch to the
+  // GitHub source; the picker's Retry re-runs it after a failure.
+  const loadGitHubRepos = useCallback(() => {
+    setGithubListState({ status: 'loading' })
+    void window.api
+      .listGitHubRepos()
+      .then((result) => setGithubListState(toRepoListState(result)))
+      .catch((error) =>
+        setGithubListState({
+          status: 'error',
+          reason: 'network',
+          message: error instanceof Error ? error.message : 'Could not reach GitHub.',
+        }),
+      )
+  }, [])
+  useEffect(() => {
+    if (folderSource === 'github' && githubListState == null) loadGitHubRepos()
+  }, [folderSource, githubListState, loadGitHubRepos])
 
   // Escape closes when allowed. While a Guided brief runtime session is mid-
   // stage we route Escape through a confirmation step instead of dropping the
@@ -825,12 +870,33 @@ export default function NewWorkspacePanel({
     return undefined
   }, [isChat, mode])
 
+  // The active clone source: a picked repository, or a pasted URL (which
+  // carries its own inline validation error while partially typed).
+  const cloneResolution = useMemo(
+    () => resolveCloneSource(githubSelectedRepo, githubUrlDraft),
+    [githubSelectedRepo, githubUrlDraft],
+  )
+  const cloneSourceChosen = folderSource !== 'github' || cloneResolution.source != null
+  // True when the target folder exists because THIS hub cloned THIS source
+  // into it (a create aborted downstream): the folder is already materialized,
+  // so its existence must not block readiness or re-run the clone.
+  const cloneCompletedHere =
+    cloneAdoptionRef.current != null
+    && cloneResolution.source?.url === cloneAdoptionRef.current.url
+    && isSameFolder(folderDraftPath.trim(), cloneAdoptionRef.current.path)
+
   // Ready when the workspace is named and the folder field resolves to a usable
-  // target: an existing folder (opened as-is) or a structurally valid path we
-  // can create. Creation/opening happens on continue (`materializeWorkspaceFolder`).
+  // target. Empty-folder source: an existing folder (opened as-is) or a
+  // structurally valid path we can create. GitHub source: a structurally valid
+  // path that does NOT exist yet (cloning into an existing folder is never a
+  // merge), plus a resolved repository/URL to clone from. Creation/opening/
+  // cloning happens on continue (`materializeWorkspaceFolder`).
   const folderTargetUsable =
-    folderDraftExists === true || analyzeWorkspaceTargetPath(folderDraftPath).ok
-  const workspaceStepReady = folderTargetUsable && name.trim().length > 0
+    folderSource === 'github'
+      ? (folderDraftExists !== true || cloneCompletedHere)
+        && analyzeWorkspaceTargetPath(folderDraftPath).ok
+      : folderDraftExists === true || analyzeWorkspaceTargetPath(folderDraftPath).ok
+  const workspaceStepReady = folderTargetUsable && cloneSourceChosen && name.trim().length > 0
   // The resolved seed source for the design-system preset. Null means blank
   // start — either chosen deliberately, or because a seed mode is selected but
   // its source is not resolved yet (folder not picked / demo unavailable), in
@@ -893,6 +959,10 @@ export default function NewWorkspacePanel({
   const blockingMessage = getStepBlockingMessage({
     step: hintStep,
     workspaceFolderReady: folderTargetUsable,
+    folderSource,
+    cloneSourceChosen,
+    isCloning,
+    cloneLabel: cloneResolution.source?.label ?? null,
     name,
     moduleStepReady,
     moduleStepBlockedHint: moduleCreationStep?.blockedHint ?? null,
@@ -912,6 +982,12 @@ export default function NewWorkspacePanel({
     if (next === SPRINT_ENGINE_WORKSPACE_MODE) {
       onOpenNewSprintDialog(folderPath)
       return
+    }
+    // Chat has no materialization path, so a pending clone source cannot ride
+    // into it — the composer would adopt a folder that does not exist.
+    if (next === 'chat' && folderSource === 'github') {
+      setFolderSource('folder')
+      setFolderError(null)
     }
     setMode(next)
     // Every flow starts at 'workspace' (see creationStepFlows): a rail switch
@@ -996,6 +1072,10 @@ export default function NewWorkspacePanel({
   // existence check, not the 250ms-debounced display flag — that flag can be
   // stale mid-edit). A still-nonexistent path stays a draft until create.
   const handleFolderDraftBlur = () => {
+    // Clone mode never adopts an existing folder from the field — an existing
+    // target is an error there, and adopting one would retarget the panel's
+    // folder-scoped state to a directory no clone produced.
+    if (folderSource === 'github') return
     const target = folderDraftPath.trim()
     if (!target) return
     if (folderPath && isSameFolder(target, folderPath)) return
@@ -1009,6 +1089,49 @@ export default function NewWorkspacePanel({
         }
       })
       .catch(() => {})
+  }
+
+  // Clone-source edits. Picking a repo (or resolving a pasted URL) retargets
+  // the folder leaf to the repo name under the current parent, exactly as the
+  // name→path derivation proposes folders — and the existing pinned-path
+  // effect then derives the workspace name from that leaf.
+  const retargetCloneFolder = (repoName: string) => {
+    const analysis = analyzeWorkspaceTargetPath(folderDraftPath)
+    const parent = analysis.ok ? analysis.parent : defaultDraftParent
+    if (!parent) return
+    const next = pathJoin(parent, repoName)
+    cloneAutoPathRef.current = next
+    setFolderPathPinned(true)
+    setFolderDraftPath(next)
+    setFolderError(null)
+  }
+
+  const handleSelectGitHubRepo = (repo: GitHubRepoSummary) => {
+    setGithubSelectedRepo(repo)
+    setGithubUrlDraft('')
+    retargetCloneFolder(repo.name)
+  }
+
+  const handleChangeGitHubUrl = (value: string) => {
+    setGithubUrlDraft(value)
+    setGithubSelectedRepo(null)
+    const resolved = resolveCloneSource(null, value)
+    if (!resolved.source) return
+    // Retarget only a leaf this panel derived itself (or a still-unusable
+    // draft) — a folder path the user edited by hand is theirs to keep while
+    // they type the URL. A repo PICK always retargets (explicit gesture).
+    const draft = folderDraftPath.trim()
+    const userEditedFolder =
+      folderPathPinned
+      && draft !== cloneAutoPathRef.current
+      && analyzeWorkspaceTargetPath(draft).ok
+    if (!userEditedFolder) retargetCloneFolder(resolved.source.repoName)
+  }
+
+  const handleChangeFolderSource = (next: WorkspaceFolderSource) => {
+    if (next === folderSource) return
+    setFolderSource(next)
+    setFolderError(null)
   }
 
   // The embedded Chat composer's project chip retargets the panel's already-
@@ -1030,7 +1153,73 @@ export default function NewWorkspacePanel({
   // the workspace step: create it if missing, open it if it exists, then run the
   // existing detection (`handleSelectFolder`) so `folderPath` is concrete for
   // every downstream step. Returns false (and surfaces an error) on failure.
+  // Clone-mode materialization: the same seam, but the folder comes into
+  // existence as a `git clone` rather than a mkdir. The target must not exist
+  // — cloning into an existing folder is never a merge — and a failed clone
+  // leaves the hub open with git's error in the folder field's error slot.
+  const materializeCloneTarget = async (): Promise<boolean> => {
+    const source = cloneResolution.source
+    if (!source) {
+      setFolderError('Pick a repository or paste a URL.')
+      return false
+    }
+    const target = folderDraftPath.trim()
+    const analysis = analyzeWorkspaceTargetPath(target)
+    if (!analysis.ok) {
+      setFolderError(analysis.error)
+      return false
+    }
+    let exists = false
+    try {
+      exists = await window.api.pathExists(target)
+    } catch {
+      exists = false
+    }
+    if (exists) {
+      // Only a clone of THIS source that THIS hub already performed and
+      // adopted may pass (a later step aborted the create): the folder is
+      // materialized. Any other existing folder — including one cloned from
+      // a different repo to the same leaf — is refused, never re-labeled.
+      if (
+        cloneAdoptionRef.current
+        && cloneAdoptionRef.current.url === source.url
+        && isSameFolder(cloneAdoptionRef.current.path, target)
+        && folderPath
+        && isSameFolder(target, folderPath)
+      ) {
+        return true
+      }
+      setFolderError('That folder already exists — choose a new location to clone into.')
+      return false
+    }
+    setIsCloning(true)
+    try {
+      // The handler never throws — but an IPC-infrastructure rejection must
+      // still land in the folder error slot, not die as an unhandled rejection.
+      const result = await window.api
+        .cloneGitHubRepo({
+          url: source.url,
+          parentDir: analysis.parent,
+          folderName: analysis.leaf,
+        })
+        .catch((caught): { ok: false; message: string } => ({
+          ok: false,
+          message: caught instanceof Error ? caught.message : 'Could not clone the repository.',
+        }))
+      if (!result.ok) {
+        setFolderError(result.message)
+        return false
+      }
+      cloneAdoptionRef.current = { path: result.path, url: source.url }
+      handleSelectFolder(result.path)
+      return true
+    } finally {
+      setIsCloning(false)
+    }
+  }
+
   const materializeWorkspaceFolder = async (): Promise<boolean> => {
+    if (folderSource === 'github') return materializeCloneTarget()
     const target = folderDraftPath.trim()
     if (!target) {
       setFolderError('Choose a folder for the workspace.')
@@ -1633,6 +1822,21 @@ export default function NewWorkspacePanel({
               onSelectRecent={handleSelectRecentFolder}
               recentFolders={recentFolders}
               inputRef={nameInputRef}
+              folderSource={folderSource}
+              onChangeFolderSource={isChat ? null : handleChangeFolderSource}
+              isCloning={isCloning}
+              cloneCompletedHere={cloneCompletedHere}
+              github={{
+                listState: githubListState ?? { status: 'loading' },
+                filter: githubFilter,
+                onChangeFilter: setGithubFilter,
+                selectedFullName: githubSelectedRepo?.fullName ?? null,
+                onSelectRepo: handleSelectGitHubRepo,
+                urlDraft: githubUrlDraft,
+                onChangeUrlDraft: handleChangeGitHubUrl,
+                urlError: cloneResolution.error,
+                onRetry: loadGitHubRepos,
+              }}
             />
                         </>
                       ) : null}
@@ -1790,6 +1994,18 @@ export default function NewWorkspacePanel({
 
 const FieldLabel = Field.Label
 
+type WorkspaceStepGitHubProps = {
+  listState: GitHubRepoListState
+  filter: string
+  onChangeFilter: (value: string) => void
+  selectedFullName: string | null
+  onSelectRepo: (repo: GitHubRepoSummary) => void
+  urlDraft: string
+  onChangeUrlDraft: (value: string) => void
+  urlError: string | null
+  onRetry: () => void
+}
+
 function WorkspaceStep({
   name,
   onChangeName,
@@ -1802,6 +2018,11 @@ function WorkspaceStep({
   onSelectRecent,
   recentFolders,
   inputRef,
+  folderSource,
+  onChangeFolderSource,
+  isCloning,
+  cloneCompletedHere,
+  github,
 }: {
   name: string
   onChangeName: (value: string) => void
@@ -1814,24 +2035,48 @@ function WorkspaceStep({
   onSelectRecent: (path: string) => void
   recentFolders: string[]
   inputRef: React.MutableRefObject<HTMLInputElement | null>
+  folderSource: WorkspaceFolderSource
+  /** null hides the source toggle (chat mode has no materialization path). */
+  onChangeFolderSource: ((source: WorkspaceFolderSource) => void) | null
+  isCloning: boolean
+  cloneCompletedHere: boolean
+  github: WorkspaceStepGitHubProps
 }) {
   const trimmedPath = folderDraftPath.trim()
-  // Existing folders open as-is regardless of leaf naming; otherwise the path
-  // must be structurally valid to be created, so surface that error instead of
-  // implying a folder will be made.
+  const isGitHubSource = folderSource === 'github'
+  // Empty-folder source: existing folders open as-is regardless of leaf
+  // naming; otherwise the path must be structurally valid to be created.
+  // GitHub source: the target must be structurally valid AND not exist yet —
+  // a clone never merges into an existing folder.
   const targetError =
-    folderDraftExists === true ? null : trimmedPath ? analyzeWorkspaceTargetPath(folderDraftPath).error : null
+    !isGitHubSource && folderDraftExists === true
+      ? null
+      : trimmedPath
+        ? analyzeWorkspaceTargetPath(folderDraftPath).error
+        : null
   const status: { tone: 'error' | 'muted'; text: string } | null = folderError
     ? { tone: 'error', text: folderError }
-    : !trimmedPath
-      ? null
-      : folderDraftExists === true
-        ? { tone: 'muted', text: 'Existing folder — opens as-is.' }
-        : targetError
-          ? { tone: 'muted', text: targetError }
-          : folderDraftExists === false
-            ? { tone: 'muted', text: 'New — this folder will be created.' }
-            : null
+    : isCloning
+      ? { tone: 'muted', text: 'Cloning repository…' }
+      : !trimmedPath
+        ? null
+        : isGitHubSource
+          ? folderDraftExists === true
+            ? cloneCompletedHere
+              ? { tone: 'muted', text: 'Repository cloned — ready to create.' }
+              : { tone: 'muted', text: 'Already exists — pick a new folder to clone into.' }
+            : targetError
+              ? { tone: 'muted', text: targetError }
+              : folderDraftExists === false
+                ? { tone: 'muted', text: 'New — the repository will be cloned here.' }
+                : null
+          : folderDraftExists === true
+            ? { tone: 'muted', text: 'Existing folder — opens as-is.' }
+            : targetError
+              ? { tone: 'muted', text: targetError }
+              : folderDraftExists === false
+                ? { tone: 'muted', text: 'New — this folder will be created.' }
+                : null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
@@ -1853,6 +2098,34 @@ function WorkspaceStep({
 
       <div className="flex flex-col gap-2">
         <FieldLabel>Folder</FieldLabel>
+        {onChangeFolderSource ? (
+          <div className="flex items-center gap-1.5" role="group" aria-label="Folder source">
+            {(
+              [
+                ['folder', 'Empty folder'],
+                ['github', 'Clone from GitHub'],
+              ] as const
+            ).map(([source, label]) => {
+              const active = folderSource === source
+              return (
+                <button
+                  key={source}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => onChangeFolderSource(source)}
+                  className={`
+                    h-7 rounded-full border px-3 text-meta font-medium transition-colors ${FOCUS_RING_CLASS}
+                    ${active
+                      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                      : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-default)]'}
+                  `}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
         <div className="flex items-center gap-2">
           <input
             value={folderDraftPath}
@@ -1885,7 +2158,21 @@ function WorkspaceStep({
         ) : null}
       </div>
 
-      {recentFolders.length > 0 ? (
+      {isGitHubSource ? (
+        // The repo picker takes the space Recent had — same list anatomy,
+        // scrolling internally while the page itself never scrolls for it.
+        <GitHubRepoPicker
+          listState={github.listState}
+          filter={github.filter}
+          onChangeFilter={github.onChangeFilter}
+          selectedFullName={github.selectedFullName}
+          onSelectRepo={github.onSelectRepo}
+          urlDraft={github.urlDraft}
+          onChangeUrlDraft={github.onChangeUrlDraft}
+          urlError={github.urlError}
+          onRetry={github.onRetry}
+        />
+      ) : recentFolders.length > 0 ? (
         // The list takes exactly the space the page has left and scrolls
         // internally — the page itself never scrolls for recents. The floor
         // keeps a couple of rows usable on very short windows (where the
@@ -2645,6 +2932,10 @@ function isStepReady(
 function getStepBlockingMessage(args: {
   step: StepId
   workspaceFolderReady: boolean
+  folderSource: WorkspaceFolderSource
+  cloneSourceChosen: boolean
+  isCloning: boolean
+  cloneLabel: string | null
   name: string
   moduleStepReady: boolean
   moduleStepBlockedHint: string | null
@@ -2657,6 +2948,10 @@ function getStepBlockingMessage(args: {
   const {
     step,
     workspaceFolderReady,
+    folderSource,
+    cloneSourceChosen,
+    isCloning,
+    cloneLabel,
     name,
     guidedIdea,
     guidedHasUi,
@@ -2667,8 +2962,16 @@ function getStepBlockingMessage(args: {
 
   switch (step) {
     case 'workspace':
+      if (folderSource === 'github' && isCloning) {
+        return cloneLabel ? `Cloning ${cloneLabel}…` : 'Cloning repository…'
+      }
+      if (!cloneSourceChosen) return 'Pick a repository or paste a URL.'
       if (!workspaceFolderReady && !name.trim()) return 'Add a name and choose a folder.'
-      if (!workspaceFolderReady) return 'Choose a folder to continue.'
+      if (!workspaceFolderReady) {
+        return folderSource === 'github'
+          ? 'Choose a new folder to clone into.'
+          : 'Choose a folder to continue.'
+      }
       if (!name.trim()) return 'Give the workspace a name.'
       return 'Ready to create.'
     case 'mcp-servers':

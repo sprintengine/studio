@@ -1,6 +1,9 @@
 import { ipcRenderer } from 'electron'
 import type {
   ElectronApi,
+  GitHubCloneInput,
+  GitHubCloneResult,
+  GitHubRepoListResult,
   GitHubTokenStatus,
   GitBranchSnapshot,
   GitCommandResult,
@@ -119,6 +122,10 @@ export const gitApi = {
     ipcRenderer.invoke('github:set-token', token),
   clearGitHubToken: (): Promise<GitHubTokenStatus> =>
     ipcRenderer.invoke('github:clear-token'),
+  listGitHubRepos: (): Promise<GitHubRepoListResult> =>
+    ipcRenderer.invoke('github:list-repos'),
+  cloneGitHubRepo: (input: GitHubCloneInput): Promise<GitHubCloneResult> =>
+    ipcRenderer.invoke('github:clone', input),
 } satisfies Pick<
   ElectronApi,
   | 'getGitRepoRoot'
@@ -166,4 +173,6 @@ export const gitApi = {
   | 'getGitHubTokenStatus'
   | 'setGitHubToken'
   | 'clearGitHubToken'
+  | 'listGitHubRepos'
+  | 'cloneGitHubRepo'
 >
