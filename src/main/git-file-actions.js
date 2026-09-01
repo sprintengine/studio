@@ -1,0 +1,82 @@
+import { getGitStatus } from './git-status';
+import { getRelativeGitPath, runGitCommand, toAbsolutePath, toPosixPath, } from './git-utils';
+import { isAbsolute } from 'path';
+export async function stageGitPaths(repoRoot, paths) {
+    if (!paths.length)
+        return runGitCommand(repoRoot, ['add', '-A']);
+    return runGitCommand(repoRoot, ['add', '--', ...paths.map((path) => getRelativeGitPath(repoRoot, path))]);
+}
+export async function unstageGitPaths(repoRoot, paths) {
+    if (!paths.length)
+        return runGitCommand(repoRoot, ['restore', '--staged', '.']);
+    return runGitCommand(repoRoot, ['restore', '--staged', '--', ...paths.map((path) => getRelativeGitPath(repoRoot, path))]);
+}
+function uniqueEntries(entries) {
+    return [...new Map(entries.map((entry) => [entry.path, entry])).values()];
+}
+function getSelectedStatusEntries(snapshot, paths) {
+    if (!paths.length)
+        return uniqueEntries(Object.values(snapshot.files));
+    return uniqueEntries(paths
+        .map((path) => {
+        const absolutePath = isAbsolute(path) ? path : toAbsolutePath(snapshot.repoRoot, toPosixPath(path));
+        return snapshot.files[absolutePath];
+    })
+        .filter((entry) => Boolean(entry)));
+}
+function isUntrackedEntry(entry) {
+    return entry.status === 'new' && !entry.staged;
+}
+function isStagedAddition(entry) {
+    return entry.status === 'new' && entry.staged;
+}
+function relativePaths(repoRoot, entries) {
+    return entries.map((entry) => getRelativeGitPath(repoRoot, entry.path));
+}
+function combineCommandResults(results, emptyMessage) {
+    if (!results.length) {
+        return { ok: true, stdout: '', stderr: '', message: emptyMessage };
+    }
+    const failed = results.find((result) => !result.ok);
+    if (failed)
+        return failed;
+    return {
+        ok: true,
+        stdout: results.map((result) => result.stdout).filter(Boolean).join('\n'),
+        stderr: results.map((result) => result.stderr).filter(Boolean).join('\n'),
+        message: null,
+    };
+}
+export async function revertGitPaths(repoRoot, paths) {
+    const snapshot = await getGitStatus(repoRoot);
+    const entries = getSelectedStatusEntries(snapshot, paths);
+    const trackedEntries = entries.filter((entry) => !isUntrackedEntry(entry) && !isStagedAddition(entry));
+    const stagedAdditions = entries.filter(isStagedAddition);
+    const untrackedEntries = entries.filter(isUntrackedEntry);
+    const results = [];
+    if (trackedEntries.length) {
+        results.push(await runGitCommand(repoRoot, ['restore', '--staged', '--worktree', '--', ...relativePaths(repoRoot, trackedEntries)]));
+    }
+    if (stagedAdditions.length) {
+        results.push(await runGitCommand(repoRoot, ['restore', '--staged', '--', ...relativePaths(repoRoot, stagedAdditions)]));
+    }
+    const cleanEntries = uniqueEntries([...untrackedEntries, ...stagedAdditions]);
+    if (cleanEntries.length) {
+        results.push(await runGitCommand(repoRoot, ['clean', '-f', '--', ...relativePaths(repoRoot, cleanEntries)]));
+    }
+    return combineCommandResults(results, 'No file changes to revert.');
+}
+export async function discardUnstagedGitChanges(repoRoot, paths) {
+    const snapshot = await getGitStatus(repoRoot);
+    const entries = getSelectedStatusEntries(snapshot, paths).filter((entry) => entry.unstaged);
+    const trackedEntries = entries.filter((entry) => !isUntrackedEntry(entry));
+    const untrackedEntries = entries.filter(isUntrackedEntry);
+    const results = [];
+    if (trackedEntries.length) {
+        results.push(await runGitCommand(repoRoot, ['restore', '--worktree', '--', ...relativePaths(repoRoot, trackedEntries)]));
+    }
+    if (untrackedEntries.length) {
+        results.push(await runGitCommand(repoRoot, ['clean', '-f', '--', ...relativePaths(repoRoot, untrackedEntries)]));
+    }
+    return combineCommandResults(results, 'No unstaged changes to roll back.');
+}

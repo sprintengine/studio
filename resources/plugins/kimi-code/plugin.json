@@ -13,12 +13,13 @@
       "args": []
     },
     "auto_workspace": {
-      "label": "Auto-approve (Kimi auto mode)",
-      "args": ["--auto"]
+      "$comment": "Kimi's two flags read backwards from their names, and were mapped backwards here until MC-2212. `kimi --help`: `-y, --yolo` is \"Auto-approve regular tool calls; the agent may still ask questions\", while `--auto` is \"Start in auto permission mode: fully autonomous, the agent will not ask questions\". `--auto` is therefore the MORE permissive of the two and belongs on the bypass rung. Mapping them by name inverted the ladder in src/main/plugin-render.ts, whose whole invariant is that degrading can never grant more than was requested.",
+      "label": "Auto-approve tool calls (Kimi may still ask)",
+      "args": ["--yolo"]
     },
     "bypass_all": {
       "label": "Bypass all approvals (dangerous)",
-      "args": ["--yolo"]
+      "args": ["--auto"]
     }
   },
   "modelSelection": {

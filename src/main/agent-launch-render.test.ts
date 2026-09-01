@@ -493,7 +493,8 @@ function testOpenCodeRenderDefault(): void {
 }
 
 // OpenCode bypass + model: the bypass_all preset adds
-// --dangerously-skip-permissions and modelSelection adds --model <id>, both
+// --auto (OpenCode's only permission flag; MC-2214 corrected this from the
+// non-existent --dangerously-skip-permissions) and modelSelection adds --model <id>, both
 // ahead of the positional prompt (launch.argv order: binary, run,
 // permissionArgs, modelArgs, prompt).
 function testOpenCodeRenderWithBypassAndModel(): void {
@@ -507,7 +508,7 @@ function testOpenCodeRenderWithBypassAndModel(): void {
   assert.deepEqual(out.argv, [
     'opencode',
     'run',
-    '--dangerously-skip-permissions',
+    '--auto',
     '--model',
     'anthropic/claude-opus-4',
     'build the auth flow',

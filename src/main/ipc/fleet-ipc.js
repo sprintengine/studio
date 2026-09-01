@@ -1,0 +1,92 @@
+import { fleetTerminalEventChannel, FLEET_ATTACH_TERMINAL_CHANNEL, FLEET_BROWSE_CHANNEL, FLEET_CREATE_TERMINAL_CHANNEL, FLEET_DETACH_TERMINAL_CHANNEL, FLEET_FORGET_CHANNEL, FLEET_LIST_CONNECTIONS_CHANNEL, FLEET_LIST_RUNS_CHANNEL, FLEET_PAIR_CHANNEL, FLEET_TERMINAL_INPUT_CHANNEL, FLEET_TERMINAL_RESIZE_CHANNEL, } from '../../shared/tailnet-fleet';
+// The window's door onto the Fleet (MC-2167).
+//
+// IPC-only, exactly like the tailnet configuration channels: no MCP tool
+// reaches any of this, so neither a local agent nor a paired remote device can
+// make this machine pair with a third one, enumerate what it is paired with, or
+// open a terminal somewhere else. Pairing another machine is a decision a person
+// makes at this keyboard.
+//
+// Attachments are owned by the WINDOW that opened them. A window that closes or
+// reloads has no pane left to paint, so its sockets are torn down with it
+// rather than left attached to a remote pty nobody is watching.
+export function registerFleetIpc(ipcMain, service) {
+    // attachId -> the window that asked for it, so a reload cannot leave a stream
+    // writing into a destroyed sender.
+    const owners = new Map();
+    const trackedSenders = new Set();
+    const releaseSender = (senderId) => {
+        for (const [attachId, sender] of [...owners]) {
+            if (sender.id !== senderId)
+                continue;
+            owners.delete(attachId);
+            service.fleet().detachTerminal(attachId);
+        }
+        trackedSenders.delete(senderId);
+    };
+    const trackSender = (event) => {
+        if (trackedSenders.has(event.sender.id))
+            return;
+        trackedSenders.add(event.sender.id);
+        event.sender.once('destroyed', () => releaseSender(event.sender.id));
+    };
+    ipcMain.handle(FLEET_LIST_CONNECTIONS_CHANNEL, () => service.fleet().listConnections());
+    ipcMain.handle(FLEET_PAIR_CHANNEL, (_event, input) => {
+        const record = asRecord(input);
+        return service.fleet().pair({ pairingUrl: record?.pairingUrl, deviceName: record?.deviceName });
+    });
+    ipcMain.handle(FLEET_FORGET_CHANNEL, (_event, connectionId) => service.fleet().forget(connectionId));
+    ipcMain.handle(FLEET_BROWSE_CHANNEL, (_event, connectionId) => service.fleet().browse(connectionId));
+    ipcMain.handle(FLEET_LIST_RUNS_CHANNEL, (_event, input) => {
+        const record = asRecord(input);
+        return service.fleet().listRuns(record?.connectionId, record?.workspaceId);
+    });
+    ipcMain.handle(FLEET_CREATE_TERMINAL_CHANNEL, (_event, input) => {
+        const record = asRecord(input) ?? {};
+        return service.fleet().createTerminal({
+            connectionId: record.connectionId,
+            workspaceId: record.workspaceId,
+            name: record.name,
+        });
+    });
+    ipcMain.handle(FLEET_ATTACH_TERMINAL_CHANNEL, async (event, input) => {
+        const record = asRecord(input) ?? {};
+        const attachId = typeof record.attachId === 'string' ? record.attachId : '';
+        if (!attachId) {
+            return { ok: false, code: 'invalid_arguments', message: 'An attachment needs an id to deliver its output on.' };
+        }
+        trackSender(event);
+        owners.set(attachId, event.sender);
+        const channel = fleetTerminalEventChannel(attachId);
+        return service.fleet().attachTerminal({
+            attachId,
+            connectionId: record.connectionId,
+            sessionId: record.sessionId,
+            emit: (frame) => {
+                const sender = owners.get(attachId);
+                if (!sender || sender.isDestroyed())
+                    return;
+                sender.send(channel, frame);
+            },
+        });
+    });
+    ipcMain.handle(FLEET_DETACH_TERMINAL_CHANNEL, (_event, attachId) => {
+        if (typeof attachId === 'string')
+            owners.delete(attachId);
+        service.fleet().detachTerminal(attachId);
+    });
+    // Keystrokes and resizes are `send`, not `invoke`: a keystroke that waits for
+    // a round trip through main before the next one is read is a terminal that
+    // feels laggy, and the local terminal path made the same call.
+    ipcMain.on(FLEET_TERMINAL_INPUT_CHANNEL, (_event, input) => {
+        const record = asRecord(input);
+        service.fleet().sendInput(record?.attachId, record?.data);
+    });
+    ipcMain.on(FLEET_TERMINAL_RESIZE_CHANNEL, (_event, input) => {
+        const record = asRecord(input);
+        service.fleet().resizeTerminal(record?.attachId, record?.cols, record?.rows);
+    });
+}
+function asRecord(value) {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}

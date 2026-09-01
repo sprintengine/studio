@@ -1,0 +1,339 @@
+/**
+ * AgentLaunchService — composing an agent launch is a main-process capability
+ * (MC-2159).
+ *
+ * The spawn mechanics were already main-owned (`terminal-launch.ts` renders the
+ * argv and env; the runtime's spawn handler takes the whole payload as data).
+ * What lived in the renderer was the DECISION layer: which CLI when the caller
+ * named none, which permission preset, how a connector resolves, what the agent
+ * is called, and how a specialist directive is wrapped. It lived in a React
+ * hook, so `agent.launch`, `backlog.work`, and agent-backed `automation.run`
+ * actions all failed headless — not because they needed a window, but because
+ * the composition did.
+ *
+ * This service is that layer, with every input injected:
+ *
+ * - **CLI + permission defaults** come from the main-owned launch settings store
+ *   (MC-2154), which the renderer pushes on change and main reads synchronously,
+ *   so a headless launch uses the user's real defaults instead of guessing.
+ * - **Connector resolution** is the shared rule (`src/shared/connector-launch.ts`)
+ *   over main's own MCP catalog — the same answer the connector chat gets.
+ * - **Specialist prompt composition** is the shared builder
+ *   (`src/shared/specialists/specialist-actions.ts`), so a specialist launched
+ *   by an automation fetches its Soul exactly like one launched by a person.
+ * - **The spawn** is the terminal runtime's own handler. Nothing here writes to
+ *   a pty or knows what Electron is.
+ *
+ * ## The renderer's remaining half
+ *
+ * Main mints the terminal session id and spawns; the launched record rides back
+ * on the session snapshot as {@link AgentLaunchRecord}. The renderer projects
+ * live sessions into `AgentState` records and reveals their tabs
+ * (`projectLaunchedAgentSessions`), so the FlexLayout tab is a VIEW of main's
+ * session list. A `TerminalView` mounting on a projected agent calls
+ * `terminalSpawn` with the session id main already used, which the runtime
+ * answers by reattaching and replaying the retained scrollback — which is why a
+ * window opened long after a headless launch shows the terminal with its
+ * history, and why no launch is ever performed twice.
+ *
+ * ## What it deliberately does not do
+ *
+ * Dispatch per transport (a conversation-runtime session for non-PTY agents) is
+ * named by the item as the second half. Every caller today asks for a terminal
+ * agent, and the `transport` field below is the seam that half plugs into: it is
+ * resolved here, in one place, rather than each caller assuming a pty.
+ */
+import { randomUUID } from 'crypto';
+import { resolveConnectorLaunchFrom } from '../shared/connector-launch';
+import { pickRandomAgentName } from '../shared/agent-names';
+import { knowledgeLaunchContext, resolveProjectKnowledgeConfig, } from '../shared/project-knowledge';
+import { buildSpecialistDirectiveStartupPrompt, getSpecialistAction, } from '../shared/specialists/specialist-actions';
+import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../shared/workspace-mode';
+/**
+ * Terminal geometry for a session no view has bound to yet. The first
+ * `TerminalView` that attaches resizes it; this only has to be wide enough that
+ * the CLI's own startup output is not wrapped into nonsense in the scrollback a
+ * later-opened window replays. Same values the review guide's headless spawn
+ * uses, for the same reason.
+ */
+const UNBOUND_TERMINAL_COLS = 120;
+const UNBOUND_TERMINAL_ROWS = 30;
+/**
+ * The one preset a launch falls back to when neither the caller nor the user's
+ * settings name one. Deliberately the most restrictive: an unattended caller
+ * that named no preset must not inherit an escalation nobody chose (MC-1900).
+ */
+const DEFAULT_PERMISSION_PRESET = 'default';
+export function createAgentLaunchService(deps) {
+    const newSessionId = deps.newSessionId ?? (() => randomUUID());
+    const newAgentSuffix = deps.newAgentSuffix ?? (() => randomUUID().replace(/-/g, '').slice(0, 6));
+    async function launch(request) {
+        const workspace = deps.listWorkspaces().find((candidate) => candidate.id === request.workspaceId);
+        if (!workspace) {
+            return {
+                ok: false,
+                code: 'unknown_workspace',
+                message: `Workspace "${request.workspaceId}" does not exist in the main-process registry.`,
+            };
+        }
+        // Agent-backed automation runs launch into either the per-project hidden
+        // 'automations-host' workspace (the default route resolves-or-creates one)
+        // or a standard workspace named by an explicit/legacy config workspaceId.
+        // Any other mode is not a valid launch host. A restart-restored routing
+        // placeholder reports 'standard', which is the permissive answer and matches
+        // what the renderer used to conclude from its own record.
+        const mode = workspace.mode ?? 'standard';
+        if (mode !== 'standard' && mode !== AUTOMATIONS_HOST_WORKSPACE_MODE) {
+            return {
+                ok: false,
+                code: 'unsupported_workspace_mode',
+                message: `Agent launch supports standard or automations-host workspaces; "${workspace.id}" is a ${mode} workspace.`,
+            };
+        }
+        const settings = deps.getLaunchSettings();
+        const cli = (request.cli?.trim() || settings.lastSelectedCli || '');
+        if (!cli) {
+            return {
+                ok: false,
+                code: 'no_cli_selected',
+                message: 'No CLI was requested and no last-selected CLI is configured.',
+            };
+        }
+        // Never silently substitute another CLI for an ineligible one — surface it
+        // and let the caller pick. Covers a stale persisted selection (a
+        // lastSelectedCli or automation config naming a CLI that lost eligibility).
+        if (deps.isAgentSelectableCli && !deps.isAgentSelectableCli(cli)) {
+            return {
+                ok: false,
+                code: 'cli_not_agent_selectable',
+                message: `Agent CLI "${cli}" cannot report agent status (its plugin declares no lifecycle-hook support), so it is not selectable as an agent. Pick another CLI.`,
+            };
+        }
+        // A connector-backed launch resolves the same way a connector chat does
+        // (catalog or installed settings → single-server MCP, plus the driving skill
+        // when the catalog pairs one); the resolved settings ride the spawn so the
+        // connector's .mcp.json lands in the run worktree and nowhere else. An
+        // unavailable id is an explicit failure — never launch a plain agent that
+        // silently drops the connector environment.
+        const connector = request.connectorId
+            ? resolveConnectorLaunchFrom({
+                connectorId: request.connectorId,
+                catalog: deps.listConnectorCatalog(),
+                installedServers: settings.mcp?.servers,
+            })
+            : null;
+        if (connector && !connector.ok) {
+            return { ok: false, code: 'connector_unavailable', message: connector.message };
+        }
+        const worktreePath = request.worktreePath?.trim() || undefined;
+        const cwd = worktreePath ?? workspace.folderPath?.trim() ?? '';
+        if (!cwd) {
+            // Spawning into `process.cwd()` would run the agent inside the app's own
+            // install directory. Refuse rather than launch somewhere nobody asked for.
+            return {
+                ok: false,
+                code: 'workspace_folder_missing',
+                message: `Workspace "${workspace.id}" has no project folder, so there is nowhere to launch the agent.`,
+            };
+        }
+        const agentId = `agent-${cli}-${newAgentSuffix()}`;
+        const name = request.name?.trim() || pickRandomAgentName(takenAgentNames(workspace, deps.terminal.list()));
+        // The picker constrains specialistId to the catalog; trust it at this
+        // boundary, exactly as the renderer path did.
+        const specialistId = request.specialistId?.trim() || undefined;
+        // A specialist run must fetch its Soul before acting, just like an
+        // interactively-spawned specialist. Composed here rather than by the caller,
+        // so a directive sent by the gateway, an automation, or a Horizon step is
+        // wrapped identically; a non-specialist run sends the prompt unchanged.
+        const specialistPrompt = specialistId
+            ? buildSpecialistDirectiveStartupPrompt(getSpecialistAction(specialistId), request.prompt ?? '')
+            : request.prompt;
+        // The project's Knowledge Graph, resolved the same way the interactive
+        // launch resolves it: the per-project setting from the main-owned store,
+        // falling back to the workspace's own override. Without this a
+        // headless-launched agent silently loses `MULTICODE_KNOWLEDGE_ROOT` and the
+        // line that tells it the graph exists — it would then either ignore the
+        // project's recorded context or guess at a folder.
+        const knowledge = await resolveKnowledgeLaunch(workspace, settings.projectKnowledgeRoots);
+        const initialPrompt = appendPromptLine(specialistPrompt, knowledge.promptSuffix);
+        const record = {
+            agentId,
+            name,
+            cli,
+            ...(request.cliModel?.trim() ? { cliModel: request.cliModel.trim() } : {}),
+            // The automation path always sends one (spawn-agent.ts resolves it for
+            // every start path); the fallback covers the other agent.launch callers,
+            // which take the app-level spawn default (MC-1900).
+            cliPermissionPreset: request.permissionPreset
+                ?? settings.lastAgentSpawnPermissionPreset
+                ?? DEFAULT_PERMISSION_PRESET,
+            kind: specialistId ? 'specialist' : 'general',
+            ...(specialistId ? { specialistId } : {}),
+            ...(connector?.ok
+                ? {
+                    connectorMcpSettings: connector.resolved.mcpSettings,
+                    ...(connector.resolved.skillId ? { connectorSkillId: connector.resolved.skillId } : {}),
+                }
+                : {}),
+            ...(request.spawnSkillId?.trim() ? { spawnSkillId: request.spawnSkillId.trim() } : {}),
+            ...(worktreePath ? { worktreePath } : {}),
+        };
+        const sessionId = newSessionId();
+        const spawned = await deps.terminal.spawn({
+            sessionId,
+            cols: UNBOUND_TERMINAL_COLS,
+            rows: UNBOUND_TERMINAL_ROWS,
+            cwd,
+            cli,
+            ...(initialPrompt ? { initialPrompt } : {}),
+            // The user's command/WSL overrides. The two shapes are field-identical
+            // (`command`, `useWsl`, `models?`); the cast is only the keying — the
+            // mirror types its map by plain string, the payload by `AgentCli`, which
+            // is itself a string alias. Omitted when empty so an unconfigured install
+            // spawns exactly as it did before the store existed.
+            ...(Object.keys(settings.cliRuntimes ?? {}).length > 0
+                ? { cliRuntimes: settings.cliRuntimes }
+                : {}),
+            kind: 'agent',
+            workspaceId: workspace.id,
+            agentId,
+            agentName: name,
+            cliPermissionPreset: record.cliPermissionPreset,
+            ...(record.cliModel ? { cliModel: record.cliModel } : {}),
+            ...(worktreePath
+                ? { executionMode: 'worktree', worktreePath }
+                : {}),
+            ...(knowledge.rootPath ? { memoryRootPath: knowledge.rootPath } : {}),
+            ...(knowledge.relativeRoot ? { memoryRelativeRoot: knowledge.relativeRoot } : {}),
+            // A connector launch forwards its own single-server MCP instead of the
+            // workspace's, and marks itself so the spawn prunes anything else out of
+            // the worktree config. Ordinary agents fall through to the user's MCP.
+            ...(connectorLaunchMcp(record, settings.mcp)),
+            ...(record.connectorSkillId ? { connectorSkillId: record.connectorSkillId } : {}),
+            ...(record.spawnSkillId ? { spawnSkillId: record.spawnSkillId } : {}),
+            // Nothing is bound to this session yet. A window open right now projects
+            // and reveals it within a session-snapshot tick; a window opened later
+            // does the same on its first tick.
+            visible: false,
+            // The session's EXECUTION identity, without which the runtime reports no
+            // agent-session exit for it at all (`agentSession?.executionId` gates the
+            // listener) and `resolveAgentExecutionId` never matches. Both are how an
+            // agent-backed automation run finalizes and how its teardown finds the
+            // terminal to kill, so a launch that omitted this would start runs that
+            // could never end. `TerminalView` supplied it on the old renderer path;
+            // main supplies exactly the same shape now.
+            agentSession: {
+                executionId: sessionId,
+                // 'manual' is what a general/specialist agent has always been here —
+                // sprintengine and watchtower sessions come from their own spawn paths,
+                // never from this service.
+                system: 'manual',
+                workspaceId: workspace.id,
+                // The PROJECT root, not the run worktree: the engine's teardown matches
+                // a run's sessions on the workspace root it was launched for.
+                workspaceRoot: workspace.folderPath?.trim() ?? '',
+                workId: agentId,
+                role: record.kind,
+                displayName: name,
+            },
+            agentRecord: record,
+        });
+        if (!spawned.ok) {
+            return {
+                ok: false,
+                code: 'agent_spawn_failed',
+                message: spawned.message ?? `Agent "${agentId}" could not be started in workspace "${workspace.id}".`,
+            };
+        }
+        return { ok: true, workspaceId: workspace.id, agentId, sessionId };
+    }
+    /**
+     * Remove a launched agent: kill its terminal session. Called at run finalize
+     * so a one-shot automation agent never lingers pointing at a torn-down run
+     * worktree. Idempotent — an agent with no live session is already disposed,
+     * and reporting that as success keeps a duplicate finalize benign.
+     *
+     * The renderer's half (dropping the FlexLayout tab and the projected record)
+     * follows from the session disappearing: the projection only ever mirrors live
+     * sessions, so there is nothing to tell it.
+     */
+    function dispose(request) {
+        for (const session of deps.terminal.list()) {
+            if (session.kind !== 'agent')
+                continue;
+            if (session.workspaceId !== request.workspaceId)
+                continue;
+            if (session.agentId !== request.agentId)
+                continue;
+            deps.terminal.kill(session.sessionId);
+        }
+        return { ok: true, workspaceId: request.workspaceId, agentId: request.agentId };
+    }
+    /**
+     * The Knowledge Graph inputs for this launch, or an empty context when the
+     * project configures none (the common case) or the host wired no resolver.
+     * Never throws: a graph that cannot be read must not fail a launch, and
+     * `knowledgeLaunchContext` still emits the "configured but inaccessible" line
+     * so the agent is told rather than left to guess a folder.
+     */
+    async function resolveKnowledgeLaunch(workspace, projectKnowledgeRoots) {
+        const empty = { promptSuffix: null };
+        if (!deps.resolveKnowledgeRoot)
+            return empty;
+        const config = resolveProjectKnowledgeConfig(workspace.folderPath, projectKnowledgeRoots, workspace.memory?.relativeRoot);
+        if (!config?.relativeRoot)
+            return empty;
+        const status = await deps
+            .resolveKnowledgeRoot({ workspaceRoot: config.projectRoot, relativeRoot: config.relativeRoot })
+            .catch((error) => ({
+            ok: false,
+            status: 'inaccessible',
+            relativeRoot: config.relativeRoot,
+            message: error instanceof Error ? error.message : 'Unable to resolve workspace knowledge.',
+        }));
+        return knowledgeLaunchContext(status);
+    }
+    return { launch, dispose };
+}
+/** Append a line to a startup prompt, tolerating either side being absent. */
+function appendPromptLine(prompt, line) {
+    if (!line)
+        return prompt;
+    if (!prompt)
+        return line;
+    return `${prompt}\n\n${line}`;
+}
+/**
+ * Names already in use in this workspace: the records main knows about plus the
+ * names of its live agent sessions. Both halves matter — a headless launch has
+ * no renderer record to read, and two launches in the same second would
+ * otherwise both pick the same "unused" name.
+ */
+function takenAgentNames(workspace, sessions) {
+    const names = Object.values(workspace.agents ?? {})
+        .map((agent) => agent?.name)
+        .filter((name) => Boolean(name));
+    for (const session of sessions) {
+        if (session.kind !== 'agent')
+            continue;
+        if (session.workspaceId !== workspace.id)
+            continue;
+        if (session.agentName)
+            names.push(session.agentName);
+    }
+    return names;
+}
+/**
+ * The MCP half of the spawn payload. A connector launch forwards ONLY its own
+ * server and sets `connectorLaunch`, which is what tells the spawn to prune
+ * every other server out of the worktree config and git-exclude it. That flag is
+ * driven by the connector settings alone: `connectorSkillId` is the orthogonal
+ * skill-install concern, and letting it imply pruning would wipe the MCP config
+ * of a skill-only spawn.
+ */
+function connectorLaunchMcp(record, workspaceMcp) {
+    if (record.connectorMcpSettings) {
+        return { mcpSettings: record.connectorMcpSettings, connectorLaunch: true };
+    }
+    return workspaceMcp ? { mcpSettings: workspaceMcp } : {};
+}

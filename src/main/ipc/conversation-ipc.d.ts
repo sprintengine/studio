@@ -1,0 +1,23 @@
+import type { IpcMain } from 'electron';
+import type { ConversationProviderListResult, ConversationProviderModelsInput, ConversationProviderModelsResult, ConversationSecretClearInput, ConversationSecretClearResult, ConversationSecretSetInput, ConversationSecretSetResult, ConversationSecretStatusInput, ConversationSecretStatusResult } from '../../shared/electron-api';
+import type { ConversationEvent, ConversationInterruptInput, ConversationProvidersListInput, ConversationListSessionsInput, ConversationListSessionsResult, ConversationProviderTestInput, ConversationProviderTestResult, ConversationRespondToRequestInput, ConversationSendTurnInput, ConversationSessionActionResult, ConversationSetPermissionInput, ConversationStartSessionInput, ConversationStartSessionResult, ConversationStopSessionInput, ConversationTranscriptInput, ConversationTranscriptResult } from '../../shared/conversation-runtime';
+import { ConversationRuntime } from '../conversation-runtime';
+export type ConversationIpcHandlers = {
+    listProviders(input?: ConversationProvidersListInput): Promise<ConversationProviderListResult>;
+    listProviderModels(input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult>;
+    testProvider(input: ConversationProviderTestInput): Promise<ConversationProviderTestResult>;
+    getSecretStatus(input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult>;
+    setSecret(input: ConversationSecretSetInput): Promise<ConversationSecretSetResult>;
+    clearSecret(input: ConversationSecretClearInput): Promise<ConversationSecretClearResult>;
+    startSession(input: ConversationStartSessionInput): Promise<ConversationStartSessionResult>;
+    sendTurn(input: ConversationSendTurnInput): Promise<ConversationSessionActionResult>;
+    interrupt(input: ConversationInterruptInput): Promise<ConversationSessionActionResult>;
+    respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult>;
+    setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult>;
+    stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>;
+    listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult;
+    readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>;
+    onEvent(listener: (event: ConversationEvent) => void): () => void;
+};
+export declare function createConversationIpcHandlers(runtime?: ConversationRuntime): ConversationIpcHandlers;
+export declare function registerConversationIpc(ipcMain: IpcMain, handlers?: ConversationIpcHandlers): void;

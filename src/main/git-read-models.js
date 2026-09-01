@@ -1,0 +1,193 @@
+import { getGitHubRepoWebUrl } from './git-github';
+import { runGit } from './git-utils';
+export async function getGitBranches(repoRoot) {
+    const branchOutput = await runGit(repoRoot, [
+        'branch',
+        '--format=%(refname:short)%09%(HEAD)%09%(upstream:short)',
+        '--sort=refname',
+    ]);
+    const branches = branchOutput
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => {
+        const [name, head, upstream] = line.split('\t');
+        return {
+            name,
+            current: head === '*',
+            upstream: upstream || null,
+        };
+    });
+    const current = branches.find((branch) => branch.current)?.name ?? null;
+    let ahead = 0;
+    let behind = 0;
+    try {
+        const counts = await runGit(repoRoot, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}']);
+        const [aheadText, behindText] = counts.trim().split(/\s+/);
+        ahead = Number.parseInt(aheadText ?? '0', 10) || 0;
+        behind = Number.parseInt(behindText ?? '0', 10) || 0;
+    }
+    catch {
+        // Repositories without an upstream simply have no ahead/behind counts.
+    }
+    return { current, branches, ahead, behind };
+}
+async function collectGitRefs(repoRoot, headHash) {
+    const refsOutput = await runGit(repoRoot, [
+        'for-each-ref',
+        '--format=%(refname:short)%09%(objectname)%09%(refname)',
+        'refs/heads',
+        'refs/remotes',
+        'refs/tags',
+    ]);
+    const parsed = refsOutput
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => {
+        const [name = '', hash = '', fullRef = ''] = line.split('\t');
+        const type = fullRef.startsWith('refs/heads/')
+            ? 'head'
+            : fullRef.startsWith('refs/remotes/')
+                ? 'remote'
+                : fullRef.startsWith('refs/tags/')
+                    ? 'tag'
+                    : 'other';
+        return { name, hash, type };
+    });
+    return headHash ? [{ name: 'HEAD', hash: headHash, type: 'other' }, ...parsed] : parsed;
+}
+function groupRefsByHash(refs) {
+    const refsByHash = new Map();
+    refs.forEach((ref) => {
+        const names = refsByHash.get(ref.hash) ?? [];
+        names.push(ref.name);
+        refsByHash.set(ref.hash, names);
+    });
+    return refsByHash;
+}
+export async function getGitHistory(repoRoot, limit = 12) {
+    try {
+        const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 50);
+        const githubRepoWebUrl = await getGitHubRepoWebUrl(repoRoot);
+        const totalCountOutput = await runGit(repoRoot, ['rev-list', '--count', 'HEAD']);
+        const headHash = (await runGit(repoRoot, ['rev-parse', 'HEAD'])).trim();
+        const refs = await collectGitRefs(repoRoot, headHash);
+        const stdout = await runGit(repoRoot, [
+            'log',
+            `--max-count=${safeLimit}`,
+            '--date=format:%Y-%m-%d %H:%M',
+            '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1e',
+        ]);
+        const totalCount = Number.parseInt(totalCountOutput.trim(), 10) || 0;
+        const refsByHash = groupRefsByHash(refs);
+        const commits = stdout
+            .split('\x1e')
+            .map((record) => record.trim())
+            .filter(Boolean)
+            .map((record) => {
+            const [hash = '', shortHash = '', author = '', date = '', refsText = '', subject = ''] = record.split('\x1f');
+            const decoratedRefs = refsText.split(',').map((ref) => ref.trim()).filter(Boolean);
+            const exactRefs = refsByHash.get(hash) ?? [];
+            return {
+                hash,
+                shortHash,
+                author,
+                date,
+                refs: [...new Set([...decoratedRefs, ...exactRefs])],
+                subject,
+                commitWebUrl: githubRepoWebUrl ? `${githubRepoWebUrl}/commit/${hash}` : null,
+            };
+        });
+        return { commits, refs, totalCount, updatedAt: Date.now() };
+    }
+    catch {
+        return { commits: [], refs: [], totalCount: 0, updatedAt: Date.now() };
+    }
+}
+/**
+ * Reads commit history across branches, remotes, and tags (plus HEAD, so a
+ * detached checkout still appears) with parent hashes so the renderer can lay
+ * out a branch graph. We deliberately do not use `--all`: that also walks
+ * refs/stash and refs/notes, which would surface stash WIP commits in the graph
+ * with no ref label. `--date-order` keeps commits in commit date order while
+ * guaranteeing no parent is emitted before its children, which the lane-layout
+ * algorithm relies on. Paginated via skip/limit so a large history stays bounded.
+ */
+export async function getGitCommitGraph(repoRoot, options = {}) {
+    const emptySnapshot = {
+        commits: [],
+        refs: [],
+        headHash: null,
+        detached: false,
+        totalCount: 0,
+        hasMore: false,
+        updatedAt: Date.now(),
+    };
+    try {
+        const limit = Math.min(Math.max(Math.floor(options.limit ?? 200), 1), 2000);
+        const skip = Math.max(Math.floor(options.skip ?? 0), 0);
+        const githubRepoWebUrl = await getGitHubRepoWebUrl(repoRoot);
+        const totalCount = Number.parseInt((await runGit(repoRoot, ['rev-list', '--branches', '--remotes', '--tags', 'HEAD', '--count'])).trim(), 10) || 0;
+        let headHash = null;
+        try {
+            headHash = (await runGit(repoRoot, ['rev-parse', 'HEAD'])).trim() || null;
+        }
+        catch {
+            headHash = null;
+        }
+        let detached = false;
+        if (headHash) {
+            try {
+                await runGit(repoRoot, ['symbolic-ref', '-q', 'HEAD']);
+                detached = false;
+            }
+            catch {
+                detached = true;
+            }
+        }
+        const refs = await collectGitRefs(repoRoot, headHash);
+        const refsByHash = groupRefsByHash(refs);
+        const stdout = await runGit(repoRoot, [
+            'log',
+            '--branches',
+            '--remotes',
+            '--tags',
+            'HEAD',
+            '--date-order',
+            `--skip=${skip}`,
+            `--max-count=${limit}`,
+            '--date=format:%Y-%m-%d %H:%M',
+            '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%P%x1f%D%x1f%s%x1e',
+        ]);
+        const commits = stdout
+            .split('\x1e')
+            .map((record) => record.trim())
+            .filter(Boolean)
+            .map((record) => {
+            const [hash = '', shortHash = '', author = '', date = '', parentsText = '', refsText = '', subject = ''] = record.split('\x1f');
+            const decoratedRefs = refsText.split(',').map((ref) => ref.trim()).filter(Boolean);
+            const exactRefs = refsByHash.get(hash) ?? [];
+            return {
+                hash,
+                shortHash,
+                author,
+                date,
+                parents: parentsText.split(' ').map((parent) => parent.trim()).filter(Boolean),
+                refs: [...new Set([...decoratedRefs, ...exactRefs])],
+                subject,
+                commitWebUrl: githubRepoWebUrl ? `${githubRepoWebUrl}/commit/${hash}` : null,
+            };
+        });
+        return {
+            commits,
+            refs,
+            headHash,
+            detached,
+            totalCount,
+            hasMore: skip + commits.length < totalCount,
+            updatedAt: Date.now(),
+        };
+    }
+    catch {
+        return emptySnapshot;
+    }
+}

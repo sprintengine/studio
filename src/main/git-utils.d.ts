@@ -1,0 +1,11 @@
+import type { GitCommandResult } from './git';
+export declare function runGit(cwd: string, args: string[]): Promise<string>;
+export declare function runGitCommand(cwd: string, args: string[], envOverrides?: NodeJS.ProcessEnv): Promise<GitCommandResult>;
+export declare function toPosixPath(pathValue: string): string;
+export declare function toWindowsPath(pathValue: string): string;
+export declare function toFilesystemPath(pathValue: string): string;
+export declare function normalizeComparablePath(pathValue: string): string;
+export declare function toAbsolutePath(repoRoot: string, relativePath: string): string;
+export declare function getRelativeGitPath(repoRoot: string, filePath: string): string;
+export declare function isInsideRepo(repoRoot: string, filePath: string): boolean;
+export declare function pathExists(pathValue: string): Promise<boolean>;

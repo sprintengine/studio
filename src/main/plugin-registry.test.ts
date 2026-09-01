@@ -27,6 +27,9 @@ async function main(): Promise<void> {
   await testClaudeBundledRenderMatchesExpected()
   await testCodexBundledRenderMatchesExpected()
   await testGrokBundledRenderMatchesExpected()
+  await testOpencodeBundledRenderMatchesExpected()
+  await testKimiCodeBundledRenderMatchesExpected()
+  await testBundledPresetsNeverDegradeUpward()
   await testFixtureManifestsValidate()
   await testUserPluginOverridesBundled()
   await testInvalidManifestRejectedWithIssues()
@@ -338,6 +341,95 @@ async function testGrokBundledRenderMatchesExpected(): Promise<void> {
     'default preset must not grant --trust'
   )
   assert.equal(plugin!.manifest.promptInjection.mode, 'send-after-ready')
+}
+
+async function bundledRegistry(): Promise<ReturnType<typeof createPluginRegistry>> {
+  const registry = createPluginRegistry({
+    bundledRoot: BUNDLED_ROOT,
+    userRoot: join(await mkdtemp(join(tmpdir(), 'multicode-no-user-plugins-')), 'plugins'),
+  })
+  await registry.load()
+  return registry
+}
+
+// MC-2214. OpenCode has exactly one permission flag, `--auto`. The bypass preset
+// used to send `--dangerously-skip-permissions`, which OpenCode does not define;
+// its parser is not strict, so the flag was dropped silently and a user who
+// asked for bypass kept getting prompts with no error anywhere. Pin the real
+// flag so the regression cannot come back as another plausible-looking guess.
+async function testOpencodeBundledRenderMatchesExpected(): Promise<void> {
+  const registry = await bundledRegistry()
+  const plugin = registry.get('opencode')
+  assert.ok(plugin)
+
+  const presets = plugin!.manifest.permissionPresets
+  assert.deepEqual(presets.bypass_all?.args, ['--auto'], 'opencode bypass must send the flag that exists')
+  assert.equal(presets.auto_workspace, undefined, 'opencode declares no auto rung: it has no such mode')
+
+  const bypassed = renderPluginLaunch(plugin!.manifest, { permissionPreset: 'bypass_all', prompt: 'do the thing' })
+  assert.deepEqual(bypassed.argv, ['opencode', 'run', '--auto', 'do the thing'])
+
+  // An auto request has no rung to land on and must degrade DOWN to default —
+  // never up into bypass, and never through as an unknown flag.
+  const auto = renderPluginLaunch(plugin!.manifest, { permissionPreset: 'auto_workspace', prompt: 'do the thing' })
+  assert.deepEqual(auto.argv, ['opencode', 'run', 'do the thing'], 'auto degrades to default, not to bypass')
+}
+
+// MC-2212. Kimi's flags read backwards from their names: `--yolo` auto-approves
+// regular tool calls but the agent MAY STILL ASK questions, while `--auto` is
+// fully autonomous and never asks. Mapping them by name put the more permissive
+// flag on the middle rung, so degrading down the ladder escalated.
+async function testKimiCodeBundledRenderMatchesExpected(): Promise<void> {
+  const registry = await bundledRegistry()
+  const plugin = registry.get('kimi-code')
+  assert.ok(plugin)
+
+  const presets = plugin!.manifest.permissionPresets
+  assert.deepEqual(presets.auto_workspace?.args, ['--yolo'], 'the rung that may still ask is auto')
+  assert.deepEqual(presets.bypass_all?.args, ['--auto'], 'the rung that never asks is bypass')
+
+  assert.deepEqual(
+    renderPluginLaunch(plugin!.manifest, { permissionPreset: 'auto_workspace' }).argv,
+    ['kimi', '--yolo'],
+  )
+  assert.deepEqual(
+    renderPluginLaunch(plugin!.manifest, { permissionPreset: 'bypass_all' }).argv,
+    ['kimi', '--auto'],
+  )
+}
+
+// The ladder's whole reason to exist is that a missing rung fails SAFE. Assert
+// it across every bundled manifest rather than per-CLI: resolving a requested
+// rung must land on a preset declared at that rung or below, never above.
+//
+// Scope, stated so this is not mistaken for more than it is: this catches
+// STRUCTURAL escalation (resolution reaching for a higher rung). It cannot
+// catch SEMANTIC inversion — a manifest that declares both rungs but puts the
+// more permissive flag on the lower one, which is what MC-2212 was. Nothing
+// mechanical can, because permissiveness lives in the CLI's docs, not in the
+// manifest. That case is guarded by pinning each CLI's verified flags above.
+async function testBundledPresetsNeverDegradeUpward(): Promise<void> {
+  const registry = await bundledRegistry()
+  const ladder = ['default', 'auto_workspace', 'bypass_all'] as const
+
+  for (const entry of registry.list()) {
+    const manifest = registry.get(entry.id)?.manifest
+    assert.ok(manifest, `${entry.id}: registry.get must resolve a listed plugin`)
+    for (let requested = 0; requested < ladder.length; requested += 1) {
+      const resolved = renderPluginLaunch(manifest, { permissionPreset: ladder[requested] }).argv
+      // Every argv the manifest could legitimately produce at or below this rung.
+      const allowed = ladder
+        .slice(0, requested + 1)
+        .filter((name) => manifest.permissionPresets[name])
+        .map((name) => renderPluginLaunch(manifest, { permissionPreset: name }).argv)
+      // A manifest declaring nothing at or below the rung renders no permission args.
+      if (allowed.length === 0) allowed.push(renderPluginLaunch(manifest, {}).argv)
+      assert.ok(
+        allowed.some((candidate) => JSON.stringify(candidate) === JSON.stringify(resolved)),
+        `${manifest.id}: requesting ${ladder[requested]} resolved to argv from a HIGHER rung: ${JSON.stringify(resolved)}`,
+      )
+    }
+  }
 }
 
 async function testFixtureManifestsValidate(): Promise<void> {

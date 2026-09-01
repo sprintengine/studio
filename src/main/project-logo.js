@@ -1,0 +1,223 @@
+import { imageMimeType } from './filesystem-image';
+// A project's own logo, read off the top level of its repo so a row of projects
+// reads like a row of products (MC-2135). Detection only — there is no
+// per-project icon picker, and nothing here writes to the repo.
+//
+// This module is deliberately free of `fs` and `electron` imports (the one
+// import, `imageMimeType`, is pure): it takes its
+// filesystem and raster work as a `ProjectLogoIo`, so the ranking, the size
+// guard, and the SVG sanitizer are testable without a disk or an Electron
+// runtime. `createProjectLogoIo` in `src/main/project-logo-io.ts` is the real
+// one.
+// Ranked candidate filenames, first hit wins. Matched case-insensitively
+// against the repo's top-level entries — no recursive walk.
+export const PROJECT_LOGO_CANDIDATES = [
+    'logo.svg',
+    'logo.png',
+    'icon.svg',
+    'icon.png',
+    'favicon.svg',
+    'favicon.png',
+    'favicon.ico',
+];
+// Candidates above this are skipped and the next-ranked one is tried. A
+// sidebar glyph is never worth a megabyte, and the bytes travel to the renderer
+// as a data URI.
+export const PROJECT_LOGO_MAX_BYTES = 1024 * 1024;
+// Raster candidates are downscaled to twice the icon slot before caching.
+// The slot is --sem-icon-size-sm (16px), so 2x is 32px — enough for a Retina
+// pixel ratio, small enough that the data URI stays trivial.
+export const PROJECT_LOGO_RASTER_MAX_PX = 32;
+const SVG_MIME_TYPE = 'image/svg+xml';
+// Rank the repo's top-level entries against PROJECT_LOGO_CANDIDATES,
+// case-insensitively. Returns the ACTUAL entry names (not the lowercase
+// candidates) in rank order, so the caller opens the file that is really on
+// disk on a case-sensitive filesystem.
+export function rankProjectLogoCandidates(entryNames) {
+    const byLowerName = new Map();
+    for (const name of entryNames) {
+        const key = name.toLowerCase();
+        // First entry wins, so a case-sensitive filesystem holding both `Logo.svg`
+        // and `logo.svg` resolves stably to whichever the directory listed first.
+        if (!byLowerName.has(key))
+            byLowerName.set(key, name);
+    }
+    const ranked = [];
+    for (const candidate of PROJECT_LOGO_CANDIDATES) {
+        const actual = byLowerName.get(candidate);
+        if (actual)
+            ranked.push(actual);
+    }
+    return ranked;
+}
+// An SVG candidate renders inside the app's own DOM, so it is held to a
+// stricter bar than a raster: anything scriptable or anything that would reach
+// off the machine is REJECTED outright (the caller falls through to the next
+// candidate, then to the glyph). Nothing is stripped and re-served — a
+// half-sanitized SVG is a worse thing to ship than no logo.
+//
+// Returns the source unchanged when it is clean, or null when it is rejected.
+export function sanitizeProjectLogoSvg(source) {
+    const lowered = source.toLowerCase();
+    // Scriptable or document-embedding elements.
+    for (const element of ['<script', '<foreignobject', '<iframe', '<embed', '<object', '<set', '<handler']) {
+        if (lowered.includes(element))
+            return null;
+    }
+    // Inline event handlers (` onload=`, ` onclick=`, ...). The leading space is
+    // what makes this an attribute name rather than a substring of path data.
+    if (/\son[a-z]+\s*=/.test(lowered))
+        return null;
+    // Entity declarations are the XXE vector. A bare `<!DOCTYPE svg>` is common
+    // in older exports and harmless, so only a doctype carrying an internal
+    // subset is rejected along with any entity declaration.
+    if (lowered.includes('<!entity'))
+        return null;
+    const doctype = lowered.indexOf('<!doctype');
+    if (doctype !== -1) {
+        // An internal subset opens before the declaration's first `>`, so bound the
+        // search there rather than scanning the whole document for a bracket.
+        const declarationEnd = lowered.indexOf('>', doctype);
+        const subset = lowered.indexOf('[', doctype);
+        if (subset !== -1 && (declarationEnd === -1 || subset < declarationEnd))
+            return null;
+    }
+    // Stylesheet imports pull bytes off the network.
+    if (lowered.includes('@import'))
+        return null;
+    if (lowered.includes('javascript:'))
+        return null;
+    // `src` has no legitimate use in a standalone SVG asset.
+    if (/\ssrc\s*=/.test(lowered))
+        return null;
+    // Every reference must be same-document. `href="#glyph"` is fine; a URL, a
+    // relative path, and a nested data: payload are all rejected. Note the
+    // `xmlns` declarations are namespace URIs, not references, so they are not
+    // matched here — that is the whole reason this is attribute-aware rather
+    // than a search for "http".
+    const referenceAttribute = /(?:xlink:)?href\s*=\s*["']([^"']*)["']/g;
+    for (const match of lowered.matchAll(referenceAttribute)) {
+        if (!match[1].trim().startsWith('#'))
+            return null;
+    }
+    const cssReference = /url\(\s*['"]?([^'")]*)/g;
+    for (const match of lowered.matchAll(cssReference)) {
+        if (!match[1].trim().startsWith('#'))
+            return null;
+    }
+    return source;
+}
+function toDataUrl(bytes, mimeType) {
+    return `data:${mimeType};base64,${bytes.toString('base64')}`;
+}
+/**
+ * Scan the top level of `folderPath` for the project's logo. Returns null when
+ * there is no usable candidate — the caller keeps today's glyph and nothing is
+ * written anywhere.
+ *
+ * A candidate that is oversized, unreadable, or (for SVG) rejected by the
+ * sanitizer does not end the scan: the next-ranked candidate is tried, exactly
+ * as if the rejected file were not there.
+ */
+export async function detectProjectLogo(folderPath, io) {
+    let entries;
+    try {
+        entries = await io.readdir(folderPath);
+    }
+    catch {
+        // A missing or unreadable project folder is not this feature's problem to
+        // report — the folder check already surfaces it on the row.
+        return null;
+    }
+    for (const name of rankProjectLogoCandidates(entries)) {
+        const filePath = io.join(folderPath, name);
+        // Only the io calls are caught. A candidate a user's disk will not give us
+        // is an ordinary miss and falls through to the next-ranked one; a throw out
+        // of the ranking, the sanitizer, or the encoding below is a bug in this
+        // module and must surface rather than quietly degrade to the glyph.
+        const read = await readCandidate(filePath, io);
+        if (!read)
+            continue;
+        const { stats, raw, mimeType } = read;
+        if (mimeType === SVG_MIME_TYPE) {
+            const sanitized = sanitizeProjectLogoSvg(raw.toString('utf-8'));
+            if (sanitized === null)
+                continue;
+            return {
+                path: filePath,
+                mtimeMs: stats.mtimeMs,
+                dataUrl: toDataUrl(Buffer.from(sanitized, 'utf-8'), mimeType),
+            };
+        }
+        const downscaled = await downscaleCandidate(raw, mimeType, io);
+        return {
+            path: filePath,
+            mtimeMs: stats.mtimeMs,
+            dataUrl: toDataUrl(downscaled.bytes, downscaled.mimeType),
+        };
+    }
+    return null;
+}
+// Stat + read one candidate, applying the guards. Null means "not a usable
+// candidate" for every reason a disk can produce: gone, not a file, oversized,
+// or an extension we do not serve.
+async function readCandidate(filePath, io) {
+    try {
+        const stats = await io.stat(filePath);
+        if (!stats.isFile)
+            return null;
+        if (stats.size > PROJECT_LOGO_MAX_BYTES)
+            return null;
+        // The app's one extension→image-mime answer, shared with image preview.
+        const mimeType = imageMimeType(filePath);
+        if (!mimeType)
+            return null;
+        return { stats, raw: await io.readFile(filePath), mimeType };
+    }
+    catch {
+        return null;
+    }
+}
+// A downscale that cannot run is not a reason to drop the logo — the 1 MB guard
+// already bounds what we would serve — so a failing resizer falls back to the
+// candidate's own bytes rather than to the glyph.
+async function downscaleCandidate(raw, mimeType, io) {
+    try {
+        return await io.downscaleRaster(raw, mimeType, PROJECT_LOGO_RASTER_MAX_PX);
+    }
+    catch {
+        return { bytes: raw, mimeType };
+    }
+}
+/**
+ * `detectProjectLogo` behind a hit cache. There is no watcher — the check runs
+ * when a project is opened, and the cached entry is only trusted while the
+ * resolved file still exists at the same mtime. Misses are never cached, so
+ * dropping a `logo.svg` into a repo and reopening the project picks it up
+ * without a restart.
+ */
+export function createProjectLogoResolver(io) {
+    const cache = new Map();
+    return {
+        async resolve(folderPath) {
+            if (!folderPath)
+                return null;
+            const cached = cache.get(folderPath);
+            if (cached) {
+                try {
+                    const stats = await io.stat(cached.path);
+                    if (stats.isFile && stats.mtimeMs === cached.mtimeMs)
+                        return cached;
+                }
+                catch {
+                    // The cached file went away; fall through to a fresh scan.
+                }
+                cache.delete(folderPath);
+            }
+            const detected = await detectProjectLogo(folderPath, io);
+            if (detected)
+                cache.set(folderPath, detected);
+            return detected;
+        },
+    };
+}

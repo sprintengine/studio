@@ -1,0 +1,409 @@
+import { appendFile, cp, mkdir, readFile, writeFile } from 'fs/promises';
+import { dirname, isAbsolute, join, resolve } from 'path';
+import { getRelativeGitPath, isInsideRepo, normalizeComparablePath, pathExists, runGit, runGitCommand, toAbsolutePath, toFilesystemPath, toPosixPath, } from './git-utils';
+import { listGitWorktrees } from './git-worktree-list';
+import { resolveRepoRoot, resolveWorktreeDestination, toWorktreeResult, validateBaseRef, validateBranchName, } from './git-worktree-validation';
+import { getGitStatus } from './git-status';
+export { listGitWorktrees, parseGitWorktreePorcelain } from './git-worktree-list';
+export { getGitOperationInProgress, getGitStatus } from './git-status';
+export { getGitBranches, getGitHistory, getGitCommitGraph } from './git-read-models';
+export { applyGitStash, dropGitStash, listGitStashes, pushGitStash } from './git-stash';
+export { discardUnstagedGitChanges, revertGitPaths, stageGitPaths, unstageGitPaths, } from './git-file-actions';
+export { abortGitOperation, checkoutGitCommit, checkoutGitCommitAsBranch, cherryPickGitCommit, commitGitChanges, continueGitOperation, createGitBranchFromCommit, createGitTagFromCommit, deleteGitBranch, fetchGitRemotes, mergeGitRef, pullGitBranchWithStash, pushGitBranch, rebaseGitBranch, renameGitBranch, resetGitBranchToCommit, revertGitCommit, switchGitBranch, } from './git-branch-actions';
+export async function getGitRepoRoot(folderPath) {
+    try {
+        const stdout = await runGit(folderPath, ['rev-parse', '--show-toplevel']);
+        return stdout.trim() || null;
+    }
+    catch {
+        return null;
+    }
+}
+export async function copyGitWorktreeIncludedFiles(input) {
+    const root = await resolveRepoRoot(input.repoRoot);
+    if (!root.ok)
+        return root;
+    const worktreePath = input.worktreePath;
+    const worktrees = await listGitWorktrees(root.data);
+    if (!worktrees.ok)
+        return worktrees;
+    const registeredWorktree = worktrees.data.worktrees.find((worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath));
+    if (!registeredWorktree) {
+        return {
+            ok: false,
+            message: `Worktree is not registered for this repository: ${worktreePath}`,
+        };
+    }
+    if (!(await pathExists(worktreePath))) {
+        return {
+            ok: false,
+            message: `Worktree path is missing: ${worktreePath}. Run worktree prune to clean up stale Git metadata.`,
+        };
+    }
+    const includeFilePath = join(toFilesystemPath(root.data), '.worktreeinclude');
+    const result = {
+        copied: [],
+        skipped: [],
+    };
+    let includeFile = '';
+    try {
+        includeFile = await readFile(includeFilePath, 'utf8');
+    }
+    catch (error) {
+        const code = error.code;
+        if (code && code !== 'ENOENT') {
+            return {
+                ok: false,
+                message: `Unable to read .worktreeinclude: ${includeFilePath}`,
+            };
+        }
+        return {
+            ok: true,
+            data: result,
+            message: 'No .worktreeinclude file found.',
+        };
+    }
+    const entries = includeFile
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#'));
+    for (const entry of entries) {
+        if (isAbsolute(entry) || entry.split(/[\\/]/).includes('..')) {
+            result.skipped.push({ path: entry, reason: 'Only repository-relative include paths are allowed.' });
+            continue;
+        }
+        if (/[*?[\]{}]/.test(entry)) {
+            result.skipped.push({ path: entry, reason: 'Glob patterns are not supported; list explicit files or directories.' });
+            continue;
+        }
+        const sourcePath = join(root.data, ...entry.split(/[\\/]+/));
+        const destinationPath = join(worktreePath, ...entry.split(/[\\/]+/));
+        if (!normalizeComparablePath(sourcePath).startsWith(`${normalizeComparablePath(root.data)}/`)
+            || !normalizeComparablePath(destinationPath).startsWith(`${normalizeComparablePath(worktreePath)}/`)) {
+            result.skipped.push({ path: entry, reason: 'Include path must stay inside the repository and target worktree.' });
+            continue;
+        }
+        if (!(await pathExists(sourcePath))) {
+            result.skipped.push({ path: entry, reason: 'Source path does not exist.' });
+            continue;
+        }
+        try {
+            const destinationFsPath = toFilesystemPath(destinationPath);
+            await mkdir(dirname(destinationFsPath), { recursive: true });
+            await cp(toFilesystemPath(sourcePath), destinationFsPath, {
+                recursive: true,
+                force: true,
+                errorOnExist: false,
+            });
+            result.copied.push(entry);
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            result.skipped.push({ path: entry, reason: message });
+        }
+    }
+    return {
+        ok: true,
+        data: result,
+        message: null,
+    };
+}
+export async function createGitWorktree(input) {
+    const root = await resolveRepoRoot(input.repoRoot);
+    if (!root.ok)
+        return root;
+    const destination = resolveWorktreeDestination(input.containerPath, input.destinationPath);
+    if (!destination.ok)
+        return destination;
+    const branch = await validateBranchName(root.data, input.branchName);
+    if (!branch.ok)
+        return branch;
+    const baseRef = await validateBaseRef(root.data, input.baseRef);
+    if (!baseRef.ok)
+        return baseRef;
+    if (await pathExists(destination.data.destinationPath)) {
+        return {
+            ok: false,
+            message: `Worktree destination already exists: ${destination.data.destinationPath}`,
+        };
+    }
+    const existingWorktrees = await listGitWorktrees(root.data);
+    if (!existingWorktrees.ok)
+        return existingWorktrees;
+    const matchingWorktree = existingWorktrees.data.worktrees.find((worktree) => worktree.branch === branch.data);
+    if (matchingWorktree) {
+        return {
+            ok: false,
+            message: `Branch "${branch.data}" is already checked out at ${matchingWorktree.path}. Choose a different branch name or remove that worktree first.`,
+        };
+    }
+    await mkdir(toFilesystemPath(destination.data.containerPath), { recursive: true });
+    const addResult = await runGitCommand(root.data, [
+        'worktree',
+        'add',
+        '-b',
+        branch.data,
+        destination.data.destinationPath,
+        baseRef.data,
+    ]);
+    if (!addResult.ok) {
+        return {
+            ok: false,
+            message: addResult.message ?? 'Unable to create Git worktree.',
+            stdout: addResult.stdout,
+            stderr: addResult.stderr,
+        };
+    }
+    if (input.copyIncludedFiles) {
+        const copyResult = await copyGitWorktreeIncludedFiles({
+            repoRoot: root.data,
+            worktreePath: destination.data.destinationPath,
+        });
+        if (!copyResult.ok)
+            return copyResult;
+    }
+    const nextWorktrees = await listGitWorktrees(root.data);
+    if (!nextWorktrees.ok)
+        return nextWorktrees;
+    const createdWorktree = nextWorktrees.data.worktrees.find((worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(destination.data.destinationPath));
+    if (!createdWorktree) {
+        return {
+            ok: false,
+            message: `Git created the worktree, but it was not reported by "git worktree list": ${destination.data.destinationPath}`,
+            stdout: addResult.stdout,
+            stderr: addResult.stderr,
+        };
+    }
+    return {
+        ok: true,
+        data: createdWorktree,
+        message: null,
+        stdout: addResult.stdout,
+        stderr: addResult.stderr,
+    };
+}
+export async function removeGitWorktree(input) {
+    const root = await resolveRepoRoot(input.repoRoot);
+    if (!root.ok)
+        return root;
+    const worktreePath = input.path;
+    const worktrees = await listGitWorktrees(root.data);
+    if (!worktrees.ok)
+        return worktrees;
+    const registeredWorktree = worktrees.data.worktrees.find((worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath));
+    if (!registeredWorktree) {
+        return {
+            ok: false,
+            message: `Worktree is not registered for this repository: ${worktreePath}`,
+        };
+    }
+    if (!(await pathExists(worktreePath))) {
+        return {
+            ok: false,
+            message: `Worktree path is missing: ${worktreePath}. Run worktree prune to clean up stale Git metadata.`,
+        };
+    }
+    if (!input.force) {
+        const statusResult = await runGitCommand(worktreePath, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+        if (!statusResult.ok) {
+            return {
+                ok: false,
+                message: statusResult.message ?? 'Unable to check whether the worktree is clean.',
+                stdout: statusResult.stdout,
+                stderr: statusResult.stderr,
+            };
+        }
+        if (statusResult.stdout.length > 0) {
+            return {
+                ok: false,
+                message: `Worktree has uncommitted changes: ${worktreePath}. Commit, stash, discard changes, or retry with force.`,
+                stdout: statusResult.stdout,
+                stderr: statusResult.stderr,
+            };
+        }
+    }
+    const removeResult = await runGitCommand(root.data, [
+        'worktree',
+        'remove',
+        ...(input.force ? ['--force'] : []),
+        worktreePath,
+    ]);
+    return toWorktreeResult(removeResult, removeResult);
+}
+export async function pruneGitWorktrees(repoRoot) {
+    const root = await resolveRepoRoot(repoRoot);
+    if (!root.ok)
+        return root;
+    const result = await runGitCommand(root.data, ['worktree', 'prune']);
+    return toWorktreeResult(result, result);
+}
+export async function repairGitWorktrees(input) {
+    const root = await resolveRepoRoot(input.repoRoot);
+    if (!root.ok)
+        return root;
+    const worktreePath = input.path?.trim() ? resolve(input.path) : null;
+    const result = await runGitCommand(root.data, [
+        'worktree',
+        'repair',
+        ...(worktreePath ? [worktreePath] : []),
+    ]);
+    return toWorktreeResult(result, result);
+}
+export async function getGitFileBase(repoRoot, filePath) {
+    const absolutePath = isAbsolute(filePath) ? filePath : resolve(filePath);
+    if (!isInsideRepo(repoRoot, absolutePath) && dirname(absolutePath) !== repoRoot) {
+        return { ok: false, message: 'File is outside the Git repository.' };
+    }
+    try {
+        const relativePath = getRelativeGitPath(repoRoot, absolutePath);
+        const content = await runGit(repoRoot, ['show', `HEAD:${relativePath}`]);
+        return { ok: true, content };
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { ok: false, message };
+    }
+}
+// Read the file 5 MiB cap mirrors the renderer's editor read limit: past this
+// the diff viewer degrades to a clear "too large" message rather than hanging.
+const GIT_FILE_STAGE_MAX_BYTES = 5 * 1024 * 1024;
+// Returns the file's stored content at a given Git stage for the diff viewer.
+// A missing object (new file has no HEAD/index entry; a deleted file has no
+// index entry) is not an error here — it resolves to `exists: false` with empty
+// content so the viewer can render an empty pane. Binary and oversized objects
+// are reported via flags instead of returning their bytes as text.
+export async function getGitFileAtStage(repoRoot, filePath, stage) {
+    const absolutePath = isAbsolute(filePath) ? filePath : resolve(filePath);
+    if (!isInsideRepo(repoRoot, absolutePath) && dirname(absolutePath) !== repoRoot) {
+        return { ok: false, message: 'File is outside the Git repository.' };
+    }
+    const relativePath = getRelativeGitPath(repoRoot, absolutePath);
+    const ref = stage === 'head' ? `HEAD:${relativePath}` : `:0:${relativePath}`;
+    // `cat-file -s` resolves both existence and size in one cheap call: it fails
+    // when the object is absent at this stage, and prints the byte size when present.
+    const sizeResult = await runGitCommand(repoRoot, ['cat-file', '-s', ref]);
+    if (!sizeResult.ok) {
+        return { ok: true, exists: false, content: '', binary: false, tooLarge: false };
+    }
+    const size = Number.parseInt(sizeResult.stdout.trim(), 10);
+    if (Number.isFinite(size) && size > GIT_FILE_STAGE_MAX_BYTES) {
+        return { ok: true, exists: true, content: '', binary: false, tooLarge: true };
+    }
+    try {
+        const content = await runGit(repoRoot, ['show', ref]);
+        const binary = content.includes('\u0000');
+        return { ok: true, exists: true, content: binary ? '' : content, binary, tooLarge: false };
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { ok: false, message };
+    }
+}
+function normalizeConflictFilePath(repoRoot, filePath) {
+    const absolutePath = isAbsolute(filePath) ? filePath : toAbsolutePath(repoRoot, toPosixPath(filePath));
+    if (!isInsideRepo(repoRoot, absolutePath) && dirname(absolutePath) !== repoRoot)
+        return null;
+    return {
+        absolutePath,
+        relativePath: getRelativeGitPath(repoRoot, absolutePath),
+    };
+}
+export async function getGitConflicts(repoRoot) {
+    const snapshot = await getGitStatus(repoRoot);
+    const files = Object.values(snapshot.files)
+        .filter((entry) => entry.status === 'conflicted')
+        .sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+        .map((entry) => ({
+        path: entry.path,
+        relativePath: entry.relativePath,
+        status: 'conflicted',
+    }));
+    return {
+        repoRoot: snapshot.repoRoot,
+        files,
+        updatedAt: Date.now(),
+    };
+}
+async function getGitConflictStage(repoRoot, stage, relativePath) {
+    const result = await runGitCommand(repoRoot, ['show', `:${stage}:${relativePath}`]);
+    return result.ok ? result.stdout : null;
+}
+export async function getGitConflictFile(repoRoot, filePath) {
+    const normalized = normalizeConflictFilePath(repoRoot, filePath);
+    if (!normalized)
+        return null;
+    const [base, ours, theirs] = await Promise.all([
+        getGitConflictStage(repoRoot, 1, normalized.relativePath),
+        getGitConflictStage(repoRoot, 2, normalized.relativePath),
+        getGitConflictStage(repoRoot, 3, normalized.relativePath),
+    ]);
+    let result = '';
+    try {
+        result = await readFile(toFilesystemPath(normalized.absolutePath), 'utf8');
+    }
+    catch {
+        result = '';
+    }
+    return {
+        path: normalized.absolutePath,
+        relativePath: normalized.relativePath,
+        base,
+        ours,
+        theirs,
+        result,
+    };
+}
+export async function resolveGitConflict(repoRoot, filePath, content) {
+    const normalized = normalizeConflictFilePath(repoRoot, filePath);
+    if (!normalized) {
+        return { ok: false, stdout: '', stderr: '', message: 'File is outside the Git repository.' };
+    }
+    await writeFile(toFilesystemPath(normalized.absolutePath), content, 'utf8');
+    return runGitCommand(repoRoot, ['add', '--', normalized.relativePath]);
+}
+// The two managed MCP-config files a per-spawn sync writes into a worktree root:
+// Claude's `.mcp.json` and Codex's `.codex/config.toml`. Excluded from a
+// connector worktree's git so the generated, machine-specific config never shows
+// up in the connector chat's `git status` or commits.
+export const MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES = ['.mcp.json', '.codex/config.toml'];
+/**
+ * Append each of {@link entries} to a worktree's git exclude file so those paths
+ * are never staged. The exclude path is resolved via
+ * `git rev-parse --git-path info/exclude` — for a linked worktree git reads the
+ * shared common-dir exclude, not a per-worktree one, so resolving it is the only
+ * reliable way to land the entries where git will honor them. Idempotent per
+ * entry: an already-present line is not duplicated. Throws if git or the write
+ * fails.
+ */
+export async function appendWorktreeGitExcludes(worktreePath, entries) {
+    const resolved = await runGitCommand(worktreePath, ['rev-parse', '--git-path', 'info/exclude']);
+    if (!resolved.ok) {
+        throw new Error(resolved.message ?? 'git rev-parse --git-path info/exclude failed.');
+    }
+    const rawPath = resolved.stdout.trim();
+    if (!rawPath)
+        throw new Error('git returned an empty exclude path.');
+    const excludePath = isAbsolute(rawPath) ? rawPath : resolve(worktreePath, rawPath);
+    let existing = '';
+    try {
+        existing = await readFile(excludePath, 'utf8');
+    }
+    catch {
+        // No exclude file yet; appendFile creates it below.
+    }
+    const present = new Set(existing.split('\n').map((line) => line.trim()));
+    const missing = entries.filter((entry) => !present.has(entry));
+    if (missing.length === 0)
+        return;
+    await mkdir(dirname(excludePath), { recursive: true });
+    const separator = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
+    await appendFile(excludePath, `${separator}${missing.join('\n')}\n`, 'utf8');
+}
+/**
+ * Keep the generated managed MCP config ({@link MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES})
+ * out of a connector worktree's git. Best-effort at the call site: the caller
+ * swallows failures so a launch is never blocked by an exclude write.
+ */
+export async function excludeMcpConfigFromWorktree(worktreePath) {
+    await appendWorktreeGitExcludes(worktreePath, MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES);
+}
