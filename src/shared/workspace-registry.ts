@@ -20,6 +20,7 @@
  * (`src/renderer/src/store/slices/normalizers.ts`), which is the authoritative
  * statement of what survives a restart today — it is not invented here.
  */
+import { isDefaultWorkspaceName } from './workspace-title'
 import type {
   AgentState,
   Workspace,
@@ -350,13 +351,19 @@ export function parseWorkspaceRegistryRecord(raw: unknown): RecordParse {
   const revision = typeof raw.revision === 'number' && Number.isInteger(raw.revision) && raw.revision >= 0
     ? raw.revision
     : 0
-  return {
-    record: {
-      ...(raw as unknown as Workspace),
-      revision,
-      fieldEditedAt: normalizeFieldStamps(raw.fieldEditedAt),
-    },
+  const record: WorkspaceRegistryRecord = {
+    ...(raw as unknown as Workspace),
+    revision,
+    fieldEditedAt: normalizeFieldStamps(raw.fieldEditedAt),
   }
+  // Heal a lock that contradicts the name. Between 2026-07-29 and 2026-09-01 the
+  // creation paths locked every New chat at birth (an equality test against the
+  // wrong ordinal), so on disk "Chat 63" sits with `titleLocked: true` and the
+  // first prompt can never name it. A default-shaped name has nothing worth
+  // protecting, so the lock is dropped on read; the auto-title re-locks it with
+  // a real name, which is the state the record should have reached.
+  if (record.titleLocked && isDefaultWorkspaceName(record.name)) delete record.titleLocked
+  return { record }
 }
 
 export function normalizeFieldStamps(raw: unknown): WorkspaceRegistryFieldStamps {

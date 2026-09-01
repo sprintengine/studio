@@ -1058,6 +1058,21 @@ assert.equal(lockedOf(autoId), true, 'auto-titling locks the name')
 useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(autoId, 'now migrate the settings store')
 assert.equal(nameOf(autoId), 'Fix the git stash panel dropping', 'a later prompt never retitles')
 
+// The New chat button names the workspace itself, with a per-folder ordinal
+// that never matches the store's own global fallback. That name is still the
+// app's, not the person's, so it must stay open for the first prompt — this is
+// the path the sidebar actually takes, and the one that shipped locked.
+const buttonNamedId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Chat 63',
+  folderPath: '/Users/example/button-named',
+  background: true,
+})
+assert.equal(nameOf(buttonNamedId), 'Chat 63')
+assert.notEqual(lockedOf(buttonNamedId), true, 'an app-minted "Chat N" name starts unlocked')
+useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(buttonNamedId, 'have a look at all the chat titles')
+assert.equal(nameOf(buttonNamedId), 'Have a look at all the', 'the first prompt names a button-created chat')
+assert.equal(lockedOf(buttonNamedId), true)
+
 // A workspace created WITH a name is locked from birth.
 const namedId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   name: 'Release prep',

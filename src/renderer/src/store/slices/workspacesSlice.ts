@@ -72,7 +72,7 @@ import {
   REVIEWS_HOST_WORKSPACE_MODE,
 } from '../../types/workspace'
 import type { ReviewWorkspaceState } from '../../types/workspace'
-import { deriveWorkspaceTitle } from '../../../../shared/workspace-title'
+import { deriveWorkspaceTitle, isDefaultWorkspaceName } from '../../../../shared/workspace-title'
 import { SPRINT_ENGINE_MODULE_ID, reconcileWorkspaceModuleState } from './workspaceModuleState'
 // TerminalSessionSnapshot is a global ambient type from src/renderer/src/env.d.ts.
 
@@ -1104,11 +1104,14 @@ export function createWorkspacesSlice(
         const workspaceName = sprintEngineState
           ? sprintEngineState.name
           : options?.name?.trim() || fallbackName
-        // Only a workspace left on the generic `fallbackName` ("Chat 44") is a
+        // Only a workspace on an app-minted name ("Chat 44", "Solo 3") is a
         // candidate for auto-titling. A sprint roster name, a wizard-typed name,
         // or a chained run's name is already meaningful and is locked here so the
-        // first prompt never overwrites it.
-        const titleLocked = workspaceName !== fallbackName
+        // first prompt never overwrites it. A SHAPE test, deliberately: the New
+        // chat button passes its own per-folder ordinal ("Chat 63") while
+        // `fallbackName` numbers globally, so comparing the two strings locked
+        // every new chat at birth and the first prompt never named anything.
+        const titleLocked = !isDefaultWorkspaceName(workspaceName, template.name)
         const agents: Workspace['agents'] = {}
         const sprintEngineRoleCliDefaults = sprintEngineState
           ? deps.normalizeSprintEngineRoleCliDefaults(options?.sprintEngineRoleCliDefaults)

@@ -17,6 +17,34 @@
  */
 
 /**
+ * Name stems the APP mints for a fresh chat, never a person. The sidebar's New
+ * chat button names a workspace "Chat" / "Chat 63" (a per-folder ordinal); a
+ * headless create names it after its layout template ("Solo 12", "New chat 3").
+ */
+const DEFAULT_WORKSPACE_NAME_STEMS = ['chat', 'new chat']
+
+/**
+ * True when `name` is one the app minted rather than one a person chose: the
+ * stem alone or the stem followed by an ordinal ("Chat", "Chat 63", "Solo 4").
+ * `templateName` adds the layout template's own stem, since a headless create
+ * numbers off that.
+ *
+ * This is THE test for "is this workspace still a candidate for auto-titling".
+ * It has to be a shape test, not an equality test against whatever ordinal the
+ * caller would have minted: the New chat button numbers per folder while the
+ * store numbers globally, and comparing the two locked every new chat at birth
+ * so the first prompt never renamed anything.
+ */
+export function isDefaultWorkspaceName(name: string, templateName?: string | null): boolean {
+  const trimmed = typeof name === 'string' ? name.trim().toLowerCase() : ''
+  if (!trimmed) return false
+  const stems = [...DEFAULT_WORKSPACE_NAME_STEMS]
+  const template = typeof templateName === 'string' ? templateName.trim().toLowerCase() : ''
+  if (template) stems.push(template)
+  return stems.some((stem) => trimmed === stem || new RegExp(`^${escapeRegExp(stem)} \\d+$`).test(trimmed))
+}
+
+/**
  * Hard cap on a derived title. Sized to the sidebar row, which truncates around
  * here anyway — a longer title buys no information, only an ellipsis.
  */

@@ -75,6 +75,11 @@ test('an explicitly named workspace locks its title at creation', () => {
   try {
     assert.equal(create(h, { name: 'Named' }).workspace.titleLocked, true)
     assert.equal(create(h, {}).workspace.titleLocked, undefined, 'a default name stays auto-titleable')
+    assert.equal(
+      create(h, { name: 'Chat 63' }).workspace.titleLocked,
+      undefined,
+      'an app-minted "Chat N" name passed explicitly is still a default name',
+    )
   } finally {
     h.cleanup()
   }

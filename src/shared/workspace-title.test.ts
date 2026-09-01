@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   MAX_WORKSPACE_TITLE_LENGTH,
   deriveWorkspaceTitle,
+  isDefaultWorkspaceName,
   stripInjectedFragments,
 } from './workspace-title'
 
@@ -10,6 +11,26 @@ const tests: Array<{ name: string; body: () => void }> = []
 function run(name: string, body: () => void): void {
   tests.push({ name, body })
 }
+
+run('recognises the names the app mints for a new chat', () => {
+  // The New chat button: "Chat", then a per-folder ordinal.
+  assert.equal(isDefaultWorkspaceName('Chat'), true)
+  assert.equal(isDefaultWorkspaceName('Chat 63'), true)
+  assert.equal(isDefaultWorkspaceName('  chat 7 '), true, 'case and whitespace are not signal')
+  assert.equal(isDefaultWorkspaceName('New chat 3'), true)
+  // A headless create numbers off its layout template.
+  assert.equal(isDefaultWorkspaceName('Solo 12', 'Solo'), true)
+  assert.equal(isDefaultWorkspaceName('Solo 12'), false, 'a template stem counts only when named')
+})
+
+run('never mistakes a chosen name for a minted one', () => {
+  assert.equal(isDefaultWorkspaceName('Release prep'), false)
+  assert.equal(isDefaultWorkspaceName('Chat about auth'), false, 'a stem with words after it is a topic')
+  assert.equal(isDefaultWorkspaceName('Chat63'), false)
+  assert.equal(isDefaultWorkspaceName('Chat 6 3'), false)
+  assert.equal(isDefaultWorkspaceName(''), false)
+  assert.equal(isDefaultWorkspaceName('Sprint Roster', 'Solo'), false)
+})
 
 run('derives a title from an ordinary typed request', () => {
   assert.equal(

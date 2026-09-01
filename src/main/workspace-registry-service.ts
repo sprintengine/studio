@@ -43,6 +43,7 @@ import {
   type WorkspaceRegistryTombstone,
 } from '../shared/workspace-registry'
 import { resolveHeadlessLayoutTemplate } from '../shared/layouts/templates'
+import { isDefaultWorkspaceName } from '../shared/workspace-title'
 import { applyWorkspaceSyncEvent, type WorkspaceSyncCommand, type WorkspaceSyncEvent, type WorkspaceSyncState } from '../shared/workspace-sync'
 import type { Workspace, WorkspaceId, WorkspaceMode, WorkspaceWindowId } from '../renderer/src/types/workspace'
 import type { WorkspaceRegistryStore } from './workspace-registry-store'
@@ -355,10 +356,12 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
     const workspace: Workspace = {
       id: newWorkspaceId(),
       name,
-      // A workspace given an explicit name is already meaningful, so the title
-      // is locked at creation and the first prompt never auto-titles over it —
-      // the same rule the renderer's creation path applies.
-      ...(normalizeOptionalString(input.name) ? { titleLocked: true } : {}),
+      // A workspace given a meaningful name locks its title at creation so the
+      // first prompt never auto-titles over it — the same rule the renderer's
+      // creation path applies. An app-minted name ("Chat 63" from the New chat
+      // button, "Solo 4" from a headless create) is NOT meaningful and stays
+      // open for the first prompt to name.
+      ...(isDefaultWorkspaceName(name, template.name) ? {} : { titleLocked: true }),
       mode: input.mode ?? 'standard',
       folderPath,
       folderMissing: false,

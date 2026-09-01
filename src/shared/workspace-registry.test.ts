@@ -66,6 +66,26 @@ test('a registry file round-trips through serialize and parse', () => {
   assert.deepEqual(parsed.droppedRecords, [])
 })
 
+test('a default-named record locked at birth is healed on read', () => {
+  // Between 2026-07-29 and 2026-09-01 every New chat was persisted as
+  // "Chat N" + titleLocked, so the first prompt could never name it.
+  const file: WorkspaceRegistryFile = {
+    ...emptyWorkspaceRegistryFile(5_000),
+    revision: 3,
+    workspaces: [
+      toWorkspaceRegistryRecord(workspace({ id: 'ws-chat', name: 'Chat 63', titleLocked: true }), 3),
+      toWorkspaceRegistryRecord(workspace({ id: 'ws-named', name: 'Release prep', titleLocked: true }), 3),
+      toWorkspaceRegistryRecord(workspace({ id: 'ws-renamed', name: 'jean', titleLocked: true }), 3),
+    ],
+  }
+  const parsed = parseWorkspaceRegistryFile(JSON.parse(serializeWorkspaceRegistryFile(file)))
+  assert.ok(parsed)
+  const byId = new Map(parsed.file.workspaces.map((record) => [record.id, record]))
+  assert.equal(byId.get('ws-chat')?.titleLocked, undefined, 'a "Chat N" lock is dropped so the first prompt can name it')
+  assert.equal(byId.get('ws-named')?.titleLocked, true, 'a chosen name keeps its lock')
+  assert.equal(byId.get('ws-renamed')?.titleLocked, true, 'a hand rename keeps its lock')
+})
+
 test('an unknown schemaVersion parses to null rather than being half-read', () => {
   const file = { ...emptyWorkspaceRegistryFile(0), schemaVersion: WORKSPACE_REGISTRY_SCHEMA_VERSION + 1 }
   assert.equal(parseWorkspaceRegistryFile(file), null)
