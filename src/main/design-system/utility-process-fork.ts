@@ -4,7 +4,7 @@ import { bundleScriptEnv } from './bundle-script-env'
 import type { BundleScriptExit, BundleScriptFork } from './derived-file-runner'
 
 // Bundle generator scripts run in an Electron utility process, never in the
-// main process itself — the same trust boundary as the bypass_all designer
+// main process itself — the same trust boundary as the bypass designer
 // session that authored them. Verified against Electron 41: utilityProcess
 // forks bundle-local .mjs entry points, and the scripts terminate themselves
 // with an explicit flush-then-exit (the parent IPC port would otherwise keep

@@ -111,7 +111,7 @@ const guidedDefaults = {
     tester: 'codex' as const,
     security: 'codex' as const,
   },
-  buildCliPermissionPreset: 'default' as const,
+  buildCliPermissionPreset: 'manual' as const,
   buildStartRunner: true,
   buildAutoApproveArtifacts: false,
 }

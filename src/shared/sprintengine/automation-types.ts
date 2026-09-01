@@ -7,7 +7,15 @@
  * modules. Everything here is data-shape only — no runtime dependencies.
  */
 
-export type SprintEngineCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
+export type SprintEngineCliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
+
+/**
+ * Spellings written before MC-2210. Accepted forever on read (persisted
+ * settings, saved automations, third-party plugin manifests, external MCP
+ * callers) and never emitted. `normalizeCliPermissionPreset` is the one place
+ * that maps them.
+ */
+export type LegacyCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
 export type SprintEngineAutomationMode = 'manual' | 'run_agents' | 'run_agents_and_approve_artifacts'
 export type SprintEngineAutomationDesiredMode = SprintEngineAutomationMode
 export type SprintEngineAutomationRuntimeState =

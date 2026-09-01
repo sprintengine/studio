@@ -131,9 +131,10 @@ function projectName(workspaceRoot: string): string {
 // preset added to the union without a label here would otherwise blank the
 // aside's row rather than fail the build.
 const PERMISSION_LABEL: Record<AutomationCliPermissionPreset, string> = {
-  default: 'Default — asks before acting',
-  auto_workspace: 'Auto in workspace — fewer prompts',
-  bypass_all: 'Bypass all — runs unattended',
+  none: 'CLI default — whatever the CLI does',
+  manual: 'Manual — asks before acting',
+  auto: 'Auto — fewer prompts, CLI-supervised',
+  bypass: 'Bypass all — runs unattended',
 }
 
 // `action.config` is provider-owned `unknown` — a third-party action may put

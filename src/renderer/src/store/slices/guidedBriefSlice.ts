@@ -278,11 +278,12 @@ export function normalizeGuidedBriefState(input: unknown): GuidedBriefRuntimeSta
     candidate.buildRoleCounts,
     defaultGuidedBriefBuildRoleCounts(candidate.hasUi)
   )
-  const buildCliPermissionPreset = candidate.buildCliPermissionPreset === 'default'
-    || candidate.buildCliPermissionPreset === 'auto_workspace'
-    || candidate.buildCliPermissionPreset === 'bypass_all'
+  const buildCliPermissionPreset = candidate.buildCliPermissionPreset === 'none'
+    || candidate.buildCliPermissionPreset === 'manual'
+    || candidate.buildCliPermissionPreset === 'auto'
+    || candidate.buildCliPermissionPreset === 'bypass'
     ? candidate.buildCliPermissionPreset
-    : 'default'
+    : 'manual'
 
   return {
     workspaceRoot: candidate.workspaceRoot,

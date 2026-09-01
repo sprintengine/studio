@@ -673,14 +673,14 @@ async function main(): Promise<void> {
     const h = harness()
     const result = await h.service.createSprint(request({
       goal: 'Ship checkout',
-      permissionPreset: 'bypass_all',
+      permissionPreset: 'bypass',
     }))
     assert.equal(result.ok, true, !result.ok ? result.message : '')
     assert.equal(
       workspaceById(h, result.ok ? result.workspaceId : undefined).sprintEngineAutoState?.cliPermissionPreset,
-      'default',
+      'manual',
     )
-    assert.deepEqual(h.presets, [{ statePath: h.initCalls[0].statePath, preset: 'default' }])
+    assert.deepEqual(h.presets, [{ statePath: h.initCalls[0].statePath, preset: 'manual' }])
   })
 
   await check('a plan-sourced run spawns in bypass unless its caller says otherwise', async () => {
@@ -691,18 +691,18 @@ async function main(): Promise<void> {
     assert.equal(unstated.ok, true, !unstated.ok ? unstated.message : '')
     assert.equal(
       workspaceById(h, unstated.ok ? unstated.workspaceId : undefined).sprintEngineAutoState?.cliPermissionPreset,
-      'bypass_all',
+      'bypass',
     )
 
     h.reset()
     const stated = await h.service.createSprint(request({
       sourceRelativePath: LOOSE_REF,
-      permissionPreset: 'default',
+      permissionPreset: 'manual',
     }))
     assert.equal(stated.ok, true, !stated.ok ? stated.message : '')
     assert.equal(
       workspaceById(h, stated.ok ? stated.workspaceId : undefined).sprintEngineAutoState?.cliPermissionPreset,
-      'default',
+      'manual',
     )
   })
 

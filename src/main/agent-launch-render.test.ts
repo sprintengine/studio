@@ -347,7 +347,7 @@ function testClaudeCodeRenderWithBypass(): void {
     cli: 'claude-code',
     sessionId: 'sid_42',
     initialPrompt: 'build the auth flow',
-    cliPermissionPreset: 'bypass_all',
+    cliPermissionPreset: 'bypass',
   })
   assert.deepEqual(out.argv, [
     'claude',
@@ -383,7 +383,7 @@ function testClaudeCodeRenderWithModel(): void {
     cli: 'claude-code',
     sessionId: 'sid_m1',
     cliModel: 'opus',
-    cliPermissionPreset: 'bypass_all',
+    cliPermissionPreset: 'bypass',
   })
   assert.deepEqual(out.argv, [
     'claude',
@@ -448,7 +448,7 @@ function testCodexRenderWithAutoWorkspace(): void {
     cli: 'codex',
     sessionId: 'sid_y',
     initialPrompt: 'fix it',
-    cliPermissionPreset: 'auto_workspace',
+    cliPermissionPreset: 'auto',
   })
   assert.deepEqual(out.argv, [
     'codex',
@@ -492,7 +492,7 @@ function testOpenCodeRenderDefault(): void {
   assert.equal(out.binary, 'opencode')
 }
 
-// OpenCode bypass + model: the bypass_all preset adds
+// OpenCode bypass + model: the bypass preset adds
 // --auto (OpenCode's only permission flag; MC-2214 corrected this from the
 // non-existent --dangerously-skip-permissions) and modelSelection adds --model <id>, both
 // ahead of the positional prompt (launch.argv order: binary, run,
@@ -502,7 +502,7 @@ function testOpenCodeRenderWithBypassAndModel(): void {
     cli: 'opencode',
     sessionId: 'sid_oc2',
     initialPrompt: 'build the auth flow',
-    cliPermissionPreset: 'bypass_all',
+    cliPermissionPreset: 'bypass',
     cliModel: 'anthropic/claude-opus-4',
   })
   assert.deepEqual(out.argv, [
@@ -568,7 +568,7 @@ function testBuildAgentShellCommandClaudeCode(): void {
     cli: 'claude-code',
     sessionId: 'sid_42',
     initialPrompt: 'hello there',
-    cliPermissionPreset: 'bypass_all',
+    cliPermissionPreset: 'bypass',
   })
   assert.equal(
     out,
@@ -607,7 +607,7 @@ function testRenderArgvIncludesBinaryAsFirstElement(): void {
     cli: 'claude-code',
     sessionId: 'sid_win',
     initialPrompt: 'do it',
-    cliPermissionPreset: 'auto_workspace',
+    cliPermissionPreset: 'auto',
   })
   assert.equal(claude.argv[0], 'claude')
   assert.deepEqual(claude.argv.slice(1), [
@@ -632,7 +632,7 @@ function testBuildAgentShellCommandCodex(): void {
     cli: 'codex',
     sessionId: 'sid_y',
     initialPrompt: 'fix it',
-    cliPermissionPreset: 'auto_workspace',
+    cliPermissionPreset: 'auto',
   })
   assert.equal(
     out,
@@ -759,7 +759,7 @@ function testResolveDebugSkillInvocation(): void {
 // always the trailing argv element, so comparing argv.slice(0, -1) isolates the
 // permission surface.
 function testDebugModeOrthogonality(): void {
-  const presets: SprintEngineCliPermissionPreset[] = ['default', 'auto_workspace', 'bypass_all']
+  const presets: SprintEngineCliPermissionPreset[] = ['default', 'auto', 'bypass']
   const prompt = 'investigate the crash'
   for (const cli of ['claude-code', 'codex'] as const) {
     for (const preset of presets) {
@@ -817,7 +817,7 @@ function testDebugDirectiveReachesRenderedArgvAllPaths(): void {
     cli: 'claude-code',
     sessionId: 'sid_path',
     initialPrompt: interactivePrompt,
-    cliPermissionPreset: 'bypass_all',
+    cliPermissionPreset: 'bypass',
     debugMode: true,
   })
   // Posix quoting single-quotes the whole prompt token and escapes the
@@ -896,7 +896,7 @@ function testCodexLegacyWindowsReasoning(): void {
 // when debugMode is on, and (b) keep launch/permission args byte-identical with
 // debug on vs off — the same orthogonality invariant the shared paths hold.
 function testCodexLegacyWindowsDebugInjection(): void {
-  const presets: SprintEngineCliPermissionPreset[] = ['default', 'auto_workspace', 'bypass_all']
+  const presets: SprintEngineCliPermissionPreset[] = ['default', 'auto', 'bypass']
   const cwd = 'C:/work/repo'
   const runtime = { command: '', useWsl: false }
   const prompt = 'investigate the crash'
@@ -979,8 +979,8 @@ function testCodexLegacyWindowsDebugInjection(): void {
 function testLaunchPreviewMatchesTheLaunchItPreviews(): void {
   const cases: Array<{ cli: 'claude-code' | 'codex' | 'opencode'; model?: string; preset?: SprintEngineCliPermissionPreset }> = [
     { cli: 'claude-code' },
-    { cli: 'claude-code', preset: 'bypass_all', model: 'claude-opus-5' },
-    { cli: 'codex', preset: 'auto_workspace' },
+    { cli: 'claude-code', preset: 'bypass', model: 'claude-opus-5' },
+    { cli: 'codex', preset: 'auto' },
     { cli: 'opencode', model: 'anthropic/claude-opus-5' },
   ]
 
@@ -1018,7 +1018,7 @@ function testLaunchPreviewMatchesTheLaunchItPreviews(): void {
 function testLaunchPreviewCarriesEveryControlOnTheRow(): void {
   const base = renderAgentLaunchPreview({ cli: 'claude-code' })
 
-  const bypassed = renderAgentLaunchPreview({ cli: 'claude-code', cliPermissionPreset: 'bypass_all' })
+  const bypassed = renderAgentLaunchPreview({ cli: 'claude-code', cliPermissionPreset: 'bypass' })
   assert.ok(
     bypassed.args.includes('--permission-mode') && bypassed.args.includes('bypassPermissions'),
     'approval reaches the line as the flag it becomes',

@@ -8,8 +8,8 @@
   "icon": "icon.svg",
   "binary": "sh",
   "permissionPresets": {
-    "default": {
-      "label": "Default",
+    "manual": {
+      "label": "Manual",
       "args": []
     }
   },

@@ -9,7 +9,24 @@ import type {
   AutomationRunIsolation,
 } from '../../../shared/automations/contracts'
 
-const PERMISSION_PRESETS: readonly AutomationCliPermissionPreset[] = ['default', 'auto_workspace', 'bypass_all']
+const PERMISSION_PRESETS: readonly AutomationCliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
+
+// Pre-MC-2210 spellings. An automation saved before the rename still carries
+// one, and rejecting it would break a definition nobody edited, so they stay
+// accepted on read (and in the config schema, which validates saved definitions
+// as well as new ones) and are normalized to the canonical name. `default` maps
+// to `manual`, matching normalizeCliPermissionPreset: it was the "asks before
+// acting" option in the UI, and it also served as the no-override sentinel.
+const LEGACY_PERMISSION_PRESETS: Readonly<Record<string, AutomationCliPermissionPreset>> = {
+  default: 'manual',
+  auto_workspace: 'auto',
+  bypass_all: 'bypass',
+}
+
+function normalizeAutomationPermissionPreset(value: string): AutomationCliPermissionPreset | undefined {
+  if ((PERMISSION_PRESETS as readonly string[]).includes(value)) return value as AutomationCliPermissionPreset
+  return LEGACY_PERMISSION_PRESETS[value]
+}
 
 export type SpawnAgentConfig = {
   folderPath?: string
@@ -70,7 +87,7 @@ export function createSpawnAgentActionProvider(): AutomationActionProvider {
         workspaceId: { type: 'string', minLength: 1 },
         cli: { type: 'string', minLength: 1 },
         cliModel: { type: 'string', minLength: 1 },
-        permissionPreset: { type: 'string', enum: [...PERMISSION_PRESETS] },
+        permissionPreset: { type: 'string', enum: [...PERMISSION_PRESETS, ...Object.keys(LEGACY_PERMISSION_PRESETS)] },
         specialistId: { type: 'string', minLength: 1 },
         name: { type: 'string', minLength: 1 },
         prompt: { type: 'string', minLength: 1 },
@@ -160,8 +177,11 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
     throw new Error('spawn-agent requiredIntegrations must be non-empty strings.')
   }
 
-  const permissionPreset = optionalString(config.permissionPreset)
-  if (permissionPreset !== undefined && !PERMISSION_PRESETS.includes(permissionPreset as AutomationCliPermissionPreset)) {
+  const rawPermissionPreset = optionalString(config.permissionPreset)
+  const permissionPreset = rawPermissionPreset === undefined
+    ? undefined
+    : normalizeAutomationPermissionPreset(rawPermissionPreset)
+  if (rawPermissionPreset !== undefined && permissionPreset === undefined) {
     throw new Error(`spawn-agent permissionPreset must be one of: ${PERMISSION_PRESETS.join(', ')}.`)
   }
 

@@ -21,7 +21,7 @@ function record(overrides: Partial<AgentLaunchRecord> = {}): AgentLaunchRecord {
     agentId: 'agent-claude-code-abc123',
     name: 'Scout',
     cli: 'claude-code',
-    cliPermissionPreset: 'auto_workspace',
+    cliPermissionPreset: 'auto',
     kind: 'general',
     ...overrides,
   }
@@ -63,7 +63,7 @@ run('a main-launched session projects one agent, complete', () => {
   assert.equal(projected[0]!.agentId, 'agent-claude-code-abc123')
   assert.equal(projected[0]!.agent.name, 'Scout')
   assert.equal(projected[0]!.agent.cli, 'claude-code')
-  assert.equal(projected[0]!.agent.cliPermissionPreset, 'auto_workspace')
+  assert.equal(projected[0]!.agent.cliPermissionPreset, 'auto')
 })
 
 run('the projected record attaches instead of launching a second process', () => {

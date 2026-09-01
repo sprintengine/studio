@@ -288,7 +288,7 @@ if (result.ok) {
   assert.equal(result.session.markerDetection.artifactPath, 'product/requirements.md')
   assert.equal(
     api.spawned[0]?.metadata?.cliPermissionPreset,
-    'bypass_all',
+    'bypass',
     'guided brief strategist sessions request bypass-all CLI permissions (no per-tool prompts mid-interview)',
   )
 
@@ -327,7 +327,7 @@ if (architectResult.ok) {
   assert.equal(architectResult.session.markerDetection.artifactPath, 'architecture/plan.md')
   assert.equal(
     architectApi.spawned[0]?.metadata?.cliPermissionPreset,
-    'bypass_all',
+    'bypass',
     'guided brief architect sessions request bypass-all CLI permissions',
   )
 }
@@ -351,13 +351,13 @@ if (reattachResult.ok) {
   assert.equal(reattachApi.spawned[0]?.sessionId, 'persisted-designer-id', 'persisted sessionId is reused, not regenerated')
   assert.equal(
     reattachApi.spawned[0]?.metadata?.cliPermissionPreset,
-    'bypass_all',
+    'bypass',
     'guided brief designer sessions request bypass-all CLI permissions (every specialist gets the same preset)',
   )
   assert.equal(reattachResult.session.sessionId, 'persisted-designer-id', 'session exposes the persisted id back to the hook')
 }
 
-// Design-system designer session: same shared spawn path (bypass_all), but
+// Design-system designer session: same shared spawn path (bypass), but
 // the readiness marker and watched artifact are the bundle's, not mockups'.
 const designSystemApi = createTerminalApi()
 const designSystemMarkers: string[] = []
@@ -383,7 +383,7 @@ if (designSystemResult.ok) {
   assert.equal(designSystemResult.session.markerDetection.artifactPath, 'design-system/design-system.json')
   assert.equal(
     designSystemApi.spawned[0]?.metadata?.cliPermissionPreset,
-    'bypass_all',
+    'bypass',
     'design-system designer sessions keep the shared bypass-all spawn path',
   )
   designSystemApi.emitData(designSystemResult.session.sessionId, 'working\nDESIGN_SYSTEM_READY\n')

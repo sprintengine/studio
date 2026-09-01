@@ -34,6 +34,7 @@ import {
 } from '../shared/sprintengine/automation-types'
 import {
   isSprintEngineAutomationMode,
+  normalizeCliPermissionPreset,
   sprintEngineCliWatchPollingForAutomationMode,
 } from '../shared/sprintengine/automation-lifecycle'
 import {
@@ -300,12 +301,16 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
       if (!isSprintEngineCliPermissionPreset(input.preset)) {
         return { ok: false, message: `Unknown CLI permission preset: ${String(input.preset)}` }
       }
+      // A legacy spelling is accepted above and canonicalized here, so nothing
+      // downstream — the record, the broadcast, the idempotence check below —
+      // ever sees a pre-MC-2210 name.
+      const preset = normalizeCliPermissionPreset(input.preset)
       const paths = automationIntentPathForState(input.statePath)
       if (!paths) return { ok: false, message: 'Sprint run state path is not a writable run.yaml location.' }
 
       return enqueue(paths.queueKey, async () => {
         const current = await readRecord(paths.intentPath)
-        if (current?.cliPermissionPreset === input.preset) {
+        if (current?.cliPermissionPreset === preset) {
           // Idempotent no-op, same rule as a same-mode write: no revision bump
           // and no broadcast, so an echo never looks like a new transition.
           return { ok: true as const, record: current, changed: false }
@@ -325,7 +330,7 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
           actor: input.actor,
           deviceId: null,
           now: now(),
-          cliPermissionPreset: input.preset,
+          cliPermissionPreset: preset,
         })
         try {
           await writeRecordAtomically(paths.intentPath, record)

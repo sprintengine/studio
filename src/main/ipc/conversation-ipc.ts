@@ -561,7 +561,7 @@ function parseSessionIdInput(input: unknown):
   return { ok: true, input: { sessionId: input.sessionId } }
 }
 
-const PERMISSION_PRESET_ERROR = 'permissionPreset must be default, auto_workspace, or bypass_all.'
+const PERMISSION_PRESET_ERROR = 'permissionPreset must be default, auto, or bypass.'
 
 function isPermissionPreset(value: unknown): value is ConversationPermissionPreset {
   return typeof value === 'string' && CONVERSATION_PERMISSION_PRESETS.includes(value as ConversationPermissionPreset)

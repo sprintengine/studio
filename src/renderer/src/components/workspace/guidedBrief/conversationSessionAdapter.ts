@@ -55,12 +55,12 @@ export type GuidedBriefConversationApi = {
 // card (the wizard is an unattended flow the user watches); AskUserQuestion is
 // deliberately NOT allowlisted so it reaches the question-card interception.
 // The preset the wizard runs on when the caller names none. NOT the same choice
-// the PTY twin makes (`bypass_all`): bypassing permissions would also silence
-// AskUserQuestion, and the structured interview IS the wizard. 'default' plus
+// the PTY twin makes (`bypass`): bypassing permissions would also silence
+// AskUserQuestion, and the structured interview IS the wizard. 'manual' plus
 // the allowlist below is the equivalent — every working tool is pre-approved,
 // and only the question tool stops for the user. A caller that has a real user
 // choice passes `permissionPreset` and this is not consulted.
-export const GUIDED_BRIEF_DEFAULT_PERMISSION_PRESET: ConversationPermissionPreset = 'default'
+export const GUIDED_BRIEF_DEFAULT_PERMISSION_PRESET: ConversationPermissionPreset = 'manual'
 
 export const GUIDED_BRIEF_ALLOWED_TOOLS = [
   'Task',

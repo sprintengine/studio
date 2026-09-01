@@ -426,7 +426,7 @@ const guidedBriefState: GuidedBriefRuntimeState = {
   guidedRoleCliDefaults: { product: 'codex', architect: 'codex', frontend: 'claude-code' },
   buildRoleCounts: { architect: 1, product: 1, frontend: 1, developer: 1, performance: 0, cross_platform: 0, tester: 1, security: 0 },
   buildRoleCliDefaults: { architect: 'codex', product: 'codex', frontend: 'claude-code', developer: 'codex', performance: 'codex', cross_platform: 'codex', tester: 'codex', security: 'codex' },
-  buildCliPermissionPreset: 'default',
+  buildCliPermissionPreset: 'manual',
   buildStartRunner: false,
   buildAutoApproveArtifacts: false,
   stage: 'strategist-working',

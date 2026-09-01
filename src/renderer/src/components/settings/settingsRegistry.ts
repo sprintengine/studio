@@ -101,9 +101,10 @@ const CLI_OPTIONS: ReadonlyArray<SelectOption<AgentCli>> = [
 const PERMISSION_PRESET_OPTIONS: ReadonlyArray<
   SelectOption<SprintEngineCliPermissionPreset>
 > = [
-  { value: 'default', label: 'Default — ask each time' },
-  { value: 'auto_workspace', label: 'Auto in workspace — skip prompts inside this workspace' },
-  { value: 'bypass_all', label: 'Bypass all — accept every prompt' },
+  { value: 'none', label: 'CLI default — pass no flag, let the CLI decide' },
+  { value: 'manual', label: 'Manual — ask before every action' },
+  { value: 'auto', label: 'Auto — the CLI reviews each action instead of you' },
+  { value: 'bypass', label: 'Bypass all — no permission checks' },
 ]
 
 // Preselect options for the "Default specialist action" setting, keyed by

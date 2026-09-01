@@ -28,17 +28,22 @@ export const cliPermissionOptions: Array<{
   hint: string
 }> = [
   {
-    value: 'default',
-    label: 'Default permissions',
-    hint: 'Use the agent’s default behavior. Agents ask before doing anything sensitive.',
+    value: 'none',
+    label: 'CLI default',
+    hint: 'Pass no permission flag and let the agent’s CLI choose. Claude Code now starts in auto mode on Pro, Max and Team plans.',
   },
   {
-    value: 'auto_workspace',
-    label: 'Auto in workspace',
-    hint: 'Fewer prompts, while keeping workspace-scoped guardrails where the agent supports them.',
+    value: 'manual',
+    label: 'Manual',
+    hint: 'The agent asks before every action.',
   },
   {
-    value: 'bypass_all',
+    value: 'auto',
+    label: 'Auto',
+    hint: 'The agent runs without stopping to ask, with its own safety checks reviewing each action.',
+  },
+  {
+    value: 'bypass',
     label: 'Bypass permissions',
     hint: 'Skip the agent’s permission prompts. Use only in projects and environments you trust.',
   },
@@ -52,7 +57,7 @@ export function CliPermissionPresetRow({
   onChange: (preset: SprintEngineCliPermissionPreset) => void
 }) {
   const current = cliPermissionOptions.find((option) => option.value === preset) ?? cliPermissionOptions[0]
-  const isBypass = preset === 'bypass_all'
+  const isBypass = preset === 'bypass'
   return (
     <div className="flex flex-col gap-2 px-3.5 py-3">
       <div className="flex items-center justify-between gap-3">

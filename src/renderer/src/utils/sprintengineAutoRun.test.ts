@@ -307,7 +307,7 @@ function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
     sprintEngineAutoState: {
       desiredMode: 'run_agents_and_approve_artifacts',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -443,7 +443,7 @@ async function testAutoApprovalOnlyBranchSkipsTerminalListWhenNothingToApprove()
     sprintEngineAutoState: {
       desiredMode: 'run_agents_and_approve_artifacts',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -506,7 +506,7 @@ function autoApprovalFixture(): {
     sprintEngineAutoState: {
       desiredMode: 'run_agents_and_approve_artifacts',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -720,7 +720,7 @@ async function testDeliverAgentNotificationsSkipsRetiredTargets(): Promise<void>
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -766,7 +766,7 @@ function reworkNotificationWorkspaceFixture(): Workspace {
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -1169,7 +1169,7 @@ async function testDeliverNotificationLeavesPendingWhenSupervisorDisabledAndNoTe
   const supervisor = await loadSupervisor()
   const workspace = workspaceFixture({
     sprintEngineAutoState: {
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -2342,7 +2342,7 @@ async function testSpawnAutoRunCandidateResumesPreviousOwnerConversation(): Prom
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -2643,7 +2643,7 @@ async function testSpawnResumeBlockedForCrashedLiveFlags(): Promise<void> {
   const workspace = workspaceFixture({
     agents: { 'developer-1': crashedAgent },
     sprintEngineAutoState: {
-      desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'default',
+      desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3, deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -2702,7 +2702,7 @@ async function testWindowDisposalWithoutTokenFullyClears(): Promise<void> {
     sprintEngineState,
     agents: { 'developer-1': sprintAgent('developer-1', 'Dev One', 'codex') },
     sprintEngineAutoState: {
-      desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'default',
+      desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3, deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -2750,7 +2750,7 @@ async function testStaleRetainedResumeStateClearedOnceTaskDone(): Promise<void> 
     sprintEngineState,
     agents: { 'developer-1': retainedAgent },
     sprintEngineAutoState: {
-      desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'default',
+      desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3, deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -2814,7 +2814,7 @@ async function testWindowDisposalRetainsResumeStateInStore(): Promise<void> {
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -2997,7 +2997,7 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -3098,7 +3098,7 @@ async function testSuperviseRunnerCycleMintsWorkerForUncoveredReadyTask(): Promi
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -3194,7 +3194,7 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -3661,7 +3661,7 @@ async function testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy(): P
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -3755,7 +3755,7 @@ async function testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass(): Promise<
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -3842,7 +3842,7 @@ async function testNotificationPasteSuppressesSamePassDispatchPaste(): Promise<v
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -3888,7 +3888,7 @@ function idleReviewerCycleFixtures(input: { tasks: SprintEngineTask[]; reviewerO
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -4250,7 +4250,7 @@ async function testNotificationSpawnFailureAbortsRemainingPlanActions(): Promise
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -4401,7 +4401,7 @@ async function testTriageDefersWhenPlanEngagedArchitectThisPass(): Promise<void>
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -4490,7 +4490,7 @@ async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Pro
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 6,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -4615,7 +4615,7 @@ async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForReadyTask
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -4715,7 +4715,7 @@ async function testSuperviseRunnerCycleDoesNotRestartUnresolvedNeedsInputOwner()
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 1,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -4798,7 +4798,7 @@ async function testSuperviseRunnerCycleDoesNotMutateTaskState(): Promise<void> {
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -6073,7 +6073,7 @@ async function testHardCompletionGateEntersDormancyExactlyOnceViaHelper(): Promi
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },

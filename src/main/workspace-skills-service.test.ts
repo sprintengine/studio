@@ -406,7 +406,7 @@ const THIRTEENTH_MANIFEST = {
   binary: 'hypertron',
   permissionPresets: {
     default: { label: 'Default', args: [] },
-    bypass_all: { label: 'Bypass all approvals (dangerous)', args: ['--yolo'] },
+    bypass: { label: 'Bypass all approvals (dangerous)', args: ['--yolo'] },
   },
   launch: { argv: ['{{binary}}', { spreadIf: 'permissionArgs' }] },
   promptInjection: { mode: 'positional-arg' },

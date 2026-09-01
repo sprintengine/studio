@@ -139,7 +139,7 @@ async function main(): Promise<void> {
         roleReasoningOverrides: editor.roleReasoningOverrides,
         startRunner: false,
         autoApproveArtifacts: false,
-        cliPermissionPreset: 'default',
+        cliPermissionPreset: 'manual',
       } as never,
       {
         pathExists: () => false,

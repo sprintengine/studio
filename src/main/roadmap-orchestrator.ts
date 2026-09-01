@@ -1486,7 +1486,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     }
     if (policy.permissions !== undefined) {
       if (!isRoadmapPermissionPreset(policy.permissions)) {
-        return { error: `permissions must be "default", "auto_workspace" or "bypass_all", got "${String(policy.permissions)}".` }
+        return { error: `permissions must be "default", "auto" or "bypass", got "${String(policy.permissions)}".` }
       }
       next.permissions = policy.permissions
     }

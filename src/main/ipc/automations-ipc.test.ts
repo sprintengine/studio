@@ -231,7 +231,7 @@ async function testProviderList(): Promise<void> {
             workspaceId: { type: 'string', minLength: 1 },
             cli: { type: 'string', minLength: 1 },
             cliModel: { type: 'string', minLength: 1 },
-            permissionPreset: { type: 'string', enum: ['default', 'auto_workspace', 'bypass_all'] },
+            permissionPreset: { type: 'string', enum: ['default', 'auto', 'bypass'] },
             specialistId: { type: 'string', minLength: 1 },
             name: { type: 'string', minLength: 1 },
             prompt: { type: 'string', minLength: 1 },

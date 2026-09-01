@@ -631,7 +631,7 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
     getLaunchSettings: () => ({
       ...emptySprintEngineLaunchSettings(),
       lastSelectedCli: 'claude-code',
-      lastAgentSpawnPermissionPreset: 'auto_workspace',
+      lastAgentSpawnPermissionPreset: 'auto',
       mcp: { syncEnabled: true, servers: {} },
     }),
     listConnectorCatalog: () => ({ ok: true, servers: [] }),
@@ -673,7 +673,7 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
     const snapshot = runtime.ipcHandlers.listTerminals().find((entry) => entry.sessionId === launched.sessionId)
     assert.equal(snapshot?.agentRecord?.agentId, launched.agentId)
     assert.equal(snapshot?.agentRecord?.cli, 'claude-code')
-    assert.equal(snapshot?.agentRecord?.cliPermissionPreset, 'auto_workspace')
+    assert.equal(snapshot?.agentRecord?.cliPermissionPreset, 'auto')
     assert.equal(snapshot?.agentRecord?.kind, 'specialist')
 
     // The run's correlation key. An agent-backed automation finalizes on its
@@ -3709,7 +3709,12 @@ async function assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(
       `the guard must test the probed path: ${startupScript}`
     )
     assert.ok(
-      startupScript.includes(`${probedPath} --session-id session-preflight-resolved`),
+      // The permission flag sits between the binary and --session-id since
+      // MC-2210: an unnamed preset resolves to `manual`, which for Claude Code
+      // is an explicit `--permission-mode default` rather than no flag at all.
+      startupScript.includes(
+        `${probedPath} --permission-mode default --session-id session-preflight-resolved`
+      ),
       `the launch must execute the probed path: ${startupScript}`
     )
     assert.ok(

@@ -15,23 +15,37 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
   title: string
 }> = [
   {
-    value: 'default',
-    label: 'Default permissions',
-    title: 'Use the CLI default permission behavior.',
+    value: 'none',
+    label: 'CLI default',
+    title: 'Pass no permission flag and let the CLI choose. Claude Code now starts in auto mode on Pro, Max and Team plans, so this is no longer the same as asking every time.',
   },
   {
-    value: 'auto_workspace',
-    label: 'Auto in workspace',
-    title: 'Reduce prompts while keeping workspace-scoped guardrails where the CLI supports them.',
+    value: 'manual',
+    label: 'Manual',
+    title: 'Ask before every action.',
   },
   {
-    value: 'bypass_all',
+    value: 'auto',
+    label: 'Auto',
+    title: 'Run without stopping to ask, with the CLI’s own safety checks — a classifier on Claude Code, a workspace sandbox on Codex.',
+  },
+  {
+    value: 'bypass',
     label: 'Bypass permissions',
     title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
   },
 ]
 
-// The Default / Auto / Bypass preset chip row — the one interactive permission
+// Chip-width labels for the preset row. Exhaustive over the union so a preset
+// added later fails the build here rather than rendering a blank chip.
+const PRESET_CHIP_LABEL: Record<SprintEngineCliPermissionPreset, string> = {
+  none: 'CLI default',
+  manual: 'Manual',
+  auto: 'Auto',
+  bypass: 'Bypass',
+}
+
+// The CLI default / Manual / Auto / Bypass preset chip row — the one interactive permission
 // control every spawn surface renders (composer panel, picker popover footer,
 // Automations editor runtime row, and the chat composer's live permission
 // pill), so the options and their tone can't drift. Bypass carries the warn
@@ -52,7 +66,7 @@ export function PermissionPresetChips({
     <>
       {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
         const active = option.value === value
-        const isBypass = option.value === 'bypass_all'
+        const isBypass = option.value === 'bypass'
         return (
           <Tooltip key={option.value} content={option.title} placement="bottom">
             <button
@@ -68,7 +82,7 @@ export function PermissionPresetChips({
                   : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
               }`}
             >
-              {option.value === 'default' ? 'Default' : option.value === 'auto_workspace' ? 'Auto' : 'Bypass'}
+              {PRESET_CHIP_LABEL[option.value]}
             </button>
           </Tooltip>
         )

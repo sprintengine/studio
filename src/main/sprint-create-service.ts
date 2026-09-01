@@ -675,7 +675,7 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
           // Deliberately does NOT honor `request.permissionPreset` (MC-1900) —
           // otherwise the field would be exactly the self-escalation hole this
           // literal exists to close. A horizon always arrives plan-sourced.
-          cliPermissionPreset: 'default',
+          cliPermissionPreset: 'manual',
         },
         {
           pathExists: deps.fs.pathExists,
@@ -841,7 +841,7 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
           // goal-sourced twin refuses to read this field.
           //
           // Spawn-time only (MC-1808): this is the run's one chance to be bypass.
-          cliPermissionPreset: request.permissionPreset ?? 'bypass_all',
+          cliPermissionPreset: request.permissionPreset ?? 'bypass',
           maxConcurrentAgents: requestedMaxConcurrentAgents(request),
         },
         useWorktrees: request.useWorktrees === true,

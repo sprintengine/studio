@@ -37,6 +37,7 @@ import {
   type BacklogFrontmatterUpdates,
 } from './frontmatter'
 import type { BacklogItemStatusPayload, SprintEngineCliPermissionPreset } from '../electron-api'
+import { normalizeCliPermissionPreset } from '../sprintengine/automation-lifecycle'
 
 // The frontmatter `type:` value that marks a file as a roadmap. Deliberately NOT
 // added to the closed `BacklogTypePayload`/`BacklogType` unions: the renderer read
@@ -99,7 +100,14 @@ export const DEFAULT_ROADMAP_POLICY: RoadmapPolicy = {
   concurrency: 1,
 }
 
-const PERMISSION_PRESETS: ReadonlySet<string> = new Set<SprintEngineCliPermissionPreset>([
+// Canonical spellings plus the pre-MC-2210 ones. A roadmap file written before
+// the rename still says `bypass_all`, and refusing it would fail a horizon whose
+// policy has not changed; `normalizeCliPermissionPreset` maps it on read.
+const PERMISSION_PRESETS: ReadonlySet<string> = new Set<string>([
+  'none',
+  'manual',
+  'auto',
+  'bypass',
   'default',
   'auto_workspace',
   'bypass_all',
@@ -120,7 +128,11 @@ export function isRoadmapPermissionPreset(value: string | undefined): value is S
 export function resolveRoadmapPermissionPreset(
   policy: Pick<RoadmapPolicy, 'permissions'>,
 ): SprintEngineCliPermissionPreset {
-  return policy.permissions ?? 'bypass_all'
+  // An unset policy still means bypass. A set one is normalized rather than
+  // returned raw: `isRoadmapPermissionPreset` accepts the pre-MC-2210 spellings
+  // so an unedited roadmap file keeps working, and this is where they resolve.
+  if (policy.permissions === undefined) return 'bypass'
+  return normalizeCliPermissionPreset(policy.permissions)
 }
 
 // One list entry in a lane. `item` and `epic` are decided by the reference path

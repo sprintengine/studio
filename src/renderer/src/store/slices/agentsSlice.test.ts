@@ -87,7 +87,9 @@ assert.equal(
     ...defaultAgent('agent-normalize'),
     cliPermissionPreset: 'invalid' as never,
   }).cliPermissionPreset,
-  'default',
+  // Corruption floors to `manual` since MC-2210: no flag stopped being the
+  // conservative answer once Claude Code began reading it as auto mode.
+  'manual',
 )
 assert.equal(
   normalizeAgentState({

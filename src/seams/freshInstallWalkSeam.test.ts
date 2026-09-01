@@ -387,7 +387,10 @@ async function testZshrcOnlyCliIsOfferedAndLaunchesThroughItsProbedPath(): Promi
   assert.equal(guarded, NVM_CLAUDE_PATH, `the guard must test the probed path: ${script}`)
   assert.ok(loginShellResolves(guarded), 'the launch shell can resolve what the guard tests')
   assert.ok(
-    script.includes(`${NVM_CLAUDE_PATH} --session-id zshrc-only-launch`),
+    // The permission flag sits between the binary and --session-id since
+    // MC-2210: an unnamed preset resolves to `manual`, which for Claude Code is
+    // an explicit `--permission-mode default` rather than no flag at all.
+    script.includes(`${NVM_CLAUDE_PATH} --permission-mode default --session-id zshrc-only-launch`),
     `the launch must invoke the probed path: ${script}`,
   )
   assert.ok(/exit 127; fi;/.test(script), `the guard must exit rather than fall through: ${script}`)

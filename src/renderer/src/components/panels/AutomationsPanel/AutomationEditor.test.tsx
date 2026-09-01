@@ -445,7 +445,7 @@ console.log('AutomationEditor connector-picker render tests passed')
 // ---------------------------------------------------------------------------
 // A starter, opened where it is tailored (MC-2035). The Extensions shelf
 // configures nothing: a Get lands here, so this is the one screen that has to
-// show a real agent, a real cadence, `bypass_all` and the starter's prompt with
+// show a real agent, a real cadence, `bypass` and the starter's prompt with
 // no empty picker anywhere — and has to say where the automation came from, so a
 // starter is distinguishable from something written in this project.
 // ---------------------------------------------------------------------------

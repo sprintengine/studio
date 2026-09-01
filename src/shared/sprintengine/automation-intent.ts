@@ -64,6 +64,17 @@ export type SprintEngineAutomationIntentRecord = {
 const intentActors = new Set<SprintEngineAutomationIntentActor>(['ui', 'mobile', 'system', 'automation'])
 
 const cliPermissionPresets = new Set<SprintEngineCliPermissionPreset>([
+  'none',
+  'manual',
+  'auto',
+  'bypass',
+])
+
+// Pre-MC-2210 spellings, accepted at this boundary and normalized by the caller.
+// A mobile client or a saved intent written before the rename still sends one,
+// and refusing it here would break a device nobody has updated — this is an
+// intent surface other processes push to, not an internal enum.
+const legacyCliPermissionPresets: ReadonlySet<string> = new Set([
   'default',
   'auto_workspace',
   'bypass_all',
@@ -72,7 +83,9 @@ const cliPermissionPresets = new Set<SprintEngineCliPermissionPreset>([
 export function isSprintEngineCliPermissionPreset(
   input: unknown,
 ): input is SprintEngineCliPermissionPreset {
-  return typeof input === 'string' && cliPermissionPresets.has(input as SprintEngineCliPermissionPreset)
+  if (typeof input !== 'string') return false
+  return cliPermissionPresets.has(input as SprintEngineCliPermissionPreset)
+    || legacyCliPermissionPresets.has(input)
 }
 
 export function isSprintEngineAutomationIntentActor(

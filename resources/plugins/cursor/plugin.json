@@ -9,11 +9,11 @@
   "binary": "cursor-agent",
   "$comment": "Cursor's docs now present `agent` as the primary command, but the installer still ships `cursor-agent` and `agent` is far too generic a name to probe for (`command -v agent` can false-positive on unrelated binaries). `cursor-agent` remains supported as the stable alias, so it is both the probe target and the launch binary.",
   "permissionPresets": {
-    "default": {
-      "label": "Default (Cursor prompts for approvals)",
+    "manual": {
+      "label": "Manual — Cursor prompts for approvals",
       "args": []
     },
-    "bypass_all": {
+    "bypass": {
       "label": "Bypass all approvals (dangerous)",
       "args": ["--force"]
     }

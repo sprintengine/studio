@@ -33,7 +33,7 @@ function workspace(id: string, folderPath: string | null, mode: Workspace['mode'
     sprintEngineAutoState: {
       desiredMode: 'manual',
       runtimeState: 'idle',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 0,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -152,7 +152,7 @@ async function assertScheduleDueRunLaunchesUnattended(): Promise<void> {
   const { engine, launches } = harness(root)
   await engine.tick()
   assert.equal(launches.length, 1, 'the due schedule fires one launch')
-  assert.equal(launches[0]?.permissionPreset, 'bypass_all', 'a due-run launches unattended')
+  assert.equal(launches[0]?.permissionPreset, 'bypass', 'a due-run launches unattended')
   await rm(root, { recursive: true, force: true })
 }
 
@@ -162,7 +162,7 @@ async function assertRunNowLaunchesUnattended(): Promise<void> {
   const result = await engine.runNow({ workspaceRoot: root, automationId: 'nightly-sweep' })
   assert.equal(result.ok, true, JSON.stringify(result))
   assert.equal(launches.length, 1, 'run now fires one launch')
-  assert.equal(launches[0]?.permissionPreset, 'bypass_all', 'a "Run now" launches unattended')
+  assert.equal(launches[0]?.permissionPreset, 'bypass', 'a "Run now" launches unattended')
   await rm(root, { recursive: true, force: true })
 }
 
@@ -178,14 +178,14 @@ async function assertTriggerEventLaunchesUnattended(): Promise<void> {
   })
   assert.equal(delivered.ok, true, JSON.stringify(delivered))
   assert.equal(launches.length, 1, 'the delivered event fires one launch')
-  assert.equal(launches[0]?.permissionPreset, 'bypass_all', 'a trigger-fired run launches unattended')
+  assert.equal(launches[0]?.permissionPreset, 'bypass', 'a trigger-fired run launches unattended')
   await rm(root, { recursive: true, force: true })
 }
 
 // The default is a default, not an override: a definition that names a preset
 // gets exactly it, on the same path.
 async function assertExplicitPresetSurvivesTheStartPath(): Promise<void> {
-  for (const preset of ['default', 'auto_workspace'] as const) {
+  for (const preset of ['manual', 'auto'] as const) {
     const definition = scheduledDefinition({
       action: { kind: 'spawn-agent', config: { prompt: 'Sweep the repo.', permissionPreset: preset } },
     })

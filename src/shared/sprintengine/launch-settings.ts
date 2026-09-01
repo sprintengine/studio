@@ -78,9 +78,10 @@ export function emptySprintEngineLaunchSettings(): SprintEngineLaunchSettings {
 }
 
 const cliPermissionPresets = new Set<SprintEngineCliPermissionPreset>([
-  'default',
-  'auto_workspace',
-  'bypass_all',
+  'none',
+  'manual',
+  'auto',
+  'bypass',
 ])
 
 function isPlainObject(raw: unknown): raw is Record<string, unknown> {

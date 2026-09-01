@@ -55,7 +55,7 @@ export const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
   reasonTaskId: undefined,
   reasonAgentId: undefined,
   changedAt: undefined,
-  cliPermissionPreset: 'default',
+  cliPermissionPreset: 'manual',
   maxConcurrentAgents: 3,
   deliveredAgentNotificationEventKeys: [],
   completionTeardownAt: undefined,

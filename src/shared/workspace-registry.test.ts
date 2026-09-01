@@ -41,7 +41,7 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
     sprintEngineAutoState: {
       desiredMode: 'manual',
       runtimeState: 'idle',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 0,
       deliveredAgentNotificationEventKeys: [],
     },

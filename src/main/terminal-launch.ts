@@ -6,8 +6,12 @@ import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, Ter
 import { applyDebugDirective } from '../shared/debug-directive'
 import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, renderCliLaunchEnv, resolveCliRuntimeSettings, resolveDebugSkillInvocation } from './agent-launch-render'
 import { resolveAgentStateSocketPath } from './agent-state-service'
-import { renderReasoningArgs } from './plugin-render'
-import { getPluginById, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
+import { renderReasoningArgs, resolvePermissionArgs } from './plugin-render'
+import {
+  getPluginById,
+  getPluginManifest,
+  getPluginSprintEngineRegistryRoots,
+} from './plugin-registry-instance'
 import { withMulticodeCliPath } from './cli-install'
 import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, getManagedPython, withManagedRuntimePath } from './managed-runtime'
@@ -420,23 +424,18 @@ function nativeWindowsCodexPromptArg(value: string | undefined): string | undefi
     .replace(/"/g, '\\"')
 }
 
+// Permission args for the acknowledged-legacy codex Windows-native path, read
+// from the CLI's own manifest. This used to be a second hardcoded copy of the
+// per-CLI mapping sitting alongside the manifests, which is exactly how the
+// Claude Code mapping drifted (MC-2210) — a manifest edit did not reach here.
+// A CLI with no loaded manifest renders no permission args, which is the same
+// fail-safe the ladder takes for an undeclared preset: never invent a flag.
 function getCliPermissionArgs(
   cli: AgentCli,
-  preset: SprintEngineCliPermissionPreset = 'default'
+  preset: SprintEngineCliPermissionPreset = 'manual'
 ): string[] {
-  if (preset === 'auto_workspace') {
-    return cli === 'codex'
-      ? ['--ask-for-approval', 'never', '--sandbox', 'workspace-write']
-      : ['--permission-mode', 'auto']
-  }
-
-  if (preset === 'bypass_all') {
-    return cli === 'codex'
-      ? ['--dangerously-bypass-approvals-and-sandbox']
-      : ['--permission-mode', 'bypassPermissions']
-  }
-
-  return []
+  const manifest = getPluginManifest(cli)
+  return manifest ? resolvePermissionArgs(manifest, preset) : []
 }
 
 function getCliRuntimeSettings(
@@ -676,7 +675,7 @@ function buildWslShellScript(
   cli: AgentCli = 'codex',
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'manual',
   cliModel?: string,
   memoryRootPath?: string,
   memoryRelativeRoot?: string,
@@ -703,7 +702,7 @@ export function getShellLaunchConfig(
   cli: AgentCli = 'codex',
   initialPrompt?: string,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'manual',
   cliModel?: string,
   memoryRootPath?: string,
   memoryRelativeRoot?: string,
@@ -904,7 +903,7 @@ function buildNativeAgentLaunchPowerShellScript(
   cwd: string,
   initialPrompt: string | undefined,
   cliRuntime: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'manual',
   cliModel?: string,
   debugMode = false,
   cliReasoning?: string
@@ -963,7 +962,7 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   cwd: string,
   initialPrompt: string | undefined,
   cliRuntime: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'manual',
   cliModel?: string,
   debugMode = false,
   cliReasoning?: string
@@ -1029,7 +1028,7 @@ function buildAgentLaunchCommand(
   resume = false,
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
+  cliPermissionPreset: SprintEngineCliPermissionPreset = 'manual',
   cliModel?: string,
   debugMode = false,
   cliReasoning?: string,

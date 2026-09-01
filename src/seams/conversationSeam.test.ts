@@ -282,7 +282,7 @@ async function testPermissionPillReportsTheLiveSession(): Promise<void> {
       agentId: 'agent',
       providerId: 'seam-provider',
       modelId: 'seam-model',
-      permissionPreset: 'default',
+      permissionPreset: 'manual',
     })
     assert.equal(started.ok, true)
     if (!started.ok) return
@@ -291,34 +291,34 @@ async function testPermissionPillReportsTheLiveSession(): Promise<void> {
     // thing (an optimistic write that lost a reload race), the running child is
     // on another. The pill must report the child.
     assert.equal(
-      resolvePermissionPreset(started.session, 'bypass_all'),
-      'default',
+      resolvePermissionPreset(started.session, 'bypass'),
+      'manual',
       'the live session outranks a stale agent record',
     )
 
     const changed = await runtime.setPermission({
       sessionId: started.session.sessionId,
-      permissionPreset: 'bypass_all',
+      permissionPreset: 'bypass',
     })
     assert.equal(changed.ok, true, 'the adapter accepted the change')
     if (!changed.ok) return
-    assert.deepEqual(capture.permissionCalls, ['bypass_all'], 'and it reached the provider')
+    assert.deepEqual(capture.permissionCalls, ['bypass'], 'and it reached the provider')
     assert.equal(
       changed.notice,
       'Bypass permissions applies from your next message; this turn keeps the current setting.',
       'an accepted-but-not-yet-applied change comes back as a notice, never a refusal',
     )
     assert.equal(
-      resolvePermissionPreset(changed.session, 'default'),
-      'bypass_all',
+      resolvePermissionPreset(changed.session, 'manual'),
+      'bypass',
       'the pill moves to what the session now reports, whatever the record still says',
     )
 
     // No session yet (the agent has never been started): the durable record is
     // what the next session will start on, so it is what the pill shows.
-    assert.equal(resolvePermissionPreset(null, 'auto_workspace'), 'auto_workspace')
+    assert.equal(resolvePermissionPreset(null, 'auto'), 'auto')
     // Neither: a record predating the field reads as the safe end of the scale.
-    assert.equal(resolvePermissionPreset(null, undefined), 'default')
+    assert.equal(resolvePermissionPreset(null, undefined), 'manual')
 
     await runtime.stopSession({ sessionId: started.session.sessionId })
     console.log('ok - the permission pill reports the live session, then the record, then default')

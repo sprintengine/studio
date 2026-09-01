@@ -846,7 +846,7 @@ async function main(): Promise<void> {
   // show defaults and a click that "changes nothing" is silently swallowed.
   intentRecords.set(doorStatePath, {
     desiredMode: 'run_agents_and_approve_artifacts',
-    cliPermissionPreset: 'bypass_all',
+    cliPermissionPreset: 'bypass',
     revision: 4,
   })
   const selectRailRun = async (teamSlug: string): Promise<void> => {
@@ -897,15 +897,15 @@ async function main(): Promise<void> {
   assert.equal(checkedAutomationMode(), 'Run agents', 'and the control stays where it was')
   intentWritesRefused = false
 
-  await pickCliPreset('Auto in workspace')
+  await pickCliPreset('Auto')
   assert.deepEqual(
     intentWrites[intentWrites.length - 1],
-    { statePath: doorStatePath, preset: 'auto_workspace' },
+    { statePath: doorStatePath, preset: 'auto' },
     'the CLI permission preset takes the same statePath route',
   )
   const presetTrigger = dom.window.document.querySelector('button[aria-label="CLI permission preset"]')
   assert.ok(
-    presetTrigger?.textContent?.includes('Auto in workspace'),
+    presetTrigger?.textContent?.includes('Auto'),
     'and the preset control holds what it wrote',
   )
   assert.equal(
@@ -1105,15 +1105,15 @@ async function main(): Promise<void> {
     { statePath: doorStatePath, mode: 'run_agents', workspaceId: 'w3' },
     'and the authoritative write still names the run and its real workspace',
   )
-  await pickCliPreset('Auto in workspace')
+  await pickCliPreset('Auto')
   assert.equal(
     residentAutoState()?.cliPermissionPreset,
-    'auto_workspace',
+    'auto',
     'the preset lands in the workspace store the spawn path reads',
   )
   assert.deepEqual(
     intentWrites[intentWrites.length - 1],
-    { statePath: doorStatePath, preset: 'auto_workspace' },
+    { statePath: doorStatePath, preset: 'auto' },
     'and mirrors into the run’s statePath-keyed record',
   )
   console.log('ok - the resident mount keeps its optimistic store write and reaches the same record')

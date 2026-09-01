@@ -121,7 +121,10 @@ function sprintEngineRunSettingsFromWorkspace(
 ): SprintEngineRunSettings {
   const autoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
   return {
-    cliPermissionPreset: autoState.cliPermissionPreset === 'default'
+    // `manual` is the neutral value normalizeSprintEngineAutoState lands on when
+    // a workspace carries no explicit choice, so it is the "no local override"
+    // sentinel here — the role `default` played before MC-2210.
+    cliPermissionPreset: autoState.cliPermissionPreset === 'manual'
       ? fallbackPermissionPreset
       : autoState.cliPermissionPreset,
     maxConcurrentAgents: autoState.maxConcurrentAgents,
@@ -129,7 +132,7 @@ function sprintEngineRunSettingsFromWorkspace(
 }
 
 function hasPersistableSprintEngineRunSettings(runSettings: SprintEngineRunSettings): boolean {
-  return runSettings.cliPermissionPreset !== undefined && runSettings.cliPermissionPreset !== 'default'
+  return runSettings.cliPermissionPreset !== undefined && runSettings.cliPermissionPreset !== 'manual'
     || (
       typeof runSettings.maxConcurrentAgents === 'number'
       && Number.isFinite(runSettings.maxConcurrentAgents)

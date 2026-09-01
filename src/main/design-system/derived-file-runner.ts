@@ -19,7 +19,7 @@ import type {
 //
 // The fork implementation is injected: production passes the Electron
 // utilityProcess binding (utility-process-fork.ts) so bundle scripts run in a
-// forked utility process — the same trust boundary as the bypass_all designer
+// forked utility process — the same trust boundary as the bypass designer
 // session that authored them — never in the main process itself. Tests inject
 // a plain child_process-backed fork.
 

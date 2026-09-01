@@ -407,7 +407,7 @@ async function testFreshStartSendsPromptAndDetectsMarker(): Promise<void> {
   assert.equal(fake.startInputs[0]?.providerId, 'claude-agent')
   assert.equal(fake.startInputs[0]?.agentId, 'guided-brief-strategist')
   assert.equal(fake.startInputs[0]?.permissionPreset, GUIDED_BRIEF_DEFAULT_PERMISSION_PRESET)
-  assert.equal(GUIDED_BRIEF_DEFAULT_PERMISSION_PRESET, 'default')
+  assert.equal(GUIDED_BRIEF_DEFAULT_PERMISSION_PRESET, 'manual')
   assert.deepEqual(fake.startInputs[0]?.allowedTools, GUIDED_BRIEF_ALLOWED_TOOLS)
 
   // The initial turn carries the AskUserQuestion-protocol prompt.
@@ -431,10 +431,10 @@ async function testCallerPermissionPresetIsHonored(): Promise<void> {
   const fake = createFakeApi()
   const result = await startGuidedBriefConversationSession(STRATEGIST_INPUT, {
     conversationApi: fake.api,
-    permissionPreset: 'auto_workspace',
+    permissionPreset: 'auto',
   })
   assert.equal(result.ok, true)
-  assert.equal(fake.startInputs[0]?.permissionPreset, 'auto_workspace')
+  assert.equal(fake.startInputs[0]?.permissionPreset, 'auto')
   // The allowlist is orthogonal to the preset and stays intact either way.
   assert.deepEqual(fake.startInputs[0]?.allowedTools, GUIDED_BRIEF_ALLOWED_TOOLS)
 }

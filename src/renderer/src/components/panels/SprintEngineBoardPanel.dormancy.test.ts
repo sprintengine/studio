@@ -31,7 +31,7 @@ function completeAutoState(): SprintEngineAutoState {
     desiredMode: 'run_agents',
     runtimeState: 'complete',
     reason: 'all_tasks_done',
-    cliPermissionPreset: 'default',
+    cliPermissionPreset: 'manual',
     maxConcurrentAgents: 1,
     deliveredAgentNotificationEventKeys: [],
     completionTeardownAt: 500,

@@ -19,9 +19,10 @@ import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } fr
 // on the unattended default reads "Bypass all — runs unattended" without a
 // caption explaining it. Bypass carries the warn tone, as it does everywhere else.
 const PERMISSION_PRESET_ITEMS: SelectItem<SprintEngineCliPermissionPreset>[] = [
-  { value: 'default', label: 'Default — asks before acting' },
-  { value: 'auto_workspace', label: 'Auto in workspace — fewer prompts' },
-  { value: 'bypass_all', label: 'Bypass all — runs unattended', tone: 'warn' },
+  { value: 'none', label: 'CLI default — whatever the CLI does' },
+  { value: 'manual', label: 'Manual — asks before acting' },
+  { value: 'auto', label: 'Auto — fewer prompts, CLI-supervised' },
+  { value: 'bypass', label: 'Bypass all — runs unattended', tone: 'warn' },
 ]
 
 // Agent and Model (§.duo): who runs it, and on what. Both resolve to something

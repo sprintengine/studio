@@ -62,7 +62,7 @@ export type ConversationCliRuntimeOverrides = Record<
 // Mirrors the terminal-side `cliPermissionPreset` vocabulary
 // (SprintEngineCliPermissionPreset) without importing electron-api types. The
 // value tuple is exported so the IPC boundary validates against one list.
-export const CONVERSATION_PERMISSION_PRESETS = ['default', 'auto_workspace', 'bypass_all'] as const
+export const CONVERSATION_PERMISSION_PRESETS = ['none', 'manual', 'auto', 'bypass'] as const
 
 export type ConversationPermissionPreset = (typeof CONVERSATION_PERMISSION_PRESETS)[number]
 
@@ -73,14 +73,15 @@ export type ConversationStartSessionInput = {
   providerId: string
   modelId: string
   cliRuntimes?: ConversationCliRuntimeOverrides
-  // How tool permissions behave for CLI-backed stateful providers: 'default'
-  // asks per tool (approval cards), 'auto_workspace' auto-approves
-  // workspace-scoped actions, 'bypass_all' skips permission checks entirely
-  // (explicit opt-in surfaces only, e.g. wizard designer sessions).
+  // How tool permissions behave for CLI-backed stateful providers: 'none'
+  // passes no flag and lets the CLI's own default win, 'manual' asks per tool
+  // (approval cards), 'auto' runs with the CLI's supervised-autonomy mode,
+  // 'bypass' skips permission checks entirely (explicit opt-in surfaces only,
+  // e.g. wizard designer sessions).
   permissionPreset?: ConversationPermissionPreset
   // Tools auto-allowed without an approval card. Lets unattended flows (the
   // Design Wizard) run file writes without stalling while interactive tools
-  // (AskUserQuestion) still surface as cards — unlike bypass_all, which would
+  // (AskUserQuestion) still surface as cards — unlike bypass, which would
   // silence them entirely.
   allowedTools?: string[]
 }
@@ -195,7 +196,7 @@ export type ConversationQuestion = {
 // Change how tool permissions behave on a session that is already running. The
 // interactive path only: the change reaches the live provider session and takes
 // effect on its next tool call, without recreating the session or losing
-// history. The automation MCP surface still refuses `bypass_all` outright.
+// history. The automation MCP surface still refuses `bypass` outright.
 export type ConversationSetPermissionInput = {
   sessionId: string
   permissionPreset: ConversationPermissionPreset

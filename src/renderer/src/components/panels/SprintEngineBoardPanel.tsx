@@ -168,17 +168,22 @@ const sprintEngineCliPermissionOptions: Array<{
  tone?: Tone
 }> = [
  {
- value: 'default',
- label: 'Default permissions',
- title: 'Use the CLI default permission behavior.',
+ value: 'none',
+ label: 'CLI default',
+ title: 'Pass no permission flag and let the CLI choose. Claude Code now starts in auto mode on Pro, Max and Team plans.',
  },
  {
- value: 'auto_workspace',
- label: 'Auto in workspace',
- title: 'Reduce prompts while keeping workspace-scoped guardrails where the CLI supports them.',
+ value: 'manual',
+ label: 'Manual',
+ title: 'Ask before every action.',
  },
  {
- value: 'bypass_all',
+ value: 'auto',
+ label: 'Auto',
+ title: 'Run without stopping to ask, with the CLI’s own safety checks — a classifier on Claude Code, a workspace sandbox on Codex.',
+ },
+ {
+ value: 'bypass',
  label: 'Bypass permissions',
  title: 'Skip CLI permission prompts. Use only in repos and environments you trust.',
  // Warn tone mirrors the Agent Picker's Bypass chip so the risky preset reads
@@ -860,7 +865,7 @@ export function SprintRunBoard({
         // record it returns, so it wins.
         setDoorAutomationIntent((current) => current ?? {
           mode: record.desiredMode,
-          cliPermissionPreset: record.cliPermissionPreset ?? 'default',
+          cliPermissionPreset: record.cliPermissionPreset ?? 'manual',
         })
       })
       .catch(() => undefined)
@@ -881,7 +886,7 @@ export function SprintRunBoard({
   const automationRuntimeGlyph = sprintEngineAutomationRuntimeGlyphs[automationRuntimeState]
   const cliPermissionPreset = (hasResidentWorkspace
     ? workspace?.sprintEngineAutoState?.cliPermissionPreset
-    : doorAutomationIntent?.cliPermissionPreset) ?? 'default'
+    : doorAutomationIntent?.cliPermissionPreset) ?? 'manual'
 
  // Sprint Engine role registry for the run's project. Loaded once per root so
  // the Add Member options and uncovered-role detection surface custom enabled
@@ -1631,7 +1636,7 @@ export function SprintRunBoard({
         if (!written) return
         setDoorAutomationIntent((current) => ({
           mode: nextMode,
-          cliPermissionPreset: current?.cliPermissionPreset ?? 'default',
+          cliPermissionPreset: current?.cliPermissionPreset ?? 'manual',
         }))
         if (nextMode !== 'manual') {
           publishSprintEngineAutomationModeNotification({ mode: nextMode })
@@ -1735,7 +1740,7 @@ export function SprintRunBoard({
   : null
 
   const updateCliPermissionPreset = async (preset: SprintEngineCliPermissionPreset) => {
- if (preset === 'bypass_all') {
+ if (preset === 'bypass') {
  const confirmed = await dialog.confirm({
  title: 'Bypass CLI permissions?',
  body: 'Spawned sprint agents will run without CLI approval prompts. Use this only in repositories and environments you trust.',

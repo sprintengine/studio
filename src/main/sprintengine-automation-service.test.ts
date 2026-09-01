@@ -282,31 +282,31 @@ async function main(): Promise<void> {
     const harness = await createHarness(root)
     const written = await harness.service.setCliPermissionPreset({
       statePath: harness.statePath,
-      preset: 'bypass_all',
+      preset: 'bypass',
       actor: 'ui',
       clientToken: 'window-7',
     })
     assert.ok(written.ok && written.changed)
     assert.equal(written.record.revision, 1)
-    assert.equal(written.record.cliPermissionPreset, 'bypass_all')
+    assert.equal(written.record.cliPermissionPreset, 'bypass')
     assert.equal(written.record.desiredMode, 'manual', 'a preset write never invents a mode')
 
     const onDisk = JSON.parse(await readFile(harness.intentPath, 'utf8'))
-    assert.equal(onDisk.cliPermissionPreset, 'bypass_all')
+    assert.equal(onDisk.cliPermissionPreset, 'bypass')
     assert.equal(onDisk.schemaVersion, 1, 'an additive optional field is not a schema bump')
 
     assert.equal(harness.broadcasts.length, 1)
-    assert.equal(harness.broadcasts[0].record.cliPermissionPreset, 'bypass_all')
+    assert.equal(harness.broadcasts[0].record.cliPermissionPreset, 'bypass')
     assert.equal(harness.broadcasts[0].sourceClientToken, 'window-7')
 
     const read = await harness.service.readAutomationMode({ statePath: harness.statePath })
     assert.ok(read.ok && read.record)
-    assert.equal(read.record.cliPermissionPreset, 'bypass_all')
+    assert.equal(read.record.cliPermissionPreset, 'bypass')
 
     // Same preset again: idempotent, like a same-mode write.
     const repeat = await harness.service.setCliPermissionPreset({
       statePath: harness.statePath,
-      preset: 'bypass_all',
+      preset: 'bypass',
       actor: 'ui',
     })
     assert.ok(repeat.ok)
@@ -322,11 +322,11 @@ async function main(): Promise<void> {
     })
     assert.ok(mode.ok && mode.changed)
     assert.equal(mode.record.revision, 2)
-    assert.equal(mode.record.cliPermissionPreset, 'bypass_all')
+    assert.equal(mode.record.cliPermissionPreset, 'bypass')
 
     const changed = await harness.service.setCliPermissionPreset({
       statePath: harness.statePath,
-      preset: 'auto_workspace',
+      preset: 'auto',
       actor: 'ui',
     })
     assert.ok(changed.ok && changed.changed)
@@ -383,14 +383,14 @@ async function main(): Promise<void> {
     assert.ok(written.ok && written.changed)
     assert.equal(written.record.revision, 5)
     assert.equal(written.record.desiredMode, 'run_agents')
-    assert.equal(written.record.cliPermissionPreset, 'default')
+    assert.equal(written.record.cliPermissionPreset, 'manual')
 
     const rehydrated = await harness.service.hydrateAutomationMode({
       statePath: harness.statePath,
       mode: 'manual',
     })
     assert.ok(rehydrated.ok)
-    assert.equal(rehydrated.record.cliPermissionPreset, 'default',
+    assert.equal(rehydrated.record.cliPermissionPreset, 'manual',
       'a workspace attaching later reads the persisted preset back')
   })
 

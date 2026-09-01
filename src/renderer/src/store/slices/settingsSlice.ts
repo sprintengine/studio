@@ -390,16 +390,24 @@ export { normalizeCliPermissionPreset }
 // everywhere"). A user who wants gated permissions picks one deliberately —
 // the setting is right there in Settings ▸ Agents.
 //
-// NOT the same as `normalizeCliPermissionPreset`'s 'default' floor: there,
-// 'default' is a real preset (no permission flags) AND the "no local override"
-// sentinel for a run. Here, ABSENT means "this user has never chosen", which is
-// the only case that may adopt the new default. Kept separate so flipping the
-// app default can never rewrite someone's deliberate 'default' choice.
-export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: SprintEngineCliPermissionPreset = 'bypass_all'
+// NOT the same as `normalizeCliPermissionPreset`'s floor: there, `manual` is a
+// real preset (ask before every action) AND the "no local override" sentinel for
+// a run. Here, ABSENT means "this user has never chosen", which is the only case
+// that may adopt the app default. Kept separate so flipping the app default can
+// never rewrite someone's deliberate choice.
+export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: SprintEngineCliPermissionPreset = 'bypass'
 
-// ONLY an absent value adopts the new default. A present-but-unrecognised value
+// ONLY an absent value adopts the app default. A present-but-unrecognised value
 // is corruption, and corruption must never ESCALATE permissions — it falls to
-// the conservative 'default' floor exactly as it did before this item.
+// the conservative floor, which MC-2210 moved from `default` to `manual`. That
+// move is the point: `default` used to mean "no permission flag", which was the
+// safe answer until Claude Code started reading no-flag as auto mode. `manual`
+// is the value that still means what `default` meant.
+//
+// A recognised LEGACY spelling is not corruption and does not floor: `default`
+// -> `manual`, `auto_workspace` -> `auto`, `bypass_all` -> `bypass`. See
+// normalizeCliPermissionPreset for why `default` lands on `manual` rather than
+// on the argv-identical `none`.
 export function normalizeAgentSpawnPermissionPreset(
   input: SprintEngineCliPermissionPreset | null | undefined
 ): SprintEngineCliPermissionPreset {

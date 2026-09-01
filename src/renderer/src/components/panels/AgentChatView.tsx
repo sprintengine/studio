@@ -1257,7 +1257,7 @@ export function resolvePermissionPreset(
   session: Pick<ConversationSessionSummary, 'permissionPreset'> | null,
   agentPreset: SprintEngineCliPermissionPreset | undefined,
 ): SprintEngineCliPermissionPreset {
-  return session?.permissionPreset ?? agentPreset ?? 'default'
+  return session?.permissionPreset ?? agentPreset ?? 'manual'
 }
 
 // Chrome the timeline rows need from the component: who is speaking, how to
@@ -2532,8 +2532,13 @@ export function filterModelGroups(groups: ModelGroup[], query: string, activeFil
 // the pill has to name the BEHAVIOR, because at rest it is the answer to "will
 // this agent stop and ask me before it acts?".
 export function permissionPresetLabel(preset: SprintEngineCliPermissionPreset): string {
-  if (preset === 'auto_workspace') return 'Auto in workspace'
-  if (preset === 'bypass_all') return 'Bypass permissions'
+  // `none` cannot claim "asks before tools": it sends no flag, so the answer is
+  // whatever the CLI does — auto mode on Claude Code 2.1.228+ with a Pro, Max or
+  // Team plan. Naming the behaviour is the whole job of this pill, and the one
+  // behaviour it must not assert here is the one it cannot know.
+  if (preset === 'none') return 'CLI default'
+  if (preset === 'auto') return 'Auto'
+  if (preset === 'bypass') return 'Bypass permissions'
   return 'Asks before tools'
 }
 
@@ -2570,7 +2575,7 @@ export function PermissionPresetPill({
   onOpenChange: (open: boolean) => void
   onChange: (preset: SprintEngineCliPermissionPreset) => void
 }) {
-  const asks = preset === 'default'
+  const asks = preset === 'manual'
   // The surface portals to <body>, so Tab from the trigger would never reach the
   // chips. Land focus on the preset in force (Escape returns it to the trigger).
   const focusActivePreset = useCallback((surface: HTMLElement) => {
@@ -2598,7 +2603,7 @@ export function PermissionPresetPill({
             type="button"
             onClick={togglePopover}
             className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-meta font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${
-              preset === 'bypass_all' ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
+              preset === 'bypass' ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
             }`}
             {...triggerProps}
           >

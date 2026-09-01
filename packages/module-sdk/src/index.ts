@@ -513,7 +513,7 @@ export type AutomationRun = {
   reportPaths?: string[]
 }
 
-export type AutomationCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
+export type AutomationCliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
 
 export type ActionContext = {
   automationId: string

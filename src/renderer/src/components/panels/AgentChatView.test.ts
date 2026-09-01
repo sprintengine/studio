@@ -942,9 +942,9 @@ assert.ok(!decisionsMarkup.includes('src/a.ts'), 'the individual requests wait b
 // The preset used to be start-time-only and the footer only ever said "Asks
 // before tools". The pill has to name the preset actually in force, and say
 // truthfully when a change bites.
-assert.equal(permissionPresetLabel('default'), 'Asks before tools')
-assert.equal(permissionPresetLabel('auto_workspace'), 'Auto in workspace')
-assert.equal(permissionPresetLabel('bypass_all'), 'Bypass permissions')
+assert.equal(permissionPresetLabel('manual'), 'Asks before tools')
+assert.equal(permissionPresetLabel('auto'), 'Auto')
+assert.equal(permissionPresetLabel('bypass'), 'Bypass permissions')
 assert.equal(
   permissionChangeScopeLabel(true),
   'Applies from the next tool call.',
@@ -959,31 +959,31 @@ assert.equal(
 // Which preset the pill reports (1809). The store used to be the only source,
 // so a session running on a different preset than the agent record rendered a
 // pill that misstated what the child would do on its next tool call.
-const liveSession = (permissionPreset?: 'default' | 'auto_workspace' | 'bypass_all') =>
+const liveSession = (permissionPreset?: 'none' | 'manual' | 'auto' | 'bypass') =>
   permissionPreset ? { permissionPreset } : {}
 assert.equal(
-  resolvePermissionPreset(liveSession('bypass_all'), 'default'),
-  'bypass_all',
+  resolvePermissionPreset(liveSession('bypass'), 'manual'),
+  'bypass',
   'a live session running on Bypass is reported as Bypass, whatever the agent record says'
 )
 assert.equal(
-  resolvePermissionPreset(liveSession('default'), 'bypass_all'),
-  'default',
+  resolvePermissionPreset(liveSession('manual'), 'bypass'),
+  'manual',
   'the session wins in the safe direction too — the pill never overstates the child’s freedom'
 )
 assert.equal(
-  resolvePermissionPreset(null, 'auto_workspace'),
-  'auto_workspace',
+  resolvePermissionPreset(null, 'auto'),
+  'auto',
   'with no session yet the agent record is what the next session will start on'
 )
 assert.equal(
-  resolvePermissionPreset(liveSession(), 'auto_workspace'),
-  'auto_workspace',
+  resolvePermissionPreset(liveSession(), 'auto'),
+  'auto',
   'a session that never recorded a preset falls through to the record, not past it'
 )
-assert.equal(resolvePermissionPreset(null, undefined), 'default', 'an agent record predating the field asks per tool')
+assert.equal(resolvePermissionPreset(null, undefined), 'manual', 'an agent record predating the field asks per tool')
 
-const pillMarkup = (preset: 'default' | 'auto_workspace' | 'bypass_all'): string =>
+const pillMarkup = (preset: 'default' | 'auto' | 'bypass'): string =>
   renderToStaticMarkup(
     createElement(PermissionPresetPill, {
       preset,
@@ -1003,11 +1003,11 @@ assert.ok(
 )
 assert.ok(!defaultPill.includes('--tone-warn'), 'asking before tools is the quiet, unremarkable state')
 assert.ok(
-  pillMarkup('bypass_all').includes('--tone-warn'),
+  pillMarkup('bypass').includes('--tone-warn'),
   'a conversation running without permission checks says so in the warn tone'
 )
 assert.ok(
-  pillMarkup('auto_workspace').includes('Auto in workspace'),
+  pillMarkup('auto').includes('Auto'),
   'the middle preset is nameable too — the pill is never a two-state lie'
 )
 
@@ -1278,7 +1278,7 @@ assert.match(
 )
 assert.doesNotMatch(
   chatViewSource,
-  /permissionPreset: 'default'/,
+  /permissionPreset: 'manual'/,
   'no start path in the chat view pins the preset to a literal'
 )
 assert.match(

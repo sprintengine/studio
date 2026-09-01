@@ -43,7 +43,7 @@ const sprintAuto = normalizeSprintEngineAutoState({
 })
 assert.equal(sprintAuto.desiredMode, 'run_agents_and_approve_artifacts')
 assert.equal(sprintAuto.runtimeState, 'running')
-assert.equal(sprintAuto.cliPermissionPreset, 'default')
+assert.equal(sprintAuto.cliPermissionPreset, 'manual')
 assert.equal(sprintAuto.maxConcurrentAgents, 10)
 assert.deepEqual(sprintAuto.deliveredAgentNotificationEventKeys, [' EVT-1 ', 'EVT-2'])
 assert.equal(sprintAuto.completionTeardownAt, undefined)
@@ -328,7 +328,7 @@ useWorkspaceStore.getState().setSprintEngineAutomationMode(storeWorkspaceId, 'ru
 const originalDateNow = Date.now
 Date.now = () => 1780801560320
 try {
-  useWorkspaceStore.getState().setSprintEngineCliPermissionPreset(storeWorkspaceId, 'bypass_all')
+  useWorkspaceStore.getState().setSprintEngineCliPermissionPreset(storeWorkspaceId, 'bypass')
 } finally {
   Date.now = originalDateNow
 }
@@ -356,16 +356,16 @@ const storeWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) 
 assert.ok(storeWorkspace)
 assert.equal(storeWorkspace.sprintEngineState?.goal, 'Validate run-state slice')
 assert.equal(storeWorkspace.sprintEngineAutoState?.desiredMode, 'run_agents_and_approve_artifacts')
-assert.equal(storeWorkspace.sprintEngineAutoState?.cliPermissionPreset, 'bypass_all')
+assert.equal(storeWorkspace.sprintEngineAutoState?.cliPermissionPreset, 'bypass')
 assert.equal(storeWorkspace.sprintEngineAutoState?.changedAt, 1780801560320)
 assert.equal(
   useWorkspaceStore.getState().appSettings.sprintEngineRunSettings[
     sprintEngineRunSettingsKey(storeWorkspace.sprintEngineContext?.statePath)
   ]?.cliPermissionPreset,
-  'bypass_all',
+  'bypass',
 )
 
-useWorkspaceStore.getState().setLastAgentSpawnPermissionPreset('bypass_all')
+useWorkspaceStore.getState().setLastAgentSpawnPermissionPreset('bypass')
 const inheritedPermissionWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   name: 'Inherited Sprint Permission',
   folderPath: '/repo/inherited',
@@ -376,7 +376,7 @@ const inheritedPermissionWorkspace = useWorkspaceStore.getState().workspaces.fin
 )
 assert.equal(
   inheritedPermissionWorkspace?.sprintEngineAutoState?.cliPermissionPreset,
-  'bypass_all',
+  'bypass',
   'new Sprint Engine workspaces inherit the app-level permission default when no run override exists',
 )
 

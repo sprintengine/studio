@@ -19,7 +19,7 @@ function settings(overrides: Partial<SprintEngineLaunchSettings> = {}): SprintEn
     mcp: { syncEnabled: true, servers: {} },
     projectKnowledgeRoots: { '/repo': 'knowledge' },
     lastSelectedCli: 'claude-code',
-    lastAgentSpawnPermissionPreset: 'auto_workspace',
+    lastAgentSpawnPermissionPreset: 'auto',
     sprintEngineRoleSettings: {
       enabled: {},
       savedRosters: [
@@ -87,7 +87,7 @@ async function assertHeadlessReadSurvivesRestart(): Promise<void> {
     const afterRestart = harness.create()
     const read = afterRestart.get()
     assert.equal(read.lastSelectedCli, 'claude-code')
-    assert.equal(read.lastAgentSpawnPermissionPreset, 'auto_workspace')
+    assert.equal(read.lastAgentSpawnPermissionPreset, 'auto')
     assert.equal(read.mcp.syncEnabled, true)
     assert.equal(read.cliRuntimes.claude?.command, 'claude')
     assert.equal(read.sprintEngineRoleSettings.savedRosters?.[0]?.id, 'roster-1')

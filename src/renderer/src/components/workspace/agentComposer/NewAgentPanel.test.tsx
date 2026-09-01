@@ -152,7 +152,7 @@ async function main(): Promise<void> {
           workspaceId: 'ws-1',
           conversationAvailable: false,
           initialSelection: { kind: 'general' },
-          permissionPreset: 'auto_workspace',
+          permissionPreset: 'auto',
           onChangePermissionPreset: () => {},
           debugMode: false,
           onChangeDebugMode: () => {},
@@ -230,7 +230,7 @@ async function main(): Promise<void> {
     assert.equal(previewCalls[0]?.cli, 'claude-code', 'it asked about the selected agent’s CLI')
     assert.equal(
       previewCalls[0]?.cliPermissionPreset,
-      'auto_workspace',
+      'auto',
       'and forwarded the approval preset, so the line moves when the chip does',
     )
     assert.ok(!('debugMode' in (previewCalls[0] ?? {})), 'debug is a prompt concern and stays out of the receipt')
@@ -239,7 +239,7 @@ async function main(): Promise<void> {
 
     // Bypass is the value that removes a safeguard, so it is the one that also
     // changes colour rather than only its text.
-    const bypassed = await render({ permissionPreset: 'bypass_all' })
+    const bypassed = await render({ permissionPreset: 'bypass' })
     assert.ok(bypassed.text().includes('Bypass'), 'the chip reads Bypass when that is the preset')
     const chip = [...bypassed.container.querySelectorAll('button')].find((button) =>
       (button.textContent ?? '').includes('Bypass'),
@@ -328,7 +328,7 @@ async function main(): Promise<void> {
     })
 
     const text = view.text()
-    // The fixture seeds auto_workspace, so the access chip would read "Auto".
+    // The fixture seeds auto, so the access chip would read "Auto".
     assert.ok(!text.includes('Auto'), 'a shell has no permission preset')
     assert.ok(!text.includes('Opus'), 'and no model')
 

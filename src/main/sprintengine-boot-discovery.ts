@@ -157,7 +157,7 @@ export function buildBootRunRegistration(
     workspaceName: summary.teamName,
     folderPath: summary.projectRoot,
     memoryRelativeRoot: null,
-    cliPermissionPreset: record.cliPermissionPreset ?? 'default',
+    cliPermissionPreset: record.cliPermissionPreset ?? 'manual',
     maxConcurrentAgents: DEFAULT_MAX_CONCURRENT_AGENTS,
     deliveredAgentNotificationEventKeys: residue?.deliveredAgentNotificationEventKeys ?? [],
     ...(residue?.completionTeardownAt !== undefined

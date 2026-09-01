@@ -296,7 +296,7 @@ export default function SpawnPicker({
             ariaLabel="Permissions for the next spawn"
             heading="Permissions"
             label={permissionLabel(permissionPreset)}
-            tone={permissionPreset === 'bypass_all' ? 'warn' : permissionPreset === 'default' ? 'quiet' : 'accent'}
+            tone={permissionPreset === 'bypass' ? 'warn' : permissionPreset === 'auto' ? 'accent' : 'quiet'}
             placement="top-end"
           >
             {(close) => (
@@ -315,7 +315,7 @@ export default function SpawnPicker({
                     {/* Bypass is WARN, not danger: `variant="danger"` is the
                         error tone, and the preset wears amber everywhere else
                         in the app. Ink, never a fill — the menu's own rule. */}
-                    {option.value === 'bypass_all' ? (
+                    {option.value === 'bypass' ? (
                       <span className="text-[color:var(--tone-warn-on-tint)]">{option.label}</span>
                     ) : (
                       option.label
@@ -334,8 +334,8 @@ export default function SpawnPicker({
 // The footer's permission chip names the preset, not the sentence behind it —
 // the surface carries no explanatory copy (owner, 2026-08-04).
 function permissionLabel(preset: SprintEngineCliPermissionPreset): string {
-  if (preset === 'auto_workspace') return 'Auto in workspace'
-  if (preset === 'bypass_all') return 'Bypass'
+  if (preset === 'auto') return 'Auto in workspace'
+  if (preset === 'bypass') return 'Bypass'
   return 'Default'
 }
 

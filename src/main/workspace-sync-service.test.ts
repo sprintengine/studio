@@ -23,7 +23,7 @@ function workspace(id: string, folderPath: string | null = null): Workspace {
     sprintEngineAutoState: {
       desiredMode: 'manual',
       runtimeState: 'idle',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 0,
       deliveredAgentNotificationEventKeys: [],
     },

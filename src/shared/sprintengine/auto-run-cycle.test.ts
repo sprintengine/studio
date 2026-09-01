@@ -123,7 +123,7 @@ function autoState(): SprintEngineAutoState {
   return {
     desiredMode: 'run_agents',
     runtimeState: 'running',
-    cliPermissionPreset: 'default',
+    cliPermissionPreset: 'manual',
     maxConcurrentAgents: 3,
     deliveredAgentNotificationEventKeys: [],
   }

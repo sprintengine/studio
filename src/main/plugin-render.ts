@@ -77,27 +77,69 @@ function renderArgvSpec(
   return { argv, cwd, env }
 }
 
-// The presets the app can ask for, least → most permissive. A manifest need not
-// declare all three, and an undeclared one must not be passed through as an
-// unknown flag — that is fatal to the CLI. It degrades DOWN this ladder instead,
-// to the most permissive preset the CLI actually declares, which can never grant
-// more than was requested. A name outside the ladder has no ordering to walk, so
-// it keeps the previous behaviour and falls back to `default`.
-const PERMISSION_PRESET_LADDER = ['default', 'auto_workspace', 'bypass_all'] as const
+// The ordered presets the app can ask for, least → most permissive. A manifest
+// need not declare all three, and an undeclared one must not be passed through
+// as an unknown flag — that is fatal to the CLI. It degrades DOWN this ladder
+// instead, to the most permissive preset the CLI actually declares, which can
+// never grant more than was requested.
+//
+// `none` is deliberately NOT on the ladder. It means "pass no permission flag
+// and let the CLI's own default win", which is always expressible, so it never
+// degrades and no manifest declares it. It is also not a floor: on Claude Code
+// 2.1.228+ with a Pro/Max/Team plan, passing no flag now starts the session in
+// auto mode, so `none` can be more permissive than `manual`. Ordering it would
+// make degradation escalate.
+const PERMISSION_PRESET_LADDER = ['manual', 'auto', 'bypass'] as const
+
+// Pre-MC-2210 manifest keys. Bundled manifests use the new names, but a
+// third-party plugin installed before the rename still declares the old ones,
+// and an unknown flag is fatal — so resolution falls back through the alias
+// rather than treating the preset as undeclared.
+const LEGACY_PRESET_KEYS: Record<string, string> = {
+  manual: 'default',
+  auto: 'auto_workspace',
+  bypass: 'bypass_all',
+}
+
+function declaredPreset(
+  manifest: PluginManifest,
+  name: string
+): PluginPermissionPreset | undefined {
+  const legacy = LEGACY_PRESET_KEYS[name]
+  return manifest.permissionPresets[name] ?? (legacy ? manifest.permissionPresets[legacy] : undefined)
+}
 
 function resolvePermissionPreset(
   manifest: PluginManifest,
   requested: string | undefined
 ): PluginPermissionPreset | undefined {
-  const name = requested ?? 'default'
-  const declared = manifest.permissionPresets[name]
+  const name = requested ?? 'manual'
+  // `none` short-circuits to no args without consulting the manifest at all.
+  if (name === 'none') return undefined
+  const declared = declaredPreset(manifest, name)
   if (declared) return declared
   const rung = PERMISSION_PRESET_LADDER.indexOf(name as (typeof PERMISSION_PRESET_LADDER)[number])
-  for (let below = rung - 1; below > 0; below -= 1) {
-    const candidate = manifest.permissionPresets[PERMISSION_PRESET_LADDER[below]]
+  for (let below = rung - 1; below >= 0; below -= 1) {
+    const candidate = declaredPreset(manifest, PERMISSION_PRESET_LADDER[below])
     if (candidate) return candidate
   }
-  return manifest.permissionPresets.default
+  // A name outside the ladder has no ordering to walk. Render no permission
+  // args rather than inventing one — never the most permissive thing declared.
+  return undefined
+}
+
+/**
+ * The permission args a preset renders to for one manifest — the single source
+ * of truth, exported so no caller restates the CLI mapping. The acknowledged-
+ * legacy codex Windows-native path in terminal-launch.ts builds its argv by
+ * hand and used to carry its own hardcoded copy of this table; that duplication
+ * is how the Claude Code mapping drifted out of step with the manifest (MC-2210).
+ */
+export function resolvePermissionArgs(
+  manifest: PluginManifest,
+  requested: string | undefined
+): string[] {
+  return resolvePermissionPreset(manifest, requested)?.args ?? []
 }
 
 function buildVariableScope(

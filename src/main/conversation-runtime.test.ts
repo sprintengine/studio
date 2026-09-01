@@ -1530,31 +1530,31 @@ async function testSetPermissionAppliesThroughTheAdapterOrRefuses(): Promise<voi
       agentId: 'a',
       providerId: 'capture-provider',
       modelId: 'capture-model',
-      permissionPreset: 'default',
+      permissionPreset: 'manual',
     })
     assert.equal(started.ok, true)
     if (!started.ok) return
     const sessionId = started.session.sessionId
-    assert.equal(started.session.permissionPreset, 'default', 'the summary reports the preset in force')
+    assert.equal(started.session.permissionPreset, 'manual', 'the summary reports the preset in force')
 
-    const switched = await runtime.setPermission({ sessionId, permissionPreset: 'bypass_all' })
+    const switched = await runtime.setPermission({ sessionId, permissionPreset: 'bypass' })
     assert.equal(switched.ok, true)
     if (!switched.ok) return
-    assert.deepEqual(applied, ['bypass_all'], 'the adapter applied the preset to its live session')
-    assert.equal(switched.session.permissionPreset, 'bypass_all')
+    assert.deepEqual(applied, ['bypass'], 'the adapter applied the preset to its live session')
+    assert.equal(switched.session.permissionPreset, 'bypass')
     assert.equal(runtime.listSessions({ workspaceId: 'w' }).ok, true)
 
     // A provider refusal is surfaced verbatim and does not move the session.
     refusal = 'Claude Code refused the permission change.'
-    assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'auto_workspace' }), {
+    assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'auto' }), {
       ok: false,
       message: refusal,
     })
     const listed = runtime.listSessions({ workspaceId: 'w' })
-    assert.equal(listed.ok && listed.sessions[0]?.permissionPreset, 'bypass_all')
+    assert.equal(listed.ok && listed.sessions[0]?.permissionPreset, 'bypass')
     refusal = null
 
-    assert.deepEqual(await runtime.setPermission({ sessionId: 'conv_missing', permissionPreset: 'default' }), {
+    assert.deepEqual(await runtime.setPermission({ sessionId: 'conv_missing', permissionPreset: 'manual' }), {
       ok: false,
       message: 'Conversation session is invalid.',
     })
@@ -1572,13 +1572,13 @@ async function testSetPermissionAppliesThroughTheAdapterOrRefuses(): Promise<voi
     if (!staticSession.ok) return
     assert.equal(staticSession.session.permissionPreset, undefined, 'no preset chosen means none reported')
     assert.deepEqual(
-      await runtime.setPermission({ sessionId: staticSession.session.sessionId, permissionPreset: 'auto_workspace' }),
+      await runtime.setPermission({ sessionId: staticSession.session.sessionId, permissionPreset: 'auto' }),
       { ok: false, message: 'This conversation provider cannot change tool permissions mid-conversation.' }
     )
 
     const stopped = await runtime.stopSession({ sessionId })
     assert.equal(stopped.ok, true)
-    assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'default' }), {
+    assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'manual' }), {
       ok: false,
       message: 'Conversation session is stopped.',
     })

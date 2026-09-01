@@ -416,7 +416,7 @@ export class ReviewGuideTerminalService {
       // graph, then calls the review tools — unattended. On the default preset
       // it stalls at the first approval prompt with nobody watching, so it runs
       // with the same preset the Design Wizard's unattended specialists use.
-      cliPermissionPreset: 'bypass_all',
+      cliPermissionPreset: 'bypass',
       ...(cliModel?.trim() ? { cliModel: cliModel.trim() } : {}),
       // Installs the skill into this CLI's native skill dir before launch, so
       // the invocation in the prompt resolves to a skill that is really there.

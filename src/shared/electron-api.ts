@@ -811,7 +811,7 @@ export type CredentialSecretClearResult = ConversationSecretClearResult
 // `claude-code`.
 export type AgentCli = string
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
-export type SprintEngineCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
+export type SprintEngineCliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
 
 export type CliRuntimeSettings = {
   command: string
@@ -3226,6 +3226,13 @@ export type ElectronApi = {
   readSpecialistSoul: (specialistId: SpecialistActionId) => Promise<SoulPromptResult>
   writefile: (path: string, content: string) => Promise<void>
   writeBinaryFile: (path: string, base64Content: string) => Promise<void>
+  /**
+   * Save one pasted/dropped image that exists only as bytes (a clipboard
+   * screenshot, an image dragged out of a browser) into the app's temp images
+   * folder, returning the absolute path an agent can read. An image dropped
+   * from the OS already has a path and never comes through here.
+   */
+  saveDroppedImage: (input: { mediaType: string; dataBase64: string }) => Promise<string>
   createFile: (parentDir: string, name: string) => Promise<string>
   createDir: (parentDir: string, name: string) => Promise<string>
   ensureDir: (parentDir: string, name: string) => Promise<string>

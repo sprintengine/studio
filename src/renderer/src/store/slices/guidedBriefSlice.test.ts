@@ -34,7 +34,7 @@ const guidedBriefInput = {
     tester: 'claude-code',
     security: 'my-custom-cli',
   },
-  buildCliPermissionPreset: 'auto_workspace',
+  buildCliPermissionPreset: 'auto',
   buildStartRunner: false,
   buildAutoApproveArtifacts: true,
   stage: 'architect-ready',
@@ -73,7 +73,7 @@ assert.equal(normalized.buildRoleCounts.developer, 2, 'role counts are floored t
 assert.equal(normalized.buildRoleCounts.tester, 0, 'non-architect roles clamp to zero')
 assert.equal(normalized.buildRoleCliDefaults.developer, 'claude-code')
 assert.equal(normalized.buildRoleCliDefaults.security, 'my-custom-cli', 'custom CLI defaults are preserved')
-assert.equal(normalized.buildCliPermissionPreset, 'auto_workspace')
+assert.equal(normalized.buildCliPermissionPreset, 'auto')
 assert.equal(normalized.buildStartRunner, false)
 assert.equal(normalized.buildAutoApproveArtifacts, true)
 assert.deepEqual(normalized.acceptedArchitecturePlan, {

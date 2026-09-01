@@ -88,7 +88,7 @@ run('composes a launch with no window: settings defaults reach the spawn', async
   const app = harness({
     settings: settings({
       lastSelectedCli: 'claude-code',
-      lastAgentSpawnPermissionPreset: 'auto_workspace',
+      lastAgentSpawnPermissionPreset: 'auto',
       cliRuntimes: { 'claude-code': { command: '/usr/local/bin/claude', useWsl: false } },
       mcp: { syncEnabled: true, servers: {} },
     }),
@@ -102,7 +102,7 @@ run('composes a launch with no window: settings defaults reach the spawn', async
   assert.equal(app.spawns.length, 1)
   const spawn = app.spawns[0]!
   assert.equal(spawn.cli, 'claude-code', 'the last-selected CLI is the default')
-  assert.equal(spawn.cliPermissionPreset, 'auto_workspace', 'the app-level spawn preset is the default')
+  assert.equal(spawn.cliPermissionPreset, 'auto', 'the app-level spawn preset is the default')
   assert.equal(spawn.cwd, '/repo/a')
   assert.equal(spawn.initialPrompt, 'go')
   assert.equal(spawn.kind, 'agent')
@@ -114,7 +114,7 @@ run('composes a launch with no window: settings defaults reach the spawn', async
 
 run('an explicit request beats the stored defaults', async () => {
   const app = harness({
-    settings: settings({ lastSelectedCli: 'claude-code', lastAgentSpawnPermissionPreset: 'bypass_all' }),
+    settings: settings({ lastSelectedCli: 'claude-code', lastAgentSpawnPermissionPreset: 'bypass' }),
   })
 
   const launched = await app.service.launch({
@@ -122,7 +122,7 @@ run('an explicit request beats the stored defaults', async () => {
     cli: 'codex',
     name: 'Scout',
     cliModel: 'opus',
-    permissionPreset: 'default',
+    permissionPreset: 'manual',
     worktreePath: '/repo/a/.worktrees/run-1',
     spawnSkillId: 'backlog',
   })
@@ -132,7 +132,7 @@ run('an explicit request beats the stored defaults', async () => {
   assert.equal(spawn.cli, 'codex')
   assert.equal(spawn.agentName, 'Scout')
   assert.equal(spawn.cliModel, 'opus')
-  assert.equal(spawn.cliPermissionPreset, 'default')
+  assert.equal(spawn.cliPermissionPreset, 'manual')
   assert.equal(spawn.spawnSkillId, 'backlog')
   assert.equal(spawn.cwd, '/repo/a/.worktrees/run-1', 'a worktree launch runs in the worktree, not the checkout')
   assert.equal(spawn.executionMode, 'worktree')
@@ -282,7 +282,7 @@ run('a failed spawn reports the failure rather than a launched agent', async () 
 
 run('the launch record rides the spawn so the renderer can project a tab', async () => {
   const app = harness({
-    settings: settings({ lastSelectedCli: 'claude-code', lastAgentSpawnPermissionPreset: 'auto_workspace' }),
+    settings: settings({ lastSelectedCli: 'claude-code', lastAgentSpawnPermissionPreset: 'auto' }),
   })
   const launched = await app.service.launch({ workspaceId: 'ws-1', name: 'Scout', cliModel: 'opus' })
   assert.equal(launched.ok, true, JSON.stringify(launched))
@@ -291,7 +291,7 @@ run('the launch record rides the spawn so the renderer can project a tab', async
     name: 'Scout',
     cli: 'claude-code',
     cliModel: 'opus',
-    cliPermissionPreset: 'auto_workspace',
+    cliPermissionPreset: 'auto',
     kind: 'general',
   })
 })

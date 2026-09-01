@@ -167,7 +167,7 @@ function registration(overrides: Partial<SprintRuntimeRunRegistration> = {}): Sp
     workspaceName: 'Fixture Run',
     folderPath: FOLDER_PATH,
     memoryRelativeRoot: null,
-    cliPermissionPreset: 'default',
+    cliPermissionPreset: 'manual',
     maxConcurrentAgents: 3,
     deliveredAgentNotificationEventKeys: [],
     rosterSessions: {},

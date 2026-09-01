@@ -67,7 +67,7 @@ function testWorkspace(id: string, overrides: Partial<Workspace> = {}): Workspac
     sprintEngineAutoState: {
       desiredMode: 'manual',
       runtimeState: 'idle',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 0,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -648,11 +648,11 @@ function launchHarness(overrides: BackendsOverrides = {}): {
 }
 
 async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
-  // bypass_all is refused at the boundary with its own code — never delegated.
+  // bypass is refused at the boundary with its own code — never delegated.
   const bypass = launchHarness()
   const refused = await tool(bypass.tools, 'agent.launch').handler({
     workspaceId: 'ws-1',
-    permissionPreset: 'bypass_all',
+    permissionPreset: 'bypass',
   })
   assert.equal(refused.isError, true)
   assert.equal(
@@ -676,14 +676,14 @@ async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
     name: 'Scout',
     prompt: 'go',
     cliModel: 'opus',
-    permissionPreset: 'auto_workspace',
+    permissionPreset: 'auto',
     specialistId: 'security-reviewer',
   })
   assert.equal(okConfig.isError, undefined, JSON.stringify(okConfig.structuredContent))
   assert.equal(configured.worktreeCalls.length, 0, 'no worktree requested ⇒ createAgentWorktree not called')
   const req = configured.requests[0]
   assert.equal(req.cliModel, 'opus')
-  assert.equal(req.permissionPreset, 'auto_workspace')
+  assert.equal(req.permissionPreset, 'auto')
   assert.equal(req.specialistId, 'security-reviewer')
   assert.equal(req.worktreePath, undefined)
   assert.equal((okConfig.structuredContent as { worktreePath?: string }).worktreePath, undefined)
@@ -828,11 +828,11 @@ async function testTerminalCreateSpawnsAndReturnsTheAttachableSession(): Promise
 
 // The acceptance the item states about defaults: this machine's own settings
 // decide the CLI and the preset unless the caller names them — with the one
-// exception that `bypass_all` never crosses this surface, inherited or asked for.
+// exception that `bypass` never crosses this surface, inherited or asked for.
 async function testTerminalCreateTakesThisMachinesLaunchDefaults(): Promise<void> {
   const inherited = launchHarness({
     defaultCli: 'codex',
-    getAgentSpawnPermissionDefault: () => 'auto_workspace',
+    getAgentSpawnPermissionDefault: () => 'auto',
   })
   const ok = await tool(inherited.tools, 'terminal.create').handler({ workspaceId: 'ws-1' })
   assert.equal(ok.isError, undefined, JSON.stringify(ok.structuredContent))
@@ -841,29 +841,29 @@ async function testTerminalCreateTakesThisMachinesLaunchDefaults(): Promise<void
     undefined,
     'an unnamed CLI is left to the launch service, which reads the same settings store'
   )
-  assert.equal(inherited.requests[0].permissionPreset, 'auto_workspace', "this machine's preset, not a hardcoded one")
-  assert.equal((ok.structuredContent as { permissionPreset: string }).permissionPreset, 'auto_workspace')
+  assert.equal(inherited.requests[0].permissionPreset, 'auto', "this machine's preset, not a hardcoded one")
+  assert.equal((ok.structuredContent as { permissionPreset: string }).permissionPreset, 'auto')
   // The CLI reported is the one the session actually spawned under.
   assert.equal((ok.structuredContent as { terminal: { cli: string } }).terminal.cli, 'codex')
 
   // An explicit choice overrides the machine default.
   const overridden = launchHarness({
     defaultCli: 'codex',
-    getAgentSpawnPermissionDefault: () => 'auto_workspace',
+    getAgentSpawnPermissionDefault: () => 'auto',
   })
   await tool(overridden.tools, 'terminal.create').handler({
     workspaceId: 'ws-1',
     cli: 'claude-code',
-    permissionPreset: 'default',
+    permissionPreset: 'manual',
   })
   assert.equal(overridden.requests[0].cli, 'claude-code')
-  assert.equal(overridden.requests[0].permissionPreset, 'default')
+  assert.equal(overridden.requests[0].permissionPreset, 'manual')
 
   // Asked for: refused with its own code, and nothing is spawned.
   const asked = launchHarness()
   const refused = await tool(asked.tools, 'terminal.create').handler({
     workspaceId: 'ws-1',
-    permissionPreset: 'bypass_all',
+    permissionPreset: 'bypass',
   })
   assert.equal(refused.isError, true)
   assert.equal(
@@ -876,12 +876,12 @@ async function testTerminalCreateTakesThisMachinesLaunchDefaults(): Promise<void
   // caller cannot fix this machine's setting — and the answer says which preset
   // actually applied, so the clamp is visible rather than silent.
   const clamped = launchHarness({
-    getAgentSpawnPermissionDefault: () => 'bypass_all',
+    getAgentSpawnPermissionDefault: () => 'bypass',
   })
   const spawned = await tool(clamped.tools, 'terminal.create').handler({ workspaceId: 'ws-1' })
   assert.equal(spawned.isError, undefined, JSON.stringify(spawned.structuredContent))
-  assert.equal(clamped.requests[0].permissionPreset, 'default')
-  assert.equal((spawned.structuredContent as { permissionPreset: string }).permissionPreset, 'default')
+  assert.equal(clamped.requests[0].permissionPreset, 'manual')
+  assert.equal((spawned.structuredContent as { permissionPreset: string }).permissionPreset, 'manual')
 
   // A launch failure is reported as itself, never as a created terminal.
   const broken = launchHarness({
@@ -1780,7 +1780,7 @@ async function testBacklogWorkFallsBackAndRefusesFinishedItems(): Promise<void> 
 }
 
 async function testBacklogWorkPresetGuardAndPostLaunchLinkFailure(): Promise<void> {
-  // bypass_all is refused at the boundary — before any read or launch.
+  // bypass is refused at the boundary — before any read or launch.
   const bypass = launchHarness({
     readBacklogItem: async (_root, relativePath) => ({
       ok: true,
@@ -1789,7 +1789,7 @@ async function testBacklogWorkPresetGuardAndPostLaunchLinkFailure(): Promise<voi
     }),
   })
   const refused = await tool(bypass.tools, 'backlog.work').handler(
-    { path: 'backlog/example.md', permissionPreset: 'bypass_all' },
+    { path: 'backlog/example.md', permissionPreset: 'bypass' },
     agentContext('ws-1')
   )
   assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'permission_preset_not_allowed')
@@ -1851,7 +1851,7 @@ async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void>
   const definition = {
     name: 'Nightly',
     trigger: { kind: 'schedule', config: { cadence: 'daily' } },
-    action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'auto_workspace' } },
+    action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'auto' } },
   }
   const ok = await tool(withFrontDoor, 'automation.create').handler({ workspaceId: 'ws-1', definition })
   assert.equal(ok.isError, undefined)
@@ -1862,12 +1862,12 @@ async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void>
   assert.deepEqual(ran, [{ workspaceRoot: '/tmp/project-a', automationId: 'auto-1' }])
   assert.deepEqual(okRun.structuredContent, { definition: { id: 'auto-1' }, run: { runId: 'run-1' } })
 
-  // bypass_all is refused before the front door ever sees the draft.
+  // bypass is refused before the front door ever sees the draft.
   const bypass = await tool(withFrontDoor, 'automation.create').handler({
     workspaceId: 'ws-1',
     definition: {
       ...definition,
-      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass_all' } },
+      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass' } },
     },
   })
   assert.equal(bypass.isError, true)
@@ -1918,33 +1918,33 @@ async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> 
     })
   )
 
-  // The advertised vocabulary is the boundary: two members, bypass_all absent,
+  // The advertised vocabulary is the boundary: two members, bypass absent,
   // on every tool that launches an agent.
   for (const name of ['agent.launch', 'backlog.work'] as const) {
     const properties = tool(tools, name).inputSchema.properties as Record<string, { enum?: unknown }>
     assert.deepEqual(
       properties.permissionPreset?.enum,
-      ['default', 'auto_workspace'],
+      ['manual', 'auto'],
       `${name} advertises exactly the two allowed presets`,
     )
   }
 
   // And the refusals say what was refused and who can set it — a caller can act
   // on the message without reading the code.
-  const launchRefusal = await tool(tools, 'agent.launch').handler({ workspaceId: 'ws-1', permissionPreset: 'bypass_all' })
+  const launchRefusal = await tool(tools, 'agent.launch').handler({ workspaceId: 'ws-1', permissionPreset: 'bypass' })
   const createRefusal = await tool(tools, 'automation.create').handler({
     workspaceId: 'ws-1',
     definition: {
       name: 'Nightly',
       trigger: { kind: 'schedule', config: { cadence: 'daily' } },
-      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass_all' } },
+      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass' } },
     },
   })
   for (const [surface, refusal] of [['agent.launch', launchRefusal], ['automation.create', createRefusal]] as const) {
     const error = (refusal.structuredContent as { error: { code: string; message: string } }).error
-    assert.equal(refusal.isError, true, `${surface} refuses bypass_all`)
+    assert.equal(refusal.isError, true, `${surface} refuses bypass`)
     assert.equal(error.code, 'permission_preset_not_allowed', `${surface} refuses with its own code`)
-    assert.match(error.message, /bypass_all/, `${surface} names the refused preset`)
+    assert.match(error.message, /bypass/, `${surface} names the refused preset`)
     assert.match(error.message, /person can set that preset/, `${surface} says who can set it instead`)
   }
   assert.deepEqual(created, [], 'a refused draft never reaches the create pipeline')
@@ -1952,7 +1952,7 @@ async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> 
   // Refusing the literal string is not the boundary — the boundary is the preset
   // the run ACTUALLY gets. Omitting the key resolves to the unattended default on
   // an agent-backed action, and the renderer fills an omitted launch preset from
-  // the user's last spawn choice (which ships as bypass_all), so both surfaces
+  // the user's last spawn choice (which ships as bypass), so both surfaces
   // must resolve rather than read.
   const omittedCreate = await tool(tools, 'automation.create').handler({
     workspaceId: 'ws-1',
@@ -1983,7 +1983,7 @@ async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> 
   assert.equal(created.length, 1, 'the non-agent draft reaches the create pipeline')
 
   // An explicitly-named allowed preset still passes through verbatim.
-  for (const preset of ['default', 'auto_workspace'] as const) {
+  for (const preset of ['default', 'auto'] as const) {
     const allowed = await tool(tools, 'automation.create').handler({
       workspaceId: 'ws-1',
       definition: {
@@ -2002,7 +2002,7 @@ async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> 
   const launchRequest = omittedLaunch.requests[0]
   assert.equal(
     launchRequest.permissionPreset,
-    'default',
+    'manual',
     'an omitted launch preset is pinned to the most restrictive allowed value, not left for the renderer to fill',
   )
 }
@@ -2028,7 +2028,7 @@ async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise
     definition: {
       name: 'X',
       trigger: { kind: 'schedule', config: {} },
-      action: { kind: 'spawn-agent', config: { permissionPreset: 'auto_workspace' } },
+      action: { kind: 'spawn-agent', config: { permissionPreset: 'auto' } },
     },
   })
   assert.equal((created.structuredContent as { error: { code: string } }).error.code, 'workspace_root_untrusted')
@@ -2345,7 +2345,7 @@ async function testCliRuntimeListReportsTheRegistry(): Promise<void> {
       displayName: id === 'claude-code' ? 'Claude Code' : id,
       version: 1,
       binary: id === 'claude-code' ? 'claude' : id,
-      permissionPresets: { default: {}, bypass_all: {} },
+      permissionPresets: { default: {}, bypass: {} },
       launch: { args: [] },
       promptInjection: { mode: 'argv' },
       completion: { mode: 'exit' },
@@ -2398,7 +2398,7 @@ async function testCliRuntimeListReportsTheRegistry(): Promise<void> {
   assert.equal(clis[0].allowCustomModelId, true)
   assert.deepEqual(clis[0].reasoningLevels, [{ id: 'medium' }, { id: 'high', label: 'High' }])
   assert.equal(clis[0].defaultReasoningLevel, 'medium')
-  assert.deepEqual(clis[0].permissionPresets, ['default', 'bypass_all'])
+  assert.deepEqual(clis[0].permissionPresets, ['default', 'bypass'])
   assert.equal(clis[1].supportsModelSelection, false)
   assert.deepEqual(clis[1].models, [])
   assert.equal(clis[1].allowCustomModelId, false)
@@ -2970,12 +2970,12 @@ async function testHorizonCreateAndConfigure(): Promise<void> {
   await tool(tools, 'horizon.create').handler({
     name: 'Staffed',
     roster: 'Mobile UI',
-    permissions: 'auto_workspace',
+    permissions: 'auto',
     merge: 'auto',
     concurrency: 2,
   })
   const staffed = created.calls.filter((call) => (call as { name: string }).name === 'createHorizon').at(-1) as { value: { policy: Record<string, unknown> } }
-  assert.deepEqual(staffed.value.policy, { roster: 'Mobile UI', permissions: 'auto_workspace', merge: 'auto', concurrency: 2 })
+  assert.deepEqual(staffed.value.policy, { roster: 'Mobile UI', permissions: 'auto', merge: 'auto', concurrency: 2 })
 
   // 3. `start: true` is forwarded as the single explicit exception.
   await tool(tools, 'horizon.create').handler({ name: 'Now', start: true, advance: 'auto' })
@@ -2989,11 +2989,11 @@ async function testHorizonCreateAndConfigure(): Promise<void> {
 
   // 5. horizon.configure forwards only the named fields — `roster: null` CLEARS
   //    (key present, value undefined), an absent key is left untouched.
-  await tool(tools, 'horizon.configure').handler({ roster: null, permissions: 'bypass_all' })
+  await tool(tools, 'horizon.configure').handler({ roster: null, permissions: 'bypass' })
   const configured = created.calls.find((call) => (call as { name: string }).name === 'configureHorizon') as { value: { policy: Record<string, unknown> } }
   assert.equal('roster' in configured.value.policy, true)
   assert.equal(configured.value.policy.roster, undefined)
-  assert.equal(configured.value.policy.permissions, 'bypass_all')
+  assert.equal(configured.value.policy.permissions, 'bypass')
   assert.equal('advance' in configured.value.policy, false, 'an unnamed field is never invented')
 
   // 6. An empty configure is refused rather than writing nothing and reporting success.

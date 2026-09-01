@@ -232,7 +232,7 @@ export function defaultAgent(id: AgentId, name = id, kind: AgentKind = 'general'
     cliResumeAvailable: false,
     cli: undefined,
     cliModel: undefined,
-    cliPermissionPreset: 'default',
+    cliPermissionPreset: 'manual',
     cliStartupPrompt: undefined,
     kind,
     specialistId: undefined,

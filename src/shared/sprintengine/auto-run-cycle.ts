@@ -288,7 +288,7 @@ export type ArchitectTriageMessage = {
 export const DEFAULT_AUTO_STATE: SprintEngineAutoState = {
   desiredMode: 'manual',
   runtimeState: 'idle',
-  cliPermissionPreset: 'default',
+  cliPermissionPreset: 'manual',
   maxConcurrentAgents: 3,
   deliveredAgentNotificationEventKeys: [],
 }

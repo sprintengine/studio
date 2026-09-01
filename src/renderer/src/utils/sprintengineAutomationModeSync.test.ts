@@ -287,14 +287,14 @@ async function main(): Promise<void> {
   fakeApi.failReads = false
   fakeApi.records.set(presetRun.statePath, {
     ...record('run_agents', 12),
-    cliPermissionPreset: 'bypass_all',
+    cliPermissionPreset: 'bypass',
   })
   const attached = addSprintWorkspace('Preset Sync', '/repo/preset')
   assert.equal(attached.statePath, presetRun.statePath, 'fixture statePath is deterministic')
   await settle()
   const attachedWorkspace = () =>
     useWorkspaceStore.getState().workspaces.find((ws) => ws.id === attached.workspaceId)
-  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.cliPermissionPreset, 'bypass_all',
+  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.cliPermissionPreset, 'bypass',
     'a workspace attaching later adopts the preset the door persisted')
   assert.equal(attachedWorkspace()?.sprintEngineAutoState?.desiredMode, 'run_agents',
     'the mode on the same record still lands')
@@ -303,23 +303,23 @@ async function main(): Promise<void> {
   // shape the mode's own early return drops — and must still be adopted.
   fakeApi.broadcast({
     statePath: attached.statePath,
-    record: { ...record('run_agents', 13), cliPermissionPreset: 'auto_workspace' },
+    record: { ...record('run_agents', 13), cliPermissionPreset: 'auto' },
   })
   await settle()
-  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.cliPermissionPreset, 'auto_workspace',
+  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.cliPermissionPreset, 'auto',
     'a same-mode record that only moves the preset is still adopted')
   assert.ok(
     fakeApi.presetPushCalls.every((call) => call.statePath === attached.statePath),
     'adoption only ever writes back the run it adopted',
   )
-  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.cliPermissionPreset, 'auto_workspace',
+  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.cliPermissionPreset, 'auto',
     'and the echo of that write-back settles rather than ping-ponging')
 
   // A record with no preset (every one written before MC-1799) leaves the
   // workspace's own value alone rather than resetting it to the default.
   fakeApi.broadcast({ statePath: attached.statePath, record: record('manual', 14) })
   await settle()
-  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.cliPermissionPreset, 'auto_workspace',
+  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.cliPermissionPreset, 'auto',
     'an absent preset means "never set", not "default"')
 
   dispose()

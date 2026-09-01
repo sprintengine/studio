@@ -373,7 +373,7 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       sprintEngineAutoState: {
         desiredMode: 'manual',
         runtimeState: 'idle',
-        cliPermissionPreset: 'default',
+        cliPermissionPreset: 'manual',
         maxConcurrentAgents: 0,
         deliveredAgentNotificationEventKeys: [],
       },

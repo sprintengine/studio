@@ -66,7 +66,7 @@ async function assertAutoRunningRunResumesWithNoWindow(): Promise<void> {
     assert.equal(registered.view.sprintEngineAutoState?.runtimeState, 'running')
     assert.equal(
       registered.view.sprintEngineAutoState?.cliPermissionPreset,
-      'bypass_all',
+      'bypass',
       'the sidecar’s permission preset reached the registration',
     )
     assert.deepEqual(
@@ -287,7 +287,7 @@ function writeRun(
         schemaVersion: 1,
         revision: 2,
         desiredMode: options.desiredMode,
-        cliPermissionPreset: 'bypass_all',
+        cliPermissionPreset: 'bypass',
         changedAt: 0,
         lastWrite: { actor: 'ui', deviceId: null, at: new Date(0).toISOString() },
         runtime: { deliveredAgentNotificationEventKeys: ['delivered-1'], rosterSessions: {} },
@@ -358,7 +358,7 @@ function rendererRegistration(statePath: string, folderPath: string): SprintRunt
     workspaceName: 'Sprint Workspace',
     folderPath,
     memoryRelativeRoot: 'knowledge',
-    cliPermissionPreset: 'default',
+    cliPermissionPreset: 'manual',
     maxConcurrentAgents: 5,
     deliveredAgentNotificationEventKeys: [],
     runtimeState: 'idle',

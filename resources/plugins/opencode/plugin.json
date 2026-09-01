@@ -8,12 +8,12 @@
   "icon": "icon.svg",
   "binary": "opencode",
   "permissionPresets": {
-    "default": {
-      "label": "Default (OpenCode prompts for permissions)",
+    "manual": {
+      "label": "Manual — OpenCode prompts for permissions",
       "args": []
     },
-    "bypass_all": {
-      "$comment": "OpenCode has exactly ONE permission flag. `opencode --help` documents `--auto` (\"auto-approve permissions that are not explicitly denied (dangerous!)\") and nothing else \u2014 there is no `--dangerously-skip-permissions`, which is what this preset used to send. OpenCode's parser is not strict, so the unknown flag was silently dropped: choosing Bypass did nothing and the session kept prompting, with no error anywhere (MC-2214). No `auto_workspace` rung is declared on purpose \u2014 OpenCode has no supervised-autonomy mode distinct from this one, so an auto request degrades DOWN to `default`, which is the honest answer.",
+    "bypass": {
+      "$comment": "OpenCode has exactly ONE permission flag. `opencode --help` documents `--auto` (\"auto-approve permissions that are not explicitly denied (dangerous!)\") and nothing else \u2014 there is no `--dangerously-skip-permissions`, which is what this preset used to send. OpenCode's parser is not strict, so the unknown flag was silently dropped: choosing Bypass did nothing and the session kept prompting, with no error anywhere (MC-2214). No `auto` rung is declared on purpose \u2014 OpenCode has no supervised-autonomy mode distinct from this one, so an auto request degrades DOWN to manual, which is the honest answer.",
       "label": "Bypass all approvals (dangerous)",
       "args": ["--auto"]
     }

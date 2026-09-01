@@ -145,7 +145,7 @@ export function useBacklogTrackerSeeding(params: {
           initialSpawnRoles: [sprintEngineRoleKey(sprintEngineCoordinatorSeatForRoleCounts(launchRoleCounts).role)],
           sprintEngineAutoState: {
             ...sprintEngineAutomationInitialStateForMode(automationMode),
-            cliPermissionPreset: 'default',
+            cliPermissionPreset: 'manual',
             maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
           },
           // Null → addWorkspace places the run in the current window (falls back to

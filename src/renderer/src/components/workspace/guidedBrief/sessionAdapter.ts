@@ -112,7 +112,7 @@ export type GuidedBriefDesignerSessionInput = {
   // alongside `designSystem` (the authoring studio owns that directory).
   designSystemAttached?: boolean
   // Design-system preset: the same shared designer session (terminalSpawn
-  // path, bypass_all preset) under a dedicated role prompt that authors the
+  // path, bypass preset) under a dedicated role prompt that authors the
   // portable bundle instead of mockups. `seedSource` is present when the
   // studio was started as "seed from an existing product" and makes the
   // prompt's opening move the reviewed extraction of that source.
@@ -467,7 +467,7 @@ export async function startGuidedBriefSpecialistSession(
       // couple of artifacts. Without bypass they stall on per-tool permission
       // prompts (and never reach the structured-interview output). Apply the same
       // preset to every specialist, not just the designer.
-      cliPermissionPreset: 'bypass_all' as const,
+      cliPermissionPreset: 'bypass' as const,
       ...(input.cliModel ? { cliModel: input.cliModel } : {}),
       visible: true,
     },

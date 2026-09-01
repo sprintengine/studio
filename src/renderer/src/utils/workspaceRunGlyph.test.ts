@@ -38,7 +38,7 @@ function sprintWorkspace(overrides: Partial<WorkspaceLike> = {}): WorkspaceLike 
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -59,7 +59,7 @@ function manualAutoState(): NonNullable<WorkspaceLike['sprintEngineAutoState']> 
   return {
     desiredMode: 'manual',
     runtimeState: 'idle',
-    cliPermissionPreset: 'default',
+    cliPermissionPreset: 'manual',
     maxConcurrentAgents: 3,
     deliveredAgentNotificationEventKeys: [],
   }
@@ -156,7 +156,7 @@ function completedWorkspace(): WorkspaceLike {
       desiredMode: 'run_agents',
       runtimeState: 'complete',
       changedAt: completedAt,
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },

@@ -364,13 +364,13 @@ async function run(projectRoot: string): Promise<void> {
   console.log('ok - a door automation-mode change lands in the run’s state through the real channel')
 
   // ── 2. The CLI permission preset shares that home (item 1799, D1) ─────────
-  await pickCliPreset('Auto in workspace')
+  await pickCliPreset('Auto')
   await waitFor(
     'the preset write to land beside the mode',
-    () => persistedRecord()?.cliPermissionPreset === 'auto_workspace',
+    () => persistedRecord()?.cliPermissionPreset === 'auto',
   )
   const afterPreset = persistedRecord()
-  assert.equal(afterPreset?.cliPermissionPreset, 'auto_workspace', 'the preset persisted beside the mode')
+  assert.equal(afterPreset?.cliPermissionPreset, 'auto', 'the preset persisted beside the mode')
   assert.equal(afterPreset?.desiredMode, 'run_agents', 'a preset write never moves the mode')
   assert.equal(afterPreset?.revision, 2, 'and is a new revision of the same intent record')
 
@@ -381,7 +381,7 @@ async function run(projectRoot: string): Promise<void> {
   assert.equal(hydrated.ok, true)
   assert.equal(
     hydrated.ok ? hydrated.record?.cliPermissionPreset : null,
-    'auto_workspace',
+    'auto',
     'a workspace attaching afterwards hydrates the preset the door wrote',
   )
   assert.equal(

@@ -29,7 +29,7 @@ const workspace = (agent: AgentState): Workspace => ({
   sprintEngineAutoState: {
     desiredMode: 'manual',
     runtimeState: 'idle',
-    cliPermissionPreset: 'bypass_all',
+    cliPermissionPreset: 'bypass',
     maxConcurrentAgents: 3,
     deliveredAgentNotificationEventKeys: [],
   },
@@ -38,15 +38,15 @@ const workspace = (agent: AgentState): Workspace => ({
 
 assert.equal(
   resolveAgentCliPermissionPreset(workspace(baseAgent('architect', { kind: 'sprintengine' })), 'architect'),
-  'bypass_all',
+  'bypass',
   'Sprint Engine agents use the Sprint Engine permission preset even when auto-run is off'
 )
 
 assert.equal(
   resolveAgentCliPermissionPreset(
-    workspace(baseAgent('reviewer', { kind: 'watchtower', cliPermissionPreset: 'bypass_all' })),
+    workspace(baseAgent('reviewer', { kind: 'watchtower', cliPermissionPreset: 'bypass' })),
     'reviewer'
   ),
-  'bypass_all',
+  'bypass',
   'Watchtower and specialist agents keep their per-agent permission preset'
 )

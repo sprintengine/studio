@@ -165,7 +165,7 @@ function autoState(
   return {
     desiredMode: 'run_agents',
     runtimeState,
-    cliPermissionPreset: 'default',
+    cliPermissionPreset: 'manual',
     maxConcurrentAgents: 1,
     deliveredAgentNotificationEventKeys: [],
     completionTeardownAt,

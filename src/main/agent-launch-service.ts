@@ -91,7 +91,7 @@ const UNBOUND_TERMINAL_ROWS = 30
  * settings name one. Deliberately the most restrictive: an unattended caller
  * that named no preset must not inherit an escalation nobody chose (MC-1900).
  */
-const DEFAULT_PERMISSION_PRESET: SprintEngineCliPermissionPreset = 'default'
+const DEFAULT_PERMISSION_PRESET: SprintEngineCliPermissionPreset = 'manual'
 
 /** A workspace as the launch service needs to see it. */
 export type AgentLaunchWorkspace = {

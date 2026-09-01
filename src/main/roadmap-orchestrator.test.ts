@@ -1169,23 +1169,23 @@ test('SEAM(1881x1883): the driver forwards the RESOLVED per-step roster to start
 })
 
 test('SEAM(1900x1883): a step launches with its own roster AND the horizon permission preset', async () => {
-  const h = harness(roadmapFile('auto', 'manual', STAFFED_BODY, 'permissions: auto_workspace\n'))
+  const h = harness(roadmapFile('auto', 'manual', STAFFED_BODY, 'permissions: auto\n'))
   await createRoadmapOrchestrator(h.ports).reconcile()
   assert.deepEqual(h.startInputs, [
-    { root: ROOT, rel: 'backlog/a.md', roster: 'Mobile UI', permissionPreset: 'auto_workspace' },
+    { root: ROOT, rel: 'backlog/a.md', roster: 'Mobile UI', permissionPreset: 'auto' },
   ])
 })
 
 test('SEAM(1900x1883): a horizon with NO permissions policy spawns in bypass', async () => {
   const h = harness(roadmapFile('auto', 'manual', STAFFED_BODY))
   await createRoadmapOrchestrator(h.ports).reconcile()
-  assert.equal(h.startInputs.at(-1)?.permissionPreset, 'bypass_all')
+  assert.equal(h.startInputs.at(-1)?.permissionPreset, 'bypass')
 })
 
 test('a typo in the permissions policy reads as unset (bypass), never as a third thing', async () => {
   const h = harness(roadmapFile('auto', 'manual', STAFFED_BODY, 'permissions: bypasss\n'))
   await createRoadmapOrchestrator(h.ports).reconcile()
-  assert.equal(h.startInputs.at(-1)?.permissionPreset, 'bypass_all')
+  assert.equal(h.startInputs.at(-1)?.permissionPreset, 'bypass')
 })
 
 test('an unknown roster fails the start loudly: park + diagnostic, and the lane does NOT advance', async () => {
@@ -1259,7 +1259,7 @@ test('horizon.configure: a policy write leaves the plan body byte-identical', as
   const orchestrator = createRoadmapOrchestrator(h.ports)
 
   const outcome = await orchestrator.configureHorizon({
-    policy: { roster: 'Mobile UI', permissions: 'bypass_all', merge: 'auto' },
+    policy: { roster: 'Mobile UI', permissions: 'bypass', merge: 'auto' },
   })
   assert.equal(outcome.ok, true)
 
@@ -1267,7 +1267,7 @@ test('horizon.configure: a policy write leaves the plan body byte-identical', as
   const bodyOf = (content: string): string => content.slice(content.indexOf('\n---\n') + 5)
   assert.equal(bodyOf(after), bodyOf(before), 'the plan must not be perturbed by a policy write')
   assert.match(after, /roster: Mobile UI/)
-  assert.match(after, /permissions: bypass_all/)
+  assert.match(after, /permissions: bypass/)
   assert.match(after, /merge: auto/)
   // Unrelated frontmatter survives.
   assert.match(after, /id: 100/)
@@ -1277,7 +1277,10 @@ test('horizon.configure: clearing the roster removes the key, and an invalid val
   const h = harness(roadmapFile('approve', 'manual', '## Backend\n- backlog/a.md', 'roster: Mobile UI\n'))
   const orchestrator = createRoadmapOrchestrator(h.ports)
 
-  const bad = await orchestrator.configureHorizon({ policy: { permissions: 'bypass' as never } })
+  // Must be a value no spelling of the union accepts. `bypass` was the probe
+  // here until MC-2210 made it a real preset name; the legacy spellings are
+  // accepted too, so the probe has to be genuine nonsense.
+  const bad = await orchestrator.configureHorizon({ policy: { permissions: 'not-a-preset' as never } })
   assert.equal(bad.ok, false)
   assert.match(bad.message ?? '', /permissions must be/)
   assert.match(h.getRoadmap(), /roster: Mobile UI/, 'a refused write changes nothing')
@@ -1384,10 +1387,14 @@ test('SEAM(1900x1808): adopting a LIVE run never re-starts it, so no preset flip
   // First tick starts the step under the horizon's gated policy.
   await orchestrator.reconcile()
   assert.equal(h.startInputs.length, 1)
-  assert.equal(h.startInputs[0].permissionPreset, 'default')
+  // The roadmap file says `permissions: default` — a pre-MC-2210 spelling that
+  // an unedited file still carries. It is accepted and normalized to `manual`
+  // rather than refused, which is the whole point of keeping the legacy names
+  // readable.
+  assert.equal(h.startInputs[0].permissionPreset, 'manual')
 
   // The author now flips the horizon to bypass while that run is executing.
-  h.setRoadmap(roadmapFile('auto', 'manual', STAFFED_BODY, 'permissions: bypass_all\n'))
+  h.setRoadmap(roadmapFile('auto', 'manual', STAFFED_BODY, 'permissions: bypass\n'))
   await orchestrator.reconcile()
   await orchestrator.reconcile()
 

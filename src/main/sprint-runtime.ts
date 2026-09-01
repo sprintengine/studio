@@ -268,7 +268,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
     return entry.view.sprintEngineAutoState ?? {
       desiredMode: 'manual',
       runtimeState: 'idle',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     }

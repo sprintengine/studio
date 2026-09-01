@@ -525,7 +525,7 @@ export default function NewAgentPanel({
                     type="button"
                     onClick={togglePopover}
                     className={`interactive inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-meta ${
-                      permissionPreset === 'bypass_all'
+                      permissionPreset === 'bypass'
                         ? 'bg-[color:var(--tone-warn-soft)] text-[color:var(--tone-warn-on-tint)]'
                         : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
                     } ${FOCUS_RING_CLASS}`}

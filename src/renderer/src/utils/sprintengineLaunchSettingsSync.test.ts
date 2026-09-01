@@ -85,9 +85,9 @@ function assertSettingsChangesReachMainWithoutRestart(): void {
   assert.equal(fakeApi.pushCalls.length, 2)
   assert.equal(latest?.lastSelectedCli, 'codex')
 
-  useWorkspaceStore.getState().setLastAgentSpawnPermissionPreset('default')
+  useWorkspaceStore.getState().setLastAgentSpawnPermissionPreset('manual')
   assert.equal(fakeApi.pushCalls.length, 3)
-  assert.equal(fakeApi.pushCalls.at(-1)?.lastAgentSpawnPermissionPreset, 'default')
+  assert.equal(fakeApi.pushCalls.at(-1)?.lastAgentSpawnPermissionPreset, 'manual')
 }
 
 // (3) The store notifies on every change; only launch-relevant ones push, or

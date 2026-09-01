@@ -14,7 +14,7 @@ import { AutomationsEngine } from './engine'
 import { RunWorktreeUnavailableError, createLocalAutomationExecutor, defaultCreateRunWorktree, type LocalAutomationExecutorOptions } from './executor-local'
 import { AutomationsStore } from './store'
 
-// The containment an unattended (`bypass_all`) automation run is supposed to
+// The containment an unattended (`bypass`) automation run is supposed to
 // have — a per-run worktree, a per-run branch, and a pull request nobody merges
 // automatically — is a property of the run, not of the permission preset. These
 // drive the REAL engine into the REAL executor and read the agent's working
@@ -38,7 +38,7 @@ function workspace(id: string, folderPath: string | null, mode: Workspace['mode'
     sprintEngineAutoState: {
       desiredMode: 'manual',
       runtimeState: 'idle',
-      cliPermissionPreset: 'default',
+      cliPermissionPreset: 'manual',
       maxConcurrentAgents: 0,
       deliveredAgentNotificationEventKeys: [],
     },
@@ -244,7 +244,7 @@ async function runToFinalize(
 async function assertContainmentHoldsWhenTheWorktreeIsCreated(): Promise<void> {
   for (const path of ['schedule', 'run-now', 'trigger'] as const) {
     const { root, launch, pullRequests, run } = await runToFinalize(path, scheduledDefinition(), 'created')
-    assert.equal(launch.permissionPreset, 'bypass_all', `${path}: launches unattended`)
+    assert.equal(launch.permissionPreset, 'bypass', `${path}: launches unattended`)
     assert.equal(
       launch.worktreePath,
       join(root, '.multi-code/automations/worktrees', 'run-1'),
@@ -274,7 +274,7 @@ async function assertOptOutRunsInTheCheckoutAndTheRecordSaysSo(): Promise<void> 
       scheduledDefinition({ runInWorktree: false }),
       'created'
     )
-    assert.equal(launch.permissionPreset, 'bypass_all', `${path}: opting out still launches unattended`)
+    assert.equal(launch.permissionPreset, 'bypass', `${path}: opting out still launches unattended`)
     assert.equal(launch.worktreePath, undefined, `${path}: the agent runs in the user's checkout`)
     assert.equal(run.status, 'completed', `${path}: an opt-out run still completes`)
     assert.equal(run.branch, undefined, `${path}: the run has no branch of its own`)

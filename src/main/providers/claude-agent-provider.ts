@@ -289,7 +289,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   // is gated: Claude Code takes it solely from the flag it was spawned with, so
   // a child spawned Default or Auto can never be talked into it.
   function childHonorsPreset(state: SessionState): boolean {
-    return state.permissionPreset !== 'bypass_all' || state.queryAllowsBypass
+    return state.permissionPreset !== 'bypass' || state.queryAllowsBypass
   }
 
   async function pump(state: SessionState, q: Query): Promise<void> {
@@ -462,7 +462,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         modelId: input.modelId,
         workspaceRoot: input.workspaceRoot ?? '',
         cliRuntimes: input.cliRuntimes,
-        permissionPreset: input.permissionPreset ?? 'default',
+        permissionPreset: input.permissionPreset ?? 'manual',
         allowedTools: input.allowedTools,
         providerSessionId: input.resumeSessionId?.trim() || null,
         query: null,
@@ -578,7 +578,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     async setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult> {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
-      if (state.query && input.permissionPreset === 'bypass_all' && !state.queryAllowsBypass) {
+      if (state.query && input.permissionPreset === 'bypass' && !state.queryAllowsBypass) {
         state.permissionPreset = input.permissionPreset
         state.lastActivityAt = now()
         if (state.turn) {
@@ -596,8 +596,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         return { ok: true }
       }
       if (state.query) {
+        const sdkMode = SDK_PERMISSION_MODE_BY_PRESET[input.permissionPreset]
+        // `none` has no SDK mode to set — it means "leave the harness on its own
+        // default" — so there is nothing to ask Claude Code to change.
+        if (sdkMode === undefined) return { ok: true }
         try {
-          await state.query.setPermissionMode(SDK_PERMISSION_MODE_BY_PRESET[input.permissionPreset])
+          await state.query.setPermissionMode(sdkMode)
         } catch (error) {
           // Claude Code owns the decision (it can refuse a mode the session did
           // not opt into at spawn). Surface its refusal instead of recording a
@@ -665,12 +669,18 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 }
 
 // Terminal-preset → SDK permission-mode mapping, mirroring the claude-code
-// plugin manifest's permissionPresets flags (`--permission-mode auto` /
-// `--permission-mode bypassPermissions`).
-const SDK_PERMISSION_MODE_BY_PRESET: Record<ConversationPermissionPreset, 'default' | 'auto' | 'bypassPermissions'> = {
-  default: 'default',
-  auto_workspace: 'auto',
-  bypass_all: 'bypassPermissions',
+// plugin manifest's permissionPresets flags (`--permission-mode default|auto|
+// bypassPermissions`). `none` maps to undefined on purpose: it means "pass no
+// permission flag and let the harness's own default win", which for the SDK is
+// leaving permissionMode unset rather than pinning it to 'default'.
+const SDK_PERMISSION_MODE_BY_PRESET: Record<
+  ConversationPermissionPreset,
+  'default' | 'auto' | 'bypassPermissions' | undefined
+> = {
+  none: undefined,
+  manual: 'default',
+  auto: 'auto',
+  bypass: 'bypassPermissions',
 }
 
 // Sanitize the CLI tool's AskUserQuestion input into the provider-neutral

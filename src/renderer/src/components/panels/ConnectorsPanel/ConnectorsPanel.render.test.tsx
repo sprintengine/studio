@@ -530,10 +530,10 @@ function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): Connec
 
   // A definition naming its own preset still reports its own, never the default.
   const asked = automationDetailFacts(
-    { ...definition, action: { kind: 'spawn-agent', config: { permissionPreset: 'default' } } } as AutomationDefinition,
+    { ...definition, action: { kind: 'spawn-agent', config: { permissionPreset: 'manual' } } } as AutomationDefinition,
     '/repo',
   )
-  assert.equal(asked.find((fact) => fact.term === 'Permission')?.description, 'Default — asks before acting')
+  assert.equal(asked.find((fact) => fact.term === 'Permission')?.description, 'Manual — asks before acting')
 
   // A non-agent action launches no agent, so it gets no permission row rather
   // than a default that would not be true of it.

@@ -264,7 +264,7 @@ async function testClaudeBundledRenderMatchesExpected(): Promise<void> {
   const launched = renderPluginLaunch(plugin!.manifest, {
     sessionId: 'sid_demo',
     prompt: 'do the thing',
-    permissionPreset: 'bypass_all',
+    permissionPreset: 'bypass',
   })
   assert.deepEqual(launched.argv, [
     'claude',
@@ -275,10 +275,43 @@ async function testClaudeBundledRenderMatchesExpected(): Promise<void> {
     'do the thing',
   ])
 
+  // An unnamed preset resolves to `manual`, which for Claude Code is an EXPLICIT
+  // `--permission-mode default`. Sending no flag is a different preset now
+  // (`none`), because Claude Code 2.1.228+ on a Pro/Max/Team plan reads no flag
+  // as auto mode — so "say nothing" and "ask me every time" stopped being the
+  // same instruction (MC-2210).
   const launchedNoPreset = renderPluginLaunch(plugin!.manifest, {
     sessionId: 'sid_demo',
   })
-  assert.deepEqual(launchedNoPreset.argv, ['claude', '--session-id', 'sid_demo'])
+  assert.deepEqual(launchedNoPreset.argv, [
+    'claude',
+    '--permission-mode',
+    'default',
+    '--session-id',
+    'sid_demo',
+  ])
+
+  const launchedNone = renderPluginLaunch(plugin!.manifest, {
+    sessionId: 'sid_demo',
+    permissionPreset: 'none',
+  })
+  assert.deepEqual(
+    launchedNone.argv,
+    ['claude', '--session-id', 'sid_demo'],
+    '`none` is the only preset that sends no permission flag',
+  )
+
+  const launchedManual = renderPluginLaunch(plugin!.manifest, {
+    sessionId: 'sid_demo',
+    permissionPreset: 'manual',
+  })
+  assert.deepEqual(launchedManual.argv, [
+    'claude',
+    '--permission-mode',
+    'default',
+    '--session-id',
+    'sid_demo',
+  ])
 }
 
 async function testCodexBundledRenderMatchesExpected(): Promise<void> {
@@ -292,7 +325,7 @@ async function testCodexBundledRenderMatchesExpected(): Promise<void> {
 
   const launched = renderPluginLaunch(plugin!.manifest, {
     prompt: 'fix the parser',
-    permissionPreset: 'auto_workspace',
+    permissionPreset: 'auto',
   })
   assert.deepEqual(launched.argv, [
     'codex',
@@ -322,7 +355,7 @@ async function testGrokBundledRenderMatchesExpected(): Promise<void> {
   const launched = renderPluginLaunch(plugin!.manifest, {
     sessionId: 'sid_demo',
     prompt: 'do the thing',
-    permissionPreset: 'bypass_all',
+    permissionPreset: 'bypass',
     model: 'grok-4.5',
   })
   assert.deepEqual(launched.argv, [
@@ -363,15 +396,15 @@ async function testOpencodeBundledRenderMatchesExpected(): Promise<void> {
   assert.ok(plugin)
 
   const presets = plugin!.manifest.permissionPresets
-  assert.deepEqual(presets.bypass_all?.args, ['--auto'], 'opencode bypass must send the flag that exists')
-  assert.equal(presets.auto_workspace, undefined, 'opencode declares no auto rung: it has no such mode')
+  assert.deepEqual(presets.bypass?.args, ['--auto'], 'opencode bypass must send the flag that exists')
+  assert.equal(presets.auto, undefined, 'opencode declares no auto rung: it has no such mode')
 
-  const bypassed = renderPluginLaunch(plugin!.manifest, { permissionPreset: 'bypass_all', prompt: 'do the thing' })
+  const bypassed = renderPluginLaunch(plugin!.manifest, { permissionPreset: 'bypass', prompt: 'do the thing' })
   assert.deepEqual(bypassed.argv, ['opencode', 'run', '--auto', 'do the thing'])
 
   // An auto request has no rung to land on and must degrade DOWN to default —
   // never up into bypass, and never through as an unknown flag.
-  const auto = renderPluginLaunch(plugin!.manifest, { permissionPreset: 'auto_workspace', prompt: 'do the thing' })
+  const auto = renderPluginLaunch(plugin!.manifest, { permissionPreset: 'auto', prompt: 'do the thing' })
   assert.deepEqual(auto.argv, ['opencode', 'run', 'do the thing'], 'auto degrades to default, not to bypass')
 }
 
@@ -385,15 +418,15 @@ async function testKimiCodeBundledRenderMatchesExpected(): Promise<void> {
   assert.ok(plugin)
 
   const presets = plugin!.manifest.permissionPresets
-  assert.deepEqual(presets.auto_workspace?.args, ['--yolo'], 'the rung that may still ask is auto')
-  assert.deepEqual(presets.bypass_all?.args, ['--auto'], 'the rung that never asks is bypass')
+  assert.deepEqual(presets.auto?.args, ['--yolo'], 'the rung that may still ask is auto')
+  assert.deepEqual(presets.bypass?.args, ['--auto'], 'the rung that never asks is bypass')
 
   assert.deepEqual(
-    renderPluginLaunch(plugin!.manifest, { permissionPreset: 'auto_workspace' }).argv,
+    renderPluginLaunch(plugin!.manifest, { permissionPreset: 'auto' }).argv,
     ['kimi', '--yolo'],
   )
   assert.deepEqual(
-    renderPluginLaunch(plugin!.manifest, { permissionPreset: 'bypass_all' }).argv,
+    renderPluginLaunch(plugin!.manifest, { permissionPreset: 'bypass' }).argv,
     ['kimi', '--auto'],
   )
 }
@@ -410,7 +443,7 @@ async function testKimiCodeBundledRenderMatchesExpected(): Promise<void> {
 // manifest. That case is guarded by pinning each CLI's verified flags above.
 async function testBundledPresetsNeverDegradeUpward(): Promise<void> {
   const registry = await bundledRegistry()
-  const ladder = ['default', 'auto_workspace', 'bypass_all'] as const
+  const ladder = ['manual', 'auto', 'bypass'] as const
 
   for (const entry of registry.list()) {
     const manifest = registry.get(entry.id)?.manifest

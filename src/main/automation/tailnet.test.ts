@@ -1418,7 +1418,7 @@ function realTerminalTools(input: {
       },
     }),
     listTerminalSessions: () => input.terminals.listSessions(),
-    getAgentSpawnPermissionDefault: () => input.spawnPermissionDefault ?? 'auto_workspace',
+    getAgentSpawnPermissionDefault: () => input.spawnPermissionDefault ?? 'auto',
     launchAgent: async (request: AgentLaunchRequest) => {
       input.launches.push(request)
       const sessionId = `spawned-${++spawned}`
@@ -1449,7 +1449,7 @@ export async function testARemoteClientOpensATerminalHereAttachesAndDrivesIt(): 
     const sessionId = payload.structuredContent.sessionId
     assert.equal(sessionId, 'spawned-1')
     // This machine's own spawn default, not a preset the remote caller chose.
-    assert.equal(payload.structuredContent.permissionPreset, 'auto_workspace')
+    assert.equal(payload.structuredContent.permissionPreset, 'auto')
     assert.equal(launches[0].workspaceId, 'ws-mini')
 
     // …and the id it handed back is attachable, on the same connection's token.

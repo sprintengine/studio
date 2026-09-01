@@ -161,7 +161,7 @@ assert.deepEqual(
 
 const v60SprintEnginePermissionState = {
   appSettings: {
-    lastAgentSpawnPermissionPreset: 'bypass_all',
+    lastAgentSpawnPermissionPreset: 'bypass',
   },
   workspaces: [
     {
@@ -187,7 +187,7 @@ const v60SprintEnginePermissionState = {
       sprintEngineAutoState: {
         desiredMode: 'manual',
         runtimeState: 'idle',
-        cliPermissionPreset: 'default',
+        cliPermissionPreset: 'manual',
         maxConcurrentAgents: 3,
         deliveredAgentNotificationEventKeys: [],
       },
@@ -209,12 +209,12 @@ const migratedSprintEnginePermissionKey = sprintEngineRunSettingsKey(
 assert.equal(
   migratedSprintEnginePermission.appSettings.sprintEngineRunSettings[migratedSprintEnginePermissionKey]
     ?.cliPermissionPreset,
-  'bypass_all',
+  'bypass',
   'v61 migration seeds per-run Sprint Engine permission from the app default when the run was still factory-default',
 )
 assert.equal(
   migratedSprintEnginePermission.workspaces[0].sprintEngineAutoState.cliPermissionPreset,
-  'bypass_all',
+  'bypass',
   'v61 migration hydrates existing Sprint Engine workspaces from the local per-run setting',
 )
 
@@ -230,7 +230,7 @@ const v52AutoRunState = {
         supervisorEnabled: true,
         enabled: true,
         autoApproveArtifacts: true,
-        cliPermissionPreset: 'bypass_all',
+        cliPermissionPreset: 'bypass',
         maxConcurrentAgents: 4,
         pendingSpawns: [{ taskId: 'T1', agentId: 'developer-1', startedAt: 1 }],
         deliveredAgentNotificationEventKeys: ['EVT-1'],
@@ -265,7 +265,7 @@ assert.equal(
   false,
   'legacy pending-spawn residue is dropped by normalization (MC-1592: no persisted spawn ledger)',
 )
-assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.cliPermissionPreset, 'bypass_all')
+assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.cliPermissionPreset, 'bypass')
 assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.maxConcurrentAgents, 4)
 assert.deepEqual(migratedAutoRun.workspaces[0].sprintEngineAutoState.deliveredAgentNotificationEventKeys, ['EVT-1'])
 

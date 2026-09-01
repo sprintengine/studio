@@ -283,7 +283,7 @@ async function testRecordSpawnFailureResetsStoreAndPublishesDiagnostic(): Promis
     agentId: 'developer-1',
     agentLabel: 'Developer 1',
     selectedCli: 'codex',
-    cliPermissionPreset: 'default',
+    cliPermissionPreset: 'manual',
     taskId: 'T1',
     sessionId: 'session-x',
     executionCwd: '/tmp/workspace',
@@ -303,7 +303,7 @@ async function testRecordSpawnFailureResetsStoreAndPublishesDiagnostic(): Promis
     details: [
       'Spawn error: MCP config sync failed: missing server multicode-sprintengine',
       'CLI: codex',
-      'CLI permissions: default',
+      'CLI permissions: manual',
       'Session: session-x',
     ].join('\n'),
   })
@@ -344,7 +344,7 @@ async function testRecordSpawnFailureOrdersStoreUpdatesBeforeDiagnostic(): Promi
     agentId: 'developer-1',
     agentLabel: 'Developer 1',
     selectedCli: 'codex',
-    cliPermissionPreset: 'default',
+    cliPermissionPreset: 'manual',
     taskId: 'T1',
     sessionId: 'session-x',
     executionCwd: '/tmp/workspace',

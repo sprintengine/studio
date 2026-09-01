@@ -698,13 +698,13 @@ async function testPermissionPresetMapsToSdkPermissionMode(): Promise<void> {
   }
 
   const bypass = createAdapter((_userMessage, context) => emitResult(context))
-  await collect(bypass.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'bypass_all' }) as ConversationEvent[])
+  await collect(bypass.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'bypass' }) as ConversationEvent[])
   await collect(bypass.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
   assert.equal(bypass.capturedOptions[0]?.permissionMode, 'bypassPermissions')
   assert.equal(bypass.capturedOptions[0]?.allowDangerouslySkipPermissions, true)
 
   const auto = createAdapter((_userMessage, context) => emitResult(context))
-  await collect(auto.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'auto_workspace' }) as ConversationEvent[])
+  await collect(auto.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'auto' }) as ConversationEvent[])
   await collect(auto.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
   assert.equal(auto.capturedOptions[0]?.permissionMode, 'auto')
   assert.equal(auto.capturedOptions[0]?.allowDangerouslySkipPermissions, undefined)
@@ -731,7 +731,7 @@ async function testLivePermissionPresetReachesTheChildAndSurvivesRespawn(): Prom
 
   // Before the child exists the preset is only recorded — it lands at spawn,
   // including the bypass opt-in flag the SDK requires.
-  assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass_all' }), { ok: true })
+  assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), { ok: true })
   assert.deepEqual(live.permissionModes, [], 'no control request without a child')
   await collect(live.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
   assert.equal(live.capturedOptions[0]?.permissionMode, 'bypassPermissions')
@@ -739,7 +739,7 @@ async function testLivePermissionPresetReachesTheChildAndSurvivesRespawn(): Prom
 
   // With the child running the switch rides the control channel.
   assert.deepEqual(
-    await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto_workspace' }),
+    await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto' }),
     { ok: true }
   )
   assert.deepEqual(live.permissionModes, ['auto'])
@@ -750,7 +750,7 @@ async function testLivePermissionPresetReachesTheChildAndSurvivesRespawn(): Prom
   assert.equal(live.capturedOptions[1]?.permissionMode, 'auto')
   assert.equal(live.capturedOptions[1]?.allowDangerouslySkipPermissions, undefined)
 
-  assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, sessionId: 'conv_missing', permissionPreset: 'default' }), {
+  assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, sessionId: 'conv_missing', permissionPreset: 'manual' }), {
     ok: false,
     message: 'Conversation session is not registered with the Claude provider.',
   })
@@ -765,9 +765,9 @@ async function testLivePermissionPresetReachesTheChildAndSurvivesRespawn(): Prom
       throw new Error('permission mode auto is unavailable in this CLI build')
     },
   })
-  await collect(refusing.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'default' }) as ConversationEvent[])
+  await collect(refusing.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'manual' }) as ConversationEvent[])
   await collect(refusing.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
-  assert.deepEqual(await refusing.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto_workspace' }), {
+  assert.deepEqual(await refusing.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto' }), {
     ok: false,
     message: 'Claude Code refused the permission change: permission mode auto is unavailable in this CLI build',
   })
@@ -1118,7 +1118,7 @@ async function testSwitchingToBypassMidSessionRespawnsInsteadOfBeingRefused(): P
   assert.equal(idle.capturedOptions[0]?.permissionMode, 'default')
   assert.equal(idle.adapter.listLiveSessions()[0]?.hasChildProcess, true)
 
-  assert.deepEqual(await idle.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass_all' }), { ok: true })
+  assert.deepEqual(await idle.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), { ok: true })
   assert.deepEqual(idle.permissionModes, [], 'the child is replaced, not asked')
   const disposed = idle.adapter.listLiveSessions()[0]
   assert.equal(disposed?.hasChildProcess, false, 'the query is disposed so the next turn respawns')
@@ -1151,14 +1151,14 @@ async function testSwitchingToBypassMidSessionRespawnsInsteadOfBeingRefused(): P
       usage: { input_tokens: 1, output_tokens: 1 },
     })
   })
-  await collect(inFlight.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'auto_workspace' }) as ConversationEvent[])
+  await collect(inFlight.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'auto' }) as ConversationEvent[])
   const streamed: ConversationEvent[] = []
   const streaming = (async () => {
     for await (const event of inFlight.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>) streamed.push(event)
   })()
   await waitForContinuationEvent(streamed, 'content_delta')
 
-  assert.deepEqual(await inFlight.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass_all' }), {
+  assert.deepEqual(await inFlight.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
     ok: true,
     notice: 'Bypass starts with your next message — this reply finishes under the permissions it started with.',
   })

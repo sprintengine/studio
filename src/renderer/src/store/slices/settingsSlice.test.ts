@@ -124,7 +124,7 @@ assert.equal(normalized.mcp.syncEnabled, true)
 assert.deepEqual(Object.keys(normalized.mcp.servers), ['valid-server'])
 assert.deepEqual(normalized.mcp.servers['valid-server'].args, ['package'])
 assert.deepEqual(normalized.mcp.servers['valid-server'].clients, ['codex', 'opencode', 'bad-cli'])
-assert.equal(normalized.lastAgentSpawnPermissionPreset, 'default')
+assert.equal(normalized.lastAgentSpawnPermissionPreset, 'manual')
 assert.deepEqual(normalized.specialistCliDefaults, { architect: 'codex', tester: 'invalid' })
 assert.deepEqual(normalized.searchExcludes, ['node_modules', 'dist', 'src/generated'])
 assert.deepEqual(normalized.projectKnowledgeRoots, {
@@ -205,9 +205,35 @@ assert.deepEqual(
   'standalone keybinding normalization rejects duplicates and invalid chords',
 )
 
-assert.equal(normalizeCliPermissionPreset('auto_workspace'), 'auto_workspace')
-assert.equal(normalizeCliPermissionPreset('bypass_all'), 'bypass_all')
-assert.equal(normalizeCliPermissionPreset('bad' as never), 'default')
+assert.equal(normalizeCliPermissionPreset('auto'), 'auto')
+assert.equal(normalizeCliPermissionPreset('bypass'), 'bypass')
+// Corruption floors to `manual`, which MC-2210 moved from `default`: no flag
+// is no longer the conservative answer now that Claude Code reads it as auto.
+assert.equal(normalizeCliPermissionPreset('bad' as never), 'manual')
+// A recognised legacy spelling is not corruption — it maps, it does not floor.
+assert.equal(normalizeCliPermissionPreset('default' as never), 'manual')
+assert.equal(normalizeCliPermissionPreset('auto_workspace' as never), 'auto')
+assert.equal(normalizeCliPermissionPreset('bypass_all' as never), 'bypass')
+
+// MC-2210 acceptance: migration must NEVER escalate. Ordered least → most
+// permissive, `none` sits outside the order because what it grants depends on
+// the CLI (no flag now means auto mode on Claude Code), so it is checked
+// separately: nothing may migrate INTO it, since that would hand the decision
+// to a CLI whose default the user never chose.
+{
+  const rank: Record<string, number> = { manual: 0, auto: 1, bypass: 2 }
+  const legacyRank: Record<string, number> = { default: 0, auto_workspace: 1, bypass_all: 2 }
+  for (const [legacy, before] of Object.entries(legacyRank)) {
+    const after = normalizeCliPermissionPreset(legacy as never)
+    assert.notEqual(after, 'none', `${legacy} must not migrate into the CLI's own default`)
+    assert.ok(
+      rank[after] <= before,
+      `${legacy} migrated UP the ladder to ${after} — migration may never grant more`,
+    )
+  }
+  // Corruption floors, and the floor is the least permissive rung.
+  assert.equal(rank[normalizeCliPermissionPreset('nonsense' as never)], 0)
+}
 
 // New-chat agent choice: terminal and any non-empty specialist id round-trip
 // (bundled or registry-discovered, so a plugged-in specialist can be the
@@ -236,15 +262,15 @@ assert.equal(
 assert.deepEqual(
   normalizeSprintEngineRunSettings({
     ' /Users/example/Project/.multi-code\\sprintengine/run.yaml/ ': {
-      cliPermissionPreset: 'bypass_all',
+      cliPermissionPreset: 'bypass',
       maxConcurrentAgents: 99,
     },
     '/Users/example/bad/run.yaml': { maxConcurrentAgents: 'many' },
-    '': { cliPermissionPreset: 'bypass_all' },
+    '': { cliPermissionPreset: 'bypass' },
   }),
   {
     '/users/example/project/.multi-code/sprintengine/run.yaml': {
-      cliPermissionPreset: 'bypass_all',
+      cliPermissionPreset: 'bypass',
       maxConcurrentAgents: 10,
     },
   },
@@ -254,7 +280,7 @@ assert.deepEqual(
     {
       sprintEngineRunSettings: {
         '/Users/example/Project/.multi-code/sprintengine/run.yaml': {
-          cliPermissionPreset: 'auto_workspace',
+          cliPermissionPreset: 'auto',
         },
       },
     },
@@ -262,7 +288,7 @@ assert.deepEqual(
   ).sprintEngineRunSettings,
   {
     '/users/example/project/.multi-code/sprintengine/run.yaml': {
-      cliPermissionPreset: 'auto_workspace',
+      cliPermissionPreset: 'auto',
     },
   },
 )
@@ -530,7 +556,7 @@ const permissionCarrier = {
       sprintEngineAutoState: {
         desiredMode: 'manual',
         runtimeState: 'idle',
-        cliPermissionPreset: 'default',
+        cliPermissionPreset: 'manual',
         maxConcurrentAgents: 3,
         deliveredAgentNotificationEventKeys: [],
       },
@@ -551,24 +577,24 @@ const permissionCarrier = {
   agentConfigAdoptionResult: null,
 }
 const permissionSlice = createSettingsSlice((mutator) => mutator(permissionCarrier))
-permissionSlice.setLastAgentSpawnPermissionPreset('bypass_all')
-assert.equal(permissionCarrier.appSettings.lastAgentSpawnPermissionPreset, 'bypass_all')
+permissionSlice.setLastAgentSpawnPermissionPreset('bypass')
+assert.equal(permissionCarrier.appSettings.lastAgentSpawnPermissionPreset, 'bypass')
 assert.equal(
   permissionCarrier.workspaces[0].sprintEngineAutoState?.cliPermissionPreset,
-  'bypass_all',
+  'bypass',
   'app default updates Sprint Engine runs that do not have a local override',
 )
 permissionCarrier.appSettings.sprintEngineRunSettings = {
-  [sprintEngineRunSettingsKey(sprintEngineRunPath)]: { cliPermissionPreset: 'default' },
+  [sprintEngineRunSettingsKey(sprintEngineRunPath)]: { cliPermissionPreset: 'manual' },
 }
 permissionCarrier.workspaces[0].sprintEngineAutoState = {
   ...permissionCarrier.workspaces[0].sprintEngineAutoState!,
-  cliPermissionPreset: 'default',
+  cliPermissionPreset: 'manual',
 }
-permissionSlice.setLastAgentSpawnPermissionPreset('auto_workspace')
+permissionSlice.setLastAgentSpawnPermissionPreset('auto')
 assert.equal(
   permissionCarrier.workspaces[0].sprintEngineAutoState?.cliPermissionPreset,
-  'default',
+  'manual',
   'app default does not overwrite a Sprint Engine run with a local override',
 )
 

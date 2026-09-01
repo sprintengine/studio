@@ -238,7 +238,7 @@ async function testRegistersSessionChannelsAndEventSubscription(): Promise<void>
   })
   await ipcMain.handlers.get('conversation:sessions:set-permission')?.(null, {
     sessionId: 'conv_1',
-    permissionPreset: 'bypass_all',
+    permissionPreset: 'bypass',
   })
   await ipcMain.handlers.get('conversation:sessions:stop')?.(null, { sessionId: 'conv_1' })
   assert.deepEqual(await ipcMain.handlers.get('conversation:sessions:list')?.(null, {}), {
@@ -290,7 +290,7 @@ async function testRegistersSessionChannelsAndEventSubscription(): Promise<void>
     'send:conv_1:hello',
     'interrupt:conv_1',
     'respond:conv_1:approval_1:true',
-    'permission:conv_1:bypass_all',
+    'permission:conv_1:bypass',
     'stop:conv_1',
   ])
 }
@@ -315,20 +315,20 @@ async function testSetPermissionValidatesThePreset(): Promise<void> {
   const setPermission = ipcMain.handlers.get('conversation:sessions:set-permission')
   assert.ok(setPermission, 'conversation:sessions:set-permission should be registered')
 
-  assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: 'auto_workspace' }), {
+  assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: 'auto' }), {
     ok: true,
-    session: { ...SENT_SESSION, permissionPreset: 'auto_workspace' },
+    session: { ...SENT_SESSION, permissionPreset: 'auto' },
   })
-  assert.deepEqual(captured, ['auto_workspace'])
+  assert.deepEqual(captured, ['auto'])
 
-  const presetError = { ok: false, message: 'permissionPreset must be default, auto_workspace, or bypass_all.' }
+  const presetError = { ok: false, message: 'permissionPreset must be default, auto, or bypass.' }
   assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: 'yolo' }), presetError)
   assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1' }), presetError)
-  assert.deepEqual(await setPermission?.(null, { permissionPreset: 'default' }), {
+  assert.deepEqual(await setPermission?.(null, { permissionPreset: 'manual' }), {
     ok: false,
     message: 'sessionId is required.',
   })
-  assert.deepEqual(captured, ['auto_workspace'], 'no invalid preset reached the runtime')
+  assert.deepEqual(captured, ['auto'], 'no invalid preset reached the runtime')
 }
 
 // The send-turn boundary guards image attachments: valid images pass through

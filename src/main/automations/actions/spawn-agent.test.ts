@@ -209,18 +209,18 @@ function stubRuntime(
 // launch whichever start path built the run — and a definition that names a
 // preset keeps exactly that.
 async function assertUnspecifiedPresetResolvesToBypass(): Promise<void> {
-  assert.equal(AUTOMATION_DEFAULT_PERMISSION_PRESET, 'bypass_all', 'the automation default is bypass_all')
+  assert.equal(AUTOMATION_DEFAULT_PERMISSION_PRESET, 'bypass', 'the automation default is bypass')
   assert.equal(
     parseSpawnAgentConfig({ prompt: 'Sweep.' }).permissionPreset,
-    'bypass_all',
+    'bypass',
     'a config with no preset parses to the unattended default',
   )
 
   const unset: CapturedLaunch = { prompt: '' }
   await runSpawnAgentAction({ prompt: 'Sweep the repo.' }, stubRuntime(undefined, unset))
-  assert.equal(unset.permissionPreset, 'bypass_all', 'an automation with no preset launches unattended')
+  assert.equal(unset.permissionPreset, 'bypass', 'an automation with no preset launches unattended')
 
-  for (const preset of ['default', 'auto_workspace', 'bypass_all'] as const) {
+  for (const preset of ['default', 'auto', 'bypass'] as const) {
     const explicit: CapturedLaunch = { prompt: '' }
     await runSpawnAgentAction({ prompt: 'Sweep the repo.', permissionPreset: preset }, stubRuntime(undefined, explicit))
     assert.equal(explicit.permissionPreset, preset, `an explicit "${preset}" is honored verbatim`)
@@ -230,13 +230,13 @@ async function assertUnspecifiedPresetResolvesToBypass(): Promise<void> {
   // cannot drift to a different answer.
   const loop: CapturedLaunch = { prompt: '' }
   await runSkillLoopAction({ prompt: 'Work an item.', skill: 'backlog' }, stubRuntime(undefined, loop))
-  assert.equal(loop.permissionPreset, 'bypass_all', 'run-skill-loop takes the same default')
+  assert.equal(loop.permissionPreset, 'bypass', 'run-skill-loop takes the same default')
   const loopExplicit: CapturedLaunch = { prompt: '' }
   await runSkillLoopAction(
-    { prompt: 'Work an item.', skill: 'backlog', permissionPreset: 'auto_workspace' },
+    { prompt: 'Work an item.', skill: 'backlog', permissionPreset: 'auto' },
     stubRuntime(undefined, loopExplicit),
   )
-  assert.equal(loopExplicit.permissionPreset, 'auto_workspace', 'run-skill-loop honors an explicit preset')
+  assert.equal(loopExplicit.permissionPreset, 'auto', 'run-skill-loop honors an explicit preset')
 
   // An out-of-vocabulary preset is still a hard parse failure — the default
   // never launders a bad value into bypass.
