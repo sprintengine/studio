@@ -13,7 +13,13 @@
       "label": "Manual — Cursor prompts for approvals",
       "args": []
     },
+    "auto": {
+      "$comment": "Cursor's own auto mode, and mechanically the closest analogue to Claude Code's anywhere in this set. `cursor-agent --help`: `--auto-review  Use Auto-review (Smart Auto): a server classifier auto-runs safe tool calls and prompts for the rest`. A classifier decides, not a sandbox — so this belongs on the same rung as Claude Code's auto rather than beside Codex's workspace-write.",
+      "label": "Auto — a classifier runs the safe calls, prompts for the rest",
+      "args": ["--auto-review"]
+    },
     "bypass": {
+      "$comment": "`--yolo` is documented as an alias for `--force`; only one is sent.",
       "label": "Bypass all approvals (dangerous)",
       "args": ["--force"]
     }

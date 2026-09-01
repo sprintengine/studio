@@ -29,6 +29,7 @@ async function main(): Promise<void> {
   await testGrokBundledRenderMatchesExpected()
   await testOpencodeBundledRenderMatchesExpected()
   await testKimiCodeBundledRenderMatchesExpected()
+  await testCursorBundledRenderMatchesExpected()
   await testBundledPresetsNeverDegradeUpward()
   await testFixtureManifestsValidate()
   await testUserPluginOverridesBundled()
@@ -367,12 +368,37 @@ async function testGrokBundledRenderMatchesExpected(): Promise<void> {
     '--session-id',
     'sid_demo',
   ])
-  const launchedDefault = renderPluginLaunch(plugin!.manifest, { sessionId: 'sid_demo' })
+  const launchedManual = renderPluginLaunch(plugin!.manifest, { sessionId: 'sid_demo' })
   assert.deepEqual(
-    launchedDefault.argv,
-    ['grok', '--session-id', 'sid_demo'],
-    'default preset must not grant --trust'
+    launchedManual.argv,
+    ['grok', '--permission-mode', 'default', '--session-id', 'sid_demo'],
+    'the safe default preset must not grant --trust'
   )
+
+  // MC-2211: Grok ships the whole Claude Code mode set, so it gets a real auto
+  // rung. --trust rides it deliberately — without project hooks no agent-state
+  // frames arrive and the session converts to `stalled` via the watchdog — and
+  // that is defensible only because `manual`, the safe default asserted above,
+  // still carries no trust.
+  const launchedAuto = renderPluginLaunch(plugin!.manifest, {
+    sessionId: 'sid_demo',
+    permissionPreset: 'auto',
+  })
+  assert.deepEqual(launchedAuto.argv, [
+    'grok',
+    '--permission-mode',
+    'auto',
+    '--trust',
+    '--session-id',
+    'sid_demo',
+  ])
+
+  // `none` is the only preset that grants neither a mode nor trust.
+  const launchedNone = renderPluginLaunch(plugin!.manifest, {
+    sessionId: 'sid_demo',
+    permissionPreset: 'none',
+  })
+  assert.deepEqual(launchedNone.argv, ['grok', '--session-id', 'sid_demo'])
   assert.equal(plugin!.manifest.promptInjection.mode, 'send-after-ready')
 }
 
@@ -463,6 +489,20 @@ async function testBundledPresetsNeverDegradeUpward(): Promise<void> {
       )
     }
   }
+}
+
+// MC-2211: Cursor's own auto mode. `--auto-review` is a SERVER CLASSIFIER that
+// auto-runs safe tool calls and prompts for the rest — the closest analogue to
+// Claude Code's auto anywhere in this set, and not a sandbox like Codex's rung.
+async function testCursorBundledRenderMatchesExpected(): Promise<void> {
+  const registry = await bundledRegistry()
+  const plugin = registry.get('cursor')
+  assert.ok(plugin)
+
+  const presets = plugin!.manifest.permissionPresets
+  assert.deepEqual(presets.auto?.args, ['--auto-review'])
+  assert.deepEqual(presets.bypass?.args, ['--force'], '--yolo is only an alias; one flag is sent')
+  assert.deepEqual(presets.manual?.args, [], 'Cursor prompts on its own, so manual adds nothing')
 }
 
 async function testFixtureManifestsValidate(): Promise<void> {
