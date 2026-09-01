@@ -1,7 +1,7 @@
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { dirname } from 'path'
 
-// MC-2220 — the account badge shows the provider profile photo. Multiauth hands
+// MC-2220 — the account badge shows the provider profile photo. The account service hands
 // the desktop a remote URL (Google `picture`, GitHub `avatar_url`); the
 // renderer never loads that URL itself. This cache fetches the bytes once,
 // keeps them on disk keyed by the source URL, and hands out a `data:` URL, so:

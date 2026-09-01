@@ -56,7 +56,7 @@ export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth'
 )
 // The provider-agnostic entitlement seam (MC-2169). A module that needs to gate
 // on a stable feature key resolves THIS and asks `hasFeature`/`refreshFeature`;
-// MulticodeAuthToken above is the Multiauth adapter behind it, and resolving
+// MulticodeAuthToken above is the account-service adapter behind it, and resolving
 // that one to answer an entitlement question re-couples the module to whichever
 // provider is current.
 export const EntitlementServiceToken = createServiceToken<AppServices['entitlements']>(

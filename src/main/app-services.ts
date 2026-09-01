@@ -985,7 +985,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     mcpConfigService,
     multicodeAuth,
     // The provider-agnostic entitlement seam. Feature gates resolve THIS;
-    // `multicodeAuth` is the Multiauth adapter sitting behind it.
+    // `multicodeAuth` is the account-service adapter sitting behind it.
     entitlements: multicodeAuth.entitlements,
     skillsService,
     sprintEngineArtifacts,

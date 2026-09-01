@@ -236,6 +236,7 @@ export type MobileRelayTransport = {
   connectDesktop(input: {
     relayUrl: string
     accessToken: string
+    organizationId?: string | null
     desktopInstanceId: string
     displayName: string
     commands: RelayCommandType[]
@@ -262,6 +263,7 @@ export type MobileRelayTransport = {
   revokeDevice(input: {
     relayUrl: string
     accessToken: string
+    organizationId?: string | null
     deviceId: string
     reason: string
   }): Promise<{ revoked: true }>
@@ -347,7 +349,14 @@ export type MobileBridgeSettingsUpdate = {
   relayUrl?: string | null
 }
 
-type DesktopSessionProvider = () => Promise<{ authenticated: boolean; session?: { id: string; expiresAt: string } }>
+// `selectedOrganization` is what a Clerk-authenticated desktop tells the relay
+// to bind to (MC-2185); a Multiauth token carries its own and the relay
+// ignores the header. Optional so test doubles need not supply it.
+type DesktopSessionProvider = () => Promise<{
+  authenticated: boolean
+  session?: { id: string; expiresAt: string }
+  selectedOrganization?: { id: string } | null
+}>
 type DesktopAccessTokenProvider = () => Promise<string | null>
 type SprintEngineStatePathsProvider = () => Promise<string[]>
 type MobileWorkspaceRootsProvider = () => Promise<string[]>
@@ -770,6 +779,7 @@ export class MobileBridge {
       const payload = await this.relayTransport.connectDesktop({
         relayUrl: this.relayUrl,
         accessToken,
+        organizationId: session.selectedOrganization?.id ?? null,
         desktopInstanceId: this.desktopInstanceId,
         displayName: getDesktopDisplayName(),
         commands: RELAY_SUPPORTED_COMMANDS,
@@ -1219,11 +1229,13 @@ export class MobileBridge {
       this.recordDiagnostic('warning', 'unauthenticated', 'Mobile relay revocation requires a desktop access token.', true)
       throw new Error('Mobile relay revocation requires a desktop access token.')
     }
+    const session = await this.sessionProvider()
 
     try {
       await this.relayTransport.revokeDevice({
         relayUrl: this.relayUrl,
         accessToken,
+        organizationId: session.authenticated ? session.selectedOrganization?.id ?? null : null,
         deviceId,
         reason,
       })

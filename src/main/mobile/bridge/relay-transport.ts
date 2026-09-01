@@ -42,12 +42,14 @@ export class FetchMobileRelayTransport implements MobileRelayTransport {
   async connectDesktop(input: {
     relayUrl: string
     accessToken: string
+    organizationId?: string | null
     desktopInstanceId: string
     displayName: string
     commands: RelayCommandType[]
   }): Promise<RelayConnectResult> {
     const payload = await relayJsonRequest(input.relayUrl, '/api/relay/desktop/connect', {
       token: input.accessToken,
+      organizationId: input.organizationId,
       method: 'POST',
       body: {
         desktopInstanceId: input.desktopInstanceId,
@@ -136,11 +138,13 @@ export class FetchMobileRelayTransport implements MobileRelayTransport {
   async revokeDevice(input: {
     relayUrl: string
     accessToken: string
+    organizationId?: string | null
     deviceId: string
     reason: string
   }): Promise<{ revoked: true }> {
     const payload = await relayJsonRequest(input.relayUrl, `/api/relay/devices/${encodeURIComponent(input.deviceId)}/revoke`, {
       token: input.accessToken,
+      organizationId: input.organizationId,
       method: 'POST',
       body: {
         reason: input.reason,
@@ -160,6 +164,10 @@ async function relayJsonRequest(
   path: string,
   input: {
     token: string
+    // The selected organisation, for a Clerk-authenticated desktop whose
+    // token names none (MC-2185). Multiauth tokens carry their own; the
+    // relay ignores the header for those.
+    organizationId?: string | null
     method: 'POST'
     body: Record<string, unknown>
   }
@@ -171,6 +179,7 @@ async function relayJsonRequest(
       authorization: `Bearer ${input.token}`,
       'content-type': 'application/json',
       'x-request-id': randomUUID(),
+      ...(input.organizationId ? { 'x-multiauth-organization': input.organizationId } : {}),
     },
     body: JSON.stringify(input.body),
   })

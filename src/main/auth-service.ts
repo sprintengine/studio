@@ -6,7 +6,6 @@ import { dirname, join } from 'path'
 import type {
   EntitlementSnapshot,
   MulticodeAuthState,
-  SessionOrganization,
   SessionSnapshot,
   SessionUser,
 } from '../shared/electron-api'
@@ -18,12 +17,37 @@ import {
   entitlementCacheStatus,
   entitlementGraceExpiresAt,
   isEntitlementSnapshot,
-  isEntitlementSnapshotFresh,
   offlineGraceMessage,
   type CachedEntitlementSnapshot,
 } from './entitlement-service'
+import {
+  CLERK_IDENTITY_PROVIDER,
+  IDENTITY_MARKER_FILE_NAME,
+  MULTIAUTH_IDENTITY_PROVIDER,
+  REFRESH_TOKEN_FILE_NAMES,
+  buildClerkAuthorizationUrl,
+  buildMultiauthAuthorizationUrl,
+  isIdentityProviderKind,
+  parseClerkIdentityConfig,
+  type IdentityConfig,
+} from './desktop-identity'
+import {
+  MulticodeAccountClient,
+  parseAccountProfile,
+  type AccountProfile,
+  type IdentityMarker,
+  type IdentityMarkerStore,
+  type SecureRefreshTokenStore,
+} from './account-client'
 import { getErrorMessage } from './error-message'
 
+// `MULTIAUTH_BASE_URL` names the Multicode ACCOUNT SERVICE: where entitlement
+// snapshots come from and where the mobile relay lives. It is no longer, by
+// definition, the identity provider (MC-2183): the service publishes which
+// issuer a sign-in should go to at `/api/auth/identity` — itself on a
+// self-hosted deployment, Clerk on the hosted one — and this bridge follows.
+// The environment variable keeps its historical name so existing overrides
+// (`MULTIAUTH_BASE_URL=http://localhost:3000` for local dev) keep working.
 const DEFAULT_MULTIAUTH_BASE_URL = 'https://multiauth-production.up.railway.app'
 const MULTIAUTH_BASE_URL = (process.env['MULTIAUTH_BASE_URL'] || DEFAULT_MULTIAUTH_BASE_URL).replace(/\/+$/u, '')
 const MULTICODE_CLIENT_ID = 'multicode-desktop' as const
@@ -31,7 +55,13 @@ const MULTICODE_LOOPBACK_HOST = '127.0.0.1' as const
 const MULTICODE_LOOPBACK_PORT = 43110
 const MULTICODE_LOOPBACK_REDIRECT_URI = `http://${MULTICODE_LOOPBACK_HOST}:${MULTICODE_LOOPBACK_PORT}/callback` as const
 const MULTICODE_CUSTOM_REDIRECT_URI = 'multicode://auth/callback' as const
-const DEFAULT_MULTICODE_AUTH_REDIRECT_MODE = app.isPackaged ? 'custom' : 'loopback'
+// Loopback for packaged builds too (MC-2183). The custom scheme is bound by
+// macOS LaunchServices to whichever Electron bundle registered it last — a
+// released build beside a beta is enough to send the callback to the wrong
+// app — while RFC 8252 loopback has no such ambiguity. `multicode://` stays
+// registered and reachable with `MULTICODE_AUTH_REDIRECT_MODE=custom` for the
+// one case loopback loses: the port being occupied.
+const DEFAULT_MULTICODE_AUTH_REDIRECT_MODE = 'loopback'
 const MULTICODE_AUTH_REDIRECT_MODE = process.env['MULTICODE_AUTH_REDIRECT_MODE'] === 'custom' ||
   process.env['MULTICODE_AUTH_REDIRECT_MODE'] === 'loopback'
   ? process.env['MULTICODE_AUTH_REDIRECT_MODE']
@@ -39,38 +69,21 @@ const MULTICODE_AUTH_REDIRECT_MODE = process.env['MULTICODE_AUTH_REDIRECT_MODE']
 const MULTICODE_REDIRECT_URI: typeof MULTICODE_CUSTOM_REDIRECT_URI | typeof MULTICODE_LOOPBACK_REDIRECT_URI =
   MULTICODE_AUTH_REDIRECT_MODE === 'loopback' ? MULTICODE_LOOPBACK_REDIRECT_URI : MULTICODE_CUSTOM_REDIRECT_URI
 const MULTICODE_PRODUCT = 'multicode' as const
+const MULTIAUTH_DESKTOP_SCOPE = 'openid profile entitlements:read relay:desktop'
 const AUTH_PREFLIGHT_TIMEOUT_MS = 3000
+const ACCOUNT_SERVICE_LABEL = 'The Multicode account service'
 
 type ElectronRendererAuthState = Pick<
   MulticodeAuthState,
   'authenticated' | 'user' | 'selectedOrganization' | 'entitlements'
 >
 
-type TokenSet = {
-  accessToken: string
-  refreshToken: string
-  tokenType: 'Bearer'
-  expiresIn: number
-}
-
-type DesktopExchangeRequest = {
-  clientId: typeof MULTICODE_CLIENT_ID
-  redirectUri: typeof MULTICODE_CUSTOM_REDIRECT_URI | typeof MULTICODE_LOOPBACK_REDIRECT_URI
-  code: string
-  codeVerifier: string
-}
-
-type SecureRefreshTokenStore = {
-  readRefreshToken(): Promise<string | null>
-  writeRefreshToken(refreshToken: string): Promise<void>
-  clearRefreshToken(): Promise<void>
-}
-
 type PendingDesktopLogin = {
   state: string
   nonce: string
   codeVerifier: string
   organizationId: string | null
+  identity: IdentityConfig
   createdAt: number
 }
 
@@ -78,154 +91,13 @@ type DesktopCallbackServer = {
   close(): Promise<void>
 }
 
-// What `/api/auth/me` hands back: the account behind the desktop's bearer
-// token. `avatarUrl` is the provider's remote photo URL (MC-2220); it is
-// resolved through `AccountPhotoCache` before the renderer ever sees it.
-type AccountProfile = {
-  user: {
-    id: string
-    email: string | null
-    displayName: string | null
-    avatarUrl: string | null
-  }
-  selectedOrganization: SessionOrganization
-}
-
-class MulticodeMultiauthClient {
-  private accessToken: string | null = null
-  private accessTokenExpiresAt = 0
-  private selectedOrganizationId: string | null = null
-  private entitlementCache: EntitlementSnapshot | null = null
-
-  constructor(
-    private readonly refreshTokenStore: SecureRefreshTokenStore
-  ) {}
-
-  async exchangeDesktopCode(input: DesktopExchangeRequest): Promise<TokenSet> {
-    const tokenSet = await this.request<TokenSet>('/api/auth/desktop/exchange', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    })
-    await this.installTokens(tokenSet)
-    return tokenSet
-  }
-
-  async refresh(clientId: typeof MULTICODE_CLIENT_ID = MULTICODE_CLIENT_ID): Promise<TokenSet> {
-    const refreshToken = await this.refreshTokenStore.readRefreshToken()
-    if (!refreshToken) {
-      throw new Error('No desktop refresh token is available.')
-    }
-
-    const tokenSet = await this.request<TokenSet>('/api/auth/refresh', {
-      method: 'POST',
-      body: JSON.stringify({ clientId, refreshToken }),
-    })
-    await this.installTokens(tokenSet)
-    return tokenSet
-  }
-
-  async logout(): Promise<{ loggedOut: true }> {
-    const refreshToken = await this.refreshTokenStore.readRefreshToken()
-    const result = await this.request<{ loggedOut: true }>('/api/auth/logout', {
-      method: 'POST',
-      body: JSON.stringify({ refreshToken }),
-    }).catch(async (error) => {
-      await this.refreshTokenStore.clearRefreshToken()
-      this.accessToken = null
-      this.accessTokenExpiresAt = 0
-      this.entitlementCache = null
-      console.warn('[auth] server-logout-failed-local-session-cleared', { message: getErrorMessage(error) })
-      return { loggedOut: true as const }
-    })
-    await this.refreshTokenStore.clearRefreshToken()
-    this.accessToken = null
-    this.accessTokenExpiresAt = 0
-    this.entitlementCache = null
-    return result
-  }
-
-  async selectOrganization(organizationId: string): Promise<{ organizationId: string }> {
-    if (!organizationId.trim()) {
-      throw new Error('organizationId is required.')
-    }
-
-    this.selectedOrganizationId = organizationId
-    this.entitlementCache = null
-    return { organizationId }
-  }
-
-  async getProfile(): Promise<AccountProfile> {
-    const payload = await this.request<unknown>('/api/auth/me', { method: 'GET' })
-    const profile = parseAccountProfile(payload)
-    if (!profile) {
-      throw new Error('Multiauth returned an unreadable account profile.')
-    }
-    return profile
-  }
-
-  async getEntitlements(options: { forceRefresh?: boolean } = {}): Promise<EntitlementSnapshot> {
-    if (!options.forceRefresh && this.entitlementCache && isEntitlementSnapshotFresh(this.entitlementCache)) {
-      return this.entitlementCache
-    }
-
-    const snapshot = await this.request<EntitlementSnapshot>(
-      `/api/entitlements?product=${encodeURIComponent(MULTICODE_PRODUCT)}`,
-      { method: 'GET' }
-    )
-
-    if (this.selectedOrganizationId && snapshot.organizationId !== this.selectedOrganizationId) {
-      throw new Error('Selected organization does not match the authenticated desktop session.')
-    }
-
-    this.entitlementCache = snapshot
-    return snapshot
-  }
-
-  async getAccessToken(clientId: typeof MULTICODE_CLIENT_ID = MULTICODE_CLIENT_ID): Promise<string> {
-    if (!this.accessToken || this.accessTokenExpiresAt <= Date.now() + 60_000) {
-      await this.refresh(clientId)
-    }
-    if (!this.accessToken) {
-      throw new Error('No desktop access token is available.')
-    }
-    return this.accessToken
-  }
-
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
-    const headers = new Headers(init.headers)
-    headers.set('accept', 'application/json')
-    if (init.body && !headers.has('content-type')) {
-      headers.set('content-type', 'application/json')
-    }
-    if (this.accessToken) {
-      headers.set('authorization', `Bearer ${this.accessToken}`)
-    }
-
-    const response = await fetch(new URL(path, `${MULTIAUTH_BASE_URL}/`), {
-      ...init,
-      headers,
-    })
-    const payload = await response.json().catch(() => ({})) as unknown
-
-    if (!response.ok) {
-      throw new Error(readMultiauthErrorMessage(payload))
-    }
-
-    return payload as T
-  }
-
-  private async installTokens(tokenSet: TokenSet): Promise<void> {
-    this.accessToken = tokenSet.accessToken
-    this.accessTokenExpiresAt = Date.now() + Math.max(0, tokenSet.expiresIn - 30) * 1000
-    await this.refreshTokenStore.writeRefreshToken(tokenSet.refreshToken)
-  }
-}
-
 class ElectronSafeRefreshTokenStore implements SecureRefreshTokenStore {
   private inMemoryRefreshToken: string | null = null
 
+  constructor(private readonly fileName: string) {}
+
   private get tokenPath(): string {
-    return join(app.getPath('userData'), 'multiauth-refresh-token.bin')
+    return join(app.getPath('userData'), this.fileName)
   }
 
   async readRefreshToken(): Promise<string | null> {
@@ -256,9 +128,59 @@ class ElectronSafeRefreshTokenStore implements SecureRefreshTokenStore {
   }
 }
 
+class ElectronIdentityMarkerStore implements IdentityMarkerStore {
+  private get markerPath(): string {
+    return join(app.getPath('userData'), IDENTITY_MARKER_FILE_NAME)
+  }
+
+  async read(): Promise<IdentityMarker | null> {
+    try {
+      const payload = JSON.parse(await readFile(this.markerPath, 'utf8')) as Partial<IdentityMarker>
+      if (!isIdentityProviderKind(payload.provider)) return null
+      const shared = {
+        baseUrl: typeof payload.baseUrl === 'string' ? payload.baseUrl : undefined,
+        organizationId: typeof payload.organizationId === 'string' && payload.organizationId.trim() ? payload.organizationId : null,
+      }
+      if (payload.provider === CLERK_IDENTITY_PROVIDER) {
+        // Re-validated, not trusted: this file is plain JSON beside a
+        // safeStorage-protected refresh token, and it names where that
+        // token is POSTed on the next launch.
+        const clerk = parseClerkIdentityConfig(payload.clerk)
+        return clerk ? { provider: CLERK_IDENTITY_PROVIDER, clerk, ...shared } : null
+      }
+      return { provider: MULTIAUTH_IDENTITY_PROVIDER, ...shared }
+    } catch {
+      return null
+    }
+  }
+
+  async write(marker: IdentityMarker): Promise<void> {
+    await mkdir(dirname(this.markerPath), { recursive: true })
+    await writeFile(this.markerPath, `${JSON.stringify(marker, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+  }
+
+  async clear(): Promise<void> {
+    await unlink(this.markerPath).catch(() => {})
+  }
+}
+
 export class MulticodeAuthBridge {
-  private readonly refreshTokenStore = new ElectronSafeRefreshTokenStore()
-  private readonly client = new MulticodeMultiauthClient(this.refreshTokenStore)
+  private readonly client = new MulticodeAccountClient({
+    baseUrl: MULTIAUTH_BASE_URL,
+    clientId: MULTICODE_CLIENT_ID,
+    product: MULTICODE_PRODUCT,
+    refreshTokenStores: {
+      multiauth: new ElectronSafeRefreshTokenStore(REFRESH_TOKEN_FILE_NAMES.multiauth),
+      clerk: new ElectronSafeRefreshTokenStore(REFRESH_TOKEN_FILE_NAMES.clerk),
+    },
+    identityMarker: new ElectronIdentityMarkerStore(),
+    env: process.env,
+    fetch,
+    log: (event, data) => {
+      if (event.includes('failed') || event.includes('invalid')) console.warn(`[auth] ${event}`, data ?? {})
+      else console.info(`[auth] ${event}`, data ?? {})
+    },
+  })
   private state: MulticodeAuthState = signedOutAuthState('Checking account.')
   private pendingLogin: PendingDesktopLogin | null = null
   private callbackServer: DesktopCallbackServer | null = null
@@ -272,10 +194,12 @@ export class MulticodeAuthBridge {
     cachePath: () => join(app.getPath('userData'), 'multiauth-account-photo.json'),
   })
 
-  // This bridge is the Multiauth ADAPTER behind the entitlement seam. It answers
-  // the two questions `EntitlementProvider` asks and knows nothing about how a
-  // decision is reached; every gate in the app goes through `entitlements`, so
-  // replacing Multiauth means replacing this class, not its callers.
+  // This bridge is the account-service ADAPTER behind the entitlement seam. It
+  // answers the two questions `EntitlementProvider` asks and knows nothing
+  // about how a decision is reached; every gate in the app goes through
+  // `entitlements`, so nothing above this class knows which issuer signed the
+  // session in — that is what let the identity provider move (MC-2183)
+  // without a caller changing.
   readonly entitlements = new EntitlementService(
     {
       read: () => ({
@@ -299,7 +223,7 @@ export class MulticodeAuthBridge {
     this.setState({ ...this.state, status: 'checking', message: 'Checking account.' })
 
     try {
-      await this.client.refresh(MULTICODE_CLIENT_ID)
+      await this.client.resumeStoredSession()
       return this.refreshEntitlements({ forceRefresh: true })
     } catch {
       const cache = this.cachedEntitlements ?? await this.readCachedEntitlements()
@@ -335,28 +259,29 @@ export class MulticodeAuthBridge {
 
   async login(organizationId?: string | null): Promise<{ state: string; authorizationUrl: string }> {
     await this.preflightAuthServer()
+    const identity = await this.resolveIdentityForLogin()
     await this.closeCallbackServer()
 
     const state = randomBase64Url(24)
     const nonce = randomBase64Url(24)
     const codeVerifier = randomBase64Url(48)
     const codeChallenge = pkceChallenge(codeVerifier)
-    const search = new URLSearchParams({
-      returnTo: 'desktop',
-      product: MULTICODE_PRODUCT,
-      client_id: MULTICODE_CLIENT_ID,
-      redirect_uri: MULTICODE_REDIRECT_URI,
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256',
+    const selectedOrganizationId = organizationId?.trim() || this.state.selectedOrganization?.id
+    const request = {
+      redirectUri: MULTICODE_REDIRECT_URI,
+      codeChallenge,
       state,
       nonce,
-      scope: 'openid profile entitlements:read relay:desktop',
-    })
-    const selectedOrganizationId = organizationId?.trim() || this.state.selectedOrganization?.id
-
-    if (selectedOrganizationId) {
-      search.set('organization_id', selectedOrganizationId)
+      organizationId: selectedOrganizationId ?? null,
     }
+    const authorizationUrl = identity.provider === CLERK_IDENTITY_PROVIDER
+      ? buildClerkAuthorizationUrl(request, identity)
+      : buildMultiauthAuthorizationUrl(request, {
+          baseUrl: MULTIAUTH_BASE_URL,
+          clientId: MULTICODE_CLIENT_ID,
+          product: MULTICODE_PRODUCT,
+          scope: MULTIAUTH_DESKTOP_SCOPE,
+        })
 
     if (MULTICODE_REDIRECT_URI === MULTICODE_LOOPBACK_REDIRECT_URI) {
       try {
@@ -375,22 +300,26 @@ export class MulticodeAuthBridge {
       nonce,
       codeVerifier,
       organizationId: selectedOrganizationId ?? null,
+      identity,
       createdAt: Date.now(),
     }
-    const authorizationUrl = `${MULTIAUTH_BASE_URL}/?${search.toString()}`
     try {
       await shell.openExternal(authorizationUrl)
     } catch (error) {
       this.pendingLogin = null
       await this.closeCallbackServer()
-      const message = `Could not open Multiauth sign-in: ${getErrorMessage(error)}`
+      const message = `Could not open sign-in: ${getErrorMessage(error)}`
       this.setState({ ...this.state, status: 'error', message })
       console.error('[auth] login-open-failed', { authorizationUrl, message })
       throw new Error(message)
     }
 
     this.setState({ ...this.state, message: 'Complete sign-in in your browser.' })
-    console.info('[auth] login-started', { authorizationUrl, organizationId: selectedOrganizationId ?? null })
+    console.info('[auth] login-started', {
+      provider: identity.provider,
+      authorizationUrl,
+      organizationId: selectedOrganizationId ?? null,
+    })
 
     return { state, authorizationUrl }
   }
@@ -398,14 +327,28 @@ export class MulticodeAuthBridge {
   async handleCallback(callbackUrl: string): Promise<MulticodeAuthState> {
     const url = new URL(callbackUrl)
     if (!isSupportedAuthCallbackUrl(url)) {
-      throw new Error('Unsupported Multiauth callback URL.')
+      throw new Error('Unsupported sign-in callback URL.')
+    }
+
+    const state = url.searchParams.get('state')
+    const pending = this.pendingLogin
+    if (!state || !pending || pending.state !== state) {
+      throw new Error('Desktop sign-in state did not match.')
+    }
+
+    // The issuer's refusal, carried back on the redirect. Only acted on for
+    // the sign-in it belongs to — the state check above — so nothing that can
+    // reach the loopback port cancels a pending sign-in with a bare `error=`.
+    const oauthError = url.searchParams.get('error')
+    if (oauthError) {
+      this.pendingLogin = null
+      const description = url.searchParams.get('error_description')
+      throw new Error(description ? `${oauthError}: ${description}` : `Sign-in was refused: ${oauthError}`)
     }
 
     const code = url.searchParams.get('code')
-    const state = url.searchParams.get('state')
-    const pending = this.pendingLogin
-    if (!code || !state || !pending || pending.state !== state) {
-      throw new Error('Desktop sign-in state did not match.')
+    if (!code) {
+      throw new Error('Desktop sign-in callback carried no authorization code.')
     }
 
     if (Date.now() - pending.createdAt > 10 * 60 * 1000) {
@@ -413,8 +356,8 @@ export class MulticodeAuthBridge {
       throw new Error('Desktop sign-in expired. Start sign-in again.')
     }
 
-    await this.client.exchangeDesktopCode({
-      clientId: MULTICODE_CLIENT_ID,
+    await this.client.exchangeCode({
+      identity: pending.identity,
       redirectUri: url.protocol === 'multicode:' ? MULTICODE_CUSTOM_REDIRECT_URI : MULTICODE_LOOPBACK_REDIRECT_URI,
       code,
       codeVerifier: pending.codeVerifier,
@@ -524,9 +467,11 @@ export class MulticodeAuthBridge {
     }
   }
 
+  // The relay is part of the account service and accepts whichever issuer's
+  // token the session holds (MC-2185), so this stays provider-blind.
   async getRelayAccessToken(): Promise<string | null> {
     try {
-      return await this.client.getAccessToken(MULTICODE_CLIENT_ID)
+      return await this.client.getAccessToken()
     } catch {
       return null
     }
@@ -548,6 +493,22 @@ export class MulticodeAuthBridge {
     return { opened: true, url }
   }
 
+  // Which issuer this sign-in goes to: the operator override if set, else
+  // whatever the account service publishes. Discovery failure is explicit —
+  // guessing an issuer would send the user to the wrong sign-in page — and
+  // so is a malformed override, since the operator asked for something.
+  private async resolveIdentityForLogin(): Promise<IdentityConfig> {
+    try {
+      return await this.client.resolveIdentityForLogin()
+    } catch (error) {
+      const message = `${ACCOUNT_SERVICE_LABEL} could not say which sign-in to use. ${getErrorMessage(error)}`
+      this.pendingLogin = null
+      this.setState({ ...this.state, status: 'error', message })
+      console.error('[auth] identity-discovery-failed', { message })
+      throw new Error(message)
+    }
+  }
+
   private async preflightAuthServer(): Promise<void> {
     const healthUrl = `${MULTIAUTH_BASE_URL}/api/health`
 
@@ -560,10 +521,10 @@ export class MulticodeAuthBridge {
       }).finally(() => clearTimeout(timeout))
 
       if (!response.ok) {
-        throw new Error(`Multiauth health returned ${response.status}.`)
+        throw new Error(`Account service health returned ${response.status}.`)
       }
     } catch (error) {
-      const message = `Multiauth is not reachable at ${MULTIAUTH_BASE_URL}. ${getErrorMessage(error)}`
+      const message = `${ACCOUNT_SERVICE_LABEL} is not reachable at ${MULTIAUTH_BASE_URL}. ${getErrorMessage(error)}`
       this.pendingLogin = null
       this.setState({ ...this.state, status: 'error', message })
       console.error('[auth] login-preflight-failed', { healthUrl, message })
@@ -830,34 +791,6 @@ function toSessionUser(user: AccountProfile['user'], photoUrl: string | null): S
   }
 }
 
-function optionalString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value : null
-}
-
-export function parseAccountProfile(payload: unknown): AccountProfile | null {
-  if (!payload || typeof payload !== 'object') return null
-  const { user, selectedOrganization } = payload as { user?: unknown; selectedOrganization?: unknown }
-  if (!user || typeof user !== 'object' || !selectedOrganization || typeof selectedOrganization !== 'object') return null
-  const u = user as Record<string, unknown>
-  const o = selectedOrganization as Record<string, unknown>
-  if (typeof u.id !== 'string' || !u.id || typeof o.id !== 'string' || !o.id) return null
-  const type = o.type === 'personal' || o.type === 'team' || o.type === 'enterprise' ? o.type : 'team'
-  return {
-    user: {
-      id: u.id,
-      email: optionalString(u.email),
-      displayName: optionalString(u.displayName),
-      avatarUrl: optionalString(u.avatarUrl),
-    },
-    selectedOrganization: {
-      id: o.id,
-      name: optionalString(o.name) ?? o.id,
-      slug: optionalString(o.slug) ?? o.id,
-      type,
-    },
-  }
-}
-
 function signedOutAuthState(message: string | null): MulticodeAuthState {
   return {
     authenticated: false,
@@ -880,13 +813,7 @@ function pkceChallenge(codeVerifier: string): string {
   return createHash('sha256').update(codeVerifier).digest('base64url')
 }
 
-function readMultiauthErrorMessage(payload: unknown): string {
-  if (!payload || typeof payload !== 'object') return 'Multiauth request failed.'
-  const error = (payload as { error?: unknown }).error
-  if (!error || typeof error !== 'object') return 'Multiauth request failed.'
-  const message = (error as { message?: unknown }).message
-  return typeof message === 'string' && message.trim() ? message : 'Multiauth request failed.'
-}
+export { parseAccountProfile }
 
 export async function parseAuthCallbackFromArgv(auth: MulticodeAuthBridge, argv: string[]): Promise<void> {
   const callbackUrl = argv.find((arg) => /^multicode:\/\/auth\/callback/i.test(arg) || /^http:\/\/127\.0\.0\.1:43110\/callback/i.test(arg))
