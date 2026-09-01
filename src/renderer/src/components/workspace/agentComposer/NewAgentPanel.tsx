@@ -6,12 +6,15 @@ import type {
 } from '../../../../../shared/electron-api'
 import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
+import type { ConversationImageAttachment } from '../../../../../shared/conversation-runtime'
+import { ATTACHABLE_IMAGE_TYPES } from '../../../../../shared/conversation-attachments'
 import {
   dataTransferHasFiles,
   filesFromDataTransfer,
   imageFilesFromDataTransfer,
   readFileAsBase64,
 } from '../../../utils/imageFileTransfer'
+import { ComposerAttachmentStrip } from '../../panels/ComposerAttachmentStrip'
 import { basename } from '../../../utils/paths'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import {
@@ -187,16 +190,17 @@ export default function NewAgentPanel({
   // opens itself, the same shape as a drop onto a running terminal. A file
   // dropped from the OS already has a path; a pasted screenshot (or an image
   // dragged out of a browser) exists only as bytes and is saved to a temp file
-  // first.
+  // first. Either way the box shows the image, not the path: the thumbnail is
+  // the attachment, and its path joins the prompt only at launch.
   const [dropActive, setDropActive] = React.useState(false)
   const dragDepthRef = React.useRef(0)
   const [attachNote, setAttachNote] = React.useState<string | null>(null)
+  const [images, setImages] = React.useState<PromptImage[]>([])
+  const [attachingCount, setAttachingCount] = React.useState(0)
 
   const insertPromptPath = (path: string) => {
-    // Quoted only when the path needs it, matching the terminal drop idiom.
-    const quoted = /\s/.test(path) ? `'${path}'` : path
     setPrompt((current) =>
-      current.length === 0 || /\s$/.test(current) ? `${current}${quoted} ` : `${current} ${quoted} `
+      current.length === 0 || /\s$/.test(current) ? `${current}${quotePath(path)} ` : `${current} ${quotePath(path)} `
     )
     promptRef.current?.focus()
   }
@@ -205,20 +209,40 @@ export default function NewAgentPanel({
     setAttachNote(null)
     for (const file of files) {
       const existingPath = window.api.getPathForFile(file)
-      if (existingPath) {
+      const isImage = (ATTACHABLE_IMAGE_TYPES as readonly string[]).includes(file.type)
+      // A non-image with a path is a path: it goes into the prompt as text, the
+      // way a drop onto a terminal would. One with no path falls through to the
+      // save, which refuses it with a message rather than silently swallowing it.
+      if (existingPath && !isImage) {
         insertPromptPath(existingPath)
         continue
       }
+      setAttachingCount((count) => count + 1)
       try {
         const { mediaType, dataBase64 } = await readFileAsBase64(file)
-        insertPromptPath(await window.api.saveDroppedImage({ mediaType, dataBase64 }))
+        const path = existingPath || (await window.api.saveDroppedImage({ mediaType, dataBase64 }))
+        setImages((current) => [
+          ...current,
+          {
+            id: `${Date.now()}-${current.length}-${file.name}`,
+            mediaType,
+            dataBase64,
+            byteLength: file.size,
+            ...(file.name ? { name: file.name } : {}),
+            path,
+          },
+        ])
       } catch (error) {
-        // Shown verbatim under the box — a non-image with no path lands here
-        // too, refused by the save rather than silently swallowed.
+        // Shown verbatim under the box.
         setAttachNote(error instanceof Error ? error.message : 'Could not attach that image.')
+      } finally {
+        setAttachingCount((count) => count - 1)
       }
     }
+    promptRef.current?.focus()
   }
+
+  const removeImage = (id: string) => setImages((current) => current.filter((image) => image.id !== id))
 
   // The name is a greeting, not an identity claim: an email local-part reads
   // worse than no name at all, so only a real display name is used.
@@ -339,7 +363,10 @@ export default function NewAgentPanel({
 
   const launch = (text: string) => {
     if (!canLaunch) return
-    onLaunch({ ...composer.buildConfirm(selection), prompt: text.trim() })
+    // The attached images ride along as paths after the text, quoted only when
+    // the path needs it — the terminal drop idiom.
+    const prompt = [text.trim(), ...images.map((image) => quotePath(image.path))].filter(Boolean).join(' ')
+    onLaunch({ ...composer.buildConfirm(selection), prompt })
   }
 
   React.useEffect(() => {
@@ -517,10 +544,23 @@ export default function NewAgentPanel({
             />
           ) : null}
 
+          {/* Staged images sit inside the box above the text so the prompt
+              reads as one thing — the same strip the chat composer uses. */}
+          <ComposerAttachmentStrip
+            attachments={images}
+            reading={attachingCount}
+            onRemove={removeImage}
+            className="pb-2"
+          />
+
           <div className="flex items-start gap-2">
             <span aria-hidden="true" className="mt-0.5 select-none font-mono text-body text-[color:var(--accent-primary)]">
               ❯
             </span>
+            {/* Grows with its content (field-sizing: content) from the two-row
+                floor to a ceiling, then scrolls — a box that showed two lines
+                of a six-line prompt was hiding what the person was about to
+                send. Same treatment as the automation editor's prompt field. */}
             <textarea
               ref={promptRef}
               value={prompt}
@@ -541,7 +581,7 @@ export default function NewAgentPanel({
               placeholder={placeholder}
               disabled={isTerminalLaunch}
               aria-label="What this agent should do"
-              className="min-h-[44px] w-full flex-1 resize-none bg-transparent font-mono text-body leading-6 text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)]"
+              className="field-sizing-content max-h-[280px] min-h-[44px] w-full flex-1 resize-none overflow-y-auto bg-transparent font-mono text-body leading-6 text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)]"
             />
           </div>
 
@@ -1086,6 +1126,16 @@ function MenuValueRow({
       <span aria-hidden="true" className="shrink-0 text-micro text-[color:var(--text-disabled)]">›</span>
     </button>
   )
+}
+
+// An image staged on the prompt: the chat composer's attachment shape (so the
+// shared strip renders it) plus the file path that stands in for it once the
+// prompt becomes text.
+type PromptImage = ConversationImageAttachment & { path: string }
+
+// Quoted only when the path needs it, matching the terminal drop idiom.
+function quotePath(path: string): string {
+  return /\s/.test(path) ? `'${path}'` : path
 }
 
 function AttachmentChip({

@@ -501,10 +501,13 @@ function InstalledView({
           <section key={group.kind} className="space-y-2">
             <ConnectorSectionHeading label={group.label} count={group.items.length} />
             {group.kind === 'module' ? moduleUpdateSlot : null}
-            {/* Two-column list-row grid, matching Browse's arrangement: no
-                container box, no per-row rule — the gaps separate rows and the
-                hover fill carries the pointer. */}
-            <div className="grid grid-cols-1 gap-x-2 gap-y-0.5 sm:grid-cols-2">
+            {/* One column of list-rows: no container box, no per-row rule —
+                the gaps separate rows and the hover fill carries the pointer.
+                Browse's two-column grid was tried here and split a row's name
+                from its actions by half the surface while truncating the name
+                to a few characters; a row is a line, and a line runs the width
+                it has. */}
+            <div className="grid grid-cols-1 gap-y-0.5">
               {group.items.map((item) => (
                 <InstalledRow key={item.key} item={item} actions={actions} skillUse={skillUse} cliUpdate={cliUpdate} />
               ))}
@@ -646,8 +649,10 @@ function InstalledRow({
       actions={
         rowActions.length > 0 ? (
           <span
-            // A row mid-update keeps its action visible so the busy label
-            // never hides behind the hover reveal.
+            // Withheld until reached for (list-row): the slot keeps its width
+            // at rest so revealing never reflows, and it appears on keyboard
+            // focus as well as hover. A row mid-update keeps its action visible
+            // so the busy label never hides behind the reveal.
             className={`flex items-center gap-2 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${cliUpdating ? 'opacity-100' : 'opacity-0'}`}
           >
             {rowActions}

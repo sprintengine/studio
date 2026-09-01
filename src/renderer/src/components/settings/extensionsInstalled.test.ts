@@ -102,10 +102,10 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   assert.equal(rows[0].enabled, true)
   assert.equal(rows[1].source, 'Custom')
   assert.equal(rows[1].enabled, false)
-  assert.ok(rows[0].chips.includes('stdio'), 'mcp chips name the transport')
-  // Bundled is the default and earns no chip; non-default provenance does.
-  assert.ok(!rows[0].chips.includes('Bundled'), 'default provenance carries no chip')
-  assert.ok(rows[1].chips.includes('Custom'), 'custom provenance is chipped')
+  // Transport and provenance are plumbing, not decisions: the row face carries
+  // neither as a chip (the record keeps `source` for the icon lookup).
+  assert.deepEqual(rows[0].chips, [], 'transport stays off the row face')
+  assert.deepEqual(rows[1].chips, [], 'provenance carries no chip')
   assert.equal(rows[0].key, 'mcp:context7')
 }
 
@@ -142,9 +142,8 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   assert.deepEqual(rows.map((row) => row.id), ['frontend-design', 'debug'])
   assert.equal(rows[0].kind, 'skill')
   assert.equal(rows[0].key, 'skill:frontend-design')
-  assert.ok(rows[0].chips.includes('Custom'), 'a skill from a source is not bundled')
-  assert.ok(rows[1].chips.includes('Update available'))
-  assert.ok(!rows[1].chips.includes('Bundled'), 'default provenance carries no chip')
+  assert.deepEqual(rows[0].chips, [], 'provenance carries no chip')
+  assert.deepEqual(rows[1].chips, ['Update available'], 'the one chip is a state the user can act on')
 }
 
 // --- populated state -------------------------------------------------------

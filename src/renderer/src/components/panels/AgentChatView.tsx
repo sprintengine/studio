@@ -34,6 +34,7 @@ import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetChips } from '../worksp
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { dataTransferHasFiles, imageFilesFromDataTransfer } from '../../utils/imageFileTransfer'
+import { attachmentCountLabel, attachmentPreviewUrl, ComposerAttachmentStrip } from './ComposerAttachmentStrip'
 import { renderMarkdown } from '../../utils/markdown'
 import { ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, InlineNotice, InlineSkillPicker, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
@@ -994,16 +995,14 @@ export function splitImageDataUrl(dataUrl: string): { mediaType: string; dataBas
   return { mediaType, dataBase64 }
 }
 
-// A `data:` URL for rendering an attachment thumbnail. The base64 is already in
-// memory, so this avoids an object-URL lifecycle with nothing to revoke.
-export function attachmentPreviewUrl(attachment: ConversationImageAttachment): string {
-  return `data:${attachment.mediaType};base64,${attachment.dataBase64}`
-}
-
 // The DataTransfer plumbing lives in utils/imageFileTransfer (shared with the
 // new-chat launch surface); re-exported here because this module declared it
 // first and the tests and seam read it from here.
 export { dataTransferHasFiles, imageFilesFromDataTransfer }
+// The staged-image strip and its helpers live in ComposerAttachmentStrip
+// (shared with the new-chat launch surface, which must not import this panel);
+// re-exported for the same reason.
+export { attachmentCountLabel, attachmentPreviewUrl, ComposerAttachmentStrip }
 
 // Fold a commit made while the turn was locked into the waiting queued turn
 // (D6/1776): text appends, images concatenate. Reports how many images the
@@ -1021,10 +1020,6 @@ export function mergeQueuedTurn(
     attachments: combined.slice(0, MAX_ATTACHMENTS_PER_TURN),
     dropped: Math.max(0, combined.length - MAX_ATTACHMENTS_PER_TURN),
   }
-}
-
-export function attachmentCountLabel(count: number): string {
-  return count === 1 ? '1 image' : `${count} images`
 }
 
 // What the queued-turn row reads as. An image-only queued turn has no text to
@@ -2937,50 +2932,6 @@ export function ComposerContextMenu({
         Paste
       </MenuItem>
     </ContextMenu>
-  )
-}
-
-// Images staged for the next turn, inside the composer surface above the text
-// field so the message reads as one thing. The remove control is a trailing
-// action revealed on hover or keyboard focus — the thumbnail is the content,
-// not a card of chrome. Renders nothing when there is nothing staged.
-export function ComposerAttachmentStrip({
-  attachments,
-  reading,
-  onRemove,
-}: {
-  attachments: ConversationImageAttachment[]
-  reading: number
-  onRemove: (id: string) => void
-}) {
-  if (attachments.length === 0 && reading === 0) return null
-  return (
-    <ul className="flex flex-wrap items-center gap-2 px-3 pt-2.5">
-      {attachments.map((attachment) => (
-        <li key={attachment.id} className="relative">
-          <img
-            src={attachmentPreviewUrl(attachment)}
-            alt={attachment.name ?? 'Attached image'}
-            className="h-12 w-12 rounded-md border border-[color:var(--border-subtle)] object-cover"
-          />
-          <button
-            type="button"
-            aria-label={`Remove ${attachment.name ?? 'attached image'}`}
-            onClick={() => onRemove(attachment.id)}
-            className="interactive absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-md bg-[color:var(--bg-surface-raised)]/85 text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
-        </li>
-      ))}
-      {reading > 0 ? (
-        <li className="text-meta leading-5 text-[color:var(--text-muted)]">
-          Reading {attachmentCountLabel(reading)}…
-        </li>
-      ) : null}
-    </ul>
   )
 }
 
