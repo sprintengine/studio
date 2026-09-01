@@ -43,6 +43,7 @@ import type {
 import {
 } from '../onboardingState'
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from '../../components/workspace/sidebarWidth'
+import { isSelectableAgentCli } from '../../components/workspace/newWorkspace/cliRuntimeOptions'
 import {
   WORKSPACE_ASIDE_DEFAULT_WIDTH,
   clampWorkspaceAsideWidth,
@@ -460,10 +461,18 @@ export function normalizeCliModelSelections<K extends string>(
 }
 
 export function normalizeSelectedCli(input: AgentCli | null | undefined, fallback: AgentCli = 'claude-code'): AgentCli {
+  const safeFallback = isSelectableAgentCli(fallback) ? fallback : 'claude-code'
   if (typeof input === 'string' && input.trim()) {
-    return input.trim()
+    const trimmed = input.trim()
+    // A persisted selection naming a CLI that is not agent-selectable (muse,
+    // generic-shell — the hooks-only rule) normalizes to the fallback HERE, at
+    // read time, so every picker shows the real default before any spawn —
+    // instead of the value being silently swapped at spawn time by the catalog
+    // clamp. Unknown ids pass through: a user plugin may well be eligible, and
+    // the catalog/availability layers own that question.
+    return isSelectableAgentCli(trimmed) ? trimmed : safeFallback
   }
-  return fallback
+  return safeFallback
 }
 
 function normalizeCliRuntimes(

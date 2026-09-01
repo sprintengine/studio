@@ -2374,12 +2374,26 @@ async function testCliRuntimeListReportsTheRegistry(): Promise<void> {
       // A CLI that declares neither: it must still be listed, with the honest
       // empty answer — "no model may be passed" is not the same as "unlisted".
       plugin('plain-cli'),
+      // Hooks-only selectability: a spec-less CLI stays LISTED (marked, not
+      // omitted, so a remote caller holding a stale id learns why it is
+      // refused) but flagged agentSelectable: false.
+      plugin('hook-cli', {
+        agentStateSpec: {
+          registration: { kind: 'settings-json', path: '.claude/settings.local.json' },
+          events: [{ event: 'Stop', phase: 'idle', turnEnd: true }],
+        },
+      } as never),
     ],
   })
 
   const listed = await tool(tools, 'cli.runtime.list').handler({})
   const clis = (listed.structuredContent as { clis: Array<Record<string, unknown>> }).clis
-  assert.deepEqual(clis.map((entry) => entry.id), ['claude-code', 'plain-cli'])
+  assert.deepEqual(clis.map((entry) => entry.id), ['claude-code', 'plain-cli', 'hook-cli'])
+  assert.deepEqual(
+    clis.map((entry) => entry.agentSelectable),
+    [false, false, true],
+    'agentSelectable mirrors agentStateSpec presence — marked, never omitted'
+  )
   assert.deepEqual(clis[0].models, [{ id: 'claude-opus-5', label: 'Opus 5' }, { id: 'claude-sonnet-5' }])
   assert.equal(clis[0].allowCustomModelId, true)
   assert.deepEqual(clis[0].reasoningLevels, [{ id: 'medium' }, { id: 'high', label: 'High' }])

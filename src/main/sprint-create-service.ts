@@ -103,7 +103,11 @@ import { normalizeSprintEngineRoleCliDefaults } from '../shared/sprintengine/rol
 export type SprintCreateServiceDeps = {
   /** The launch settings main spawns with (MC-2154); saved rosters live here. */
   getLaunchSettings: () => SprintEngineLaunchSettings
-  /** CLI plugin ids this app can launch — the same set `cli.runtime.list` reports. */
+  /**
+   * CLI plugin ids a sprint may staff: the hook-capable subset of the registry
+   * (`cli.runtime.list` flags these `agentSelectable: true`; rows it flags
+   * false are registry-held for install/detect only and are refused here).
+   */
   listLaunchableClis: () => string[]
   /** The one-shot Python run-store init (`sprintengine-artifacts.ts`). */
   initializeSprintEngineState: (

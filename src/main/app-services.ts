@@ -597,12 +597,15 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     listWorkspaces: () => workspaceSyncService.getSnapshot().state.workspaces,
     getLaunchSettings: () => sprintEngineLaunchSettings.get(),
     listConnectorCatalog: () => mcpConfigService.listCatalog(),
-    // Hooks-only selectability (decision of record 2026-08-31): a CLI whose
-    // manifest declares no agentStateSpec is refused as an agent.
-    isAgentSelectableCli: (cli) =>
-      getPluginRegistry()
-        .loaded()
-        .some((plugin) => plugin.manifest.id === cli && Boolean(plugin.manifest.agentStateSpec)),
+    // Hooks-only selectability (decision of record 2026-08-31): a KNOWN plugin
+    // whose manifest declares no agentStateSpec is refused as an agent. An id
+    // the registry does not hold falls through — the launch render's own
+    // unknown-plugin error names the real problem, and refusing it here would
+    // misattribute a typo to missing hook support.
+    isAgentSelectableCli: (cli) => {
+      const plugin = getPluginRegistry().loaded().find((candidate) => candidate.manifest.id === cli)
+      return plugin ? Boolean(plugin.manifest.agentStateSpec) : true
+    },
     // The same resolver the renderer reaches over `memory:resolve-root`, so a
     // headless launch carries the project's Knowledge Graph exactly like an
     // interactively-spawned agent does.
@@ -623,11 +626,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // old board-mount handshake, and it is why creation works with zero windows.
   const sprintCreateService = createSprintCreateService({
     getLaunchSettings: () => sprintEngineLaunchSettings.get(),
-    // What the registry HOLDS, which is what main can spawn — the same set
-    // `cli.runtime.list` reports.
     // Only hook-capable CLIs (manifest agentStateSpec) may staff a sprint —
     // hooks are the only supported status mechanism, and a sprint on a CLI
     // that cannot report state would run blind (decision of record 2026-08-31).
+    // This is the subset `cli.runtime.list` flags `agentSelectable: true`.
     listLaunchableClis: () =>
       getPluginRegistry()
         .loaded()

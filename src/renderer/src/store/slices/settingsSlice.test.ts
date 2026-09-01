@@ -11,6 +11,7 @@ import {
   normalizeAppearanceSettings,
   normalizeAppSettings,
   normalizeCliModelCatalogs,
+  normalizeSelectedCli,
   normalizeCliModelSelections,
   normalizeCliPermissionPreset,
   normalizeKeybindingSettings,
@@ -1613,5 +1614,18 @@ assert.deepEqual(
     'an explicit persisted value wins over the returning-profile default',
   )
 }
+
+// normalizeSelectedCli: hooks-only selectability at READ time — a persisted
+// selection naming a CLI that is not agent-selectable (muse, generic-shell)
+// normalizes to the fallback here, so every picker shows the real default
+// before any spawn instead of a spawn-time silent swap. Unknown ids pass
+// (a user plugin may be eligible; the catalog owns that question).
+assert.equal(normalizeSelectedCli('claude-code'), 'claude-code')
+assert.equal(normalizeSelectedCli('some-user-cli'), 'some-user-cli')
+assert.equal(normalizeSelectedCli('muse'), 'claude-code', 'a non-selectable persisted CLI normalizes to the default')
+assert.equal(normalizeSelectedCli('generic-shell'), 'claude-code')
+assert.equal(normalizeSelectedCli('muse', 'codex'), 'codex', 'the caller fallback wins when eligible')
+assert.equal(normalizeSelectedCli('muse', 'generic-shell'), 'claude-code', 'an ineligible fallback falls to the stock default')
+assert.equal(normalizeSelectedCli(null), 'claude-code')
 
 console.log('settingsSlice.test.ts: ok')
