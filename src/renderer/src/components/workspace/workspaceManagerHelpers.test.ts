@@ -337,12 +337,12 @@ function assertHookPhaseDrivesStatus(): void {
 function assertOutputRecencyFallback(): void {
   const working = deriveSessionStatus(snap({ activity: { kind: 'working', since: 7 } }), false)
   assert.equal(working.status, 'working')
-  assert.equal(working.source, 'inferred')
+  assert.equal(working.source, 'lifecycle')
   assert.equal(working.activitySince, 7)
 
   const idle = deriveSessionStatus(snap({ activity: { kind: 'idle', since: 8 } }), false)
   assert.equal(idle.status, 'idle')
-  assert.equal(idle.source, 'inferred')
+  assert.equal(idle.source, 'lifecycle')
 }
 
 // A retained crash surfaces as failed (with its exit code) and outranks any
@@ -364,7 +364,7 @@ function assertFailedRetentionAndPrecedence(): void {
 function assertSprintEngineNeedsInput(): void {
   const info = deriveSessionStatus(snap({ activity: { kind: 'idle', since: 3 } }), true)
   assert.equal(info.status, 'needs-input')
-  assert.equal(info.source, 'inferred')
+  assert.equal(info.source, 'lifecycle')
 }
 
 function assertLastActivityIsMaxOfOutputAndInput(): void {

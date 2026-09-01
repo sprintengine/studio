@@ -3040,7 +3040,7 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
     // `starting`, inferred — the one phase a fresh spawn can substantiate.
     // Nothing is guessed from output timing any more.
     const initial = snapshotFor('sess-ingest')
-    assert.equal(initial?.agentState?.source, 'inferred')
+    assert.equal(initial?.agentState?.source, 'lifecycle')
     assert.equal(initial?.agentState?.phase, 'starting')
 
     // Timestamps are offsets on the spawn moment: the lifecycle stamp
@@ -3157,13 +3157,13 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
     // On a real process exit the hook phase is cleared, so a stale working /
     // awaiting_input phase cannot outlive the pty and keep the attention glyph
     // lit. The snapshot then infers `exited` from the exit activity (source
-    // 'inferred', not a stranded 'hook' awaiting_input).
+    // 'lifecycle', not a stranded 'hook' awaiting_input).
     ptyProcess?.emitExit({ exitCode: 0 })
     snap = snapshotFor('sess-ingest')
     assert.equal(snap?.processAlive, false, 'exit marks the session not alive')
     assert.equal(snap?.activity.kind, 'exited', 'exit sets exited activity')
     assert.equal(snap?.agentState?.phase, 'exited', 'exit clears the hook phase to inferred exited')
-    assert.equal(snap?.agentState?.source, 'inferred', 'post-exit phase is inferred from activity, not a stale hook')
+    assert.equal(snap?.agentState?.source, 'lifecycle', 'post-exit phase is inferred from activity, not a stale hook')
   } finally {
     await runtime.shutdown()
   }

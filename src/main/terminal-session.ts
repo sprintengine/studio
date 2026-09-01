@@ -184,8 +184,8 @@ export function clearAgentStallTimer(session: TerminalSession): void {
   session.agentStallTimer = undefined
 }
 
-// The lifecycle stamp an agent session is born with: `starting`, inferred —
-// the one phase a fresh spawn can substantiate without a hook frame. The first
+// The lifecycle stamp an agent session is born with: `starting` — the one phase
+// a fresh spawn can substantiate without a hook frame. The first
 // reporter frame replaces it with authoritative state; a session whose hooks
 // never fire (a broken install) converts to `stalled` via the stall watch
 // instead of parking as working forever. Output-timing NEVER guesses a phase:
@@ -193,7 +193,7 @@ export function clearAgentStallTimer(session: TerminalSession): void {
 // hooks are the only status mechanism (decision of record 2026-08-31), and
 // every selectable agent CLI now reports them.
 export function createInitialAgentState(kind: TerminalKind, startedAt: number): AgentState | undefined {
-  return kind === 'agent' ? { phase: 'starting', since: startedAt, source: 'inferred' } : undefined
+  return kind === 'agent' ? { phase: 'starting', since: startedAt, source: 'lifecycle' } : undefined
 }
 
 export function getTerminalIdleTimeoutMs(_session: TerminalSession): number {
@@ -301,7 +301,7 @@ export function createFailedTerminalSession(input: FailedTerminalSessionInput): 
       message: input.message,
     },
     // Lifecycle stamp, not inference: a retained failure IS the failed phase.
-    ...(kind === 'agent' ? { agentState: { phase: 'failed' as const, since: at, source: 'inferred' as const } } : {}),
+    ...(kind === 'agent' ? { agentState: { phase: 'failed' as const, since: at, source: 'lifecycle' as const } } : {}),
     outputChunks: [],
     outputChunkBytes: [],
     outputChunkStart: 0,
@@ -376,7 +376,7 @@ export function createSuspendedPlaceholderSession(
     // output timing (an in-process suspend keeps the live phase; this is the
     // restart-rehydration path, where no phase survived).
     ...((input.kind ?? 'agent') === 'agent'
-      ? { agentState: { phase: 'idle' as const, since: input.savedAt, source: 'inferred' as const } }
+      ? { agentState: { phase: 'idle' as const, since: input.savedAt, source: 'lifecycle' as const } }
       : {}),
     outputChunks: [],
     outputChunkBytes: [],

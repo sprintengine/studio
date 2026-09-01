@@ -1323,7 +1323,7 @@ export type WorkspaceRegistryHydrateResult = {
 // `starting` at spawn, `stalled` from the watchdog, `exited`/`failed` from the
 // pty. Output-timing status inference was deleted (decision of record
 // 2026-08-31): nothing ever guesses a phase from output recency.
-export type AgentStateSource = 'hook' | 'inferred'
+export type AgentStateSource = 'hook' | 'lifecycle'
 
 export type AgentState = {
   phase: AgentPhase

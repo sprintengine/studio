@@ -415,7 +415,7 @@ async function run(): Promise<void> {
   const stallBase = { phaseSince: 0, lastOutputAt: null, now: 100_000, thresholdMs: 90_000 }
   // Non-working phases never stall, and inferred thinking/tool_use no longer
   // exist as inputs (output-timing inference was deleted) — cleared if seen.
-  assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'tool_use', source: 'inferred' }), { action: 'clear' })
+  assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'tool_use', source: 'lifecycle' }), { action: 'clear' })
   assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'idle', source: 'hook' }), { action: 'clear' })
   assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'awaiting_input', source: 'hook' }), { action: 'clear' })
   // Working + quiet past the threshold → stalled.
@@ -428,7 +428,7 @@ async function run(): Promise<void> {
   // The INFERRED 'starting' every agent is lifecycle-stamped with at spawn
   // arms as well: a session whose hooks never fire (broken install — there is
   // no output-timing fallback any more) has no other path off "working".
-  assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'starting', source: 'inferred' }), { action: 'stalled' })
+  assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'starting', source: 'lifecycle' }), { action: 'stalled' })
   assert.deepEqual(
     evaluateAgentStall({ phase: 'starting', source: 'hook', phaseSince: 80_000, lastOutputAt: null, now: 100_000, thresholdMs: 90_000 }),
     { action: 'recheck', afterMs: 70_000 }

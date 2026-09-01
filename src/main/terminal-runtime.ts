@@ -1912,9 +1912,9 @@ function scheduleAgentStallCheck(session: TerminalSession): void {
   // not "stuck mid-work" — and for `starting` regardless of source:
   //   * hook 'starting': a resumed session that never receives a prompt has
   //     SessionStart as its ONLY frame (no Stop ever follows);
-  //   * inferred 'starting': the lifecycle stamp every agent spawns with — a
-  //     session whose hooks never fire at all (broken install) has no other
-  //     path off "working".
+  //   * the 'starting' lifecycle stamp every agent spawns with — a session
+  //     whose hooks never fire at all (broken install) has no other path off
+  //     "working".
   // Without conversion to 'stalled' either would read as working — and be
   // protected from the idle reaper — forever.
   if (state.phase !== 'starting' && state.phase !== 'thinking' && state.phase !== 'tool_use') return
@@ -1940,7 +1940,7 @@ function runAgentStallCheck(session: TerminalSession): void {
   }
   if (decision.action !== 'stalled') return
 
-  session.agentState = { phase: 'stalled', since: Date.now(), source: 'inferred' }
+  session.agentState = { phase: 'stalled', since: Date.now(), source: 'lifecycle' }
   // stalled bridges to idle activity; suppress its broadcast and emit once.
   const derived = deriveActivityFromPhase('stalled', session.agentState.since)
   if (derived) setTerminalActivity(session, derived, { broadcast: false })
@@ -2450,7 +2450,7 @@ function attachTerminalSession(
     // resumable view keeps its phase.
     terminalSession.agentState =
       terminalSession.kind === 'agent'
-        ? { phase: 'exited', since: Date.now(), source: 'inferred' }
+        ? { phase: 'exited', since: Date.now(), source: 'lifecycle' }
         : undefined
     setTerminalActivity(terminalSession, { kind: 'exited', at: Date.now(), exitCode: event.exitCode })
     const agentSession = terminalSession.agentSession

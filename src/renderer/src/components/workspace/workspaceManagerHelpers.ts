@@ -28,7 +28,7 @@ export type SessionStatus = 'needs-input' | 'working' | 'idle' | 'failed'
 export type SessionStatusInfo = {
   status: SessionStatus
   // Provenance of the signal: 'hook' when an authoritative lifecycle-hook frame
-  // drove it, 'inferred' for a lifecycle stamp (spawn/watchdog/pty).
+  // drove it, 'lifecycle' for a lifecycle stamp (spawn/watchdog/pty).
   source: AgentStateSource
   // When the current status began (ms epoch) — drives "active 2m" / "waiting 4m".
   activitySince: number
@@ -63,14 +63,24 @@ function activityStartedAt(activity: SessionActivity): number {
   return activity.kind === 'working' || activity.kind === 'idle' ? activity.since : activity.at
 }
 
-// Single source of truth for "what is this session doing", prioritizing the
-// authoritative hook phase and degrading gracefully to output recency.
+// Single source of truth for "what is this session doing".
+//
+// Two different questions share this function. An AGENT session always carries
+// an `agentState` from birth, so its status is read from the hook phase and the
+// activity branch below is unreachable for it — agent state is hooks-only
+// (decision of record 2026-08-31), and nothing here infers a phase from output.
+// A PLAIN terminal has no agent state at all; its working/idle activity is
+// terminal UX, which the inference deletion deliberately kept in scope, and
+// that is the only thing the activity branch serves.
+//
+// The `source` a plain terminal reports is therefore a placeholder, not a claim
+// about where its phase came from: it has no phase.
 export function deriveSessionStatus(
   session: TerminalSessionSnapshot,
   runtimeNeedsInput: boolean,
 ): SessionStatusInfo {
   const hook = session.agentState
-  const source: AgentStateSource = hook?.source ?? 'inferred'
+  const source: AgentStateSource = hook?.source ?? 'lifecycle'
   const lastActivityAt = maxTimestamp(session.lastOutputAt, session.lastInputAt)
   const fallbackSince = activityStartedAt(session.activity)
 

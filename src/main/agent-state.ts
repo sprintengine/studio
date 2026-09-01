@@ -199,12 +199,12 @@ export function evaluateAgentStall(input: {
   if (input.phase !== 'starting' && input.phase !== 'thinking' && input.phase !== 'tool_use') {
     return { action: 'clear' }
   }
-  // A hook-driven working phase can stall, and so can the INFERRED `starting`
-  // every agent is lifecycle-stamped with at spawn: a session whose hooks
-  // never fire at all (a broken or failed install — there is no output-timing
-  // fallback any more) must convert to `stalled` and expire via the reap
-  // policy rather than reading as working, and being reaper-protected,
-  // forever. Inferred thinking/tool_use no longer exist to be evaluated.
+  // A hook-driven working phase can stall, and so can the `starting` lifecycle
+  // stamp every agent gets at spawn: a session whose hooks never fire at all (a
+  // broken or failed install — there is no output-timing fallback any more)
+  // must convert to `stalled` and expire via the reap policy rather than
+  // reading as working, and being reaper-protected, forever. No lifecycle
+  // thinking/tool_use exists to be evaluated: those only ever come from hooks.
   if (input.source !== 'hook' && input.phase !== 'starting') return { action: 'clear' }
   const lastActivityAt = Math.max(input.phaseSince, input.lastOutputAt ?? 0)
   const quietForMs = input.now - lastActivityAt
