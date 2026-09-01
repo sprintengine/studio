@@ -15,18 +15,21 @@
 
 import type { MulticodeAuthState } from '../../../../shared/electron-api'
 
-// The keys Pro grants that Free does not (`../multiauth/src/entitlements/catalog.ts`,
-// `PLAN_FEATURES`), which is also how Pro is sold: "frontier models and the
-// mobile companion". `multicode.sprintengine` is on both plans and
-// `multicode.team_workspaces` / `multicode.cloud_agents` are off on both, so
-// none of the three separates a paid account from a free one.
+// The one key the paid plan gates. Decision of record (owner, 2026-09-01,
+// MC-1579): nothing is gated by the paid plan except the ability to use the
+// mobile app. Sprint Engine is free, and no other capability is paid — the
+// `multicode.frontier_models` key that used to sit here was retired from the
+// Multiauth catalogue in the same change, because nothing in the product ever
+// consumed it. Enforcement lives on the server: every relay entry point in
+// `../multiauth/src/relay/service.ts` refuses without this key, so what the
+// desktop reads here only decides what to render, never what the account can do.
 export const PAID_FEATURE_KEYS: readonly string[] = [
-  'multicode.frontier_models',
   'multicode.mobile_companion',
 ]
 
-// True when the account holds any paid capability. ANY rather than ALL: an
-// operator grant for one key (`admin_override`) is real paid access, and an
+// True when the account holds any paid capability. ANY rather than ALL, so a
+// second paid key can be added without turning this into "has every one": an
+// operator grant (`admin_override`) for a key is real paid access, and an
 // account that already has it should not be told to upgrade to get it.
 //
 // Read off the entitlement snapshot the main process publishes rather than

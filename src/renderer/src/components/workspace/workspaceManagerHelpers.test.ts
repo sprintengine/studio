@@ -470,19 +470,16 @@ function authState(
 }
 
 // Multiauth's catalog: Free grants only `multicode.sprintengine`; Pro adds
-// frontier models and the mobile companion. Functions rather than consts
-// because this file calls `main()` before its own top-level bindings run.
+// the mobile companion, and nothing else (MC-1579). Functions rather than
+// consts because this file calls `main()` before its own top-level bindings run.
 function freeFeatures(): Record<string, boolean> {
   return {
     'multicode.sprintengine': true,
-    'multicode.frontier_models': false,
-    'multicode.team_workspaces': false,
-    'multicode.cloud_agents': false,
     'multicode.mobile_companion': false,
   }
 }
 function proFeatures(): Record<string, boolean> {
-  return { ...freeFeatures(), 'multicode.frontier_models': true, 'multicode.mobile_companion': true }
+  return { ...freeFeatures(), 'multicode.mobile_companion': true }
 }
 
 function assertPaidAccessIsDecidedByFeatureKeys(): void {
@@ -510,13 +507,23 @@ function assertPaidAccessIsDecidedByFeatureKeys(): void {
     'a provider-renamed plan still resolves through its feature keys',
   )
 
-  // ANY, not ALL — an operator grant for one key is real paid access.
+  // An operator grant for the key on a free plan is real paid access.
+  assert.equal(
+    hasPaidEntitlement(
+      authState({ planCode: 'free', features: { ...freeFeatures(), 'multicode.mobile_companion': true } }),
+    ),
+    true,
+    'an admin override counts as paid access',
+  )
+
+  // Retired keys decide nothing: a snapshot from an older server that still
+  // carries `multicode.frontier_models` is not paid access on its own.
   assert.equal(
     hasPaidEntitlement(
       authState({ planCode: 'free', features: { ...freeFeatures(), 'multicode.frontier_models': true } }),
     ),
-    true,
-    'a single admin override counts as paid access',
+    false,
+    'a retired key does not count as paid access',
   )
 
   // Behaviour parity with the gate this replaced: the cached snapshot still

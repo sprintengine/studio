@@ -36,7 +36,7 @@ import type { MulticodeAuthState } from '../../../../shared/electron-api'
 function state(planCode: string, features: Record<string, boolean>, entitlementStatus: MulticodeAuthState['entitlementStatus'] = 'fresh'): MulticodeAuthState {
   return {
     authenticated: true,
-    user: { id: 'u1', email: 'dev@example.com', displayName: 'Dev Person' } as MulticodeAuthState['user'],
+    user: { id: 'u1', email: 'dev@example.com', displayName: 'Dev Person', photoUrl: null },
     selectedOrganization: null,
     entitlements: {
       userId: 'u1', organizationId: 'o1', product: 'multicode', roles: [], features, limits: {}, sources: {},
@@ -46,8 +46,8 @@ function state(planCode: string, features: Record<string, boolean>, entitlementS
     status: 'signed_in', entitlementStatus, message: null, lastRefreshAt: null, graceExpiresAt: null,
   }
 }
-const FREE = { 'multicode.sprintengine': true, 'multicode.frontier_models': false, 'multicode.mobile_companion': false }
-const PRO = { 'multicode.sprintengine': true, 'multicode.frontier_models': true, 'multicode.mobile_companion': true }
+const FREE = { 'multicode.sprintengine': true, 'multicode.mobile_companion': false }
+const PRO = { 'multicode.sprintengine': true, 'multicode.mobile_companion': true }
 
 function render(authState: MulticodeAuthState): HTMLElement {
   const host = dom.window.document.createElement('div')
