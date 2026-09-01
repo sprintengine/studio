@@ -124,7 +124,7 @@ run('both spawn surfaces offer the toggle as a controlled sibling of the permiss
   )
 })
 
-run('WorkspaceManager carries the toggle into the spawn payload, resets it, and threads it to the picker hosts', () => {
+run('WorkspaceManager carries the toggle into the spawn payload, resets it, and threads it to the New Chat panel', () => {
   assert.ok(
     (managerSource.match(/debugMode: agentSpawnDebugMode/g) ?? []).length >= 3,
     'the transient toggle becomes the agent record debugMode on the CLI spawn paths',
@@ -134,15 +134,12 @@ run('WorkspaceManager carries the toggle into the spawn payload, resets it, and 
     /if \(agentSpawnDebugMode\) setAgentSpawnDebugMode\(false\)/,
     'the toggle resets off after a spawn so the next unrelated spawn is not silently debugged',
   )
-  assert.match(
-    managerSource,
-    /agentSpawnDebugMode=\{agentSpawnDebugMode\}\n\s*setAgentSpawnDebugMode=\{setAgentSpawnDebugMode\}/,
-    'the toggle + setter thread to the top bar spawn popover',
-  )
+  // The top bar's spawn popover is gone (MC-2222); the New Chat panel and the
+  // launcher's picker are the hosts that remain.
   assert.match(
     managerSource,
     /debugMode=\{agentSpawnDebugMode\}\n\s*onChangeDebugMode=\{setAgentSpawnDebugMode\}/,
-    'and to the New Chat panel via the composer debugMode/onChangeDebugMode props',
+    'the toggle + setter thread to the New Chat panel via the composer debugMode/onChangeDebugMode props',
   )
 })
 

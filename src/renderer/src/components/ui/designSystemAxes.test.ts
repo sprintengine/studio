@@ -174,8 +174,10 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     utils: 14,
     // 3 → 2 when the agent composer's nested engine flyout gave up its
     // hardcoded `0 18px 50px rgba(0,0,0,0.55)` for the shared floating chrome
-    // (MC-2110). The two that remain are inset hairlines, not elevation.
-    'components/workspace': 2,
+    // (MC-2110). The two that remained were inset hairlines, not elevation;
+    // 2 → 1 when the title bar's specialist split-button was deleted with its
+    // frame (MC-2222). Locked in rather than left as headroom.
+    'components/workspace': 1,
   },
   // 18 → 16 and backlog 1 → 0 when the overlay shells took their layer from the
   // `--z-*` tokens (MC-2109): the New sprint dialog and the roster manager gave

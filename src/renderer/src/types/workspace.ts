@@ -489,15 +489,6 @@ export type AppSettings = {
    * available option at spawn time.
    */
   lastSelectedConversationModel: AgentConversationRuntime | null
-  lastSelectedSpecialist: SpecialistActionId
-  /**
-   * Whether the top-bar standard-mode quick-spawn button last spawned the
-   * General agent rather than a specialist. Paired with lastSelectedSpecialist:
-   * false → the button represents/spawns lastSelectedSpecialist; true → General.
-   * Spawning General from the top-bar picker sets this so the quick button keeps
-   * repeating General instead of snapping back to the last specialist.
-   */
-  lastSpawnWasGeneral: boolean
   /**
    * Agent the sidebar's "New chat in project" item spawns on a plain click.
    * Updated whenever the user picks an agent from the new-chat picker, so the

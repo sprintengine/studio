@@ -20,7 +20,6 @@
 
 import type {
   AgentCli,
-  SpecialistActionId,
   SprintEngineCliPermissionPreset,
 } from '../../types/workspace'
 import { APP_THEMES, type AppTheme } from '../../types/appTheme'
@@ -105,29 +104,6 @@ const PERMISSION_PRESET_OPTIONS: ReadonlyArray<
   { value: 'manual', label: 'Manual — ask before every action' },
   { value: 'auto', label: 'Auto — the CLI reviews each action instead of you' },
   { value: 'bypass', label: 'Bypass all — no permission checks' },
-]
-
-// Preselect options for the "Default specialist action" setting, keyed by
-// registry role id (MC-1587 collapsed the old dashed action-id space —
-// `qa-test`, `security-review`, … — onto the registry role id, so `souls get
-// <id>` resolves directly). This is the same curated-by-role-id pattern as
-// SPECIALIST_DISPLAY_ORDER in specialistActions.ts. Like CLI_OPTIONS, it is a
-// static list: it does not yet narrow to the specialist packs actually
-// installed, so a raw (no-pack) profile still lists these. Registry-sourcing
-// this select is a settings-substrate improvement tracked separately.
-const SPECIALIST_OPTIONS: ReadonlyArray<SelectOption<SpecialistActionId>> = [
-  { value: 'architect', label: 'Architect' },
-  { value: 'product', label: 'Product strategist' },
-  { value: 'developer', label: 'Developer' },
-  { value: 'devops', label: 'DevOps / infrastructure' },
-  { value: 'performance', label: 'Performance' },
-  { value: 'production_readiness_reviewer', label: 'Production readiness' },
-  { value: 'cross_platform', label: 'Cross-platform compatibility' },
-  { value: 'blog_writer', label: 'Blog writer' },
-  { value: 'tester', label: 'QA / test' },
-  { value: 'security', label: 'Security review' },
-  { value: 'frontend', label: 'Frontend designer' },
-  { value: 'ui_ux_reviewer', label: 'UI/UX review' },
 ]
 
 const APP_THEME_OPTIONS: ReadonlyArray<SelectOption<AppTheme>> = APP_THEMES.map(
@@ -241,16 +217,6 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
     field: { type: 'switch' },
     storePath: 'appSettings.guidedBriefConversationSessions',
     storeSetter: 'setGuidedBriefConversationSessions',
-  },
-  {
-    id: 'last-selected-specialist',
-    label: 'Default specialist action',
-    help: 'Preselected specialist when running a one-off task from the palette.',
-    scope: 'role',
-    group: 'agents',
-    field: { type: 'select', items: SPECIALIST_OPTIONS },
-    storePath: 'appSettings.lastSelectedSpecialist',
-    storeSetter: 'setLastSelectedSpecialist',
   },
   // Learn center — tips startup toggle.
   {

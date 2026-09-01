@@ -230,8 +230,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   removeMcpServer: (serverId: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
-  setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
-  setLastSpawnWasGeneral: (value: boolean) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
   setLastFolderOpenTarget: (target: FolderOpenTargetId) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void

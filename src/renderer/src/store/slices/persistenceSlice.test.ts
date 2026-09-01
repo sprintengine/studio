@@ -502,7 +502,7 @@ assert.equal(migratedRoadmapOnly.activeWorkspaceId, null, 'active pointer is cle
 const v66PreFlipOptIn = {
   workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
   activeWorkspaceId: 'ws-standard',
-  appSettings: { guidedBriefConversationSessions: true, lastSelectedSpecialist: 'design' },
+  appSettings: { guidedBriefConversationSessions: true, lastSelectedCli: 'codex' },
 }
 const migratedTransportReset = migratePersistedWorkspaceState(v66PreFlipOptIn, 66) as {
   appSettings: AppSettings
@@ -518,8 +518,8 @@ assert.equal(
   'v67 stamps the profile so the reset runs exactly once',
 )
 assert.equal(
-  migratedTransportReset.appSettings.lastSelectedSpecialist,
-  'design',
+  migratedTransportReset.appSettings.lastSelectedCli,
+  'codex',
   'v67 leaves other persisted settings alone',
 )
 
@@ -541,7 +541,7 @@ assert.equal(
 // v68: the Sprint Engine model catalog retired (MC-1890). An upgraded profile
 // still carries the persisted `sprintEngineModelCatalog` array of hand-set
 // scores; the ladder drops it and leaves every other setting alone.
-assert.equal(WORKSPACE_STORE_VERSION, 71, 'module-state bag is the newest step, at store v71')
+assert.equal(WORKSPACE_STORE_VERSION, 72, 'the remembered-specialist drop is the newest step, at store v72')
 
 const v67WithModelCatalog = {
   workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
@@ -550,7 +550,7 @@ const v67WithModelCatalog = {
     sprintEngineModelCatalog: [
       { cli: 'claude-code', model: 'opus', offeredByDefault: true, intelligence: 9, frontendDesign: 8, mobile: 5, speed: 4, cost: 10 },
     ],
-    lastSelectedSpecialist: 'design',
+    lastSelectedCli: 'codex',
   },
 }
 const migratedModelCatalogDrop = migratePersistedWorkspaceState(v67WithModelCatalog, 67) as {
@@ -562,9 +562,41 @@ assert.equal(
   'v68 drops the retired model catalog slice, key and all',
 )
 assert.equal(
-  migratedModelCatalogDrop.appSettings.lastSelectedSpecialist,
-  'design',
+  migratedModelCatalogDrop.appSettings.lastSelectedCli,
+  'codex',
   'v68 leaves other persisted settings alone',
+)
+
+// v72: the title bar's specialist split-button retired (MC-2222), and with it
+// the remembered-specialist default whose factory value ('architect') was what
+// preselected a role nobody picked in New chat. An upgraded profile still
+// carries both keys; the ladder drops them and leaves every other setting alone.
+const v71WithRememberedSpecialist = {
+  workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
+  activeWorkspaceId: 'ws-standard',
+  appSettings: {
+    lastSelectedSpecialist: 'architect',
+    lastSpawnWasGeneral: false,
+    lastSelectedCli: 'codex',
+  },
+}
+const migratedRememberedSpecialistDrop = migratePersistedWorkspaceState(v71WithRememberedSpecialist, 71) as {
+  appSettings: AppSettings & { lastSelectedSpecialist?: unknown; lastSpawnWasGeneral?: unknown }
+}
+assert.equal(
+  'lastSelectedSpecialist' in migratedRememberedSpecialistDrop.appSettings,
+  false,
+  'v72 drops the remembered top-bar specialist, key and all',
+)
+assert.equal(
+  'lastSpawnWasGeneral' in migratedRememberedSpecialistDrop.appSettings,
+  false,
+  'v72 drops the paired General-was-last flag too',
+)
+assert.equal(
+  migratedRememberedSpecialistDrop.appSettings.lastSelectedCli,
+  'codex',
+  'v72 leaves other persisted settings alone',
 )
 
 // The version-gated step cannot be the only enforcement: a dev-HMR module swap

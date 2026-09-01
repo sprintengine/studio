@@ -986,8 +986,6 @@ export const defaultAppSettings = (): AppSettings => ({
   mcp: defaultMcpSettings(),
   lastSelectedCli: 'claude-code',
   lastSelectedConversationModel: null,
-  lastSelectedSpecialist: 'architect',
-  lastSpawnWasGeneral: false,
   lastNewChatAgent: { kind: 'general' },
   // No default editor: the control resolves the first target the machine
   // actually has. Naming one here would claim an install we have not probed.
@@ -1052,8 +1050,6 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     mcp: normalizeMcpSettings(settings?.mcp),
     lastSelectedCli: normalizeSelectedCli(settings?.lastSelectedCli, defaults.lastSelectedCli),
     lastSelectedConversationModel: normalizeConversationModel(settings?.lastSelectedConversationModel),
-    lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
-    lastSpawnWasGeneral: settings?.lastSpawnWasGeneral ?? defaults.lastSpawnWasGeneral,
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
     lastFolderOpenTarget: isFolderOpenTargetId(settings?.lastFolderOpenTarget)
       ? settings.lastFolderOpenTarget
@@ -1236,8 +1232,6 @@ export interface SettingsSliceActions {
   removeMcpServer: (serverId: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
-  setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
-  setLastSpawnWasGeneral: (value: boolean) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
   /** Remember the open-in-editor target the user just used (app-wide). */
   setLastFolderOpenTarget: (target: FolderOpenTargetId) => void
@@ -1551,16 +1545,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setLastSelectedConversationModel: (selection) =>
       set((state) => {
         state.appSettings.lastSelectedConversationModel = normalizeConversationModel(selection)
-      }),
-
-    setLastSelectedSpecialist: (specialistId) =>
-      set((state) => {
-        state.appSettings.lastSelectedSpecialist = specialistId
-      }),
-
-    setLastSpawnWasGeneral: (value) =>
-      set((state) => {
-        state.appSettings.lastSpawnWasGeneral = value
       }),
 
     setLastNewChatAgent: (choice) =>

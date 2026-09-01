@@ -1,7 +1,6 @@
 // The active workspace's control-group cluster — Sessions, View panels,
-// Notifications, voice dictation, and the specialist split-button — hoisted out
-// of the retired 48px WorkspaceTopBar row into the merged AppTitleBar title
-// strip (it fills the title bar's right-cluster-prefix slot, ahead of the
+// Notifications and voice dictation — hoisted out of the retired 48px
+// WorkspaceTopBar row into the merged AppTitleBar title strip (it fills the title bar's right-cluster-prefix slot, ahead of the
 // app-level toggles). The whole cluster opts out of the strip's drag region via
 // `app-no-drag` so the window never drags on a control click.
 //
@@ -21,38 +20,20 @@ import {
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import CliIcon from '../CliIcon'
-import { AGENT_SPAWN_PERMISSION_OPTIONS, TerminalSessionIcon } from './agentComposer/agentSpawnShared'
-import SpawnPicker from './agentComposer/SpawnPicker'
-import { type AgentComposerConfirm } from './agentComposer/AgentComposer'
-import type { ConversationProviderRow } from './conversationSpawnOptions'
-import {
-  GENERAL_AGENT_ENGINE_KEY,
-  getSpecialistAction,
-  type SpecialistAction,
-} from '../../specialists/specialistActions'
+import { TerminalSessionIcon } from './agentComposer/agentSpawnShared'
+import { getSpecialistAction } from '../../specialists/specialistActions'
 import type {
   AgentCli,
   AppNotification,
   SpecialistActionId,
-  SprintEngineCliPermissionPreset,
   Workspace,
 } from '../../types/workspace'
-import {
-  resolveAvailableAgentCli,
-  resolveLaunchableAgentCli,
-  type AgentCliCatalogOption,
-} from './newWorkspace/cliRuntimeOptions'
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
 import { NotificationsPopover, type NotificationRowAction } from './topbar/NotificationsPopover'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
-import {
-  getEffectiveKeybindingLabel,
-  getSpecialistCommandId,
-  platformKeybindingsFromApiPlatform,
-} from '../../commands/effectiveKeybindings'
 
 // The bucket a session row is listed under. Almost every session belongs to a
 // resident workspace. One keyed to an id no workspace row claims — a review
@@ -378,22 +359,11 @@ function SessionsPopover({
 export type WorkspaceActionsProps = {
   workspaces: Workspace[]
   activeWorkspace: Workspace | null
-  activeWorkspaceId: string | null
   workspaceActionsEnabled: boolean | null
-  /**
-   * A door surface owns the content region. Spawning an agent is a thing you do
-   * to a WORKSPACE — the agent lands in its layout — so the spawn split-button
-   * drops out while a door is open (owner, 2026-07-30) rather than offering to
-   * launch a specialist into a page that has no terminals. Sessions,
-   * notifications, dictation, and the attention cue all stay: they are
-   * cross-workspace, and they are useful from anywhere.
-   */
-  globalSurfaceActive?: boolean
 
   sessionsRef: React.RefObject<HTMLDivElement>
   viewMenuRef: React.RefObject<HTMLDivElement>
   notificationsRef: React.RefObject<HTMLDivElement>
-  specialistMenuRef: React.RefObject<HTMLDivElement>
 
   sessions: SessionItem[]
   sidebarWorkspaceOrder: Map<string, number>
@@ -420,36 +390,6 @@ export type WorkspaceActionsProps = {
   /** Resolve a notification's Open action(s); empty when no deep-link or reveal is possible. */
   resolveNotificationActions: (notification: AppNotification) => NotificationRowAction[]
 
-  specialistMenuOpen: boolean
-  setSpecialistMenuOpen: React.Dispatch<React.SetStateAction<boolean>>
-  selectedSpecialistAction: SpecialistAction
-  selectedAgentPermissionOption: typeof AGENT_SPAWN_PERMISSION_OPTIONS[number]
-  lastSelectedCli: AgentCli
-  // Per-agent CLI choice (e.g. Architect → Codex) used by the split-button
-  // trigger's default-spawn icon and CLI badge. The menu reads these from the
-  // store itself; the trigger needs them to resolve its default spawn.
-  specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
-  // Plugin-aware agent CLI catalog (bundled + configured cliRuntimes). The
-  // trigger resolves its default CLI against this list.
-  agentCliOptions: AgentCliCatalogOption[]
-  agentSpawnPermissionPreset: SprintEngineCliPermissionPreset
-  setAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
-  // Transient Debug Mode toggle, forwarded to the spawn menu's mode row.
-  agentSpawnDebugMode: boolean
-  setAgentSpawnDebugMode: (next: boolean) => void
-  // Primary split-button half: spawn the remembered specialist straight into
-  // the active workspace with the trigger CLI.
-  addNewSpecialist: (cli: AgentCli) => void | Promise<void>
-  // Standard-mode alternative to `addNewSpecialist`: when the remembered
-  // top-bar spawn is the General agent (`standardSpawnIsGeneral`), the primary
-  // half spawns General with the trigger CLI instead of a specialist.
-  addNewGeneralAgent: (cli: AgentCli) => void | Promise<void>
-  standardSpawnIsGeneral: boolean
-  // The dropdown renders the shared spawn picker. `conversationSpawnRows` fills
-  // its Conversation rail entry (empty hides it); `runComposerSpawn` maps a
-  // confirm to the real spawn into the active workspace.
-  conversationSpawnRows: ConversationProviderRow[]
-  runComposerSpawn: (confirm: AgentComposerConfirm) => void
 }
 
 // Branch-fork glyph for the header identity cluster. Stroke idiom matches the
@@ -476,13 +416,10 @@ export function GitBranchGlyph({ className }: { className?: string }) {
 export function WorkspaceActions({
   workspaces,
   activeWorkspace,
-  activeWorkspaceId,
   workspaceActionsEnabled,
-  globalSurfaceActive = false,
   sessionsRef,
   viewMenuRef,
   notificationsRef,
-  specialistMenuRef,
   sessions,
   sidebarWorkspaceOrder,
   sessionsOpen,
@@ -503,24 +440,7 @@ export function WorkspaceActions({
   markAllNotificationsRead,
   clearNotifications,
   resolveNotificationActions,
-  specialistMenuOpen,
-  setSpecialistMenuOpen,
-  selectedSpecialistAction,
-  selectedAgentPermissionOption,
-  lastSelectedCli,
-  specialistCliDefaults,
-  agentCliOptions,
-  agentSpawnPermissionPreset,
-  setAgentSpawnPermissionPreset,
-  agentSpawnDebugMode,
-  setAgentSpawnDebugMode,
-  addNewSpecialist,
-  addNewGeneralAgent,
-  standardSpawnIsGeneral,
-  conversationSpawnRows,
-  runComposerSpawn,
 }: WorkspaceActionsProps) {
-  const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
   // Module-contributed top-bar controls, gated on live enablement so a module
   // toggle adds/removes its control without a reload (registry references are
@@ -537,24 +457,15 @@ export function WorkspaceActions({
     () => (activeWorkspace ? resolveEnabledWorkspaceType(activeWorkspace.mode, moduleOverrides)?.topBarViews ?? null : null),
     [activeWorkspace, moduleOverrides],
   )
-  const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
-  const shortcutFor = React.useCallback((commandId: string): string | null => (
-    getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform)
-  ), [keybindingPlatform, keybindingSettings])
-  const withShortcut = React.useCallback((label: string, shortcut: string | null): string => (
-    shortcut ? `${label} (${shortcut})` : label
-  ), [])
-  // Resolve a human label for any CLI from the plugin-aware catalog, so pinned
-  // opencode/custom agents read correctly instead of falling back to "Claude Code".
-  const cliLabelFor = (cli: AgentCli): string =>
-    agentCliOptions.find((option) => option.value === cli)?.label ?? cli
   return (
       <div className="app-no-drag flex shrink-0 items-center gap-1.5">
         {/*
          * WorkspaceActions at-rest control inventory — capped at five groups.
-         * The Git change-count badge migrated to the PanelRail Git icon, so
-         * `workspace-context` retired and the row carries four canonical
-         * groups; adding a sixth top-bar-group marker fails
+         * The Git change-count badge migrated to the PanelRail Git icon
+         * (`workspace-context` retired) and the specialist split-button was
+         * deleted with MC-2222 (`agent-spawn` retired: spawning is New chat's
+         * and the tab strip's job), so the row carries two canonical groups;
+         * adding a sixth top-bar-group marker fails
          * scripts/lint-panel-composition.mjs. Documented in
          * knowledge/brand/panel-design-system.md (TopBar inventory).
          */}
@@ -566,7 +477,6 @@ export function WorkspaceActions({
               onOpenChange={(next) => {
                 setSessionsOpen(next)
                 if (next) {
-                  setSpecialistMenuOpen(false)
                   setNotificationsOpen(false)
                 }
               }}
@@ -623,7 +533,6 @@ export function WorkspaceActions({
                 if (next) {
                   setViewMenuTick((tick) => tick + 1)
                   setSessionsOpen(false)
-                  setSpecialistMenuOpen(false)
                   setNotificationsOpen(false)
                 }
               }}
@@ -716,7 +625,6 @@ export function WorkspaceActions({
               setNotificationsOpen(next)
               if (next) {
                 setSessionsOpen(false)
-                setSpecialistMenuOpen(false)
               }
             }}
             ariaLabel="Notifications"
@@ -770,129 +678,6 @@ export function WorkspaceActions({
           </React.Suspense>
         ))}
 
-        {/* top-bar-group: agent-spawn */}
-        {workspaceActionsEnabled && !globalSurfaceActive ? (() => {
-          // Constrain a remembered CLI to one that is actually installed. When
-          // the catalog is empty (registry still loading or no agent plugins)
-          // this preserves the passed id rather than throwing on an empty list.
-          const resolvePickerCli = (cli: AgentCli): AgentCli =>
-            resolveAvailableAgentCli(cli, agentCliOptions, agentCliOptions[0]?.value ?? cli)
-          const rememberedCli: AgentCli = standardSpawnIsGeneral
-            ? (specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY] ?? lastSelectedCli)
-            : (specialistCliDefaults[selectedSpecialistAction.id] ?? lastSelectedCli)
-          // The one-click half spawns without opening the picker, so it needs the
-          // honest answer rather than the display default: on a machine with no
-          // agent CLI there is nothing to launch and the button says so by being
-          // inert (MC-2093). The chevron still opens the picker, which carries
-          // the install route.
-          const launchableCli = resolveLaunchableAgentCli(rememberedCli, agentCliOptions)
-          const triggerCli: AgentCli = resolvePickerCli(rememberedCli)
-          const triggerCliOption =
-            agentCliOptions.find((option) => option.value === triggerCli)
-            ?? { value: triggerCli, label: cliLabelFor(triggerCli) }
-          return (
-          <div ref={specialistMenuRef} className="relative inline-flex">
-            {/*
-             * Split-button frame: rounded border, no overflow-hidden. The Popover
-             * surface anchors to the chevron and must escape this frame — clipping
-             * here would hide the entire spawn-agent menu. Inner buttons round
-             * their own outer corners so the hover background still follows the
-             * frame's rounded corner.
-             */}
-            <div className="inline-flex rounded-md border border-[color:var(--color-6)] bg-[color:var(--bg-hover)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.025)]">
-              <Tooltip
-                placement="bottom"
-                content={
-                  !launchableCli
-                    ? 'No agent CLI is installed — install one from the spawn menu'
-                    : standardSpawnIsGeneral
-                    ? `Spawn an agent with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`
-                    : withShortcut(
-                        `Spawn ${selectedSpecialistAction.label} specialist with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`,
-                        getSpecialistCommandId(selectedSpecialistAction.id)
-                          ? shortcutFor(getSpecialistCommandId(selectedSpecialistAction.id)!)
-                          : null,
-                      )
-                }
-              >
-                <button
-                  onClick={() => {
-                    if (!launchableCli) return
-                    if (standardSpawnIsGeneral) {
-                      void addNewGeneralAgent(launchableCli)
-                    } else {
-                      void addNewSpecialist(launchableCli)
-                    }
-                  }}
-                  disabled={!activeWorkspaceId || !launchableCli}
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded-l-[5px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
-                  aria-label={
-                    // The roleless spawn has no role to name it, so its
-                    // accessible name is the engine it launches — which is also
-                    // the glyph on the button, and how the composer's own
-                    // roleless row reads.
-                    standardSpawnIsGeneral
-                      ? `Spawn an agent with ${triggerCliOption.label}`
-                      : `Spawn ${selectedSpecialistAction.label} specialist`
-                  }
-                >
-                  {standardSpawnIsGeneral ? (
-                    // A roleless agent has no specialist glyph; mirror the
-                    // composer's roleless row, which wears its bound CLI icon.
-                    <CliIcon cli={triggerCli} className="size-icon-md" />
-                  ) : (
-                    <SpecialistActionIcon
-                      icon={selectedSpecialistAction.icon}
-                      className="size-icon-md"
-                    />
-                  )}
-                </button>
-              </Tooltip>
-              <span
-                className="inline-flex h-8 items-center border-l border-[color:var(--color-6)] px-1.5 text-[color:var(--text-strong)]"
-                aria-hidden="true"
-                // design-tokens-allow: non-interactive identity badge span; aria-hidden so hover affordance is documented decoration, not an interactive control
-                title={`Default CLI: ${triggerCliOption.label}`}
-              >
-                <CliIcon cli={triggerCli} className="icon-sm" />
-              </span>
-              <Popover
-                open={specialistMenuOpen}
-                onOpenChange={(next) => setSpecialistMenuOpen(next)}
-                ariaLabel="Spawn agent"
-                popupRole="menu"
-                placement="bottom-end"
-                renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                  <Tooltip content="Spawn agent" placement="bottom">
-                    <button
-                      ref={ref}
-                      onClick={togglePopover}
-                      disabled={!activeWorkspaceId}
-                      className={`inline-flex h-8 w-6 items-center justify-center rounded-r-[5px] border-l border-[color:var(--color-6)] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
-                      aria-label="Spawn agent"
-                      {...triggerProps}
-                    >
-                      <svg className={`icon-sm transition-transform ${specialistMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                        <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                  </Tooltip>
-                )}
-              >
-                <SpawnPicker
-                  conversationRows={conversationSpawnRows}
-                  onSpawn={runComposerSpawn}
-                  permissionPreset={agentSpawnPermissionPreset}
-                  onChangePermissionPreset={setAgentSpawnPermissionPreset}
-                  debugMode={agentSpawnDebugMode}
-                  onChangeDebugMode={setAgentSpawnDebugMode}
-                  onClose={() => setSpecialistMenuOpen(false)}
-                />
-              </Popover>
-            </div>
-          </div>
-          )
-        })() : null}
         {/* Account + Settings relocated to the sidebar bottom (SidebarAccountBar,
             Cursor-parity). The former `account-and-settings` top-bar group is
             retired; see knowledge/brand/panel-design-system.md TopBar inventory. */}

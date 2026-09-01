@@ -9,7 +9,6 @@ import type {
   WorkspaceWindowId,
   WorkspaceWindowState,
 } from '../../types/workspace'
-import { getSpecialistAction } from '../../specialists/specialistActions'
 import { normalizeSprintEngineState } from '../../utils/sprintengine'
 import { defaultEditorState, normalizeAgentCli, normalizeAgentState } from './agentsSlice'
 import {
@@ -58,7 +57,7 @@ import { reconcileWorkspaceModuleState } from './workspaceModuleState'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 71
+export const WORKSPACE_STORE_VERSION = 72
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -68,11 +67,15 @@ export type WorkspaceMigrationState = {
   workspaceWindows?: WorkspaceWindowState[]
   primaryWorkspaceWindowId?: WorkspaceWindowId
   // Retired keys stay declared here so the migrations that read or delete them
-  // are typed rather than cast: `cliCommands` (pre-v10 CLI commands) and
-  // `sprintEngineModelCatalog` (the model catalog retired in MC-1890).
+  // are typed rather than cast: `cliCommands` (pre-v10 CLI commands),
+  // `sprintEngineModelCatalog` (the model catalog retired in MC-1890), and
+  // `lastSelectedSpecialist` / `lastSpawnWasGeneral` (the top-bar picker's
+  // remembered default, retired in MC-2222).
   appSettings?: Partial<AppSettings> & {
     cliCommands?: Partial<Record<AgentCli, string>>
     sprintEngineModelCatalog?: unknown
+    lastSelectedSpecialist?: unknown
+    lastSpawnWasGeneral?: unknown
   }
   sidebarCollapsed?: boolean
   workspaceRegistryEmptyState?: import('../../types/workspace').WorkspaceRegistryEmptyState | null
@@ -467,16 +470,14 @@ export function migratePersistedWorkspaceState(
         ...(current.appSettings?.cliRuntimes ?? {}),
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-      lastSelectedSpecialist:
-        current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
     }
   }
   if (version < 13) {
+    // This rung used to re-key the remembered top-bar specialist onto the
+    // registry role id. That field retired with the top-bar picker (MC-2222,
+    // dropped at v72), so the rung keeps only its shape-preserving half.
     const current = migrationState
     const defaults = defaultAppSettings()
-    const selectedSpecialist =
-      current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist
-
     current.appSettings = {
       ...defaults,
       ...(current.appSettings ?? {}),
@@ -485,7 +486,6 @@ export function migratePersistedWorkspaceState(
         ...(current.appSettings?.cliRuntimes ?? {}),
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-      lastSelectedSpecialist: getSpecialistAction(selectedSpecialist).id,
     }
   }
   if (version < 14) {
@@ -584,8 +584,6 @@ export function migratePersistedWorkspaceState(
         ...(current.appSettings?.cliRuntimes ?? {}),
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-      lastSelectedSpecialist:
-        current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
       searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
     }
   }
@@ -600,8 +598,6 @@ export function migratePersistedWorkspaceState(
         ...(current.appSettings?.cliRuntimes ?? {}),
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-      lastSelectedSpecialist:
-        current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
       searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
       recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
         current.appSettings?.recentWorkspaceFolders,
@@ -620,8 +616,6 @@ export function migratePersistedWorkspaceState(
         ...(current.appSettings?.cliRuntimes ?? {}),
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-      lastSelectedSpecialist:
-        current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
       searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),
       recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
         current.appSettings?.recentWorkspaceFolders,
@@ -668,8 +662,6 @@ export function migratePersistedWorkspaceState(
         ...(current.appSettings?.cliRuntimes ?? {}),
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
-      lastSelectedSpecialist:
-        current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
       lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(
         current.appSettings?.lastAgentSpawnPermissionPreset,
       ),
@@ -1068,6 +1060,23 @@ export function migratePersistedWorkspaceState(
     // envelopes this ladder never revisits (the dev-HMR trap, same split as
     // the v67-v70 rungs above).
     mapMigrationWorkspaces(migrationState, reconcileWorkspaceModuleState)
+  }
+  if (version < 72) {
+    // The title bar's specialist split-button is gone (MC-2222), and with it
+    // the remembered-specialist default it repeated: `lastSelectedSpecialist`
+    // (factory default 'architect') and `lastSpawnWasGeneral`. That default
+    // was also what preselected a specialist nobody picked in New chat, so a
+    // plain Enter fetched the architect soul. No spawn surface defaults to a
+    // role any more; a specialist launches only when its row or shortcut is
+    // chosen explicitly. Drop both keys so an upgraded profile stops carrying
+    // a role nothing reads. Same split as v68: this is the clean-upgrade
+    // half, and normalizeAppSettings — which builds every field explicitly
+    // and never spreads the persisted object — is the enforcement half for
+    // envelopes this ladder never revisits.
+    if (migrationState.appSettings) {
+      delete migrationState.appSettings.lastSelectedSpecialist
+      delete migrationState.appSettings.lastSpawnWasGeneral
+    }
   }
 
   return state as never

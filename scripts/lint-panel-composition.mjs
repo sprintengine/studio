@@ -38,7 +38,8 @@ const TOP_BAR_GROUP_CAP = 5
 const CANONICAL_TOP_BAR_GROUPS = new Set([
   'activity-and-views',
   'communication',
-  'agent-spawn',
+  // `agent-spawn` retired (MC-2222): the specialist split-button is deleted;
+  // spawning is New chat's and the tab strip's job.
   // `account-and-settings` retired: account + Settings relocated to the sidebar
   // bottom (SidebarAccountBar) in the Cursor-parity re-layout. See
   // knowledge/brand/panel-design-system.md TopBar inventory.

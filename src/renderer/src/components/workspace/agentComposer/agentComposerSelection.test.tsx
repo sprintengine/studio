@@ -94,6 +94,33 @@ run('the composer hook seeds its selection via resolveInitialSelection in a lazy
   )
 })
 
+// Source-contract for the other half of "a role is never a fallback" (MC-2222):
+// the manager seeds every New chat with the roleless selection, unconditionally.
+// It used to derive it from the remembered top-bar specialist — whose factory
+// default was 'architect' — so Enter on a plain message fetched a soul nobody
+// asked for. The remembered-specialist state is gone with the picker; nothing
+// in the manager may read it back.
+const managerSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/workspace/WorkspaceManager.tsx'),
+  'utf8',
+)
+
+run('New chat opens roleless: the manager seeds { kind: general } and remembers no specialist', () => {
+  assert.match(
+    managerSource,
+    /const composerInitialSelection: AgentComposerSelection = \{ kind: 'general' \}/,
+    'the composer seed is the roleless row, not a remembered or first specialist',
+  )
+  assert.match(
+    managerSource,
+    /<NewAgentPanel[\s\S]{0,400}initialSelection=\{composerInitialSelection\}/,
+    'the New chat panel is seeded from that constant',
+  )
+  for (const retired of ['lastSelectedSpecialist', 'lastSpawnWasGeneral', 'specialistMenuOpen']) {
+    assert.equal(managerSource.includes(retired), false, `${retired} has no surviving reader in the manager`)
+  }
+})
+
 // ---------------------------------------------------------------------------
 // A machine with no agent CLI (MC-2093): the roster stops offering rows that
 // launch one. The old catalog escape hatch made every picker offer all eight

@@ -29,11 +29,9 @@ import { useAppTheme } from '../../hooks/useAppTheme'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
 import {
   GENERAL_AGENT_ENGINE_KEY,
-  orderSpecialistActions,
   getSpecialistAction,
   buildSpecialistSoulStartupPrompt,
 } from '../../specialists/specialistActions'
-import { listSpecialistPacks, resolveEnabledSpecialists } from '../../specialists/specialistPacks'
 import type {
   AgentCli,
   AgentCliModelSelection,
@@ -129,7 +127,6 @@ import { noteSprintRunDeleted } from './globalSurface/sprints/sprintRunTombstone
 import { WindowControls } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionGroup, type SessionItem } from './WorkspaceActions'
-import { AGENT_SPAWN_PERMISSION_OPTIONS } from './agentComposer/agentSpawnShared'
 import {
   buildSidebarWorkspaceOrder,
   getSessionItems,
@@ -236,8 +233,6 @@ const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
 const EMPTY_SPECIALIST_MODEL_DEFAULTS: Partial<Record<SpecialistActionId, AgentCliModelSelection>> = {}
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
-const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
-const EMPTY_DISABLED_SPECIALIST_PACKS: string[] = []
 
 // Where a spawn should land, and what it should start with. Present only when
 // the spawn came from the tab strip's "+" (MC-2147): `tabId` names that tab's
@@ -437,31 +432,6 @@ export default function WorkspaceManager() {
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
-  const specialistOrder = useWorkspaceStore((s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
-  const disabledSpecialistPacks = useWorkspaceStore(
-    (s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_SPECIALIST_PACKS,
-  )
-  const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
-  // The installed specialist roster, sourced entirely from the role registry —
-  // empty until a specialist pack is installed. Drives the remembered-specialist
-  // default and the top-bar quick-spawn label/icon (manifest metadata), mirroring
-  // the composer's own roster resolution.
-  const enabledSpecialists = useMemo(
-    () =>
-      orderSpecialistActions(
-        specialistOrder,
-        resolveEnabledSpecialists(disabledSpecialistPacks, listSpecialistPacks(sprintEngineRoleRegistry)),
-      ),
-    [specialistOrder, disabledSpecialistPacks, sprintEngineRoleRegistry],
-  )
-  const rememberedSpecialist = useWorkspaceStore((s) => s.appSettings.lastSelectedSpecialist)
-  const lastSelectedSpecialist = rememberedSpecialist ?? enabledSpecialists[0]?.id ?? ''
-  const setLastSelectedSpecialist = useWorkspaceStore((s) => s.setLastSelectedSpecialist)
-  // Whether the top-bar standard quick-spawn button repeats the General agent
-  // rather than lastSelectedSpecialist — so spawning General from the picker
-  // sticks instead of snapping back to the last specialist.
-  const lastSpawnWasGeneral = useWorkspaceStore((s) => s.appSettings.lastSpawnWasGeneral)
-  const setLastSpawnWasGeneral = useWorkspaceStore((s) => s.setLastSpawnWasGeneral)
   const lastNewChatAgent = useWorkspaceStore((s) => s.appSettings.lastNewChatAgent)
   const setLastNewChatAgent = useWorkspaceStore((s) => s.setLastNewChatAgent)
   const lastAgentSpawnPermissionPreset = useWorkspaceStore(
@@ -574,10 +544,6 @@ export default function WorkspaceManager() {
       cancelled = true
     }
   }, [activeWorkspaceFolderPath, setSprintEngineRoleRegistry])
-  const selectedSpecialistAction =
-    enabledSpecialists.find((action) => action.id === lastSelectedSpecialist) ??
-    getSpecialistAction(lastSelectedSpecialist)
-
   const [showNewWorkspacePanel, setShowNewWorkspacePanel] = useState(false)
   const [newWorkspacePanelInitialState, setNewWorkspacePanelInitialState] = useState<NewWorkspacePanelInitialState | null>(null)
   // The one way the creation hub goes away. Every route out of it — cancelling,
@@ -629,8 +595,7 @@ export default function WorkspaceManager() {
   // decides it, and the palette is unmounted when that shortcut fires.
   const [paletteScope, setPaletteScope] = useState<PaletteScope>('all')
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
-  const [specialistMenuOpen, setSpecialistMenuOpen] = useState(false)
-  // Installed conversation providers, loaded lazily when the spawn menu opens.
+  // Installed conversation providers, loaded lazily when a spawn surface opens.
   // Kept separate from `agentCliCatalog`: this is the provider/model catalog for
   // the conversation runtime, not the terminal CLI plugin catalog. `null` means
   // "not loaded yet"; an `ok: false` result drives the unavailable row.
@@ -638,9 +603,6 @@ export default function WorkspaceManager() {
   const [agentSpawnPermissionPreset, setAgentSpawnPermissionPresetState] = useState<SprintEngineCliPermissionPreset>(
     lastAgentSpawnPermissionPreset
   )
-  const selectedAgentPermissionOption = AGENT_SPAWN_PERMISSION_OPTIONS.find(
-    (option) => option.value === agentSpawnPermissionPreset
-  ) ?? AGENT_SPAWN_PERMISSION_OPTIONS[0]
   // Debug Mode is intentionally transient and never persisted (unlike the
   // permission preset): it defaults off and resets off after each spawn, so a
   // debug agent never silently leaves the next unrelated spawn in debug.
@@ -664,7 +626,6 @@ export default function WorkspaceManager() {
     isMaximized: false,
     isFullScreen: false,
   })
-  const specialistMenuRef = useRef<HTMLDivElement>(null)
   const sessionsRef = useRef<HTMLDivElement>(null)
   const viewMenuRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
@@ -1067,7 +1028,6 @@ export default function WorkspaceManager() {
     // closeModalSurface also clears the settings request — it is the whole of
     // "no modal, clean settings" here.
     closeModalSurface()
-    setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
   }, [closeGlobalSurface, closeModalSurface])
 
@@ -1120,10 +1080,11 @@ export default function WorkspaceManager() {
   // Conversation spawn is offered only in standard workspaces; Sprint Engine
   // agents stay terminal/MCP-owned (AgentPanel enforces this too).
   const conversationSpawnEnabled = activeWorkspace?.mode === 'standard'
-  // Every surface that can spawn a conversation agent has to ask for the
-  // catalog, not just the top bar's menu: the launch surface (MC-2147) offers
-  // the same row, and while this was keyed on `specialistMenuOpen` alone that
-  // row could never appear there — the catalog stayed empty, so the option
+  // Every surface that can spawn a conversation agent asks for the catalog by
+  // bumping this counter: the launch surface (MC-2147) and the launcher's
+  // picker both offer the row. It used to be keyed on the top bar's spawn
+  // menu alone, which no longer exists (MC-2222), and while it was, the row
+  // could never appear elsewhere — the catalog stayed empty, so the option
   // silently did not exist.
   const [conversationCatalogRequests, setConversationCatalogRequests] = useState(0)
   const requestConversationCatalog = useCallback(() => {
@@ -1135,7 +1096,7 @@ export default function WorkspaceManager() {
   // simply unavailable and no rows render. We refetch on each open so a provider
   // just configured in Settings shows up without a restart.
   React.useEffect(() => {
-    if ((!specialistMenuOpen && conversationCatalogRequests === 0) || !conversationSpawnEnabled) return
+    if (conversationCatalogRequests === 0 || !conversationSpawnEnabled) return
     if (typeof window.api.conversationProvidersList !== 'function') {
       setConversationProviderResult(null)
       return
@@ -1152,7 +1113,7 @@ export default function WorkspaceManager() {
     return () => {
       cancelled = true
     }
-  }, [specialistMenuOpen, conversationCatalogRequests, conversationSpawnEnabled, cliRuntimes])
+  }, [conversationCatalogRequests, conversationSpawnEnabled, cliRuntimes])
   const conversationSpawnOptions = useMemo<ConversationSpawnOption[]>(
     () => buildConversationSpawnOptions(conversationProviderResult),
     [conversationProviderResult],
@@ -1222,7 +1183,6 @@ export default function WorkspaceManager() {
     })
     dismissNewWorkspacePanel()
     closeSettingsOverlay()
-    setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
   }, [
     activeWorkspace?.folderPath,
@@ -1457,7 +1417,6 @@ export default function WorkspaceManager() {
     })
     dismissNewWorkspacePanel()
     closeSettingsOverlay()
-    setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
   }, [
     activeWorkspace?.folderPath,
@@ -1496,7 +1455,6 @@ export default function WorkspaceManager() {
       // closes first, or two focus-trapping dialogs stack and one Escape
       // dismisses both (closeModalSurface also clears the settings request).
       closeModalSurface()
-      setSpecialistMenuOpen(false)
       setNotificationsOpen(false)
     },
     [activeWorkspace?.folderPath, closeGlobalSurface, closeModalSurface, dismissNewWorkspacePanel],
@@ -1529,7 +1487,6 @@ export default function WorkspaceManager() {
     // rather than stacking a second Modal under the Settings one — one Escape
     // would dismiss both.
     closeNewSprintDialog()
-    setSpecialistMenuOpen(false)
     setSessionsOpen(false)
     setViewMenuOpen(false)
     setNotificationsOpen(false)
@@ -2049,7 +2006,6 @@ export default function WorkspaceManager() {
   // needed (mirrors the account menu, which never had one).
 
   useEffect(() => {
-    setSpecialistMenuOpen(false)
     setSessionsOpen(false)
     setAttentionQueueOpen(false)
     setNotificationsOpen(false)
@@ -2424,7 +2380,7 @@ export default function WorkspaceManager() {
   }
 
   const addNewSpecialist = async (
-    specialistId: SpecialistActionId = lastSelectedSpecialist,
+    specialistId: SpecialistActionId,
     requestedName = '',
     selectedCli?: AgentCli,
     skill?: WorkspaceSkill,
@@ -2558,7 +2514,6 @@ export default function WorkspaceManager() {
     })
     placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
-    setSpecialistMenuOpen(false)
   }
 
   // Spawn a conversation-backed general agent in the active standard workspace.
@@ -2606,7 +2561,6 @@ export default function WorkspaceManager() {
     })
     placeSpawnedAgentTab(windowActiveWorkspaceId, newId, tabName, placement)
     setLastSelectedConversationModel({ providerId, modelId })
-    setSpecialistMenuOpen(false)
   }
 
   // Single spawn-menu entry: open a conversation agent with the resolved default
@@ -2654,7 +2608,6 @@ export default function WorkspaceManager() {
     skill?: WorkspaceSkill,
     startupPrompt?: string,
   ) => {
-    setLastSelectedSpecialist(specialistId)
     const specialist = getSpecialistAction(specialistId)
     const tabName = pickRandomAgentName([])
     const prompt = buildSpecialistSoulStartupPrompt(specialist)
@@ -2783,7 +2736,6 @@ export default function WorkspaceManager() {
     // closeModalSurface also clears the settings request.
     closeGlobalSurface()
     closeModalSurface()
-    setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
   }, [activeWorkspace?.folderPath, closeGlobalSurface, closeModalSurface, dismissNewWorkspacePanel])
   const closeNewChatPanel = () => {
@@ -2941,7 +2893,6 @@ export default function WorkspaceManager() {
       setPaletteScope(commandId === 'search.files.open' ? 'files' : 'all')
       setShowPalette(true)
       dismissNewWorkspacePanel()
-      setSpecialistMenuOpen(false)
       setSessionsOpen(false)
       setAttentionQueueOpen(false)
       setViewMenuOpen(false)
@@ -3111,23 +3062,14 @@ export default function WorkspaceManager() {
       return true
     }
     if (commandId === 'specialist.spawn.architect') {
-      setLastSelectedSpecialist('architect')
-      setLastSpawnWasGeneral(false)
-      setSpecialistMenuOpen(false)
       void addNewSpecialist('architect')
       return true
     }
     if (commandId === 'specialist.spawn.performance') {
-      setLastSelectedSpecialist('performance')
-      setLastSpawnWasGeneral(false)
-      setSpecialistMenuOpen(false)
       void addNewSpecialist('performance')
       return true
     }
     if (commandId === 'specialist.spawn.frontend-design-review') {
-      setLastSelectedSpecialist('frontend-design-review')
-      setLastSpawnWasGeneral(false)
-      setSpecialistMenuOpen(false)
       void addNewSpecialist('frontend-design-review')
       return true
     }
@@ -3166,7 +3108,6 @@ export default function WorkspaceManager() {
     showNewWorkspacePanel,
     terminalSessions,
     moduleEnablement,
-    setLastSelectedSpecialist,
     addNewSpecialist,
     dispatchPanelCommand,
   ])
@@ -3307,9 +3248,6 @@ export default function WorkspaceManager() {
     selectedModel?: string | null,
     placement?: AgentSpawnPlacement,
   ) => {
-    setLastSelectedSpecialist(specialistId)
-    setLastSpawnWasGeneral(false)
-    setSpecialistMenuOpen(false)
     void addNewSpecialist(specialistId, '', selectedCli, skill, worktree, selectedModel, placement)
   }
 
@@ -3321,15 +3259,14 @@ export default function WorkspaceManager() {
   const composerInitialSelection: AgentComposerSelection = { kind: 'general' }
 
   // Map a composer confirm to the real spawn into the active workspace.
-  // Shared by every spawn-picker host (top bar, launcher); fresh chats
-  // are the New Chat panel's job.
+  // Shared by every spawn-picker host (the launcher, the tab strip's "+");
+  // fresh chats are the New Chat panel's job.
   const runComposerSpawn = (confirm: AgentComposerConfirm, placement?: AgentSpawnPlacement) => {
     switch (confirm.kind) {
       case 'terminal':
         addNewTerminal(placement)
         break
       case 'general':
-        setLastSpawnWasGeneral(true)
         // A "+ Connector" attachment routes through the connector-chat runtime
         // (isolated worktree, single-server MCP) exactly as the New-chat path
         // does — the attachment is the whole point of the control, and a spawn
@@ -3350,9 +3287,6 @@ export default function WorkspaceManager() {
         break
       case 'specialist':
         if (confirm.connector) {
-          setLastSelectedSpecialist(confirm.specialistId)
-          setLastSpawnWasGeneral(false)
-          setSpecialistMenuOpen(false)
           void launchConnectorChat(confirm.connector.id, {
             cli: confirm.cli,
             specialistId: confirm.specialistId,
@@ -3431,7 +3365,6 @@ export default function WorkspaceManager() {
 
   const startLogin = async () => {
     setSessionsOpen(false)
-    setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
     setAccountOpen(false)
     setAuthMessage('Opening sign-in.')
@@ -3753,13 +3686,10 @@ export default function WorkspaceManager() {
           <WorkspaceActions
             workspaces={visibleWorkspaces}
             activeWorkspace={activeWorkspace}
-            activeWorkspaceId={windowActiveWorkspaceId}
             workspaceActionsEnabled={workspaceActionsEnabled}
-            globalSurfaceActive={activeGlobalSurfaceEntry !== null || newChatPanelOpen}
             sessionsRef={sessionsRef}
             viewMenuRef={viewMenuRef}
             notificationsRef={notificationsRef}
-            specialistMenuRef={specialistMenuRef}
             sessions={sessions}
             sidebarWorkspaceOrder={sidebarWorkspaceOrder}
             sessionsOpen={sessionsOpen}
@@ -3780,22 +3710,6 @@ export default function WorkspaceManager() {
             markAllNotificationsRead={markAllNotificationsRead}
             clearNotifications={clearNotifications}
             resolveNotificationActions={resolveNotificationActions}
-            specialistMenuOpen={specialistMenuOpen}
-            setSpecialistMenuOpen={setSpecialistMenuOpen}
-            agentCliOptions={agentCliCatalog}
-            selectedSpecialistAction={selectedSpecialistAction}
-            selectedAgentPermissionOption={selectedAgentPermissionOption}
-            lastSelectedCli={lastSelectedCli}
-            specialistCliDefaults={specialistCliDefaults}
-            agentSpawnPermissionPreset={agentSpawnPermissionPreset}
-            setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
-            agentSpawnDebugMode={agentSpawnDebugMode}
-            setAgentSpawnDebugMode={setAgentSpawnDebugMode}
-            addNewSpecialist={(cli) => addNewSpecialist(lastSelectedSpecialist, '', cli)}
-            addNewGeneralAgent={(cli) => void addNewCliAgent(cli)}
-            standardSpawnIsGeneral={lastSpawnWasGeneral}
-            conversationSpawnRows={conversationSpawnAvailable ? conversationSpawnRows : []}
-            runComposerSpawn={runComposerSpawn}
           />
         }
       />
