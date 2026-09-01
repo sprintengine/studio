@@ -1,9 +1,11 @@
 // ConnectorRow — the one list row the whole Connectors surface renders: Browse
 // (catalog + registry via ConnectorEntryRow) and the Installed view (via the
 // generic ConnectorRow) share it so the surface reads as one system. Icon chip ·
-// name + provides chips · one-line summary (or status line) · right-aligned
+// name + kind chip · one-line summary (or status line) · right-aligned
 // actions. Transport and other plumbing stay off the row face — they belong to
-// the detail panels.
+// the detail panels. There is one row, not a "compact" cousin: the Installed
+// view once had its own single-line idiom and read as a different product from
+// the grid beside it.
 
 import React from 'react'
 
@@ -45,95 +47,19 @@ export function ConnectorRow({
   actions,
   selected = false,
   onOpen,
-  variant = 'card',
 }: {
   icon: React.ReactNode
   name: string
   summary?: string
   chips?: string[]
   // Optional status line (Installed rows): a StatusDot + plain-language label,
-  // rendered where Browse rows show their summary.
+  // rendered under the summary.
   status?: React.ReactNode
   actions?: React.ReactNode
   selected?: boolean
   // When present the name/summary area is a button that opens the detail panel.
   onOpen?: () => void
-  // 'card' — the Browse idiom: two lines, summary visible.
-  // 'compact' — the Installed idiom (Linear/Cursor density): one single-line
-  //   row, name then summary on one baseline, status and actions right-aligned.
-  //   Both are list-rows: no border box, fills carry hover/selection.
-  variant?: 'card' | 'compact'
 }) {
-  if (variant === 'compact') {
-    // The list-row contract (design-system/components/list-row): the title
-    // claims the width it needs, the supporting line takes what is left and
-    // truncates first, and the trailing slot never squeezes either. A grid
-    // with a `minmax(0, 1fr)` middle track is what guarantees the text block
-    // gets every pixel the icon and the trailing slot do not — a flex row let
-    // the name collapse to "clou…" beside an empty column.
-    // The name never shrinks: TruncatedText swaps in a tooltip wrapper once
-    // text clips, and that wrapper's basis is the full text width, so a flex
-    // shrink shared with a long summary collapsed the name to two letters. The
-    // name truncates only against its own cap, and the summary absorbs every
-    // pixel of squeeze.
-    const title = (
-      <span className="flex min-w-0 max-w-[60%] shrink-0">
-        <TruncatedText
-          as="span"
-          text={name}
-          className="min-w-0 flex-1 text-body font-medium leading-5 text-[color:var(--text-strong)]"
-        />
-      </span>
-    )
-    return (
-      <div
-        // Hover is skipped on the selected row rather than layered under it:
-        // `hover:` wins on specificity, so a selected row the pointer sat over
-        // dropped to `--bg-hover` and read as merely pointed-at. Same rule the
-        // card variant below and `ui/InboxRow` follow.
-        className={`group relative grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md px-3 py-1.5 transition-colors ${
-          selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
-        }`}
-      >
-        {icon}
-        <span className="flex min-w-0 items-baseline gap-2">
-          {onOpen ? (
-            <button
-              type="button"
-              onClick={onOpen}
-              aria-expanded={selected}
-              aria-label={`Show details for ${name}`}
-              className="interactive flex min-w-0 max-w-[60%] shrink-0 rounded-sm text-left focus-visible:focus-ring"
-            >
-              <TruncatedText
-                as="span"
-                text={name}
-                className="min-w-0 flex-1 text-body font-medium leading-5 text-[color:var(--text-strong)]"
-              />
-            </button>
-          ) : (
-            title
-          )}
-          {chips.map((label) => (
-            <ConnectorChip key={label} label={label} />
-          ))}
-          {summary ? (
-            <span className="flex min-w-0 flex-1 basis-0">
-              <TruncatedText
-                as="span"
-                text={summary}
-                className="min-w-0 flex-1 text-meta leading-5 text-[color:var(--text-subtle)]"
-              />
-            </span>
-          ) : null}
-        </span>
-        <span className="flex shrink-0 items-center gap-2 text-meta leading-4 text-[color:var(--text-subtle)]">
-          {status}
-          {actions}
-        </span>
-      </div>
-    )
-  }
   // list-row, not a card: no border box — the grid's gaps separate rows, and
   // the standard fills carry hover (--bg-hover) and selection (--bg-selected).
   const rowClass = selected

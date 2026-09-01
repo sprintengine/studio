@@ -102,10 +102,11 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   assert.equal(rows[0].enabled, true)
   assert.equal(rows[1].source, 'Custom')
   assert.equal(rows[1].enabled, false)
-  // Transport and provenance are plumbing, not decisions: the row face carries
-  // neither as a chip (the record keeps `source` for the icon lookup).
-  assert.deepEqual(rows[0].chips, [], 'transport stays off the row face')
-  assert.deepEqual(rows[1].chips, [], 'provenance carries no chip')
+  // The kind label is the chip, as on Browse rows. Transport and provenance are
+  // plumbing, not decisions: neither is chipped (the record keeps `source` for
+  // the icon lookup).
+  assert.deepEqual(rows[0].chips, ['MCP server'], 'transport stays off the row face')
+  assert.deepEqual(rows[1].chips, ['MCP server'], 'provenance carries no chip')
   assert.equal(rows[0].key, 'mcp:context7')
 }
 
@@ -142,8 +143,8 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   assert.deepEqual(rows.map((row) => row.id), ['frontend-design', 'debug'])
   assert.equal(rows[0].kind, 'skill')
   assert.equal(rows[0].key, 'skill:frontend-design')
-  assert.deepEqual(rows[0].chips, [], 'provenance carries no chip')
-  assert.deepEqual(rows[1].chips, ['Update available'], 'the one chip is a state the user can act on')
+  assert.deepEqual(rows[0].chips, ['Skill'], 'provenance carries no chip')
+  assert.deepEqual(rows[1].chips, ['Skill', 'Update available'], 'the second chip is a state the user can act on')
 }
 
 // --- populated state -------------------------------------------------------

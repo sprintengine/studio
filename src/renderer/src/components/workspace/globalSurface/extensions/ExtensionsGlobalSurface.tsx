@@ -399,6 +399,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
             activeWorkspaceRoot={activeWorkspaceRoot}
             catalogServers={catalog}
             registryPlugins={plugins}
+            registryUrl={sources.registryUrl}
             onLaunchConnector={launchConnector}
             onUseInAutomation={useInAutomation}
             onUseSkillInNewAgent={useSkillInNewAgent}

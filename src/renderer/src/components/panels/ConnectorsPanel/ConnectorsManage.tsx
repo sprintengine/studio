@@ -36,6 +36,7 @@ export function ConnectorsManage({
   activeWorkspaceRoot,
   catalogServers = [],
   registryPlugins,
+  registryUrl = null,
   onLaunchConnector,
   onUseInAutomation,
   onUseSkillInNewAgent,
@@ -47,6 +48,8 @@ export function ConnectorsManage({
   // The marketplace registry entries the surface already loaded — the update
   // banner's action needs the full entry to route through updateFromRegistry.
   registryPlugins?: MarketplacePluginEntry[]
+  // Where the registry's relative icon paths resolve from (installed CLI rows).
+  registryUrl?: string | null
   onLaunchConnector?: (connector: AgentComposerConnector) => void
   onUseInAutomation?: (serverId: string) => void
   onUseSkillInNewAgent?: (skill: WorkspaceSkill) => void
@@ -155,6 +158,7 @@ export function ConnectorsManage({
           workspaceRoot={activeWorkspaceRoot}
           catalogServers={catalogServers}
           registryPlugins={registryPlugins}
+          registryUrl={registryUrl}
           mcpSettings={mcpSettings}
           cliAvailability={cliAvailability}
           onCliUpdated={() => void refreshCliAvailability({ force: true })}

@@ -23,7 +23,7 @@ import type { CapabilityPermission } from '../../../../../shared/modules/permiss
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type { PluginRegistryListEntry } from '../../../../../shared/plugin-manifest'
 import type { McpServerConfig, McpSettings } from '../../../types/workspace'
-import { EmptyState, GhostButton, InlineNotice, Popover, PrimaryButton, Spinner, StatusDot } from '../../ui'
+import { CloseIconButton, EmptyState, GhostButton, InlineNotice, Popover, PrimaryButton, Spinner, StatusDot, Tooltip } from '../../ui'
 import { bracketedPaste } from '../../../utils/terminalDrop'
 import {
   ensureSkillForAgent,
@@ -31,6 +31,7 @@ import {
   skillInstalledForHarness,
 } from '../../../utils/skillInvocation'
 import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
+import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
 import { TRUST_PRESENTATION } from '../../settings/ThirdPartyModuleList'
 import { pluginTrust } from '../../settings/BrowseStorefront'
 import { classifyVerification, summarizeInstallResult } from '../../settings/installFlow'
@@ -55,6 +56,9 @@ type InventoryActions = {
   // Catalog entries enrich MCP rows: real icon, and skill-linked entries get the
   // launch affordances.
   catalogServers?: McpCatalogServer[]
+  // Where the registry's relative icon paths resolve from, so an installed CLI
+  // wears the same mark its Browse row does.
+  registryUrl?: string | null
   onLaunchConnector?: (connector: AgentComposerConnector) => void
   onUseInAutomation?: (serverId: string) => void
   onRemoveMcpServer?: (serverId: string) => void
@@ -384,6 +388,7 @@ export function InstalledExtensionsInventory({
     <InstalledView
       view={view}
       actions={actions}
+      registryPlugins={registryPlugins}
       skillUse={{ workspaceRoot, clis: clis.status === 'ok' ? clis.value : [] }}
       cliUpdate={{
         availability: cliAvailability,
@@ -449,12 +454,14 @@ function InstalledView({
   actions,
   skillUse,
   cliUpdate,
+  registryPlugins,
   moduleUpdateSlot,
 }: {
   view: ExtensionsInstalledView
   actions: InventoryActions
   skillUse: SkillUseContext
   cliUpdate?: CliUpdateContext
+  registryPlugins?: MarketplacePluginEntry[]
   // The update banner (MC-1873): one calm line above the Capability modules
   // group — per the owner ruling it lives here and only here, never on rows,
   // never on the Skills surface.
@@ -501,15 +508,19 @@ function InstalledView({
           <section key={group.kind} className="space-y-2">
             <ConnectorSectionHeading label={group.label} count={group.items.length} />
             {group.kind === 'module' ? moduleUpdateSlot : null}
-            {/* One column of list-rows: no container box, no per-row rule —
-                the gaps separate rows and the hover fill carries the pointer.
-                Browse's two-column grid was tried here and split a row's name
-                from its actions by half the surface while truncating the name
-                to a few characters; a row is a line, and a line runs the width
-                it has. */}
-            <div className="grid grid-cols-1 gap-y-0.5">
+            {/* The Browse grid, row for row: two columns of the same card row
+                the marketplace renders, so Installed reads as the same surface
+                turned to face what is already here. */}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {group.items.map((item) => (
-                <InstalledRow key={item.key} item={item} actions={actions} skillUse={skillUse} cliUpdate={cliUpdate} />
+                <InstalledRow
+                  key={item.key}
+                  item={item}
+                  actions={actions}
+                  registryPlugins={registryPlugins}
+                  skillUse={skillUse}
+                  cliUpdate={cliUpdate}
+                />
               ))}
             </div>
             {group.kind === 'cli' && cliUpdate?.notice ? (
@@ -529,24 +540,29 @@ function InstalledView({
   )
 }
 
-// One inventory row on the shared ConnectorRow: icon chip · name · human summary
-// · neutral metadata chips · plain-language status · actions revealed on
-// hover/focus. Actions exist only where a real handler does: launch/automation
-// for any enabled MCP server (the connector chat attaches it with or without a
-// driving skill), remove for MCP servers and skills.
+// One inventory row on the shared ConnectorRow, exactly as Browse renders its
+// entries: 36px icon chip · name + kind chip · human summary · plain-language
+// status · actions. The forward actions (New chat, Use in agent, Update) are
+// visible, as Browse's Add is; Remove is an icon action withheld until the row
+// is pointed at or focused, so a grid of installed things does not read as a
+// grid of delete buttons, and its reserved slot is one control wide rather
+// than a word. Actions exist only where a real handler does.
 function InstalledRow({
   item,
   actions,
+  registryPlugins,
   skillUse,
   cliUpdate,
 }: {
   item: InstalledExtension
   actions: InventoryActions
+  registryPlugins?: MarketplacePluginEntry[]
   skillUse: SkillUseContext
   cliUpdate?: CliUpdateContext
 }) {
   const catalogEntry =
     item.kind === 'mcp' ? actions.catalogServers?.find((server) => server.id === item.id) : undefined
+  const registryEntry = item.kind === 'cli' ? registryPlugins?.find((plugin) => plugin.id === item.id) : undefined
   const launchable = item.kind === 'mcp' && item.enabled === true
   const cliUpdating = item.kind === 'cli' && cliUpdate?.updatingId === item.id
 
@@ -572,15 +588,11 @@ function InstalledRow({
     }
     if (actions.onRemoveMcpServer) {
       rowActions.push(
-        <GhostButton
-          key="remove"
-          size="sm"
-          onClick={() => actions.onRemoveMcpServer!(item.id)}
-          className="border border-[color:var(--border-default)]"
-          aria-label={`Remove ${item.name}`}
-        >
-          Remove
-        </GhostButton>,
+        <RevealedAction key="remove">
+          <Tooltip content="Remove" placement="top">
+            <CloseIconButton onClick={() => actions.onRemoveMcpServer!(item.id)} aria-label={`Remove ${item.name}`} />
+          </Tooltip>
+        </RevealedAction>,
       )
     }
   } else if (item.kind === 'cli') {
@@ -616,29 +628,27 @@ function InstalledRow({
     }
     if (actions.onRemoveSkill) {
       rowActions.push(
-        <GhostButton
-          key="remove"
-          size="sm"
-          onClick={() => actions.onRemoveSkill!(item.id)}
-          className="border border-[color:var(--border-default)]"
-          aria-label={`Remove ${item.name}`}
-        >
-          Remove
-        </GhostButton>,
+        <RevealedAction key="remove">
+          <Tooltip content="Remove" placement="top">
+            <CloseIconButton onClick={() => actions.onRemoveSkill!(item.id)} aria-label={`Remove ${item.name}`} />
+          </Tooltip>
+        </RevealedAction>,
       )
     }
   }
 
   return (
     <ConnectorRow
-      variant="compact"
       icon={
-        <McpBrandIcon
-          slug={item.kind === 'mcp' && item.source === 'Bundled' ? mcpIconSlug(item.id) : null}
-          name={item.name}
-          icon={catalogEntry?.icon}
-          size={24}
-        />
+        item.kind === 'mcp' ? (
+          <McpBrandIcon slug={mcpIconSlug(item.id)} name={item.name} icon={catalogEntry?.icon} size={36} />
+        ) : (
+          <PluginIcon
+            iconUrl={registryEntry ? resolveIconUrl(actions.registryUrl ?? null, registryEntry.icon) : null}
+            name={item.name}
+            size={36}
+          />
+        )
       }
       name={item.name}
       summary={item.summary}
@@ -646,20 +656,19 @@ function InstalledRow({
       status={
         item.kind === 'mcp' || (item.kind === 'module' && item.trust) ? <RowStatus item={item} /> : undefined
       }
-      actions={
-        rowActions.length > 0 ? (
-          <span
-            // Withheld until reached for (list-row): the slot keeps its width
-            // at rest so revealing never reflows, and it appears on keyboard
-            // focus as well as hover. A row mid-update keeps its action visible
-            // so the busy label never hides behind the reveal.
-            className={`flex items-center gap-2 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${cliUpdating ? 'opacity-100' : 'opacity-0'}`}
-          >
-            {rowActions}
-          </span>
-        ) : undefined
-      }
+      actions={rowActions.length > 0 ? rowActions : undefined}
     />
+  )
+}
+
+// A row action withheld until the row is pointed at or focused (list-row): the
+// slot keeps its width at rest so revealing never reflows, and it appears on
+// keyboard focus as well as hover.
+function RevealedAction({ children }: { children: ReactNode }) {
+  return (
+    <span className="flex items-center transition-opacity focus-within:opacity-100 group-hover:opacity-100 opacity-0">
+      {children}
+    </span>
   )
 }
 

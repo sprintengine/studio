@@ -49,9 +49,10 @@ export type InstalledExtension = {
   enabled?: boolean
   /** Human one-line summary (catalog description, module summary, skill description). */
   summary?: string
-  /** At most one small neutral chip, and only for a state the user can act on
-   *  ('Update available', 'Disabled'). Transport and provenance are plumbing
-   *  and live in the detail surfaces, never on the row. */
+  /** The kind label first ('MCP server', 'Skill', …), the way Browse rows
+   *  carry theirs, then at most one state the user can act on ('Update
+   *  available', 'Disabled'). Transport and provenance are plumbing and live
+   *  in the detail surfaces, never on the row. */
   chips: string[]
 }
 
@@ -128,10 +129,8 @@ export function mcpToInstalled(servers: McpServerConfig[]): InstalledExtension[]
     enabled: server.enabled,
     summary: server.description,
     // Transport is plumbing and provenance is not a decision: neither earns a
-    // chip. The row face states the name, what it does, and whether it is
-    // active; the rest belongs to the detail panel (`source` stays on the
-    // record for the icon lookup).
-    chips: [],
+    // chip (`source` stays on the record for the icon lookup).
+    chips: [EXTENSION_KIND_LABEL.mcp],
   }))
 }
 
@@ -155,12 +154,14 @@ export function modulesToInstalled(
         ? (overrides[module.manifest.id] ?? module.manifest.defaultEnabled)
         : false,
     summary: module.manifest.summary,
-    // Only the non-default state earns a chip: enabled-and-trusted is the
-    // norm, and a trust-blocked module's real state is its trust label.
-    chips:
-      module.trust === 'trusted' && !(overrides[module.manifest.id] ?? module.manifest.defaultEnabled)
+    // Only the non-default state earns a second chip: enabled-and-trusted is
+    // the norm, and a trust-blocked module's real state is its trust label.
+    chips: [
+      EXTENSION_KIND_LABEL.module,
+      ...(module.trust === 'trusted' && !(overrides[module.manifest.id] ?? module.manifest.defaultEnabled)
         ? ['Disabled']
-        : [],
+        : []),
+    ],
   }))
 }
 
@@ -176,10 +177,10 @@ export function skillsToInstalled(skills: WorkspaceSkill[]): InstalledExtension[
       kind: 'skill' as const,
       source: sourceLabel(skill.source === 'builtin' ? 'bundled' : 'custom'),
       summary: skill.description,
-      // Provenance carries no chip: on a real machine most skills
-      // are not bundled, so "Custom" on nearly every row was the default
-      // dressed as an exception. The one chip is a state the user can act on.
-      chips: skill.installState === 'update-available' ? ['Update available'] : [],
+      // Provenance carries no chip: on a real machine most skills are not
+      // bundled, so "Custom" on nearly every row was the default dressed as an
+      // exception. The second chip, when there is one, is a state to act on.
+      chips: [EXTENSION_KIND_LABEL.skill, ...(skill.installState === 'update-available' ? ['Update available'] : [])],
     }))
 }
 
@@ -190,7 +191,7 @@ export function clisToInstalled(plugins: PluginRegistryListEntry[]): InstalledEx
     name: plugin.displayName,
     kind: 'cli' as const,
     source: sourceLabel(plugin.source),
-    chips: [],
+    chips: [EXTENSION_KIND_LABEL.cli],
   }))
 }
 
