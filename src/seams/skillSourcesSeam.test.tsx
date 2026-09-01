@@ -948,6 +948,7 @@ async function testRetiredSkillPacksDeepLinkStillOpensSkills(): Promise<void> {
     appSettings: defaultAppSettings(),
     settingsOverlay: { open: false, initialTab: null as string | null, checkForUpdatesRequestId: null },
     activeGlobalSurface: null as string | null,
+    activeModalSurface: null as string | null,
   }
   const slice = createSettingsSlice(((mutator: (state: unknown) => void) => mutator(carrier)) as never)
 
@@ -958,13 +959,13 @@ async function testRetiredSkillPacksDeepLinkStillOpensSkills(): Promise<void> {
     ['skill-packs', 'skills'],
     [EXTENSIONS_BROWSE_DEEPLINK, 'browse'],
   ] as const) {
-    carrier.activeGlobalSurface = null
+    carrier.activeModalSurface = null
     carrier.settingsOverlay = { open: false, initialTab: null, checkForUpdatesRequestId: null }
     consumePendingExtensionsSurfaceTarget()
 
     slice.openSettingsOverlay({ initialTab: tab })
 
-    assert.equal(carrier.activeGlobalSurface, 'extensions', `${tab} opens the Extensions door`)
+    assert.equal(carrier.activeModalSurface, 'extensions', `${tab} opens the Plugins modal`)
     assert.equal(carrier.settingsOverlay.open, false, `${tab} does not open a settings tab that no longer exists`)
     assert.equal(
       consumePendingExtensionsSurfaceTarget(),

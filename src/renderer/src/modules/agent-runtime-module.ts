@@ -10,19 +10,18 @@ import {
   AGENT_TERMINAL_TARGET_KIND,
   type AgentBacklogLinkOpenPorts,
 } from '../utils/agentBacklogLinks'
+import { consumePendingExtensionsSurfaceTarget } from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
+import { PluginsGlyph } from '../components/workspace/modalSurfaceGlyphs'
 
-// The Extensions door surface (MC-1847): the connectors browse/install/launch
-// experience as a door-routed full page. Lazy — and deliberately NOT a
-// top-level import — because the surface reaches the workspace store; keeping
-// it behind a dynamic import leaves the eager module-registry graph store-free,
-// the discipline the other doors follow.
+// The Plugins surface (MC-1847's Extensions door until doors→modals,
+// 2026-09-01): the connectors browse/install/launch experience, now mounted in
+// the shell's modal shell. Lazy — and deliberately NOT a top-level import —
+// because the surface reaches the workspace store; keeping it behind a dynamic
+// import leaves the eager module-registry graph store-free, the discipline the
+// other surfaces follow. The glyph and the latch drainer ARE eager, and both
+// are store-free leaves.
 const ExtensionsGlobalSurface = React.lazy(
   () => import('../components/workspace/globalSurface/extensions/ExtensionsGlobalSurface')
-)
-const ExtensionsNavEntry = React.lazy(() =>
-  import('../components/workspace/globalSurface/extensions/ExtensionsNavEntry').then((module) => ({
-    default: module.ExtensionsNavEntry,
-  }))
 )
 
 // Activate the agent's workspace, then focus (or add) its terminal tab. The
@@ -94,12 +93,24 @@ export const agentRuntimeRendererModule: RendererModule = {
     core: true,
   },
   registerRenderer(host) {
-    // The Extensions door (MC-1847): registered through the always-on core so
-    // the marketplace surface is always reachable. The nav entry sits at the
-    // slot (order 30) the hardcoded Connectors sidebar button occupied before
-    // it retired with the modal.
-    host.registerGlobalSurface({ id: 'extensions', Component: ExtensionsGlobalSurface })
-    host.registerSidebarNavEntry({ id: 'extensions', order: 30, Component: ExtensionsNavEntry })
+    // The Plugins modal (doors→modals, 2026-09-01; the Extensions door,
+    // MC-1847, before that): registered through the always-on core so the
+    // marketplace surface is always reachable. The trigger glyph leads the
+    // settings cluster; the id stays `extensions` — it is a persisted-ish
+    // surface id and a deep-link target — while every user-facing string says
+    // Plugins. A plain open from the glyph discards any stale deep-link latch
+    // a dispatch that never mounted left behind (the surface drains the latch
+    // on mount, so a stale one would reroute the open).
+    host.registerModalSurface({
+      id: 'extensions',
+      order: 10,
+      label: 'Plugins',
+      Icon: PluginsGlyph,
+      onOpen: () => {
+        consumePendingExtensionsSurfaceTarget()
+      },
+      Component: ExtensionsGlobalSurface,
+    })
 
     host.registerBacklogLinkProvider({
       moduleId: AGENT_RUNTIME_MODULE_ID,

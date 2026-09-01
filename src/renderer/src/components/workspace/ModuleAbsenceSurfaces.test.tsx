@@ -51,7 +51,7 @@ function testNotInstalledSurfaceNamesTheModuleAndOffersInstall(): void {
   )
   assert.match(html, /Calendar isn’t installed/)
   assert.match(html, /safe on disk/, 'the surface says the data is untouched')
-  assert.match(html, /Find it in Connectors/, 'the install affordance is present')
+  assert.match(html, /Find it in Plugins/, 'the install affordance is present')
   assert.match(html, /aria-label="Module not installed"/)
 }
 
@@ -83,7 +83,7 @@ function testDoorNotInstalledSurfaceNamesTheDoorAndOffersExtensions(): void {
   )
   assert.match(html, /Reviews/)
   assert.match(html, /The Reviews module isn’t installed\./)
-  assert.match(html, /Find it in Extensions/, 'the single CTA is present')
+  assert.match(html, /Find it in Plugins/, 'the single CTA is present')
   assert.match(html, /aria-label="Door module not installed"/)
 
   const disabled = renderToStaticMarkup(

@@ -1,7 +1,7 @@
-import React, { useEffect } from 'react'
+import React, { useContext, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
-import { FOCUS_RING_CLASS } from '../../ui'
+import { CloseIconButton, FOCUS_RING_CLASS } from '../../ui'
 import { SIDEBAR_DEFAULT_WIDTH } from '../sidebarWidth'
 import { useContextRailSlot } from './contextRail'
 import { useGlobalSurfaceBarSlot } from './surfaceBarSlot'
@@ -45,6 +45,87 @@ export type GlobalSurfaceBar = {
   title: React.ReactNode
   /** Trailing controls, right-aligned; optional. */
   actions?: React.ReactNode
+}
+
+// Chrome signal from the modal host (doors→modals, 2026-09-01; owner ruling
+// same day: one close mechanism for every modal). When a surface mounts inside
+// the shell's Modal, its bar suppresses the door-era back chevron and instead
+// renders an X at the top right, wired to the host's close — the same gesture
+// on Settings, Plugins, Automations and Design. The bar's title is the host's
+// `label` — the surface's NAME ("Automations"), never the contextual title the
+// surface's own bar carries (the selected automation's name), so every modal
+// names the room, not the thing currently in it. Null in a door host (and in
+// tests), where the chevron stays the door's one exit and the surface titles
+// its own bar.
+export const ModalSurfaceChromeContext = React.createContext<{
+  close: () => void
+  label: string
+  /**
+   * The shell reports whether the BODY rendered the modal bar, mirroring
+   * onRailPresence: while nothing claims it (a Suspense fallback, a
+   * third-party body that never uses the shell) the host frame renders the
+   * same bar itself, so every modal has its name and its X in every state.
+   */
+  onBarPresence: (present: boolean) => void
+} | null>(null)
+
+// The one modal title bar (owner, 2026-09-01): a step taller than the door bar
+// and at the title type step — a dialog names itself more loudly than a page
+// whose name rides the app strip — with the X as the one close. Rendered by
+// the shell when the body supplies a bar (its actions join the trailing
+// cluster), and by ModalSurfaceFrame as the fallback otherwise.
+function ModalSurfaceBar({
+  title,
+  actions,
+  onClose,
+}: {
+  title: string
+  actions?: React.ReactNode
+  onClose: () => void
+}): JSX.Element {
+  return (
+    <div className="flex shrink-0 items-center gap-4 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-5 py-3.5">
+      <h2 className="truncate text-title font-semibold tracking-tight text-[color:var(--text-strong)]">
+        {title}
+      </h2>
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        {actions}
+        <CloseIconButton size="md" aria-label="Close" onClick={onClose} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The modal host's wrapper around a modal-surface body: provides the chrome
+ * context (X close, host label) and renders the fallback modal bar while no
+ * body bar has claimed it — so a lazy body loading in Suspense, and a
+ * third-party body that never renders GlobalSurfaceShell, both still get a
+ * titled bar with the one close affordance instead of a chromeless dialog
+ * whose only exits are Escape and the scrim.
+ */
+export function ModalSurfaceFrame({
+  label,
+  close,
+  children,
+}: {
+  label: string
+  close: () => void
+  children: React.ReactNode
+}): JSX.Element {
+  const [barClaimed, setBarClaimed] = React.useState(false)
+  const chrome = React.useMemo(
+    () => ({ close, label, onBarPresence: setBarClaimed }),
+    [close, label],
+  )
+  return (
+    <ModalSurfaceChromeContext.Provider value={chrome}>
+      <div className="flex h-full min-h-0 flex-col">
+        {barClaimed ? null : <ModalSurfaceBar title={label} onClose={close} />}
+        <div className="min-h-0 flex-1">{children}</div>
+      </div>
+    </ModalSurfaceChromeContext.Provider>
+  )
 }
 
 export type GlobalSurfaceShellProps = {
@@ -109,13 +190,32 @@ export function GlobalSurfaceShell({
     onRailPresence(hasRail)
     return () => onRailPresence(false)
   }, [onRailPresence, hasRail])
-  const showBack = Boolean(canGoBack && onBack)
+  const modalChrome = useContext(ModalSurfaceChromeContext)
+  // In a modal host the X is the one exit; the chevron never renders beside it.
+  const showBack = Boolean(canGoBack && onBack) && modalChrome === null
+  // Claim the modal bar from the host frame while this shell renders one, so
+  // the frame's fallback bar never doubles it (same settle contract as
+  // onRailPresence above).
+  const onBarPresence = modalChrome?.onBarPresence
+  const rendersModalBar = Boolean(bar) && modalChrome !== null
+  useEffect(() => {
+    if (!onBarPresence) return undefined
+    onBarPresence(rendersModalBar)
+    return () => onBarPresence(false)
+  }, [onBarPresence, rendersModalBar])
   return (
     <section
       aria-label={ariaLabel}
       className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[color:var(--bg-surface)]"
     >
-      {bar && !liftBar ? (
+      {bar && modalChrome ? (
+        // Titled by the host's label (the surface's name), never bar.title:
+        // Automations' own bar becomes the selected automation mid-visit, and
+        // the dialog must keep saying "Automations". The surface's bar actions
+        // join the trailing cluster beside the X.
+        <ModalSurfaceBar title={modalChrome.label} actions={bar.actions} onClose={modalChrome.close} />
+      ) : null}
+      {bar && !liftBar && !modalChrome ? (
         <div className="flex h-[36px] shrink-0 items-center gap-2.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3">
           {showBack && onBack ? <BarBackChevron onBack={onBack} /> : null}
           <h2 className="truncate text-body font-semibold text-[color:var(--text-strong)]">{bar.title}</h2>
@@ -156,8 +256,21 @@ export function GlobalSurfaceShell({
             // wide. It scrolls and insets nothing: the rail owns both, so its
             // create/search head can sit outside the scrollport and paint no
             // ground of its own (see `SurfaceRailHeader`).
-            style={{ width: SIDEBAR_DEFAULT_WIDTH }}
-            className="flex min-h-0 shrink-0 flex-col border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]"
+            // In a modal the rail yields before the canvas does: the shell is
+            // capped at 95vw, so on a narrow window a fixed rail would eat the
+            // canvas — 30vw keeps the sidebar-width rail on a full-size window
+            // and shrinks it smoothly below ~930px. Rows truncate; the door
+            // fallback keeps the app sidebar's fixed width.
+            style={{ width: modalChrome ? `min(${SIDEBAR_DEFAULT_WIDTH}px, 30vw)` : SIDEBAR_DEFAULT_WIDTH }}
+            // In a modal the rail sits on the darker app ground (owner,
+            // 2026-09-01: the raised tone read as washed out, especially in
+            // dark mode) — the same ground the app sidebar has, so the modal
+            // reads as a small app. The door fallback keeps the raised tone.
+            className={`flex min-h-0 shrink-0 flex-col border-r border-[color:var(--border-subtle)] ${
+              // Owner ruled the MODAL rail darker (2026-09-01); the door
+              // fallback keeps the raised ground the brand checklist mandates.
+              modalChrome ? 'bg-[color:var(--bg-app)]' /* door-surfaces-allow: modal rail only, owner 2026-09-01 */ : 'bg-[color:var(--bg-surface-raised)]'
+            }`}
           >
             {rail}
           </aside>

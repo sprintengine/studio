@@ -114,17 +114,19 @@ export function composerRosterRows({
 }
 
 // Resolve the opening selection to a row that actually exists. The remembered
-// agent is preselected when present; otherwise it falls back to the first
-// roster row (a specialist/role, else the first quick row) — so a remembered
-// pick whose pack is now disabled, or a cold install, lands on a real row
-// rather than an unselectable phantom. Pure: the caller supplies the roster.
-// This replaces SpawnAgentMenu's `rememberedHighlight` seam.
+// agent is preselected when present; otherwise it falls back to the roleless
+// row (else the first quick row) — so a remembered pick whose pack is now
+// disabled, or a cold install, lands on a real row rather than an unselectable
+// phantom. A role is never a fallback: preselecting a specialist nobody picked
+// made Enter in a fresh New chat fetch that specialist's soul. Pure: the
+// caller supplies the roster. This replaces SpawnAgentMenu's
+// `rememberedHighlight` seam.
 export function resolveInitialSelection(
   rows: ComposerRow[],
   preferred: AgentComposerSelection,
 ): AgentComposerSelection {
   if (rows.some((row) => rowMatchesSelection(row, preferred))) return preferred
-  const first = rows.find((row) => row.kind === 'specialist') ?? rows[0]
+  const first = rows.find((row) => row.kind === 'general') ?? rows[0]
   return first ? selectionForRow(first) : preferred
 }
 
@@ -177,7 +179,7 @@ type UseAgentComposerOptions = {
   // Whether the Conversation quick row is offered (bound to the active standard
   // workspace's provider load).
   conversationAvailable: boolean
-  // The remembered agent, preselected on open. Absent → first roster row.
+  // The remembered agent, preselected on open. Absent → the roleless row.
   initialSelection: AgentComposerSelection
   // Optional connector to open with already attached (the connector "New chat"
   // entry points). Seeds the attachment only; it stays removable/replaceable

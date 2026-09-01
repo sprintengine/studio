@@ -35,7 +35,7 @@ export type AgentComposerProps = {
   projectOptions: ComposerProjectOption[]
   onSelectProject: (path: string) => void
   onBrowseProject: () => void
-  // The remembered agent, preselected on open. Absent → first specialist.
+  // The remembered agent, preselected on open. Absent → the roleless row.
   initialSelection: AgentComposerSelection
   // Opens with this connector already in the "+ Connector" slot (the connector
   // surface's "New chat"). The user can still swap or remove it before launch.

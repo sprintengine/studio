@@ -86,6 +86,7 @@ import type {
   BacklogLinkProvider as AppBacklogLinkProvider,
   BacklogLinkProviderInput as AppBacklogLinkProviderInput,
   GlobalSurfaceDefinition as AppGlobalSurfaceDefinition,
+  ModalSurfaceDefinition as AppModalSurfaceDefinition,
   ModuleCommandDefinition as AppModuleCommandDefinition,
   RendererHost as AppRendererHost,
   SettingsSectionDefinition as AppSettingsSectionDefinition,
@@ -156,6 +157,7 @@ import type {
   JsonSchema as SdkJsonSchema,
   FileDropPayload as SdkFileDropPayload,
   GlobalSurfaceDefinition as SdkGlobalSurfaceDefinition,
+  ModalSurfaceDefinition as SdkModalSurfaceDefinition,
   MainHost as SdkMainHost,
   McpConnectionContext as SdkMcpConnectionContext,
   McpConnectionMetadata as SdkMcpConnectionMetadata,
@@ -345,6 +347,9 @@ expectType<IsExact<AppGlobalSurfaceDefinition, SdkGlobalSurfaceDefinition>>()
 expectType<IsExact<AppTopBarItemDefinition, SdkTopBarItemDefinition>>()
 expectType<IsExact<AppRendererHost['registerGlobalSurface'], SdkRendererHost['registerGlobalSurface']>>()
 expectType<IsExact<AppRendererHost['registerTopBarItem'], SdkRendererHost['registerTopBarItem']>>()
+// Modal surfaces (doors→modals, 2026-09-01): same exact-pin discipline.
+expectType<IsExact<AppModalSurfaceDefinition, SdkModalSurfaceDefinition>>()
+expectType<IsExact<AppRendererHost['registerModalSurface'], SdkRendererHost['registerModalSurface']>>()
 
 // ── The four module-boundary surfaces (MC-2090) ──────────────────────────────
 // Each is pinned exactly rather than by `Extends`, for the reason spelled out

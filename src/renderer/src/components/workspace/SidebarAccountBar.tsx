@@ -1,12 +1,17 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { FOCUS_RING_CLASS, Popover, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
 import { MENU_ITEM_CLASS } from '../ui/menuClasses'
 import type { SessionUser } from '../../../../shared/electron-api'
+import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
+import { useWorkspaceStore } from '../../store/workspaceStore'
 import { hasPaidEntitlement, planDisplayTier, type PlanDisplayTier } from './accountEntitlements'
 
 // The account + Settings cluster lives at the sidebar bottom (Cursor-parity
 // layout), relocated from WorkspaceTopBar. The account menu, its trigger, and
 // the Settings gear keep their original handlers — only the mount point moved.
+// The settings cluster also hosts the modal-surface trigger glyphs
+// (doors→modals, 2026-09-01): Plugins, Automations and Design left the top-nav
+// door band and open as modals from here, beside the gear.
 
 function accountInitials(user: SessionUser | null): string {
   const source = user?.displayName?.trim() || user?.email?.trim() || ''
@@ -55,6 +60,68 @@ function GearIcon({ className }: { className?: string }) {
       />
       <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
     </svg>
+  )
+}
+
+// One footer icon button, shared by the gear below and every modal-surface
+// trigger, so the cluster cannot drift into rival idioms: `control-md` box,
+// hover wash, and the open state carried as a bordered press (the same
+// treatment the gear has always had). `aria-pressed` tracks the open modal.
+function footerIconButtonClass(open: boolean): string {
+  return `inline-flex size-control-md items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
+    open
+      ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+      : 'border-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
+  }`
+}
+
+// The modal-surface trigger glyphs (doors→modals, 2026-09-01): one icon button
+// per registered modal surface, enablement-filtered and order-sorted by the
+// host registry, rendered immediately before the gear. Self-contained like a
+// sidebar nav entry — it reads the local window's store and acts on it; the
+// footer only owns placement. A plain open runs the surface's `onOpen` first
+// (the Plugins surface discards a stale deep-link latch there), then opens the
+// modal.
+function ModalSurfaceTriggers() {
+  const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
+  const activeModalSurface = useWorkspaceStore((s) => s.activeModalSurface)
+  const openModalSurface = useWorkspaceStore((s) => s.openModalSurface)
+  // Third-party renderer modules can finish loading after first render (the
+  // boot timeout race WorkspaceManager's moduleRegistryGeneration handles):
+  // without this bump an SDK module's registerModalSurface would mount fine
+  // but its trigger — the only user-visible way in — would stay absent until
+  // an unrelated module toggle or a reload.
+  const [registryGeneration, setRegistryGeneration] = React.useState(0)
+  React.useEffect(
+    () => onThirdPartyRendererModulesLoaded(() => setRegistryGeneration((n) => n + 1)),
+    [],
+  )
+  const surfaces = useMemo(
+    () => getRendererHost().getModalSurfaces((id) => selectModuleEnabled(moduleOverrides, id)),
+    [moduleOverrides, registryGeneration],
+  )
+  return (
+    <>
+      {surfaces.map((surface) => {
+        const open = activeModalSurface === surface.id
+        return (
+          <Tooltip key={surface.id} content={surface.label} placement="top">
+            <button
+              type="button"
+              onClick={() => {
+                surface.onOpen?.()
+                openModalSurface(surface.id)
+              }}
+              className={footerIconButtonClass(open)}
+              aria-label={surface.label}
+              aria-pressed={open}
+            >
+              <surface.Icon className="size-icon-md" />
+            </button>
+          </Tooltip>
+        )
+      })}
+    </>
   )
 }
 
@@ -245,11 +312,7 @@ export default function SidebarAccountBar({
       <button
         type="button"
         onClick={() => openSettings(false)}
-        className={`inline-flex size-control-md items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
-          settingsOpen
-            ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-            : 'border-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-        }`}
+        className={footerIconButtonClass(settingsOpen)}
         aria-label="Settings"
         aria-pressed={settingsOpen}
       >
@@ -258,6 +321,12 @@ export default function SidebarAccountBar({
     </Tooltip>
   )
 
+  // Icon-only in BOTH sidebar states (owner, 2026-09-01): the footer spends no
+  // width on the account name or plan — the tier-coloured initials badge is
+  // the whole control, the hover tooltip carries name · plan, and the click
+  // popover keeps the full detail. (The badge shows initials; a provider
+  // profile photo needs the auth payload to carry one — SessionUser has no
+  // photo field today.)
   const accountControl = authState.authenticated ? (
     <Popover
       open={accountOpen}
@@ -265,56 +334,28 @@ export default function SidebarAccountBar({
       ariaLabel="Account"
       popupRole="menu"
       placement="top-start"
-      // The popover's trigger wrapper is inline-flex and shrink-wraps, which
-      // would park the Settings gear right beside the account text instead of
-      // at the row's right edge — grow it so the account trigger fills the row.
-      className={collapsed ? undefined : 'min-w-0 flex-1'}
       onOpenAutoFocus={(surface) => {
         surface.querySelector<HTMLButtonElement>('[data-account-item="true"]')?.focus()
       }}
-      renderTrigger={({ ref, triggerProps, togglePopover }) =>
-        collapsed ? (
-          <Tooltip content={`Account · ${accountName}`} placement="right">
-            <button
-              ref={ref}
-              type="button"
-              onClick={togglePopover}
-              className={`flex size-control-md items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
-                accountOpen ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)]' : 'border-transparent hover:bg-[color:var(--bg-hover)]'
-              }`}
-              aria-label={`Account · ${tierStyle.label} plan`}
-              {...triggerProps}
-            >
-              {avatar}
-            </button>
-          </Tooltip>
-        ) : (
+      renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        <Tooltip
+          content={`${accountName} · ${accountPlanLabel(authState)}`}
+          placement={collapsed ? 'right' : 'top'}
+        >
           <button
             ref={ref}
             type="button"
             onClick={togglePopover}
-            className={`flex h-control-md min-w-0 flex-1 items-center gap-2 rounded-md border px-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
-              accountOpen
-                ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)]'
-                : 'border-transparent hover:bg-[color:var(--bg-hover)]'
+            className={`flex size-control-md items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
+              accountOpen ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)]' : 'border-transparent hover:bg-[color:var(--bg-hover)]'
             }`}
             aria-label={`Account · ${tierStyle.label} plan`}
             {...triggerProps}
           >
             {avatar}
-            <span className="min-w-0 flex-1">
-              <TruncatedText
-                as="span"
-                text={accountName}
-                className="block text-body font-medium text-[color:var(--text-strong)]"
-              />
-              <span className="block truncate text-meta text-[color:var(--text-subtle)]">
-                {accountPlanLabel(authState)}
-              </span>
-            </span>
           </button>
-        )
-      }
+        </Tooltip>
+      )}
     >
       {accountMenu}
     </Popover>
@@ -340,7 +381,19 @@ export default function SidebarAccountBar({
       }`}
     >
       {accountControl}
-      {settingsButton}
+      {collapsed ? (
+        <>
+          <ModalSurfaceTriggers />
+          {settingsButton}
+        </>
+      ) : (
+        // With the account control now icon-only, the settings cluster pins to
+        // the row's right edge; the account badge holds the left.
+        <div className="ml-auto flex items-center gap-1.5">
+          <ModalSurfaceTriggers />
+          {settingsButton}
+        </div>
+      )}
     </div>
   )
 }

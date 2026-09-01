@@ -1,16 +1,14 @@
 import React from 'react'
 
 import type { RendererModule } from './renderer-host'
+import { DesignGlyph } from '../components/workspace/modalSurfaceGlyphs'
 
-// The Design door + its full-page surface. Lazy — and deliberately NOT top-level
-// imports — because both reach the workspace store (and, through it, the
-// FlexLayout graph); keeping them behind dynamic imports leaves the eager
-// module-registry graph store-free, the discipline every other door follows.
-const DesignNavEntry = React.lazy(() =>
-  import('../components/workspace/globalSurface/design/DesignNavEntry').then((module) => ({
-    default: module.DesignNavEntry,
-  })),
-)
+// The Design surface, mounted in the shell's modal shell (doors→modals,
+// 2026-09-01). Lazy — and deliberately NOT a top-level import — because it
+// reaches the workspace store (and, through it, the FlexLayout graph); keeping
+// it behind a dynamic import leaves the eager module-registry graph
+// store-free, the discipline every other surface follows. The trigger glyph
+// IS eager, and is a store-free leaf.
 const DesignGlobalSurface = React.lazy(
   () => import('../components/workspace/globalSurface/design/DesignGlobalSurface'),
 )
@@ -25,9 +23,6 @@ const DesignGlobalSurface = React.lazy(
 // a dependency, which is not a reason to share an identity — so this module has
 // no coupling to MC-1860 and does not wait on it.
 //
-// Order 35 seats the door directly after Extensions (30): the work doors lead
-// (Automations 10, Sprints 20, Backlog 25), the "what you build with" pair
-// follows, and planning/review trail (Roadmap 40, Reviews 50).
 export const designRendererModule: RendererModule = {
   manifest: {
     id: 'design',
@@ -40,7 +35,15 @@ export const designRendererModule: RendererModule = {
     defaultEnabled: true,
   },
   registerRenderer(host) {
-    host.registerSidebarNavEntry({ id: 'design', order: 35, Component: DesignNavEntry })
-    host.registerGlobalSurface({ id: 'design', Component: DesignGlobalSurface })
+    // The Design modal (doors→modals, 2026-09-01; the order-35 top-nav door
+    // before that): trigger glyph last in the settings cluster before the
+    // gear, surface in the shell's modal shell.
+    host.registerModalSurface({
+      id: 'design',
+      order: 30,
+      label: 'Design',
+      Icon: DesignGlyph,
+      Component: DesignGlobalSurface,
+    })
   },
 }

@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { shouldAutoOpenCreationHub, shouldShowFirstRunCliCard } from '../../store/onboardingState'
 import { planAgentConfigAdoption } from '../onboarding/agentConfigAdoption'
 import { EmptyState as KitEmptyState, PrimaryButton } from '../ui'
+import { Modal } from '../ui/Modal'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -101,8 +102,9 @@ import {
 import { SidebarChrome } from './SidebarChrome'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
+import { ModalSurfaceFrame } from './globalSurface/GlobalSurfaceShell'
 import { GlobalSurfaceErrorBoundary } from './globalSurface/surfaceSubstrate'
-import { resolveActiveDoorSurface } from './globalSurface/absentDoorSurface'
+import { resolveActiveDoorSurface, resolveActiveModalSurface } from './globalSurface/absentDoorSurface'
 import {
   ContextRailColumn,
   ContextRailSlotContext,
@@ -201,16 +203,16 @@ const NewSprintDialog = React.lazy(() => import('./newSprint/NewSprintDialog'))
 // modal), so its subtree — and the diagnostics report formatter / learning
 // catalog it pulls — is fetched at open time, not at boot.
 const CommandPalette = React.lazy(() => import('../ui/CommandPalette'))
-// Settings rides the door substrate but belongs to the app, not to a module —
+// Settings rides the modal shell but belongs to the app, not to a module —
 // see the resolution below for why it can never be module-gated. Shaped like a
-// registered surface so the mount path stays identical to every other door.
-const SettingsGlobalSurface = React.lazy(
-  () => import('./globalSurface/settings/SettingsGlobalSurface'),
-)
-const CORE_SETTINGS_SURFACE = {
+// registered modal surface so the mount path stays identical to every other
+// modal (doors→modals, 2026-09-01).
+const SettingsModalSurface = React.lazy(() => import('../settings/SettingsModalSurface'))
+const CORE_SETTINGS_MODAL_SURFACE = {
   id: 'settings',
   moduleId: 'core',
-  Component: SettingsGlobalSurface,
+  label: 'Settings',
+  Component: SettingsModalSurface,
 } as const
 const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
 // First-run only: the CLI onboarding card (and the CliInstallControl subtree it
@@ -403,9 +405,14 @@ export default function WorkspaceManager() {
   const sidebarWidth = useWorkspaceStore((s) => s.sidebarWidth)
   const setSidebarWidth = useWorkspaceStore((s) => s.setSidebarWidth)
   const setSprintEngineRoleRegistry = useWorkspaceStore((s) => s.setSprintEngineRoleRegistry)
-  const settingsOverlayOpen = useWorkspaceStore((s) => s.activeGlobalSurface === 'settings')
+  const settingsOverlayOpen = useWorkspaceStore((s) => s.activeModalSurface === 'settings')
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
+  // The modal surface floating over this window (doors→modals, 2026-09-01):
+  // its registered id, or null. A float, not a mount kind — the card region
+  // keeps whatever owns it underneath.
+  const activeModalSurface = useWorkspaceStore((s) => s.activeModalSurface)
+  const closeModalSurface = useWorkspaceStore((s) => s.closeModalSurface)
   // The door-routed full-page surface for this window (global-surfaces epic 1704):
   // its registered id, or null when a workspace owns the card region.
   const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
@@ -877,13 +884,8 @@ export default function WorkspaceManager() {
   // The persisted id is deliberately left intact: reinstalling or re-enabling
   // the module lands the user back on the door they were in.
   //
-  // Settings is the exception, and deliberately NOT a module's surface: module
-  // enablement is edited inside Settings, so a Settings door that could be
-  // gated off by a module toggle is a door that can lock its own key inside.
-  // It resolves from the app itself, ungated.
   const activeGlobalSurfaceEntry = useMemo(() => {
     if (!activeGlobalSurface) return null
-    if (activeGlobalSurface === 'settings') return CORE_SETTINGS_SURFACE
     return resolveActiveDoorSurface(
       activeGlobalSurface,
       (id) => getRendererHost().getGlobalSurface(id),
@@ -891,6 +893,28 @@ export default function WorkspaceManager() {
       (view) => openExtensionsSurface({ view }),
     )
   }, [activeGlobalSurface, moduleEnablement, openExtensionsSurface])
+
+  // Resolve the active MODAL surface (doors→modals, 2026-09-01) to its
+  // registered entry, gated on the owning module's live enablement. An id
+  // whose surface is unregistered or whose module is disabled resolves to the
+  // explicit absence explainer inside the modal — a deep-link opener (a run
+  // notification for a since-disabled module) must produce feedback, never a
+  // silent no-op. The trigger glyphs are enablement-filtered and never hit it.
+  //
+  // Settings is the exception, and deliberately NOT a module's surface: module
+  // enablement is edited inside Settings, so a Settings modal that could be
+  // gated off by a module toggle is a dialog that can lock its own key inside.
+  // It resolves from the app itself, ungated.
+  const activeModalSurfaceEntry = useMemo(() => {
+    if (!activeModalSurface) return null
+    if (activeModalSurface === 'settings') return CORE_SETTINGS_MODAL_SURFACE
+    return resolveActiveModalSurface(
+      activeModalSurface,
+      (id) => getRendererHost().getModalSurface(id),
+      (moduleId) => selectModuleEnabled(moduleEnablement, moduleId),
+      (view) => openExtensionsSurface({ view }),
+    )
+  }, [activeModalSurface, moduleEnablement, moduleRegistryGeneration, openExtensionsSurface])
 
   // The first-run "you have no agent CLI" card. Two halves:
   //   - shouldShowFirstRunCliCard is the honest answer to "does this machine
@@ -962,9 +986,22 @@ export default function WorkspaceManager() {
   // is rendered inside the surface's tree by `GlobalSurfaceShell`, so without this
   // it would reach only the store's bare `closeGlobalSurface` and leave the
   // keyboard on `<body>` — the rail row it replaces got the restore for free by
-  // being the host's own. `leave` takes the close so a door that owns extra state
-  // (Settings) can still clear it on the way out.
-  const surfaceExit = useMemo<SurfaceExit>(() => ({ leave: surfaceTrigger.leave }), [surfaceTrigger])
+  // being the host's own. `leave` takes an optional close override for a surface
+  // that owns extra state; absent one, this HOST closes the door (the modal host
+  // below supplies its own default the same way).
+  const surfaceExit = useMemo<SurfaceExit>(
+    () => ({ leave: (close) => surfaceTrigger.leave(close ?? closeGlobalSurface) }),
+    [surfaceTrigger, closeGlobalSurface],
+  )
+
+  // The modal host's exit: the same SurfaceExit contract the door host provides,
+  // so one surface component (GlobalSurfaceShell's bar chevron included) leaves
+  // correctly from either host. No trigger-focus bookkeeping here — Modal itself
+  // restores focus to the element that opened it.
+  const modalSurfaceExit = useMemo<SurfaceExit>(
+    () => ({ leave: (close) => (close ?? closeModalSurface)() }),
+    [closeModalSurface],
+  )
 
   // A door has to hold the keyboard to have a keyboard exit at all.
   //
@@ -1027,10 +1064,12 @@ export default function WorkspaceManager() {
     setShowNewWorkspacePanel(true)
     releaseSprintCreationDoorClaim()
     closeGlobalSurface()
-    closeSettingsOverlay()
+    // closeModalSurface also clears the settings request — it is the whole of
+    // "no modal, clean settings" here.
+    closeModalSurface()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }, [closeGlobalSurface, closeSettingsOverlay])
+  }, [closeGlobalSurface, closeModalSurface])
 
   const openNewWorkspacePanel = useCallback(() => {
     presentNewWorkspacePanel(null)
@@ -1453,11 +1492,14 @@ export default function WorkspaceManager() {
       dismissNewWorkspacePanel()
       setNewChatPanelState(null)
       closeGlobalSurface()
-      closeSettingsOverlay()
+      // The New sprint dialog is a Modal of its own: an open modal surface
+      // closes first, or two focus-trapping dialogs stack and one Escape
+      // dismisses both (closeModalSurface also clears the settings request).
+      closeModalSurface()
       setSpecialistMenuOpen(false)
       setNotificationsOpen(false)
     },
-    [activeWorkspace?.folderPath, closeGlobalSurface, closeSettingsOverlay, dismissNewWorkspacePanel],
+    [activeWorkspace?.folderPath, closeGlobalSurface, closeModalSurface, dismissNewWorkspacePanel],
   )
 
   // Open the creation hub preselected on a type — the sidebar "+" menu rows.
@@ -1482,12 +1524,17 @@ export default function WorkspaceManager() {
   const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
     openSettingsOverlay({ initialTab: targetTab, checkForUpdates })
     dismissNewWorkspacePanel()
+    // Primary+, is a global shortcut, so it fires through the New sprint
+    // dialog's focus trap: that dialog closes (claim released, item 1811)
+    // rather than stacking a second Modal under the Settings one — one Escape
+    // would dismiss both.
+    closeNewSprintDialog()
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
     setViewMenuOpen(false)
     setNotificationsOpen(false)
     setAccountOpen(false)
-  }, [dismissNewWorkspacePanel, openSettingsOverlay])
+  }, [closeNewSprintDialog, dismissNewWorkspacePanel, openSettingsOverlay])
 
   const openLearnCenter = useCallback(() => {
     openSettings(false, 'learn')
@@ -2730,12 +2777,15 @@ export default function WorkspaceManager() {
     dismissNewWorkspacePanel()
     // The panel mounts inside the workspace-card container, which is inert and
     // painted over while a door surface is active — the door closes first or
-    // this click is a visible no-op (same contract as the New-sprint flow).
+    // this click is a visible no-op (same contract as the New-sprint flow). An
+    // open modal (a connector "New chat" comes from the Plugins modal) closes
+    // for the same reason: the panel would open behind its scrim.
+    // closeModalSurface also clears the settings request.
     closeGlobalSurface()
-    closeSettingsOverlay()
+    closeModalSurface()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }, [activeWorkspace?.folderPath, closeGlobalSurface, closeSettingsOverlay, dismissNewWorkspacePanel])
+  }, [activeWorkspace?.folderPath, closeGlobalSurface, closeModalSurface, dismissNewWorkspacePanel])
   const closeNewChatPanel = () => {
     setNewChatPanelState(null)
   }
@@ -2757,9 +2807,11 @@ export default function WorkspaceManager() {
       // "Use in agent → New agent…" on an installed skill row: a general agent
       // on the General-engine default CLI, with the skill ensure-installed and
       // its invocation prefilled. addNewCliAgent targets the active
-      // workspace's layout, so the door must close first or the new tab lands
+      // workspace's layout, so the hosting surface — the Plugins modal, or a
+      // door in the no-host fallback — must close first or the new tab lands
       // behind it.
       closeGlobalSurface()
+      closeModalSurface()
       void addNewCliAgent(
         resolveTemplateAgentCli(
           specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY],
@@ -3261,15 +3313,12 @@ export default function WorkspaceManager() {
     void addNewSpecialist(specialistId, '', selectedCli, skill, worktree, selectedModel, placement)
   }
 
-  // The agent a picker opens preselected — the remembered specialist (standard
-  // workspaces). The panel falls back to its first roster row if this is absent.
-  //
-  // Reinstated at the batch B merge: the branch that replaced AgentComposerPopover
-  // with the spawn picker dropped this with its last consumer, and MC-2147's
-  // new-agent tab landed a new one on the other side of the same merge.
-  const composerInitialSelection: AgentComposerSelection = lastSpawnWasGeneral
-    ? { kind: 'general' }
-    : { kind: 'specialist', specialistId: lastSelectedSpecialist }
+  // New chat opens roleless. It used to preselect the remembered specialist —
+  // whose factory default was 'architect' — so Enter on a plain message
+  // launched an architect soul nobody picked. A specialist now launches only
+  // when its row is explicitly chosen (see
+  // backlog/2026-09-01-delete-the-specialist-agent-picker.md).
+  const composerInitialSelection: AgentComposerSelection = { kind: 'general' }
 
   // Map a composer confirm to the real spawn into the active workspace.
   // Shared by every spawn-picker host (top bar, launcher); fresh chats
@@ -3772,8 +3821,8 @@ export default function WorkspaceManager() {
       <div className="relative min-h-0 flex-1">
         <div
           className="absolute inset-0"
-          aria-hidden={settingsOverlayOpen || activeGlobalSurfaceEntry !== null || undefined}
-          {...(settingsOverlayOpen || activeGlobalSurfaceEntry !== null
+          aria-hidden={activeGlobalSurfaceEntry !== null || undefined}
+          {...(activeGlobalSurfaceEntry !== null
             ? ({ inert: '' } as Record<string, string>)
             : {})}
         >
@@ -3891,8 +3940,9 @@ export default function WorkspaceManager() {
             a dialog dismissal), by opening another door, or by selecting a
             project; all of them clear activeGlobalSurface. Gated on the surface's
             owning module: a stale flag after a module toggle resolves to null and
-            the workspace shows through. Settings deliberately keeps its centered
-            overlay pattern below. */}
+            the workspace shows through. Settings, Plugins, Automations and Design
+            are NOT doors — they float in the modal mount below (doors→modals,
+            2026-09-01). */}
         {/* Surface, not canvas (MC-1844): a door is a working page, so it paints
             the neutral surface ground — the themed canvas (sage in the green
             themes) stays the sidebar/chrome's identity only. */}
@@ -3940,6 +3990,54 @@ export default function WorkspaceManager() {
           <React.Suspense fallback={null}>
             <FirstRunCliCard onDismiss={dismissFirstRunCliCard} />
           </React.Suspense>
+        ) : null}
+        {/* Fifth mount kind (doors→modals, 2026-09-01): a modal surface floats
+            over whatever owns the region — a workspace, a door, the empty state
+            — in the shipped Modal shell: workbench width, panel layout, the
+            flat darkening scrim (NEVER backdrop-filter — terminals render at
+            60fps behind it), FocusTrap, Escape/scrim close, focus restored to
+            the trigger glyph on close. Settings, Plugins, Automations and
+            Design live here; the true doors (Sprints, Backlog, Roadmap,
+            Reviews) keep the page mount above. With no bar/rail slot providers
+            in scope, GlobalSurfaceShell renders its documented inline fallback
+            — bar on top, aside rail beside the canvas — which is exactly the
+            modal-interior anatomy. */}
+        {activeModalSurfaceEntry ? (
+          <Modal
+            // Keyed by surface id: swapping one modal surface for another
+            // (Settings → "Browse marketplace" → Plugins) must remount the
+            // Modal so its FocusTrap and initial-focus effect re-run — an
+            // in-place body swap dropped focus to <body>, outside the trap,
+            // with the background reachable on Tab.
+            key={activeModalSurfaceEntry.id}
+            open
+            onClose={closeModalSurface}
+            label={activeModalSurfaceEntry.label}
+            size="workbench"
+            layout="panel"
+          >
+            {/* The frame owns the modal chrome contract (owner, 2026-09-01:
+                one close mechanism — an X in the title bar): it provides the
+                context the shell's bar claims, and renders the same bar itself
+                while nothing claims it — a body loading in Suspense, or a
+                third-party body that never renders GlobalSurfaceShell. */}
+            <ModalSurfaceFrame label={activeModalSurfaceEntry.label} close={closeModalSurface}>
+            <SurfaceExitContext.Provider value={modalSurfaceExit}>
+              {/* A modal-surface failure stays contained (same contract as the
+                  door boundary, MC-1835): the fallback offers Close/Reload
+                  inside the dialog instead of white-screening the renderer. */}
+              <GlobalSurfaceErrorBoundary
+                surfaceId={activeModalSurfaceEntry.id}
+                surfaceLabel={activeModalSurfaceEntry.label}
+                onClose={closeModalSurface}
+              >
+                <React.Suspense fallback={<SuspenseFallback label="Loading surface" />}>
+                  <activeModalSurfaceEntry.Component />
+                </React.Suspense>
+              </GlobalSurfaceErrorBoundary>
+            </SurfaceExitContext.Provider>
+            </ModalSurfaceFrame>
+          </Modal>
         ) : null}
         {/* The New sprint dialog (MC-2062): a fixed overlay, so it works whether
             a workspace, a door, or the empty state owns the region beneath. */}

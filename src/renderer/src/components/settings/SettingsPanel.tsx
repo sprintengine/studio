@@ -26,7 +26,6 @@ import {
   type ActionResult,
   ActionResultMessage,
   CliProviderStateLine,
-  CloseIconButton,
   EmptyState,
   Field,
   FOCUS_RING_CLASS,
@@ -113,16 +112,13 @@ interface Props {
   onOpenSettingsTab?: (tabId: string) => void
   /**
    * `'panel'` (default) wraps the content in `WorkspacePanel` chrome.
-   * `'door'` is how Settings actually opens (owner, 2026-07-30): the shared
-   * door substrate, so the categories replace the app sidebar and the content
-   * takes the card region — the same anatomy as Backlog, Sprints or Extensions,
-   * rather than a dialog floating over the app it configures.
-   * `'overlay'` renders the same rail-and-content layout inside a caller-owned
-   * dialog surface; kept for hosts that genuinely have no card region.
+   * `'overlay'` is how Settings actually opens (doors→modals, 2026-09-01): the
+   * shared surface-shell anatomy inside the host's Modal — the same bar, rail
+   * ground, and closing X as Plugins/Automations/Design.
+   * `'door'` is the door-era full-page mount (owner, 2026-07-30), kept for a
+   * host that routes the card region.
    */
   chrome?: 'panel' | 'overlay' | 'door'
-  /** When `chrome='overlay'`, the surrounding dialog supplies its aria title id. */
-  titleId?: string
 }
 
 type UpdateAction = 'check' | 'download' | 'restart'
@@ -1075,7 +1071,6 @@ export default function SettingsPanel({
   initialTab = null,
   onOpenSettingsTab,
   chrome = 'panel',
-  titleId,
 }: Props) {
   const activeWorkspace = useWorkspaceStore((s) =>
     s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
@@ -2757,29 +2752,16 @@ export default function SettingsPanel({
   }
 
   if (chrome === 'overlay') {
+    // The modal-host layout (doors→modals, 2026-09-01): the SAME shell anatomy
+    // the door branch above renders — one 36px title bar, the categories in
+    // the shell's raised-ground rail, the body beside it — so Settings inside
+    // the Modal reads identically to Plugins/Automations/Design. The host's
+    // ModalSurfaceChromeContext puts the closing X in the bar; the shell
+    // suppresses the chevron there, so no onBack is passed.
     return (
-      <div className="flex h-full min-h-0 flex-col">
-        <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-5 py-3.5">
-          <h2
-            id={titleId}
-            className="truncate text-title font-semibold tracking-tight text-[color:var(--text-strong)]"
-          >
-            Settings
-          </h2>
-          <div className="flex shrink-0 items-center gap-3">
-            <CloseIconButton size="md" aria-label="Close settings" onClick={onClose} />
-          </div>
-        </header>
-
-        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <aside className="shrink-0 overflow-y-auto border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] p-2 md:w-48 md:border-b-0 md:border-r md:px-2 md:py-3">
-            {sidebarNode}
-          </aside>
-          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
-            {bodyContent}
-          </div>
-        </div>
-      </div>
+      <GlobalSurfaceShell ariaLabel="Settings" bar={{ title: 'Settings' }} rail={sidebarNode}>
+        <div className="h-full min-h-0 overflow-y-auto px-5 py-4">{bodyContent}</div>
+      </GlobalSurfaceShell>
     )
   }
 

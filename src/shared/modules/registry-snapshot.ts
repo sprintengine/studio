@@ -38,6 +38,7 @@ export type ModuleBuildChannel = 'development' | 'production'
 export type ModuleContributedSurfaces = {
   workspaceTypes: string[]
   globalSurfaces: string[]
+  modalSurfaces: string[]
   sidebarNavEntries: string[]
   settingsSections: string[]
   commands: string[]
@@ -49,6 +50,7 @@ export type ModuleContributedSurfaces = {
 export const EMPTY_MODULE_SURFACES: ModuleContributedSurfaces = {
   workspaceTypes: [],
   globalSurfaces: [],
+  modalSurfaces: [],
   sidebarNavEntries: [],
   settingsSections: [],
   commands: [],
@@ -155,6 +157,7 @@ function normalizeSurfaces(value: unknown): ModuleContributedSurfaces {
   return {
     workspaceTypes: read('workspaceTypes'),
     globalSurfaces: read('globalSurfaces'),
+    modalSurfaces: read('modalSurfaces'),
     sidebarNavEntries: read('sidebarNavEntries'),
     settingsSections: read('settingsSections'),
     commands: read('commands'),

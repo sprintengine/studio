@@ -32,14 +32,14 @@ import type {
 
 export const SPRINT_CONNECTORS_ROW_LABEL = 'Connectors'
 
-// Named for the surfaces a user can actually reach: the door is "Extensions"
+// Named for the surfaces a user can actually reach: the modal is "Plugins"
 // and its section is "MCP servers" (`ExtensionsGlobalSurface.tsx`). "Connectors"
 // is the app's noun for the family — the composer's "+ Connector" picker uses
 // it — but there is no surface by that name to send anyone to.
 export const SPRINT_CONNECTORS_TOOLTIP =
   'The MCP servers this sprint launches its agents with. The selection is shared with the whole app — '
   + 'switching one on or off here switches it everywhere, exactly like a roster. Add and remove them '
-  + 'under MCP servers in Extensions.'
+  + 'under MCP servers in Plugins.'
 
 /** Empty state inside the picker, not copy on the row. */
 export const SPRINT_CONNECTORS_EMPTY = 'No connectors installed yet'

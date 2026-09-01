@@ -1379,7 +1379,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     name: 'marketplace.list',
     description:
       'Browse the extension marketplace index the app itself reads (same registry client, cache, and '
-      + 'bundled-first policy as the Extensions door) — modules, MCP servers, skill packs, agent CLIs and '
+      + 'bundled-first policy as the Plugins marketplace) — modules, MCP servers, skill packs, agent CLIs and '
       + 'automations. Filter by what an entry provides to get the module-first facet. Read-only: installing is '
       + 'a trust decision and is not on this surface. The result discloses where the index came from and '
       + 'whether it is a stale offline cache.',
@@ -3400,7 +3400,7 @@ function thirdPartyLaunchReport(view: ThirdPartyModuleView): Record<string, unkn
 
 // Mirrors the storefront's own filter (name, category, summary, publisher, the
 // widened categories/tags facets) so an agent searching the marketplace matches
-// what a person searching the Extensions door would.
+// what a person searching the Plugins marketplace would.
 function marketplaceEntryMatches(plugin: MarketplacePluginEntry, needle: string): boolean {
   return [
     plugin.name,

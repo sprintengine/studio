@@ -157,8 +157,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setWorkspaceAsideWidth: (width: number) => void
   openFilesInExternalWindow: boolean
   setOpenFilesInExternalWindow: (enabled: boolean) => void
-  // The request that opened the Settings DOOR — not an overlay's visibility;
-  // `activeGlobalSurface === 'settings'` is what says it is showing.
+  // The request that opened the Settings modal — not the modal's visibility;
+  // `activeModalSurface === 'settings'` is what says it is showing.
   settingsOverlay: {
     initialTab: string | null
     checkForUpdatesRequestId: number | null
@@ -171,8 +171,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   }
   openRunSummaryOverlay: (workspaceId: string) => void
   closeRunSummaryOverlay: () => void
-  // Opens the Extensions door on the requested view (MC-1847 B1; the modal it
-  // used to float is gone — renamed in the D1 sweep).
+  // Opens the Plugins modal on the requested view (was the Extensions door
+  // until doors→modals 2026-09-01; MC-1847 B1 before that).
   openExtensionsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
   // The Roadmap door routes to the
   // door-routed full-page surface (global-surfaces epic 1704) via activeGlobalSurface;
@@ -188,6 +188,14 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   activeGlobalSurface: string | null
   openGlobalSurface: (surfaceId: string) => void
   closeGlobalSurface: () => void
+  // The modal surface floating over this window (doors→modals, 2026-09-01): a
+  // registered modal-surface id or null. Transient/unsynced like
+  // activeGlobalSurface, but a float over the card region rather than a mount
+  // kind — closing it lands where the user was. One at a time; activating a
+  // workspace clears it.
+  activeModalSurface: string | null
+  openModalSurface: (surfaceId: string) => void
+  closeModalSurface: () => void
   reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
   registerWorkspaceWindow: (windowId: WorkspaceWindowId, kind?: WorkspaceWindowState['kind']) => void
   updateWorkspaceWindowPlacement: (

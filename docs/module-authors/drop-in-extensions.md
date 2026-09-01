@@ -21,7 +21,9 @@ environment variable (used by the dev harness); plugins always resolve under
 
 A capability module extends the app itself — main-process services and IPC,
 renderer panels, workspace types, commands, Backlog actions, settings
-sections, and sidebar nav doors — through the `MainHost` / `RendererHost`
+sections, sidebar nav doors, and modal surfaces (`registerModalSurface`: a
+body mounted in the shell's modal shell plus a trigger glyph in the sidebar
+footer's settings cluster) — through the `MainHost` / `RendererHost`
 contracts. Modules are trust-gated: only modules the user has trusted execute
 code.
 
@@ -50,7 +52,7 @@ workspace-sync bus, so a returned id is always a real workspace.
 ### Publishing a module to the marketplace
 
 Folder install (above) is the developer loop. To let other users discover and
-install your module from the **Extensions door → Modules** shelf, publish it to
+install your module from the **Plugins → Modules** shelf, publish it to
 the marketplace registry as a signed plugin bundle:
 
 1. **Sign the module.** `multicode-module keygen` once, then
@@ -83,7 +85,7 @@ the marketplace registry as a signed plugin bundle:
    bundled index is generated from it, so listing follows the next snapshot
    release rather than the PR merge alone.
 
-What users then see: your module on the Extensions door's **Modules** shelf
+What users then see: your module on the Plugins modal's **Modules** shelf
 (card copy comes from your module's `displayName` + `summary` — say what it
 adds: workspace type, panels, commands), a trust prompt listing the REAL
 permissions from your verified manifest at install time, and the module in

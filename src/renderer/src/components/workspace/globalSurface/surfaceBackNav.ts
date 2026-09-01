@@ -32,29 +32,37 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
  * storybook) still closes; it just has no trigger to return to.
  */
 export type SurfaceExit = {
-  readonly leave: (close: () => void) => void
+  /**
+   * `close` is the surface's override, absent when the surface has no state of
+   * its own to clear — the HOST then supplies its default close (the door host
+   * closes the door, the modal host closes the modal), which is what lets one
+   * surface component exit correctly from either host (doors→modals,
+   * 2026-09-01).
+   */
+  readonly leave: (close?: () => void) => void
 }
 
 export const SurfaceExitContext = React.createContext<SurfaceExit | null>(null)
 
 /**
- * The door's way out, for the shell's bar chevron.
+ * The surface's way out, for the shell's bar chevron.
  *
- * `close` overrides what "leave" means for a door that owns state beyond the
- * active-surface flag — Settings clears the request that opened it, so closing it
- * by the generic route would leave that request set. Everything else takes the
- * default and closes the door.
+ * `close` overrides what "leave" means for a surface that owns state beyond
+ * the active-surface flag — Settings clears the request that opened it, so
+ * closing it by the generic route would leave that request set. Everything
+ * else omits it and the HOST closes whatever kind of surface it mounted (the
+ * door, or the modal). The store fallback below only runs with no host in
+ * scope (tests, storybook).
  */
 export function useSurfaceBackNav(close?: () => void): { onBack: () => void; canGoBack: boolean } {
   const closeGlobalSurface = useWorkspaceStore((state) => state.closeGlobalSurface)
   const exit = useContext(SurfaceExitContext)
   const onBack = useCallback(() => {
-    const closeDoor = close ?? closeGlobalSurface
     if (exit) {
-      exit.leave(closeDoor)
+      exit.leave(close)
       return
     }
-    closeDoor()
+    ;(close ?? closeGlobalSurface)()
   }, [close, closeGlobalSurface, exit])
   return { onBack, canGoBack: true }
 }

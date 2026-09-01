@@ -45,7 +45,7 @@ export function ModuleNotInstalledSurface({
         }
         action={
           <PrimaryButton size="sm" onClick={onOpenMarketplace}>
-            Find it in Connectors
+            Find it in Plugins
           </PrimaryButton>
         }
       />
@@ -75,7 +75,7 @@ export function DoorModuleNotInstalledSurface({
         body={installed ? `The ${label} module is turned off.` : `The ${label} module isn’t installed.`}
         action={
           <PrimaryButton size="sm" onClick={onOpenExtensions}>
-            Find it in Extensions
+            Find it in Plugins
           </PrimaryButton>
         }
       />

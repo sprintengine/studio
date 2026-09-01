@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Modal surfaces** (doors→modals, 2026-09-01). A new contribution kind beside
+  the door pair: `registerModalSurface({ id, order, label, Icon, onOpen?,
+  Component })` mounts your zero-prop body in the shell's modal shell (workbench
+  width, flat darkening scrim — never a backdrop blur, terminals render at 60fps
+  behind it — focus trap, Escape/scrim close) and renders your trigger as a
+  glyph button in the sidebar footer's settings cluster, tooltip and accessible
+  name from `label`. Trigger and mount gate on your module's enablement, no
+  reload. `onOpen` runs just before a plain trigger open, for discarding stale
+  deep-link latches; deep-link openers bypass it. The shell's own Settings,
+  Plugins (né Extensions), Automations and Design surfaces are the first
+  consumers. New mirrored types: `ModalSurfaceDefinition`,
+  `ModalSurfaceIconComponent`.
+
 - The four module-boundary surfaces (MC-2090). Each was discovered separately by
   a task trying to put a door behind a real module boundary; they are published
   together so a contribution API does not grow four subtly different escape

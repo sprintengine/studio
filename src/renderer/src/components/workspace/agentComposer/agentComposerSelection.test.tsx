@@ -25,8 +25,8 @@ function run(name: string, fn: () => void): void {
 
 // resolveInitialSelection is the pure seam behind every composer surface's
 // preselected row: given the live roster and the remembered agent, it returns
-// the remembered selection when its row exists, else falls back to the first
-// specialist/role. Exercising it directly (no store, no DOM) covers the
+// the remembered selection when its row exists, else falls back to the
+// roleless row — never a specialist. Exercising it directly (no store, no DOM) covers the
 // restore-from-lastSelected contract and the disabled-pack fallback the pickers
 // rely on. It replaces SpawnAgentMenu's rememberedHighlight index seam.
 function specialistRow(id: string): ComposerRow {
@@ -53,12 +53,22 @@ run('preselects a remembered quick row (General) when present', () => {
   assert.deepEqual(result, { kind: 'general' }, 'a remembered roleless agent stays selected, not overridden by a specialist')
 })
 
-run('falls back to the first specialist when the remembered one is absent (disabled pack)', () => {
+run('falls back to the roleless row when the remembered specialist is absent (disabled pack)', () => {
   const result = resolveInitialSelection(specialistRoster, { kind: 'specialist', specialistId: 'security' })
   assert.deepEqual(
     result,
-    { kind: 'specialist', specialistId: 'architect' },
-    'a remembered specialist whose pack is now disabled falls back to the first specialist row, skipping the quick rows',
+    { kind: 'general' },
+    'a remembered specialist whose pack is now disabled falls back to the roleless row — a role is never a fallback',
+  )
+})
+
+run('never falls back to a specialist even when the roleless row is missing', () => {
+  const cliLessRoster: ComposerRow[] = [{ key: 'terminal', kind: 'terminal' }, specialistRow('architect')]
+  const result = resolveInitialSelection(cliLessRoster, { kind: 'specialist', specialistId: 'security' })
+  assert.deepEqual(
+    result,
+    { kind: 'terminal' },
+    'with no roleless row the fallback is the first quick row, not the first specialist',
   )
 })
 

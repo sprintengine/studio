@@ -442,7 +442,7 @@ export default function CommandPalette({
     ].map((command) => ({ ...command, group: 'commands' as const }))
 
     // Skills: built-in skills first, then installed skill packs. Both route to
-    // the Extensions door (their management home) on select.
+    // the Plugins modal (their management home) on select.
     const skillCommands: Command[] = [
       ...builtinSkills.map((skill) => ({
         id: `skill-${skill.id}`,

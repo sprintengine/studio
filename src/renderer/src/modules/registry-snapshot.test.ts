@@ -40,6 +40,7 @@ const WEATHER: CapabilityManifest = {
 type SurfaceKind =
   | 'workspaceTypes'
   | 'globalSurfaces'
+  | 'modalSurfaces'
   | 'sidebarNavEntries'
   | 'settingsSections'
   | 'commands'
@@ -53,6 +54,7 @@ function registryOf(entries: Array<{ kind: SurfaceKind; id: string; moduleId: st
   return {
     getWorkspaceTypes: () => of('workspaceTypes'),
     getGlobalSurfaces: () => of('globalSurfaces'),
+    getModalSurfaces: () => of('modalSurfaces'),
     getSidebarNavEntries: () => of('sidebarNavEntries'),
     getSettingsSections: () => of('settingsSections'),
     getModuleCommands: () => of('commands'),

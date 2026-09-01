@@ -342,11 +342,11 @@ export const LEARNING_ITEMS: readonly LearningItem[] = [
     id: 'settings.sync-mcps',
     title: 'Sync MCP servers explicitly',
     summary: 'MCP catalog changes do not rewrite existing terminal sessions.',
-    body: 'Open Extensions to install bundled or custom MCP servers and sync selected client configs. Restart or respawn agent sessions that need a newly synced tool.',
+    body: 'Open Plugins to install bundled or custom MCP servers and sync selected client configs. Restart or respawn agent sessions that need a newly synced tool.',
     category: 'settings',
     difficulty: 'intermediate',
     action: {
-      label: 'Open Extensions',
+      label: 'Open Plugins',
       kind: 'open-settings-tab',
       args: { tab: 'mcps' },
     },
@@ -355,11 +355,11 @@ export const LEARNING_ITEMS: readonly LearningItem[] = [
     id: 'settings.install-skills',
     title: 'Install a skill before expecting agents to use it',
     summary: 'A skill is installed per workspace, into the directories your agent CLIs read.',
-    body: 'Open Extensions → Skills to add a source and install skills from it. Installing copies the skill into this workspace; it is not proof another checkout has the same skill.',
+    body: 'Open Plugins → Skills to add a source and install skills from it. Installing copies the skill into this workspace; it is not proof another checkout has the same skill.',
     category: 'settings',
     difficulty: 'basic',
     action: {
-      label: 'Open Extensions',
+      label: 'Open Plugins',
       kind: 'open-settings-tab',
       // Routes to the door's Skills row, which is what this lesson is about.
       args: { tab: SKILLS_SETTINGS_TAB },

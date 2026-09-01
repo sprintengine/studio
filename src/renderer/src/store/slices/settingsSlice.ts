@@ -60,12 +60,12 @@ import { LEGACY_COMMAND_ID_ALIASES, collapseDuplicateKeybindings } from '../../c
 
 export const MAX_RECENT_WORKSPACE_FOLDERS = 50
 
-// Settings is a DOOR (`activeGlobalSurface === 'settings'`), not an overlay:
-// its categories replace the sidebar rail and its content takes the card
-// region, exactly like Backlog or Sprints. What survives here is the REQUEST
+// Settings is a MODAL (`activeModalSurface === 'settings'`, doors→modals
+// 2026-09-01; it was a door before that). What survives here is the REQUEST
 // that opened it — which category to land on, and whether the caller asked for
-// an update check — read once by the door as it mounts. Openness itself lives
-// in `activeGlobalSurface`, so there is one answer to "is settings showing".
+// an update check — read once by the surface as it mounts. Openness itself
+// lives in `activeModalSurface`, so there is one answer to "is settings
+// showing".
 export type SettingsOverlayState = {
   initialTab: string | null
   checkForUpdatesRequestId: number | null
@@ -1153,6 +1153,15 @@ export interface SettingsSliceState {
   // rather than floating a dialog over it, so opening a door and activating a
   // workspace are mutually exclusive — the sidebar selection invariant.
   activeGlobalSurface: string | null
+  // The active modal surface for this window (doors→modals, 2026-09-01): a
+  // registered modal-surface id ('settings', 'extensions', 'automations',
+  // 'design', or a third-party id) or null. Per-window and transient like
+  // activeGlobalSurface, but a FLOAT, not a mount kind: the modal shell sits
+  // over whatever owns the card region — a workspace or a door — and closing
+  // it lands exactly where the user was. One modal at a time: opening one
+  // replaces another. Activating a workspace clears it (workspacesSlice), so
+  // a reveal always lands on a visible workspace.
+  activeModalSurface: string | null
   sidebarCollapsed: boolean
   // User-resizable expanded width of the workspace sidebar, in px. Persisted so
   // the rail reopens at the width the user dragged it to. Only meaningful while
@@ -1193,10 +1202,10 @@ export interface SettingsSliceActions {
   closeSettingsOverlay: () => void
   openRunSummaryOverlay: (workspaceId: string) => void
   closeRunSummaryOverlay: () => void
-  // Opens the Extensions door on the requested view (MC-1847 B1): the modal
-  // this action used to float is gone, so every legacy caller — the command
-  // palette, Settings → Modules, the agent "Manage skills" footers — lands on
-  // the door with its deep-link latched. (Renamed in the D1 sweep.)
+  // Opens the Plugins modal on the requested view: every legacy caller — the
+  // command palette, Settings → Modules, the agent "Manage skills" footers —
+  // lands on the modal with its deep-link latched. (Was the Extensions door
+  // until doors→modals, 2026-09-01; MC-1847 B1 before that.)
   openExtensionsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
   // The Roadmap door routes here; a named
   // convenience over openGlobalSurface('roadmap') so every caller opens the same
@@ -1208,6 +1217,15 @@ export interface SettingsSliceActions {
   // active workspace. Activating a workspace clears it too (see workspacesSlice).
   openGlobalSurface: (surfaceId: string) => void
   closeGlobalSurface: () => void
+  // Open/close the modal surface registered under `surfaceId` (doors→modals,
+  // 2026-09-01). `openModalSurface` is the generic entry the settings-cluster
+  // trigger glyphs call; `openSettingsOverlay` / `openExtensionsSurface` set
+  // the same field with their own extra state. One modal at a time — opening
+  // one replaces another — and opening a DOOR closes the modal (see
+  // openGlobalSurface), so a routed destination is never hidden behind the
+  // scrim.
+  openModalSurface: (surfaceId: string) => void
+  closeModalSurface: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   // Record (or clear) what one CLI reported about its own models. Replaces that
   // CLI's entry wholesale — a model the CLI no longer lists is gone from the
@@ -1310,12 +1328,21 @@ export type SettingsSlice = SettingsSliceState & SettingsSliceActions
 type SettingsSliceCarrier = SettingsSliceState & { workspaces: Workspace[] }
 type SettingsSliceSet = (mutator: (state: SettingsSliceCarrier) => void) => void
 
+// The one place the settings REQUEST is cleared (which category, update
+// check). Every path that closes or replaces the Settings modal runs this, so
+// a later plain open starts clean rather than on a stale tab.
+function clearSettingsRequest(state: SettingsSliceCarrier): void {
+  state.settingsOverlay.initialTab = null
+  state.settingsOverlay.checkForUpdatesRequestId = null
+}
+
 export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
   return {
     appSettings: defaultAppSettings(),
     settingsOverlay: { initialTab: null, checkForUpdatesRequestId: null },
     runSummaryOverlay: { open: false, workspaceId: null },
     activeGlobalSurface: null,
+    activeModalSurface: null,
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     workspaceAsideOpen: false,
@@ -1362,16 +1389,15 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       if (isConnectorsFoldedSettingsTab(opts?.initialTab)) {
         dispatchExtensionsSurfaceTarget(opts?.initialTab === SKILLS_SETTINGS_TAB ? 'skills' : 'browse')
         set((state) => {
-          // Both are doors, and a door replaces a door: opening Extensions from
+          // Both are modals, and one modal at a time: opening Plugins from
           // inside Settings leaves nothing of Settings behind.
-          state.activeGlobalSurface = 'extensions'
-          state.settingsOverlay.initialTab = null
-          state.settingsOverlay.checkForUpdatesRequestId = null
+          state.activeModalSurface = 'extensions'
+          clearSettingsRequest(state)
         })
         return
       }
       set((state) => {
-        state.activeGlobalSurface = 'settings'
+        state.activeModalSurface = 'settings'
         state.settingsOverlay.initialTab = opts?.initialTab ?? null
         state.settingsOverlay.checkForUpdatesRequestId = opts?.checkForUpdates ? Date.now() : null
       })
@@ -1380,10 +1406,9 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     closeSettingsOverlay: () =>
       set((state) => {
         // Only ever closes SETTINGS: a caller that means "leave settings" must
-        // not clear another door someone navigated to in the meantime.
-        if (state.activeGlobalSurface === 'settings') state.activeGlobalSurface = null
-        state.settingsOverlay.initialTab = null
-        state.settingsOverlay.checkForUpdatesRequestId = null
+        // not clear another modal someone opened in the meantime.
+        if (state.activeModalSurface === 'settings') state.activeModalSurface = null
+        clearSettingsRequest(state)
       }),
 
 
@@ -1405,18 +1430,17 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       }),
 
     openExtensionsSurface: (opts) => {
-      // Latch the deep-link first (the door drains it on mount or live), then
-      // open the door — the same order the automations deep-link uses. The
-      // dispatch stays outside the producer so its synchronous listeners never
-      // observe a mid-update store.
+      // Latch the deep-link first (the surface drains it on mount or live),
+      // then open the modal — the same order the automations deep-link uses.
+      // The dispatch stays outside the producer so its synchronous listeners
+      // never observe a mid-update store.
       dispatchExtensionsSurfaceTarget(opts?.view ?? 'browse')
       set((state) => {
-        state.activeGlobalSurface = 'extensions'
-        // Callers can sit inside the Settings door (Settings → Modules
-        // "Browse marketplace"): one door replaces the other, and the settings
-        // request it was carrying goes with it.
-        state.settingsOverlay.initialTab = null
-        state.settingsOverlay.checkForUpdatesRequestId = null
+        state.activeModalSurface = 'extensions'
+        // Callers can sit inside the Settings modal (Settings → Modules
+        // "Browse marketplace"): one modal replaces the other, and the
+        // settings request it was carrying goes with it.
+        clearSettingsRequest(state)
       })
     },
 
@@ -1427,16 +1451,34 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     openRoadmapSurface: () =>
       set((state) => {
         state.activeGlobalSurface = 'roadmap'
+        state.activeModalSurface = null
       }),
 
     openGlobalSurface: (surfaceId) =>
       set((state) => {
         state.activeGlobalSurface = surfaceId
+        // A door open closes any modal (doors→modals, 2026-09-01): the door
+        // routes the card region, and leaving it under the modal's scrim made
+        // history back/forward look dead — the destination mounted invisibly.
+        state.activeModalSurface = null
       }),
 
     closeGlobalSurface: () =>
       set((state) => {
         state.activeGlobalSurface = null
+      }),
+
+    openModalSurface: (surfaceId) =>
+      set((state) => {
+        state.activeModalSurface = surfaceId
+      }),
+
+    closeModalSurface: () =>
+      set((state) => {
+        state.activeModalSurface = null
+        // A modal that closes takes any settings request with it, so a later
+        // plain open starts clean rather than on a stale tab.
+        clearSettingsRequest(state)
       }),
 
     setCliRuntime: (cli, update) =>

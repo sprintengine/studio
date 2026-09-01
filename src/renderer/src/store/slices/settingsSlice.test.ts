@@ -431,6 +431,7 @@ const carrier = {
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
   activeGlobalSurface: null as string | null,
+  activeModalSurface: null as string | null,
   sidebarCollapsed: false,
   sidebarWidth: 280,
   workspaceAsideOpen: false,
@@ -440,35 +441,63 @@ const carrier = {
   agentConfigAdoptionResult: null,
 }
 const slice = createSettingsSlice((mutator) => mutator(carrier))
-// Settings is a DOOR (owner, 2026-07-30): opening it routes the card region the
-// same way every other door does, and what stays in `settingsOverlay` is only
-// the REQUEST — which category, and whether an update check was asked for.
+// Settings is a MODAL (doors→modals, 2026-09-01; a door before that): opening
+// it floats the modal over whatever owns the card region, and what stays in
+// `settingsOverlay` is only the REQUEST — which category, and whether an
+// update check was asked for.
 slice.openSettingsOverlay({ initialTab: 'integrations', checkForUpdates: true })
-assert.equal(carrier.activeGlobalSurface, 'settings', 'settings opens as a door, not an overlay')
+assert.equal(carrier.activeModalSurface, 'settings', 'settings opens as a modal')
+assert.equal(carrier.activeGlobalSurface, null, 'settings never routes the card region')
 assert.equal(carrier.settingsOverlay.initialTab, 'integrations')
 assert.equal(typeof carrier.settingsOverlay.checkForUpdatesRequestId, 'number')
 slice.closeSettingsOverlay()
-assert.equal(carrier.activeGlobalSurface, null, 'closing settings leaves the door')
+assert.equal(carrier.activeModalSurface, null, 'closing settings closes the modal')
 assert.deepEqual(carrier.settingsOverlay, { initialTab: null, checkForUpdatesRequestId: null })
 
-// Closing settings never clears somebody ELSE's door.
+// Closing settings never clears somebody ELSE's modal — and never touches a
+// door: the two are independent layers.
+carrier.activeModalSurface = 'extensions'
 carrier.activeGlobalSurface = 'backlog'
 slice.closeSettingsOverlay()
-assert.equal(carrier.activeGlobalSurface, 'backlog', 'another open door survives a settings close')
+assert.equal(carrier.activeModalSurface, 'extensions', 'another open modal survives a settings close')
+assert.equal(carrier.activeGlobalSurface, 'backlog', 'an open door survives a settings close')
+carrier.activeModalSurface = null
+carrier.activeGlobalSurface = null
 
-// openExtensionsSurface opens the Extensions DOOR (MC-1847 B1) — the modal and
-// its store flag are gone; closing is the door's own closeGlobalSurface. The
-// caller can be inside the Settings door (Settings → Modules "Browse
-// marketplace"): one door replaces the other, and the settings request it was
+// openExtensionsSurface opens the Plugins MODAL (doors→modals, 2026-09-01; the
+// Extensions door before that, MC-1847 B1); closing is closeModalSurface. The
+// caller can be inside the Settings modal (Settings → Modules "Browse
+// marketplace"): one modal replaces the other, and the settings request it was
 // carrying goes with it rather than surviving to re-open a category later.
-carrier.activeGlobalSurface = 'settings'
+carrier.activeModalSurface = 'settings'
 carrier.settingsOverlay = { initialTab: 'modules', checkForUpdatesRequestId: null }
 slice.openExtensionsSurface()
-assert.equal(carrier.activeGlobalSurface, 'extensions')
+assert.equal(carrier.activeModalSurface, 'extensions')
 assert.equal('connectorsSurface' in carrier, false, 'the modal-era store flag is gone')
-assert.equal(carrier.settingsOverlay.initialTab, null, 'the settings request does not outlive its door')
+assert.equal(carrier.settingsOverlay.initialTab, null, 'the settings request does not outlive its modal')
+slice.closeModalSurface()
+assert.equal(carrier.activeModalSurface, null)
+
+// A door underneath survives a modal's open/close round-trip: the modal is a
+// float over the card region, not a routing of it.
+carrier.activeGlobalSurface = 'sprints'
+slice.openModalSurface('automations')
+assert.equal(carrier.activeModalSurface, 'automations')
+assert.equal(carrier.activeGlobalSurface, 'sprints', 'the door under the modal stays put')
+slice.closeModalSurface()
+assert.equal(carrier.activeGlobalSurface, 'sprints', 'closing the modal lands back on the door')
+
+// The reverse is NOT symmetric: opening a door closes the modal, or a history
+// step to a door would mount it invisibly behind the modal's scrim.
+slice.openModalSurface('extensions')
+slice.openGlobalSurface('backlog')
+assert.equal(carrier.activeGlobalSurface, 'backlog')
+assert.equal(carrier.activeModalSurface, null, 'a door open closes the modal over it')
+slice.openModalSurface('design')
+slice.openRoadmapSurface()
+assert.equal(carrier.activeModalSurface, null, 'openRoadmapSurface closes the modal too')
 slice.closeGlobalSurface()
-assert.equal(carrier.activeGlobalSurface, null)
+carrier.activeGlobalSurface = null
 
 // The door-routed full-page surface (global-surfaces epic 1704) is a mount kind,
 // not an overlay: openGlobalSurface sets the active surface id, closeGlobalSurface
@@ -476,8 +505,8 @@ assert.equal(carrier.activeGlobalSurface, null)
 // extractSettingsFields, which omits it), like the Connectors/Roadmap flags.
 slice.openGlobalSurface('roadmap')
 assert.equal(carrier.activeGlobalSurface, 'roadmap')
-slice.openGlobalSurface('automations')
-assert.equal(carrier.activeGlobalSurface, 'automations', 'opening another door replaces the active surface')
+slice.openGlobalSurface('backlog')
+assert.equal(carrier.activeGlobalSurface, 'backlog', 'opening another door replaces the active surface')
 slice.closeGlobalSurface()
 assert.equal(carrier.activeGlobalSurface, null)
 
@@ -508,19 +537,19 @@ slice.setWorkspaceAsideWidth(Number.NaN)
 assert.equal(carrier.workspaceAsideWidth, 296, 'a non-finite width falls back to the default')
 
 // T3: the MCPs / Skill packs / Extensions settings tabs folded into the
-// connectors surface — the Extensions door since MC-1847. A deep-link that once
-// opened one of those tabs (by tab id, or the legacy Extensions browse
-// deep-link) must open the door, not a settings overlay on a tab that no
-// longer exists.
+// connectors surface — the Plugins modal since doors→modals (the Extensions
+// door before that, MC-1847). A deep-link that once opened one of those tabs
+// (by tab id, or the legacy Extensions browse deep-link) must open the modal,
+// not a settings overlay on a tab that no longer exists.
 for (const foldedTab of ['mcps', 'skill-packs', 'extensions', EXTENSIONS_BROWSE_DEEPLINK]) {
-  carrier.activeGlobalSurface = null
+  carrier.activeModalSurface = null
   carrier.settingsOverlay = { initialTab: null, checkForUpdatesRequestId: null }
   consumePendingExtensionsSurfaceTarget()
   slice.openSettingsOverlay({ initialTab: foldedTab })
-  assert.equal(carrier.activeGlobalSurface, 'extensions', `${foldedTab} routes to the Extensions door`)
+  assert.equal(carrier.activeModalSurface, 'extensions', `${foldedTab} routes to the Plugins modal`)
   assert.equal(carrier.settingsOverlay.initialTab, null, `${foldedTab} leaves no dangling settings tab`)
   // MC-1936: skill packs are gone, so the tab that named them lands on Skills —
-  // the door's other deep-links still land on the marketplace grid.
+  // the surface's other deep-links still land on the marketplace grid.
   assert.equal(
     consumePendingExtensionsSurfaceTarget(),
     foldedTab === 'skill-packs' ? 'skills' : 'browse',
@@ -568,6 +597,7 @@ const permissionCarrier = {
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
   activeGlobalSurface: null,
+  activeModalSurface: null,
   sidebarCollapsed: false,
   sidebarWidth: 280,
   workspaceAsideOpen: false,

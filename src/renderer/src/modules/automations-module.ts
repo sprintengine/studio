@@ -2,7 +2,11 @@ import React from 'react'
 
 import type { RendererModule } from './renderer-host'
 import { decodeAutomationTargetRef } from '../components/automations/runTarget'
-import { dispatchAutomationSurfaceTarget } from '../components/workspace/globalSurface/automations/automationSurfaceTarget'
+import {
+  consumePendingAutomationSurfaceTarget,
+  dispatchAutomationSurfaceTarget,
+} from '../components/workspace/globalSurface/automations/automationSurfaceTarget'
+import { AutomationsGlyph } from '../components/workspace/modalSurfaceGlyphs'
 import { registerAutomationsWorkspaceTypes } from './automations-workspace-types'
 
 // Lazy so the control-center bundle (and the store/FlexLayout graph it pulls in)
@@ -12,15 +16,12 @@ const AutomationsControlCenterPanel = React.lazy(
   () => import('../components/panels/AutomationsPanel')
 )
 
-// The Automations door + its full-page surface. Lazy — and deliberately NOT
-// top-level imports — because both reach the workspace store (and, through it,
-// the FlexLayout graph); keeping them behind dynamic imports leaves the eager
-// module-registry graph store-free, the discipline the other doors follow.
-const AutomationsNavEntry = React.lazy(() =>
-  import('../components/workspace/globalSurface/automations/AutomationsNavEntry').then((module) => ({
-    default: module.AutomationsNavEntry,
-  }))
-)
+// The Automations surface, mounted in the shell's modal shell (doors→modals,
+// 2026-09-01). Lazy — and deliberately NOT a top-level import — because it
+// reaches the workspace store (and, through it, the FlexLayout graph); keeping
+// it behind a dynamic import leaves the eager module-registry graph
+// store-free, the discipline the other surfaces follow. The trigger glyph IS
+// eager, and is a store-free leaf.
 const AutomationsGlobalSurface = React.lazy(
   () => import('../components/workspace/globalSurface/automations/AutomationsGlobalSurface')
 )
@@ -53,10 +54,24 @@ export const automationsRendererModule: RendererModule = {
   registerRenderer(host) {
     host.registerPanel('automations-control-center', AutomationsControlCenterPanel)
     registerAutomationsWorkspaceTypes(host)
-    // The Automations top-nav door (order 10, where the hardcoded built-in used
-    // to sit) + the full-page surface it opens.
-    host.registerSidebarNavEntry({ id: 'automations', order: 10, Component: AutomationsNavEntry })
-    host.registerGlobalSurface({ id: 'automations', Component: AutomationsGlobalSurface })
+    // The Automations modal (doors→modals, 2026-09-01; the top-nav door
+    // before that): trigger glyph in the settings cluster, surface in the
+    // shell's modal shell.
+    host.registerModalSurface({
+      id: 'automations',
+      order: 20,
+      label: 'Automations',
+      Icon: AutomationsGlyph,
+      // A plain open lands on the surface's default view: discard any stale
+      // deep-link latch a dispatch that never mounted left behind (a run
+      // notification's Open closed during Suspense, a shelf Get superseded by
+      // a workspace activation) — the surface drains the latch on mount, so a
+      // stale one would reroute the open. Same guard as Plugins.
+      onOpen: () => {
+        consumePendingAutomationSurfaceTarget()
+      },
+      Component: AutomationsGlobalSurface,
+    })
 
     // Deep-link from an automations run notification to the run it is about,
     // shared by manual Run-now and background scheduled runs. Automations are no
@@ -80,13 +95,13 @@ export const automationsRendererModule: RendererModule = {
             label: 'Open',
             run: () => {
               // Latch the automation to select first (the surface drains it on
-              // mount), then open the door. Dynamic store import keeps the eager
-              // module registry — and the bundled-ids drift test — free of the
-              // workspace store / FlexLayout graph, matching the roadmap and
-              // sprint-engine module pattern.
+              // mount), then open the modal. Dynamic store import keeps the
+              // eager module registry — and the bundled-ids drift test — free
+              // of the workspace store / FlexLayout graph, matching the roadmap
+              // and sprint-engine module pattern.
               dispatchAutomationSurfaceTarget(target)
               void import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
-                useWorkspaceStore.getState().openGlobalSurface('automations')
+                useWorkspaceStore.getState().openModalSurface('automations')
               })
             },
           },

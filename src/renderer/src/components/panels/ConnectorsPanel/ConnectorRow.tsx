@@ -95,12 +95,12 @@ export function ConnectorRow({
             onClick={onOpen}
             aria-expanded={selected}
             aria-label={`Show details for ${name}`}
-            className="interactive flex min-w-0 items-center gap-1.5 rounded-sm text-left focus-visible:focus-ring"
+            className="interactive flex min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-left focus-visible:focus-ring"
           >
             {nameAndChips}
           </button>
         ) : (
-          <span className="flex min-w-0 items-center gap-1.5">{nameAndChips}</span>
+          <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">{nameAndChips}</span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-2 text-meta leading-4 text-[color:var(--text-subtle)]">
           {status}
@@ -118,7 +118,12 @@ export function ConnectorRow({
     <>
       {icon}
       <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-center gap-1.5">
+        {/* overflow-hidden, because the chips are shrink-0: once the name has
+            truncated away, a chip row wider than the column would otherwise
+            paint on under the right-aligned actions (seen in the condensed
+            Plugins modal). Clipping is the row's contract — the detail panel
+            carries the full component list. */}
+        <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
           <TruncatedText
             as="span"
             text={name}

@@ -1082,6 +1082,9 @@ async function main(): Promise<void> {
       'components/workspace/newSprint/NewSprintDialog.tsx': /<Modal\b/,
       'components/backlog/RosterManagerModal.tsx': /<Modal\b/,
       'components/diagnostics/DiagnosticsOverlay.tsx': /<Modal\b/,
+      // The modal-surface host (doors→modals, 2026-09-01): Settings, Plugins,
+      // Automations and Design all mount through this one Modal.
+      'components/workspace/WorkspaceManager.tsx': /<Modal\b/,
       // Not a Modal — it floats on the creation backdrop rather than a scrim —
       // but a workbench-width floating surface, so it takes the same chrome.
       'components/workspace/NewWorkspacePanel.tsx': /OVERLAY_SHELL_CLASS/,

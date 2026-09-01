@@ -24,13 +24,20 @@ function run(name: string, body: () => void): void {
 // circular init from importing a single module file directly).
 const host = getRendererHost()
 
-run('registers the Automations door (order 10) and its full-page surface', () => {
-  const door = host.getSidebarNavEntries().find((entry) => entry.id === 'automations')
-  assert.ok(door, 'a sidebar nav door with id "automations" is registered')
-  assert.equal(door?.order, 10, 'the door keeps the slot the hardcoded built-in used')
-  assert.equal(door?.moduleId, 'automations', 'the door is owned by the automations module')
-  assert.ok(host.getGlobalSurface('automations'), 'a global surface with id "automations" is registered')
-  assert.equal(host.getGlobalSurface('automations')?.moduleId, 'automations')
+run('registers the Automations modal surface (doors→modals, 2026-09-01)', () => {
+  // Automations left the top-nav door band: no nav entry, no global surface —
+  // one modal-surface registration carries the trigger glyph and the body.
+  assert.equal(
+    host.getSidebarNavEntries().find((entry) => entry.id === 'automations'),
+    undefined,
+    'no sidebar nav door with id "automations" remains',
+  )
+  assert.equal(host.getGlobalSurface('automations'), undefined, 'no door surface remains either')
+  const modal = host.getModalSurface('automations')
+  assert.ok(modal, 'a modal surface with id "automations" is registered')
+  assert.equal(modal?.order, 20, 'the trigger sits between Plugins (10) and Design (30)')
+  assert.equal(modal?.label, 'Automations', 'the trigger tooltip and dialog name')
+  assert.equal(modal?.moduleId, 'automations', 'the surface is owned by the automations module')
 })
 
 run('keeps the automations-host type registered but hidden from the creation picker', () => {

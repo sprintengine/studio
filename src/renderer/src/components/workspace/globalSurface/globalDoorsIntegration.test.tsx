@@ -290,16 +290,14 @@ async function main(): Promise<void> {
   const container: HTMLDivElement = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(container)
 
-  // ═══ 1. The seven doors coexist on the real kernel ════════════════════════
+  // ═══ 1. Four doors + three modal surfaces coexist on the real kernel ═══════
   // Registration is module-owned and eager, so this reads the SAME host the app
-  // boots with — not a hand-built one. Sprints (item 1763) and Backlog (1769)
-  // had to join a rail Automations/Roadmap/Reviews already occupied, at the
-  // orders mockup §4's sidebar shows, without colliding with each other;
-  // Extensions (MC-1847) took the retired hardcoded Connectors slot at 30, and
-  // Design (item 2002) seats at 35 — directly after Extensions, so the work
-  // doors lead, the "what you build with" pair follows, and planning/review
-  // trail. Design is owned by its OWN bundled `design` module, not by
-  // `design-wizard` (MC-1860): the door and the Wizard are separate things.
+  // boots with — not a hand-built one. Doors→modals (2026-09-01): Automations,
+  // Extensions (user-facing "Plugins") and Design left the top-nav door band
+  // for the modal-surface registry — their triggers are glyphs in the sidebar
+  // footer's settings cluster — so the doors that remain are the work pages:
+  // Sprints (item 1763), Backlog (1769), Roadmap, Reviews. Design is owned by
+  // its OWN bundled `design` module, not by `design-wizard` (MC-1860).
   {
     const host = getRendererHost()
     const entries = host.getSidebarNavEntries()
@@ -307,15 +305,12 @@ async function main(): Promise<void> {
     assert.deepEqual(
       doorOrder,
       [
-        ['automations', 10],
         ['sprints', 20],
         ['backlog', 25],
-        ['extensions', 30],
-        ['design', 35],
         ['roadmap', 40],
         ['reviews', 50],
       ],
-      'every orchestration surface is a door, in the mockup’s sidebar order',
+      'the top-nav band holds only the true doors, in the mockup’s sidebar order',
     )
     assert.equal(
       new Set(doorOrder.map(([id]) => id)).size,
@@ -324,6 +319,24 @@ async function main(): Promise<void> {
     )
     for (const [id] of doorOrder) {
       assert.ok(host.getGlobalSurface(id), `the ${id} door has a surface behind it`)
+    }
+    // The modal-surface registry (doors→modals): trigger order Plugins,
+    // Automations, Design, with the user-facing labels the tooltips carry —
+    // the `extensions` id keeps its name (deep-link target), the label says
+    // Plugins.
+    const modalOrder = host.getModalSurfaces().map((surface) => [surface.id, surface.label] as const)
+    assert.deepEqual(
+      modalOrder,
+      [
+        ['extensions', 'Plugins'],
+        ['automations', 'Automations'],
+        ['design', 'Design'],
+      ],
+      'the settings cluster’s modal surfaces, in trigger order, with user-facing labels',
+    )
+    for (const [id] of modalOrder) {
+      assert.ok(host.getModalSurface(id), `the ${id} modal surface resolves by id`)
+      assert.ok(host.getModalSurface(id)?.Icon, `the ${id} trigger has a glyph`)
     }
     // A door is only as present as its module: turning the module off must take
     // BOTH the row and the page, or the row routes to a page that cannot mount.
@@ -336,19 +349,16 @@ async function main(): Promise<void> {
       !host.getGlobalSurfaces(withoutSprintEngine).some((surface) => surface.id === 'sprints'),
       'and so does the Sprints surface',
     )
-    // The same gating for Design, and from its own module id: registering a
-    // door from a module that does not own it throws, so this also pins WHICH
-    // module owns the Design door.
+    // The same gating for a modal surface, from its own module id: the Design
+    // trigger and body leave with the design module (registering a surface
+    // from a module that does not own it throws, so this also pins WHICH
+    // module owns Design).
     const withoutDesign = (moduleId: string): boolean => moduleId !== 'design'
     assert.ok(
-      !host.getSidebarNavEntries(withoutDesign).some((entry) => entry.id === 'design'),
-      'the Design row leaves with the design module',
+      !host.getModalSurfaces(withoutDesign).some((surface) => surface.id === 'design'),
+      'the Design trigger leaves with the design module',
     )
-    assert.ok(
-      !host.getGlobalSurfaces(withoutDesign).some((surface) => surface.id === 'design'),
-      'and so does the Design surface',
-    )
-    console.log('ok - seven doors, mockup order, each backed by a surface and gated by its module')
+    console.log('ok - four doors + three modal surfaces, each backed and gated by its module')
   }
 
   // ═══ 2. The Sprints door survives an unreadable index — and recovers ══════
@@ -917,7 +927,9 @@ async function main(): Promise<void> {
   })
   console.log('ok - a door failure is contained: named fallback, Close and Reload both work')
 
-  // ═══ 7. The Extensions door (MC-1847) ═════════════════════════════════════
+  // ═══ 7. The Plugins surface (MC-1847's Extensions door; a modal since
+  // doors→modals, 2026-09-01 — mounted here bare, which is exactly the
+  // inline anatomy the modal host mounts) ═════════════════════════════════════
   // The catalog rail over the shared connector canvases: rail groups and
   // honest counts, the facet ↔ rail-row projection, the deep-link latch, and
   // the one-source-down degradation (a failed marketplace must never read as
@@ -1141,7 +1153,7 @@ async function main(): Promise<void> {
       degradedRoot.unmount()
     })
 
-    console.log('ok - the Extensions door: catalog rail, facet projection, deep-links, degradation')
+    console.log('ok - the Plugins surface: catalog rail, facet projection, deep-links, degradation')
   }
 
   // ═══ 8. Every door replaces the projects rail — in EVERY load state ═══════
@@ -1159,11 +1171,14 @@ async function main(): Promise<void> {
   // the surface REPORTS is what makes that provable: it is the exact signal the
   // host derives `contextRailActive` from, so a false here is two columns on
   // screen. Asserted per door, never rolled up, because the failure is per door.
+  //
+  // Doors→modals (2026-09-01): Automations, Plugins and Design left this walk
+  // with the door band — the modal host provides no rail slot, so the
+  // two-columns rule has nothing to say about them; GlobalSurfaceShell's
+  // inline fallback is their modal-interior anatomy.
   {
     const { ContextRailSlotContext } = await import('./contextRail')
     const { default: RoadmapGlobalSurface } = await import('./RoadmapGlobalSurface')
-    const { default: AutomationsGlobalSurface } = await import('./automations/AutomationsGlobalSurface')
-    const { default: ExtensionsDoor } = await import('./extensions/ExtensionsGlobalSurface')
 
     // The emptiest world there is: no project open, so every door resolves to
     // nothing rather than to content. Every IPC these doors reach that is not
@@ -1178,11 +1193,8 @@ async function main(): Promise<void> {
     api.listSprintRuns = async () => []
 
     const doors: Array<[string, React.ComponentType]> = [
-      ['automations', AutomationsGlobalSurface],
       ['sprints', SprintsGlobalSurface],
       ['backlog', BacklogGlobalSurface],
-      ['extensions', ExtensionsDoor],
-      ['design', DesignGlobalSurface],
       ['roadmap', RoadmapGlobalSurface],
       ['reviews', ReviewsGlobalSurface],
     ]
@@ -1230,14 +1242,14 @@ async function main(): Promise<void> {
       host.remove()
       slot.remove()
     }
-    console.log('ok - all seven doors declare a rail while loading and while empty')
+    console.log('ok - all four doors declare a rail while loading and while empty')
   }
 
   // ═══ 9. The absent door and the workspace-less door (MC-1854) ═════════════
   // Two halves of the published global-surface contract. First: a persisted
   // `activeGlobalSurface` naming a surface that never registered resolves to
   // the explicit not-installed door — named, one sentence, one CTA into
-  // Extensions — and the persisted id survives the visit untouched, so
+  // Plugins — and the persisted id survives the visit untouched, so
   // reinstalling the module lands the user back where they were. Second: a
   // module that registers ONLY a nav entry + a global surface (no workspace
   // type, no panel) gets a door that mounts, renders, and still resolves
@@ -1270,9 +1282,9 @@ async function main(): Promise<void> {
       'and says its module is not installed',
     )
     const cta = [...absentHost.querySelectorAll('button')].find(
-      (button) => button.textContent === 'Find it in Extensions',
+      (button) => button.textContent === 'Find it in Plugins',
     )
-    assert.ok(cta, 'one CTA into Extensions')
+    assert.ok(cta, 'one CTA into Plugins')
     await act(async () => {
       cta.click()
     })

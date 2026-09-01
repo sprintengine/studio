@@ -34,6 +34,7 @@ import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 export type ModuleSurfaceRegistry = {
   getWorkspaceTypes(moduleEnabled?: (moduleId: string) => boolean): ReadonlyArray<{ id: string; moduleId: string }>
   getGlobalSurfaces(moduleEnabled?: (moduleId: string) => boolean): ReadonlyArray<{ id: string; moduleId: string }>
+  getModalSurfaces(moduleEnabled?: (moduleId: string) => boolean): ReadonlyArray<{ id: string; moduleId: string }>
   getSidebarNavEntries(moduleEnabled?: (moduleId: string) => boolean): ReadonlyArray<{ id: string; moduleId: string }>
   getSettingsSections(moduleEnabled?: (moduleId: string) => boolean): ReadonlyArray<{ id: string; moduleId: string }>
   getModuleCommands(moduleEnabled?: (moduleId: string) => boolean): ReadonlyArray<{ id: string; moduleId: string }>
@@ -50,6 +51,7 @@ export function collectModuleSurfaces(registry: ModuleSurfaceRegistry): Record<s
     const created: ModuleContributedSurfaces = {
       workspaceTypes: [],
       globalSurfaces: [],
+      modalSurfaces: [],
       sidebarNavEntries: [],
       settingsSections: [],
       commands: [],
@@ -68,6 +70,7 @@ export function collectModuleSurfaces(registry: ModuleSurfaceRegistry): Record<s
   }
   collect('workspaceTypes', registry.getWorkspaceTypes())
   collect('globalSurfaces', registry.getGlobalSurfaces())
+  collect('modalSurfaces', registry.getModalSurfaces())
   collect('sidebarNavEntries', registry.getSidebarNavEntries())
   collect('settingsSections', registry.getSettingsSections())
   collect('commands', registry.getModuleCommands())

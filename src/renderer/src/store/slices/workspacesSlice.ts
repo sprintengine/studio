@@ -415,12 +415,24 @@ export interface WorkspacesSliceDependencies {
 // activeGlobalSurface is owned by the settings slice but cleared here: activating
 // a workspace must return the card region from a door-routed full-page surface to
 // that workspace (the sidebar's one-selected-thing invariant, global-surfaces
-// epic 1704). The combined store carries the field; the carrier widens to reach it.
+// epic 1704). activeModalSurface clears with it (doors→modals, 2026-09-01): a
+// reveal must land on a visible workspace, not one behind a scrim. The combined
+// store carries both fields; the carrier widens to reach them.
 type WorkspacesSliceCarrier = WorkspacesSliceState & {
   appSettings: AppSettings
   activeGlobalSurface: string | null
+  activeModalSurface: string | null
 }
 type WorkspacesSliceSet = (mutator: (state: WorkspacesSliceCarrier) => void) => void
+
+// The one activation-side dismissal of routed/floating surfaces: activating a
+// workspace returns the card region from a door AND closes any modal, so the
+// workspace lands visible (doors→modals, 2026-09-01). Every activation path
+// calls this — a new path that forgets it re-opens the invisible-reveal bug.
+function clearRoutedSurfaces(state: WorkspacesSliceCarrier): void {
+  state.activeGlobalSurface = null
+  state.activeModalSurface = null
+}
 
 function findWorkspaceWindow(state: WorkspacesSliceCarrier, workspaceId: WorkspaceId): WorkspaceWindowState | undefined {
   return state.workspaceWindows.find((windowState) => windowState.workspaceIds.includes(workspaceId))
@@ -739,8 +751,9 @@ export function createWorkspacesSlice(
         windowState.activeWorkspaceId = workspaceId
         windowState.lastFocusedAt = Date.now()
         state.activeWorkspaceId = workspaceId
-        // Leaving a door-routed full-page surface for a workspace (epic 1704).
-        state.activeGlobalSurface = null
+        // Leaving a door-routed full-page surface for a workspace (epic 1704);
+        // an open modal closes with it so the workspace lands unobscured.
+        clearRoutedSurfaces(state)
       })
       // Local state is the functional path (storage-event sync still mirrors it
       // to other windows as rollback). When the active selection actually
@@ -1018,9 +1031,10 @@ export function createWorkspacesSlice(
           existingSwitchboard.folderMissing = false
           state.activeWorkspaceId = existingSwitchboard.id
           // Activation always dismisses a door-routed surface (epic 1704) —
-          // otherwise the workspace opens behind the door's opaque layer. A
-          // background create (automation executor) leaves the door alone.
-          if (!options?.background) state.activeGlobalSurface = null
+          // otherwise the workspace opens behind the door's opaque layer — and
+          // an open modal, so the workspace lands unobscured. A background
+          // create (automation executor) leaves both alone.
+          if (!options?.background) clearRoutedSurfaces(state)
           const targetWindow = ensureWorkspaceWindow(
             state,
             options?.windowId ?? findWorkspaceWindow(state, existingSwitchboard.id)?.id ?? targetWindowId,
@@ -1061,7 +1075,7 @@ export function createWorkspacesSlice(
           id = existingHost.id
           existingHost.folderMissing = false
           state.activeWorkspaceId = existingHost.id
-          if (!options?.background) state.activeGlobalSurface = null
+          if (!options?.background) clearRoutedSurfaces(state)
           const targetWindow = ensureWorkspaceWindow(
             state,
             options?.windowId ?? findWorkspaceWindow(state, existingHost.id)?.id ?? targetWindowId,
@@ -1252,7 +1266,7 @@ export function createWorkspacesSlice(
           )
         }
         state.activeWorkspaceId = id
-        if (!options?.background) state.activeGlobalSurface = null
+        if (!options?.background) clearRoutedSurfaces(state)
         const targetWindow = ensureWorkspaceWindow(
           state,
           targetWindowId,
@@ -1344,8 +1358,9 @@ export function createWorkspacesSlice(
     setActiveWorkspace: (id) =>
       set((state) => {
         state.activeWorkspaceId = id
-        // Leaving a door-routed full-page surface for a workspace (epic 1704).
-        state.activeGlobalSurface = null
+        // Leaving a door-routed full-page surface for a workspace (epic 1704);
+        // an open modal closes with it so the workspace lands unobscured.
+        clearRoutedSurfaces(state)
         const windowState = findWorkspaceWindow(state, id)
         const seenAt = Date.now()
         if (windowState) {

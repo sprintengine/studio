@@ -425,6 +425,46 @@ export type RegisteredGlobalSurface = GlobalSurfaceDefinition & {
   moduleId: string
 }
 
+// A modal surface a module contributes (doors→modals, 2026-09-01). The modal
+// counterpart to a door's nav-entry + global-surface pair: the surface mounts
+// inside the shell's modal shell over whatever the window is showing, and its
+// trigger is a glyph button the shell renders in the sidebar footer's settings
+// cluster. One registration owns both halves — the shell owns trigger placement,
+// tooltip wiring, and the modal chrome (width step, flat scrim, focus trap,
+// close semantics); the module owns only the body. The body is zero-prop and
+// exits through SurfaceExitContext, exactly as it would through a door's back
+// chevron.
+export type ModalSurfaceIconComponent = ComponentType<{ className?: string }>
+
+export type ModalSurfaceDefinition = {
+  /** Matches the id opened via `openModalSurface`. Non-empty; unique. */
+  id: string
+  /** Sort key among trigger glyphs in the settings cluster; lower renders first, ties break on id. */
+  order: number
+  /**
+   * The trigger's tooltip and accessible name, and the dialog's accessible
+   * name — user-facing copy, decoupled from the id ("Plugins" over id
+   * `extensions`). Non-empty; sentence case.
+   */
+  label: string
+  /** The trigger glyph; the shell sizes it via className. */
+  Icon: ModalSurfaceIconComponent
+  /**
+   * Called just before the shell opens this modal from its trigger glyph — a
+   * PLAIN open, landing on the surface's default view. Discard stale deep-link
+   * latches here (the Plugins surface drains a pending view target on mount,
+   * so a latch left by a dispatch that never mounted would otherwise reroute a
+   * plain open). Deep-link openers dispatch their own state and bypass this.
+   */
+  onOpen?: () => void
+  /** The modal body. Eager or React.lazy(), mirroring GlobalSurfaceComponent. */
+  Component: GlobalSurfaceComponent
+}
+
+export type RegisteredModalSurface = ModalSurfaceDefinition & {
+  moduleId: string
+}
+
 // The single tenant of the right-docked workspace aside column (MC-1766). The
 // column is app-level chrome outside the workspace card, so unlike panels and
 // door surfaces there is exactly ONE slot — a second claimant would have to
@@ -537,6 +577,15 @@ export type RendererHost = {
    * the mount gates on this module's live enablement. Duplicate ids throw.
    */
   registerGlobalSurface(definition: GlobalSurfaceDefinition): void
+  /**
+   * Contribute a modal surface: a body the shell mounts in its modal shell
+   * when `openModalSurface(id)` opens it, plus a trigger glyph the shell
+   * renders in the sidebar footer's settings cluster. Registered
+   * unconditionally at boot; the trigger and mount gate on this module's
+   * enablement, so a module toggle shows/hides both without a reload.
+   * Duplicate ids throw.
+   */
+  registerModalSurface(definition: ModalSurfaceDefinition): void
   /**
    * Claim the right-docked workspace aside column (MC-1766). A single slot:
    * the second module to claim it throws, naming the module that holds it. The
@@ -753,6 +802,17 @@ export type RendererKernel = {
    */
   getGlobalSurfaces(moduleEnabled?: (moduleId: string) => boolean): RegisteredGlobalSurface[]
   /**
+   * The modal surface registered under `id`, with its owning module — so the
+   * modal mount can gate on that module's enablement. Undefined when no
+   * surface claims the id.
+   */
+  getModalSurface(id: string): RegisteredModalSurface | undefined
+  /**
+   * Contributed modal surfaces for enabled modules, sorted by `order` then id
+   * so the settings-cluster trigger glyphs read the same across reloads.
+   */
+  getModalSurfaces(moduleEnabled?: (moduleId: string) => boolean): RegisteredModalSurface[]
+  /**
    * The module claiming the workspace aside column, with its owning module so
    * the mount can gate on enablement. Undefined while the column is unclaimed —
    * the mount then renders nothing at all, never an empty column.
@@ -845,6 +905,7 @@ export function createRendererHost(): RendererKernel {
   const sidebarNavEntries = new Map<string, RegisteredSidebarNavEntry>()
   const topBarItems = new Map<string, RegisteredTopBarItem>()
   const globalSurfaces = new Map<string, RegisteredGlobalSurface>()
+  const modalSurfaces = new Map<string, RegisteredModalSurface>()
   const agentIdNamespaces = new Map<string, RegisteredAgentIdNamespace>()
   let workspaceAside: RegisteredWorkspaceAside | null = null
   let backlogReader: { moduleId: string; reader: BacklogReader } | null = null
@@ -1078,6 +1139,28 @@ export function createRendererHost(): RendererKernel {
             )
           }
           globalSurfaces.set(definition.id, { ...definition, moduleId })
+        },
+        registerModalSurface(definition) {
+          if (definition.id.trim().length === 0) {
+            throw new Error('Modal surface id must be a non-empty string.')
+          }
+          // Core Settings never registers here (it must not be module-gated —
+          // its own enablement toggles live inside it), so without this
+          // reservation a module could claim the id, put a second glyph in the
+          // cluster, and have it open core Settings.
+          if (definition.id === 'settings') {
+            throw new Error('Modal surface id "settings" is reserved for the app\'s own Settings.')
+          }
+          if (definition.label.trim().length === 0) {
+            throw new Error(`Modal surface "${definition.id}" must have a non-empty label.`)
+          }
+          const existing = modalSurfaces.get(definition.id)
+          if (existing) {
+            throw new Error(
+              `Modal surface "${definition.id}" is already registered by module "${existing.moduleId}".`
+            )
+          }
+          modalSurfaces.set(definition.id, { ...definition, moduleId })
         },
         registerAgentIdNamespace(definition) {
           const prefix = definition.prefix.trim()
@@ -1319,6 +1402,17 @@ export function createRendererHost(): RendererKernel {
       return [...globalSurfaces.values()]
         .filter((surface) => !moduleEnabled || moduleEnabled(surface.moduleId))
         .sort((a, b) => a.id.localeCompare(b.id))
+    },
+    getModalSurface(id) {
+      return modalSurfaces.get(id)
+    },
+    getModalSurfaces(moduleEnabled) {
+      return [...modalSurfaces.values()]
+        .filter((surface) => !moduleEnabled || moduleEnabled(surface.moduleId))
+        .sort((a, b) => {
+          const order = a.order - b.order
+          return order === 0 ? a.id.localeCompare(b.id) : order
+        })
     },
     getWorkspaceAside() {
       return workspaceAside ?? undefined

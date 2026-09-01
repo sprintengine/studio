@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { GlobalSurfaceShell } from './GlobalSurfaceShell'
+import { GlobalSurfaceShell, ModalSurfaceChromeContext, ModalSurfaceFrame } from './GlobalSurfaceShell'
 
 function run(name: string, body: () => void): void {
   try {
@@ -57,6 +57,66 @@ run('renders canvas-only when the bar and rail are omitted (the Roadmap T1 tenan
   assert.doesNotMatch(html, /<h2/, 'no surface bar is rendered without bar content — the canvas self-chromes')
   assert.doesNotMatch(html, /<aside/, 'no rail is rendered when omitted')
   assert.match(html, /data-testid="board"/, 'the canvas hosts the surface content full-width')
+})
+
+// Doors→modals (2026-09-01), owner ruling: every modal closes the same one
+// way — an X at the top right of its bar. In a modal host (the chrome context
+// is provided) the door-era back chevron never renders, even when the surface
+// passes onBack; outside one (a door, tests) the chevron stays the one exit
+// and no X appears.
+run('a modal host swaps the back chevron for a closing X; a door host keeps the chevron', () => {
+  const surface = (
+    <GlobalSurfaceShell
+      ariaLabel="Automations"
+      // The surface's own bar title is contextual — mid-visit it becomes the
+      // selected automation's name. The modal bar must ignore it.
+      bar={{ title: 'nightly-review' }}
+      onBack={() => {}}
+      canGoBack
+    >
+      <div>canvas</div>
+    </GlobalSurfaceShell>
+  )
+  const inModal = renderToStaticMarkup(
+    <ModalSurfaceChromeContext.Provider value={{ close: () => {}, label: 'Automations', onBarPresence: () => {} }}>
+      {surface}
+    </ModalSurfaceChromeContext.Provider>,
+  )
+  assert.match(inModal, /aria-label="Close"/, 'the modal bar renders the closing X')
+  assert.doesNotMatch(inModal, /aria-label="Back"/, 'and no back chevron beside it')
+  assert.match(
+    inModal,
+    /<h2[^>]*>Automations<\/h2>/,
+    'the modal bar is titled by the host label — the surface’s name',
+  )
+  assert.doesNotMatch(
+    inModal,
+    /<h2[^>]*>nightly-review<\/h2>/,
+    'never by the surface’s own contextual bar title',
+  )
+
+  const inDoor = renderToStaticMarkup(surface)
+  assert.match(inDoor, /aria-label="Back"/, 'a door bar keeps its chevron')
+  assert.doesNotMatch(inDoor, /aria-label="Close"/, 'and grows no X')
+  assert.match(
+    inDoor,
+    /<h2[^>]*>nightly-review<\/h2>/,
+    'a door bar keeps the surface’s own title',
+  )
+})
+
+// The host frame's fallback bar: a body that never renders the shell (a
+// third-party modal surface, or a lazy body still in Suspense) still gets the
+// titled bar with the X — the one-close-mechanism ruling holds by
+// construction, not convention.
+run('the modal frame renders the fallback title bar for a body that brings no bar', () => {
+  const html = renderToStaticMarkup(
+    <ModalSurfaceFrame label="Atlas" close={() => {}}>
+      <div>bare third-party body</div>
+    </ModalSurfaceFrame>,
+  )
+  assert.match(html, /<h2[^>]*>Atlas<\/h2>/, 'the frame titles the modal with the host label')
+  assert.match(html, /aria-label="Close"/, 'and renders the closing X')
 })
 
 console.log('GlobalSurfaceShell anatomy tests passed')

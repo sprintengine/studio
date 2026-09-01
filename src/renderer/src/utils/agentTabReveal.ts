@@ -4,14 +4,16 @@ import { revealAgentTab, type AgentTabRevealTarget } from './modelRegistry'
 // The one store-bound "show me this agent's terminal" path.
 //
 // Revealing an agent terminal is never just a layout mutation. A door-routed
-// full-page surface (the Sprints/Reviews/Automations doors, epic 1704) paints an
-// opaque layer OVER the workspace layers, which stay mounted and inert beneath
-// it. So a caller that only asks the layout model to focus a tab succeeds — the
-// tab really is selected — and the operator sees nothing at all, because the
-// door is still on top. Activating the workspace is what clears
-// `activeGlobalSurface` (workspacesSlice.setActiveWorkspace), and it is the step
-// every working reveal already takes: the session manager's `openSession`, the
-// Backlog "Open agent" action, the Reviews guide terminal.
+// full-page surface (the Sprints/Reviews/Backlog/Roadmap doors, epic 1704)
+// paints an opaque layer OVER the workspace layers, which stay mounted and
+// inert beneath it — and a modal surface (Settings/Plugins/Automations/Design,
+// doors→modals 2026-09-01) floats a scrim over them. So a caller that only
+// asks the layout model to focus a tab succeeds — the tab really is selected —
+// and the operator sees nothing at all, because the surface is still on top.
+// Activating the workspace is what clears `activeGlobalSurface` AND
+// `activeModalSurface` (workspacesSlice.setActiveWorkspace), and it is the
+// step every working reveal already takes: the session manager's
+// `openSession`, the Backlog "Open agent" action, the Reviews guide terminal.
 //
 // `revealAgentTab` then handles the second half — the live model when the
 // workspace layer is mounted, the persisted layout plus a latched green flash

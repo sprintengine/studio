@@ -94,4 +94,63 @@ render(state('pro', FREE))
 assert.ok(texts().includes('Upgrade to Pro'), 'access follows the feature keys, not the plan name')
 assert.ok(dom.window.document.body.textContent?.includes('Pro plan'), 'the label still prints the plan name')
 
+dom.window.document.body.innerHTML = ''
+
+// Doors→modals (2026-09-01): the settings cluster renders one trigger glyph
+// per enabled registered modal surface, before the gear — each an icon button
+// named by its label (the tooltip carries the same text) with `aria-pressed`
+// tracking the open modal. Registered through the real host under the bundled
+// `design` module id (enabled by default), like the real triggers are.
+{
+  // Static requires, not top-level await: this file compiles to CJS. Both
+  // modules are already in the graph through SidebarAccountBar itself.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getRendererHost } = require('../../modules') as typeof import('../../modules')
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { useWorkspaceStore } = require('../../store/workspaceStore') as typeof import('../../store/workspaceStore')
+  const host = getRendererHost()
+  let onOpenCalls = 0
+  if (!host.getModalSurface('compass-test')) {
+    host.hostFor('design').registerModalSurface({
+      id: 'compass-test',
+      order: 5,
+      label: 'Compass',
+      Icon: ({ className }: { className?: string }) => React.createElement('svg', { className }),
+      // A plain trigger open runs onOpen first — the seam the Plugins surface
+      // uses to discard a stale deep-link latch.
+      onOpen: () => {
+        onOpenCalls += 1
+      },
+      Component: () => null,
+    })
+  }
+  render(state('free', FREE))
+  const trigger = dom.window.document.querySelector('button[aria-label="Compass"]')
+  assert.ok(trigger, 'a registered modal surface renders its trigger glyph in the settings cluster')
+  assert.equal(trigger?.getAttribute('aria-pressed'), 'false', 'the trigger reads unpressed while its modal is closed')
+  const gear = dom.window.document.querySelector('button[aria-label="Settings"]')
+  assert.ok(gear, 'the gear keeps its slot')
+  assert.ok(
+    gear && trigger && Boolean(trigger.compareDocumentPosition(gear) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING),
+    'trigger glyphs render before the gear',
+  )
+  act(() => {
+    ;(trigger as HTMLElement).click()
+  })
+  assert.equal(
+    useWorkspaceStore.getState().activeModalSurface,
+    'compass-test',
+    'clicking a trigger opens its modal surface on the local store',
+  )
+  assert.equal(onOpenCalls, 1, 'a plain trigger open ran the surface’s onOpen hook first')
+  assert.equal(
+    dom.window.document.querySelector('button[aria-label="Compass"]')?.getAttribute('aria-pressed'),
+    'true',
+    'the trigger reads pressed while its modal is open',
+  )
+  act(() => {
+    useWorkspaceStore.getState().closeModalSurface()
+  })
+}
+
 console.log('SidebarAccountBar.entitlements.test.tsx: ok')

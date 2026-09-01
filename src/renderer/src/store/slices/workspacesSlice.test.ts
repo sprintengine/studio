@@ -173,6 +173,27 @@ assert.equal(
   'setActiveWorkspaceForWindow clears the active surface as well',
 )
 
+// An open modal surface (doors→modals, 2026-09-01) closes on activation the
+// same way, on both paths: a reveal must land on a visible workspace, not one
+// behind the modal's scrim.
+useWorkspaceStore.getState().openModalSurface('extensions')
+useWorkspaceStore.getState().setActiveWorkspace(firstId)
+assert.equal(
+  useWorkspaceStore.getState().activeModalSurface,
+  null,
+  'activating a workspace closes an open modal surface',
+)
+useWorkspaceStore.getState().openModalSurface('automations')
+useWorkspaceStore.getState().setActiveWorkspaceForWindow(
+  useWorkspaceStore.getState().primaryWorkspaceWindowId,
+  secondId,
+)
+assert.equal(
+  useWorkspaceStore.getState().activeModalSurface,
+  null,
+  'setActiveWorkspaceForWindow closes an open modal surface as well',
+)
+
 useWorkspaceStore.getState().setFileExplorerExpandedPaths(firstId, ['/Users/example/project/src', '/Users/example/project/src', ''])
 assert.deepEqual(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState,

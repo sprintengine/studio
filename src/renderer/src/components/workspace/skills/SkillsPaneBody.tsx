@@ -382,7 +382,7 @@ function SkillRow({
               </PrimaryButton>
             )}
             <GhostButton size="xs" onClick={onOpenExtensions}>
-              Open in Extensions
+              Open in Plugins
             </GhostButton>
           </div>
         </DetailShell>
@@ -445,7 +445,7 @@ function ServerRow({
           </p>
           <div className="flex items-center gap-2">
             <GhostButton size="xs" onClick={onOpenExtensions}>
-              Open in Extensions
+              Open in Plugins
             </GhostButton>
           </div>
         </DetailShell>

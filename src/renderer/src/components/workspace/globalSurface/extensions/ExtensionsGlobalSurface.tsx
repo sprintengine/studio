@@ -65,7 +65,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     (s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId)?.folderPath ?? null,
   )
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
-  const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
+  const openModalSurface = useWorkspaceStore((s) => s.openModalSurface)
   // The CLI an agent-backed automation falls back to when its own config names
   // none. Only app settings hold it and the shelf's canvas is store-free, so the
   // door reads it and hands it down — an install that needs it and cannot get it
@@ -158,29 +158,29 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   }, [])
 
   // An automation already in this project is opened where it is configured, not
-  // here: leave this door and land the Automations door on that automation. The
+  // here: swap this modal for the Automations modal on that automation. The
   // deep-link seam is the one automations already use (a run notification's
   // Open), with no run to focus — the surface selects the automation and the
   // empty run id focuses nothing.
   const openAutomation = useCallback(
     (definition: AutomationDefinition) => {
       dispatchAutomationSurfaceTarget(automationsDoorTarget(definition.id, '', activeWorkspaceRoot))
-      openGlobalSurface('automations')
+      openModalSurface('automations')
     },
-    [activeWorkspaceRoot, openGlobalSurface],
+    [activeWorkspaceRoot, openModalSurface],
   )
 
   // A Get lands the same way, one step further in: the automation the shelf just
   // added arrives selected AND open in its editor, because the shelf configures
   // nothing and this is the only place a starter is tailored (MC-2035). Same
-  // deep-link seam, same door — only the view differs, so there is no second way
-  // to address an automation.
+  // deep-link seam, same surface — only the view differs, so there is no second
+  // way to address an automation.
   const tailorAddedAutomation = useCallback(
     (automationId: string) => {
       dispatchAutomationSurfaceTarget(automationsDoorTarget(automationId, '', activeWorkspaceRoot), 'editor')
-      openGlobalSurface('automations')
+      openModalSurface('automations')
     },
-    [activeWorkspaceRoot, openGlobalSurface],
+    [activeWorkspaceRoot, openModalSurface],
   )
 
   // ── Counts for the bar + rail state lines (honest per source state) ────────
@@ -228,7 +228,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   // The name, and nothing else. The counts it used to carry are each already on
   // the rail row that owns them ("MCP servers · 318 available", "Installed · 1
   // active MCP server"), so in the bar they were the same numbers a second time.
-  const bar: GlobalSurfaceBar = { title: 'Extensions' }
+  const bar: GlobalSurfaceBar = { title: 'Plugins' }
 
   // ── Rail ───────────────────────────────────────────────────────────────────
   const marketplaceStateLine = marketplaceLoading
@@ -332,7 +332,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
 
   const rail = (
     <SurfaceRail
-      label="Extensions"
+      label="Plugins"
       rows={rows}
       groups={groups}
       selectedId={selectedRailId}
@@ -411,7 +411,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
 
   return (
     <GlobalSurfaceShell
-      ariaLabel="Extensions"
+      ariaLabel="Plugins"
       bar={bar}
       rail={rail}
       onBack={back.onBack}

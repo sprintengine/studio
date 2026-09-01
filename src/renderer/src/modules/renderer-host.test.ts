@@ -470,6 +470,77 @@ assert.deepEqual(
 
 console.log('renderer host global surface tests passed')
 
+// --- Modal surfaces (doors→modals, 2026-09-01) --------------------------------
+
+// A first-party modal surface and a third-party module's register through the
+// same contract — the seam that lets an SDK module contribute a modal surface
+// (body + settings-cluster trigger glyph) without editing the shell.
+const modalHost = createRendererHost()
+const modalComponent = () => {
+  throw new Error('modal surface component should not be evaluated during registration')
+}
+const modalIcon = () => {
+  throw new Error('modal surface icon should not be evaluated during registration')
+}
+modalHost.hostFor('design').registerModalSurface({
+  id: 'design', order: 30, label: 'Design', Icon: modalIcon, Component: modalComponent,
+})
+modalHost.hostFor('acme.compass').registerModalSurface({
+  id: 'compass', order: 15, label: 'Compass', Icon: modalIcon, Component: modalComponent,
+})
+
+assert.equal(
+  modalHost.getModalSurface('design')?.moduleId,
+  'design',
+  'a modal surface records its owning module so trigger and mount can gate on enablement',
+)
+assert.equal(modalHost.getModalSurface('missing'), undefined, 'an unregistered modal surface id resolves to undefined')
+assert.throws(
+  () => modalHost.hostFor('impostor').registerModalSurface({
+    id: 'design', order: 1, label: 'Design', Icon: modalIcon, Component: modalComponent,
+  }),
+  /Modal surface "design" is already registered by module "design"/,
+  'duplicate modal surface ids fail with an explicit error naming the owner',
+)
+assert.throws(
+  () => modalHost.hostFor('design').registerModalSurface({
+    id: '  ', order: 1, label: 'X', Icon: modalIcon, Component: modalComponent,
+  }),
+  /non-empty string/,
+  'blank modal surface ids are rejected before registration',
+)
+assert.throws(
+  () => modalHost.hostFor('design').registerModalSurface({
+    id: 'blank-label', order: 1, label: '  ', Icon: modalIcon, Component: modalComponent,
+  }),
+  /non-empty label/,
+  'a modal surface without a label is rejected — the label is the trigger tooltip and the dialog name',
+)
+assert.throws(
+  () => modalHost.hostFor('acme.compass').registerModalSurface({
+    id: 'settings', order: 1, label: 'Settings', Icon: modalIcon, Component: modalComponent,
+  }),
+  /reserved for the app/,
+  'the "settings" id is reserved — core Settings never registers here, so without this a module could claim it',
+)
+assert.deepEqual(
+  modalHost.getModalSurfaces().map((surface) => surface.id),
+  ['compass', 'design'],
+  'modal surfaces sort by order then id — the trigger cluster reads the same across reloads',
+)
+assert.deepEqual(
+  modalHost.getModalSurfaces((moduleId) => moduleId !== 'design').map((surface) => surface.id),
+  ['compass'],
+  'a disabled module\'s modal surface is filtered out reactively — trigger and mount leave together',
+)
+assert.deepEqual(
+  modalHost.getModalSurfaces(() => true).map((surface) => surface.id),
+  ['compass', 'design'],
+  're-enabling restores the modal surface without re-registration',
+)
+
+console.log('renderer host modal surface tests passed')
+
 // --- Workspace aside (single-slot right column seam, MC-1766) -----------------
 
 // The Sprint Engines aside retired with MC-1766 and no module claims the column

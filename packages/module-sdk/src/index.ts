@@ -1450,6 +1450,41 @@ export type GlobalSurfaceDefinition = {
   Component: GlobalSurfaceComponent
 }
 
+// ── Modal surfaces ───────────────────────────────────────────────────────────
+
+export type ModalSurfaceIconComponent = ComponentType<{ className?: string }>
+
+/**
+ * A modal surface your module contributes — the modal counterpart to a door's
+ * nav-entry + global-surface pair. The shell mounts your body inside its own
+ * modal shell over whatever the window is showing, and renders your trigger as
+ * a glyph button in the sidebar footer's settings cluster, tooltip and
+ * accessible name from `label`. The shell owns the modal chrome (width step,
+ * flat scrim — never a backdrop blur — focus trap, Escape/scrim close); your
+ * component owns only the body, zero-prop, eager or `React.lazy()`. While your
+ * module is disabled the trigger disappears and an open modal closes;
+ * re-enabling restores the trigger without a reload.
+ */
+export type ModalSurfaceDefinition = {
+  /** Non-empty; unique across all modules. */
+  id: string
+  /** Sort key among trigger glyphs in the settings cluster; lower renders first, ties break on id. */
+  order: number
+  /** Trigger tooltip + accessible name, and the dialog's accessible name. Non-empty; sentence case. */
+  label: string
+  /** The trigger glyph; the shell sizes it via className. */
+  Icon: ModalSurfaceIconComponent
+  /**
+   * Called just before the shell opens this modal from its trigger glyph — a
+   * PLAIN open, landing on the surface's default view. Discard stale
+   * deep-link latches here. Deep-link openers dispatch their own state and
+   * bypass this.
+   */
+  onOpen?: () => void
+  /** The modal body. */
+  Component: GlobalSurfaceComponent
+}
+
 // ── Agent id namespaces ──────────────────────────────────────────────────────
 
 /**
@@ -1563,6 +1598,15 @@ export type RendererHost = {
    * error that gates off your module's other contributions.
    */
   registerGlobalSurface(definition: GlobalSurfaceDefinition): void
+  /**
+   * Contribute a modal surface: a body the shell mounts in its modal shell,
+   * plus a trigger glyph in the sidebar footer's settings cluster. Registered
+   * once at boot; trigger and mount gate on your module's enablement, so the
+   * toggle shows/hides both without a reload. An id already claimed by
+   * another module is a registration error, reported as a module load error
+   * that gates off your module's other contributions.
+   */
+  registerModalSurface(definition: ModalSurfaceDefinition): void
   /**
    * The workspace's Backlog items as read-only views. Declare the
    * `backlog.read` permission (install-time disclosure). Mutations go through

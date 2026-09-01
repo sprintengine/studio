@@ -209,7 +209,10 @@ async function main(): Promise<void> {
         value={{
           leave: (close) => {
             order.push('host-leave')
-            close()
+            // The door passed an explicit close override here; a host still
+            // supplies its own default for a surface that passes none
+            // (doors→modals, 2026-09-01).
+            close?.()
           },
         }}
       >

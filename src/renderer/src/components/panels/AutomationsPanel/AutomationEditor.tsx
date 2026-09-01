@@ -344,7 +344,7 @@ export function AutomationEditor({
     // this row names only where it came from — one fact each, not both twice.
     facts.push({
       term: 'Source',
-      description: sourceCatalogueId ? 'Extensions shelf' : 'Written in this project',
+      description: sourceCatalogueId ? 'Plugins shelf' : 'Written in this project',
     })
     return facts
   }, [form.runInWorktree, showAgentPicker, selectedSpecialist, sourceCatalogueId])
